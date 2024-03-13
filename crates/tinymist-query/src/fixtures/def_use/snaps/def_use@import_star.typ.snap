@@ -1,0 +1,32 @@
+---
+source: crates/tinymist-query/src/analysis.rs
+expression: "JsonRepr::new_redacted(result, &REDACT_LOC)"
+input_file: crates/tinymist-query/src/fixtures/def_use/import_star.typ
+---
+{
+ "base@8..18@s1.typ": {
+  "def": {
+   "kind": {
+    "Mod": "PathVar"
+   },
+   "name": "base",
+   "range": "8:18"
+  },
+  "refs": [
+   "base@21..25",
+   "base@51..55"
+  ]
+ },
+ "x@5..6@base.typ": {
+  "def": {
+   "kind": {
+    "Var": "Variable"
+   },
+   "name": "x",
+   "range": "5:6"
+  },
+  "refs": [
+   "x@58..59"
+  ]
+ }
+}
