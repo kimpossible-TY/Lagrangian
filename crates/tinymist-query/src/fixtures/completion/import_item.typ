@@ -3,4 +3,5 @@
 
 -----
 /// contains: base,aa
-#import "base.typ": /* range -1..1 */
+#import "base.typ": /* range 0..1 */
+
