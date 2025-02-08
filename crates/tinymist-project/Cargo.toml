@@ -27,6 +27,7 @@ rpds.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tinymist-task.workspace = true
 tinymist-world = { workspace = true }
 tinymist-std = { workspace = true, features = ["typst"] }
 tinymist-derive.workspace = true
