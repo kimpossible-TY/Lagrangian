@@ -3,6 +3,19 @@
 /// If this file is not found, please refer to <https://enter-tainer.github.io/typst-preview/dev.html> to build the frontend.
 #[cfg(feature = "typst-preview")]
 pub const TYPST_PREVIEW_HTML: &str = include_str!("typst-preview.html");
+
+/// Flow app icon resized for browser tabs.
+#[cfg(feature = "typst-preview")]
+pub const TYPST_PREVIEW_FAVICON_PNG: &[u8] = include_bytes!("favicon.png");
+
+/// Multi-size Flow icon for browsers requesting the conventional favicon path.
+#[cfg(feature = "typst-preview")]
+pub const TYPST_PREVIEW_FAVICON_ICO: &[u8] = include_bytes!("favicon.ico");
+
+/// Flow app icon resized for home screen bookmarks.
+#[cfg(feature = "typst-preview")]
+pub const TYPST_PREVIEW_APPLE_TOUCH_ICON: &[u8] = include_bytes!("apple-touch-icon.png");
+
 /// A dummy HTML file to be used when the `typst-preview` feature is not
 /// enabled.
 #[cfg(not(feature = "typst-preview"))]

@@ -43,6 +43,11 @@ The development repository SHALL be named tinymist-flow to match the product. Cu
 ### Requirement: Branded installed app
 The system SHALL install a macOS app named tinymist-flow with its own bundle identifier, icon, bundled engine, and release manifest.
 
+#### Scenario: Open a served preview in a browser
+- **WHEN** a browser opens a preview served by the maintained engine
+- **THEN** the page declares a PNG favicon and Apple touch icon derived from the Flow app icon
+- **AND** `/favicon.png`, `/favicon.ico` and `/apple-touch-icon.png` return icon bytes with matching image MIME types instead of redirecting to the preview
+
 #### Scenario: Build and install
 - **WHEN** a local release is built and installed
 - **THEN** development rebuilds do not overwrite the installed engine

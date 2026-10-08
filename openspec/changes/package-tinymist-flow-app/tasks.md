@@ -24,3 +24,8 @@
 - [x] 5.2 Combine native engine builds with staged external engine packaging, provenance and deferred consent verification.
 - [x] 5.3 Align current source ownership, build documentation and behavior contracts with the restored workspace.
 - [x] 5.4 Validate the integrated tree and complete the merge into main.
+
+## 6. Preview browser branding
+- [x] 6.1 Generate browser icons from the Flow app icon and include them in preview builds.
+- [x] 6.2 Declare browser icons in the preview page and serve the conventional icon paths.
+- [ ] 6.3 Validate icon responses and document delivery, then apply the build to the installed preview service.

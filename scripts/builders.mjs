@@ -110,6 +110,14 @@ export async function buildPreview() {
     path.resolve(previewDir, "dist/index.html"),
     path.resolve(cwd, "crates/tinymist-assets/src/typst-preview.html"),
   );
+  await Promise.all(
+    ["favicon.png", "favicon.ico", "apple-touch-icon.png"].map((name) =>
+      fs.copyFile(
+        path.resolve(previewDir, "public", name),
+        path.resolve(cwd, "crates/tinymist-assets/src", name),
+      ),
+    ),
+  );
 }
 
 export async function buildEditorTools() {

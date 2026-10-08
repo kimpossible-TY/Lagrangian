@@ -5,6 +5,7 @@ Flow needs a stable branded macOS installation, project settings, visible previe
 ## What Changes
 
 - Package tinymist-flow as a native menu bar app with its own icon and bundle identity.
+- Use the same app icon for served preview favicons and home screen bookmarks.
 - Manage project profiles, preview lifecycle, login startup, logs, and explicit selection context from the app.
 - Install the engine inside the app, with settings and logs in standard user Library locations.
 - Add verified local update and rollback commands, release manifests, and installed-version tags.

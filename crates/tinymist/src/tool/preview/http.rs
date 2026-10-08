@@ -118,6 +118,12 @@ pub async fn make_theme_http_server(
                         .body(Full::<Bytes>::from(frontend_html))
                         .unwrap();
                     Ok(res)
+                } else if let Some((content_type, icon)) = preview_icon(req.uri().path()) {
+                    Ok(hyper::Response::builder()
+                        .header(hyper::header::CONTENT_TYPE, content_type)
+                        .header(hyper::header::CACHE_CONTROL, "public, max-age=3600")
+                        .body(Full::new(Bytes::from_static(icon)))
+                        .unwrap())
                 } else {
                     // jump to /
                     let res = hyper::Response::builder()
@@ -189,6 +195,19 @@ pub async fn make_theme_http_server(
         addr,
         shutdown_tx,
         join,
+    }
+}
+
+fn preview_icon(path: &str) -> Option<(&'static str, &'static [u8])> {
+    use tinymist_assets::{
+        TYPST_PREVIEW_APPLE_TOUCH_ICON, TYPST_PREVIEW_FAVICON_ICO, TYPST_PREVIEW_FAVICON_PNG,
+    };
+
+    match path {
+        "/favicon.png" => Some(("image/png", TYPST_PREVIEW_FAVICON_PNG)),
+        "/favicon.ico" => Some(("image/x-icon", TYPST_PREVIEW_FAVICON_ICO)),
+        "/apple-touch-icon.png" => Some(("image/png", TYPST_PREVIEW_APPLE_TOUCH_ICON)),
+        _ => None,
     }
 }
 
@@ -312,6 +331,68 @@ fn is_valid_origin_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_served_preview_icons() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (websocket_tx, _websocket_rx) = mpsc::unbounded_channel();
+        let (dark_websocket_tx, _dark_websocket_rx) = mpsc::unbounded_channel();
+        let server = make_theme_http_server(
+            "<html>preview</html>".into(),
+            "127.0.0.1:0".into(),
+            websocket_tx,
+            Some(dark_websocket_tx),
+        )
+        .await;
+
+        for (path, content_type, expected) in [
+            (
+                "/favicon.png?v=flow",
+                "image/png",
+                tinymist_assets::TYPST_PREVIEW_FAVICON_PNG,
+            ),
+            (
+                "/favicon.ico",
+                "image/x-icon",
+                tinymist_assets::TYPST_PREVIEW_FAVICON_ICO,
+            ),
+            (
+                "/apple-touch-icon.png",
+                "image/png",
+                tinymist_assets::TYPST_PREVIEW_APPLE_TOUCH_ICON,
+            ),
+        ] {
+            let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                        server.addr
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                stream.read_to_end(&mut response),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let split = response.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+            let headers = std::str::from_utf8(&response[..split]).unwrap();
+            assert!(headers.starts_with("HTTP/1.1 200 OK"), "{headers}");
+            assert!(headers.contains(&format!("content-type: {content_type}")));
+            assert!(headers.contains("cache-control: public, max-age=3600"));
+            assert_eq!(&response[split + 4..], expected);
+        }
+
+        server.shutdown_tx.send(()).unwrap();
+        server.join.await.unwrap();
+    }
 
     fn check_origin(origin: &'static str, static_file_addr: &str, port: u16) -> bool {
         is_valid_origin_impl(
