@@ -124,3 +124,12 @@ The same frontend binary now serves the production HTTPS port 23625. TypeScript/
 - [ ] 16.3 Install with a recovery bundle, preserve each profile's running state and verify the existing PDE HTTPS document and selected-text toolbar.
 
 Native iPhone gesture checks in 10.6, 13.5 and 14.6 remain separate from browser emulation and transport verification.
+
+## 17. Preserve reading position on transport reconnection
+
+- [x] 17.1 Reproduce replayed page-2 restoration after a viewer has rendered and reconnects, including a viewer without saved history on initial load.
+- [x] 17.2 Preserve completed-viewer state across connection resets, ignore replayed resume hints, and retain initial restoration plus subsequent live-edit navigation.
+- [x] 17.3 Document reconnect behavior, regenerate preview assets, and validate frontend tests, TypeScript, formatting, generated docs and OpenSpec consistency.
+- [ ] 17.4 Build from a clean fix commit, package and install with recovery, preserve profile running state, and verify installed document delivery and reconnect behavior.
+
+2026-10-08 reconnect verification: the page-2 replay regressions failed before the fix and pass afterward. All 43 frontend and 26 DOM tests, both TypeScript checks, preview build, scoped Prettier checks, guide PDF compilation, generated-doc consistency and strict OpenSpec validation passed. A disposable 20-page browser fixture used the installed compiler backend with the newly built frontend served through an ephemeral loopback proxy. Two actual WebSocket reconnections replayed `resume,2` while scrollTop 6906 and preview scale 1.5 were retained, including a recent gesture without a stale jump button. Subsequent live edits, deferred button navigation and reload restoration passed with no browser errors. Temporary services, browser and fixture files were cleaned up. The installed app and managed profiles were not changed; physical iPhone verification remains separate.
