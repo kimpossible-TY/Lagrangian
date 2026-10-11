@@ -303,6 +303,16 @@ impl RenderActor {
         view: &Arc<dyn CompileView>,
         changed_pages: &[usize],
     ) -> Option<(usize, f64, f64)> {
+        if !changed_pages.is_empty()
+            && view.preview_source_fingerprint()
+                != self.previous_view.as_ref()?.preview_source_fingerprint()
+            && let Some(position) = self.change_tracker.as_ref().and_then(|tracker| {
+                let hashes = Self::page_hashes(&view.doc()?)?;
+                tracker.position(&hashes)
+            })
+        {
+            return Some(position);
+        }
         crate::change::resolve_change(view, self.previous_view.as_ref(), changed_pages)
     }
 

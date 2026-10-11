@@ -20,6 +20,8 @@ struct Variant {
     page_hashes: Vec<u64>,
     source_fingerprint: Option<String>,
     position: Option<ChangePosition>,
+    #[serde(default)]
+    source_sequence: u64,
 }
 
 impl Variant {
@@ -44,6 +46,8 @@ struct Record {
     schema_version: u32,
     project: String,
     variants: BTreeMap<String, Variant>,
+    #[serde(default)]
+    source_history: crate::source_change::SourceHistory,
 }
 
 struct ChangeStore {
@@ -84,6 +88,7 @@ impl ChangeTracker {
                 if record.schema_version == SCHEMA_VERSION
                     && record.project == project
                     && record.variants.len() <= 3
+                    && record.source_history.valid()
                     && record.variants.iter().all(|(key, value)| {
                         matches!(key.as_str(), "default" | "light" | "dark") && value.valid()
                     }) =>
@@ -94,6 +99,7 @@ impl ChangeTracker {
                 schema_version: SCHEMA_VERSION,
                 project,
                 variants: BTreeMap::new(),
+                source_history: Default::default(),
             },
             Err(error) => {
                 if error.kind() != io::ErrorKind::NotFound {
@@ -103,6 +109,7 @@ impl ChangeTracker {
                     schema_version: SCHEMA_VERSION,
                     project,
                     variants: BTreeMap::new(),
+                    source_history: Default::default(),
                 }
             }
         };
@@ -122,6 +129,15 @@ impl ChangeTracker {
         }
     }
 
+    pub fn observe_source_changes(&self) {
+        let mut record = self.store.record.lock();
+        if record.source_history.observe_disk()
+            && let Err(error) = self.store.write(&record)
+        {
+            log::warn!("Could not persist preview source history: {error}");
+        }
+    }
+
     /// Called by the compilation watcher, even when there are no render actors.
     pub fn observe(&self, view: &Arc<dyn CompileView>, previous: Option<&Arc<dyn CompileView>>) {
         let Some(hashes) = view.doc().as_ref().and_then(RenderActor::page_hashes) else {
@@ -132,12 +148,23 @@ impl ChangeTracker {
         }
         let source_fingerprint = view.preview_source_fingerprint();
         let mut record = self.store.record.lock();
+        let files = view.preview_source_files();
+        let latest_matches = record.source_history.latest.as_ref().is_none_or(|edit| {
+            files.iter().any(|file| {
+                file.filepath == edit.filepath
+                    && crate::source_change::source_hash(&file.text) == edit.source_hash
+            })
+        });
+        let seeded = record.source_history.seed(files);
+        let sequence = record.source_history.sequence;
         let old = record.variants.get(&self.variant);
         if old.is_some_and(|old| {
             old.page_hashes == hashes
                 && old.source_fingerprint == source_fingerprint
                 && (previous.is_some() || old.position.is_some())
-        }) {
+                && old.source_sequence == sequence
+        }) && !seeded
+        {
             return;
         }
         let mut position = old.and_then(|old| {
@@ -160,6 +187,21 @@ impl ChangeTracker {
                 None
             }
         });
+        if old.is_none_or(|old| old.source_sequence != sequence)
+            && let Some(edit) = &record.source_history.latest
+            && let Some(pos) = view
+                .source_edit_document_positions(edit)
+                .into_iter()
+                .find(|pos| {
+                    pos.page.get() <= hashes.len()
+                        && pos.point.x.to_pt().is_finite()
+                        && pos.point.y.to_pt().is_finite()
+                        && pos.point.x.to_pt() >= 0.0
+                        && pos.point.y.to_pt() >= 0.0
+                })
+        {
+            position = Some((pos.page.get(), pos.point.x.to_pt(), pos.point.y.to_pt()));
+        }
         if previous.is_none() && position.is_none() {
             position = view
                 .git_changed_document_positions()
@@ -178,12 +220,20 @@ impl ChangeTracker {
                         .then(a.1.total_cmp(&b.1))
                 });
         }
+        // An older in-flight theme result must not consume the newer anchor
+        // before a matching source snapshot reaches it.
+        let source_sequence = if latest_matches {
+            sequence
+        } else {
+            old.map_or(0, |old| old.source_sequence)
+        };
         record.variants.insert(
             self.variant.clone(),
             Variant {
                 page_hashes: hashes,
                 source_fingerprint,
                 position,
+                source_sequence,
             },
         );
         if let Err(error) = self.store.write(&record) {
@@ -195,7 +245,7 @@ impl ChangeTracker {
     pub fn position(&self, hashes: &[u64]) -> Option<ChangePosition> {
         let record = self.store.record.lock();
         let variant = record.variants.get(&self.variant)?;
-        (variant.page_hashes == hashes)
+        (variant.page_hashes == hashes && variant.source_sequence == record.source_history.sequence)
             .then_some(variant.position)
             .flatten()
     }
@@ -234,6 +284,12 @@ pub(crate) fn resolve_change(
 
 impl ChangeStore {
     fn write(&self, record: &Record) -> io::Result<()> {
+        let bytes = serde_json::to_vec(record)?;
+        if bytes.len() as u64 >= MAX_RECORD_BYTES {
+            return Err(io::Error::other(
+                "preview change record exceeds its byte budget",
+            ));
+        }
         // The shared record lock serializes writers from both theme compilers.
         let temp = self.path.with_extension(format!(
             "{}.{}.tmp",
@@ -252,7 +308,7 @@ impl ChangeStore {
         }
         let mut file = options.open(&temp)?;
         let result = (|| {
-            serde_json::to_writer(&mut file, record)?;
+            file.write_all(&bytes)?;
             file.write_all(b"\n")?;
             file.sync_all()?;
             std::fs::rename(&temp, &self.path)
@@ -334,6 +390,100 @@ mod tests {
     }
     fn hashes(view: &Arc<dyn CompileView>) -> Vec<u64> {
         RenderActor::page_hashes(&view.doc().unwrap()).unwrap()
+    }
+
+    struct SourceView {
+        view: Arc<dyn CompileView>,
+        path: PathBuf,
+        text: String,
+        mapped: ChangePosition,
+    }
+
+    impl CompileView for SourceView {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn doc(&self) -> Option<TypstDocument> {
+            self.view.doc()
+        }
+        fn status(&self) -> CompileStatus {
+            CompileStatus::CompileSuccess
+        }
+        fn is_on_saved(&self) -> bool {
+            true
+        }
+        fn is_by_entry_update(&self) -> bool {
+            false
+        }
+        fn preview_source_fingerprint(&self) -> Option<String> {
+            self.view.preview_source_fingerprint()
+        }
+        fn preview_source_files(&self) -> Vec<crate::PreviewSourceFile> {
+            vec![crate::PreviewSourceFile {
+                filepath: self.path.clone(),
+                text: self.text.clone(),
+            }]
+        }
+        fn source_edit_document_positions(
+            &self,
+            edit: &crate::PreviewSourceEdit,
+        ) -> Vec<PagedPosition> {
+            if edit.filepath != self.path
+                || edit.source_hash != crate::source_change::source_hash(&self.text)
+            {
+                return vec![];
+            }
+            vec![PagedPosition {
+                page: std::num::NonZeroUsize::new(self.mapped.0).unwrap(),
+                point: Point::new(Abs::pt(self.mapped.1), Abs::pt(self.mapped.2)),
+            }]
+        }
+    }
+
+    #[test]
+    fn idle_source_anchor_maps_cold_themes_and_survives_stale_results_and_restart() {
+        let path = path();
+        let source_path = path.with_extension("typ");
+        let make = |text: &str, dark: bool| -> Arc<dyn CompileView> {
+            Arc::new(SourceView {
+                view: document_with_inputs(
+                    &format!(
+                        "Cover\n#pagebreak()\n{}{}",
+                        if dark { "Extra\n#pagebreak()\n" } else { "" },
+                        text
+                    ),
+                    text,
+                ),
+                path: source_path.clone(),
+                text: text.into(),
+                mapped: if dark { (3, 25., 80.) } else { (2, 10., 30.) },
+            })
+        };
+        std::fs::write(&source_path, "Original").unwrap();
+        let light = ChangeTracker::new(path.clone(), "project".into(), "light").unwrap();
+        let dark = light.sibling("dark");
+        let before = make("Original", false);
+        light.observe(&before, None);
+        std::fs::write(&source_path, "Latest edit").unwrap();
+        light.observe_source_changes();
+        let old_dark = make("Original", true);
+        dark.observe(&old_dark, None);
+        assert_eq!(
+            dark.position(&hashes(&old_dark)),
+            None,
+            "a stale result cannot consume pending source history"
+        );
+        let new_dark = make("Latest edit", true);
+        dark.observe(&new_dark, Some(&old_dark));
+        assert_eq!(dark.position(&hashes(&new_dark)), Some((3, 25., 80.)));
+        let new_light = make("Latest edit", false);
+        light.observe(&new_light, Some(&before));
+        assert_eq!(light.position(&hashes(&new_light)), Some((2, 10., 30.)));
+        let restarted = ChangeTracker::new(path.clone(), "project".into(), "dark").unwrap();
+        restarted.observe(&new_dark, None);
+        assert_eq!(restarted.position(&hashes(&new_dark)), Some((3, 25., 80.)));
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(source_path).unwrap();
     }
 
     fn without_fingerprint(view: &Arc<dyn CompileView>) -> Arc<dyn CompileView> {

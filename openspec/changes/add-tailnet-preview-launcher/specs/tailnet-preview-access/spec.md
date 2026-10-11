@@ -201,7 +201,7 @@ Configured standalone paged preview SHALL persist the last visual edit per proje
 #### Scenario: Restart and stale output
 - **WHEN** the service restarts with unchanged paged output
 - **THEN** its last edited position remains available
-- **WHEN** output changed while the service was stopped
+- **WHEN** output changed while the service was stopped and no usable source history exists
 - **THEN** its first compilation establishes a fresh baseline and uses mapped Git candidates if available, without guessing an edit from the first changed page
 - **AND** invalid or different-project records do not cause navigation
 
@@ -336,7 +336,7 @@ Document preview SHALL offer an accessible web toolbar for a native text range w
 - **THEN** the source remains unchanged and the viewer can still save the selected text for Codex
 
 ### Requirement: Git fallback focuses the earliest rendered change
-When startup has no usable saved edit location, the preview SHALL use available Git source changes as initial-focus candidates. It SHALL choose the lowest rendered body page number, then the lowest vertical coordinate and horizontal coordinate on that page. Git ordering SHALL NOT be interpreted as edit chronology.
+When startup has neither a usable saved edit location nor a mapped shared source anchor, the preview SHALL use available Git source changes as initial-focus candidates. It SHALL choose the lowest rendered body page number, then the lowest vertical coordinate and horizontal coordinate on that page. Git ordering SHALL NOT be interpreted as edit chronology.
 
 #### Scenario: Multiple tracked changes
 - **GIVEN** staged and unstaged changes against HEAD in several compiled source files
@@ -360,3 +360,23 @@ When startup has no usable saved edit location, the preview SHALL use available 
 - **WHEN** Git is absent, fails, exceeds its budget, has no relevant changes, or source differs from the compiled snapshot
 - **THEN** no unsupported Git position is restored
 - **AND** preview rendering continues without changing files, the index or repository history
+
+### Requirement: Closed preview viewers retain the latest observed source edit
+The preview SHALL record bounded source changes while layout is paused for absent viewers. The latest observed authored source location SHALL be shared between document palettes and mapped into each palette's own successful document, ahead of older cumulative Git candidates and stale palette coordinates. Tracking SHALL NOT require an idle document compilation.
+
+#### Scenario: Open a previously unused palette after offline edits
+- **GIVEN** only the light preview has compiled and all viewers are closed
+- **WHEN** a source file is edited, then another source file is edited, and the dark preview is opened
+- **THEN** dark maps the latter observed source edit into its own page layout
+- **AND** earlier Git changes and copied outline entries do not take precedence
+
+#### Scenario: Restart with shared history and delayed theme results
+- **WHEN** a preview restarts with valid shared source history or receives an older in-flight palette compilation
+- **THEN** current source anchors remain available to every matching palette
+- **AND** only a source-matching successful compilation consumes the anchor sequence
+
+#### Scenario: Comment-only changes and bounded invalid history
+- **WHEN** comments are saved after an authored edit
+- **THEN** the existing anchor is rebased without replacing its edit order
+- **WHEN** source history is invalid, oversized or absent in an older record
+- **THEN** normal valid-position or Git fallback behavior remains available
