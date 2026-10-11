@@ -184,3 +184,49 @@ verified zero additional LSP preview tasks and service survival after disposal.
 Type checking, ESLint, preview and desktop/web bundles, formatting and strict
 OpenSpec validation passed. Engine integration and installed-version checks follow
 the clean source build.
+
+
+Flow 0.1.16 was built from clean source `ce9211ac` with warnings denied and ThinLTO
+in 3m52s, signed with the existing identity, and installed with the previous bundle
+retained for rollback. The installed engine SHA-256 is
+`9ffb1debf4af07147de01d0bc6872ecdf8c5e5e2c9fe10bd9b0dd0bacded9926`.
+The release manifest correctly records the new source revision and clean state;
+the engine's cached `--version` Git text still reports `5218829a`. Use the manifest,
+artifact hash and passing new-protocol test for this build's provenance, not that
+stale embedded build metadata.
+
+The optional real-engine source-navigation test passed: response coordinates
+match the saved snapshot, another viewer receives no focus reply, and stale hits
+return no source. Both engine bundle integration tests also passed (the separate
+certificate-update test remained skipped). All 78 frontend tests passed. The app
+suite passed 22 tests with four opt-in skips before the engine-specific runs.
+Standalone Rust unit builds were interrupted during dependency rebuilding to avoid
+competing with the optimized release build; they are not counted as passed. The
+native release build and real-engine protocol tests provide the Rust-side checks
+for the additional response field. The Typst guide compiled successfully.
+
+Both installed extensions have JavaScript SHA-256
+`96a8c4e2b93f8be6f7fccbbbb8f37a9340b6579dfe7291fa641798401e73a902`.
+The managed PDE service restarted successfully and serves the new bridge-enabled
+HTML (1,926,044 bytes). The menu-bar app was relaunched. Windows reload and
+click-to-source confirmation was pending; the user then clarified that they use
+Open in Browser. Version 0.1.16 connected only embedded readers, so it did not
+cover their external-browser workflow. The follow-up adds an opt-in callback to
+VS Code-opened browser URLs, while ordinary mobile URLs remain independent.
+
+
+### External-browser follow-up
+
+VS Code now creates an ephemeral loopback callback only when opening an external
+reader. `asExternalUri` forwards it to the client. A per-reader random route and
+exact reader Origin are required; payloads are bounded to 8 KiB, methods are limited
+to POST/OPTIONS, and the extension disposes the listener on reload. Repeated opens
+reuse that profile's endpoint. The normal phone URL carries no callback. No new
+compiler, document-frame connection or focus-file polling is introduced.
+
+The external callback integration test passed in real VS Code, verifying the
+opened source and exact UTF-16 cursor position. Both embedded and external tests
+passed in one run. Focused callback/extension/frontend tests passed 28 cases, and
+the complete preview frontend suite passed 79. Type checking, ESLint, desktop/web
+bundles and preview asset generation passed. Browser mode asks to reopen from
+VS Code when its callback expires. The next signed release contains both modes.

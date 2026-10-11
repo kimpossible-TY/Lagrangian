@@ -37,11 +37,14 @@ integration. A stopped service produces an error; start it in Flow and retry.
 Save an edit to update the shared reader. Unsaved buffers stay in the language
 server and are not sent to the Flow service. Reopening the preview reuses the
 existing reader panel. Closing it disconnects that viewer without stopping Flow.
-Click text in the embedded VS Code reader to reveal its saved source file and
+Click text in the embedded reader or a reader opened with *Open in Browser*
+to reveal its saved source file and
 cursor position. This reuses Flow's source mapping without starting another
 compiler. Save an unsaved target source before navigating from the saved preview.
-Mobile and external browser readers retain Codex location recording and do not
-move the desktop cursor. Source files must belong to the matched project.
+The normal phone URL retains Codex location recording without moving the desktop
+cursor. VS Code-opened browser URLs carry a temporary connection to that editor
+window. After reloading VS Code, reopen the browser reader from VS Code to renew
+that connection. Source files must belong to the matched project.
 Editor-to-preview synchronization, slide previews and browsing/development
 previews require sharedFlow to be disabled.
 

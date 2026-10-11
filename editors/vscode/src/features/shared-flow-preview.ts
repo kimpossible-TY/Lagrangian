@@ -2,6 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { createBrowserSourceBridge } from "./shared-flow-browser";
 import { l10nMsg } from "../l10n";
 
 export interface FlowPreviewProfile {
@@ -197,6 +198,47 @@ window.addEventListener("message", (event) => {
 
 const panels = new Map<string, vscode.WebviewPanel>();
 const opening = new Map<string, Promise<void>>();
+const browserReaders = new Map<string, Promise<string>>();
+
+async function browserReaderUrl(
+  context: vscode.ExtensionContext,
+  profile: FlowPreviewProfile,
+  readerUrl: string,
+  column: vscode.ViewColumn,
+): Promise<string> {
+  const key = JSON.stringify([profile.id, profile.root, readerUrl]);
+  const existing = browserReaders.get(key);
+  if (existing) return existing;
+  const pending = (async () => {
+    const channel = globalThis.crypto.randomUUID();
+    const bridge = await createBrowserSourceBridge(new URL(readerUrl).origin, channel, (hit) =>
+      revealSharedSource(profile, hit, column),
+    );
+    try {
+      const callback = await vscode.env.asExternalUri(vscode.Uri.parse(bridge.localUrl));
+      const url = new URL(readerUrl);
+      url.searchParams.set("tinymist-editor", channel);
+      url.searchParams.set("tinymist-editor-callback", callback.toString());
+      context.subscriptions.push({
+        dispose() {
+          bridge.dispose();
+          browserReaders.delete(key);
+        },
+      });
+      return url.toString();
+    } catch (error) {
+      bridge.dispose();
+      throw error;
+    }
+  })();
+  browserReaders.set(key, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    browserReaders.delete(key);
+    throw error;
+  }
+}
 
 /** Open a reader only; this never starts, stops, or compiles a Flow service. */
 export async function openSharedFlowPreview(
@@ -242,13 +284,14 @@ export async function openSharedFlowPreview(
         vscode.env.remoteName || !profile.publicURL
           ? (await vscode.env.asExternalUri(vscode.Uri.parse(local))).toString()
           : profile.publicURL;
+      const editorColumn = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
       if (kind === "browser") {
-        if (!(await vscode.env.openExternal(vscode.Uri.parse(url)))) {
+        const browserUrl = await browserReaderUrl(context, profile, url, editorColumn);
+        if (!(await vscode.env.openExternal(vscode.Uri.parse(browserUrl)))) {
           throw new Error(l10nMsg("VS Code could not open the shared Flow preview URL."));
         }
         return;
       }
-      const editorColumn = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
       const channel = globalThis.crypto.randomUUID();
       const panel = vscode.window.createWebviewPanel(
         "tinymist-flow-preview",
@@ -270,7 +313,8 @@ export async function openSharedFlowPreview(
         }
         if (event?.type !== "openBrowser") return;
         try {
-          if (await vscode.env.openExternal(vscode.Uri.parse(url))) return;
+          const browserUrl = await browserReaderUrl(context, profile, url, editorColumn);
+          if (await vscode.env.openExternal(vscode.Uri.parse(browserUrl))) return;
         } catch {
           // Report browser failures without exposing forwarded URL credentials.
         }

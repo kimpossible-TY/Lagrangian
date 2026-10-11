@@ -4,11 +4,50 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createBrowserSourceBridge } from "../../features/shared-flow-browser";
+import { revealSharedSource } from "../../features/shared-flow-preview";
 import type { Context } from ".";
 
 export async function getTests(ctx: Context) {
   ctx = ctx.workspaceCtx("book");
   await ctx.suite("shared Flow routing", async (suite) => {
+    suite.addTest(
+      "external browser callback reveals the source in the running editor",
+      async () => {
+        const root = ctx.workspaceUri();
+        const target = vscode.Uri.joinPath(root, "shared-browser-navigation.typ");
+        await writeFile(target.fsPath, "= Browser navigation\n한😀글 source target\n");
+        const profile = {
+          id: "browser",
+          name: "Browser",
+          root: root.fsPath,
+          entry: target.fsPath,
+          port: 23625,
+          publicURL: "",
+        };
+        const bridge = await createBrowserSourceBridge(
+          "http://localhost:23625",
+          "browser-session",
+          (hit) => revealSharedSource(profile, hit, vscode.ViewColumn.One),
+        );
+        try {
+          const response = await fetch(bridge.localUrl, {
+            method: "POST",
+            headers: { Origin: "http://localhost:23625", "Content-Type": "application/json" },
+            body: JSON.stringify({ filepath: target.fsPath, line: 2, column: 4 }),
+          });
+          ctx.expect(response.status).to.equal(204);
+          const editor = vscode.window.activeTextEditor;
+          ctx.expect(editor?.document.uri.toString()).to.equal(target.toString());
+          ctx.expect(editor?.selection.active.line).to.equal(1);
+          ctx.expect(editor?.selection.active.character).to.equal(4);
+        } finally {
+          bridge.dispose();
+          await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+          await rm(target.fsPath, { force: true });
+        }
+      },
+    );
     suite.addTest("normal preview command reuses Flow without an LSP preview task", async () => {
       const root = ctx.workspaceUri();
       const support = await mkdtemp(path.join(tmpdir(), "flow-preview-test-"));
