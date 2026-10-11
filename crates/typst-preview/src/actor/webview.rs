@@ -133,6 +133,7 @@ where
                     "page": snapshot.position.map(|p| p.page_no),
                     "filepath": snapshot.source.as_ref().map(|s| &s.filepath),
                     "line": snapshot.source.as_ref().map(|s| s.line),
+                    "column": snapshot.source.as_ref().map(|s| s.column),
                     "text_selected": snapshot.selection.is_some(),
                 }),
                 result => {

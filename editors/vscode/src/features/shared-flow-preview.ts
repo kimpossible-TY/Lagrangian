@@ -124,7 +124,55 @@ function escapeHtml(value: string): string {
   );
 }
 
-export function sharedReaderHtml(url: string): string {
+/** Reveal a saved Flow hit; source columns count Unicode scalars, VS Code uses UTF-16. */
+export async function revealSharedSource(
+  profile: FlowPreviewProfile,
+  value: unknown,
+  column: vscode.ViewColumn,
+): Promise<void> {
+  const hit = value as { filepath?: unknown; line?: unknown; column?: unknown } | null;
+  if (
+    !vscode.workspace.isTrusted ||
+    !hit ||
+    typeof hit.filepath !== "string" ||
+    !path.isAbsolute(hit.filepath) ||
+    !Number.isSafeInteger(hit.line) ||
+    !Number.isSafeInteger(hit.column) ||
+    (hit.line as number) < 1 ||
+    (hit.column as number) < 1
+  )
+    return;
+  const file = await realpath(hit.filepath);
+  if (!containsPath(profile.root, file)) return;
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+  if (doc.isDirty) {
+    void vscode.window.showWarningMessage(
+      l10nMsg("Save this source file before navigating from the saved Flow preview."),
+    );
+    return;
+  }
+  const line = (hit.line as number) - 1;
+  if (line >= doc.lineCount) return;
+  const chars = Array.from(doc.lineAt(line).text);
+  const sourceColumn = (hit.column as number) - 1;
+  if (sourceColumn > chars.length) return;
+  const character = chars.slice(0, sourceColumn).join("").length;
+  const position = new vscode.Position(line, character);
+  const selection = new vscode.Range(position, position);
+  const existing = vscode.window.visibleTextEditors.find(
+    (editor) => editor.document.uri.toString() === doc.uri.toString(),
+  );
+  const editor = await vscode.window.showTextDocument(doc, {
+    viewColumn: existing?.viewColumn ?? column,
+    preserveFocus: false,
+    selection,
+  });
+  editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
+export function sharedReaderHtml(url: string, channel = globalThis.crypto.randomUUID()): string {
+  const reader = new URL(url);
+  reader.searchParams.set("tinymist-editor", channel);
   const nonce = globalThis.crypto.randomUUID();
   const origin = escapeHtml(new URL(url).origin);
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -132,8 +180,19 @@ export function sharedReaderHtml(url: string): string {
 <style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:12px var(--vscode-font-family)}header{display:flex;align-items:center;gap:8px;padding:8px}p{margin:0;flex:1}button{cursor:pointer;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:6px 10px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body>
 <header><p>${escapeHtml(l10nMsg("Shared Flow preview · Saved files only. Save your changes to update this view."))}</p>
 <button id="open-browser" type="button">${escapeHtml(l10nMsg("Open in Browser"))}</button></header>
-<script nonce="${nonce}">const vscode = acquireVsCodeApi(); document.getElementById("open-browser").addEventListener("click", () => vscode.postMessage({type: "openBrowser"}));</script>
-<iframe src="${escapeHtml(url)}" title="${escapeHtml(l10nMsg("Shared Flow preview"))}" allow="clipboard-write"></iframe></body></html>`;
+<iframe id="reader" src="${escapeHtml(reader.toString())}" title="${escapeHtml(l10nMsg("Shared Flow preview"))}" allow="clipboard-write"></iframe>
+<script nonce="${nonce}">
+const vscode = acquireVsCodeApi();
+const reader = document.getElementById("reader");
+const endpoint = new URL(reader.src);
+document.getElementById("open-browser").addEventListener("click", () => vscode.postMessage({type: "openBrowser"}));
+window.addEventListener("message", (event) => {
+  if (event.source !== reader.contentWindow || event.origin !== endpoint.origin ||
+      event.data?.type !== "flowSourceLocation" || event.data.channel !== endpoint.searchParams.get("tinymist-editor")) return;
+  const {type, channel, filepath, line, column} = event.data;
+  vscode.postMessage({type, channel, filepath, line, column});
+});
+</script></body></html>`;
 }
 
 const panels = new Map<string, vscode.WebviewPanel>();
@@ -189,6 +248,8 @@ export async function openSharedFlowPreview(
         }
         return;
       }
+      const editorColumn = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+      const channel = globalThis.crypto.randomUUID();
       const panel = vscode.window.createWebviewPanel(
         "tinymist-flow-preview",
         `${profile.name} (${l10nMsg("Saved Flow Preview")})`,
@@ -196,7 +257,18 @@ export async function openSharedFlowPreview(
         { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
       );
       const browserAction = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-        if ((message as { type?: unknown } | null)?.type !== "openBrowser") return;
+        const event = message as { type?: unknown; channel?: unknown } | null;
+        if (event?.type === "flowSourceLocation" && event.channel === channel) {
+          try {
+            await revealSharedSource(profile, message, editorColumn);
+          } catch {
+            void vscode.window.showErrorMessage(
+              l10nMsg("Could not open the selected Flow source location."),
+            );
+          }
+          return;
+        }
+        if (event?.type !== "openBrowser") return;
         try {
           if (await vscode.env.openExternal(vscode.Uri.parse(url))) return;
         } catch {
@@ -212,7 +284,7 @@ export async function openSharedFlowPreview(
         if (panels.get(key) === panel) panels.delete(key);
       });
       context.subscriptions.push(panel);
-      panel.webview.html = sharedReaderHtml(url);
+      panel.webview.html = sharedReaderHtml(url, channel);
     })();
     if (kind === "webview") opening.set(key, pending);
   }

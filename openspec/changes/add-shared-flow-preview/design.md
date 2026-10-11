@@ -11,7 +11,7 @@ Flow runs a saved-file preview on the Mac. The remote VS Code extension currentl
 ## Decisions
 
 - `tinymist.preview.sharedFlow` opts a trusted workspace into host-side Flow profile discovery. Read the existing Flow settings location (respect FLOW_DATA_DIR), match canonical document/root paths, select the most specific root, and reject ambiguous matches. Require a valid profile entry inside that root and a healthy local HTTP endpoint.
-- Route before ordinary preview creation. Shared previews create no LSP preview task, thumbnail socket or scroll-sync subscription. Use the existing HTTPS public URL directly when available; otherwise translate the loopback HTTP endpoint through asExternalUri. Show an explicitly saved-document webview, with a browser option, bounded CSP and one panel per profile/URL. Do not silently fall back to an expensive independent compiler when shared routing fails. Slides, development previews and browsing mode fail explicitly in shared mode.
+- Route before ordinary preview creation. Shared previews create no LSP preview task, thumbnail socket or scroll-sync subscription. Remote sessions always translate the loopback HTTP endpoint through asExternalUri; local sessions prefer the configured HTTPS URL. Show an explicitly saved-document webview, with a browser option, bounded CSP and one panel per profile/URL. Do not silently fall back to an expensive independent compiler when shared routing fails. Slides, development previews and browsing mode fail explicitly in shared mode.
 - `tinymist.compileOnSave` independently defers automatic LSP compilation following didChange. Source memory/VFS and generation invalidation still update immediately, so queries see fresh buffers and superseded jobs cannot publish. Per-project admission flags survive discarded worker completion. Save, close, explicit compile/entry changes and real filesystem changes release deferral; upstream VFS synchronization caused by typing does not. Configuration changes rebuild the project consistently. Already running Typst evaluation cannot be forcibly cancelled.
 - LSP full diagnostics update on save or external changes. Interactive queries remain available and may evaluate expressions. Saved Flow preview, LSP unsaved buffers and theme-specific outputs retain distinct identities.
 
@@ -21,7 +21,7 @@ Flow runs a saved-file preview on the Mac. The remote VS Code extension currentl
 - Service unavailable or ambiguous profile → Report actionable errors; never start another backend silently.
 - Profile switching or repeated concurrent opens → Deduplicate viewers and resolve pending opens without duplicate panels.
 - Same engine does not imply shared all-process caches → Measure automatic compile counts and saved preview backend identity; do not promise a memory halving or a fixed latency improvement.
-- Source-to-preview jumps rely on LSP render state → Shared view initially exposes the Flow reader controls, without claiming editor cursor synchronization.
+- Preview-to-source navigation reuses the existing revision-checked focus response on the clicked viewer socket. An opt-in per-panel channel bridges only that iframe origin and window to the extension; mobile and external browser viewers cannot move the editor. Canonical paths stay inside the matched project and one-based Unicode scalar columns are converted to VS Code UTF-16 positions. Dirty sources require saving before navigation. No file polling, additional WebSocket or compilation is needed. Editor-to-preview synchronization remains outside this change.
 
 ## Migration Plan
 

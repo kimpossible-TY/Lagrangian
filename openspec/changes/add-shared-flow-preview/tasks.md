@@ -19,3 +19,9 @@ Host-watcher timing limitations and the unmeasured production latency are record
 - [x] 3.2 Back up and install the app/extension, enable both options for managed projects, and reload the active remote extension host.
 - [x] 3.3 Verify installed engine identity, live document delivery and shared preview routing.
 - [x] 3.4 Compare the real PDE workload before/after and record latency, memory and measurement boundaries.
+
+## 4. Desktop source navigation
+
+- [x] 4.1 Bridge viewer-local source hits to the embedded VS Code reader, preserving mobile selection behavior and rejecting stale or unrelated events.
+- [x] 4.2 Reveal the saved source position in VS Code with canonical project boundaries and Unicode column conversion.
+- [ ] 4.3 Validate frontend, protocol and actual editor navigation; build and install the updated app and extension.

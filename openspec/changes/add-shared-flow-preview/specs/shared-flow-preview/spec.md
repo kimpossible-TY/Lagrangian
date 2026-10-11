@@ -31,3 +31,20 @@ The extension MUST select the most specific containing canonical profile root, v
 - **WHEN** the extension runs in a remote extension host
 - **THEN** the reader uses VS Code port forwarding even if the profile provides a private HTTPS address
 - **AND** a visible Open in Browser button opens that same resolved reader URL without starting another compiler
+
+### Requirement: Desktop click-to-source navigation
+The embedded shared reader SHALL reveal the clicked saved source position in VS Code without creating another compiler or observing mobile viewers' selections.
+
+#### Scenario: Click a mapped source location
+- **WHEN** a source hit from the embedded viewer matches the compiled revision
+- **THEN** its source file, line and Unicode-correct cursor column are revealed in the editor
+- **AND** the existing Flow hit-test response is reused without another connection or polling
+
+#### Scenario: Unrelated or invalid location
+- **WHEN** a message comes from another frame, origin or viewer channel, has invalid coordinates, or points outside the canonical project root
+- **THEN** the editor does not navigate
+- **AND** stale or unmapped hits and mobile-only selections do not move the editor
+
+#### Scenario: Unsaved source
+- **WHEN** the target editor buffer has unsaved changes
+- **THEN** the extension asks the user to save before using saved-preview coordinates

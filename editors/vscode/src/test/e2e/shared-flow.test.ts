@@ -16,13 +16,18 @@ export async function getTests(ctx: Context) {
       const config = vscode.workspace.getConfiguration("tinymist");
       const previous = config.get<boolean>("preview.sharedFlow");
       let readerRequests = 0;
+      const target = vscode.Uri.joinPath(root, "shared-navigation.typ");
       const http = createServer((_request, response) => {
         readerRequests += 1;
         response.writeHead(200, { "Content-Type": "text/html" });
-        response.end("<!doctype html><title>Shared fixture</title><p>Saved fixture</p>");
+        response.end(`<!doctype html><title>Shared fixture</title><p>Saved fixture</p>
+          <script>setTimeout(() => parent.postMessage({type: "flowSourceLocation",
+          channel: new URL(location.href).searchParams.get("tinymist-editor"),
+          filepath: ${JSON.stringify(target.fsPath)}, line: 2, column: 4}, "*"), 100);</script>`);
       });
       await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
       try {
+        await writeFile(target.fsPath, "= Navigation\n한😀글 source target\n");
         process.env.FLOW_DATA_DIR = support;
         const port = (http.address() as AddressInfo).port;
         await writeFile(
@@ -54,11 +59,21 @@ export async function getTests(ctx: Context) {
           }>("typst-preview.preview");
           ctx.expect(result?.message).to.equal("shared");
           ctx.expect(result?.profileId).to.equal("test");
-          await ctx.openDocument(vscode.Uri.joinPath(root, "main.typ"));
+          if (i === 0) await ctx.openDocument(vscode.Uri.joinPath(root, "main.typ"));
         }
         const deadline = Date.now() + 5000;
         while (readerRequests < 2 && Date.now() < deadline) await ctx.timeout(50);
         ctx.expect(readerRequests).to.be.at.least(2); // health probe plus actual iframe
+        const navigationDeadline = Date.now() + 5000;
+        while (
+          vscode.window.activeTextEditor?.document.uri.toString() !== target.toString() &&
+          Date.now() < navigationDeadline
+        )
+          await ctx.timeout(50);
+        const editor = vscode.window.activeTextEditor;
+        ctx.expect(editor?.document.uri.toString()).to.equal(target.toString());
+        ctx.expect(editor?.selection.active.line).to.equal(1);
+        ctx.expect(editor?.selection.active.character).to.equal(4);
         const after = await vscode.commands.executeCommand<{ tasks: unknown[] }>(
           "tinymist.doInspectPreviewState",
         );
@@ -73,6 +88,7 @@ export async function getTests(ctx: Context) {
         http.closeAllConnections();
         await new Promise<void>((resolve) => http.close(() => resolve()));
         await rm(support, { recursive: true, force: true });
+        await rm(target.fsPath, { force: true });
       }
     });
   });

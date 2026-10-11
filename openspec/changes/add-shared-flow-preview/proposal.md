@@ -7,6 +7,7 @@ Windows VS Code over Code Tunnel recompiles the same book as the running Flow se
 - Add an opt-in shared Flow preview setting. Resolve the active document to a host-side Flow profile and display its existing saved-document service without starting an LSP preview task.
 - Add an independent `compileOnSave` option that keeps editor source synchronization and language queries current while deferring automatic full compilation after typing until save or an explicit compilation trigger.
 - Keep defaults unchanged, reject ambiguous profiles and unsupported shared preview modes, label the saved-document view, and reuse one viewer per profile.
+- Restore click-to-source navigation in the embedded shared desktop reader using the existing viewer-local hit-test response; retain mobile Codex location recording.
 - Add regression and workload checks for compilation admission and shared preview lifecycle; document configuration and measurement limits.
 
 ## Capabilities
