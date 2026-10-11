@@ -299,3 +299,57 @@ was not observable from the Mac. Local checks did not cover this remote path.
 The follow-up moves controls to the reader's already forwarded and authenticated
 origin/port; only bounded navigation messages are relayed. The original renderer
 connection continues to carry document frames directly.
+
+## Flow 0.1.19: confirmed Windows Code Tunnel synchronization
+
+Built the signed native ARM64 release from clean commit
+`b679a577df92ec1fdef038055df4e5fb6640f0c9`, with warnings denied and ThinLTO,
+in 4m17s. Both the embedded Git SHA and app manifest sourceRevision match that
+commit; the manifest records sourceDirty=false. The installed engine SHA-256 is
+`565f47311f7139c0adf007f7472caf1bfb06d3b09c2e745639c351e7e8b1f976`.
+The matching desktop and remote extension JavaScript SHA-256 is
+`7f0ae9e25099d2330ad7049f94ad1dc9e0c72ac39b8b7ab0c79ec56a67549547`,
+and both bundled engines match the installed app engine. The installer retained
+the previous app and restarted the managed PDE service; the new menu-bar app
+was relaunched. Ewald remained stopped.
+
+Editor controls now use the same forwarded origin and port as the reader.
+The extension registers its random session directly over Mac loopback, and
+embedded/external readers attach through that reader origin. Forwarded URL
+prefixes and authentication query parameters are retained. Only bounded
+editorScrollTo/panelScrollTo messages cross the relay; document frames retain
+their existing direct connection. Tinymist's existing source mapping, reveal
+handler, selection policy and preview jump renderer remain in use.
+
+- Frontend: 78 tests passed; focused extension/config: 29 tests passed.
+  Type checking, changed extension-module lint, formatting, preview/l10n
+  generation, desktop/web bundles and strict OpenSpec validation passed.
+- Actual VS Code shared-reader integration: 2 tests passed, including Unicode
+  ranges, the manual panel-sync command, feedback suppression, no extra LSP
+  preview tasks and service survival after reader disposal.
+- Real-engine navigation: 2 tests passed, covering both themes, source ranges,
+  source-to-page mapping, revision guards, phone isolation and zero additional
+  compilation. The real-engine relay test also passed, covering private-host
+  registration, Origin/Host checks, session isolation, message limits and
+  renderer survival after editor disconnection.
+- Installed app suite: 27 tests passed, 1 optional certificate test skipped.
+  The relay fixture now compares the saved focus contents before/after
+  navigation: document loading already initializes that file. This test-only
+  correction was made after the clean release build and does not change the
+  installed product code.
+- Rust preview-feature check and Clippy passed with warnings denied; workspace
+  Cargo formatting passed. The canonical Typst shared-preview guide compiled.
+- Chrome with the full renderer: a preview click resolved the first component
+  range; source navigation moved `#typst-container-main.scrollTop` from 0 to
+  1608 and revealed page two. Clicking the second component returned its source
+  range in both themes, including after a theme change. Reader and control
+  connections used the same port. Local evidence is saved in ignored
+  `dist/shared-flow-preview/bidirectional-0.1.19.json` and its PNG screenshot.
+
+After Windows VS Code Reload Window and a fresh Open in Browser tab using
+Flow 0.1.19, the user explicitly confirmed that both directions work:
+browser component click moves the VS Code cursor, and source component click
+moves the browser preview. This confirms the actual Windows Code Tunnel path,
+in addition to local protocol/editor/browser checks. No further reload is
+required. End-to-end latency was not re-benchmarked for this transport fix;
+navigation tests confirm that synchronization adds no compilation.
