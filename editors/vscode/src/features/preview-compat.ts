@@ -1,3 +1,4 @@
+import { revealPreviewSource, shouldSyncPreview, type PreviewSourceJump } from "./preview-sync";
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
@@ -486,7 +487,9 @@ export class Addon2Server {
       const data = JSON.parse(message.data as string);
       switch (data.event) {
         case "editorScrollTo":
-          return await editorScrollTo(activeEditor, data as JumpInfo);
+          return await revealPreviewSource(data as PreviewSourceJump, {
+            viewColumn: activeEditor.viewColumn,
+          });
         case "syncEditorChanges":
           return syncEditorChanges(conn);
         case "compileStatus": {
@@ -521,12 +524,7 @@ export class Addon2Server {
           console.log(
             `selection changed, kind: ${kind && vscode.TextEditorSelectionChangeKind[kind]}`,
           );
-          const shouldScrollPanel =
-            // scroll by mouse
-            kind === vscode.TextEditorSelectionChangeKind.Mouse ||
-            // scroll by keyboard typing
-            (scrollSyncMode === ScrollSyncModeEnum.onSelectionChange &&
-              kind === vscode.TextEditorSelectionChangeKind.Keyboard);
+          const shouldScrollPanel = shouldSyncPreview(kind, scrollSyncMode);
           if (shouldScrollPanel) {
             console.log(`selection changed, sending src2doc jump request`);
             reportPosition(doc, editor, "panelScrollTo");
@@ -542,28 +540,6 @@ export class Addon2Server {
     }
 
     this.conn = conn;
-
-    interface JumpInfo {
-      filepath: string;
-      start: [number, number] | null;
-      end: [number, number] | null;
-    }
-
-    async function editorScrollTo(activeEditor: vscode.TextEditor, jump: JumpInfo) {
-      console.log("recv editorScrollTo request", jump);
-      if (jump.start === null || jump.end === null) {
-        return;
-      }
-
-      // open this file and show in editor
-      const doc = await vscode.workspace.openTextDocument(jump.filepath);
-      const editor = await vscode.window.showTextDocument(doc, activeEditor.viewColumn);
-      const startPosition = new vscode.Position(jump.start[0], jump.start[1]);
-      const endPosition = new vscode.Position(jump.end[0], jump.end[1]);
-      const range = new vscode.Range(startPosition, endPosition);
-      editor.selection = new vscode.Selection(range.start, range.end);
-      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-    }
 
     function syncEditorChanges(addonΠserver: WebSocket) {
       console.log("recv syncEditorChanges request");

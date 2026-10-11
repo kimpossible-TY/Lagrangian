@@ -7,7 +7,10 @@ use std::sync::{
 use tinymist_std::error::IgnoreLogging;
 use tokio::sync::{broadcast, mpsc};
 
-use super::{editor::EditorActorRequest, render::RenderActorRequest};
+use super::{
+    editor::{ControlPlaneMessage, ControlPlaneResponse, EditorActorRequest},
+    render::{RenderActorRequest, resolve_span_range, source_to_document_positions},
+};
 use crate::focus::{FocusRequest, FocusStore};
 use crate::{
     CompileStatus, ViewerWindowStateMessage, WsMessage, actor::editor::DocToSrcJumpResolveRequest,
@@ -147,6 +150,105 @@ where
         self.send_message(
             WsMessage::Binary(format!("focus,{response}").into()),
             "SendPreviewFocus",
+        )
+        .await
+    }
+
+    /// Desktop navigation uses the original Tinymist component range, scoped to
+    /// this viewer and revision. It never writes mobile focus or memory files.
+    async fn reveal_editor_source(&mut self, payload: &str) -> bool {
+        let request = (payload.len() <= 8192)
+            .then(|| serde_json::from_str::<FocusRequest>(payload).ok())
+            .flatten()
+            .filter(|r| r.is_valid() && r.selection.is_none());
+        let view = self
+            .focus
+            .as_ref()
+            .and_then(|(_, view)| view.read().clone());
+        let revision = request.as_ref().and_then(|r| r.revision.clone());
+        let mut response = match (view, request) {
+            (Some(view), Some(request)) if request.revision.as_ref() == Some(&view.revision()) => {
+                let result = tokio::task::spawn_blocking(move || {
+                    let (start, end) = view.resolve_frame_loc(&request.position)?;
+                    resolve_span_range(view.as_ref(), start..end)
+                })
+                .await;
+                match result {
+                    Ok(Some(jump)) => {
+                        serde_json::to_value(ControlPlaneResponse::EditorScrollTo(jump))
+                            .unwrap_or_else(|_| serde_json::json!({"status": "error"}))
+                    }
+                    Ok(None) => serde_json::json!({"status": "unmapped"}),
+                    Err(error) => {
+                        log::warn!("could not resolve desktop preview source: {error}");
+                        serde_json::json!({"status": "error"})
+                    }
+                }
+            }
+            (Some(_), Some(_)) => serde_json::json!({"status": "stale"}),
+            _ => serde_json::json!({"status": "invalid"}),
+        };
+        if response.get("event").is_some()
+            && !self.focus.as_ref().is_some_and(|(_, view)| {
+                view.read()
+                    .as_ref()
+                    .is_some_and(|view| Some(view.revision()) == revision)
+            })
+        {
+            response = serde_json::json!({"status": "stale"});
+        }
+        response["revision"] = serde_json::json!(revision);
+        self.send_message(
+            WsMessage::Binary(format!("editor,{response}").into()),
+            "SendEditorSource",
+        )
+        .await
+    }
+
+    /// Adapt only Tinymist's read-only panelScrollTo event to this viewer socket.
+    async fn scroll_to_editor_source(&mut self, payload: &str) -> bool {
+        #[derive(serde::Deserialize)]
+        struct Request {
+            revision: String,
+            #[serde(flatten)]
+            message: ControlPlaneMessage,
+        }
+        let request = (payload.len() <= 8192)
+            .then(|| serde_json::from_str::<Request>(payload).ok())
+            .flatten();
+        let view = self
+            .focus
+            .as_ref()
+            .and_then(|(_, view)| view.read().clone());
+        let (Some(view), Some(request)) = (view, request) else {
+            return true;
+        };
+        if request.revision != view.revision() {
+            return true;
+        }
+        let ControlPlaneMessage::ResolveSourceLoc(location) = request.message else {
+            return true;
+        };
+        let positions = tokio::task::spawn_blocking(move || {
+            source_to_document_positions(view.as_ref(), location)
+        })
+        .await;
+        let Ok(positions) = positions else {
+            log::warn!("could not resolve desktop source-to-preview location");
+            return true;
+        };
+        if positions.is_empty()
+            || !self.focus.as_ref().is_some_and(|(_, view)| {
+                view.read()
+                    .as_ref()
+                    .is_some_and(|view| view.revision() == request.revision)
+            })
+        {
+            return true;
+        }
+        self.send_message(
+            WsMessage::Binary(positions_req("jump", positions).into()),
+            "SendEditorPanelJump",
         )
         .await
     }
@@ -291,6 +393,14 @@ where
                         let pos = DocumentPosition { page_no, x, y };
 
                         self.broadcast_sender.send(WebviewActorRequest::ViewportPosition(pos)).log_error("WebViewActor");
+                    } else if let Some(path) = msg.strip_prefix("src-editor ") {
+                        if !self.reveal_editor_source(path).await {
+                            break;
+                        }
+                    } else if let Some(request) = msg.strip_prefix("editor ") {
+                        if !self.scroll_to_editor_source(request).await {
+                            break;
+                        }
                     } else if let Some(path) = msg.strip_prefix("src-point ") {
                         if self.focus.is_some() {
                             if !self.record_focus(path).await {

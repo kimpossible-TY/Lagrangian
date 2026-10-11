@@ -22,7 +22,7 @@ import { SelectionActions } from "./selection-actions";
 import { PreviewActivity } from "./preview-activity";
 import { decodePreviewFrame } from "./preview-frame";
 import { ReferenceNavigation } from "./reference-navigation";
-import { EditorNavigation } from "./editor-navigation";
+import { EditorNavigation, type PanelScrollRequest } from "./editor-navigation";
 import { PreviewConnection } from "./preview-connection";
 export { PreviewMode } from "typst-dom/typst-doc.mjs";
 
@@ -66,7 +66,13 @@ export async function wsMain({
     activity.refresh();
   };
 
-  const editorNavigation = new EditorNavigation(window);
+  let pendingEditorScroll: PanelScrollRequest | undefined;
+  let flushEditorScroll = () => {};
+  const editorNavigation = new EditorNavigation(window, (request) => {
+    // Keep only the latest cursor location while rendering/reconnecting.
+    pendingEditorScroll = request;
+    flushEditorScroll();
+  });
   let disposed = false;
   let connection: PreviewConnection | undefined;
   let awaitingFullFrame = true;
@@ -229,6 +235,21 @@ export async function wsMain({
       });
     }
 
+    flushEditorScroll = () => {
+      if (
+        !pendingEditorScroll ||
+        !focusRevision ||
+        svgDoc.impl.isRendering ||
+        svgDoc.impl.patchQueue.length ||
+        !windowElem.typstWebsocket
+      )
+        return;
+      const request = pendingEditorScroll;
+      pendingEditorScroll = undefined;
+      windowElem.typstWebsocket.send(
+        `editor ${JSON.stringify({ ...request, revision: focusRevision })}`,
+      );
+    };
     const previousOnDidRender = svgDoc.impl.onDidRender;
     if (previewMode === PreviewMode.Doc && !isContentPreview) {
       selectionActions = new SelectionActions(
@@ -276,6 +297,7 @@ export async function wsMain({
       selectionActions?.setEnabled(focusEnabled && !!focusRevision);
       selectionActions?.afterRender();
       previousOnDidRender?.();
+      flushEditorScroll();
       if (restoreReadingState) {
         const state = restoreReadingState;
         restoreReadingState = undefined;
@@ -562,6 +584,9 @@ export async function wsMain({
       disposed = true;
       activity.dispose();
       connection?.dispose();
+      editorNavigation.dispose();
+      pendingEditorScroll = undefined;
+      flushEditorScroll = () => {};
       svgDoc.dispose();
       const index = windowElem.documents.indexOf(svgDoc);
       if (index >= 0) {
@@ -640,7 +665,7 @@ export async function wsMain({
             editorNavigation.enabled ? "Finding source location…" : "Saving selected location…",
           );
           windowElem.typstWebsocket.send(
-            `src-point ${JSON.stringify({ ...position, revision: focusRevision })}`,
+            `${editorNavigation.enabled ? "src-editor" : "src-point"} ${JSON.stringify({ ...position, revision: focusRevision })}`,
           );
         };
         return;
@@ -682,18 +707,32 @@ export async function wsMain({
         }
         return;
       }
+      if (message[0] === "editor") {
+        const result = JSON.parse(dec.decode(message[1] as Uint8Array));
+        if (
+          result.event === "editorScrollTo" &&
+          result.revision === focusRevision &&
+          !svgDoc.impl.isRendering &&
+          !svgDoc.impl.patchQueue.length
+        ) {
+          const sent = editorNavigation.reveal(result);
+          showFocusStatus(
+            sent ? "VS Code에 소스 위치 전달됨" : "VS Code에서 미리보기를 다시 열어 주세요",
+            sent ? "Source location sent to VS Code" : "Reopen this preview from VS Code",
+          );
+        } else if (result.status === "stale" || result.event === "editorScrollTo") {
+          showFocusStatus(
+            "문서가 갱신됐습니다 · 다시 클릭해 주세요",
+            "Document changed · click again",
+          );
+        } else {
+          showFocusStatus("소스 위치를 연결할 수 없습니다", "Source location unavailable");
+        }
+        return;
+      }
       if (message[0] === "focus") {
         const result = JSON.parse(dec.decode(message[1] as Uint8Array));
-        if (editorNavigation.enabled && result.status === "selected" && !result.text_selected) {
-          void editorNavigation.reveal(result).then((sent) => {
-            showFocusStatus(
-              sent
-                ? "VS Code에 소스 위치 전달됨"
-                : "VS Code에서 브라우저 미리보기를 다시 열어 주세요",
-              sent ? "Source location sent to VS Code" : "Reopen this browser preview from VS Code",
-            );
-          });
-        } else if (result.status === "selected") {
+        if (result.status === "selected") {
           const name = result.filepath.split(/[\\/]/).pop();
           showFocusStatus(
             `Codex용 ${result.text_selected ? "텍스트" : "위치"} 저장됨 · ${result.page}쪽 · ${name}:${result.line}`,

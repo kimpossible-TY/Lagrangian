@@ -230,3 +230,38 @@ passed in one run. Focused callback/extension/frontend tests passed 28 cases, an
 the complete preview frontend suite passed 79. Type checking, ESLint, desktop/web
 bundles and preview asset generation passed. Browser mode asks to reopen from
 VS Code when its callback expires. The next signed release contains both modes.
+
+
+Flow 0.1.17 was built from clean commit `650f97d8` with warnings denied and ThinLTO
+in 3m46s. The build metadata generator was rerun before building; this release's
+embedded Git SHA and manifest source revision both match `650f97d8`. The real-engine
+source-navigation test passed again. The installed engine SHA-256 is
+`22204b9c466647725d597047f66f51385e6f8cc2a43216d572b983a57ef1e429`.
+Both installed extension bundles have SHA-256
+`feaf31498c055fbbbbac7440609cc9e6c5e8eb196a46654bf1b854a1a709972d`.
+The app installer retained the previous bundle and restarted the managed PDE
+service, which serves the external-callback frontend (1,926,693 bytes). The menu-bar
+app was relaunched. Windows external-browser confirmation remains pending.
+
+## Upstream bidirectional synchronization
+
+The earlier one-way focus/callback adapter is superseded by Tinymist's existing
+`editorScrollTo`/`panelScrollTo` protocol. The component span-range resolver and
+source-to-document mapper are extracted unchanged from RenderActor, and the
+source reveal handler and selection admission policy are shared by ordinary
+Tinymist and Flow preview. The existing frontend jump renderer is unchanged.
+Each desktop reader adapts these events through its existing rendering socket
+and a small extension-owned control socket; navigation carries no document
+frames, source buffers or memory-file events. Phone URLs omit that connection.
+
+Before the engine build, 28 focused extension/config tests and all 77 frontend
+tests passed. The actual VS Code integration harness passed an external-control
+source range reveal (including Korean/emoji column conversion), embedded reader
+source reveal, the manual source-to-preview command, no programmatic feedback,
+no additional LSP preview tasks and service survival after viewer disposal.
+Type checking, changed preview-module ESLint, preview/l10n generation, desktop
+and web bundles, Cargo formatting and strict OpenSpec validation passed.
+The whole `lsp.ts` lint command reports pre-existing violations outside its
+extracted source-reveal handler. Generated-doc checking requires `typlite`;
+the changed shared-reader guide is standalone Typst and has no generated Markdown.
+Real-engine checks and deployment evidence follow after the clean build.

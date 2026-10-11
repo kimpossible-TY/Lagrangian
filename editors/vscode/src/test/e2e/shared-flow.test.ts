@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createBrowserSourceBridge } from "../../features/shared-flow-browser";
+import { createBrowserEditorBridge } from "../../features/shared-flow-browser";
+import { WebSocket } from "ws";
+import { once } from "node:events";
 import { revealSharedSource } from "../../features/shared-flow-preview";
 import type { Context } from ".";
 
@@ -12,7 +14,7 @@ export async function getTests(ctx: Context) {
   ctx = ctx.workspaceCtx("book");
   await ctx.suite("shared Flow routing", async (suite) => {
     suite.addTest(
-      "external browser callback reveals the source in the running editor",
+      "external browser control protocol reveals a Unicode component range in the running editor",
       async () => {
         const root = ctx.workspaceUri();
         const target = vscode.Uri.joinPath(root, "shared-browser-navigation.typ");
@@ -25,23 +27,37 @@ export async function getTests(ctx: Context) {
           port: 23625,
           publicURL: "",
         };
-        const bridge = await createBrowserSourceBridge(
+        const bridge = await createBrowserEditorBridge(
           "http://localhost:23625",
           "browser-session",
           (hit) => revealSharedSource(profile, hit, vscode.ViewColumn.One),
         );
+        const connection = new WebSocket(bridge.localUrl.replace(/^http/, "ws"), {
+          origin: "http://localhost:23625",
+        });
         try {
-          const response = await fetch(bridge.localUrl, {
-            method: "POST",
-            headers: { Origin: "http://localhost:23625", "Content-Type": "application/json" },
-            body: JSON.stringify({ filepath: target.fsPath, line: 2, column: 4 }),
-          });
-          ctx.expect(response.status).to.equal(204);
+          await once(connection, "open");
+          connection.send(
+            JSON.stringify({
+              event: "editorScrollTo",
+              filepath: target.fsPath,
+              start: [1, 3],
+              end: [1, 6],
+            }),
+          );
+          const deadline = Date.now() + 5000;
+          while (
+            vscode.window.activeTextEditor?.document.uri.toString() !== target.toString() &&
+            Date.now() < deadline
+          )
+            await ctx.timeout(50);
           const editor = vscode.window.activeTextEditor;
           ctx.expect(editor?.document.uri.toString()).to.equal(target.toString());
           ctx.expect(editor?.selection.active.line).to.equal(1);
-          ctx.expect(editor?.selection.active.character).to.equal(4);
+          ctx.expect(editor?.selection.start.character).to.equal(4);
+          ctx.expect(editor?.selection.end.character).to.equal(7);
         } finally {
+          connection.terminate();
           bridge.dispose();
           await vscode.commands.executeCommand("workbench.action.closeAllEditors");
           await rm(target.fsPath, { force: true });
@@ -55,14 +71,30 @@ export async function getTests(ctx: Context) {
       const config = vscode.workspace.getConfiguration("tinymist");
       const previous = config.get<boolean>("preview.sharedFlow");
       let readerRequests = 0;
+      let panelScroll: any;
       const target = vscode.Uri.joinPath(root, "shared-navigation.typ");
-      const http = createServer((_request, response) => {
+      const http = createServer(async (request, response) => {
+        if (request.url === "/scroll" && request.method === "POST") {
+          let body = "";
+          for await (const chunk of request) body += chunk;
+          panelScroll = JSON.parse(body);
+          response.writeHead(204).end();
+          return;
+        }
         readerRequests += 1;
         response.writeHead(200, { "Content-Type": "text/html" });
         response.end(`<!doctype html><title>Shared fixture</title><p>Saved fixture</p>
-          <script>setTimeout(() => parent.postMessage({type: "flowSourceLocation",
-          channel: new URL(location.href).searchParams.get("tinymist-editor"),
-          filepath: ${JSON.stringify(target.fsPath)}, line: 2, column: 4}, "*"), 100);</script>`);
+          <script>
+          const endpoint = new URL(new URL(location.href).searchParams.get("tinymist-editor-control"));
+          endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
+          const editor = new WebSocket(endpoint);
+          editor.addEventListener("open", () => editor.send(JSON.stringify({event: "editorScrollTo",
+            filepath: ${JSON.stringify(target.fsPath)}, start: [1,3], end: [1,6]})));
+          editor.addEventListener("message", async event => {
+            const data = await event.data.text();
+            fetch("/scroll", {method: "POST", body: data});
+          });
+          </script>`);
       });
       await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
       try {
@@ -112,7 +144,20 @@ export async function getTests(ctx: Context) {
         const editor = vscode.window.activeTextEditor;
         ctx.expect(editor?.document.uri.toString()).to.equal(target.toString());
         ctx.expect(editor?.selection.active.line).to.equal(1);
-        ctx.expect(editor?.selection.active.character).to.equal(4);
+        ctx.expect(editor?.selection.start.character).to.equal(4);
+        ctx.expect(editor?.selection.end.character).to.equal(7);
+        ctx.expect(panelScroll).to.equal(undefined); // Command reveal never feeds back.
+        await vscode.commands.executeCommand("typst-preview.sync");
+        const syncDeadline = Date.now() + 5000;
+        while (!panelScroll && Date.now() < syncDeadline) await ctx.timeout(50);
+        ctx
+          .expect(panelScroll)
+          .to.deep.equal({
+            event: "panelScrollTo",
+            filepath: target.fsPath,
+            line: 1,
+            character: 6,
+          });
         const after = await vscode.commands.executeCommand<{ tasks: unknown[] }>(
           "tinymist.doInspectPreviewState",
         );

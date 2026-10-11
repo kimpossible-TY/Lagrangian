@@ -38,15 +38,20 @@ Save an edit to update the shared reader. Unsaved buffers stay in the language
 server and are not sent to the Flow service. Reopening the preview reuses the
 existing reader panel. Closing it disconnects that viewer without stopping Flow.
 Click text in the embedded reader or a reader opened with *Open in Browser*
-to reveal its saved source file and
-cursor position. This reuses Flow's source mapping without starting another
+to reveal and select its saved source component in the editor. Click a component
+in saved code to scroll the preview to its rendered location. Both directions
+reuse Tinymist's source mapping and jump renderer without starting another
 compiler. Save an unsaved target source before navigating from the saved preview.
 The normal phone URL retains Codex location recording without moving the desktop
 cursor. VS Code-opened browser URLs carry a temporary connection to that editor
 window. After reloading VS Code, reopen the browser reader from VS Code to renew
 that connection. Source files must belong to the matched project.
-Editor-to-preview synchronization, slide previews and browsing/development
-previews require sharedFlow to be disabled.
+The existing `tinymist.preview.scrollSync` setting controls automatic source-to-preview
+movement: `onSelectionChangeByMouse` follows clicks (the default), `onSelectionChange`
+also follows keyboard movement, and `never` disables automatic movement. The normal
+*Sync Preview* command remains available. Programmatic source reveals do not move
+the preview again. Mobile readers remain independent of these desktop movements.
+Slide previews and browsing/development previews require sharedFlow to be disabled.
 
 `compileOnSave` changes automatic full-document compilation after typing. Source
 snapshots update immediately, so language queries can still inspect current text.
