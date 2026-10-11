@@ -1,0 +1,77 @@
+{
+  "before": {
+    "runs": [
+      {
+        "edits": 32,
+        "initialSeconds": 9.395,
+        "unsavedObservationSeconds": 8.644,
+        "unsavedCompileStarts": 2,
+        "saveToStatusSeconds": 9.687,
+        "burstToSavedStatusSeconds": 18.335,
+        "peakRssMiB": 1687.5
+      },
+      {
+        "edits": 32,
+        "initialSeconds": 9.733,
+        "unsavedObservationSeconds": 8.638,
+        "unsavedCompileStarts": 2,
+        "saveToStatusSeconds": 9.981,
+        "burstToSavedStatusSeconds": 18.623,
+        "peakRssMiB": 1363.2
+      },
+      {
+        "edits": 32,
+        "initialSeconds": 9.35,
+        "unsavedObservationSeconds": 8.637,
+        "unsavedCompileStarts": 2,
+        "saveToStatusSeconds": 10.019,
+        "burstToSavedStatusSeconds": 18.666,
+        "peakRssMiB": 1407.8
+      }
+    ],
+    "medianSaveToStatusSeconds": 9.981,
+    "medianPeakRssMiB": 1407.8
+  },
+  "after": {
+    "runs": [
+      {
+        "edits": 32,
+        "initialSeconds": 9.456,
+        "unsavedObservationSeconds": 8.648,
+        "unsavedCompileStarts": 0,
+        "saveToStatusSeconds": 8.63,
+        "burstToSavedStatusSeconds": 17.278,
+        "peakRssMiB": 1627.0
+      },
+      {
+        "edits": 32,
+        "initialSeconds": 9.433,
+        "unsavedObservationSeconds": 8.625,
+        "unsavedCompileStarts": 0,
+        "saveToStatusSeconds": 8.686,
+        "burstToSavedStatusSeconds": 17.322,
+        "peakRssMiB": 1611.6
+      },
+      {
+        "edits": 32,
+        "initialSeconds": 10.115,
+        "unsavedObservationSeconds": 8.641,
+        "unsavedCompileStarts": 0,
+        "saveToStatusSeconds": 8.636,
+        "burstToSavedStatusSeconds": 17.28,
+        "peakRssMiB": 2467.2
+      }
+    ],
+    "medianSaveToStatusSeconds": 8.636,
+    "medianPeakRssMiB": 1627.0
+  },
+  "scope": {
+    "pages": 316,
+    "editsPerRun": 32,
+    "editIntervalSeconds": 0.2,
+    "preSaveQuietSeconds": 2,
+    "oldCommit": "d000e8ee",
+    "newCommit": "5218829a",
+    "measurement": "LSP save-to-compile-status on a copy of the actual PDE project; not Windows display latency"
+  }
+}

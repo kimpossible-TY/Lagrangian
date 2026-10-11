@@ -125,11 +125,14 @@ function escapeHtml(value: string): string {
 }
 
 export function sharedReaderHtml(url: string): string {
+  const nonce = globalThis.crypto.randomUUID();
   const origin = escapeHtml(new URL(url).origin);
   return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${origin}; style-src 'unsafe-inline'">
-<style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:12px var(--vscode-font-family)}p{margin:8px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body>
-<p>${escapeHtml(l10nMsg("Shared Flow preview · Saved files only. Save your changes to update this view."))}</p>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${origin}; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'">
+<style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:12px var(--vscode-font-family)}header{display:flex;align-items:center;gap:8px;padding:8px}p{margin:0;flex:1}button{cursor:pointer;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:6px 10px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body>
+<header><p>${escapeHtml(l10nMsg("Shared Flow preview · Saved files only. Save your changes to update this view."))}</p>
+<button id="open-browser" type="button">${escapeHtml(l10nMsg("Open in Browser"))}</button></header>
+<script nonce="${nonce}">const vscode = acquireVsCodeApi(); document.getElementById("open-browser").addEventListener("click", () => vscode.postMessage({type: "openBrowser"}));</script>
 <iframe src="${escapeHtml(url)}" title="${escapeHtml(l10nMsg("Shared Flow preview"))}" allow="clipboard-write"></iframe></body></html>`;
 }
 
@@ -177,7 +180,9 @@ export async function openSharedFlowPreview(
         );
       }
       const url =
-        profile.publicURL || (await vscode.env.asExternalUri(vscode.Uri.parse(local))).toString();
+        vscode.env.remoteName || !profile.publicURL
+          ? (await vscode.env.asExternalUri(vscode.Uri.parse(local))).toString()
+          : profile.publicURL;
       if (kind === "browser") {
         if (!(await vscode.env.openExternal(vscode.Uri.parse(url)))) {
           throw new Error(l10nMsg("VS Code could not open the shared Flow preview URL."));
@@ -190,8 +195,20 @@ export async function openSharedFlowPreview(
         vscode.ViewColumn.Beside,
         { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
       );
+      const browserAction = panel.webview.onDidReceiveMessage(async (message: unknown) => {
+        if ((message as { type?: unknown } | null)?.type !== "openBrowser") return;
+        try {
+          if (await vscode.env.openExternal(vscode.Uri.parse(url))) return;
+        } catch {
+          // Report browser failures without exposing forwarded URL credentials.
+        }
+        void vscode.window.showErrorMessage(
+          l10nMsg("VS Code could not open the shared Flow preview URL."),
+        );
+      });
       panels.set(key, panel);
       panel.onDidDispose(() => {
+        browserAction.dispose();
         if (panels.get(key) === panel) panels.delete(key);
       });
       context.subscriptions.push(panel);

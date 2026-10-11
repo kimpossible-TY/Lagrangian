@@ -26,3 +26,8 @@ The extension MUST select the most specific containing canonical profile root, v
 #### Scenario: Unsaved edit
 - **WHEN** the editor buffer differs from saved files
 - **THEN** the shared reader remains labeled as a saved-document view and does not present unsaved content as compiled
+
+#### Scenario: Remote reader and external browser
+- **WHEN** the extension runs in a remote extension host
+- **THEN** the reader uses VS Code port forwarding even if the profile provides a private HTTPS address
+- **AND** a visible Open in Browser button opens that same resolved reader URL without starting another compiler

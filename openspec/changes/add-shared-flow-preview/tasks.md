@@ -12,3 +12,10 @@
 - [x] 2.4 Record reproducible workload results and remaining performance limits.
 
 Host-watcher timing limitations and the unmeasured production latency are recorded in `verification.md`.
+
+## 3. Authorized deployment and workload measurement
+
+- [x] 3.1 Build and sign Flow 0.1.15 and package the matching native VS Code extension from the clean implementation commit.
+- [x] 3.2 Back up and install the app/extension, enable both options for managed projects, and reload the active remote extension host.
+- [ ] 3.3 Verify installed engine identity, live document delivery and shared preview routing.
+- [x] 3.4 Compare the real PDE workload before/after and record latency, memory and measurement boundaries.
