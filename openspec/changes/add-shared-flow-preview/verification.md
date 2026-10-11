@@ -160,4 +160,8 @@ corrected VSIX was force-installed in both extension directories and its hashes
 matched. The installed corrected extension also passed the actual PDE routing
 test: two opens, no additional LSP preview task, and HTTP 200 after closing the
 reader. The canonical Typst guide compiled and strict OpenSpec validation passed.
-Windows reload and visible-document confirmation remain pending.
+After reloading Windows VS Code, the user confirmed that both the browser button
+and the document are visible. This completes client display verification; browser
+button click-through and Windows save-to-visible latency were not separately
+measured. The installed Flow 0.1.15 app is tagged `flow-v0.1.15` at its clean
+source revision `5218829a`; the accompanying extension correction is `b0b15f9a`.
