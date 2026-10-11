@@ -221,7 +221,10 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   expect(panel.webview.html).toContain("Open in Browser");
   const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
   await handler({ type: "openBrowser", url: "https://untrusted.example/" });
-  expect(mock.openExternal.mock.calls[0][0].toString()).toBe(
+  const external = new URL(String(mock.openExternal.mock.calls[0][0].toString()));
+  expect(external.origin).toBe("https://forwarded.example");
+  expect(external.searchParams.get("token")).toBe("a");
+  expect(external.searchParams.get("tinymist-editor-callback")).toBe(
     "https://forwarded.example/?token=a&b=c",
   );
   await handler({ type: "unknown" });

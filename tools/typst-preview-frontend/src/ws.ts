@@ -684,8 +684,15 @@ export async function wsMain({
       }
       if (message[0] === "focus") {
         const result = JSON.parse(dec.decode(message[1] as Uint8Array));
-        if (editorNavigation.reveal(result)) {
-          showFocusStatus("VS Code에 소스 위치 전달됨", "Source location sent to VS Code");
+        if (editorNavigation.enabled && result.status === "selected" && !result.text_selected) {
+          void editorNavigation.reveal(result).then((sent) => {
+            showFocusStatus(
+              sent
+                ? "VS Code에 소스 위치 전달됨"
+                : "VS Code에서 브라우저 미리보기를 다시 열어 주세요",
+              sent ? "Source location sent to VS Code" : "Reopen this browser preview from VS Code",
+            );
+          });
         } else if (result.status === "selected") {
           const name = result.filepath.split(/[\\/]/).pop();
           showFocusStatus(

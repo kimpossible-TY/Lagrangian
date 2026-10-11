@@ -24,4 +24,6 @@ Host-watcher timing limitations and the unmeasured production latency are record
 
 - [x] 4.1 Bridge viewer-local source hits to the embedded VS Code reader, preserving mobile selection behavior and rejecting stale or unrelated events.
 - [x] 4.2 Reveal the saved source position in VS Code with canonical project boundaries and Unicode column conversion.
-- [ ] 4.3 Validate frontend, protocol and actual editor navigation; build and install the updated app and extension.
+- [x] 4.3 Validate frontend, protocol and actual editor navigation; build and install the updated app and extension.
+
+- [ ] 4.4 Support the user's external-browser workflow with a session-scoped callback, then validate and deploy both viewer modes.

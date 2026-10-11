@@ -48,3 +48,9 @@ The embedded shared reader SHALL reveal the clicked saved source position in VS 
 #### Scenario: Unsaved source
 - **WHEN** the target editor buffer has unsaved changes
 - **THEN** the extension asks the user to save before using saved-preview coordinates
+
+#### Scenario: External browser opened from VS Code
+- **WHEN** the user clicks a source location in a reader opened through Open in Browser
+- **THEN** a temporary origin-checked callback moves the cursor in the originating VS Code window
+- **AND** ordinary phone URLs do not carry that callback and retain their current behavior
+- **AND** extension reload disposes the callback and the reader asks to reopen from VS Code
