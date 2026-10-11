@@ -139,7 +139,7 @@ class SourceNavigation(unittest.TestCase):
                         viewers.append(viewer)
                         viewer.send("current")
                         revision = wait_for(viewer, b"focus-revision,").decode()
-                        wait_for(viewer, b"diff-v1,")
+                        wait_for(viewer, (b"new,", b"diff-v1,"))
                         return viewer, revision
 
                     def assert_no_navigation(viewer):
@@ -167,7 +167,7 @@ class SourceNavigation(unittest.TestCase):
                         assert_no_navigation(phone)
 
                         location = {"event": "panelScrollTo", "filepath": str(document),
-                                    "line": destination_line, "character": 2, "revision": revision}
+                                    "line": destination_line, "character": 4, "revision": revision}
                         desktop.send("editor " + json.dumps(location))
                         positions = wait_for(desktop, b"jump,").decode().split(",")
                         self.assertTrue(any(int(p.split()[0]) == 2 for p in positions))

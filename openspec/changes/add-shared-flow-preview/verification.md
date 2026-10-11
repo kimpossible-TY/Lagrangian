@@ -265,3 +265,37 @@ The whole `lsp.ts` lint command reports pre-existing violations outside its
 extracted source-reveal handler. Generated-doc checking requires `typlite`;
 the changed shared-reader guide is standalone Typst and has no generated Markdown.
 Real-engine checks and deployment evidence follow after the clean build.
+
+## Flow 0.1.18: upstream bidirectional mapping and remote transport failure
+
+Built and installed Flow 0.1.18 from clean commit
+`3c0b3277e6efb3f070b9fafa3676516bd293804e`, with warnings denied, native ARM64
+and ThinLTO. Installed engine SHA-256:
+`541dd7c7dd618ae89fb124ae24e06632a5701a99c058a1b8a36098c21eb00f1d`.
+Matching desktop and remote extension bundle SHA-256:
+`a8cc048763fa5aec7b4380746095ef49ce7fe00aa8a08bc8710b9e384b47ce03`.
+The app manifest recorded sourceDirty=false. The live PDE service delivered an
+18,150,144-byte frame; document delivery alone does not confirm editor navigation.
+
+- Frontend: 77 tests passed; extension/config: 28 tests passed. TypeScript, preview
+  and both extension bundles, focused extension lint, formatting and OpenSpec passed.
+- Actual VS Code shared-reader tests: 2 passed, including Unicode source ranges,
+  manual panel sync, feedback suppression, no extra LSP preview tasks and service
+  survival after viewer closure. Ordinary Tinymist preview tests: 3 passed.
+- Real-engine navigation: 2 tests passed, covering both themes, component ranges,
+  source-to-page mapping, revisions, phone isolation and zero additional compilation.
+  Fixture synchronization was corrected to accept initial new frames as well as
+  diffs; a cursor inside Text is required by the upstream leaf-at-cursor mapper.
+- Installed app suite: 26 passed, 1 optional certificate test skipped.
+- Chrome with the full renderer: preview click returned the first component range;
+  panelScrollTo scrolled from 0 to 1608 and revealed page two; dark-theme preview
+  click returned the second component range. This used a local control endpoint.
+
+After Windows Reload Window and a fresh Open in Browser tab, the user reported
+“Reopen this preview from VS Code” and neither direction worked. The remote host
+listened on its editor control port but had no incoming connection. This narrows
+the failure to the separate control transport; the precise browser/proxy error
+was not observable from the Mac. Local checks did not cover this remote path.
+The follow-up moves controls to the reader's already forwarded and authenticated
+origin/port; only bounded navigation messages are relayed. The original renderer
+connection continues to carry document frames directly.

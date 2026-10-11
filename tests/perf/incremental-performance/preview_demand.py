@@ -22,15 +22,17 @@ import time
 
 
 class WebSocket:
-    def __init__(self, port: int, route: str):
+    def __init__(self, port: int, route: str, *, origin="local", host=None):
         self.socket = socket.create_connection(("127.0.0.1", port), timeout=5)
         self.buffer = bytearray()
         self.fragments = bytearray()
         self.fragment_opcode = None
         key = base64.b64encode(os.urandom(16)).decode()
+        origin = f"http://127.0.0.1:{port}" if origin == "local" else origin
+        origin_header = f"Origin: {origin}\r\n" if origin is not None else ""
         request = (
-            f"GET {route} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
-            f"Origin: http://127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+            f"GET {route} HTTP/1.1\r\nHost: {host or f'127.0.0.1:{port}'}\r\n"
+            f"{origin_header}Upgrade: websocket\r\n"
             f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
             "Sec-WebSocket-Version: 13\r\n\r\n"
         )
@@ -38,6 +40,7 @@ class WebSocket:
         while b"\r\n\r\n" not in self.buffer:
             chunk = self.socket.recv(4096)
             if not chunk:
+                self.close()
                 raise RuntimeError("WebSocket upgrade ended early")
             self.buffer.extend(chunk)
         header, _, rest = self.buffer.partition(b"\r\n\r\n")
@@ -46,6 +49,7 @@ class WebSocket:
             (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()
         ).digest())
         if b" 101 " not in header.split(b"\r\n", 1)[0] or expected not in header:
+            self.close()
             raise RuntimeError(f"WebSocket upgrade rejected: {header!r}")
 
     def send(self, value: str | bytes, opcode: int = 1):

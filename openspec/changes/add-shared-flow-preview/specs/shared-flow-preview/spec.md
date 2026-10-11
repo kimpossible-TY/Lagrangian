@@ -51,7 +51,7 @@ Embedded and VS Code-opened external shared readers SHALL reuse Tinymist's exist
 
 #### Scenario: External browser opened from VS Code
 - **WHEN** the user clicks a source location in a reader opened through Open in Browser
-- **THEN** a temporary origin-checked control connection moves the cursor in the originating VS Code window
+- **THEN** a session-scoped origin-checked control connection on the reader's own forwarded port moves the cursor in the originating VS Code window
 - **AND** ordinary phone URLs do not carry that connection and retain their current behavior
 - **AND** extension reload disposes the connection and the reader asks to reopen from VS Code
 
@@ -66,3 +66,9 @@ Embedded and VS Code-opened external shared readers SHALL reuse Tinymist's exist
 - **THEN** only readers explicitly connected to that originating editor receive its source navigation
 - **AND** mobile viewers keep their current scroll position and Codex behavior
 - **AND** navigation sends only small control messages and does not trigger compilation, memory-file synchronization or full document rendering
+
+#### Scenario: Code Tunnel with one forwarded preview port
+- **WHEN** an authenticated remote reader is displayed from Windows Code Tunnel
+- **THEN** its desktop controls use the same origin and forwarded port as document delivery
+- **AND** no second forwarded port or browser-to-loopback request is required
+- **AND** only the originating extension host can register its session, and closing it does not stop the renderer

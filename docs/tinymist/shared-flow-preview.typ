@@ -74,3 +74,7 @@ Compare automatic compile counts during a fixed edit burst, saved-result latency
 process memory and stale-result rejection before and after enabling the options.
 A small test fixture verifies work reduction but cannot predict the improvement
 for a large book or a particular tunnel connection.
+
+Desktop synchronization uses the same forwarded port as the reader, so Code Tunnel
+does not need another forwarded editor port. The extension sends only small navigation
+messages over a direct host connection; document frames stay on the existing renderer.

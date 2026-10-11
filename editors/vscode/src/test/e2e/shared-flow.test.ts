@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { createBrowserEditorBridge } from "../../features/shared-flow-browser";
 import { WebSocket } from "ws";
 import { once } from "node:events";
+import { attachFlowEditorRelay } from "../flow-editor-relay";
 import { revealSharedSource } from "../../features/shared-flow-preview";
 import type { Context } from ".";
 
@@ -27,14 +28,20 @@ export async function getTests(ctx: Context) {
           port: 23625,
           publicURL: "",
         };
-        const bridge = await createBrowserEditorBridge(
-          "http://localhost:23625",
-          "browser-session",
-          (hit) => revealSharedSource(profile, hit, vscode.ViewColumn.One),
+        const http = createServer((_request, response) => response.writeHead(200).end());
+        const relay = attachFlowEditorRelay(http);
+        await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+        const reader = `http://127.0.0.1:${(http.address() as AddressInfo).port}/`;
+        const channel = globalThis.crypto.randomUUID();
+        const bridge = await createBrowserEditorBridge(reader, channel, (hit) =>
+          revealSharedSource(profile, hit, vscode.ViewColumn.One),
         );
-        const connection = new WebSocket(bridge.localUrl.replace(/^http/, "ws"), {
-          origin: "http://localhost:23625",
-        });
+        const connection = new WebSocket(
+          new URL(`editor/${channel}`, reader).toString().replace(/^http/, "ws"),
+          {
+            origin: new URL(reader).origin,
+          },
+        );
         try {
           await once(connection, "open");
           connection.send(
@@ -59,6 +66,9 @@ export async function getTests(ctx: Context) {
         } finally {
           connection.terminate();
           bridge.dispose();
+          relay.dispose();
+          http.closeAllConnections();
+          await new Promise<void>((resolve) => http.close(() => resolve()));
           await vscode.commands.executeCommand("workbench.action.closeAllEditors");
           await rm(target.fsPath, { force: true });
         }
@@ -96,6 +106,7 @@ export async function getTests(ctx: Context) {
           });
           </script>`);
       });
+      const relay = attachFlowEditorRelay(http);
       await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
       try {
         await writeFile(target.fsPath, "= Navigation\n한😀글 source target\n");
@@ -150,14 +161,12 @@ export async function getTests(ctx: Context) {
         await vscode.commands.executeCommand("typst-preview.sync");
         const syncDeadline = Date.now() + 5000;
         while (!panelScroll && Date.now() < syncDeadline) await ctx.timeout(50);
-        ctx
-          .expect(panelScroll)
-          .to.deep.equal({
-            event: "panelScrollTo",
-            filepath: target.fsPath,
-            line: 1,
-            character: 6,
-          });
+        ctx.expect(panelScroll).to.deep.equal({
+          event: "panelScrollTo",
+          filepath: target.fsPath,
+          line: 1,
+          character: 6,
+        });
         const after = await vscode.commands.executeCommand<{ tasks: unknown[] }>(
           "tinymist.doInspectPreviewState",
         );
@@ -170,6 +179,7 @@ export async function getTests(ctx: Context) {
         if (previousSupport === undefined) delete process.env.FLOW_DATA_DIR;
         else process.env.FLOW_DATA_DIR = previousSupport;
         http.closeAllConnections();
+        relay.dispose();
         await new Promise<void>((resolve) => http.close(() => resolve()));
         await rm(support, { recursive: true, force: true });
         await rm(target.fsPath, { force: true });

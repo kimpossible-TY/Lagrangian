@@ -116,7 +116,6 @@ beforeEach(() => {
   });
   mock.openExternal.mockResolvedValue(true);
   mock.createBridge.mockResolvedValue({
-    localUrl: "http://127.0.0.1:1234/editor/test",
     connected: true,
     send: mock.send,
     dispose: vi.fn(),
@@ -173,7 +172,12 @@ test("concurrent and repeated opens share one viewer and use the public route di
   await openSharedFlowPreview(ctx, document, "webview");
   expect(mock.createWebviewPanel).toHaveBeenCalledTimes(1);
   expect(mock.fetch).toHaveBeenCalledTimes(1);
-  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
+  expect(mock.asExternalUri).not.toHaveBeenCalled();
+  expect(mock.createBridge).toHaveBeenCalledWith(
+    "http://127.0.0.1:23625/",
+    expect.any(String),
+    expect.any(Function),
+  );
   expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain(
     "https://reader.example/",
   );
@@ -194,7 +198,7 @@ test("loopback-only profiles use port forwarding and preserve the full forwarded
     JSON.stringify({ schemaVersion: 1, profiles: [{ ...profile, publicURL: "" }] }),
   );
   await openSharedFlowPreview(context(), document, "webview");
-  expect(mock.asExternalUri).toHaveBeenCalledTimes(2);
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
   expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain("?token=a&amp;b=c");
 });
 
@@ -241,7 +245,7 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   mock.remoteName = "tunnel";
   await openSharedFlowPreview(context(), document, "webview");
   const panel = mock.createWebviewPanel.mock.results[0].value;
-  expect(mock.asExternalUri).toHaveBeenCalledTimes(2);
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
   expect(panel.webview.html).toContain("https://forwarded.example/?token=a&amp;b=c");
   expect(panel.webview.html).not.toContain("https://reader.example/");
   expect(panel.webview.html).toContain("Open in Browser");
@@ -250,9 +254,11 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   const external = new URL(String(mock.openExternal.mock.calls[0][0].toString()));
   expect(external.origin).toBe("https://forwarded.example");
   expect(external.searchParams.get("token")).toBe("a");
-  expect(external.searchParams.get("tinymist-editor-control")).toBe(
-    "https://forwarded.example/?token=a&b=c",
-  );
+  const control = new URL(external.searchParams.get("tinymist-editor-control")!);
+  expect(control.origin).toBe(external.origin);
+  expect(control.pathname).toBe(`/editor/${external.searchParams.get("tinymist-editor")}`);
+  expect(control.searchParams.get("token")).toBe("a");
+  expect(control.searchParams.get("b")).toBe("c");
   await handler({ type: "unknown" });
   expect(mock.openExternal).toHaveBeenCalledTimes(1);
   mock.openExternal.mockResolvedValue(false);

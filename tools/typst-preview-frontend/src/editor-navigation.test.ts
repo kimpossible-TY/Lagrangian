@@ -6,7 +6,7 @@ const channel = "12345678-1234-1234-1234-123456789abc";
 const jump = { event: "editorScrollTo", filepath: "/project/한글.typ", start: [2, 3], end: [2, 7] };
 const scroll = { event: "panelScrollTo", filepath: jump.filepath, line: 2, character: 4 };
 function fixture(
-  query = `?tinymist-editor=${channel}&tinymist-editor-control=${encodeURIComponent(`https://forwarded.example/editor/${channel}?token=keep`)}`,
+  query = `?tinymist-editor=${channel}&tinymist-editor-control=${encodeURIComponent(`https://reader.example/editor/${channel}?token=keep`)}`,
 ) {
   let callbacks: ConstructorParameters<typeof PreviewConnection>[1];
   const socket = { readyState: 1, send: vi.fn() };
@@ -36,7 +36,7 @@ function fixture(
 test("desktop readers reuse both upstream control events and preserve tunnel authentication", () => {
   const f = fixture();
   expect(f.navigation.enabled).toBe(true);
-  expect(f.connect.mock.calls[0][0]).toBe(`wss://forwarded.example/editor/${channel}?token=keep`);
+  expect(f.connect.mock.calls[0][0]).toBe(`wss://reader.example/editor/${channel}?token=keep`);
   expect(f.navigation.reveal({ ...jump, excerpt: "private source" })).toBe(true);
   expect(JSON.parse(f.socket.send.mock.calls[0][0])).toEqual(jump);
   f.message(scroll);
@@ -49,6 +49,7 @@ test("desktop readers reuse both upstream control events and preserve tunnel aut
 test.each([
   "",
   `?tinymist-editor=${channel}`,
+  `?tinymist-editor=${channel}&tinymist-editor-control=${encodeURIComponent(`https://other-port.example/editor/${channel}`)}`,
   "?tinymist-editor=invalid&tinymist-editor-control=http://localhost/editor/invalid",
 ])("ordinary or incomplete reader URL %s creates no control connection", (query) => {
   const f = fixture(query);
