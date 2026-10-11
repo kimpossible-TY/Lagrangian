@@ -10,12 +10,7 @@ import type { BaseLanguageClient as LanguageClient } from "vscode-languageclient
 import { HoverDummyStorage } from "./features/hover-storage";
 import type { HoverTmpStorage } from "./features/hover-storage.tmp";
 import { extensionState } from "./state";
-import {
-  bytesBase64Encode,
-  DisposeList,
-  getSensibleTextEditorColumn,
-  typstDocumentSelector,
-} from "./util";
+import { bytesBase64Encode, DisposeList, typstDocumentSelector } from "./util";
 import type { ExportActionOpts, ExportOpts } from "./cmd.export";
 import {
   patchInjectedClientOptionsInConfig,
@@ -24,6 +19,7 @@ import {
 } from "./config";
 import { TinymistStatus, wordCountItemProcess } from "./ui-extends";
 import { previewProcessOutline } from "./features/preview";
+import { revealPreviewSource, type PreviewSourceJump } from "./features/preview-sync";
 import { saveStoredViewerWindowState } from "./features/preview-window-state";
 import { l10nMsg } from "./l10n";
 import { wordPattern } from "./language";
@@ -91,12 +87,6 @@ export type ScrollPreviewRequest =
   | SourceScrollBySpanRequest
   | PanelScrollByPositionRequest
   | PanelScrollOrCursorMoveRequest;
-
-interface JumpInfo {
-  filepath: string;
-  start: [number, number] | null;
-  end: [number, number] | null;
-}
 
 export class LanguageState {
   static Client: typeof createSystemLanguageClient = undefined!;
@@ -619,59 +609,8 @@ export class LanguageState {
     });
 
     // (Optional) The server requests to scroll the source code to a specific position
-    client.onNotification("tinymist/preview/scrollSource", async (jump: JumpInfo) => {
-      console.log(
-        "recv editorScrollTo request",
-        jump,
-        "active",
-        vscode.window.activeTextEditor !== undefined,
-        "documents",
-        vscode.workspace.textDocuments.map((doc) => doc.uri.fsPath),
-      );
-
-      if (jump.start === null || jump.end === null) {
-        return;
-      }
-
-      function inputHasUri(
-        input: unknown,
-      ): input is vscode.TabInputText | vscode.TabInputCustom | vscode.TabInputNotebook {
-        return (
-          input instanceof vscode.TabInputText ||
-          input instanceof vscode.TabInputCustom ||
-          input instanceof vscode.TabInputNotebook
-        );
-      }
-
-      // Resolve the affiliated column if it is already opened
-      let affiliatedColumn: vscode.ViewColumn | undefined = undefined;
-      for (const group of vscode.window.tabGroups.all) {
-        for (const tab of group.tabs) {
-          if (!tab || !inputHasUri(tab.input)) {
-            continue;
-          }
-
-          if (tab.input.uri.fsPath === jump.filepath) {
-            affiliatedColumn = group.viewColumn;
-            break;
-          }
-        }
-        if (affiliatedColumn !== undefined) {
-          break;
-        }
-      }
-
-      // open this file and show in editor
-      const doc =
-        vscode.workspace.textDocuments.find((doc) => doc.uri.fsPath === jump.filepath) ||
-        (await vscode.workspace.openTextDocument(jump.filepath));
-      const col = affiliatedColumn || getSensibleTextEditorColumn();
-      const editor = await vscode.window.showTextDocument(doc, col);
-      const startPosition = new vscode.Position(jump.start[0], jump.start[1]);
-      const endPosition = new vscode.Position(jump.end[0], jump.end[1]);
-      const range = new vscode.Range(startPosition, endPosition);
-      editor.selection = new vscode.Selection(range.start, range.end);
-      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    client.onNotification("tinymist/preview/scrollSource", async (jump: PreviewSourceJump) => {
+      await revealPreviewSource(jump);
     });
 
     // (Optional) The server requests to update the document outline

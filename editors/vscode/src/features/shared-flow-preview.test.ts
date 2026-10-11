@@ -1,4 +1,3 @@
-import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type * as vscode from "vscode";
 
@@ -15,6 +14,13 @@ const mock = vi.hoisted(() => ({
   showWarningMessage: vi.fn(),
   openTextDocument: vi.fn(),
   showTextDocument: vi.fn(),
+  onDidChangeTextEditorSelection: vi.fn((_handler: any) => ({ dispose: vi.fn() })),
+  getConfiguration: vi.fn(() => ({
+    get: () => "onSelectionChangeByMouse",
+    inspect: () => ({ defaultValue: "onSelectionChangeByMouse" }),
+  })),
+  createBridge: vi.fn(),
+  send: vi.fn(),
 }));
 vi.mock("node:fs/promises", () => ({ readFile: mock.readFile, realpath: mock.realpath }));
 vi.mock("vscode", () => ({
@@ -23,6 +29,8 @@ vi.mock("vscode", () => ({
       return mock.workspace.isTrusted;
     },
     openTextDocument: mock.openTextDocument,
+    getConfiguration: mock.getConfiguration,
+    textDocuments: [],
   },
   window: {
     createWebviewPanel: mock.createWebviewPanel,
@@ -30,6 +38,8 @@ vi.mock("vscode", () => ({
     showWarningMessage: mock.showWarningMessage,
     showTextDocument: mock.showTextDocument,
     visibleTextEditors: [],
+    tabGroups: { all: [] },
+    onDidChangeTextEditorSelection: mock.onDidChangeTextEditorSelection,
   },
   env: {
     asExternalUri: mock.asExternalUri,
@@ -54,9 +64,18 @@ vi.mock("vscode", () => ({
       public end: unknown,
     ) {}
   },
-  TextEditorRevealType: { InCenterIfOutsideViewport: 2 },
+  Selection: class {
+    constructor(
+      public start: unknown,
+      public end: unknown,
+    ) {}
+  },
+  TextEditorSelectionChangeKind: { Keyboard: 1, Mouse: 2, Command: 3 },
+  TextEditorRevealType: { InCenter: 1 },
   ViewColumn: { Beside: 2 },
 }));
+vi.mock("./shared-flow-browser", () => ({ createBrowserEditorBridge: mock.createBridge }));
+vi.mock("../util", () => ({ getSensibleTextEditorColumn: () => 1 }));
 vi.mock("../l10n", () => ({ l10nMsg: (message: string) => message }));
 import {
   containsPath,
@@ -65,6 +84,7 @@ import {
   selectFlowProfile,
   sharedReaderHtml,
   revealSharedSource,
+  syncSharedFlowPreview,
 } from "./shared-flow-preview";
 
 const profile = {
@@ -95,6 +115,12 @@ beforeEach(() => {
     toString: () => "https://forwarded.example/?token=a&b=c",
   });
   mock.openExternal.mockResolvedValue(true);
+  mock.createBridge.mockResolvedValue({
+    localUrl: "http://127.0.0.1:1234/editor/test",
+    connected: true,
+    send: mock.send,
+    dispose: vi.fn(),
+  });
   mock.createWebviewPanel.mockImplementation(() => {
     let disposed = () => {};
     return {
@@ -147,7 +173,7 @@ test("concurrent and repeated opens share one viewer and use the public route di
   await openSharedFlowPreview(ctx, document, "webview");
   expect(mock.createWebviewPanel).toHaveBeenCalledTimes(1);
   expect(mock.fetch).toHaveBeenCalledTimes(1);
-  expect(mock.asExternalUri).not.toHaveBeenCalled();
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
   expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain(
     "https://reader.example/",
   );
@@ -157,7 +183,7 @@ test("concurrent and repeated opens share one viewer and use the public route di
 test("closing only the viewer permits reopening without a service mutation", async () => {
   const ctx = context();
   await openSharedFlowPreview(ctx, document, "webview");
-  ctx.subscriptions[0].dispose();
+  ctx.subscriptions.at(-1)!.dispose();
   await openSharedFlowPreview(ctx, document, "webview");
   expect(mock.createWebviewPanel).toHaveBeenCalledTimes(2);
   expect(mock.fetch.mock.calls.every(([, opts]) => opts.method === undefined)).toBe(true);
@@ -168,7 +194,7 @@ test("loopback-only profiles use port forwarding and preserve the full forwarded
     JSON.stringify({ schemaVersion: 1, profiles: [{ ...profile, publicURL: "" }] }),
   );
   await openSharedFlowPreview(context(), document, "webview");
-  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(2);
   expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain("?token=a&amp;b=c");
 });
 
@@ -215,7 +241,7 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   mock.remoteName = "tunnel";
   await openSharedFlowPreview(context(), document, "webview");
   const panel = mock.createWebviewPanel.mock.results[0].value;
-  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(2);
   expect(panel.webview.html).toContain("https://forwarded.example/?token=a&amp;b=c");
   expect(panel.webview.html).not.toContain("https://reader.example/");
   expect(panel.webview.html).toContain("Open in Browser");
@@ -224,7 +250,7 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   const external = new URL(String(mock.openExternal.mock.calls[0][0].toString()));
   expect(external.origin).toBe("https://forwarded.example");
   expect(external.searchParams.get("token")).toBe("a");
-  expect(external.searchParams.get("tinymist-editor-callback")).toBe(
+  expect(external.searchParams.get("tinymist-editor-control")).toBe(
     "https://forwarded.example/?token=a&b=c",
   );
   await handler({ type: "unknown" });
@@ -234,7 +260,7 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   expect(mock.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining("could not open"));
 });
 
-const sourceHit = { filepath: "/project/chapter.typ", line: 2, column: 4 };
+const sourceHit = { filepath: "/project/chapter.typ", start: [1, 3], end: [1, 6] };
 function mockSource(isDirty = false) {
   const doc = {
     isDirty,
@@ -243,7 +269,7 @@ function mockSource(isDirty = false) {
     lineAt: () => ({ text: "한😀글 source" }),
   };
   mock.openTextDocument.mockResolvedValue(doc);
-  const editor = { revealRange: vi.fn() };
+  const editor = { revealRange: vi.fn(), selection: undefined as any };
   mock.showTextDocument.mockResolvedValue(editor);
   return editor;
 }
@@ -251,11 +277,9 @@ const canonicalProfile = { ...profile, entry: "/project/main.typ" };
 test("source hits open the source group with an exact UTF-16 cursor position", async () => {
   const editor = mockSource();
   await revealSharedSource(canonicalProfile, sourceHit, 1);
-  const opts = mock.showTextDocument.mock.calls[0][1];
-  expect(opts.viewColumn).toBe(1);
-  expect(opts.preserveFocus).toBe(false);
-  expect(opts.selection.start).toEqual({ line: 1, character: 4 });
-  expect(opts.selection.end).toEqual(opts.selection.start);
+  expect(mock.showTextDocument.mock.calls[0][1]).toBe(1);
+  expect(editor.selection.start).toEqual({ line: 1, character: 4 });
+  expect(editor.selection.end).toEqual({ line: 1, character: 7 });
   expect(editor.revealRange).toHaveBeenCalled();
 });
 
@@ -263,8 +287,8 @@ test("untrusted, invalid and canonical outside-project hits cannot open files", 
   mockSource();
   for (const change of [
     { filepath: "../secret" },
-    { line: 0 },
-    { column: 1.5 },
+    { start: [-1, 0] },
+    { start: [1, 1.5] },
     { filepath: "/project-other/secret" },
   ]) {
     await revealSharedSource(canonicalProfile, { ...sourceHit, ...change }, 1);
@@ -281,39 +305,46 @@ test("dirty sources and out-of-range positions do not move the cursor", async ()
   await revealSharedSource(canonicalProfile, sourceHit, 1);
   expect(mock.showWarningMessage).toHaveBeenCalled();
   mockSource(false);
-  await revealSharedSource(canonicalProfile, { ...sourceHit, line: 99 }, 1);
-  await revealSharedSource(canonicalProfile, { ...sourceHit, column: 99 }, 1);
+  await revealSharedSource(canonicalProfile, { ...sourceHit, start: [99, 0] }, 1);
+  await revealSharedSource(canonicalProfile, { ...sourceHit, end: [1, 99] }, 1);
   expect(mock.showTextDocument).not.toHaveBeenCalled();
 });
 
-test("webview bridge rejects messages from another iframe, origin or panel", () => {
-  const channel = "12345678-1234-1234-1234-123456789abc";
-  const html = sharedReaderHtml("https://reader.example/?token=keep", channel);
-  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)![1];
-  const frame = {
-    src: `https://reader.example/?token=keep&tinymist-editor=${channel}`,
-    contentWindow: {},
-  };
-  const postMessage = vi.fn();
-  let listener: (event: unknown) => void = () => {};
-  runInNewContext(script, {
-    URL,
-    acquireVsCodeApi: () => ({ postMessage }),
-    document: {
-      getElementById: (id: string) => (id === "reader" ? frame : { addEventListener() {} }),
-    },
-    window: {
-      addEventListener: (_name: string, handler: typeof listener) => {
-        listener = handler;
-      },
-    },
+test("shared editor selections use the upstream policy and UTF-16/scalar conversion", async () => {
+  await openSharedFlowPreview(context(), document, "webview");
+  const listener = mock.onDidChangeTextEditorSelection.mock.calls[0][0];
+  const point = (character: number) => ({
+    line: 1,
+    character,
+    isEqual: (p: any) => p.character === character && p.line === 1,
   });
-  const data = { type: "flowSourceLocation", channel, ...sourceHit };
-  const valid = { source: frame.contentWindow, origin: "https://reader.example", data };
-  listener({ ...valid, source: {} });
-  listener({ ...valid, origin: "https://attacker.example" });
-  listener({ ...valid, data: { ...data, channel: "other" } });
-  expect(postMessage).not.toHaveBeenCalled();
-  listener(valid);
-  expect(postMessage).toHaveBeenCalledWith(data);
+  const editor: any = {
+    document: {
+      uri: { scheme: "file", fsPath: "/project/chapter.typ" },
+      isDirty: false,
+      lineAt: () => ({ text: "한😀글 source" }),
+    },
+    selections: [{}],
+    selection: { start: point(4), end: point(4), active: point(4) },
+  };
+  listener({ kind: 3, textEditor: editor });
+  listener({ kind: 1, textEditor: editor });
+  await Promise.resolve();
+  expect(mock.send).not.toHaveBeenCalled();
+  listener({ kind: 2, textEditor: editor });
+  await vi.waitFor(() =>
+    expect(mock.send).toHaveBeenCalledExactlyOnceWith({
+      event: "panelScrollTo",
+      filepath: "/project/chapter.typ",
+      line: 1,
+      character: 3,
+    }),
+  );
+  listener({ kind: 2, textEditor: editor });
+  editor.document.isDirty = true;
+  listener({ kind: 2, textEditor: editor });
+  expect(mock.send).toHaveBeenCalledTimes(1);
+  editor.document.isDirty = false;
+  await syncSharedFlowPreview(editor as vscode.TextEditor);
+  expect(mock.send).toHaveBeenCalledTimes(2);
 });

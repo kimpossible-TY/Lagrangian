@@ -36,7 +36,15 @@ import {
   type ResolvedPreviewer,
 } from "./previewer";
 import { loadStoredViewerWindowState } from "./preview-window-state";
-import { openSharedFlowPreview } from "./shared-flow-preview";
+import { openSharedFlowPreview, syncSharedFlowPreview } from "./shared-flow-preview";
+import {
+  getPreviewConfCompat,
+  PreviewSelectionTracker,
+  ScrollSyncModeEnum,
+  shouldSyncPreview,
+  type ScrollSyncMode,
+} from "./preview-sync";
+export { ScrollSyncModeEnum, type ScrollSyncMode } from "./preview-sync";
 
 /**
  * The launch preview implementation which depends on `isCompat` of previewActivate.
@@ -300,18 +308,6 @@ export function previewActivate(context: vscode.ExtensionContext, isCompat: bool
 export function previewDeactivate() {
   invalidatePreviewerCache();
   previewDeactivateCompat();
-}
-
-function getPreviewConfCompat<T>(s: string) {
-  const conf = vscode.workspace.getConfiguration();
-  const t = conf.get<T>(`tinymist.preview.${s}`);
-  const tAuto = conf.inspect<T>(`tinymist.preview.${s}`);
-  const t2 = conf.get<T>(`typst-preview.${s}`);
-  if (t === tAuto?.defaultValue && t2 !== undefined) {
-    return t2;
-  }
-
-  return t;
 }
 
 /**
@@ -643,7 +639,7 @@ async function launchPreviewLsp(task: LaunchInBrowserTask | LaunchInWebViewTask)
   return { message: "ok", taskId };
 
   async function invokeLspCommand() {
-    let prevSelection: EditorSelection | undefined = undefined;
+    const selectionTracker = new PreviewSelectionTracker();
     const scrollSyncMode =
       ScrollSyncModeEnum[getPreviewConfCompat<ScrollSyncMode>("scrollSync") || "never"];
     const enableCursor = getPreviewConfCompat<boolean>("cursorIndicator") || false;
@@ -677,12 +673,7 @@ async function launchPreviewLsp(task: LaunchInBrowserTask | LaunchInWebViewTask)
         const editor = e.textEditor;
         const kind = e.kind;
 
-        const shouldScrollPanel =
-          // scroll by mouse
-          kind === vscode.TextEditorSelectionChangeKind.Mouse ||
-          // scroll by keyboard typing
-          (scrollSyncMode === ScrollSyncModeEnum.onSelectionChange &&
-            kind === vscode.TextEditorSelectionChangeKind.Keyboard);
+        const shouldScrollPanel = shouldSyncPreview(kind, scrollSyncMode);
         if (shouldScrollPanel) {
           // console.log(`selection changed, sending src2doc jump request`);
           mayReportPosition(editor, "panelScrollTo");
@@ -702,48 +693,9 @@ async function launchPreviewLsp(task: LaunchInBrowserTask | LaunchInWebViewTask)
      * Reports the position of the editor when necessary.
      */
     function mayReportPosition(editor: vscode.TextEditor, event: "panelScrollTo") {
-      // For multiple selections, we don't try to scroll the preview panel.
-      if (editor.selections.length > 1) {
-        return;
-      }
-      // For adjacent selections, we don't try to scroll the preview panel.
-      if (adjacentSelection(editor, prevSelection)) {
-        return;
-      }
-      // Updates selection and reports the position.
-      prevSelection = {
-        uri: editor.document.uri,
-        start: editor.selection.start,
-        end: editor.selection.end,
-      };
+      if (!selectionTracker.shouldReport(editor)) return;
       return reportPosition(editor, event);
     }
-  }
-
-  interface EditorSelection {
-    uri: vscode.Uri;
-    start: vscode.Position;
-    end: vscode.Position;
-  }
-
-  function adjacentSelection(editor: vscode.TextEditor, prevSelection?: EditorSelection): boolean {
-    // If there is no previous position, we cannot determine if the current position is adjacent.
-    // Or if the previous position is not from the same document, we cannot determine either.
-    // It is intended to compare uri equality by reference, not by value.
-    if (!prevSelection || prevSelection.uri !== editor.document.uri) {
-      return false;
-    }
-
-    // Any of the current selection start or end shares the same position with the previous
-    // selection start or end, we consider it as adjacent.
-    const currentStart = editor.selection.start;
-    const currentEnd = editor.selection.end;
-    return (
-      currentStart.isEqual(prevSelection.start) ||
-      currentEnd.isEqual(prevSelection.end) ||
-      currentStart.isEqual(prevSelection.end) ||
-      currentEnd.isEqual(prevSelection.start)
-    );
   }
 
   async function reportPosition(
@@ -817,6 +769,8 @@ async function panelSyncScrollLsp(args: any) {
     return;
   }
 
+  if (!args?.taskId && (await syncSharedFlowPreview(activeEditor))) return;
+
   const taskId = args?.taskId;
   for (const t of activeTask.values()) {
     if (taskId && t.taskId !== taskId) {
@@ -854,14 +808,6 @@ let resolveOutlineProvider: (value: OutlineProvider) => void = () => {};
 export const outlineProvider = new Promise<OutlineProvider>((resolve) => {
   resolveOutlineProvider = resolve;
 });
-
-export enum ScrollSyncModeEnum {
-  never,
-  onSelectionChangeByMouse,
-  onSelectionChange,
-}
-
-export type ScrollSyncMode = "never" | "onSelectionChangeByMouse" | "onSelectionChange";
 
 export function previewProcessOutline(outlineData: any) {
   contentPreviewProvider.then((p) => p.postOutlineItem(outlineData /* Outline */));

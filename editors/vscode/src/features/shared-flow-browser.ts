@@ -1,78 +1,104 @@
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+import * as ws from "ws";
+import type { PreviewSourceJump } from "./preview-sync";
 
-/** A small, per-reader callback endpoint; it carries source hits, never document frames. */
-export async function createBrowserSourceBridge(
+export interface PanelScrollRequest {
+  event: "panelScrollTo";
+  filepath: string;
+  line: number;
+  character: number;
+}
+
+export interface BrowserEditorBridge {
+  localUrl: string;
+  readonly connected: boolean;
+  send(request: PanelScrollRequest): boolean;
+  dispose(): void;
+}
+
+/** The upstream control protocol, with no document frames or memory-file events. */
+export async function createBrowserEditorBridge(
   readerOrigin: string,
   channel: string,
-  reveal: (value: unknown) => Promise<void>,
-): Promise<{ localUrl: string; dispose(): void }> {
-  let busy = false;
-  const route = `/source/${channel}`;
+  reveal: (value: PreviewSourceJump) => Promise<void>,
+): Promise<BrowserEditorBridge> {
+  const route = `/editor/${channel}`;
+  // Namespace imports keep desktop-only servers out of the web runtime path.
   const { createServer } = http;
-  const server = createServer(async (request, response) => {
+  const { WebSocketServer } = ws;
+  const server = createServer((_request, response) => response.writeHead(404).end());
+  const sockets = new WebSocketServer({ noServer: true, maxPayload: 8192 });
+  server.on("upgrade", (request, socket, head) => {
     if (
       new URL(request.url || "/", "http://localhost").pathname !== route ||
       request.headers.origin !== readerOrigin
     ) {
-      response.writeHead(403).end();
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
     }
-    response.setHeader("Access-Control-Allow-Origin", readerOrigin);
-    response.setHeader("Vary", "Origin");
-    response.setHeader("Cache-Control", "no-store");
-    if (request.method === "OPTIONS") {
-      response.setHeader("Access-Control-Allow-Methods", "POST");
-      response.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      response.setHeader("Access-Control-Allow-Private-Network", "true");
-      response.writeHead(204).end();
-      return;
-    }
-    if (request.method !== "POST") {
-      response.writeHead(405).end();
-      return;
-    }
-    if (busy) {
-      response.writeHead(429).end();
-      return;
-    }
-    busy = true;
-    try {
-      const chunks: Uint8Array[] = [];
-      let bytes = 0;
-      for await (const raw of request) {
-        const chunk = raw as Uint8Array;
-        bytes += chunk.byteLength;
-        if (bytes > 8192) {
-          response.writeHead(413).end();
-          return;
-        }
-        chunks.push(chunk);
-      }
+    sockets.handleUpgrade(request, socket, head, (connection) => {
+      sockets.emit("connection", connection, request);
+    });
+  });
+  sockets.on("connection", (connection) => {
+    let busy = false;
+    connection.on("error", () => {});
+    connection.on("message", async (raw, binary) => {
+      if (binary || busy) return;
       let value: unknown;
       try {
-        value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        const bytes = Array.isArray(raw)
+          ? Buffer.concat(raw)
+          : Buffer.isBuffer(raw)
+            ? raw
+            : Buffer.from(raw);
+        value = JSON.parse(bytes.toString("utf8"));
       } catch {
-        response.writeHead(400).end();
         return;
       }
-      await reveal(value);
-      response.writeHead(204).end();
-    } catch {
-      if (!response.headersSent) response.writeHead(500).end();
-    } finally {
-      busy = false;
-    }
+      if ((value as { event?: unknown } | null)?.event !== "editorScrollTo") return;
+      busy = true;
+      try {
+        await reveal(value as PreviewSourceJump);
+      } catch {
+        // A failed source reveal must not expose local paths or tear down Flow.
+      } finally {
+        busy = false;
+      }
+    });
   });
-  server.requestTimeout = 5000;
   server.headersTimeout = 5000;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
   });
+  let disposed = false;
   return {
     localUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}${route}`,
+    get connected() {
+      return (
+        !disposed && Array.from(sockets.clients).some((c) => c.readyState === ws.WebSocket.OPEN)
+      );
+    },
+    send(request) {
+      if (disposed) return false;
+      const payload = Buffer.from(JSON.stringify(request));
+      if (payload.byteLength > 8192) return false;
+      let sent = false;
+      for (const connection of sockets.clients) {
+        if (connection.readyState !== ws.WebSocket.OPEN) continue;
+        // Slow/disconnected readers must not accumulate cursor movement events.
+        if (connection.bufferedAmount > 8192) continue;
+        connection.send(payload);
+        sent = true;
+      }
+      return sent;
+    },
     dispose() {
+      disposed = true;
+      for (const connection of sockets.clients) connection.terminate();
+      sockets.close();
       server.closeAllConnections();
       server.close();
     },

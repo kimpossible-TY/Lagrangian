@@ -330,103 +330,23 @@ impl RenderActor {
     }
 
     fn editor_resolve_span_range(&self, span_range: Range<SourceSpanOffset>) -> Option<()> {
-        let req = EditorActorRequest::DocToSrcJump(self.resolve_span_range(span_range)?);
+        let req = EditorActorRequest::DocToSrcJump(resolve_span_range(
+            self.view()?.as_ref(),
+            span_range,
+        )?);
         let _ = self.editor_conn_sender.send(req);
 
         Some(())
     }
 
-    fn resolve_span_range(&self, range: Range<SourceSpanOffset>) -> Option<DocToSrcJumpInfo> {
-        let view = self.view()?;
-        // Resolves FileLoC of start, end, and the element wide
-        let st_res = view.resolve_span(range.start.span, Some(range.start.offset));
-        let ed_res = view.resolve_span(range.end.span, Some(range.end.offset));
-        let elem_res = view.resolve_span(range.end.span, None);
-
-        // Combines the result of start and end
-        let range_res = match (st_res, ed_res) {
-            (Some(st), Some(ed)) => {
-                if st.filepath == ed.filepath
-                    && matches!((&st.start, &st.end), (Some(x), Some(y)) if x <= y)
-                {
-                    Some(DocToSrcJumpInfo {
-                        filepath: st.filepath,
-                        start: st.start,
-                        end: ed.start,
-                    })
-                } else {
-                    Some(ed)
-                }
-            }
-            (Some(info), None) | (None, Some(info)) => Some(info),
-            (None, None) => None,
-        };
-
-        // Account for the case where the start and end are out of order.
-        //
-        // This could happen because typst supports scripting, which makes text out of
-        // order
-        let range_res = {
-            let mut range_res = range_res;
-            if let Some(info) = &mut range_res
-                && let Some((x, y)) = info.start.zip(info.end)
-                && y <= x
-            {
-                std::mem::swap(&mut info.start, &mut info.end);
-            }
-
-            range_res
-        };
-
-        // Restricts the range to the element's range
-        match (elem_res, range_res) {
-            (Some(elem), Some(mut rng)) if elem.filepath == rng.filepath => {
-                // Account for the case where the element's range is out of order.
-                let elem_start = elem.start.or(elem.end);
-                let elem_end = elem.end.or(elem_start);
-
-                // Account for the case where the range is out of order.
-                let rng_start = rng.start.or(rng.end);
-                let rng_end = rng.end.or(rng_start);
-
-                if let Some((((u, inner_u), inner_v), v)) =
-                    elem_start.zip(rng_start).zip(rng_end).zip(elem_end)
-                {
-                    rng.start = Some(inner_u.max(u).min(v));
-                    rng.end = Some(inner_v.max(u).min(v));
-                }
-                Some(rng)
-            }
-            (.., Some(info)) | (Some(info), None) => Some(info),
-            (None, None) => None,
-        }
-    }
-
     fn resolve_source_loc(&self, req: ResolveSourceLocRequest) -> Option<()> {
-        // todo: change name to resolve resolve src position
-        let info = self
-            .view()?
-            .resolve_document_position(crate::Location::Src(SourceLocation {
-                filepath: req.filepath.to_string_lossy().to_string(),
-                pos: LspPosition {
-                    line: req.line,
-                    character: req.character,
-                },
-            }));
-
-        if info.is_empty() {
+        let positions = source_to_document_positions(self.view()?.as_ref(), req);
+        if positions.is_empty() {
             return None;
         }
-
-        let _ = self.webview_sender.send(WebviewActorRequest::SrcToDocJump(
-            info.into_iter()
-                .map(|info| DocumentPosition {
-                    page_no: info.page.into(),
-                    x: info.point.x.to_pt() as f32,
-                    y: info.point.y.to_pt() as f32,
-                })
-                .collect(),
-        ));
+        let _ = self
+            .webview_sender
+            .send(WebviewActorRequest::SrcToDocJump(positions));
 
         Some(())
     }
@@ -439,6 +359,96 @@ impl RenderActor {
         let view = self.view.read();
         view.as_ref()?.resolve_frame_loc(pos)
     }
+}
+
+/// Reuse the upstream component-range resolver for each preview transport.
+pub(crate) fn resolve_span_range(
+    view: &dyn CompileView,
+    range: Range<SourceSpanOffset>,
+) -> Option<DocToSrcJumpInfo> {
+    // Resolves FileLoC of start, end, and the element wide
+    let st_res = view.resolve_span(range.start.span, Some(range.start.offset));
+    let ed_res = view.resolve_span(range.end.span, Some(range.end.offset));
+    let elem_res = view.resolve_span(range.end.span, None);
+
+    // Combines the result of start and end
+    let range_res = match (st_res, ed_res) {
+        (Some(st), Some(ed)) => {
+            if st.filepath == ed.filepath
+                && matches!((&st.start, &st.end), (Some(x), Some(y)) if x <= y)
+            {
+                Some(DocToSrcJumpInfo {
+                    filepath: st.filepath,
+                    start: st.start,
+                    end: ed.start,
+                })
+            } else {
+                Some(ed)
+            }
+        }
+        (Some(info), None) | (None, Some(info)) => Some(info),
+        (None, None) => None,
+    };
+
+    // Account for the case where the start and end are out of order.
+    //
+    // This could happen because typst supports scripting, which makes text out of
+    // order
+    let range_res = {
+        let mut range_res = range_res;
+        if let Some(info) = &mut range_res
+            && let Some((x, y)) = info.start.zip(info.end)
+            && y <= x
+        {
+            std::mem::swap(&mut info.start, &mut info.end);
+        }
+
+        range_res
+    };
+
+    // Restricts the range to the element's range
+    match (elem_res, range_res) {
+        (Some(elem), Some(mut rng)) if elem.filepath == rng.filepath => {
+            // Account for the case where the element's range is out of order.
+            let elem_start = elem.start.or(elem.end);
+            let elem_end = elem.end.or(elem_start);
+
+            // Account for the case where the range is out of order.
+            let rng_start = rng.start.or(rng.end);
+            let rng_end = rng.end.or(rng_start);
+
+            if let Some((((u, inner_u), inner_v), v)) =
+                elem_start.zip(rng_start).zip(rng_end).zip(elem_end)
+            {
+                rng.start = Some(inner_u.max(u).min(v));
+                rng.end = Some(inner_v.max(u).min(v));
+            }
+            Some(rng)
+        }
+        (.., Some(info)) | (Some(info), None) => Some(info),
+        (None, None) => None,
+    }
+}
+
+/// Reuse the upstream source mapping without rendering or broadcasting to other viewers.
+pub(crate) fn source_to_document_positions(
+    view: &dyn CompileView,
+    req: ResolveSourceLocRequest,
+) -> Vec<DocumentPosition> {
+    view.resolve_document_position(crate::Location::Src(SourceLocation {
+        filepath: req.filepath.to_string_lossy().to_string(),
+        pos: LspPosition {
+            line: req.line,
+            character: req.character,
+        },
+    }))
+    .into_iter()
+    .map(|info| DocumentPosition {
+        page_no: info.page.into(),
+        x: info.point.x.to_pt() as f32,
+        y: info.point.y.to_pt() as f32,
+    })
+    .collect()
 }
 
 pub struct OutlineRenderActor {

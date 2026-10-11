@@ -2,7 +2,16 @@ import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { createBrowserSourceBridge } from "./shared-flow-browser";
+import { createBrowserEditorBridge, type BrowserEditorBridge } from "./shared-flow-browser";
+import {
+  getPreviewConfCompat,
+  PreviewSelectionTracker,
+  revealPreviewSource,
+  ScrollSyncModeEnum,
+  shouldSyncPreview,
+  type PreviewSourceJump,
+  type ScrollSyncMode,
+} from "./preview-sync";
 import { l10nMsg } from "../l10n";
 
 export interface FlowPreviewProfile {
@@ -125,25 +134,27 @@ function escapeHtml(value: string): string {
   );
 }
 
-/** Reveal a saved Flow hit; source columns count Unicode scalars, VS Code uses UTF-16. */
+/** Adapt the existing component-range event to saved Flow source coordinates. */
 export async function revealSharedSource(
   profile: FlowPreviewProfile,
   value: unknown,
   column: vscode.ViewColumn,
 ): Promise<void> {
-  const hit = value as { filepath?: unknown; line?: unknown; column?: unknown } | null;
+  const jump = value as PreviewSourceJump | null;
+  const validPosition = (position: unknown): position is [number, number] =>
+    Array.isArray(position) &&
+    position.length === 2 &&
+    position.every((part) => Number.isSafeInteger(part) && part >= 0);
   if (
     !vscode.workspace.isTrusted ||
-    !hit ||
-    typeof hit.filepath !== "string" ||
-    !path.isAbsolute(hit.filepath) ||
-    !Number.isSafeInteger(hit.line) ||
-    !Number.isSafeInteger(hit.column) ||
-    (hit.line as number) < 1 ||
-    (hit.column as number) < 1
+    !jump ||
+    typeof jump.filepath !== "string" ||
+    !path.isAbsolute(jump.filepath) ||
+    !validPosition(jump.start) ||
+    !validPosition(jump.end)
   )
     return;
-  const file = await realpath(hit.filepath);
+  const file = await realpath(jump.filepath);
   if (!containsPath(profile.root, file)) return;
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
   if (doc.isDirty) {
@@ -152,28 +163,20 @@ export async function revealSharedSource(
     );
     return;
   }
-  const line = (hit.line as number) - 1;
-  if (line >= doc.lineCount) return;
-  const chars = Array.from(doc.lineAt(line).text);
-  const sourceColumn = (hit.column as number) - 1;
-  if (sourceColumn > chars.length) return;
-  const character = chars.slice(0, sourceColumn).join("").length;
-  const position = new vscode.Position(line, character);
-  const selection = new vscode.Range(position, position);
-  const existing = vscode.window.visibleTextEditors.find(
-    (editor) => editor.document.uri.toString() === doc.uri.toString(),
-  );
-  const editor = await vscode.window.showTextDocument(doc, {
-    viewColumn: existing?.viewColumn ?? column,
-    preserveFocus: false,
-    selection,
-  });
-  editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  const toUtf16 = ([line, character]: [number, number]): [number, number] | undefined => {
+    if (line >= doc.lineCount) return;
+    const scalars = Array.from(doc.lineAt(line).text);
+    if (character > scalars.length) return;
+    return [line, scalars.slice(0, character).join("").length];
+  };
+  const start = toUtf16(jump.start);
+  const end = toUtf16(jump.end);
+  if (!start || !end) return;
+  await revealPreviewSource({ filepath: file, start, end }, { document: doc, viewColumn: column });
 }
 
-export function sharedReaderHtml(url: string, channel = globalThis.crypto.randomUUID()): string {
+export function sharedReaderHtml(url: string): string {
   const reader = new URL(url);
-  reader.searchParams.set("tinymist-editor", channel);
   const nonce = globalThis.crypto.randomUUID();
   const origin = escapeHtml(new URL(url).origin);
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -184,58 +187,113 @@ export function sharedReaderHtml(url: string, channel = globalThis.crypto.random
 <iframe id="reader" src="${escapeHtml(reader.toString())}" title="${escapeHtml(l10nMsg("Shared Flow preview"))}" allow="clipboard-write"></iframe>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
-const reader = document.getElementById("reader");
-const endpoint = new URL(reader.src);
 document.getElementById("open-browser").addEventListener("click", () => vscode.postMessage({type: "openBrowser"}));
-window.addEventListener("message", (event) => {
-  if (event.source !== reader.contentWindow || event.origin !== endpoint.origin ||
-      event.data?.type !== "flowSourceLocation" || event.data.channel !== endpoint.searchParams.get("tinymist-editor")) return;
-  const {type, channel, filepath, line, column} = event.data;
-  vscode.postMessage({type, channel, filepath, line, column});
-});
 </script></body></html>`;
 }
 
 const panels = new Map<string, vscode.WebviewPanel>();
 const opening = new Map<string, Promise<void>>();
-const browserReaders = new Map<string, Promise<string>>();
+interface SharedEditorSession {
+  profile: FlowPreviewProfile;
+  url: string;
+  bridge: BrowserEditorBridge;
+}
+const editorSessions = new Map<string, Promise<SharedEditorSession>>();
 
-async function browserReaderUrl(
+async function reportSharedPosition(
+  session: SharedEditorSession,
+  editor: vscode.TextEditor,
+): Promise<boolean> {
+  const doc = editor.document;
+  if (
+    !session.bridge.connected ||
+    !vscode.workspace.isTrusted ||
+    doc.uri.scheme !== "file" ||
+    doc.isDirty ||
+    !containsPath(session.profile.root, doc.uri.fsPath) ||
+    editor.selections.length > 1
+  )
+    return false;
+  const position = editor.selection.active;
+  const file = await realpath(doc.uri.fsPath);
+  if (
+    !containsPath(session.profile.root, file) ||
+    doc.isDirty ||
+    !position.isEqual(editor.selection.active)
+  )
+    return false;
+  const { line, character } = position;
+  return session.bridge.send({
+    event: "panelScrollTo",
+    filepath: file,
+    line,
+    character: Array.from(doc.lineAt(line).text.slice(0, character)).length,
+  });
+}
+
+/** The normal manual sync command also routes through the shared control protocol. */
+export async function syncSharedFlowPreview(editor: vscode.TextEditor): Promise<boolean> {
+  let matched = false;
+  for (const pending of editorSessions.values()) {
+    const session = await pending;
+    if (!containsPath(session.profile.root, editor.document.uri.fsPath)) continue;
+    matched = true;
+    await reportSharedPosition(session, editor);
+  }
+  return matched;
+}
+
+async function editorReaderSession(
   context: vscode.ExtensionContext,
   profile: FlowPreviewProfile,
   readerUrl: string,
   column: vscode.ViewColumn,
-): Promise<string> {
+): Promise<SharedEditorSession> {
   const key = JSON.stringify([profile.id, profile.root, readerUrl]);
-  const existing = browserReaders.get(key);
+  const existing = editorSessions.get(key);
   if (existing) return existing;
   const pending = (async () => {
     const channel = globalThis.crypto.randomUUID();
-    const bridge = await createBrowserSourceBridge(new URL(readerUrl).origin, channel, (hit) =>
-      revealSharedSource(profile, hit, column),
+    const bridge = await createBrowserEditorBridge(new URL(readerUrl).origin, channel, (jump) =>
+      revealSharedSource(profile, jump, column),
     );
     try {
-      const callback = await vscode.env.asExternalUri(vscode.Uri.parse(bridge.localUrl));
+      const endpoint = await vscode.env.asExternalUri(vscode.Uri.parse(bridge.localUrl));
       const url = new URL(readerUrl);
       url.searchParams.set("tinymist-editor", channel);
-      url.searchParams.set("tinymist-editor-callback", callback.toString());
+      url.searchParams.set("tinymist-editor-control", endpoint.toString());
+      const session = { profile, url: url.toString(), bridge };
+      const tracker = new PreviewSelectionTracker();
+      const listener = vscode.window.onDidChangeTextEditorSelection((event) => {
+        const mode =
+          ScrollSyncModeEnum[getPreviewConfCompat<ScrollSyncMode>("scrollSync") || "never"];
+        if (
+          !shouldSyncPreview(event.kind, mode) ||
+          !containsPath(profile.root, event.textEditor.document.uri.fsPath) ||
+          event.textEditor.document.isDirty ||
+          !tracker.shouldReport(event.textEditor)
+        )
+          return;
+        void reportSharedPosition(session, event.textEditor).catch(() => {});
+      });
       context.subscriptions.push({
         dispose() {
+          listener.dispose();
           bridge.dispose();
-          browserReaders.delete(key);
+          editorSessions.delete(key);
         },
       });
-      return url.toString();
+      return session;
     } catch (error) {
       bridge.dispose();
       throw error;
     }
   })();
-  browserReaders.set(key, pending);
+  editorSessions.set(key, pending);
   try {
     return await pending;
   } catch (error) {
-    browserReaders.delete(key);
+    editorSessions.delete(key);
     throw error;
   }
 }
@@ -285,14 +343,13 @@ export async function openSharedFlowPreview(
           ? (await vscode.env.asExternalUri(vscode.Uri.parse(local))).toString()
           : profile.publicURL;
       const editorColumn = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+      const session = await editorReaderSession(context, profile, url, editorColumn);
       if (kind === "browser") {
-        const browserUrl = await browserReaderUrl(context, profile, url, editorColumn);
-        if (!(await vscode.env.openExternal(vscode.Uri.parse(browserUrl)))) {
+        if (!(await vscode.env.openExternal(vscode.Uri.parse(session.url)))) {
           throw new Error(l10nMsg("VS Code could not open the shared Flow preview URL."));
         }
         return;
       }
-      const channel = globalThis.crypto.randomUUID();
       const panel = vscode.window.createWebviewPanel(
         "tinymist-flow-preview",
         `${profile.name} (${l10nMsg("Saved Flow Preview")})`,
@@ -300,21 +357,10 @@ export async function openSharedFlowPreview(
         { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
       );
       const browserAction = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-        const event = message as { type?: unknown; channel?: unknown } | null;
-        if (event?.type === "flowSourceLocation" && event.channel === channel) {
-          try {
-            await revealSharedSource(profile, message, editorColumn);
-          } catch {
-            void vscode.window.showErrorMessage(
-              l10nMsg("Could not open the selected Flow source location."),
-            );
-          }
-          return;
-        }
+        const event = message as { type?: unknown } | null;
         if (event?.type !== "openBrowser") return;
         try {
-          const browserUrl = await browserReaderUrl(context, profile, url, editorColumn);
-          if (await vscode.env.openExternal(vscode.Uri.parse(browserUrl))) return;
+          if (await vscode.env.openExternal(vscode.Uri.parse(session.url))) return;
         } catch {
           // Report browser failures without exposing forwarded URL credentials.
         }
@@ -328,7 +374,7 @@ export async function openSharedFlowPreview(
         if (panels.get(key) === panel) panels.delete(key);
       });
       context.subscriptions.push(panel);
-      panel.webview.html = sharedReaderHtml(url, channel);
+      panel.webview.html = sharedReaderHtml(session.url);
     })();
     if (kind === "webview") opening.set(key, pending);
   }

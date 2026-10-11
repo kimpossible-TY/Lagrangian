@@ -1,52 +1,52 @@
+import { once } from "node:events";
 import { expect, test, vi } from "vitest";
-import { createBrowserSourceBridge } from "./shared-flow-browser";
+import { WebSocket } from "ws";
+import { createBrowserEditorBridge } from "./shared-flow-browser";
 
-test("external reader callbacks require their exact origin and session route", async () => {
+const origin = "http://localhost:23625";
+const jump = { event: "editorScrollTo", filepath: "/project/main.typ", start: [2, 3], end: [2, 8] };
+
+test("shared control protocol is bidirectional, origin/session checked, and disposed independently", async () => {
   const reveal = vi.fn().mockResolvedValue(undefined);
-  const bridge = await createBrowserSourceBridge(
-    "http://localhost:23625",
-    "unique-session",
-    reveal,
-  );
+  const bridge = await createBrowserEditorBridge(origin, "unique-session", reveal);
+  const sockets: WebSocket[] = [];
+  const url = bridge.localUrl.replace(/^http/, "ws");
   try {
-    const body = JSON.stringify({ filepath: "/project/main.typ", line: 3, column: 8 });
-    const headers = { Origin: "http://localhost:23625", "Content-Type": "application/json" };
-    expect((await fetch(bridge.localUrl, { method: "POST", body })).status).toBe(403);
+    for (const [endpoint, readerOrigin] of [
+      [url, "https://other.example"],
+      [url.replace("unique-session", "other"), origin],
+    ]) {
+      const denied = new WebSocket(endpoint, { origin: readerOrigin });
+      sockets.push(denied);
+      const error = new Promise<Error>((resolve) => denied.once("error", resolve));
+      expect((await error).message).toContain("403");
+    }
+    const connection = new WebSocket(url + "?forwarding=preserved", { origin });
+    sockets.push(connection);
+    await once(connection, "open");
+    connection.send(JSON.stringify({ event: "syncMemoryFiles", files: {} }));
+    connection.send("bad json");
+    connection.send(JSON.stringify(jump));
+    await vi.waitFor(() => expect(reveal).toHaveBeenCalledExactlyOnceWith(jump));
+    const response = once(connection, "message");
     expect(
-      (
-        await fetch(bridge.localUrl, {
-          method: "POST",
-          headers: { Origin: "https://other.example" },
-          body,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await fetch(bridge.localUrl.replace("unique-session", "other"), {
-          method: "POST",
-          headers,
-          body,
-        })
-      ).status,
-    ).toBe(403);
-    expect((await fetch(bridge.localUrl, { headers })).status).toBe(405);
-    expect(reveal).not.toHaveBeenCalled();
-    const preflight = await fetch(bridge.localUrl, { method: "OPTIONS", headers });
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(headers.Origin);
-    expect(
-      (await fetch(bridge.localUrl, { method: "POST", headers, body: "bad json" })).status,
-    ).toBe(400);
-    const response = await fetch(bridge.localUrl + "?forwarding=preserved", {
-      method: "POST",
-      headers,
-      body,
+      bridge.send({ event: "panelScrollTo", filepath: jump.filepath, line: 2, character: 4 }),
+    ).toBe(true);
+    const [payload] = (await response) as [Buffer];
+    expect(JSON.parse(payload.toString())).toEqual({
+      event: "panelScrollTo",
+      filepath: jump.filepath,
+      line: 2,
+      character: 4,
     });
-    expect(response.status).toBe(204);
-    expect(reveal).toHaveBeenCalledExactlyOnceWith(JSON.parse(body));
+    const closed = once(connection, "close");
+    bridge.dispose();
+    await closed;
+    expect(
+      bridge.send({ event: "panelScrollTo", filepath: jump.filepath, line: 2, character: 4 }),
+    ).toBe(false);
   } finally {
+    sockets.forEach((socket) => socket.terminate());
     bridge.dispose();
   }
-  await expect(fetch(bridge.localUrl)).rejects.toThrow();
 });

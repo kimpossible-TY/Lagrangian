@@ -1,71 +1,76 @@
 import { expect, test, vi } from "vitest";
 import { EditorNavigation } from "./editor-navigation";
+import type { PreviewConnection } from "./preview-connection";
 
 const channel = "12345678-1234-1234-1234-123456789abc";
-const hit = {
-  status: "selected",
-  filepath: "/project/한글.typ",
-  line: 3,
-  column: 7,
-  text_selected: false,
-};
-function fixture(embedded: boolean, query = `?tinymist-editor=${channel}`) {
-  const postMessage = vi.fn();
-  const host = { location: { href: `http://localhost:23625/${query}` }, parent: { postMessage } };
-  if (!embedded) host.parent = host as any;
-  return { bridge: new EditorNavigation(host as any), postMessage };
+const jump = { event: "editorScrollTo", filepath: "/project/한글.typ", start: [2, 3], end: [2, 7] };
+const scroll = { event: "panelScrollTo", filepath: jump.filepath, line: 2, character: 4 };
+function fixture(
+  query = `?tinymist-editor=${channel}&tinymist-editor-control=${encodeURIComponent(`https://forwarded.example/editor/${channel}?token=keep`)}`,
+) {
+  let callbacks: ConstructorParameters<typeof PreviewConnection>[1];
+  const socket = { readyState: 1, send: vi.fn() };
+  const dispose = vi.fn();
+  const scrollPanel = vi.fn();
+  const connect = vi.fn((_url, handlers) => {
+    callbacks = handlers;
+    handlers.opened(socket);
+    return { dispose };
+  });
+  const navigation = new EditorNavigation(
+    { location: { href: `https://reader.example/${query}` } } as Window,
+    scrollPanel,
+    connect,
+  );
+  return {
+    navigation,
+    socket,
+    dispose,
+    scrollPanel,
+    connect,
+    message: (value: unknown) =>
+      callbacks.message(new TextEncoder().encode(JSON.stringify(value)).buffer, socket as any),
+  };
 }
 
-test("only an opted-in embedded viewer sends its own successful click coordinates", async () => {
-  const { bridge, postMessage } = fixture(true);
-  expect(bridge.enabled).toBe(true);
-  expect(await bridge.reveal({ ...hit, excerpt: "private source" } as any)).toBe(true);
-  expect(postMessage).toHaveBeenCalledWith(
-    { type: "flowSourceLocation", channel, filepath: hit.filepath, line: 3, column: 7 },
-    "*",
-  );
+test("desktop readers reuse both upstream control events and preserve tunnel authentication", () => {
+  const f = fixture();
+  expect(f.navigation.enabled).toBe(true);
+  expect(f.connect.mock.calls[0][0]).toBe(`wss://forwarded.example/editor/${channel}?token=keep`);
+  expect(f.navigation.reveal({ ...jump, excerpt: "private source" })).toBe(true);
+  expect(JSON.parse(f.socket.send.mock.calls[0][0])).toEqual(jump);
+  f.message(scroll);
+  expect(f.scrollPanel).toHaveBeenCalledExactlyOnceWith(scroll);
+  f.navigation.dispose();
+  expect(f.dispose).toHaveBeenCalledOnce();
+  expect(f.navigation.reveal(jump)).toBe(false);
 });
 
-test.each(["stale", "unmapped", "not_ready", "error"])("%s never navigates", async (status) => {
-  const { bridge, postMessage } = fixture(true);
-  expect(await bridge.reveal({ ...hit, status })).toBe(false);
-  expect(postMessage).not.toHaveBeenCalled();
+test.each([
+  "",
+  `?tinymist-editor=${channel}`,
+  "?tinymist-editor=invalid&tinymist-editor-control=http://localhost/editor/invalid",
+])("ordinary or incomplete reader URL %s creates no control connection", (query) => {
+  const f = fixture(query);
+  expect(f.navigation.enabled).toBe(false);
+  expect(f.connect).not.toHaveBeenCalled();
+  expect(f.navigation.reveal(jump)).toBe(false);
 });
 
-test("mobile, external browser, text selection and malformed coordinates never navigate", async () => {
-  expect(await fixture(false).bridge.reveal(hit)).toBe(false);
-  expect(await fixture(true, "").bridge.reveal(hit)).toBe(false);
-  expect(await fixture(true, "?tinymist-editor=invalid").bridge.reveal(hit)).toBe(false);
-  for (const change of [
-    { text_selected: true },
-    { line: 0 },
-    { column: NaN },
-    { column: undefined },
+test("malformed or memory-file events and stale/unmapped responses cannot navigate", () => {
+  const f = fixture();
+  for (const value of [
+    { status: "stale" },
+    { ...jump, start: [-1, 0] },
+    { ...jump, end: null },
+    { ...jump, event: "syncMemoryFiles" },
   ]) {
-    expect(await fixture(true).bridge.reveal({ ...hit, ...change })).toBe(false);
+    expect(f.navigation.reveal(value)).toBe(false);
   }
-});
-
-test("VS Code-opened external readers send a bounded callback and report expired sessions", async () => {
-  const send = vi.fn().mockResolvedValue({ ok: true });
-  const host: any = {
-    location: {
-      href: `http://localhost:23625/?tinymist-editor=${channel}&tinymist-editor-callback=${encodeURIComponent(`http://localhost:1234/source/${channel}`)}`,
-    },
-  };
-  host.parent = host;
-  const bridge = new EditorNavigation(host, send);
-  expect(bridge.enabled).toBe(true);
-  expect(await bridge.reveal(hit)).toBe(true);
-  const [url, options] = send.mock.calls[0];
-  expect(url).toBe(`http://localhost:1234/source/${channel}`);
-  expect(JSON.parse(options.body)).toEqual({
-    type: "flowSourceLocation",
-    channel,
-    filepath: hit.filepath,
-    line: 3,
-    column: 7,
-  });
-  send.mockRejectedValue(new Error("session closed"));
-  expect(await bridge.reveal(hit)).toBe(false);
+  f.message({ event: "syncMemoryFiles", files: {} });
+  f.message({ ...scroll, character: NaN });
+  expect(f.scrollPanel).not.toHaveBeenCalled();
+  expect(f.socket.send).not.toHaveBeenCalled();
+  f.socket.readyState = 3;
+  expect(f.navigation.reveal(jump)).toBe(false);
 });
