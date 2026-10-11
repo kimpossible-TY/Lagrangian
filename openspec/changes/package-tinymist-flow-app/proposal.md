@@ -15,6 +15,7 @@ Flow needs a stable branded macOS installation, project settings, visible previe
 - Preserve staged packaging, external engine provenance, freshly compiled app tests, and the repository naming changes when integrating preview work.
 - Persist a user-selected signing certificate for app and engine builds, reject missing configured identities instead of falling back to ad-hoc signing, and verify certificate provenance.
 - Wait for asynchronous preview shutdown before replacing a bundle and restarting profiles during update or recovery.
+- Introduce a feature-first README, an explicit first-preview walkthrough, a reusable reading demo and screenshot, and a GitHub-readable user guide generated from the bundled PDF's Typst source.
 
 ## Capabilities
 

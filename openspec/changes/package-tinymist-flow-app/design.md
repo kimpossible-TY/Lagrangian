@@ -22,6 +22,8 @@ Non-goals: replacing tinymist at runtime, a new editor, or an automatic public u
 - Sign the app and engine with the same certificate, record its SHA-256 fingerprint in the release manifest, and verify both signatures against that fingerprint. Existing ad-hoc bundles remain verifiable. Use a local self-signed code-signing certificate for this personal Mac; do not introduce general certificate trust or change TCC databases.
 - Compare designated requirements across independently built bundles before installation. Initial migration from ad-hoc signing may require OS consent; report permission continuity as verified only after real document delivery survives another installed build.
 - After stopping profiles for installation or recovery, poll their status with a bounded deadline before moving the installed bundle. launchd bootout can return while the old PID remains visible; an immediate start can otherwise skip the new job because it still sees that PID.
+- Lead the README with reading and review features, an actual screenshot of a public demo document, and the app's exact first-preview controls. Distinguish first installation from rebuilding with an installed engine, and leave build internals after the everyday workflow.
+- Generate docs/tinymist/flow-app.md from the same flow-app.typ used for the bundled PDF. Keep feature instructions in task order (purpose, actions, outcome, conditions), explicitly explain source edits versus browser-only marks and saved Codex context, and link from the README to rendered guide sections. Resolve image and local documentation links relative to each generated Markdown output so both root README and nested guide links work on GitHub.
 
 ## Risks / Trade-offs
 

@@ -1,54 +1,199 @@
-#set page(paper: "a4", margin: 22mm)
+#set page(paper: "a4", margin: 22mm) if sys.inputs.at("x-target", default: "pdf") != "md"
 #set text(size: 10pt)
-#set heading(numbering: "1.")
-#align(center)[
-  #image("../../assets/branding/tinymist-flow.png", width: 25mm)
-  #text(size: 24pt, weight: "bold")[tinymist-flow]
-  #parbreak()
-  Personal Typst workspace for macOS
+#if sys.inputs.at("x-target", default: "pdf") != "md" [
+  #align(center)[
+    #image("../../assets/branding/tinymist-flow.png", width: 25mm, alt: "tinymist-flow app icon")
+  ]
 ]
 
-= Everyday use
+= tinymist-flow user guide
 
-Open `~/Applications/tinymist-flow.app`. The Flow menu appears in the menu bar. Choose a project, then Start and Open Preview. Add Project selects a Typst entry file; adjust the project root if the entry belongs to a larger workspace. Font paths are relative to that root and separated by semicolons. The optional HTTPS URL is the address configured by Tail Hosting.
+#set heading(numbering: "1.")
 
-Stop disables the project's LaunchAgent until Start is used again. Closing or quitting the menu bar app leaves running previews active. The login checkbox opens the menu bar app after login. Started preview services also resume after login; sleeping or logging out can interrupt availability.
+Read and review live Typst documents on your Mac, phone, or tablet. This guide covers everyday reading actions, document setup, installation, and recovery.
 
-The status distinguishes a stopped process from a responding HTTP server. HTTP readiness does not prove successful compilation: inspect the preview and logs for compiler errors. After restarting, tap the document again before asking Codex about a selected passage.
+= Open your first preview
 
-Opening a preview shows a small status ring while the browser prepares the renderer, connects to the server, waits for the document, compiles or draws its pages. The ring disappears once the document has rendered. Compiler and rendering failures show a static error; a dropped connection shows reconnection activity. If selection holds an update, the status asks you to release the selection. A long wait also suggests checking the server. These are activity states, not estimated percentages or proof of a macOS permission prompt.
+Use Flow to manage a document's live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see *First installation* below.
 
-On touch devices, selecting text temporarily holds preview rendering so the visual page and native selection stay on the same revision. Dismiss the selection to apply pending edits and refresh the visible pages. Native copying covers the currently populated preview pages, not an arbitrary range across the whole document. A drag or long press does not automatically share a source location with Codex; use Save for Codex in the selection toolbar to save the exact text, or dismiss the selection and use a short tap to share a location.
++ Open `~/Applications/tinymist-flow.app`. The Flow menu appears in the menu bar.
++ Click *Add Project* (프로젝트 추가…) and select the document's `.typ` entry file. The #link("examples/reading-demo.typ")[reading demo] is a small document for trying selection, highlights, references, and themes.
++ Check *Project folder* (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
++ Add any required font or package folders, then click *Save settings* (설정 저장).
++ Click *Start* (시작), then *Open Preview* (프리뷰 열기). Wait for the document to appear, and save a source edit in your editor to see it update.
 
-== Selected text actions
+*Result:* Flow runs a preview for this project and opens it in your browser. Each project keeps its own entry file, settings, port, and preview lifecycle. If the document does not appear, use *Logs* (로그) and the troubleshooting steps below.
 
-Select text with the native handles, then use the web toolbar near the bottom of the screen. Highlight uses the source module's callable `highlighted` helper when available, writing `#highlighted[...]` so text and complete equations retain the document's background and theme handling. Without this helper, literal text uses `#highlight[...]` and equations cannot be highlighted automatically. This changes the Typst source and the ordinary watcher recompiles it, so the highlight also appears in exports. Rendered glyph coverage verifies complete equations even when their notation differs from the source. Selections anchored in source text or equations can also include whole inline references, including a scoped `ref` helper's generated equation number; an isolated compiler render verifies the complete selected output. Partial equations or references, reused source content, other code or markup, different source files and changed source snapshots cannot be edited automatically. The candidate document must compile before any source is saved. A rejected highlight keeps the selection available, so Save for Codex can supply its rendered text without selecting it again.
+== Project controls and settings
+
+Choose a project from the picker to open or control its preview. *Stop* (중지) disables its service until you use Start again; *Restart* (재시작) restarts it. Closing the project window or quitting the menu bar app leaves started previews running.
+
+Font paths are relative to the project root and separated by semicolons. For example, `fonts;../shared-fonts` selects two folders. The local package folder is optional; use it when your document depends on local packages. Saving changed settings restarts a running preview.
+
+The login checkbox opens the menu bar app after login. Started preview services also resume after login independently of that checkbox. Sleeping or logging out can interrupt availability.
+
+The app's *Usage, update and recovery guide* (사용·업데이트·복구 안내) menu opens the bundled PDF. This web guide and that PDF are generated from the same Typst source.
+
+= Read on a phone or tablet
+
+Use remote reading when the preview runs on your Mac and you want to read on another device. The Mac must be awake, the project preview must be running, and the viewing device must have access to the configured Tailscale tailnet and HTTPS route. Tail Hosting supplies that route and its access policy.
+
++ In Tail Hosting, configure a Tailscale HTTPS route to the project's local backend, `127.0.0.1:<local-port>`. Match the port shown in Flow's project settings.
++ In Flow, enter that route's HTTPS address in *HTTPS address* (HTTPS 주소), then click *Save settings* (설정 저장). Saving restarts a running preview with the allowed origin.
++ Click *Start* if needed, then *Copy address* (주소 복사).
++ On the phone or tablet, connect to the tailnet as required by its access policy and open the copied HTTPS URL in a browser.
++ Confirm that the document renders and that a saved source edit on the Mac appears on the device.
+
+*Result:* The device reads the same live project through its configured HTTPS address. Flow binds the backend to loopback; `http://127.0.0.1:<port>/` refers to the device itself when opened on a phone and cannot reach the Mac. Entering an HTTPS address in Flow does not create a Tailscale route. When you change the local port, update the Tail Hosting route too.
+
+= Select and copy text
+
+Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device's Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Highlight, Save for Codex, and Red strike.
+
+#image("images/mobile-selection.png", width: 65mm, alt: "Reading demo with a selected sentence and the Highlight, Save for Codex, and Red strike actions")
+
+*Result:* The selection stays on the rendered revision while you use it. Preview updates wait during an active touch text selection; dismiss the selection to apply pending edits. Copying covers the currently populated preview pages, rather than an arbitrary range across the whole document.
+
+Dragging or long-pressing does not save a Codex source location. Use *Save for Codex* to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
+
+= Highlight in source
+
+Use a highlight when you want a passage marked in the Typst document itself, including later exports.
+
++ Select a passage in the preview.
++ Choose *Highlight* (하이라이트) in the bottom toolbar.
++ Wait for the saved-source acknowledgement and compilation. Check the marked passage in the updated preview.
+
+*Result:* This edits the original `.typ` source. The normal source watcher recompiles it, and the highlight appears in exports. To remove a source highlight, edit the source in your editor; the browser's mark-undo action applies to red strikes.
+
+*Conditions:* Flow must map the full selection to a supported source range, and the candidate document must compile before it is saved. Plain literal text can use the built-in `highlight` function. Complete equations require the source module's callable `highlighted` helper; see *Document setup* below. Whole inline references can be included with supported text or equation selections. Partial equations or references, reused content, other code or markup, selections spanning source files, and changed source snapshots cannot be edited automatically. If the action is rejected, the selection stays available so you can use Save for Codex instead.
+
+= Save text for Codex
+
+Use this to preserve a passage and its location before asking Codex to explain, review, or edit it.
+
++ Select the text you want to discuss.
++ Choose *Save for Codex* (Codex 저장) and wait for confirmation that the selected text was saved.
++ In a Codex session with a configured local selection reader, ask a question such as: “Explain the passage I saved from the preview.” Specify the project when you have several previews.
+
+*Result:* Flow saves up to 8000 selected characters and the selection's page endpoints alongside its source context. This saves context; it does not send a message, start a Codex turn, or compile the document. A newer compiler revision requires selecting again. A brief tap saves a location instead of an exact text selection.
+
+== Connect a local selection reader
+
+Flow writes selection records on the Mac running the preview. Codex needs a local skill or tool that reads the correct project's record and checks it against the current service and source. Flow does not install that reader automatically. List profile details, including each `focusFile`, with:
+
+```sh
+~/Applications/tinymist-flow.app/Contents/MacOS/tinymist-flow --profiles
+```
+
+Configure your reader for the selected project's `focusFile`, stored under `~/Library/Application Support/tinymist-flow/focus/<profile-id>.json`. It should identify the project, check the saved selection's status and source against the current document, and request a fresh selection if the context is stale. After a service restart, tap or select the passage again before asking about it.
+
+If your project is registered with the existing Tail Hosting focus reader, a local Codex tool or skill can invoke it with the project root:
+
+```sh
+/path/to/Tail_hosting/bin/tail-hosting focus --project /absolute/project
+```
+
+Replace the paths with your installation and project. This reader is supplied by Tail Hosting and requires its registered profile integration; it is not a command included in the Flow bundle. A Codex session on another computer needs access to this Mac's record and source before it can use the saved selection. Without a reader, copy the selected passage into your question.
+
+= Add browser review marks
+
+Use a red strike for a reading or review note that should stay outside the source document.
+
++ Select text and choose *Red strike* (빨간 취소선).
++ Use *Undo* (되돌리기) to remove the latest mark, or *Clear marks* (표시 지우기) to remove this document's temporary marks in this browser.
+
+*Result:* A red line appears across the selected fragments without source edits or compilation. Marks are stored separately by document in this browser and survive refresh, theme changes, and scrolling through unchanged pages. They are excluded from PDF exports and do not synchronize to other devices.
+
+*Conditions:* A page whose text or layout changes loses its old marks to avoid displaying them over the wrong passage. When browser storage is unavailable, such as in some private sessions, marks stay in memory only and disappear when the view closes.
+
+= Choose a document theme
+
+Use the theme selector to match the reading device or choose a palette for this viewer.
+
++ Choose *System* (기기 설정) to follow the device's light or dark appearance, including later changes.
++ Choose *Light* (라이트) or *Dark* (다크) to override that behavior for this viewer. Choose System again to resume device following.
+
+*Result:* Supported documents render with their native light or dark colors. Each viewer chooses independently on the same project port and HTTPS URL. Switching preserves scroll and preview zoom; it waits while a touch text selection is active. The `t` shortcut toggles the native palette.
+
+*Conditions:* The document must read the `theme` input with `"light"` and `"dark"` values; see *Document setup* below. Documents without that contract still preview normally but do not change their native palette. The reading demo supports both themes.
+
+= Return from a reference
+
+Use this when you follow an internal equation, figure, or heading reference and want to resume the passage you were reading.
+
++ Click or tap the reference.
++ Choose *Back to reference* (참조 위치로 돌아가기) to return to the position immediately before following that link.
+
+*Result:* The preview restores the previous page position, including after preview zoom or window resizing, and the button disappears. Following another reference replaces the return destination with the position before that latest link. This return is for the current document view and clears when the view is replaced, including a theme switch or refresh. It can appear alongside Jump to change.
+
+= Resume the latest visual edit
+
+Use change navigation to return to work after reopening a preview or to inspect a new edit while reading elsewhere.
+
++ Save an edit that changes rendered output and let the preview render it.
++ Open or refresh the preview to return to its latest successfully rendered visual edit.
++ If a recent reading gesture defers navigation, choose *Jump to change* (변경 위치로) when ready.
+
+*Result:* The project remembers a rendered edit location. Theme switches and reconnecting an already rendered viewer preserve the current reading position. This tracks visual edits, rather than a history of where you scrolled; comments and other edits with no rendered change do not move the saved position.
+
+*Conditions:* Edits made while a palette has no viewers update its remembered location when a viewer returns and it compiles. A valid saved location takes priority. If none is usable, Flow can use Git changes against HEAD that map to the document; these are cumulative changes, rather than the order of edits. Without a usable saved or Git location, the initial view stays at the beginning.
+
+= Understand preview status
+
+The small status ring shows activity while the browser prepares the renderer, connects, waits for the document, compiles, or draws pages. It disappears after rendering. Compiler or rendering failures show a static error; a dropped connection shows reconnection activity. These states describe activity rather than estimated completion percentages.
+
+- *Preview waits while text is selected:* dismiss the selection to release pending updates.
+- *Long wait or compilation error:* open Logs in Flow and check the document in your editor. A responding HTTP server does not prove successful compilation.
+- *Mobile URL does not connect:* confirm that the Mac is awake, the preview is started, the device has tailnet access, and the route points to the current local port. Check the HTTPS address saved in Flow.
+- *Theme colors do not change:* confirm the document's theme input contract below.
+- *Highlight is rejected or a saved selection is stale:* wait for rendering and select again. Unsupported source ranges can be saved for Codex instead.
+- *macOS requests document access:* complete the native consent prompt on the Mac. Preview activity itself is not proof that a permission prompt is open.
+
+= Document setup
+
+These settings belong to the Typst document. The #link("examples/reading-demo.typ")[reading demo] provides a complete working example.
+
+== Native theme colors
+
+Read the theme input and use it for your page and text colors:
+
+```typ
+#let dark = sys.inputs.at("theme", default: "light") == "dark"
+#set page(fill: if dark { rgb("172033") } else { white })
+#set text(fill: if dark { white } else { black })
+```
+
+Managed previews keep independent light and dark variants and compile each while viewers are connected. Viewers of the same palette share a compilation; each viewer downloads only its selected variant. Color-only variants preserve layout most predictably. When both palettes have viewers, compiling both uses additional host memory and CPU. PDE and Ewald already follow this theme contract.
+
+For standalone paged preview, opt in with:
+
+```sh
+tinymist preview main.typ --follow-system-theme
+```
+
+This overrides an explicit `--input theme=...` while retaining unrelated inputs. Without the flag, preview keeps its existing behavior. HTML and bundle outputs do not support this option.
+
+== Theme-aware source highlighting
+
+Define a callable `highlighted` helper in the module that contains the selected source:
+
+```typ
+#let highlighted(body) = highlight(
+  fill: if dark { rgb("63521f") } else { rgb("fff0a8") },
+  body,
+)
+```
+
+Flow uses this helper to write `#highlighted[...]` for supported text and complete equations, preserving the document's theme handling. Without it, literal text uses `#highlight[...]`; equations cannot be highlighted automatically. Rendered glyph coverage verifies complete equations even when their notation differs from source, and an isolated compiler render verifies complete selected inline references, including a scoped `ref` helper's generated equation number.
 
 A custom helper must accept a single text element or equation as well as mixed content. When iterating its body, use `if body.has("children") { body.children } else { (body,) }` so singleton content does not cause a missing-field error.
 
-Save for Codex records up to 8000 selected characters and their page endpoints alongside the existing source context. It acknowledges persistence and does not start a Codex turn or compile the document. A newer compiler revision requires selecting again.
+== Saved change locations
 
-Red strike draws a temporary red line across each selected fragment without changing source or compiling. Undo removes the latest mark and Clear marks removes this document's temporary marks in this browser. Marks are stored separately by document in this browser and survive refresh, theme switches and scrolling through unchanged virtual pages. A page whose text or layout changes loses its old marks to avoid displaying them over the wrong passage. Browser storage may be unavailable in private browsing; memory-only marks then last until the view is closed. Temporary marks are not included in PDF exports or synchronized to other devices.
+Each profile stores one private `changes/<profile-id>.json` record in Application Support, independently of explicit assistant selections, with separate light and dark positions. Unchanged source retains its position across service restarts and renderer updates. If source changed while the service was stopped, the first compilation establishes a baseline without guessing a new edit from the first changed page.
 
-== Device document theme
-
-Managed previews follow the viewing device's light or dark appearance, including changes after opening the page. The theme selector offers System, Light, and Dark (기기 설정, 라이트, 다크). An override affects only that viewer; choose System to resume device following. The `t` shortcut toggles the native palette. Switching preserves scroll and preview zoom and waits until an active touch text selection is dismissed.
-
-Documents must choose their native palette from `sys.inputs.at("theme", default: "light")`, using the values `"light"` and `"dark"`. PDE and Ewald already follow this contract. Flow keeps independent variants and compiles each while viewers are connected to it. Both use the same registered port and tailnet URL. Documents without this input contract still work but will not change palette. Color-only variants preserve layout most predictably. Each viewer downloads only its selected variant.
-
-For standalone paged preview, enable this with `tinymist preview main.typ --follow-system-theme`. This overrides an explicit `--input theme=...`; unrelated inputs remain unchanged. Without the flag, preview keeps its existing behavior. HTML and bundle outputs do not support this option. When both palettes have viewers, compiling both variants uses additional host memory and CPU.
-
-== Return from references
-
-Clicking an internal equation, figure or heading reference shows Back to reference (참조 위치로 돌아가기). Use it to return to the reading position immediately before that link; the button then disappears. Following another reference replaces the return destination with the position before that latest link. The return follows the original page position after preview zoom or window resizing and can appear alongside Jump to change. It lasts for the current document view and is cleared when that view is replaced, including a document theme switch or refresh.
-
-== Resume the last edited location
-
-Managed previews remember the latest successfully rendered visual edit. Edits made while a palette has no viewers are compiled when a viewer returns and then update its remembered position. Opening or refreshing the preview returns to that position after the document renders. A recent reader gesture defers navigation and shows Jump to change (변경 위치로). Switching the document palette or reconnecting an already rendered viewer keeps the current reading position instead; a replayed saved edit does not show a stale jump button, and later live edits still follow their changed locations.
-
-Each profile stores one private `changes/<profile-id>.json` record under the app's Application Support directory, independently of explicit assistant taps. Unchanged source retains its position across service restarts and renderer updates. If source changed while the service was stopped, the first compilation establishes a baseline without guessing an edit from the first changed page, such as a changed outline. If no saved position is usable, Flow can focus Git changes against HEAD, including staged, unstaged and nonignored new source files used by this document. With multiple candidates it selects the earliest body page, then the topmost position on that page. Git changes are cumulative and do not identify editing order. Valid saved positions take priority. If Git is unavailable or no changed source maps to rendered output, the initial view stays at the beginning; the next observed visual edit is remembered normally. Comments or other edits that do not change rendered output do not change the saved position.
-
-Standalone paged preview can opt in by setting `TINYMIST_PREVIEW_CHANGE_FILE` to an absolute path. Records are scoped to the project root and entry file, with separate light and dark positions. This does not save a reader's scroll history or expose a new network endpoint.
+The Git fallback considers staged, unstaged, and nonignored new source files used by this document. With multiple candidates it chooses the earliest body page, then the topmost position on that page. It does not infer editing order. Standalone paged preview can opt in by setting `TINYMIST_PREVIEW_CHANGE_FILE` to an absolute path; records are scoped to the project root and entry file. This does not expose a new network endpoint.
 
 = Files and ownership
 
@@ -60,23 +205,29 @@ Standalone paged preview can opt in by setting `TINYMIST_PREVIEW_CHANGE_FILE` to
 
 Flow manages engine execution, project profiles and preview lifecycle. Tail Hosting owns Tailscale HTTPS routes and remote access policy. Changing a local port requires updating its Tail Hosting route. Original Typst source files stay in their project folders.
 
-= Build and install
+= First installation
 
-From the repository:
+On a fresh Mac, use macOS 13 or newer with Git, the Swift compiler, Python 3, Node.js, Yarn, and the workspace Rust toolchain from `rust-toolchain.toml`. Build the maintained preview frontend and engine before installing:
+
 ```sh
-python3 scripts/flow-app.py build --version 0.1.0
-python3 -m unittest discover -s tests/flow-app -v
+git clone https://github.com/kimpossible-TY/tinymist-flow.git
+cd tinymist-flow
+yarn install --immutable
+node scripts/build.mjs build:preview
+python3 scripts/flow-app.py build --build-engine --jobs 2
 python3 scripts/flow-app.py install dist/tinymist-flow.app
 ```
 
-Packaging uses a compatible external engine. It chooses `--engine /absolute/path/to/flow-engine`, then `FLOW_ENGINE_PATH`, then the engine in the current installed app. For this path, a fresh machine needs a compatible engine from an existing Flow bundle; it can also build the maintained engine as shown below. The build checks required preview CLI support and copies the executable into a new app; engine sources are not needed for this path. The installed engine is independent of build output. AppKit and Foundation are the app runtime dependencies; packaging uses the local Swift compiler and Python 3.
+Open the installed app and follow *Open your first preview*. If macOS requests access to the document's folder, complete that prompt on the Mac.
 
-To build the restored engine and preview frontend from source instead:
+If you already have a compatible `flow-engine` from a Flow bundle, package it without rebuilding Rust or the frontend:
 
 ```sh
-node scripts/build.mjs build:preview
-python3 scripts/flow-app.py build --build-engine --jobs 2 --version 0.1.0
+python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine
+python3 scripts/flow-app.py install dist/tinymist-flow.app
 ```
+
+External engine selection uses `--engine`, then `FLOW_ENGINE_PATH`, then the engine in the current installed app. A fresh machine without such an engine needs the native build above. The build checks required preview CLI support and copies the engine into the new app. AppKit and Foundation are the app runtime dependencies; packaging uses the Swift compiler and Python 3. The installed engine stays independent of build output.
 
 The native engine build uses the `flow-release` profile with ThinLTO. Its target, profile, Rust flags and any LTO override are recorded in `engineBuild` alongside the engine version and hashes. Use a native ARM Python environment on Apple Silicon. The build copies its result into the staged app and preserves an existing output bundle if packaging fails.
 
@@ -103,7 +254,16 @@ The initial switch from ad-hoc signing may require one new Documents approval. K
 
 = Update and recover
 
-Use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit. Install the new bundle with the same install command. The installer checks the bundle signature, engine hash and version before replacing anything, waits for running profiles to stop, backs up the old app, restarts those profiles, and checks HTTP startup. If startup fails, it restores the old bundle. Verify document rendering after installation; HTTP alone does not establish document health.
+To update an app that already exists at `~/Applications/tinymist-flow.app`, rebuild with its engine and install the new bundle:
+
+```sh
+python3 scripts/flow-app.py build
+python3 scripts/flow-app.py install dist/tinymist-flow.app
+```
+
+This reuses the installed engine and its preview features. For engine or preview changes, rebuild the frontend with `node scripts/build.mjs build:preview` and pass `--build-engine --jobs 2` to the build. For a confirmed release, use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit with an explicit `--version`.
+
+The installer checks the bundle signature, engine hash and version before replacing anything, waits for running profiles to stop, backs up the old app, restarts those profiles, and checks HTTP startup. If startup fails, it restores the old bundle. Verify document rendering after installation; HTTP alone does not establish document health.
 
 An ad-hoc update can wait for macOS Documents consent before opening its HTTP listener. To allow time for that prompt, defer live health verification during the single installation:
 
