@@ -1,0 +1,171 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type * as vscode from "vscode";
+
+const mock = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  realpath: vi.fn(),
+  fetch: vi.fn(),
+  createWebviewPanel: vi.fn(),
+  asExternalUri: vi.fn(),
+  openExternal: vi.fn(),
+  workspace: { isTrusted: true },
+}));
+vi.mock("node:fs/promises", () => ({ readFile: mock.readFile, realpath: mock.realpath }));
+vi.mock("vscode", () => ({
+  workspace: mock.workspace,
+  window: { createWebviewPanel: mock.createWebviewPanel },
+  env: { asExternalUri: mock.asExternalUri, openExternal: mock.openExternal },
+  Uri: { parse: (url: string) => ({ toString: () => url }) },
+  ViewColumn: { Beside: 2 },
+}));
+vi.mock("../l10n", () => ({ l10nMsg: (message: string) => message }));
+import {
+  containsPath,
+  openSharedFlowPreview,
+  parseFlowProfiles,
+  selectFlowProfile,
+  sharedReaderHtml,
+} from "./shared-flow-preview";
+
+const profile = {
+  id: "book",
+  name: "Book",
+  root: "/project",
+  entry: "main.typ",
+  port: 23625,
+  publicURL: "https://reader.example/",
+};
+let contexts: Array<{ subscriptions: Array<{ dispose(): void }> }> = [];
+function context() {
+  const ctx = { subscriptions: [] as Array<{ dispose(): void }> };
+  contexts.push(ctx);
+  return ctx as unknown as vscode.ExtensionContext;
+}
+const document = { uri: { fsPath: "/project/chapter.typ" } } as vscode.TextDocument;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mock.workspace.isTrusted = true;
+  mock.readFile.mockResolvedValue(JSON.stringify({ schemaVersion: 1, profiles: [profile] }));
+  mock.realpath.mockImplementation(async (file: string) => file);
+  mock.fetch.mockResolvedValue({ ok: true, body: { cancel: vi.fn() } });
+  vi.stubGlobal("fetch", mock.fetch);
+  mock.asExternalUri.mockResolvedValue({
+    toString: () => "https://forwarded.example/?token=a&b=c",
+  });
+  mock.openExternal.mockResolvedValue(true);
+  mock.createWebviewPanel.mockImplementation(() => {
+    let disposed = () => {};
+    return {
+      webview: { html: "" },
+      reveal: vi.fn(),
+      onDidDispose: (callback: () => void) => {
+        disposed = callback;
+      },
+      dispose: () => disposed(),
+    };
+  });
+});
+afterEach(() => {
+  contexts.forEach((ctx) => ctx.subscriptions.forEach((item) => item.dispose()));
+  contexts = [];
+  vi.unstubAllGlobals();
+});
+
+test("profile matching respects directory boundaries and selects the deepest root", () => {
+  expect(containsPath("/project", "/project-other/main.typ")).toBe(false);
+  const profiles = parseFlowProfiles({
+    schemaVersion: 1,
+    profiles: [profile, { ...profile, id: "nested", root: "/project/sub" }],
+  });
+  expect(selectFlowProfile(profiles, "/project/sub/child.typ").id).toBe("nested");
+  expect(() => selectFlowProfile([profiles[0], profiles[0]], "/project/main.typ")).toThrow(
+    "Multiple",
+  );
+  expect(() => selectFlowProfile(profiles, "/unmanaged/main.typ")).toThrow("No Flow profile");
+});
+
+test.each([
+  { entry: "../outside.typ" },
+  { publicURL: "http://reader.example/" },
+  { publicURL: "https://user:secret@reader.example/" },
+  { publicURL: "https://reader.example/path" },
+  { port: 99999 },
+  { root: "relative" },
+])("rejects invalid profile fields %j", (change) => {
+  expect(() =>
+    parseFlowProfiles({ schemaVersion: 1, profiles: [{ ...profile, ...change }] }),
+  ).toThrow();
+});
+
+test("concurrent and repeated opens share one viewer and use the public route directly", async () => {
+  const ctx = context();
+  await Promise.all(
+    Array.from({ length: 8 }, () => openSharedFlowPreview(ctx, document, "webview")),
+  );
+  await openSharedFlowPreview(ctx, document, "webview");
+  expect(mock.createWebviewPanel).toHaveBeenCalledTimes(1);
+  expect(mock.fetch).toHaveBeenCalledTimes(1);
+  expect(mock.asExternalUri).not.toHaveBeenCalled();
+  expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain(
+    "https://reader.example/",
+  );
+  expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain("Saved files only");
+});
+
+test("closing only the viewer permits reopening without a service mutation", async () => {
+  const ctx = context();
+  await openSharedFlowPreview(ctx, document, "webview");
+  ctx.subscriptions[0].dispose();
+  await openSharedFlowPreview(ctx, document, "webview");
+  expect(mock.createWebviewPanel).toHaveBeenCalledTimes(2);
+  expect(mock.fetch.mock.calls.every(([, opts]) => opts.method === undefined)).toBe(true);
+});
+
+test("loopback-only profiles use port forwarding and preserve the full forwarded URL", async () => {
+  mock.readFile.mockResolvedValue(
+    JSON.stringify({ schemaVersion: 1, profiles: [{ ...profile, publicURL: "" }] }),
+  );
+  await openSharedFlowPreview(context(), document, "webview");
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
+  expect(mock.createWebviewPanel.mock.results[0].value.webview.html).toContain("?token=a&amp;b=c");
+});
+
+test("untrusted workspaces cannot read host profiles", async () => {
+  mock.workspace.isTrusted = false;
+  await expect(openSharedFlowPreview(context(), document, "webview")).rejects.toThrow("trusted");
+  expect(mock.readFile).not.toHaveBeenCalled();
+});
+
+test("an unavailable service fails without a viewer and can be retried", async () => {
+  mock.fetch.mockRejectedValueOnce(new Error("refused"));
+  const ctx = context();
+  await expect(openSharedFlowPreview(ctx, document, "webview")).rejects.toThrow(
+    "Start this project",
+  );
+  expect(mock.createWebviewPanel).not.toHaveBeenCalled();
+  await openSharedFlowPreview(ctx, document, "webview");
+  expect(mock.createWebviewPanel).toHaveBeenCalledTimes(1);
+});
+
+test("canonical paths prevent symlink entrypoints outside the profile", async () => {
+  mock.realpath.mockImplementation(async (file: string) =>
+    file === "/project/main.typ" ? "/outside/main.typ" : file,
+  );
+  await expect(openSharedFlowPreview(context(), document, "webview")).rejects.toThrow("inside");
+  expect(mock.fetch).not.toHaveBeenCalled();
+});
+
+test("external browser opening reports failure", async () => {
+  mock.openExternal.mockResolvedValue(false);
+  await expect(openSharedFlowPreview(context(), document, "browser")).rejects.toThrow(
+    "could not open",
+  );
+  expect(mock.createWebviewPanel).not.toHaveBeenCalled();
+});
+
+test("reader CSP is limited to its origin and URL attributes are escaped", () => {
+  const html = sharedReaderHtml("https://reader.example/?x=%22&y=1");
+  expect(html).toContain("default-src 'none'; frame-src https://reader.example;");
+  expect(html).toContain("x=%22&amp;y=1");
+});

@@ -48,6 +48,7 @@ const CONFIG_ITEMS: &[&str] = &[
     "tinymist",
     "colorTheme",
     "compileStatus",
+    "compileOnSave",
     "lint",
     "completion",
     "customizedShowDocument",
@@ -113,6 +114,8 @@ pub struct Config {
     pub development: bool,
     /// Whether to run the server in syntax-only mode.
     pub syntax_only: bool,
+    /// Defer automatic document compilation after typing until a save or explicit trigger.
+    pub compile_on_save: bool,
 
     /// The preferred color theme for rendering.
     pub color_theme: Option<String>,
@@ -454,6 +457,7 @@ impl Config {
         assign_config!(support_client_codelens := "supportClientCodelens"?: bool);
         assign_config!(extended_code_action := "supportExtendedCodeAction"?: bool);
         assign_config!(development := "development"?: bool);
+        assign_config!(compile_on_save := "compileOnSave"?: bool);
         assign_config!(system_fonts := "systemFonts"?: Option<bool>);
 
         self.notify_status = match try_(|| update.get("compileStatus")?.as_str()) {
@@ -820,6 +824,7 @@ impl Config {
         &self,
     ) -> (
         bool,
+        bool,
         ImmutDict,
         ExportTarget,
         Option<Vec<typst::Feature>>,
@@ -833,6 +838,7 @@ impl Config {
         (
             // server
             self.syntax_only,
+            self.compile_on_save,
             // typst library
             self.user_inputs(),
             self.export_target,
@@ -1369,6 +1375,18 @@ mod tests {
             .map(|warning| warning.as_ref())
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn compile_on_save_configuration_restarts_admission_policy() {
+        let mut config = Config::default();
+        good_config(&mut config, &json!({}));
+        let before = config.primary_opts();
+        good_config(&mut config, &json!({"compileOnSave": true}));
+        assert!(config.compile_on_save);
+        assert_ne!(before, config.primary_opts());
+        good_config(&mut config, &json!({"compileOnSave": false}));
+        assert_eq!(before, config.primary_opts());
     }
 
     #[test]

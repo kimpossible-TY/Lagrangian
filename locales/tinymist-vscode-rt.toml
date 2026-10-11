@@ -88,6 +88,9 @@ zh = "PDF 导出失败：{message}"
 en = "Hint: you can create and find local packages in the sidebar. See https://github.com/Myriad-Dreamin/tinymist/tree/bc15eb55cee9f9b048aafd5f22472894961a1f51/editors/vscode/e2e-workspaces/ieee-paper for more information."
 zh = "提示：您可以在侧边栏中创建和查找本地包。有关更多信息，请参见 https://github.com/Myriad-Dreamin/tinymist/tree/bc15eb55cee9f9b048aafd5f22472894961a1f51/editors/vscode/e2e-workspaces/ieee-paper。"
 
+["Invalid Flow preview profile."]
+en = "Invalid Flow preview profile."
+
 ["Invalid page number: {page}"]
 en = "Invalid page number: {page}"
 zh = "无效的页码：{page}"
@@ -99,6 +102,12 @@ zh = "无效的页码范围格式：{range}"
 ["Invalid page range: {range}"]
 en = "Invalid page range: {range}"
 zh = "无效的页码范围：{range}"
+
+["Multiple Flow profiles use this project root. Use a unique project root for shared preview."]
+en = "Multiple Flow profiles use this project root. Use a unique project root for shared preview."
+
+["No Flow profile contains this document. Configure and start its project in tinymist-flow."]
+en = "No Flow profile contains this document. Configure and start its project in tinymist-flow."
 
 ["PDF (Specific Pages)"]
 en = "PDF (Specific Pages)"
@@ -158,6 +167,21 @@ en = "SVG (Specific Pages)"
 en = "SVG (Task)"
 zh = "SVG (任务)"
 
+["Saved Flow Preview"]
+en = "Saved Flow Preview"
+
+["Shared Flow preview requires a trusted workspace."]
+en = "Shared Flow preview requires a trusted workspace."
+
+["Shared Flow preview supports saved document previews. Disable preview.sharedFlow to use this preview mode."]
+en = "Shared Flow preview supports saved document previews. Disable preview.sharedFlow to use this preview mode."
+
+["Shared Flow preview · Saved files only. Save your changes to update this view."]
+en = "Shared Flow preview · Saved files only. Save your changes to update this view."
+
+["Shared Flow preview"]
+en = "Shared Flow preview"
+
 ["Specify the pages you want to export"]
 en = "Specify the pages you want to export"
 zh = "指定要导出的页码"
@@ -166,9 +190,24 @@ zh = "指定要导出的页码"
 en = "TeX processor"
 zh = "TeX 导出的处理脚本"
 
+["The Flow entrypoint must be inside its project root."]
+en = "The Flow entrypoint must be inside its project root."
+
+["The Flow public URL must be an HTTPS origin."]
+en = "The Flow public URL must be an HTTPS origin."
+
+["The shared Flow preview is unavailable. Start this project in tinymist-flow and try again."]
+en = "The shared Flow preview is unavailable. Start this project in tinymist-flow and try again."
+
 ["Tinymist server is not available. Some features like auto-formatting on Enter may not work. Try restarting the server."]
 en = "Tinymist server is not available. Some features like auto-formatting on Enter may not work. Try restarting the server."
 zh = "Tinymist 服务器不可用。某些功能（如回车时的自动格式化）可能无法正常工作。请尝试重启服务器。"
+
+["Unsupported Flow profile configuration."]
+en = "Unsupported Flow profile configuration."
+
+["VS Code could not open the shared Flow preview URL."]
+en = "VS Code could not open the shared Flow preview URL."
 
 ["e.g. `1-3,5,7-9`, leave empty for all pages"]
 en = "e.g. `1-3,5,7-9`, leave empty for all pages"

@@ -266,6 +266,8 @@ pub struct ProjectInsStateExt {
     pub notified_revision: usize,
     /// The pending reasons that are not emitted yet during compilation.
     pub pending_reasons: CompileSignal,
+    /// Automatic compilation waits for a save after an editor change.
+    pub defer_until_save: bool,
     /// The emitted reasons that are emitted after the last compilation.
     pub emitted_reasons: CompileSignal,
     /// The compiling since the last compilation.
@@ -363,6 +365,21 @@ impl ProjectState {
 
     /// Handles an interrupt.
     pub fn do_interrupt(compiler: &mut LspProjectCompiler, intr: Interrupt<LspCompilerFeat>) {
+        // Only real external file updates release edit deferral. Upstream VFS
+        // acknowledgements also travel through Fs, but originate from typing.
+        if matches!(
+            &intr,
+            Interrupt::Save(_)
+                | Interrupt::Compile(_)
+                | Interrupt::ChangeTask(_, _)
+                | Interrupt::Font(_)
+                | Interrupt::CreationTimestamp(_)
+                | Interrupt::Fs(tinymist_project::vfs::FilesystemEvent::Update(_, _))
+        ) {
+            for proj in compiler.projects() {
+                proj.ext.defer_until_save = false;
+            }
+        }
         let mut accepted = None;
         if let Interrupt::CompileFinished(outcome) = &intr {
             if let Some(proj) = compiler
@@ -651,7 +668,7 @@ impl CompileHandler<LspCompilerFeat, ProjectInsStateExt> for CompileHandlerImpl 
         let instances_mut = std::iter::once(&mut c.primary).chain(c.dedicates.iter_mut());
         for s in instances_mut {
             let reason = s.reason;
-            if !s.is_demanded() || !reason.any() {
+            if !s.is_demanded() || !reason.any() || s.ext.defer_until_save {
                 continue;
             }
 

@@ -960,6 +960,18 @@
           "markdownDeprecationMessage": "%extension.tinymist.config.tinymist.preview.pinPreviewFile.deprecation%",
           "type": "boolean",
           "default": false
+        },
+        "tinymist.compileOnSave": {
+          "title": "%extension.tinymist.config.tinymist.compileOnSave.title%",
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%extension.tinymist.config.tinymist.compileOnSave.desc%"
+        },
+        "tinymist.preview.sharedFlow": {
+          "title": "%extension.tinymist.config.tinymist.preview.sharedFlow.title%",
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%extension.tinymist.config.tinymist.preview.sharedFlow.desc%"
         }
       }
     },

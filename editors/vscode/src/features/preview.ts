@@ -36,6 +36,7 @@ import {
   type ResolvedPreviewer,
 } from "./previewer";
 import { loadStoredViewerWindowState } from "./preview-window-state";
+import { openSharedFlowPreview } from "./shared-flow-preview";
 
 /**
  * The launch preview implementation which depends on `isCompat` of previewActivate.
@@ -471,6 +472,30 @@ const activeTask = new Map<vscode.TextDocument, TaskControlBlock>();
 async function launchPreviewLsp(task: LaunchInBrowserTask | LaunchInWebViewTask) {
   const { kind, context, editor, bindDocument, webviewPanel, isBrowsing, isDev, isNotPrimary } =
     task;
+
+  if (
+    vscode.workspace
+      .getConfiguration("tinymist", bindDocument.uri)
+      .get<boolean>("preview.sharedFlow")
+  ) {
+    if (task.mode !== "doc" || isBrowsing || isDev || isNotPrimary) {
+      throw new Error(
+        l10nMsg(
+          "Shared Flow preview supports saved document previews. Disable preview.sharedFlow to use this preview mode.",
+        ),
+      );
+    }
+    const result = await openSharedFlowPreview(context, bindDocument, kind);
+    // Retire an ordinary preview only after the shared viewer opens successfully.
+    const previous = activeTask.get(bindDocument);
+    if (previous?.panel) previous.panel.dispose();
+    else if (previous) {
+      previous.dispose?.();
+      await tinymist.killPreview(previous.taskId);
+    }
+    webviewPanel?.dispose();
+    return result;
+  }
 
   /**
    * Can only open one preview for one document.
