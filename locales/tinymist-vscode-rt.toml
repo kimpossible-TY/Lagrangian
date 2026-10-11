@@ -109,6 +109,9 @@ en = "Multiple Flow profiles use this project root. Use a unique project root fo
 ["No Flow profile contains this document. Configure and start its project in tinymist-flow."]
 en = "No Flow profile contains this document. Configure and start its project in tinymist-flow."
 
+["Open in Browser"]
+en = "Open in Browser"
+
 ["PDF (Specific Pages)"]
 en = "PDF (Specific Pages)"
 zh = "PDF (指定页码)"

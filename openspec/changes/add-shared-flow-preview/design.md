@@ -6,7 +6,7 @@ Flow runs a saved-file preview on the Mac. The remote VS Code extension currentl
 
 **Goals:** Reuse the managed Flow preview for desktop and phone viewers; reduce superseded automatic LSP evaluation; preserve current source snapshots and explicit language queries; retain defaults and failure visibility.
 
-**Non-Goals:** IPC serialization of Typst/comemo objects, eliminating all demand-driven LSP evaluation, changing installed engines or live profiles automatically, or displaying unsaved buffers on the phone. LSP save-time diagnostics remain an independent compilation; shared preview alone does not remove that cost.
+**Non-Goals:** IPC serialization of Typst/comemo objects, eliminating all demand-driven LSP evaluation, unrequested changes to installed engines or live profiles, or displaying unsaved buffers on the phone. LSP save-time diagnostics remain an independent compilation; shared preview alone does not remove that cost.
 
 ## Decisions
 
@@ -26,3 +26,12 @@ Flow runs a saved-file preview on the Mac. The remote VS Code extension currentl
 ## Migration Plan
 
 Build and test source changes in an isolated branch. Enable both options in a configured Flow workspace after installing a compatible engine and extension. Disable sharedFlow to return to ordinary preview; disable compileOnSave to restore automatic typing compilation. Installed services and user settings are not altered by implementation tests.
+
+## Authorized deployment follow-up
+
+The user explicitly requested installation, activation and measurement after the
+implementation review. Deploy the signed app and matching extension with recovery
+copies, scope the options to managed Flow projects, reload the remote extension
+host, and verify the new process and delivered document. Benchmark a copy of the
+actual PDE sources without modifying the original document. Distinguish host-side
+compiler timing from the Windows client's end-to-end display latency.

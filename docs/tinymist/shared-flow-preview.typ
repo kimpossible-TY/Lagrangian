@@ -24,9 +24,10 @@ A nested project takes precedence. Multiple profiles with the same root are
 ambiguous and must be resolved before opening the reader. The managed entrypoint,
 fonts, packages and theme settings belong to the Flow profile.
 
-The shared reader uses the profile's HTTPS address directly when available.
-Windows must be able to reach that address. Profiles without an HTTPS address use
-VS Code port forwarding. The extension reads profiles on the host from
+Remote connections, including Code Tunnel, use VS Code port forwarding so the
+client does not need access to the phone's private HTTPS address. Local sessions
+use the profile's HTTPS address when available, otherwise port forwarding.
+The reader header includes an *Open in Browser* button using the same address. The extension reads profiles on the host from
 `~/Library/Application Support/tinymist-flow/profiles.json`, or `FLOW_DATA_DIR`
 when that host environment variable is set. Untrusted workspaces cannot use this
 integration. A stopped service produces an error; start it in Flow and retry.

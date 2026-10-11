@@ -9,12 +9,20 @@ const mock = vi.hoisted(() => ({
   asExternalUri: vi.fn(),
   openExternal: vi.fn(),
   workspace: { isTrusted: true },
+  remoteName: undefined as string | undefined,
+  showErrorMessage: vi.fn(),
 }));
 vi.mock("node:fs/promises", () => ({ readFile: mock.readFile, realpath: mock.realpath }));
 vi.mock("vscode", () => ({
   workspace: mock.workspace,
-  window: { createWebviewPanel: mock.createWebviewPanel },
-  env: { asExternalUri: mock.asExternalUri, openExternal: mock.openExternal },
+  window: { createWebviewPanel: mock.createWebviewPanel, showErrorMessage: mock.showErrorMessage },
+  env: {
+    asExternalUri: mock.asExternalUri,
+    openExternal: mock.openExternal,
+    get remoteName() {
+      return mock.remoteName;
+    },
+  },
   Uri: { parse: (url: string) => ({ toString: () => url }) },
   ViewColumn: { Beside: 2 },
 }));
@@ -46,6 +54,7 @@ const document = { uri: { fsPath: "/project/chapter.typ" } } as vscode.TextDocum
 beforeEach(() => {
   vi.clearAllMocks();
   mock.workspace.isTrusted = true;
+  mock.remoteName = undefined;
   mock.readFile.mockResolvedValue(JSON.stringify({ schemaVersion: 1, profiles: [profile] }));
   mock.realpath.mockImplementation(async (file: string) => file);
   mock.fetch.mockResolvedValue({ ok: true, body: { cancel: vi.fn() } });
@@ -57,7 +66,7 @@ beforeEach(() => {
   mock.createWebviewPanel.mockImplementation(() => {
     let disposed = () => {};
     return {
-      webview: { html: "" },
+      webview: { html: "", onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })) },
       reveal: vi.fn(),
       onDidDispose: (callback: () => void) => {
         disposed = callback;
@@ -168,4 +177,24 @@ test("reader CSP is limited to its origin and URL attributes are escaped", () =>
   const html = sharedReaderHtml("https://reader.example/?x=%22&y=1");
   expect(html).toContain("default-src 'none'; frame-src https://reader.example;");
   expect(html).toContain("x=%22&amp;y=1");
+});
+
+test("remote readers use tunnel forwarding even with a private public URL", async () => {
+  mock.remoteName = "tunnel";
+  await openSharedFlowPreview(context(), document, "webview");
+  const panel = mock.createWebviewPanel.mock.results[0].value;
+  expect(mock.asExternalUri).toHaveBeenCalledTimes(1);
+  expect(panel.webview.html).toContain("https://forwarded.example/?token=a&amp;b=c");
+  expect(panel.webview.html).not.toContain("https://reader.example/");
+  expect(panel.webview.html).toContain("Open in Browser");
+  const handler = panel.webview.onDidReceiveMessage.mock.calls[0][0];
+  await handler({ type: "openBrowser", url: "https://untrusted.example/" });
+  expect(mock.openExternal.mock.calls[0][0].toString()).toBe(
+    "https://forwarded.example/?token=a&b=c",
+  );
+  await handler({ type: "unknown" });
+  expect(mock.openExternal).toHaveBeenCalledTimes(1);
+  mock.openExternal.mockResolvedValue(false);
+  await handler({ type: "openBrowser" });
+  expect(mock.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining("could not open"));
 });
