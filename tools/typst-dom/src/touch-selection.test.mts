@@ -91,13 +91,53 @@ describe("mobile selection render lifetime", () => {
     ]);
     expect(render).toHaveBeenCalledOnce();
     expect(activity).toHaveBeenLastCalledWith("rendering");
-    await frames.shift()!(0);
     expect(complete).toHaveBeenCalledOnce();
+    expect(frames).toHaveLength(0);
     ctx.dispose();
     expect(ownerDocument.removeEventListener).toHaveBeenCalledWith("selectionchange", onSelection);
     // A theme transition may dispose after a frame is queued but before it runs.
     ctx.addChangement(["diff-v1", "after disposal"]);
     expect(frames).toHaveLength(0);
+  });
+
+  it("completes in the rendering frame and schedules navigation queued by completion", async () => {
+    const { root, selection } = fixture();
+    selection.isCollapsed = true;
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal("document", { documentElement: {} });
+    vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: () => "white" }));
+    vi.spyOn(TypstDocumentContext.prototype as any, "installRescaleHandler").mockImplementation(
+      () => {},
+    );
+    const merge = vi.fn();
+    const ctx = new TypstDocumentContext({
+      hookedElem: root,
+      windowElem: {},
+      kModule: { reset: vi.fn(), manipulateData: merge },
+      retrieveDOMState: () => ({ width: 400, height: 800, boundingRect: { top: 0, left: 0 } }),
+    } as any);
+    const render = vi.fn();
+    ctx.r = { rescale: vi.fn(), rerender: render, postRender: vi.fn() };
+    const complete = vi.fn(() => {
+      if (complete.mock.calls.length === 1) ctx.addViewportChange();
+    });
+    ctx.onDidRender = complete;
+    ctx.addChangement(["new", "initial"]);
+    await frames.shift()!(0);
+    expect(complete).toHaveBeenCalledOnce();
+    expect(ctx.documentGeneration).toBe(2); // reset plus successful merge
+    expect(frames).toHaveLength(1);
+    await frames.shift()!(0);
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(merge).toHaveBeenCalledOnce();
+    expect(ctx.documentGeneration).toBe(2);
+    expect(frames).toHaveLength(0);
+    ctx.addChangement(["diff-v1", "edit"]);
+    await frames.shift()!(0);
+    expect(ctx.documentGeneration).toBe(3);
+    ctx.dispose();
   });
 
   it("does not render a queued animation frame after disposal", async () => {

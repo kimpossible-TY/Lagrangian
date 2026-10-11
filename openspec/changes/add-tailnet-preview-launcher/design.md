@@ -78,6 +78,16 @@ Validation covers the configured Origin, a wrong hostname, a wrong port/scheme, 
 
 For partial SVG document mode, derive the visible range from the scroll container and page metadata. Request visible pages plus one neighbor on each side; preserve offscreen renderer dummy groups and page dimensions. Do not rasterize dummy pages into canvases. Coalesce viewport events while preserving ordered document deltas. Shared glyph definitions and the document WASM model remain retained for diff correctness; this change bounds rendered page content, not total document data. Synchronous WASM rendering cannot be interrupted mid-call.
 
+### Avoid redundant mobile work
+
+Decode WebSocket envelopes using typed-array views of the received buffer. Every text consumer must respect the payload's offset and length; document bytes remain owned by the queued frame until merged. Keep malformed envelopes out of the render queue.
+
+Track a monotonically increasing document generation after each successful merge and on reset. Cache page metadata and the last successfully applied partial SVG window for that generation. A viewport-only event within the same page window reuses the existing SVG; a changed generation, page range, renderer mode or missing/replaced SVG forces a fresh render. Retain the existing one-neighbor bound instead of retaining unbounded offscreen DOM. Cursor updates and resize anchoring still run. Initialize the selectable HTML overlay only after SVG content or its geometry relative to the host changes; ordinary scrolling moves both together and does not require rebuilding text nodes.
+
+Once queued changes finish and the queue is empty, run completion callbacks in that animation frame. Reentrant updates from completion callbacks can schedule their own frame. A failed render, a live native selection or disposal must never report successful completion. Minify the embedded frontend using the existing Vite toolchain and preserve server-replaced argument strings.
+
+Measure navigation-to-ready, document-frame-to-ready, source-edit-to-ready, render/merge call costs, byte counts and same-window scrolling work in an isolated browser fixture with disposable source and loopback ports. Include real document updates, scrolling across page boundaries, zoom, selection hold/release, theme switching and reconnection. Report engine/browser identity and distinguish local desktop timings from physical iPhone timings. Worker migration and persistent document caching require separate profiling evidence and renderer/protocol work; neither is assumed necessary to obtain these reductions.
+
 ## Follow the edited location
 
 Each preview connection remembers visual fingerprints of the last rendered pages and the preceding compile view. On a successful incremental compilation, compare page frames and backgrounds; emit a `change,page x y` control frame only if the paged output changed. Resolve edited source spans against the new document when possible, and use the first changed page as a fallback. Full-current frames establish the baseline; without configured persistence they do not navigate.

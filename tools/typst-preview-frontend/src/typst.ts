@@ -96,7 +96,7 @@ function findAncestor(el: Element, cls: string) {
 
 const windowElem = document.getElementById("typst-container")! as TypstDomWindowElement;
 
-windowElem.initTypstSvg = function (docRoot: SVGElement) {
+windowElem.initTypstSvg = function (docRoot: SVGElement, onLayout?: () => void) {
   /// initialize pseudo links
   var elements = docRoot.getElementsByClassName("pseudo-link");
   for (var i = 0; i < elements.length; i++) {
@@ -109,7 +109,11 @@ windowElem.initTypstSvg = function (docRoot: SVGElement) {
     // iOS places selection handles incorrectly for HTML inside SVG foreignObject.
     // Keep the SVG text for rendering and source mapping, and put selectable
     // HTML in the same visual positions outside the SVG.
-    requestAnimationFrame(() => layoutTouchSelection(docRoot));
+    requestAnimationFrame(() => {
+      if (layoutTouchSelection(docRoot)) onLayout?.();
+    });
+  } else {
+    onLayout?.();
   }
 
   /// initialize text layout at client side
@@ -158,7 +162,7 @@ windowElem.initTypstSvg = function (docRoot: SVGElement) {
 
 function layoutTouchSelection(svg: SVGElement) {
   const host = svg.parentElement as HTMLElement | null;
-  if (!host || !svg.isConnected) return;
+  if (!host || !svg.isConnected) return false;
 
   host.classList.add("typst-touch-selection-host");
 
@@ -215,7 +219,7 @@ function layoutTouchSelection(svg: SVGElement) {
       );
     });
   }
-  if (overlay.childElementCount && hasTouchSelection(host)) return;
+  if (overlay.childElementCount && hasTouchSelection(host)) return false;
 
   const hostRect = host.getBoundingClientRect();
   const canvas = document.createElement("canvas");
@@ -294,6 +298,7 @@ function layoutTouchSelection(svg: SVGElement) {
 
   overlay.replaceChildren(...rowElements);
   host.dispatchEvent(new Event("typst-text-layout"));
+  return true;
 }
 
 function layoutText(svg: SVGElement) {

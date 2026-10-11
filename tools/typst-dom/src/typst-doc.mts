@@ -52,7 +52,7 @@ interface TypstPosition {
 }
 
 export interface TypstDomWindowElement extends HTMLElement {
-  initTypstSvg(docRoot: SVGElement): void;
+  initTypstSvg(docRoot: SVGElement, onLayout?: () => void): void;
   currentPosition(elem: Element): TypstPosition | undefined;
   handleTypstLocation(elem: Element, page: number, x: number, y: number): void;
   documents: any[];
@@ -101,6 +101,8 @@ export class TypstDocumentContext<O = any> {
   isRendering: boolean = false;
   /// whether kModule is initialized
   moduleInitialized: boolean = false;
+  /// Invalidates derived page metadata and SVG windows after a merge or reset.
+  documentGeneration = 0;
   /// patch queue for updating data.
   patchQueue: [string, string][] = [];
   /// resources to dispose
@@ -201,6 +203,7 @@ export class TypstDocumentContext<O = any> {
   reset() {
     this.kModule.reset();
     this.moduleInitialized = false;
+    this.documentGeneration++;
   }
 
   dispose() {
@@ -407,7 +410,7 @@ export class TypstDocumentContext<O = any> {
           action: "merge",
           data: svgUpdateEvent[1] as unknown as Uint8Array,
         });
-
+        this.documentGeneration++;
         this.moduleInitialized = true;
         return true;
       }
@@ -476,7 +479,13 @@ export class TypstDocumentContext<O = any> {
         this.sampledRenderTime = t2 - t0;
         console.log([d("parse", t0, t1), d("rerender", t1, t2), d("total", t0, t2)].join(", "));
 
-        requestAnimationFrame(doUpdate);
+        if (this.patchQueue.length) {
+          requestAnimationFrame(doUpdate);
+        } else {
+          // Completion may itself enqueue navigation or viewport work.
+          this.isRendering = false;
+          this.postprocessChanges();
+        }
       } catch (e) {
         console.error(e);
         this.isRendering = false;
