@@ -668,6 +668,14 @@ impl CompileHandler<LspCompilerFeat, ProjectInsStateExt> for CompileHandlerImpl 
         let instances_mut = std::iter::once(&mut c.primary).chain(c.dedicates.iter_mut());
         for s in instances_mut {
             let reason = s.reason;
+            // Source history must advance while expensive theme compilation is
+            // paused. The shared watcher records disk edits without layout.
+            #[cfg(feature = "preview")]
+            if reason.any() {
+                if let Some(watcher) = self.preview.get(&s.id) {
+                    watcher.observe_source_changes();
+                }
+            }
             if !s.is_demanded() || !reason.any() || s.ext.defer_until_save {
                 continue;
             }

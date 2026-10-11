@@ -201,7 +201,10 @@ try {
     "unviewed variants defer compiling and persisting edits until a viewer returns",
   );
   const resumedDark = await connect("dark");
-  assertResume(resumedDark);
+  await until(
+    () => lastHint(resumedDark, "change") || lastHint(resumedDark, "resume"),
+    "latest tracked offline edit hint",
+  );
   await until(
     async () =>
       JSON.stringify((await record())?.variants.dark) !== JSON.stringify(JSON.parse(baseline).dark),
@@ -230,21 +233,18 @@ try {
   await stop();
   await start();
   assertResume(await connect("dark"));
-  assert.equal(
-    lastHint(await connect("light"), "resume"),
-    undefined,
-    "a variant with stale source inputs must establish a new baseline after restart",
-  );
+  assertResume(await connect("light")); // A stale theme maps the shared source anchor.
+
   await stop();
   await writeFile(passage, "Edited while the service was stopped.\n");
   await start();
   const stale = await connect("light");
+  assertResume(stale);
   assert.equal(
-    lastHint(stale, "resume"),
-    undefined,
-    "restart with changed source must not guess an edit from the first changed page",
+    (await record()).variants.light.position[0],
+    120,
+    "persisted source text maps a stopped edit into its body instead of guessing a changed page",
   );
-  assert.equal((await record()).variants.light.position, null);
   await stop();
   const legacy = await record();
   await writeFile(
@@ -406,7 +406,7 @@ try {
   }
   await stop();
   // Put the outline on page 2 and its heading body on page 120. An edit made
-  // while stopped changes both, but neither occurrence is an observed edit.
+  // while stopped changes both; saved source text identifies the body range.
   const stoppedOutline = resolve(temp, "stopped-outline.typ");
   await writeFile(
     stoppedOutline,
@@ -428,16 +428,16 @@ try {
   await writeFile(passage, "= Unobserved stopped heading edit\n");
   await start(stoppedOutline);
   for (const theme of ["light", "dark"]) {
+    assertResume(await connect(theme));
     assert.equal(
-      lastHint(await connect(theme), "resume"),
-      undefined,
-      "a stopped heading edit must not guess the outline on page 2",
+      (await record()).variants[theme].position[0],
+      120,
+      "a source-tracked stopped heading edit must target the body instead of its outline copy",
     );
-    assert.equal((await record()).variants[theme].position, null);
   }
   await stop();
   console.log(
-    "PASS: initial baseline, ordered live edits in both themes, refresh/new viewer, disconnected edits, unchanged restart, stale-input baseline, legacy history migration, project isolation, new includes, outlined/repeated headings, paragraph/math/figure edits, authored internal links, and stopped outline edits without guessed navigation",
+    "PASS: initial baseline, ordered live edits in both themes, refresh/new viewer, disconnected edits, unchanged restart, shared stale-theme restoration, legacy history migration, project isolation, new includes, outlined/repeated headings, paragraph/math/figure edits, authored internal links, and source-tracked stopped outline edits",
   );
   if (keep) {
     await writeFile(passage, "= Original distant heading\n");

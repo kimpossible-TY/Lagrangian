@@ -75,3 +75,7 @@ Remember the reading position immediately before an internal document link is fo
 ## Recover after home-screen web app suspension
 
 Recover promptly when an iPhone/iPad home-screen viewer returns from another app. Reuse responding sockets, probe upgraded engines without requesting a full render, defer disconnected retries while hidden, and bound unresponsive opening/foreground connections. Retain the visible document during recovery and wait for the replacement full frame before accepting new deltas. Preserve ordered updates, native selection, focus and reading position. This reduces recovery work without promising background execution or eliminating full document transfer after a real disconnect.
+
+## Track edits while preview viewers are closed
+
+Keep bounded local source baselines and the latest observed authored source range shared across document palettes. Record filesystem saves even while viewer demand pauses layout, and map the latest source anchor into each palette when it compiles. Preserve theme-specific coordinates, read-only Git fallback and live-edit behavior.

@@ -8,6 +8,7 @@ mod demand;
 mod focus;
 mod outline;
 pub mod protocol;
+mod source_change;
 
 pub use crate::actor::editor::{
     CompileStatus, ControlPlaneMessage, ControlPlaneResponse, ControlPlaneRx, ControlPlaneTx,
@@ -15,6 +16,7 @@ pub use crate::actor::editor::{
 };
 pub use crate::focus::{PreviewHighlightStatus, PreviewSourceContext, PreviewTextSelection};
 pub use crate::outline::Outline;
+pub use crate::source_change::{PreviewSourceEdit, PreviewSourceFile};
 
 use std::sync::{Arc, OnceLock};
 use std::{borrow::Cow, collections::HashMap, future::Future, path::PathBuf, pin::Pin};
@@ -1072,6 +1074,16 @@ pub trait CompileView: Send + Sync {
         vec![]
     }
 
+    /// Local source baselines for lightweight tracking without active viewers.
+    fn preview_source_files(&self) -> Vec<PreviewSourceFile> {
+        vec![]
+    }
+
+    /// Map a shared source anchor only when its text matches this compilation.
+    fn source_edit_document_positions(&self, _edit: &PreviewSourceEdit) -> Vec<PagedPosition> {
+        vec![]
+    }
+
     /// Resolve the span with an optional offset.
     fn resolve_span(&self, _s: Span, _offset: Option<usize>) -> Option<DocToSrcJumpInfo> {
         None
@@ -1089,6 +1101,13 @@ pub struct CompileWatcher {
 }
 
 impl CompileWatcher {
+    /// Record pending disk edits independently of viewer/compilation demand.
+    pub fn observe_source_changes(&self) {
+        if let Some(tracker) = &self.change_tracker {
+            tracker.observe_source_changes();
+        }
+    }
+
     pub fn task_id(&self) -> &str {
         &self.task_id
     }

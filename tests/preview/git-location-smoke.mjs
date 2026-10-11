@@ -183,7 +183,9 @@ Unchanged separator
   await stop();
   await writeFile(later, "= Changed while stopped\nLate body.\n");
   await start();
-  await checkBoth(3); // Invalidated history uses the earliest current Git candidate.
+  await checkBoth(5); // A persisted source baseline outranks cumulative Git changes.
+  await fresh();
+  await checkBoth(3); // Without source history, the earliest current Git candidate wins.
   await stop();
   git("add", "a-later.typ", "z-earlier.typ");
   git("commit", "-qm", "updated baseline");

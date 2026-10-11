@@ -146,6 +146,63 @@ impl tinymist_preview::CompileView for PreviewCompileView {
         Some(format!("{:032x}", tinymist_std::hash::hash128(&inputs)))
     }
 
+    fn preview_source_files(&self) -> Vec<tinymist_preview::PreviewSourceFile> {
+        let world = self.art.world();
+        let Some(root) = world.entry_state().workspace_root() else {
+            return vec![];
+        };
+        self.art
+            .depended_files()
+            .iter()
+            .filter_map(|id| {
+                if !matches!(
+                    WorkspaceResolver::resolve(*id),
+                    Ok(WorkspaceResolution::Workspace(_))
+                ) {
+                    return None;
+                }
+                let path = world.path_for_id(*id).ok()?.to_err().ok()?;
+                if !path.starts_with(root.as_ref()) {
+                    return None;
+                }
+                let source = world.source(*id).ok()?;
+                Some(tinymist_preview::PreviewSourceFile {
+                    filepath: path.to_path_buf(),
+                    text: source.text().to_owned(),
+                })
+            })
+            .collect()
+    }
+
+    fn source_edit_document_positions(
+        &self,
+        edit: &tinymist_preview::PreviewSourceEdit,
+    ) -> Vec<Position> {
+        let world = self.art.world();
+        let resolve = || {
+            let id = world.id_for_path(&edit.filepath)?;
+            if !self.art.depended_files().contains(&id) {
+                return None;
+            }
+            let source = world.source(id).ok()?;
+            let hash = format!("{:032x}", tinymist_std::hash::hash128(&source.text()));
+            if hash != edit.source_hash || edit.range.end > source.text().len() {
+                return None;
+            }
+            let mut edits = SourceEdits::default();
+            collect_edit_spans(
+                LinkedNode::new(source.root()),
+                &edit.range,
+                &mut edits.spans,
+            );
+            let Some(TypstDocument::Paged(document)) = self.doc() else {
+                return None;
+            };
+            Some(mapped_body_positions(&document, &edits, true))
+        };
+        resolve().unwrap_or_default()
+    }
+
     fn highlight_preview_selection(
         &self,
         start: &reflexo::debug_loc::DocumentPosition,
@@ -428,36 +485,7 @@ impl tinymist_preview::CompileView for PreviewCompileView {
         let Some(TypstDocument::Paged(document)) = self.doc() else {
             return vec![];
         };
-        let mut body = Vec::new();
-        let mut links = Vec::new();
-        let mut outlines = HashSet::new();
-        for (index, page) in document.pages().iter().enumerate() {
-            let mut candidates = PageEditPositions {
-                earliest: true,
-                outlines: std::mem::take(&mut outlines),
-                ..Default::default()
-            };
-            find_edit_positions(
-                &page.frame,
-                Point::zero(),
-                &page.frame,
-                &edits,
-                &mut candidates,
-            );
-            outlines = std::mem::take(&mut candidates.outlines);
-            let page = NonZeroUsize::new(index + 1).unwrap();
-            for point in [candidates.element, candidates.text].into_iter().flatten() {
-                body.push(Position { page, point });
-            }
-            if let Some(point) = candidates.link {
-                links.push(Position { page, point });
-            }
-        }
-        if body.is_empty() {
-            links
-        } else {
-            body
-        }
+        mapped_body_positions(&document, &edits, false)
     }
 
     fn changed_document_positions(
@@ -617,6 +645,50 @@ struct SourceEdits {
 impl SourceEdits {
     fn contains(&self, span: Span) -> bool {
         self.spans.contains(&span) || span.id().is_some_and(|id| self.new_files.contains(&id))
+    }
+}
+
+/// Map edited spans to body positions, excluding copied outline content.
+fn mapped_body_positions(
+    document: &tinymist_std::typst::TypstPagedDocument,
+    edits: &SourceEdits,
+    prefer_elements: bool,
+) -> Vec<Position> {
+    let mut body = Vec::new();
+    let mut elements = Vec::new();
+    let mut links = Vec::new();
+    let mut outlines = HashSet::new();
+    for (index, page) in document.pages().iter().enumerate() {
+        let mut candidates = PageEditPositions {
+            earliest: true,
+            outlines: std::mem::take(&mut outlines),
+            ..Default::default()
+        };
+        find_edit_positions(
+            &page.frame,
+            Point::zero(),
+            &page.frame,
+            edits,
+            &mut candidates,
+        );
+        outlines = std::mem::take(&mut candidates.outlines);
+        let page = NonZeroUsize::new(index + 1).unwrap();
+        if let Some(point) = candidates.element {
+            elements.push(Position { page, point });
+        }
+        for point in [candidates.element, candidates.text].into_iter().flatten() {
+            body.push(Position { page, point });
+        }
+        if let Some(point) = candidates.link {
+            links.push(Position { page, point });
+        }
+    }
+    if prefer_elements && !elements.is_empty() {
+        elements
+    } else if body.is_empty() {
+        links
+    } else {
+        body
     }
 }
 

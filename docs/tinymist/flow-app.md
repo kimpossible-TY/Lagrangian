@@ -129,7 +129,7 @@ Use change navigation to return to work after reopening a preview or to inspect 
 
 **Result:** The project remembers a rendered edit location. Theme switches and reconnecting an already rendered viewer preserve the current reading position. This tracks visual edits, rather than a history of where you scrolled; comments and other edits with no rendered change do not move the saved position.
 
-**Conditions:** Edits made while a palette has no viewers update its remembered location when a viewer returns and it compiles. A valid saved location takes priority. If none is usable, Flow can use Git changes against HEAD that map to the document; these are cumulative changes, rather than the order of edits. Without a usable saved or Git location, the initial view stays at the beginning.
+**Conditions:** While the preview service runs, saves made with all viewers closed retain their latest source location without compiling an idle palette. Light and dark share that source location and map it into their own layouts when opened, including a palette that has not been used before. A current saved location takes priority. If none is usable, Flow can use Git changes against HEAD that map to the document; these are cumulative changes, rather than the order of edits. Without a usable saved, tracked-source, or Git location, the initial view stays at the beginning.
 
 ## Understand preview status
 
