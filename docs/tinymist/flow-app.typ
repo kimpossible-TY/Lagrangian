@@ -143,6 +143,8 @@ Use change navigation to return to work after reopening a preview or to inspect 
 
 The small status ring shows activity while the browser prepares the renderer, connects, waits for the document, compiles, or draws pages. It disappears after rendering. Compiler or rendering failures show a static error; a dropped connection shows reconnection activity. These states describe activity rather than estimated completion percentages.
 
+*Returning from another app:* iOS and iPadOS can suspend a home-screen web app and interrupt its connection. Returning checks the existing connection and reuses it if it responds. A dropped connection retries on return, keeping the document, zoom and reading position visible. A native text selection holds the replacement document until the selection is dismissed. Source updates still render normally. Background suspension or a page reload can still require document transfer; connection recovery does not guarantee continuous background access.
+
 - *Preview waits while text is selected:* dismiss the selection to release pending updates.
 - *Long wait or compilation error:* open Logs in Flow and check the document in your editor. A responding HTTP server does not prove successful compilation.
 - *Mobile URL does not connect:* confirm that the Mac is awake, the preview is started, the device has tailnet access, and the route points to the current local port. Check the HTTPS address saved in Flow.
