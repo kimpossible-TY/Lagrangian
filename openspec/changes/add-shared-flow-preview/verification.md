@@ -165,3 +165,22 @@ and the document are visible. This completes client display verification; browse
 button click-through and Windows save-to-visible latency were not separately
 measured. The installed Flow 0.1.15 app is tagged `flow-v0.1.15` at its clean
 source revision `5218829a`; the accompanying extension correction is `b0b15f9a`.
+
+
+## Desktop click-to-source follow-up
+
+A per-panel iframe bridge reuses the clicked viewer's revision-checked focus
+response. The response now includes the existing one-based source column. The
+extension validates source window, origin, channel, canonical project containment
+and positions; it converts Unicode scalar columns to UTF-16 and reveals the source
+in the editor group. Mobile/external viewers remain standalone, selected-text
+Codex actions do not navigate, and dirty target buffers require a save first.
+No extra compiler, WebSocket, or focus-file polling was introduced.
+
+Extension/config tests passed 27 cases and frontend bridge/frame tests passed 17.
+A real VS Code integration test received the iframe event and verified the opened
+source file plus the exact cursor position after Korean text and an emoji. It also
+verified zero additional LSP preview tasks and service survival after disposal.
+Type checking, ESLint, preview and desktop/web bundles, formatting and strict
+OpenSpec validation passed. Engine integration and installed-version checks follow
+the clean source build.

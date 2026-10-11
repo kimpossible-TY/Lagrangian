@@ -37,9 +37,13 @@ integration. A stopped service produces an error; start it in Flow and retry.
 Save an edit to update the shared reader. Unsaved buffers stay in the language
 server and are not sent to the Flow service. Reopening the preview reuses the
 existing reader panel. Closing it disconnects that viewer without stopping Flow.
-The shared reader offers Flow's reading controls; editor cursor synchronization,
-slide previews and browsing/development previews use the ordinary LSP preview
-and require sharedFlow to be disabled.
+Click text in the embedded VS Code reader to reveal its saved source file and
+cursor position. This reuses Flow's source mapping without starting another
+compiler. Save an unsaved target source before navigating from the saved preview.
+Mobile and external browser readers retain Codex location recording and do not
+move the desktop cursor. Source files must belong to the matched project.
+Editor-to-preview synchronization, slide previews and browsing/development
+previews require sharedFlow to be disabled.
 
 `compileOnSave` changes automatic full-document compilation after typing. Source
 snapshots update immediately, so language queries can still inspect current text.

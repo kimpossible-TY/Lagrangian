@@ -22,6 +22,7 @@ import { SelectionActions } from "./selection-actions";
 import { PreviewActivity } from "./preview-activity";
 import { decodePreviewFrame } from "./preview-frame";
 import { ReferenceNavigation } from "./reference-navigation";
+import { EditorNavigation } from "./editor-navigation";
 import { PreviewConnection } from "./preview-connection";
 export { PreviewMode } from "typst-dom/typst-doc.mjs";
 
@@ -65,6 +66,7 @@ export async function wsMain({
     activity.refresh();
   };
 
+  const editorNavigation = new EditorNavigation(window);
   let disposed = false;
   let connection: PreviewConnection | undefined;
   let awaitingFullFrame = true;
@@ -617,8 +619,12 @@ export async function wsMain({
         focusEnabled = true;
         selectionActions?.setEnabled(!!focusRevision);
         showFocusStatus(
-          "Codex에 위치 공유 · 본문을 탭하세요",
-          "Share a location with Codex · tap the document",
+          editorNavigation.enabled
+            ? "본문을 클릭하면 VS Code 소스로 이동합니다"
+            : "Codex에 위치 공유 · 본문을 탭하세요",
+          editorNavigation.enabled
+            ? "Click the document to reveal its source in VS Code"
+            : "Share a location with Codex · tap the document",
         );
         windowElem.onPreviewFocus = (position) => {
           if (hasTouchSelection(svgDoc.impl.hookedElem)) return;
@@ -629,7 +635,10 @@ export async function wsMain({
             );
             return;
           }
-          showFocusStatus("선택한 위치 저장 중…", "Saving selected location…");
+          showFocusStatus(
+            editorNavigation.enabled ? "소스 위치 찾는 중…" : "선택한 위치 저장 중…",
+            editorNavigation.enabled ? "Finding source location…" : "Saving selected location…",
+          );
           windowElem.typstWebsocket.send(
             `src-point ${JSON.stringify({ ...position, revision: focusRevision })}`,
           );
@@ -675,7 +684,9 @@ export async function wsMain({
       }
       if (message[0] === "focus") {
         const result = JSON.parse(dec.decode(message[1] as Uint8Array));
-        if (result.status === "selected") {
+        if (editorNavigation.reveal(result)) {
+          showFocusStatus("VS Code에 소스 위치 전달됨", "Source location sent to VS Code");
+        } else if (result.status === "selected") {
           const name = result.filepath.split(/[\\/]/).pop();
           showFocusStatus(
             `Codex용 ${result.text_selected ? "텍스트" : "위치"} 저장됨 · ${result.page}쪽 · ${name}:${result.line}`,

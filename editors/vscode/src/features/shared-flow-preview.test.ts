@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type * as vscode from "vscode";
 
@@ -11,11 +12,25 @@ const mock = vi.hoisted(() => ({
   workspace: { isTrusted: true },
   remoteName: undefined as string | undefined,
   showErrorMessage: vi.fn(),
+  showWarningMessage: vi.fn(),
+  openTextDocument: vi.fn(),
+  showTextDocument: vi.fn(),
 }));
 vi.mock("node:fs/promises", () => ({ readFile: mock.readFile, realpath: mock.realpath }));
 vi.mock("vscode", () => ({
-  workspace: mock.workspace,
-  window: { createWebviewPanel: mock.createWebviewPanel, showErrorMessage: mock.showErrorMessage },
+  workspace: {
+    get isTrusted() {
+      return mock.workspace.isTrusted;
+    },
+    openTextDocument: mock.openTextDocument,
+  },
+  window: {
+    createWebviewPanel: mock.createWebviewPanel,
+    showErrorMessage: mock.showErrorMessage,
+    showWarningMessage: mock.showWarningMessage,
+    showTextDocument: mock.showTextDocument,
+    visibleTextEditors: [],
+  },
   env: {
     asExternalUri: mock.asExternalUri,
     openExternal: mock.openExternal,
@@ -23,7 +38,23 @@ vi.mock("vscode", () => ({
       return mock.remoteName;
     },
   },
-  Uri: { parse: (url: string) => ({ toString: () => url }) },
+  Uri: {
+    parse: (url: string) => ({ toString: () => url }),
+    file: (file: string) => ({ fsPath: file, toString: () => `file://${file}` }),
+  },
+  Position: class {
+    constructor(
+      public line: number,
+      public character: number,
+    ) {}
+  },
+  Range: class {
+    constructor(
+      public start: unknown,
+      public end: unknown,
+    ) {}
+  },
+  TextEditorRevealType: { InCenterIfOutsideViewport: 2 },
   ViewColumn: { Beside: 2 },
 }));
 vi.mock("../l10n", () => ({ l10nMsg: (message: string) => message }));
@@ -33,6 +64,7 @@ import {
   parseFlowProfiles,
   selectFlowProfile,
   sharedReaderHtml,
+  revealSharedSource,
 } from "./shared-flow-preview";
 
 const profile = {
@@ -197,4 +229,88 @@ test("remote readers use tunnel forwarding even with a private public URL", asyn
   mock.openExternal.mockResolvedValue(false);
   await handler({ type: "openBrowser" });
   expect(mock.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining("could not open"));
+});
+
+const sourceHit = { filepath: "/project/chapter.typ", line: 2, column: 4 };
+function mockSource(isDirty = false) {
+  const doc = {
+    isDirty,
+    lineCount: 3,
+    uri: { toString: () => "file:///project/chapter.typ" },
+    lineAt: () => ({ text: "한😀글 source" }),
+  };
+  mock.openTextDocument.mockResolvedValue(doc);
+  const editor = { revealRange: vi.fn() };
+  mock.showTextDocument.mockResolvedValue(editor);
+  return editor;
+}
+const canonicalProfile = { ...profile, entry: "/project/main.typ" };
+test("source hits open the source group with an exact UTF-16 cursor position", async () => {
+  const editor = mockSource();
+  await revealSharedSource(canonicalProfile, sourceHit, 1);
+  const opts = mock.showTextDocument.mock.calls[0][1];
+  expect(opts.viewColumn).toBe(1);
+  expect(opts.preserveFocus).toBe(false);
+  expect(opts.selection.start).toEqual({ line: 1, character: 4 });
+  expect(opts.selection.end).toEqual(opts.selection.start);
+  expect(editor.revealRange).toHaveBeenCalled();
+});
+
+test("untrusted, invalid and canonical outside-project hits cannot open files", async () => {
+  mockSource();
+  for (const change of [
+    { filepath: "../secret" },
+    { line: 0 },
+    { column: 1.5 },
+    { filepath: "/project-other/secret" },
+  ]) {
+    await revealSharedSource(canonicalProfile, { ...sourceHit, ...change }, 1);
+  }
+  mock.realpath.mockResolvedValueOnce("/outside/symlink-target.typ");
+  await revealSharedSource(canonicalProfile, sourceHit, 1);
+  mock.workspace.isTrusted = false;
+  await revealSharedSource(canonicalProfile, sourceHit, 1);
+  expect(mock.openTextDocument).not.toHaveBeenCalled();
+});
+
+test("dirty sources and out-of-range positions do not move the cursor", async () => {
+  mockSource(true);
+  await revealSharedSource(canonicalProfile, sourceHit, 1);
+  expect(mock.showWarningMessage).toHaveBeenCalled();
+  mockSource(false);
+  await revealSharedSource(canonicalProfile, { ...sourceHit, line: 99 }, 1);
+  await revealSharedSource(canonicalProfile, { ...sourceHit, column: 99 }, 1);
+  expect(mock.showTextDocument).not.toHaveBeenCalled();
+});
+
+test("webview bridge rejects messages from another iframe, origin or panel", () => {
+  const channel = "12345678-1234-1234-1234-123456789abc";
+  const html = sharedReaderHtml("https://reader.example/?token=keep", channel);
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)![1];
+  const frame = {
+    src: `https://reader.example/?token=keep&tinymist-editor=${channel}`,
+    contentWindow: {},
+  };
+  const postMessage = vi.fn();
+  let listener: (event: unknown) => void = () => {};
+  runInNewContext(script, {
+    URL,
+    acquireVsCodeApi: () => ({ postMessage }),
+    document: {
+      getElementById: (id: string) => (id === "reader" ? frame : { addEventListener() {} }),
+    },
+    window: {
+      addEventListener: (_name: string, handler: typeof listener) => {
+        listener = handler;
+      },
+    },
+  });
+  const data = { type: "flowSourceLocation", channel, ...sourceHit };
+  const valid = { source: frame.contentWindow, origin: "https://reader.example", data };
+  listener({ ...valid, source: {} });
+  listener({ ...valid, origin: "https://attacker.example" });
+  listener({ ...valid, data: { ...data, channel: "other" } });
+  expect(postMessage).not.toHaveBeenCalled();
+  listener(valid);
+  expect(postMessage).toHaveBeenCalledWith(data);
 });
