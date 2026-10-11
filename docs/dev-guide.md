@@ -63,7 +63,9 @@ node scripts/link-docs.mjs --check
 typst compile --root . docs/tinymist/flow-app.typ dist/UserGuide.pdf
 ```
 
-`README.md` and `docs/dev-guide.md` are generated. The app guide is bundled as a PDF during packaging. App sources compile independently of documentation conversion tools.
+`README.md`, `docs/dev-guide.md`, and `docs/tinymist/flow-app.md` are generated. The web user guide and bundled PDF share `docs/tinymist/flow-app.typ`; edit that source once, then regenerate Markdown and rebuild the app to update its PDF. Images and local links in the Typst sources use source-relative paths; the generator rebases them for each Markdown output. `--readme-only` limits generation or checking to the README.
+
+The [web user guide](tinymist/flow-app.md) describes the first preview and reading actions. The [reading demo](tinymist/examples/reading-demo.typ) supplies a small, theme-aware document for trying those actions. `docs/tinymist/images/mobile-selection.png` is a screenshot of that demo in the actual preview frontend at a phone-sized touch viewport. Capture it with an isolated preview and focus record when the demo or selection UI changes. App sources compile independently of documentation conversion tools.
 
 ## Workflow
 

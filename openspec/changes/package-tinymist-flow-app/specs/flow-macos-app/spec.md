@@ -1,5 +1,25 @@
 ## ADDED Requirements
 
+### Requirement: Discoverable user documentation
+The README SHALL describe Flow's reading and review features before development details, show a screenshot of a reproducible example document, and explain the first preview using the app's actual control labels. Installation instructions SHALL distinguish a fresh machine from rebuilding with an installed engine.
+
+#### Scenario: Discover and try a feature
+- **WHEN** a new user reads the README
+- **THEN** they can find mobile reading, source highlights, browser-only review marks, saved Codex context, document themes, reference return and change navigation
+- **AND** they can follow project addition, start and open-preview instructions and find the mobile access prerequisites
+
+### Requirement: One canonical user guide for web and app
+The documentation generator SHALL produce a GitHub-readable user guide from the same Typst source bundled as the app's PDF. Local image and documentation links SHALL work from each generated Markdown output. The guide SHALL explain feature purpose, actions, outcomes and relevant conditions, including that highlights modify source, red strikes stay in browser storage, and saving for Codex does not start an assistant turn.
+
+#### Scenario: Read the guide on GitHub or in the app
+- **WHEN** a user follows the README's user-guide link or opens the app's guide menu
+- **THEN** they can read the corresponding guide without needing to interpret Typst source
+- **AND** the web and app guides are generated from one maintained source
+
+#### Scenario: Detect an outdated web guide
+- **WHEN** the canonical guide changes without regenerating Markdown
+- **THEN** the documentation consistency check rejects the outdated generated guide
+
 ### Requirement: Integrated Flow source repository
 The repository SHALL maintain the native Flow app, packaging, branding, documentation, engine implementation, preview frontend, supporting editor integrations, tests and workflow contracts. Applicable license notices and prior source history SHALL be preserved.
 

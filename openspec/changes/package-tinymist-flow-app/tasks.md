@@ -32,3 +32,9 @@
 - [x] 6.4 Build from a clean commit, install with recovery, and verify initial consent plus HTTPS document delivery.
 - [x] 6.5 Verify document delivery after a subsequent installed build without renewed consent; record any remaining native approval limitation.
 - [x] 6.6 Wait for asynchronous preview shutdown during update and recovery; verify the observed restart race.
+
+## 7. Discoverable user documentation
+- [x] 7.1 Lead the README with feature descriptions, a real demo screenshot, and exact first-preview controls; distinguish first installation from updates.
+- [x] 7.2 Reorganize the canonical user guide around reading and review tasks, mobile access, Codex reader setup, and troubleshooting while retaining maintenance guidance.
+- [x] 7.3 Generate a GitHub-readable user guide from the bundled guide source and document generation for all outputs.
+- [x] 7.4 Validate Markdown generation and local links, compile and inspect the Typst documents, and run app build and tests for the bundled guide.
