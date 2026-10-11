@@ -30,6 +30,7 @@ export class EditorNavigation {
       if (
         /^[a-f0-9-]{36}$/.test(channel) &&
         ["http:", "https:"].includes(url.protocol) &&
+        url.origin === new URL(host.location.href).origin &&
         !url.username &&
         !url.password &&
         url.pathname.endsWith(`/editor/${channel}`)

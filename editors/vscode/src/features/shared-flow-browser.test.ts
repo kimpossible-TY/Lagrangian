@@ -1,34 +1,33 @@
 import { once } from "node:events";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
+import { attachFlowEditorRelay } from "../test/flow-editor-relay";
 import { createBrowserEditorBridge } from "./shared-flow-browser";
 
-const origin = "http://localhost:23625";
+vi.mock("../l10n", () => ({ l10nMsg: (message: string) => message }));
+
+const channel = "12345678-1234-1234-1234-123456789abc";
 const jump = { event: "editorScrollTo", filepath: "/project/main.typ", start: [2, 3], end: [2, 8] };
 
-test("shared control protocol is bidirectional, origin/session checked, and disposed independently", async () => {
+test("editor host and reader share one engine port, preserving both directions and independent disposal", async () => {
+  const server = createServer((_request, response) => response.writeHead(200).end());
+  const relay = attachFlowEditorRelay(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const reader = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
   const reveal = vi.fn().mockResolvedValue(undefined);
-  const bridge = await createBrowserEditorBridge(origin, "unique-session", reveal);
-  const sockets: WebSocket[] = [];
-  const url = bridge.localUrl.replace(/^http/, "ws");
+  const bridge = await createBrowserEditorBridge(reader, channel, reveal);
+  const socket = new WebSocket(
+    new URL(`editor/${channel}?forwarding=preserved`, reader).toString().replace(/^http/, "ws"),
+    { origin: new URL(reader).origin },
+  );
   try {
-    for (const [endpoint, readerOrigin] of [
-      [url, "https://other.example"],
-      [url.replace("unique-session", "other"), origin],
-    ]) {
-      const denied = new WebSocket(endpoint, { origin: readerOrigin });
-      sockets.push(denied);
-      const error = new Promise<Error>((resolve) => denied.once("error", resolve));
-      expect((await error).message).toContain("403");
-    }
-    const connection = new WebSocket(url + "?forwarding=preserved", { origin });
-    sockets.push(connection);
-    await once(connection, "open");
-    connection.send(JSON.stringify({ event: "syncMemoryFiles", files: {} }));
-    connection.send("bad json");
-    connection.send(JSON.stringify(jump));
+    await once(socket, "open");
+    await vi.waitFor(() => expect(bridge.connected).toBe(true));
+    socket.send(JSON.stringify(jump));
     await vi.waitFor(() => expect(reveal).toHaveBeenCalledExactlyOnceWith(jump));
-    const response = once(connection, "message");
+    const response = once(socket, "message");
     expect(
       bridge.send({ event: "panelScrollTo", filepath: jump.filepath, line: 2, character: 4 }),
     ).toBe(true);
@@ -39,14 +38,25 @@ test("shared control protocol is bidirectional, origin/session checked, and disp
       line: 2,
       character: 4,
     });
-    const closed = once(connection, "close");
+    const closed = once(socket, "close");
     bridge.dispose();
     await closed;
+    expect(bridge.connected).toBe(false);
     expect(
       bridge.send({ event: "panelScrollTo", filepath: jump.filepath, line: 2, character: 4 }),
     ).toBe(false);
+    expect((await fetch(reader)).status).toBe(200);
   } finally {
-    sockets.forEach((socket) => socket.terminate());
+    socket.terminate();
     bridge.dispose();
+    relay.dispose();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("editor host cannot connect to a remote endpoint", async () => {
+  await expect(
+    createBrowserEditorBridge("https://remote.example/", channel, vi.fn()),
+  ).rejects.toThrow("loopback");
 });

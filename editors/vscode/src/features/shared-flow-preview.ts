@@ -254,12 +254,15 @@ async function editorReaderSession(
   if (existing) return existing;
   const pending = (async () => {
     const channel = globalThis.crypto.randomUUID();
-    const bridge = await createBrowserEditorBridge(new URL(readerUrl).origin, channel, (jump) =>
-      revealSharedSource(profile, jump, column),
+    const bridge = await createBrowserEditorBridge(
+      `http://127.0.0.1:${profile.port}/`,
+      channel,
+      (jump) => revealSharedSource(profile, jump, column),
     );
     try {
-      const endpoint = await vscode.env.asExternalUri(vscode.Uri.parse(bridge.localUrl));
       const url = new URL(readerUrl);
+      const endpoint = new URL(readerUrl);
+      endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/editor/${channel}`;
       url.searchParams.set("tinymist-editor", channel);
       url.searchParams.set("tinymist-editor-control", endpoint.toString());
       const session = { profile, url: url.toString(), bridge };

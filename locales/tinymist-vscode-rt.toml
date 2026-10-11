@@ -196,6 +196,10 @@ zh = "指定要导出的页码"
 en = "TeX processor"
 zh = "TeX 导出的处理脚本"
 
+["The Flow engine could not establish editor synchronization."]
+en = "The Flow engine could not establish editor synchronization."
+ko = "Flow 엔진에 편집기 동기화 연결을 열 수 없습니다."
+
 ["The Flow entrypoint must be inside its project root."]
 en = "The Flow entrypoint must be inside its project root."
 
@@ -211,6 +215,10 @@ zh = "Tinymist 服务器不可用。某些功能（如回车时的自动格式�
 
 ["Unsupported Flow profile configuration."]
 en = "Unsupported Flow profile configuration."
+
+["Update tinymist-flow to use shared editor synchronization."]
+en = "Update tinymist-flow to use shared editor synchronization."
+ko = "공유 미리보기의 편집기 동기화를 사용하려면 tinymist-flow를 업데이트해 주세요."
 
 ["VS Code could not open the shared Flow preview URL."]
 en = "VS Code could not open the shared Flow preview URL."

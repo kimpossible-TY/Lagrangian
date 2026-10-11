@@ -1,6 +1,5 @@
-import * as http from "node:http";
-import type { AddressInfo } from "node:net";
 import * as ws from "ws";
+import { l10nMsg } from "../l10n";
 import type { PreviewSourceJump } from "./preview-sync";
 
 export interface PanelScrollRequest {
@@ -11,41 +10,61 @@ export interface PanelScrollRequest {
 }
 
 export interface BrowserEditorBridge {
-  localUrl: string;
   readonly connected: boolean;
   send(request: PanelScrollRequest): boolean;
   dispose(): void;
 }
 
-/** The upstream control protocol, with no document frames or memory-file events. */
+/** Only small upstream control messages traverse the engine's same-port relay. */
 export async function createBrowserEditorBridge(
-  readerOrigin: string,
+  localReaderUrl: string,
   channel: string,
   reveal: (value: PreviewSourceJump) => Promise<void>,
 ): Promise<BrowserEditorBridge> {
-  const route = `/editor/${channel}`;
-  // Namespace imports keep desktop-only servers out of the web runtime path.
-  const { createServer } = http;
-  const { WebSocketServer } = ws;
-  const server = createServer((_request, response) => response.writeHead(404).end());
-  const sockets = new WebSocketServer({ noServer: true, maxPayload: 8192 });
-  server.on("upgrade", (request, socket, head) => {
-    if (
-      new URL(request.url || "/", "http://localhost").pathname !== route ||
-      request.headers.origin !== readerOrigin
-    ) {
-      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-      return;
-    }
-    sockets.handleUpgrade(request, socket, head, (connection) => {
-      sockets.emit("connection", connection, request);
-    });
+  // Namespace imports keep the desktop-only client out of the web runtime path.
+  const { WebSocket } = ws;
+  const endpoint = new URL(`/_editor/${channel}`, localReaderUrl);
+  if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1") {
+    throw new Error("The Flow editor host must connect over loopback.");
+  }
+  endpoint.protocol = "ws:";
+  let socket: ws.WebSocket | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
+  let connected = false;
+  let ready = false;
+  let busy = false;
+  let failures = 0;
+  let initialResolve!: () => void;
+  let initialReject!: (error: Error) => void;
+  const initial = new Promise<void>((resolve, reject) => {
+    initialResolve = resolve;
+    initialReject = reject;
   });
-  sockets.on("connection", (connection) => {
-    let busy = false;
-    connection.on("error", () => {});
-    connection.on("message", async (raw, binary) => {
-      if (binary || busy) return;
+  const initialTimeout = setTimeout(() => {
+    initialReject(
+      new Error(l10nMsg("The Flow engine could not establish editor synchronization.")),
+    );
+  }, 3000);
+  const connect = () => {
+    if (disposed) return;
+    const current = new WebSocket(endpoint, { maxPayload: 8192, handshakeTimeout: 3000 });
+    socket = current;
+    current.on("error", () => {});
+    current.on("close", () => {
+      if (disposed || socket !== current) return;
+      connected = false;
+      socket = undefined;
+      if (!ready) {
+        initialReject(
+          new Error(l10nMsg("Update tinymist-flow to use shared editor synchronization.")),
+        );
+        return;
+      }
+      timer = setTimeout(connect, Math.min(1000 * 2 ** failures++, 10000));
+    });
+    current.on("message", async (raw) => {
+      if (disposed || socket !== current) return;
       let value: unknown;
       try {
         const bytes = Array.isArray(raw)
@@ -57,50 +76,53 @@ export async function createBrowserEditorBridge(
       } catch {
         return;
       }
-      if ((value as { event?: unknown } | null)?.event !== "editorScrollTo") return;
-      busy = true;
-      try {
-        await reveal(value as PreviewSourceJump);
-      } catch {
-        // A failed source reveal must not expose local paths or tear down Flow.
-      } finally {
-        busy = false;
+      const event = value as { event?: unknown; connected?: unknown } | null;
+      if (event?.event === "editorReady") {
+        ready = true;
+        failures = 0;
+        clearTimeout(initialTimeout);
+        initialResolve();
+      } else if (event?.event === "editorConnected") {
+        connected = event.connected === true;
+      } else if (event?.event === "editorScrollTo" && !busy) {
+        busy = true;
+        try {
+          await reveal(value as PreviewSourceJump);
+        } catch {
+          // Source failures must not expose paths or interrupt the shared service.
+        } finally {
+          busy = false;
+        }
       }
     });
-  });
-  server.headersTimeout = 5000;
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  let disposed = false;
-  return {
-    localUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}${route}`,
+  };
+  const bridge: BrowserEditorBridge = {
     get connected() {
-      return (
-        !disposed && Array.from(sockets.clients).some((c) => c.readyState === ws.WebSocket.OPEN)
-      );
+      return !disposed && connected && socket?.readyState === WebSocket.OPEN;
     },
     send(request) {
-      if (disposed) return false;
-      const payload = Buffer.from(JSON.stringify(request));
-      if (payload.byteLength > 8192) return false;
-      let sent = false;
-      for (const connection of sockets.clients) {
-        if (connection.readyState !== ws.WebSocket.OPEN) continue;
-        // Slow/disconnected readers must not accumulate cursor movement events.
-        if (connection.bufferedAmount > 8192) continue;
-        connection.send(payload);
-        sent = true;
-      }
-      return sent;
+      if (!bridge.connected || !socket || socket.bufferedAmount > 8192) return false;
+      const payload = JSON.stringify(request);
+      if (Buffer.byteLength(payload) > 8192) return false;
+      socket.send(payload);
+      return true;
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
-      for (const connection of sockets.clients) connection.terminate();
-      sockets.close();
-      server.closeAllConnections();
-      server.close();
+      connected = false;
+      clearTimeout(initialTimeout);
+      clearTimeout(timer);
+      socket?.terminate();
+      socket = undefined;
     },
   };
+  connect();
+  try {
+    await initial;
+    return bridge;
+  } catch (error) {
+    bridge.dispose();
+    throw error;
+  }
 }

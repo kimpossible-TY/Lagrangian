@@ -1,7 +1,7 @@
 //! Document preview tool for Typst
 
 use std::net::SocketAddr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use hyper::header::HeaderValue;
 use hyper::service::service_fn;
@@ -11,6 +11,8 @@ use hyper_util::server::graceful::GracefulShutdown;
 use lsp_types::Url;
 use tinymist_std::error::IgnoreLogging;
 use tokio::sync::{mpsc, oneshot};
+
+use super::editor::{EditorRelay, EditorRoute};
 
 /// created by `make_http_server`
 pub struct HttpServer {
@@ -50,16 +52,21 @@ pub async fn make_theme_http_server(
     log::info!("preview server listening on http://{addr}");
 
     let frontend_html = hyper::body::Bytes::from(frontend_html);
-    let make_service = move || {
+    let editor_relay = dark_websocket_tx
+        .is_some()
+        .then(|| Arc::new(EditorRelay::default()));
+    let make_service = move |peer: SocketAddr| {
         let frontend_html = frontend_html.clone();
         let websocket_tx = websocket_tx.clone();
         let dark_websocket_tx = dark_websocket_tx.clone();
         let static_file_addr = static_file_addr.clone();
+        let editor_relay = editor_relay.clone();
         service_fn(move |mut req: hyper::Request<Incoming>| {
             let frontend_html = frontend_html.clone();
             let websocket_tx = websocket_tx.clone();
             let dark_websocket_tx = dark_websocket_tx.clone();
             let static_file_addr = static_file_addr.clone();
+            let editor_relay = editor_relay.clone();
             async move {
                 // When a user visits a website in a browser, that website can try to connect to
                 // our http / websocket server on `127.0.0.1` which may leak sensitive
@@ -87,6 +94,48 @@ pub async fn make_theme_http_server(
 
                 // Check if the request is a websocket upgrade request.
                 if hyper_tungstenite::is_upgrade_request(&req) {
+                    let editor_path = req.uri().path().to_owned();
+                    if let (Some(relay), Some(route)) =
+                        (editor_relay, super::editor::route(&editor_path))
+                    {
+                        let allowed = match &route {
+                            // An editor host connects directly on the Mac. Reject
+                            // browser/proxy registration even from a loopback peer.
+                            EditorRoute::Host(_) => {
+                                peer.ip().is_loopback()
+                                    && origin_header.is_none()
+                                    && req.headers().get(hyper::header::HOST).is_some_and(|host| {
+                                        *host == format!("127.0.0.1:{}", addr.port())
+                                            || *host == format!("[::1]:{}", addr.port())
+                                    })
+                            }
+                            EditorRoute::Viewer(_) => origin_header.is_some(),
+                        };
+                        if !allowed {
+                            return Ok(hyper::Response::builder()
+                                .status(hyper::StatusCode::FORBIDDEN)
+                                .body(Full::<Bytes>::default())
+                                .unwrap());
+                        }
+                        // Bound both queues and socket buffers; document frames
+                        // never enter this relay.
+                        let config =
+                            hyper_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+                                .read_buffer_size(8192)
+                                .write_buffer_size(0)
+                                .max_write_buffer_size(32768)
+                                .max_message_size(Some(8192))
+                                .max_frame_size(Some(8192));
+                        let (response, websocket) =
+                            hyper_tungstenite::upgrade(&mut req, Some(config))?;
+                        if !relay.attach(route, websocket) {
+                            return Ok(hyper::Response::builder()
+                                .status(hyper::StatusCode::NOT_FOUND)
+                                .body(Full::<Bytes>::default())
+                                .unwrap());
+                        }
+                        return Ok(response);
+                    }
                     let sender = match theme_route(req.uri().path(), dark_websocket_tx.is_some()) {
                         Some(false) => &websocket_tx,
                         Some(true) => dark_websocket_tx.as_ref().unwrap(),
@@ -138,7 +187,7 @@ pub async fn make_theme_http_server(
     let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
     let serve_conn = move |server: &Server, graceful: &GracefulShutdown, conn| {
-        let (stream, _peer_addr) = match conn {
+        let (stream, peer_addr) = match conn {
             Ok(conn) => conn,
             Err(e) => {
                 log::error!("accept error: {e}");
@@ -146,7 +195,8 @@ pub async fn make_theme_http_server(
             }
         };
 
-        let conn = server.serve_connection_with_upgrades(TokioIo::new(stream), make_service());
+        let conn =
+            server.serve_connection_with_upgrades(TokioIo::new(stream), make_service(peer_addr));
         let conn = graceful.watch(conn.into_owned());
         tokio::spawn(async move {
             conn.await.log_error("cannot serve http");
