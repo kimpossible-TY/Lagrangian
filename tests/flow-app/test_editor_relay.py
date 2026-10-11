@@ -90,6 +90,7 @@ class EditorRelay(unittest.TestCase):
                     other_reader = connect(f"/editor/{other}")
                     self.assertTrue(json_message(other_host)["connected"])
                     before = wire.quiet(log_path, 10, 0.2)
+                    saved_focus = focus.read_bytes() if focus.exists() else None
 
                     renderer.send("src-editor " + json.dumps({"page_no": 1, "x": 20, "y": 20, "revision": revision}))
                     jump = json.loads(receive(renderer, b"editor,").split(b",", 1)[1])
@@ -105,7 +106,7 @@ class EditorRelay(unittest.TestCase):
                     renderer.send("editor " + json.dumps(dict(location, revision=revision)))
                     positions = receive(renderer, b"jump,").split(b",", 1)[1].decode()
                     self.assertTrue(any(p.split()[0] == "2" for p in positions.split(",")))
-                    self.assertFalse(focus.exists())
+                    self.assertEqual(focus.read_bytes() if focus.exists() else None, saved_focus)
                     for sender, receiver in ((host, reader), (reader, host)):
                         sender.send('{"event":"syncMemoryFiles","files":{}}')
                         sender.send("bad JSON")

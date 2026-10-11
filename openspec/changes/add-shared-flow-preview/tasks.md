@@ -26,16 +26,16 @@ Host-watcher timing limitations and the unmeasured production latency are record
 - [x] 4.2 Reveal the saved source position in VS Code with canonical project boundaries and Unicode column conversion.
 - [x] 4.3 Validate frontend, protocol and actual editor navigation; build and install the updated app and extension.
 
-- [ ] 4.4 Support the user's external-browser workflow with a session-scoped callback, then validate and deploy both viewer modes.
+- [x] 4.4 Support the user's external-browser workflow with a session-scoped control connection, then validate and deploy both viewer modes.
 
 ## 5. Reuse Tinymist bidirectional synchronization
 
 - [x] 5.1 Reuse upstream span-range resolution, source-to-document mapping, editor reveal and selection-change policy for shared readers.
 - [x] 5.2 Adapt the existing editorScrollTo/panelScrollTo protocol to viewer-local desktop connections, including embedded and external readers and both themes.
 - [x] 5.3 Verify both directions, Unicode coordinates, revision/dirty guards, mobile isolation and absence of additional compilation.
-- [ ] 5.4 Build and install the matching engine and extension; record deployment evidence and Windows confirmation limits.
+- [x] 5.4 Build and install the matching engine and extension; record deployment evidence and Windows confirmation.
 
 ## 6. Windows Code Tunnel transport correction
 
 - [x] 6.1 Move editor controls onto the reader's forwarded port, retaining session/origin isolation and bounded control-only relaying.
-- [ ] 6.2 Verify protocol and actual editor/browser behavior; build and install the correction and record remote confirmation limits.
+- [x] 6.2 Verify protocol and actual editor/browser behavior; build and install the correction and record Windows Code Tunnel confirmation.
