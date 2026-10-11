@@ -1,5 +1,30 @@
 ## ADDED Requirements
 
+### Requirement: Recover suspended mobile viewers without unnecessary rendering
+The viewer SHALL reuse a responding connection when returning to the foreground, retry disconnected transport promptly, and bound unresponsive foreground connections. It SHALL defer retry and probe timers while hidden and retain the visible document and reading state during recovery. Upgraded servers SHALL answer capability-negotiated foreground probes without requesting document rendering. Existing engines SHALL NOT receive unsupported probe commands.
+
+#### Scenario: A home-screen web app returns with a healthy socket
+- **WHEN** the viewer returns from another app and its negotiated foreground probe receives a reply
+- **THEN** it keeps the socket, document and native text selection without requesting a full frame
+
+#### Scenario: The socket closed or stopped responding while suspended
+- **WHEN** the viewer returns with a disconnected socket or its foreground probe times out
+- **THEN** it opens a replacement connection while retaining the existing document, zoom and reading position
+- **AND** stale socket callbacks cannot update the replacement session
+
+#### Scenario: Replacement document data arrives
+- **WHEN** a replacement connection sends an incremental frame before the requested full frame
+- **THEN** the viewer discards that pre-baseline delta instead of merging it into the old model
+- **WHEN** the full frame arrives while native text is selected
+- **THEN** the existing document stays visible and the full frame waits until selection collapses
+- **AND** the replacement render preserves zoom and reading position
+
+#### Scenario: The viewer is hidden or disposed
+- **WHEN** the viewer becomes hidden
+- **THEN** it cancels reconnect and probe timers without deliberately closing a healthy socket
+- **WHEN** the renderer is disposed
+- **THEN** lifecycle listeners, sockets and recovery timers are released
+
 ### Requirement: Return to the origin of an internal document link
 Paged preview SHALL offer a temporary Back to reference action after following a valid internal document link. It SHALL restore the reading position captured immediately before that link and hide the action after returning. Each later internal link SHALL replace the single return destination. The action SHALL remain separate from deferred change navigation.
 

@@ -266,7 +266,14 @@ where
                         }
                     };
                     if msg == "current" {
+                        if !self.send_message(WsMessage::Binary("keepalive,true".into()), "WebViewActor").await {
+                            break;
+                        }
                         self.render_sender.send(RenderActorRequest::RenderFullLatest).log_error("WebViewActor");
+                    } else if msg == "ping" {
+                        if !self.send_message(WsMessage::Binary("pong,".into()), "WebViewActor").await {
+                            break;
+                        }
                     } else if msg.starts_with("srclocation") {
                         let location = msg.split(' ').nth(1).unwrap();
                         self.editor_sender.send(EditorActorRequest::DocToSrcJumpResolve(

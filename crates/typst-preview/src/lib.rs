@@ -589,6 +589,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn foreground_probe_replies_without_requesting_a_document_render() {
+        let builder = super::PreviewBuilder::new(super::PreviewConfig::default());
+        let mut render_requests = builder.renderer_mailbox.0.subscribe();
+        let (control, _control_rx) = super::ControlPlaneTx::new(false);
+        let mut previewer = builder.build(control, Arc::new(TestEditor)).await;
+        let (streams_tx, streams_rx) = mpsc::unbounded_channel();
+        previewer.start_data_plane(streams_rx, |socket| socket);
+        let (incoming_tx, incoming) = futures::channel::mpsc::unbounded();
+        let (outgoing, mut messages) = mpsc::unbounded_channel();
+        streams_tx
+            .send(futures::future::ready(Ok(TestSocket {
+                incoming,
+                outgoing: Some(outgoing),
+            })))
+            .unwrap();
+        incoming_tx
+            .unbounded_send(Ok(WsMessage::Text("current".into())))
+            .unwrap();
+        let capability = tokio::time::timeout(std::time::Duration::from_secs(2), messages.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(capability, WsMessage::Binary(bytes) if bytes.as_ref() == b"keepalive,true")
+        );
+        assert!(matches!(
+            render_requests.recv().await.unwrap(),
+            super::RenderActorRequest::RenderFullLatest
+        ));
+        incoming_tx
+            .unbounded_send(Ok(WsMessage::Text("ping".into())))
+            .unwrap();
+        let pong = tokio::time::timeout(std::time::Duration::from_secs(2), messages.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(pong, WsMessage::Binary(bytes) if bytes.as_ref() == b"pong,"));
+        assert!(render_requests.try_recv().is_err());
+        drop(incoming_tx);
+        previewer.stop().await;
+        previewer.join().await;
+    }
+
+    #[tokio::test]
     async fn compiler_status_reaches_late_viewers_and_remains_pipeline_local() {
         let builder = super::PreviewBuilder::new(super::PreviewConfig::default());
         let sibling = builder.sibling(super::PreviewConfig::default());
@@ -638,6 +682,8 @@ mod tests {
             (2, "startup"),
             (3, "compile"),
             (3, "ping"),
+            (3, "foreground-ping"),
+            (3, "current"),
             (3, "highlight"),
             (3, "viewport"),
         ] {
@@ -684,6 +730,12 @@ mod tests {
                     "compile" => watcher.status(super::CompileStatus::Compiling),
                     "ping" => incoming_tx
                         .unbounded_send(Ok(WsMessage::Ping(vec![].into())))
+                        .unwrap(),
+                    "foreground-ping" => incoming_tx
+                        .unbounded_send(Ok(WsMessage::Text("ping".into())))
+                        .unwrap(),
+                    "current" => incoming_tx
+                        .unbounded_send(Ok(WsMessage::Text("current".into())))
                         .unwrap(),
                     "highlight" => incoming_tx
                         .unbounded_send(Ok(WsMessage::Text("src-highlight {}".into())))

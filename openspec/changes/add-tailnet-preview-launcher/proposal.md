@@ -71,3 +71,7 @@ Improve initial display, live-update latency and scrolling for the iPhone 15 web
 ## Return from a clickable cross-reference
 
 Remember the reading position immediately before an internal document link is followed. Show Back to reference (참조 위치로 돌아가기) beside the existing deferred-change action. Returning restores that position and hides the button. A later reference replaces the single return destination; automatic change navigation and external links do not create one.
+
+## Recover after home-screen web app suspension
+
+Recover promptly when an iPhone/iPad home-screen viewer returns from another app. Reuse responding sockets, probe upgraded engines without requesting a full render, defer disconnected retries while hidden, and bound unresponsive opening/foreground connections. Retain the visible document during recovery and wait for the replacement full frame before accepting new deltas. Preserve ordered updates, native selection, focus and reading position. This reduces recovery work without promising background execution or eliminating full document transfer after a real disconnect.

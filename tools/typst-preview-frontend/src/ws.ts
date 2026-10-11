@@ -13,7 +13,6 @@ import renderModule from "@myriaddreamin/typst-ts-renderer/pkg/typst_ts_renderer
 // @ts-ignore
 // import { RenderSession as RenderSession2 } from "@myriaddreamin/typst-ts-renderer/pkg/wasm-pack-shim.mjs";
 import { RenderSession } from "@myriaddreamin/typst.ts/dist/esm/renderer.mjs";
-import { WebSocketSubject, webSocket } from "rxjs/webSocket";
 import { Subject, Subscription, buffer, debounceTime, auditTime, fromEvent, tap } from "rxjs";
 import { handleHtmlPreviewFrame } from "./html-preview";
 import type { ReadingState } from "./document-theme";
@@ -23,6 +22,7 @@ import { SelectionActions } from "./selection-actions";
 import { PreviewActivity } from "./preview-activity";
 import { decodePreviewFrame } from "./preview-frame";
 import { ReferenceNavigation } from "./reference-navigation";
+import { PreviewConnection } from "./preview-connection";
 export { PreviewMode } from "typst-dom/typst-doc.mjs";
 
 // for debug propose
@@ -66,8 +66,8 @@ export async function wsMain({
   };
 
   let disposed = false;
-  let $ws: WebSocketSubject<ArrayBuffer> | undefined = undefined;
-  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let connection: PreviewConnection | undefined;
+  let awaitingFullFrame = true;
   const subsribes: Subscription[] = [];
   let queueChangedLocation: ((location: ChangeLocation, resume: boolean) => void) | undefined;
   let clearChangedLocation: (() => void) | undefined;
@@ -283,7 +283,9 @@ export async function wsMain({
     };
     svgDoc.impl.onRenderActivity = (phase) =>
       updateActivity(() => activity.state.renderActivity(phase));
-    svgDoc.impl.onRenderError = () => updateActivity(() => activity.state.renderError());
+    svgDoc.impl.onRenderError = () => {
+      updateActivity(() => activity.state.renderError());
+    };
     svgDoc.impl.disposeList.push(() => {
       windowElem.onPreviewFocus = undefined;
       selectionActions?.dispose();
@@ -521,60 +523,43 @@ export async function wsMain({
   function setupSocket(svgDoc: TypstDocument): () => void {
     if (!windowElem.documents.includes(svgDoc)) windowElem.documents.push(svgDoc);
 
-    // todo: reconnect setTimeout(() => setupSocket(svgDoc), 1000);
-    const socket = webSocket<ArrayBuffer>({
-      url,
-      binaryType: "arraybuffer",
-      serializer: (t) => t,
-      deserializer: (event) => event.data,
-      openObserver: {
-        next: (e) => {
-          if (disposed) return;
-          updateActivity(() => activity.state.opened());
-          const sock = e.target;
-          console.log("WebSocket connection opened", sock);
-          windowElem.typstWebsocket = sock as any;
-          svgDoc.reset();
-          clearChangedLocation?.();
-          focusRevision = pendingFocusRevision = undefined;
-          pendingFocusDocument = undefined;
-          queuedFocusRevision = queuedFocusDocument = undefined;
-          focusEnabled = false;
-          selectionActions?.setEnabled(false);
-          windowElem.onPreviewFocus = undefined;
-          windowElem.typstWebsocket.send("current");
-        },
+    const batchMessageChannel = new Subject<{ data: ArrayBuffer; socket: object }>();
+    connection = new PreviewConnection(url, {
+      opened: (sock) => {
+        if (disposed) return;
+        awaitingFullFrame = true;
+        updateActivity(() => activity.state.opened());
+        console.log("WebSocket connection opened", sock);
+        windowElem.typstWebsocket = sock as any;
+        clearChangedLocation?.();
+        focusRevision = pendingFocusRevision = undefined;
+        pendingFocusDocument = undefined;
+        queuedFocusRevision = queuedFocusDocument = undefined;
+        focusEnabled = false;
+        selectionActions?.setEnabled(false);
+        windowElem.onPreviewFocus = undefined;
+        windowElem.typstWebsocket.send("current");
       },
-      closeObserver: {
-        next: (e) => {
-          if (disposed) return;
-          updateActivity(() => activity.state.disconnected());
-          console.log("WebSocket connection closed", e);
-          focusRevision = pendingFocusRevision = undefined;
-          focusEnabled = false;
-          selectionActions?.setEnabled(false);
-          if (focusStatus)
-            showFocusStatus(
-              "연결 끊김 · 다시 연결한 뒤 탭해 주세요",
-              "Disconnected · reconnect, then tap again",
-            );
-          socket.unsubscribe();
-          if (!disposed) {
-            reconnectTimer = setTimeout(() => {
-              if (!disposed) setupSocket(svgDoc);
-            }, 1000);
-          }
-        },
+      message: (data, socket) => batchMessageChannel.next({ data, socket }),
+      disconnected: () => {
+        if (disposed) return;
+        updateActivity(() => activity.state.disconnected());
+        windowElem.typstWebsocket = undefined as any;
+        focusRevision = pendingFocusRevision = undefined;
+        focusEnabled = false;
+        selectionActions?.setEnabled(false);
+        if (focusStatus)
+          showFocusStatus(
+            "연결 끊김 · 다시 연결한 뒤 탭해 주세요",
+            "Disconnected · reconnect, then tap again",
+          );
       },
     });
-    $ws = socket;
-
-    const batchMessageChannel = new Subject<ArrayBuffer>();
 
     const dispose = () => {
       disposed = true;
       activity.dispose();
-      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      connection?.dispose();
       svgDoc.dispose();
       const index = windowElem.documents.indexOf(svgDoc);
       if (index >= 0) {
@@ -583,20 +568,9 @@ export async function wsMain({
       for (const sub of subsribes.splice(0, subsribes.length)) {
         sub.unsubscribe();
       }
-      $ws?.complete();
+      batchMessageChannel.complete();
       windowElem.typstWebsocket = undefined as any;
     };
-
-    // window.typstWebsocket = new WebSocket("ws://127.0.0.1:23625");
-
-    $ws.subscribe({
-      next: (data) => batchMessageChannel.next(data), // Called whenever there is a message from the server.
-      error: (err) => {
-        console.log("WebSocket Error: ", err);
-        if (!disposed) updateActivity(() => activity.state.disconnected());
-      },
-      complete: () => console.log("complete"), // Called when connection is closed (for whatever reason).
-    });
 
     subsribes.push(
       batchMessageChannel
@@ -607,12 +581,14 @@ export async function wsMain({
           }),
         )
         .subscribe((dataList) => {
-          dataList.map(processMessage);
+          dataList.forEach(({ data, socket }) => {
+            if (windowElem.typstWebsocket === socket) processMessage(data);
+          });
         }),
     );
 
     function processMessage(data: ArrayBuffer) {
-      if (disposed || $ws !== socket) return;
+      if (disposed) return;
       if (!(data instanceof ArrayBuffer)) {
         if (data === NOT_AVAILABLE) {
           return;
@@ -628,6 +604,11 @@ export async function wsMain({
         return;
       }
       console.log("recv", message[0], data.byteLength);
+      if (message[0] === "keepalive") {
+        if (dec.decode(message[1] as Uint8Array) === "true") connection?.supportPing();
+        return;
+      }
+      if (message[0] === "pong") return;
       if (message[0] === "compile-status") {
         updateActivity(() => activity.state.compile(dec.decode(message[1] as Uint8Array)));
         return;
@@ -843,6 +824,13 @@ export async function wsMain({
       }
 
       if (message[0] === "new" || message[0] === "diff-v1") {
+        // A fresh server renderer can emit an unsolicited delta before replying
+        // to `current`. It has no common baseline with the retained client model.
+        if (awaitingFullFrame && message[0] === "diff-v1") {
+          clearChangedLocation?.();
+          return;
+        }
+        awaitingFullFrame = false;
         updateActivity(() => activity.state.frame());
         queuedFocusRevision = pendingFocusRevision;
         queuedFocusDocument = pendingFocusDocument;
