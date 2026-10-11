@@ -56,6 +56,9 @@ impl ServerState {
     pub fn remove_source(&mut self, path: ImmutPath) -> Result<()> {
         let _scope = typst_timing::TimingScope::new("remove_source");
         self.memory_changes.remove(&path);
+        for proj in self.project.compiler.projects() {
+            proj.ext.defer_until_save = false;
+        }
         log::trace!("remove source: {path:?}");
 
         // todo: is it safe to believe that the path is normalized?
@@ -95,6 +98,13 @@ impl ServerState {
 
         let files = FileChangeSet::new_inserts(vec![(path.clone(), snapshot)]);
 
+        if self.config.compile_on_save {
+            // Keep VFS updates and generation invalidation immediate. Only
+            // automatic document evaluation is deferred; queries use new text.
+            for proj in self.project.compiler.projects() {
+                proj.ext.defer_until_save = true;
+            }
+        }
         self.update_sources(files)
     }
 

@@ -1707,3 +1707,19 @@ zh = "保存文件时执行代码检查"
 [extension.tinymist.config.tinymist.lint.when.string.enum.onType]
 en = "Perform lint checks on type"
 zh = "标记文件时执行代码检查"
+
+[extension.tinymist.config.tinymist.compileOnSave.title]
+en = "Compile on Save"
+ko = "저장 시 컴파일"
+
+[extension.tinymist.config.tinymist.compileOnSave.desc]
+en = "Defer automatic full document compilation after typing until save, close, an external file update or an explicit compilation trigger. Editor sources and language queries remain current. Full compilation diagnostics update on those triggers; language queries can still perform evaluation."
+ko = "입력 중 전체 문서 자동 컴파일을 저장, 닫기, 외부 파일 변경 또는 명시적 컴파일 요청 시점까지 미룹니다. 편집 내용과 언어 질의는 최신 상태로 유지됩니다. 전체 컴파일 진단은 해당 시점에 갱신되며 언어 질의는 별도 계산을 수행할 수 있습니다."
+
+[extension.tinymist.config.tinymist.preview.sharedFlow.title]
+en = "Shared Flow Preview"
+ko = "Flow 미리보기 공유"
+
+[extension.tinymist.config.tinymist.preview.sharedFlow.desc]
+en = "Reuse a running tinymist-flow project on the extension host for saved-document preview. Matches the document against Flow profile roots and opens one shared reader per profile without starting an LSP preview. Requires a trusted workspace and a configured running Flow service. Unsaved edits and editor cursor synchronization are not shown. Enable compileOnSave separately to reduce automatic typing compilation."
+ko = "확장 호스트에서 실행 중인 tinymist-flow 프로젝트로 저장된 문서의 미리보기를 공유합니다. 문서에 해당하는 Flow 프로필을 찾아 별도 LSP 미리보기 없이 공유 뷰어를 엽니다. 신뢰하는 작업 공간과 실행 중인 Flow 서비스가 필요합니다. 저장 전 편집 내용과 편집기 커서 동기화는 표시하지 않습니다. 입력 중 자동 컴파일을 줄이려면 compileOnSave도 켜세요."

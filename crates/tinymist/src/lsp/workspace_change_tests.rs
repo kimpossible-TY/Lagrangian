@@ -2042,3 +2042,153 @@ fn create_link_fixture(root: &Path, target: &str, link: &str) -> LinkFixtureKind
         LinkFixtureKind::PlainFileFallback
     }
 }
+
+#[test]
+fn compile_on_save_keeps_burst_edits_fresh_without_automatic_compilation() {
+    let mut harness = LspHarness::new(&[(MAIN, "#let value = 1\n#value")]);
+    harness.open_source(MAIN, "#let value = 1\n#value");
+    harness.server.config.compile_on_save = true;
+    let before = harness
+        .server
+        .project
+        .compiler
+        .primary
+        .ext
+        .last_compilation
+        .as_ref()
+        .unwrap()
+        .world()
+        .revision();
+    for value in 2..34 {
+        let source = format!("#let value = {value}\n#value");
+        harness.edit_open_source(MAIN, &source);
+        let proj = &mut harness.server.project.compiler.primary;
+        assert!(proj.ext.defer_until_save);
+        assert!(proj.ext.active_compile.is_none());
+        assert_eq!(
+            proj.ext
+                .last_compilation
+                .as_ref()
+                .unwrap()
+                .world()
+                .revision(),
+            before
+        );
+        let snap = proj.snapshot();
+        use typst::World;
+        assert_eq!(
+            snap.world().source(snap.world().main()).unwrap().text(),
+            source
+        );
+    }
+    assert_semantic_tokens_nonempty(&mut harness, MAIN);
+    assert!(harness.server.project.compiler.primary.ext.defer_until_save);
+    harness
+        .server
+        .save_source(harness.path(MAIN).as_path().into())
+        .unwrap();
+    harness.drain_project_events();
+    let proj = &harness.server.project.compiler.primary;
+    assert!(!proj.ext.defer_until_save);
+    assert!(
+        proj.ext
+            .last_compilation
+            .as_ref()
+            .unwrap()
+            .world()
+            .revision()
+            > before
+    );
+}
+
+#[test]
+fn compile_on_save_discarded_completion_cannot_restart_typing_compilation() {
+    use tinymist_project::CompileSignal;
+    let mut harness = LspHarness::new(&[(MAIN, "saved")]);
+    harness.open_source(MAIN, "saved");
+    harness.server.config.compile_on_save = true;
+    let handler = harness.server.project.compiler.handler.clone();
+    let proj = &mut harness.server.project.compiler.primary;
+    let reason = CompileSignal {
+        by_mem_events: false,
+        by_fs_events: true,
+        by_entry_update: false,
+    };
+    proj.reason = reason;
+    let (ticket, work) = proj.may_compile_latest(&handler).unwrap();
+    proj.ext.active_compile = Some(ticket);
+    proj.ext.emitted_reasons = reason;
+    let outcome = work();
+    assert!(outcome.is_publishable());
+    let before = proj
+        .ext
+        .last_compilation
+        .as_ref()
+        .unwrap()
+        .world()
+        .revision();
+    let encoding = harness.server.const_config().position_encoding;
+    harness
+        .server
+        .edit_source(
+            harness.path(MAIN).as_path().into(),
+            vec![TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "newest unsaved".into(),
+            }],
+            encoding,
+        )
+        .unwrap();
+    assert!(!outcome.is_publishable());
+    harness
+        .server
+        .project
+        .interrupt(Interrupt::CompileFinished(outcome));
+    harness.drain_project_events();
+    let proj = &harness.server.project.compiler.primary;
+    assert!(proj.ext.defer_until_save);
+    assert!(proj.ext.active_compile.is_none());
+    assert_eq!(
+        proj.ext
+            .last_compilation
+            .as_ref()
+            .unwrap()
+            .world()
+            .revision(),
+        before
+    );
+    harness.compile_primary();
+    assert!(!harness.server.project.compiler.primary.ext.defer_until_save);
+}
+
+#[test]
+fn compile_on_save_save_close_and_external_changes_release_deferral() {
+    let mut harness = LspHarness::new(&[(MAIN, "saved"), (DEP, "dependency")]);
+    harness.open_source(MAIN, "saved");
+    harness.server.config.compile_on_save = true;
+    harness.edit_open_source(MAIN, "#unknown_save_probe");
+    harness
+        .server
+        .save_source(harness.path(MAIN).as_path().into())
+        .unwrap();
+    harness.drain_project_events();
+    harness.assert_latest_diagnostics_present();
+    harness.edit_open_source(MAIN, "#unknown_unsaved_probe");
+    harness.close_source(MAIN);
+    assert!(!harness.server.project.compiler.primary.ext.defer_until_save);
+    harness.assert_latest_diagnostics_empty();
+    harness.open_source(MAIN, "saved");
+    harness.edit_open_source(MAIN, "pending");
+    harness.fs_insert(DEP, "externally changed");
+    assert!(!harness.server.project.compiler.primary.ext.defer_until_save);
+}
+
+#[test]
+fn compile_on_save_default_still_compiles_typing() {
+    let mut harness = LspHarness::new(&[(MAIN, "saved")]);
+    harness.open_source(MAIN, "saved");
+    assert!(!harness.server.config.compile_on_save);
+    harness.edit_open_source(MAIN, "#unknown_default_probe");
+    harness.assert_latest_diagnostics_present();
+}
