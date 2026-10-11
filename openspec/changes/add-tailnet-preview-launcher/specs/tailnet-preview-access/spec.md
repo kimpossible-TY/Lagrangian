@@ -100,6 +100,27 @@ Partial document preview SHALL retain continuous scroll geometry while rendering
 - **THEN** only the visible range and adjacent pages are requested, including on initial load without existing page DOM
 - **AND** offscreen page contents are removed by renderer diff patches while their dimensions remain
 
+### Requirement: Reuse unchanged viewport content
+The paged SVG viewer SHALL reuse the last rendered page window during viewport-only updates when its document generation and page range are unchanged. It SHALL refresh content after a document merge, reset or page-range change and preserve resize anchoring, zoom, cursor feedback and native selection. Reuse SHALL NOT expand the existing bounded page window.
+
+#### Scenario: Scroll within the same populated pages
+- **WHEN** scrolling leaves the required page range, document generation and scale unchanged
+- **THEN** the viewer avoids another WASM SVG render and retains the selectable text nodes
+- **AND** reading-position and navigation callbacks continue to run
+
+#### Scenario: Edit or reconnect in the same window
+- **WHEN** new document data is merged or the renderer is reset
+- **THEN** the next render refreshes the current window even when its page range is unchanged
+- **AND** selected text continues to hold ordered document updates until selection collapses
+
+### Requirement: Avoid redundant document delivery work
+The frontend SHALL decode received payloads without copying the complete document buffer and SHALL preserve payload boundaries for every control message. A successful render whose queue has drained SHALL complete without waiting for an additional empty animation frame. Diagnostic validation SHALL distinguish initial display, live updates and viewport work and SHALL NOT represent desktop emulation as physical iPhone performance.
+
+#### Scenario: Binary document and text controls arrive together
+- **WHEN** a document frame and revision, navigation or theme controls are received
+- **THEN** each consumer sees exactly its payload, excluding the message envelope
+- **AND** the document bytes retain their order and lifetime until processed
+
 ### Requirement: Disconnected viewers do not abort the preview service
 The server SHALL stop using a viewer's WebSocket at the first outgoing send failure and release that connection's rendering tasks and viewer demand. Other viewers and subsequent connections SHALL continue to receive documents.
 

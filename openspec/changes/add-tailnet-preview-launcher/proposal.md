@@ -64,6 +64,10 @@ During installed document delivery verification, a disconnected WebSocket expose
 
 When startup cannot restore a valid saved edit, use read-only Git changes against HEAD and untracked compiled sources as candidates. Focus the earliest rendered body page, then its topmost coordinate. Preserve valid saved edits and live-edit navigation. Git absence, clean repositories, ignored/unrelated files and unmappable changes leave the normal initial view.
 
+## Mobile preview performance
+
+Improve initial display, live-update latency and scrolling for the iPhone 15 web viewer. Measure these paths separately with an isolated large-document browser fixture. Avoid copying received document payloads, reuse the last rendered page window when document content is unchanged, and avoid rebuilding the touch selection overlay for an unchanged window and scale. Keep cache invalidation tied to document revisions, reset, viewport geometry and renderer mode. Reduce frontend delivery size and complete settled renders without an extra idle animation frame. Preserve ordered deltas, native selection holds, source mapping, theme transitions and reconnect restoration. Desktop browser measurements establish regression evidence; physical iPhone timing remains a separate check.
+
 ## Return from a clickable cross-reference
 
 Remember the reading position immediately before an internal document link is followed. Show Back to reference (참조 위치로 돌아가기) beside the existing deferred-change action. Returning restores that position and hides the button. A later reference replaces the single return destination; automatic change navigation and external links do not create one.

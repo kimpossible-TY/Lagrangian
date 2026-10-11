@@ -21,6 +21,7 @@ import { ChangeLocationQueue, parseChangeLocation, type ChangeLocation } from ".
 import { focusStatusPlacement } from "./mobile-viewport";
 import { SelectionActions } from "./selection-actions";
 import { PreviewActivity } from "./preview-activity";
+import { decodePreviewFrame } from "./preview-frame";
 import { ReferenceNavigation } from "./reference-navigation";
 export { PreviewMode } from "typst-dom/typst-doc.mjs";
 
@@ -29,10 +30,8 @@ export { PreviewMode } from "typst-dom/typst-doc.mjs";
 (window as any).TypstRenderSession = RenderSession;
 // (window as any).TypstRenderSessionKernel = RenderSession2;
 
-const enc = new TextEncoder();
 const dec = new TextDecoder();
 const NOT_AVAILABLE = "current not available";
-const COMMA = enc.encode(",");
 export interface WsArgs {
   url: string;
   previewMode: PreviewMode;
@@ -623,15 +622,12 @@ export async function wsMain({
         return;
       }
 
-      const buffer = data;
-      const messageData = new Uint8Array(buffer);
-
-      const message_idx = messageData.indexOf(COMMA[0]);
-      const message = [
-        dec.decode(messageData.slice(0, message_idx).buffer),
-        messageData.slice(message_idx + 1),
-      ];
-      console.log("recv", message[0], messageData.length);
+      const message = decodePreviewFrame(data);
+      if (!message) {
+        console.error("Malformed preview frame");
+        return;
+      }
+      console.log("recv", message[0], data.byteLength);
       if (message[0] === "compile-status") {
         updateActivity(() => activity.state.compile(dec.decode(message[1] as Uint8Array)));
         return;
@@ -761,7 +757,7 @@ export async function wsMain({
         }
 
         let positions = dec
-          .decode((message[1] as any).buffer)
+          .decode(message[1])
           .split(",")
           .map((t: string) => t.trim())
           .filter((t: string) => t.length > 0);
@@ -810,17 +806,14 @@ export async function wsMain({
         return;
       } else if (message[0] === "cursor") {
         // todo: aware height padding
-        const [page, x, y] = dec
-          .decode((message[1] as any).buffer)
-          .split(" ")
-          .map(Number);
+        const [page, x, y] = dec.decode(message[1]).split(" ").map(Number);
         console.log("cursor", page, x, y);
         svgDoc.setCursor(page, x, y);
         svgDoc.addViewportChange(); // todo: synthesizing cursor event
         return;
       } else if (message[0] === "cursor-paths") {
         // todo: aware height padding
-        const paths = JSON.parse(dec.decode((message[1] as any).buffer));
+        const paths = JSON.parse(dec.decode(message[1]));
         console.log("cursor-paths", paths);
         svgDoc.impl.setCursorPaths(paths);
         return;
@@ -833,7 +826,7 @@ export async function wsMain({
           document.getElementById("typst-app")?.classList.remove("invert-colors", "normal-image");
           return;
         }
-        const rawStrategy = dec.decode((message[1] as any).buffer).trim();
+        const rawStrategy = dec.decode(message[1]).trim();
         const strategy =
           INVERT_COLORS_STRATEGY.find((t) => t === rawStrategy) ||
           (JSON.parse(rawStrategy) as StrategyMap);

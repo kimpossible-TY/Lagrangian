@@ -4,7 +4,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 export default defineConfig({
   plugins: [viteSingleFile()],
   build: {
-    minify: false,
+    minify: "esbuild",
     rollupOptions: {
       output: {
         assetFileNames: `typst-webview-assets/[name]-[hash][extname]`,

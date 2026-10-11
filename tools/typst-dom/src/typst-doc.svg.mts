@@ -70,6 +70,28 @@ export function provideSvgDoc<
       viewportAnchor?: SvgResizeAnchor;
     };
     private svgResizeAnchorTimeout?: ReturnType<typeof setTimeout>;
+    private svgPages?: {
+      generation: number;
+      pages: { width: number; height: number }[];
+    };
+    private svgWindow?: {
+      generation: number;
+      lo: number;
+      hi: number;
+      width: number;
+      scale: number;
+      pageColor: string;
+      root: Element | null;
+    };
+    private svgContentChanged = true;
+    private svgContentGeneration = 0;
+    private svgLayout?: {
+      root: SVGElement;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    };
     setCursorPaths(paths: ElementPoint[][]) {
       this.cursorPaths = paths;
       this.addViewportChange();
@@ -78,24 +100,63 @@ export function provideSvgDoc<
     postRender$svg() {
       const docRoot = this.hookedElem.firstElementChild as SVGElement;
       if (docRoot) {
-        this.windowElem.initTypstSvg(docRoot);
         this.r.rescale();
+        const rect = docRoot.getBoundingClientRect();
+        const host = this.hookedElem.getBoundingClientRect();
+        const layout = {
+          root: docRoot,
+          left: rect.left - host.left,
+          top: rect.top - host.top,
+          width: rect.width,
+          height: rect.height,
+        };
+        const previous = this.svgLayout;
+        if (
+          this.svgContentChanged ||
+          !previous ||
+          previous.root !== docRoot ||
+          (["left", "top", "width", "height"] as const).some(
+            (key) => Math.abs(layout[key] - previous[key]) > 1e-4,
+          )
+        ) {
+          const generation = this.svgContentGeneration;
+          // Touch layout runs on a later frame and may be held by a selection
+          // made after rendering. Cache only a completed layout of this content.
+          this.windowElem.initTypstSvg(docRoot, () => {
+            if (generation !== this.svgContentGeneration) return;
+            this.svgLayout = layout;
+            this.svgContentChanged = false;
+          });
+        }
       }
     }
 
     rerender$svg() {
-      let patchStr: string;
+      let patchStr: string | undefined;
       const mode = this.previewMode;
       if (mode === PreviewMode.Doc) {
         patchStr = this.fetchSvgDataByDocMode();
       } else if (mode === PreviewMode.Slide) {
+        this.svgWindow = undefined;
         patchStr = this.fetchSvgDataBySlideMode();
       } else {
         throw new Error(`unknown preview mode ${mode}`);
       }
 
       const t2 = performance.now();
-      patchSvgToContainer(this.hookedElem, patchStr, (elem) => this.decorateSvgElement(elem, mode));
+      if (patchStr !== undefined) {
+        try {
+          patchSvgToContainer(this.hookedElem, patchStr, (elem) =>
+            this.decorateSvgElement(elem, mode),
+          );
+          if (this.svgWindow) this.svgWindow.root = this.hookedElem.firstElementChild;
+          this.svgContentChanged = true;
+          this.svgContentGeneration++;
+        } catch (error) {
+          this.svgWindow = undefined;
+          throw error;
+        }
+      }
       const t3 = performance.now();
 
       if (this.cursorPaths) {
@@ -224,12 +285,19 @@ export function provideSvgDoc<
 
     private fetchSvgDataByDocMode() {
       if (!this.partialRendering) {
+        this.svgWindow = undefined;
         return this.kModule.render_in_window(0, 0, 1e33, 1e33);
       }
 
       // Use page metadata even on the first frame: missing DOM must never
       // widen a partial request to the entire document.
-      const pages = this.kModule.retrievePagesInfo();
+      if (this.svgPages?.generation !== this.documentGeneration) {
+        this.svgPages = {
+          generation: this.documentGeneration,
+          pages: this.kModule.retrievePagesInfo(),
+        };
+      }
+      const pages = this.svgPages.pages;
       const scroller = this.hookedElem.parentElement!;
       const maxWidth = Math.max(1, ...pages.map((page) => page.width));
       const scale = Math.max(
@@ -272,7 +340,35 @@ export function provideSvgDoc<
       // Offscreen pages remain renderer-owned dummy groups with their size;
       // SVG diff patching removes their previous content without disturbing
       // page positions, links, or the renderer's reuse bookkeeping.
-      return this.kModule.render_in_window(0, lo + 0.01, maxWidth, Math.max(lo + 0.02, hi - 0.01));
+      const previous = this.svgWindow;
+      if (
+        root &&
+        previous?.root === root &&
+        previous.generation === this.documentGeneration &&
+        previous.lo === lo &&
+        previous.hi === hi &&
+        previous.width === maxWidth &&
+        previous.scale === scale &&
+        previous.pageColor === this.pageColor
+      ) {
+        return undefined;
+      }
+      const patch = this.kModule.render_in_window(
+        0,
+        lo + 0.01,
+        maxWidth,
+        Math.max(lo + 0.02, hi - 0.01),
+      );
+      this.svgWindow = {
+        generation: this.documentGeneration,
+        lo,
+        hi,
+        width: maxWidth,
+        scale,
+        pageColor: this.pageColor,
+        root,
+      };
+      return patch;
     }
 
     private rescaleSvgOn(svg: SVGElement) {
