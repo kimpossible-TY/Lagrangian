@@ -200,7 +200,7 @@ The reconnect prerequisite imports local commit `57cd14d05bef5b827b78ae3e04bd377
 - [x] 26.1 Reproduce per-fragment newlines with native selection serialization in Chromium and WebKit.
 - [x] 26.2 Keep mobile row fragments inline while preserving measured geometry, explicit spaces and actual row breaks.
 - [x] 26.3 Validate real rendered titles, partial and wrapped selections, geometry, frontend tests/types/build and strict OpenSpec consistency.
-- [ ] 26.4 Build and install a clean signed app retaining the installed 0.1.20 features, preserve managed profile state and verify installed document delivery and title copying.
+- [x] 26.4 Build and install a clean signed app retaining the installed 0.1.20 features, preserve managed profile state and verify installed document delivery and title copying.
 
 2026-10-10 reference-return verification: all 52 frontend and 26 DOM tests passed, including origin replacement, one-shot dismissal, zoom/resize and anchoring cleanup. Both TypeScript checks, the preview build, scoped Prettier checks, generated-doc consistency, guide PDF compilation and strict OpenSpec validation passed. The new isolated browser smoke served the built frontend with the installed compiler backend through an ephemeral loopback proxy. Real equation/figure/heading links, 393-pixel viewport resizing, 1.5x preview zoom, repeated references, independent editor/change navigation, nonoverlapping actions, theme disposal and native Chromium touch forwarding through the mobile text mirror passed without browser errors. Browser scroll anchoring shifted an initial return after virtual-page population; temporarily disabling it until that render painted resolved the regression and restored the previous style. Temporary services, browser sessions and fixture files were cleaned up. These implementation checks preceded the signed Flow 0.1.12 deployment recorded in verification.md; physical iPhone Safari verification remains separate.
 
@@ -214,4 +214,4 @@ The reconnect prerequisite imports local commit `57cd14d05bef5b827b78ae3e04bd377
 - [x] 25.2 Persist bounded shared source baselines and latest authored ranges without idle layout, protecting newer history from stale results.
 - [x] 25.3 Map source anchors independently in both themes and preserve live edits, saved positions, restart, comment rebasing and Git fallback.
 - [x] 25.4 Verify isolated real-engine regressions, scoped Rust tests/lints/formatting and strict OpenSpec consistency; record deployment status.
-- [ ] 25.5 Package the clean-commit fix with the retained signing identity, preserve managed profiles/history with recovery, and verify installed document delivery.
+- [x] 25.5 Package the clean-commit fix with the retained signing identity, preserve managed profiles/history with recovery, and verify installed document delivery.
