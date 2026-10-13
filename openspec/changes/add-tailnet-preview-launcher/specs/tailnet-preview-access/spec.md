@@ -284,6 +284,12 @@ The frontend SHALL permit native text selection and copy callouts on the selecta
 - **AND** queued document deltas are retained in order and the current viewport is refreshed on resume
 - **AND** a collapsed caret does not prevent overlay layout
 
+#### Scenario: Copy a styled theorem title
+- **WHEN** a mobile reader copies a title with text fragments of different fonts or sizes on the same visual row
+- **THEN** native copy preserves the title's spaces and punctuation without newlines between those fragments
+- **AND** actual row breaks remain available for multiline selections
+- **AND** selectable fragment positions still match the rendered text
+
 #### Scenario: Selection gestures are not source taps
 - **WHEN** a touch gesture adjusts an existing range, moves, is canceled, uses multiple touches, or is a long press
 - **THEN** it does not forward a source-location click

@@ -250,7 +250,6 @@
 - Dedicated [Flow app CI](https://github.com/kimpossible-TY/tinymist-flow/actions/runs/38121861183) passed on the implementation/installation-record push. API verification confirms the remote main revision, exact tag target, latest-release selection, draft=false and prerelease=false. Evidence is retained in ignored `dist/background-recovery-release/published-verification.json`, `published-release.json` and `flow-ci.log`.
 - Publication did not replace the installed app, restart managed previews or edit project settings and production documents. Physical iPhone/iPad app switching remains a separate check.
 
-
 ### Shared source history for edits made without preview viewers — 2026-10-11
 
 - Reproduced against the installed Flow 0.1.19 engine: after closing the only light viewer and saving an earlier file followed by a later heading, opening dark for the first time focused Git's earlier page 4 instead of the latest edit on dark page 6. The existing change, Git and browser regressions still passed against that engine, demonstrating the missing idle/cold-theme case.
@@ -259,3 +258,13 @@
 - The new real-engine offline regression now passes cross-file and same-file save order, unchanged idle variant records, first-use dark pagination, body-over-outline mapping, warm theme recovery and service restart. Updated change and Git regressions pass live edits, saved-position precedence, stopped-service edits with persisted text, fresh Git fallback, included sources, headings, links and trivia-only changes. The browser initial-location regression passes initial restore, reload, deferred gestures, reconnect, theme position and zoom.
 - All 27 preview-library tests and 25 tinymist preview-feature tests pass. Locked offline native debug build and scoped all-target Clippy pass with warnings denied. Preview/localization generation, Rust formatting, scoped Prettier, regenerated Markdown consistency and strict OpenSpec validation pass. App-management validation passes 22 tests; six engine/bundle/editor integration checks remain gated on a packaged candidate and will be recorded during deployment.
 - Work continues in `fix/preview-offline-focus`, based on the current shared-preview app branch to retain the installed 0.1.19 source-navigation features. A clean signed app build, local installation and document-delivery checks remain task 25.5. Physical iPhone interaction checks remain separate.
+
+## Styled title copy regression — 2026-10-13
+
+- Reproduced the reported per-fragment newlines in Chromium and desktop WebKit using both a minimal native-selection fixture and an isolated real Typst preview. The real title regression failed in both browsers before the CSS change.
+- Changed the mobile selection rows from flex layout to block rows with top-aligned inline-block fragments. Native selection now yields `Proposition 3.3.2 (Fourier Transform Of Sphere Surface Measure)` without inserted fragment breaks.
+- `tests/preview/text-copy-smoke.mjs` passed in Chromium and WebKit with the installed compiler backend and newly built frontend: exact title and partial-range text, actual wrapped-row and paragraph breaks, Codex saved text, and text-layer geometry within one CSS pixel before and after 1.25x preview zoom. No browser page errors occurred. Temporary browsers, loopback services and source fixtures were cleaned up.
+- All 107 frontend/DOM tests passed (72 frontend, 35 DOM), both TypeScript checks passed, preview assets regenerated successfully, scoped Prettier and Git whitespace checks passed, and strict OpenSpec validation passed.
+- This verifies the local source and built frontend. The installed app and managed profiles were not updated; physical iPhone callouts and selection handles remain separate checks.
+
+Installation follow-up: retain the installed Flow 0.1.20 source commit `3ca51dbbd0090cc538b5ecc9606c32d51897b891`, including shared editor synchronization and idle-theme edit history, and import the title-copy fix from `60e1de6e`. Build and install a clean signed 0.1.21 candidate, preserve managed profile state, and verify actual installed document delivery.

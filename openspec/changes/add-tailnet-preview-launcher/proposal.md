@@ -40,6 +40,8 @@ Fix the recorded selection regression by synchronizing SVG and HTML selection li
 
 Preserve native touch text selection and copy menus. Restrict custom document dragging to a primary mouse button on fine, hover-capable devices, and exclude all descendants of the text-selection layer.
 
+Keep fragments within a mobile text row inline so native copying of styled theorem titles preserves authored spaces without inserting a line break at every font or size change. Retain line breaks between visual rows and measured text positions.
+
 ## Restore the last edited location
 
 Persist the most recent visual edit per project and document variant on the server, including edits made without connected viewers. New and refreshed viewers resume there after rendering. Keep explicit assistant selections separate and preserve reading state during palette changes and transport reconnections in an already rendered viewer.
