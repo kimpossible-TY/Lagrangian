@@ -251,15 +251,16 @@ html[data-document-theme="dark"] .typst-theme-selector {
 }
 
 .typst-touch-selection-row {
-  display: flex;
+  display: block;
   white-space: nowrap;
   pointer-events: auto;
 }
 
 .typst-touch-selection-line {
   position: relative;
-  display: block;
-  flex: none;
+  /* Flex items add native copy line breaks between fragments of the same row. */
+  display: inline-block;
+  vertical-align: top;
   overflow: hidden;
   white-space: pre;
   color: transparent;
