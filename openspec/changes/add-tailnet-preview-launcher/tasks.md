@@ -223,4 +223,4 @@ The reconnect prerequisite imports local commit `57cd14d05bef5b827b78ae3e04bd377
 - [x] 27.2 Implement render-completion tracking and prevent pre-baseline viewport callbacks from consuming restoration.
 - [x] 27.3 Verify initial and repeated theme transitions, existing reconnect/live-edit behavior, frontend types/build and OpenSpec consistency.
 - [ ] 27.4 Verify the reported reboot/tab-restoration sequence on the user's physical phone after deployment.
-- [ ] 27.5 Build and install a clean-commit signed app with recovery, preserve managed profile state, and verify installed document delivery and initial-theme restoration.
+- [x] 27.5 Build and install a clean-commit signed app with recovery, preserve managed profile state, and verify installed document delivery and initial-theme restoration.
