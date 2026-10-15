@@ -15,7 +15,7 @@ import renderModule from "@myriaddreamin/typst-ts-renderer/pkg/typst_ts_renderer
 import { RenderSession } from "@myriaddreamin/typst.ts/dist/esm/renderer.mjs";
 import { Subject, Subscription, buffer, debounceTime, auditTime, fromEvent, tap } from "rxjs";
 import { handleHtmlPreviewFrame } from "./html-preview";
-import type { ReadingState } from "./document-theme";
+import type { ReadingContext, ReadingState } from "./document-theme";
 import { ChangeLocationQueue, parseChangeLocation, type ChangeLocation } from "./change-location";
 import { focusStatusPlacement } from "./mobile-viewport";
 import { SelectionActions } from "./selection-actions";
@@ -40,6 +40,7 @@ export interface WsArgs {
   nativeTheme?: boolean;
   onToggleTheme?: () => void;
   readingState?: ReadingState;
+  onDidRender?: (context: ReadingContext) => void;
 }
 
 export async function wsMain({
@@ -49,6 +50,7 @@ export async function wsMain({
   nativeTheme,
   onToggleTheme,
   readingState,
+  onDidRender,
 }: WsArgs) {
   if (!url) {
     const status = document.getElementById("typst-preview-status");
@@ -288,7 +290,7 @@ export async function wsMain({
     svgDoc.impl.onDidRender = () => {
       // Viewport callbacks before the first document (or during reconnect) do
       // not consume initial restoration or hints waiting for that document.
-      if (!svgDoc.impl.moduleInitialized) return;
+      if (!svgDoc.impl.moduleInitialized || awaitingFullFrame) return;
       updateActivity(() => activity.state.didRender());
       // A viewport render must not adopt a hint before its document frame arrives.
       focusRevision =
@@ -304,6 +306,8 @@ export async function wsMain({
         resizeTarget.scrollTo({ top: state.top, left: state.left, behavior: "instant" });
         svgDoc.addViewportChange();
       }
+      // Capture eligibility follows both rendering and initial navigation.
+      onDidRender?.(svgDoc.impl);
     };
     svgDoc.impl.onRenderActivity = (phase) =>
       updateActivity(() => activity.state.renderActivity(phase));

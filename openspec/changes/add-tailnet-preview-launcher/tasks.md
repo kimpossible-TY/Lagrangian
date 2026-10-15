@@ -216,3 +216,11 @@ The reconnect prerequisite imports local commit `57cd14d05bef5b827b78ae3e04bd377
 - [x] 25.3 Map source anchors independently in both themes and preserve live edits, saved positions, restart, comment rebasing and Git fallback.
 - [x] 25.4 Verify isolated real-engine regressions, scoped Rust tests/lints/formatting and strict OpenSpec consistency; record deployment status.
 - [x] 25.5 Package the clean-commit fix with the retained signing identity, preserve managed profiles/history with recovery, and verify installed document delivery.
+
+## 27. Preserve initial restoration through theme initialization
+
+- [x] 27.1 Define completed-render eligibility for theme reading state and preserve established state across unfinished replacements.
+- [x] 27.2 Implement render-completion tracking and prevent pre-baseline viewport callbacks from consuming restoration.
+- [x] 27.3 Verify initial and repeated theme transitions, existing reconnect/live-edit behavior, frontend types/build and OpenSpec consistency.
+- [ ] 27.4 Verify the reported reboot/tab-restoration sequence on the user's physical phone after deployment.
+- [ ] 27.5 Build and install a clean-commit signed app with recovery, preserve managed profile state, and verify installed document delivery and initial-theme restoration.

@@ -4,7 +4,9 @@ import {
   themeWebSocketUrl,
   captureReadingState,
   createConnectionQueue,
+  ThemeReadingState,
 } from "./document-theme";
+import { ChangeLocationQueue } from "./change-location";
 
 class Device extends EventTarget {
   constructor(public matches: boolean) {
@@ -102,6 +104,49 @@ describe("native document theme", () => {
       page: 12,
     });
     expect(container.scrollTop).toBe(31415);
+  });
+
+  it("restores the saved edit when themes change before the first completed render", () => {
+    const state = new ThemeReadingState();
+    const container = { scrollTop: 0, scrollLeft: 0 };
+    // A renderer may already have merged its module, but not displayed the document.
+    for (let transition = 0; transition < 3; transition++) {
+      const context = { currentScaleRatio: 1, partialRenderPage: 0, moduleInitialized: true };
+      const reading = state.capture(container, context);
+      expect(reading).toBeUndefined();
+      const changes = new ChangeLocationQueue(Boolean(reading));
+      changes.queue([302, 524, 750], true);
+      expect(changes.afterRender(5000, -Infinity)?.location).toEqual([302, 524, 750]);
+    }
+  });
+
+  it("keeps the last displayed position through multiple unfinished theme replacements", () => {
+    const state = new ThemeReadingState();
+    const first = { currentScaleRatio: 1.75, partialRenderPage: 12 };
+    const container = { scrollTop: 31415, scrollLeft: 42 };
+    state.didRender(first);
+    const reading = state.capture(container, first);
+    expect(reading).toEqual({ top: 31415, left: 42, scale: 1.75, page: 12 });
+
+    for (let transition = 0; transition < 3; transition++) {
+      const pending = { currentScaleRatio: 1, partialRenderPage: 0 };
+      const retained = state.capture({ scrollTop: 0, scrollLeft: 0 }, pending);
+      expect(retained).toEqual(reading);
+      const changes = new ChangeLocationQueue(Boolean(retained));
+      changes.queue([302, 524, 750], true);
+      expect(changes.afterRender(5000, -Infinity)).toBeUndefined();
+      changes.queue([303, 0, 50]);
+      expect(changes.afterRender(6000, -Infinity)?.location).toEqual([303, 0, 50]);
+    }
+
+    const final = { currentScaleRatio: 2, partialRenderPage: 14 };
+    state.didRender(final);
+    expect(state.capture({ scrollTop: 42000, scrollLeft: 0 }, final)).toEqual({
+      top: 42000,
+      left: 0,
+      scale: 2,
+      page: 14,
+    });
   });
 
   it("coalesces queued requests and disposes the old connection exactly once", async () => {

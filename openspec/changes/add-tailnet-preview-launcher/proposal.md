@@ -44,6 +44,8 @@ Keep fragments within a mobile text row inline so native copying of styled theor
 
 ## Restore the last edited location
 
+Do not capture an unfinished initial renderer as a reading position during a device-theme transition. Retain initial saved-edit restoration until a document has actually rendered, and carry an established reading position through repeated unfinished theme replacements.
+
 Persist the most recent visual edit per project and document variant on the server, including edits made without connected viewers. New and refreshed viewers resume there after rendering. Keep explicit assistant selections separate and preserve reading state during palette changes and transport reconnections in an already rendered viewer.
 
 Distinguish observed edits from the first compilation after startup. Persist stable dependency fingerprints so unchanged source retains its last edit across renderer changes. When stopped-service edits or legacy history cannot identify an actual edited location, establish a fresh baseline instead of restoring the first changed page, which may be an outline on page 2.
