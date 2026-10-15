@@ -51,9 +51,34 @@ export interface ReadingState {
   page: number;
 }
 
+export interface ReadingContext {
+  currentScaleRatio: number;
+  partialRenderPage: number;
+}
+
+/** Only a completed render can replace the reading position carried across themes. */
+export class ThemeReadingState {
+  private rendered = new WeakSet<ReadingContext>();
+  private previous?: ReadingState;
+
+  didRender(context: ReadingContext) {
+    this.rendered.add(context);
+  }
+
+  capture(
+    container: Pick<HTMLElement, "scrollTop" | "scrollLeft">,
+    context: ReadingContext,
+  ): ReadingState | undefined {
+    if (this.rendered.has(context)) {
+      this.previous = captureReadingState(container, context);
+    }
+    return this.previous;
+  }
+}
+
 export function captureReadingState(
   container: Pick<HTMLElement, "scrollTop" | "scrollLeft">,
-  context: { currentScaleRatio: number; partialRenderPage: number },
+  context: ReadingContext,
 ): ReadingState {
   return {
     top: container.scrollTop,

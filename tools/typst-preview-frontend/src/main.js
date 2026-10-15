@@ -13,7 +13,7 @@ import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
 import {
   DocumentThemeController,
   themeWebSocketUrl,
-  captureReadingState,
+  ThemeReadingState,
   createConnectionQueue,
 } from "./document-theme";
 
@@ -103,16 +103,24 @@ function retrieveWsArgs() {
 /// `buildWs` returns a object, which keeps track of websocket
 ///  connections.
 function buildWs() {
+  const themeReadingState = new ThemeReadingState();
   /// `nextWs` will always hold a global unique websocket connection
   /// to the preview backend.
   const nextWs = createConnectionQueue(wsMain, (args) => {
     const previousDoc = windowElem.documents[0];
     const readingState =
       args.nativeTheme && previousDoc
-        ? captureReadingState(document.getElementById("typst-container-main"), previousDoc.impl)
+        ? themeReadingState.capture(
+            document.getElementById("typst-container-main"),
+            previousDoc.impl,
+          )
         : undefined;
     resetAppMode(args);
-    return { ...args, readingState };
+    return {
+      ...args,
+      readingState,
+      onDidRender: (context) => themeReadingState.didRender(context),
+    };
   });
 
   return { nextWs };

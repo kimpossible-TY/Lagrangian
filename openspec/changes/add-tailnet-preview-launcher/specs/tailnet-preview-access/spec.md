@@ -243,6 +243,16 @@ Configured standalone paged preview SHALL persist the last visual edit per proje
 - **THEN** that reading state takes priority over last-edit restoration
 - **AND** subsequent live source edits still follow their changed locations
 
+#### Scenario: Device appearance changes during initial loading
+- **WHEN** the device theme changes after a renderer is allocated but before its first successful document render
+- **THEN** its default scroll position is not treated as an established reading position
+- **AND** the replacement theme restores the saved edit after rendering, including repeated initial theme transitions
+
+#### Scenario: Repeated theme changes after reading has begun
+- **WHEN** a rendered viewer changes themes again before the replacement document finishes rendering
+- **THEN** the last established reading position and zoom survive the intermediate unfinished renderer
+- **AND** that reading state still takes precedence over a replayed saved edit
+
 ### Requirement: Explicit selections can supply local assistant context
 When a standalone preview is configured with `TINYMIST_PREVIEW_FOCUS_FILE`, it SHALL atomically persist the latest explicit document selection with owner-only permissions. The record SHALL include time, viewer identity, compiler revision, page/coordinates, and a bounded source excerpt when mapped. The browser SHALL acknowledge successful persistence.
 
