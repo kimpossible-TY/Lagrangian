@@ -19,9 +19,9 @@
 - [x] 4.1 Identify selection-held updates as paused, hide the loading ring, and provide an accessible localized selection-release action.
 - [x] 4.2 Verify release resumes queued rendering, preserve selection until explicit release, and update the guide and behavior contract.
 
-Validation: 26 focused activity, selection and theme unit tests; frontend TypeScript and preview build; 300-page real-engine Chromium and WebKit touch/keyboard selection-release smoke; generated guide consistency; strict OpenSpec validation. WebKit verification caught cancelled pointerdown suppressing tap clicks; the release action now permits pointerdown. This follow-up changes source and generated local assets only; installed-app delivery and physical iPhone verification remain separate.
+Validation: 26 focused activity, selection and theme unit tests; frontend TypeScript and preview build; 300-page real-engine Chromium and WebKit touch/keyboard selection-release smoke; generated guide consistency; strict OpenSpec validation. WebKit verification caught cancelled pointerdown suppressing tap clicks; the release action now permits pointerdown. Installed delivery is recorded below; physical iPhone verification remains separate.
 
 ## 5. Install selection feedback
 
-- [ ] 5.1 Build and verify a signed app from the clean selection-feedback commit, preserving the existing signing identity.
-- [ ] 5.2 Install with recovery backup, restore the previously running profiles, and verify production HTML and both-theme document delivery.
+- [x] 5.1 Build and verify a signed app from the clean selection-feedback commit, preserving the existing signing identity.
+- [x] 5.2 Install with recovery backup, restore the previously running profiles, and verify production HTML and both-theme document delivery.
