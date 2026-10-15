@@ -36,7 +36,21 @@
       user-select: none;
       -webkit-user-select: none;
     }
-    #typst-preview-status[hidden], .typst-preview-status-hint[hidden] { display: none; }
+    #typst-preview-status[hidden], .typst-preview-status-hint[hidden], .typst-preview-status-release[hidden] { display: none; }
+    .typst-preview-status-release {
+      display: block;
+      min-height: 44px;
+      margin-top: 6px;
+      padding: 8px 12px;
+      border: 1px solid currentColor;
+      border-radius: 10px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      pointer-events: auto;
+      touch-action: manipulation;
+    }
     .typst-preview-status-ring {
       flex: 0 0 16px;
       width: 16px;
@@ -48,6 +62,7 @@
       animation: typst-status-spin 1s linear infinite;
     }
     #typst-preview-status[data-busy="false"] .typst-preview-status-ring { animation: none; }
+    #typst-preview-status[data-phase="selection-held"] .typst-preview-status-ring { display: none; }
     #typst-preview-status[data-phase$="error"] .typst-preview-status-ring { border-color: #d94a4a; }
     .typst-preview-status-hint { display: block; margin-top: 4px; font-size: 12px; opacity: 0.8; }
     :root[data-document-theme="dark"] #typst-preview-status { background: #222a36f5; color: #eef2f7; }
@@ -198,7 +213,7 @@
 <body>
   <div id="typst-preview-status" role="status" aria-live="polite" aria-atomic="true" data-phase="preparing" data-busy="true">
     <span class="typst-preview-status-ring" aria-hidden="true"></span>
-    <span><span class="typst-preview-status-label">Preparing preview…</span><span class="typst-preview-status-hint" hidden></span></span>
+    <span><span class="typst-preview-status-label">Preparing preview…</span><span class="typst-preview-status-hint" hidden></span><button class="typst-preview-status-release" type="button" hidden></button></span>
   </div>
   <script>
     if (navigator.language.startsWith("ko")) {

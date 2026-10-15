@@ -28,7 +28,15 @@ The preview SHALL show reconnecting after disconnection, a static error after re
 #### Scenario: Selection holds an update
 - **WHEN** a new document frame arrives during native touch selection
 - **THEN** status explains that releasing selection allows the update to continue
+- **AND** it identifies updates as paused, hides the loading ring and offers a localized keyboard-accessible action to clear the preview selection
+- **AND** selection remains intact until the reader explicitly clears it; elapsed time alone does not release it
 - **AND** successful rendering after release clears activity
+
+#### Scenario: Reader clears selection from the paused notice
+- **WHEN** the reader activates the selection-release button
+- **THEN** the native preview selection is cleared and queued rendering resumes through the selection-change handler
+- **AND** status becomes ready only after successful rendering
+- **AND** disposed status controllers cannot clear selection in their replacements
 
 #### Scenario: Connection closes during rendering
 - **WHEN** the WebSocket closes before rendering finishes
@@ -36,7 +44,7 @@ The preview SHALL show reconnecting after disconnection, a static error after re
 
 ### Requirement: Status remains accessible on mobile
 
-The indicator SHALL remain within the mobile visible safe area, SHALL allow document gestures through it, SHALL announce activity politely and SHALL respect reduced-motion preferences.
+The indicator SHALL remain within the mobile visible safe area, SHALL allow document gestures through it except on its explicit selection-release button, SHALL announce activity politely and SHALL respect reduced-motion preferences.
 
 #### Scenario: Reader zooms or rotates
 - **WHEN** the visual viewport changes while activity is visible
