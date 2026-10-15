@@ -145,7 +145,7 @@ The small status ring shows activity while the browser prepares the renderer, co
 
 *Returning from another app:* iOS and iPadOS can suspend a home-screen web app and interrupt its connection. Returning checks the existing connection and reuses it if it responds. A dropped connection retries on return, keeping the document, zoom and reading position visible. A native text selection holds the replacement document until the selection is dismissed. Source updates still render normally. Background suspension or a page reload can still require document transfer; connection recovery does not guarantee continuous background access.
 
-- *Preview waits while text is selected:* dismiss the selection to release pending updates.
+- *Update paused while text is selected:* updates wait until you dismiss the selection; waiting longer does not resume them. Tap *Clear selection and update* in the status notice, or dismiss the selection by tapping an empty area of the document. This paused state has no loading ring, and your selection remains available until you clear it.
 - *Long wait or compilation error:* open Logs in Flow and check the document in your editor. A responding HTTP server does not prove successful compilation.
 - *Mobile URL does not connect:* confirm that the Mac is awake, the preview is started, the device has tailnet access, and the route points to the current local port. Check the HTTPS address saved in Flow.
 - *Theme colors do not change:* confirm the document's theme input contract below.

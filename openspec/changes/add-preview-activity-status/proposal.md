@@ -7,6 +7,7 @@ Opening a preview currently leaves an unexplained blank surface while the browse
 - Show a compact status ring and localized activity text from initial page load through the first completed render.
 - Relay actual compiler activity and errors to the browser, including the current state for newly connected viewers.
 - Show rendering, selection-held updates, reconnecting and renderer failures; clear activity after completed document rendering.
+- Explain selection-held updates as paused, without a loading ring, and offer an explicit selection-release action.
 - Keep the indicator accessible and inside the mobile safe area without blocking reading or selection.
 
 ## Capabilities

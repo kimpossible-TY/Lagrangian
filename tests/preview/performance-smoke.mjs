@@ -304,9 +304,40 @@ try {
   await delay(150);
   assert.equal((await counters(page)).calls.manipulateData, held.calls.manipulateData);
   assert.match(await page.locator(".typst-touch-selection").innerText(), /Revision 3/);
-  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.waitForFunction(
+    () => document.getElementById("typst-preview-status").dataset.phase === "selection-held",
+  );
+  const release = page.getByRole("button", { name: "Clear selection and update" });
+  assert.equal(await release.isVisible(), true);
+  assert.equal(
+    await page
+      .locator(".typst-preview-status-ring")
+      .evaluate((ring) => getComputedStyle(ring).display),
+    "none",
+  );
+  assert.equal(await page.locator("#typst-preview-status").getAttribute("data-busy"), "false");
+  // Pressing must retain the selection until explicit activation, without hiding the button.
+  await release.dispatchEvent("pointerdown");
+  assert.match(await page.evaluate(() => getSelection().toString()), /Revision 3/);
+  await release.tap();
   await settle(page);
+  assert.equal(await page.evaluate(() => getSelection().isCollapsed), true);
+  assert.equal(await release.isVisible(), false);
   assert.match(await page.locator(".typst-touch-selection").innerText(), /Revision 4/);
+
+  await page.evaluate(() => {
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector(".typst-touch-selection-line"));
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  });
+  await writeFile(file, source(4) + "\nKeyboard activation check.\n");
+  await release.waitFor({ state: "visible" });
+  await release.focus();
+  await page.keyboard.press("Enter");
+  await settle(page);
+  assert.equal(await page.evaluate(() => getSelection().isCollapsed), true);
+  assert.equal(await release.isVisible(), false);
 
   // Crossing pages and changing zoom must invalidate the appropriate caches.
   for (const number of [150, 299, 1]) {

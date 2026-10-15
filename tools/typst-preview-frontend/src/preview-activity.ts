@@ -1,3 +1,5 @@
+import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
+
 export type ActivityPhase =
   | "preparing"
   | "connecting"
@@ -77,7 +79,7 @@ const labels: Record<ActivityPhase, [string, string]> = {
   waiting: ["문서를 기다리는 중…", "Waiting for document…"],
   compiling: ["문서 컴파일 중…", "Compiling document…"],
   rendering: ["화면에 그리는 중…", "Rendering document…"],
-  "selection-held": ["선택을 해제하면 갱신됩니다", "Release selection to update"],
+  "selection-held": ["텍스트 선택 중 · 갱신 일시정지", "Update paused while text is selected"],
   reconnecting: ["연결 끊김 · 다시 연결 중…", "Disconnected · reconnecting…"],
   "compile-error": ["컴파일 오류 · 소스를 확인해 주세요", "Compilation failed · check source"],
   "render-error": [
@@ -109,10 +111,21 @@ export class PreviewActivity {
   private element = document.getElementById("typst-preview-status")!;
   private label = this.element.querySelector<HTMLElement>(".typst-preview-status-label")!;
   private hint = this.element.querySelector<HTMLElement>(".typst-preview-status-hint")!;
+  private releaseButton = this.element.querySelector<HTMLButtonElement>(
+    ".typst-preview-status-release",
+  )!;
   private phase?: ActivityPhase;
   private delayed?: ReturnType<typeof setTimeout>;
   private disposed = false;
   private korean = navigator.language.startsWith("ko");
+  private preserveSelection = (event: Event) => event.preventDefault();
+  private releaseSelection = (event: Event) => {
+    event.stopPropagation();
+    if (this.disposed || this.state.phase !== "selection-held") return;
+    const root = document.getElementById("typst-app");
+    if (root && hasTouchSelection(root)) root.ownerDocument.getSelection()?.removeAllRanges();
+    // The renderer resumes on selectionchange and owns completion feedback.
+  };
   private position = () => {
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -130,6 +143,12 @@ export class PreviewActivity {
   };
 
   constructor() {
+    this.releaseButton.textContent = this.korean
+      ? "선택 해제 후 갱신"
+      : "Clear selection and update";
+    // Cancelling pointerdown suppresses the subsequent tap click in WebKit.
+    this.releaseButton.addEventListener("mousedown", this.preserveSelection);
+    this.releaseButton.addEventListener("click", this.releaseSelection);
     window.visualViewport?.addEventListener("resize", this.position);
     window.visualViewport?.addEventListener("scroll", this.position);
     this.refresh();
@@ -142,6 +161,13 @@ export class PreviewActivity {
       this.phase = phase;
       clearTimeout(this.delayed);
       this.hint.hidden = true;
+      this.releaseButton.hidden = phase !== "selection-held";
+      if (phase === "selection-held") {
+        this.hint.textContent = this.korean
+          ? "선택을 해제해야 새 내용이 표시됩니다."
+          : "Clear the selection to display pending changes.";
+        this.hint.hidden = false;
+      }
       this.element.hidden = phase === "ready";
       this.element.dataset.phase = phase;
       const busy = !["ready", "selection-held", "compile-error", "render-error"].includes(phase);
@@ -163,6 +189,9 @@ export class PreviewActivity {
   dispose() {
     this.disposed = true;
     clearTimeout(this.delayed);
+    this.releaseButton.removeEventListener("mousedown", this.preserveSelection);
+    this.releaseButton.removeEventListener("click", this.releaseSelection);
+    this.releaseButton.hidden = true;
     window.visualViewport?.removeEventListener("resize", this.position);
     window.visualViewport?.removeEventListener("scroll", this.position);
     this.element.hidden = true;
