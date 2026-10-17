@@ -75,6 +75,23 @@ PDF layout and original source files intact. Essential annotations and graphical
 relationships belong inline; their anchors must follow the reflowed mathematical
 terms rather than retain page positions.
 
+The first adapter assigns `data-flow-canvas` IDs to direct HTML CeTZ canvases.
+`/api/canvases` accepts only known IDs, finite CSS widths, and supported reading
+font sizes for the accepted revision. The compiler reevaluates the original
+drawing at a requested inherited text size and iteratively adjusts its coordinate
+unit. SVG dimensions are returned in physical CSS pixels so inherited HTML `em`
+sizes do not scale the baked glyphs a second time. Unsuccessful fits retain the
+original coordinate unit and report overflow; they do not compress the geometry
+indefinitely or clip content. `width-fit` is only a width result, not a readability
+or collision result. Explicit font sizes in authored labels still need a policy.
+
+The browser requests nearby figures automatically and rerenders on reading-size
+or width changes, rejecting results measured for an obsolete viewport. The service
+caches individual canvases across different request batches and serializes dynamic
+compiles with annotation compiles. It uses the accepted revision/input checks
+already used for graphical annotations. Opaque layout/SVG islands without a canvas
+ID remain outside this adapter; they must be covered before final acceptance.
+
 ## Reader protocol
 
 Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open annotation.

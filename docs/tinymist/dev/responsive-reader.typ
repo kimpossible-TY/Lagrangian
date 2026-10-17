@@ -17,6 +17,28 @@ scrolling, collapsed notes, and modal graphical relationships remain to be repla
 A document-wide overflow check is insufficient; audit each component and every
 required reading action before promotion.
 
+== Adaptive CeTZ canvas
+
+The reader's common CeTZ adapter preserves drawing programs and logical
+coordinates. For a requested reading width, it repeatedly measures the original
+program at a different coordinate unit, keeping inherited text size independent
+of geometry scale. The browser requests nearby canvases automatically through
+`/api/canvases` when width or font size changes. Returned SVG dimensions use CSS
+pixels rather than inherited em units. Results for obsolete widths are not applied.
+
+The API validates canvas IDs, revision, width, and font size; cached drawings can
+be reused across request batches. Uncached requests reject a changed source
+snapshot. A failed width fit retains the original geometry and reports overflow.
+The `width-fit` result does not establish readable labels or absence of collisions.
+Explicitly small label text, long fixed legends, and opaque layout islands still
+need work. Do not promote this development implementation as the mobile default.
+
+The complete PDE compile exposes 57 direct CeTZ canvases. At 343px drawing width
+and 18px inherited text, 49 fit; at 273px and 30px, 44 fit. These drawing widths
+correspond to plain-body phone widths of 390px and 320px in the test browser,
+but nested callouts can be narrower. The browser measures the actual container.
+Evidence is under `dist/reader-canvas-checks`.
+
 == Build and inspect
 
 ```sh

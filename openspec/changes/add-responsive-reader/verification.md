@@ -36,6 +36,30 @@ and `320-30.png`. The corpus source SHA-256 is
 
 ## Actual PDE compilation
 
+The subsequent adaptive-canvas implementation exposes 57 direct CeTZ canvases in
+the complete PDE HTML. It does not claim coverage of every opaque SVG/layout
+island. The recorded `pde-canvas-audit.json` checks all 57 at two requested sizes:
+49 fit a 343px drawing width with 18px inherited text; 44 fit a 273px width with
+30px inherited text. Unresolved canvases are listed explicitly. The first case
+has a long fixed legend; source inspection also finds explicit 6pt/8pt labels.
+Thus these width results do not establish readable labels or collision freedom.
+
+The canvas fixture verifies that reducing geometry from 529.13px to 277.2px leaves
+the glyph outlines and 1pt strokes identical at 18px text, while 30px text changes
+the glyphs. A 500pt-wide fixed-coordinate drawing reports overflow with its original
+geometry. Both the existing reader fixture and new CeTZ fixture retain byte-identical
+paged output against the original packages. All 32 reader tests pass, including
+per-canvas cache reuse across different batches and rejection of stale revisions
+and uncached rendering after failed source edits. Browser evidence and full PDE
+audit data are under `dist/reader-canvas-checks`.
+
+The actual PDE browser check at a 320px viewport and 30px body text measures
+210px of available width inside a nested callout. Canvas 2 and canvas 3 render
+at 207.89px and 207.80px respectively, following automatic width/font requests.
+The recorded values and screenshot are `browser-320-30.json` and
+`pde-320-30.png` under that directory. This is evidence for those two drawings,
+not a whole-document readability result.
+
 The full `Partial_Differential_Equations/main.typ` was compiled using Typst 0.15.1,
 the project's font directory, and the isolated reader package overlay.
 
@@ -66,6 +90,13 @@ distinct from the smaller automated fixture comparison.
 
 The existing loopback service on port 23625 continues to return HTTP 200; its
 installed engine, LaunchAgent, and Tailnet ingress were not changed.
+
+After the adaptive canvas change, the full PDE comparison was repeated against
+the then-current saved sources. The original packages and reader overlay again
+produce byte-identical PDFs, both with SHA-256
+`54a0deaf35d426b750aa45c0b8f655ecf0d2faf002b6adc4e1e35e62de9ac3ab`.
+Evidence is `dist/reader-canvas-checks/paged/comparison.json` and the adjacent
+PDFs. The earlier hash above belongs to the earlier source snapshot.
 
 ## Browser checks on the actual PDE document
 
@@ -129,14 +160,17 @@ readable at phone width; that remains a separate requirement.
 Tests cover nested references, annotation associations, math decorations, SVG ID
 namespacing, MathML/HTML boundaries, unchanged paged output, package isolation,
 and preservation of the previous served document after an actual compile error.
-Twenty-seven tests now cover geometry-dependent CeTZ output, geometry validation,
+Thirty-two tests now cover geometry-dependent CeTZ output, geometry validation,
 cached responses, rejection after failed source edits, section/annotation
 boundaries, image-byte preservation, and stable reading keys after both a section
 boundary and a generated Typst label change. They additionally cover immutable
 installation, inherited Flow project settings, port and process ownership,
 compiler dependency watching, and quotation relocation with ambiguous/missing
 results and revision checks.
-JavaScript syntax is checked with `node --check tools/flow-reader/web/reader.js`.
+The canvas checks additionally cover coordinate-unit fitting without glyph or
+physical stroke scaling, fixed-coordinate overflow, unchanged paged output, and
+cache reuse across differently grouped requests.
+JavaScript syntax is checked with `node --check` for `reader.js` and `canvases.js`.
 
 ## Saved highlights and lifecycle checkpoint
 
