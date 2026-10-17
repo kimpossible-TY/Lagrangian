@@ -425,6 +425,10 @@ surface, and carried SVG math. Exclude assistive and staging copies. Keep prose
 range bounds and each mathematical surface's original marked-term identity.
 Share the glyph/stretched-surface policy with horizontal mathematical bounds.
 
+A relationship's original light drawing paper uses a complete local light
+palette in dark appearance, including equation numbers, references and nested
+content. Surrounding page colors must not make those labels pale on light paper.
+
 Dynamic response reuse is per component as well as per request batch. Key each
 graphic, canvas and decoration by kind, accepted revision, ID and complete
 validated geometry. A differently grouped request reuses unchanged components

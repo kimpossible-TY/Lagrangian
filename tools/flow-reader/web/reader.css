@@ -662,8 +662,17 @@ math svg {
 }
 @media (prefers-color-scheme: dark) {
   .flow-graphic-frame {
-    color: #242c34;
-    background: #fcfaf6;
+    /* The original drawing keeps light paper, including its equation numbers
+       and links. Give every descendant the matching local palette. */
+    color-scheme: light;
+    --paper: #fcfaf6;
+    --ink: #242c34;
+    --muted: #667279;
+    --line: #d9dedc;
+    --accent: #21685f;
+    --wash: #edf3ef;
+    color: var(--ink);
+    background: var(--paper);
   }
 }
 @media (max-width: 580px) {

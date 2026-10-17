@@ -16,6 +16,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Carry every logical target fragment into graphical annotation requests and resolve CeTZ anchors on actual fragment surfaces without source edits.
 - [x] Expose named CeTZ connector endpoints and reroute supported colliding connections around measured text while preserving their original styling and arrowheads.
 - [x] Reuse accepted relationship components across differently grouped requests and compile only changed layouts, retaining source/revision checks.
+- [x] Verify all 15 frozen PDE relationships at 320px with 18px/30px fonts, original vector paint, complete math and zero collision/overflow failures.
 - [ ] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
 - [x] Integrate local MathJax/CHTML composition, validated publication, selection-aware updates, and per-fragment decoration/relationship refresh in the Reader.
 - [x] Automatically recompose wide inline expressions in the body while retaining their original math style, text order, fragment paint, and narrower/wider container behavior.
