@@ -77,6 +77,45 @@ test("temporary native math cannot trigger an obsolete annotation compile", asyn
   assert.equal(value.busy, undefined);
 });
 
+test("a busy compiler cannot leave an old wide relationship in page overflow", () => {
+  const { value, record } = renderer();
+  // Use the real scheduler, including the pre-debounce invalidation.
+  delete value.schedule;
+  value.busy = true;
+  value.preserve = (change) => change();
+  record.key = "old-position";
+  record.svg = {
+    isConnected: true,
+    remove() {
+      this.isConnected = false;
+    },
+  };
+  const paint = record.svg;
+  let railRemoved = false;
+  record.rail = {
+    remove() {
+      railRemoved = true;
+    },
+  };
+  try {
+    value.schedule();
+    assert.equal(paint.isConnected, true, "An unchanged relationship remains visible");
+    value.measure = () => ({ key: "narrow-position" });
+    value.schedule();
+    assert.equal(paint.isConnected, false);
+    assert.equal(railRemoved, true);
+    assert.equal(record.note.dataset.graphicState, "pending");
+    assert.equal(record.key, null);
+    paint.isConnected = true;
+    record.key = "narrow-position";
+    record.nodes = [{ closest: () => ({ dataset: { mathState: "pending" } }) }];
+    value.schedule();
+    assert.equal(paint.isConnected, false, "Pending text cannot retain obsolete relationships");
+  } finally {
+    clearTimeout(value.timer);
+  }
+});
+
 test("an annotation response cannot enter a newer document", async () => {
   const { value } = renderer();
   let complete;

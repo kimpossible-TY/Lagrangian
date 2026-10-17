@@ -93,11 +93,11 @@ async function failedFit() {
 }
 try {
   await until(() => paragraph(), "initial source");
-  while (Number(document.querySelector("#reader-size").value) > 18)
+  while (Number(document.querySelector("#reader-size").value) > 13)
     document.querySelector("#reader-smaller").click();
   await until(() => report.requests.length > 0, "initial automatic request");
-  if (report.requests.some((r) => Object.values(r.canvases).some((v) => v.fontSize !== 18)))
-    throw new Error("Fixture setup did not start the first drawing request at 18px");
+  if (report.requests.some((r) => Object.values(r.canvases).some((v) => v.fontSize !== 13)))
+    throw new Error("Fixture setup did not start the first drawing request at 13px");
   const drawings = [...document.querySelectorAll("[data-flow-canvas]")];
   check(
     "Unadapted drawings reserve bounded placeholders",
@@ -127,7 +127,7 @@ try {
       (n) =>
         n.dataset.canvasPlaceholder === "false" &&
         n.querySelector("svg") &&
-        Number(n.dataset.canvasFont) === 18,
+        Number(n.dataset.canvasFont) === 13,
     ),
   );
   check(

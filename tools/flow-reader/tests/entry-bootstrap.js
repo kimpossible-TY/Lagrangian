@@ -6,7 +6,7 @@
     const anchor = __SEED_ANCHOR__;
     anchor.url = location.href;
     localStorage.setItem("flow-reader:" + __DOCUMENT_ID__ + ":position", JSON.stringify(anchor));
-    localStorage.setItem("flow-reader:" + __DOCUMENT_ID__ + ":fontSize", "18");
+    localStorage.setItem("flow-reader:" + __DOCUMENT_ID__ + ":fontSizeV2", "18");
     document.documentElement.dataset.entrySeedKey = anchor.key;
     document.documentElement.dataset.entrySeedMode = "new";
   } else {

@@ -61,6 +61,7 @@ def handler_for(state):
                           "native-update": "native-update-browser.js",
                           "tables": "tables-browser.js",
                           "graphics": "graphics-browser.js",
+                          "viewport": "viewport-browser.js",
                           "body-math": "body-math-browser.js",
                           "position": "position-browser.js", "entry": "entry-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
@@ -68,7 +69,17 @@ def handler_for(state):
                 if check == "entry":
                     source = source.replace('<script type="module" src="reader.js">',
                                             '<script src="/entry-bootstrap.js"></script><script type="module" src="reader.js">')
+                if check == "viewport":
+                    source = source.replace('<script type="module" src="reader.js">',
+                                            '<script src="/viewport-bootstrap.js"></script><script type="module" src="reader.js">')
                 return self.respond(source.encode(), "text/html; charset=utf-8")
+            if path == "/viewport-bootstrap.js":
+                source = (ROOT / "tests/viewport-bootstrap.js").read_text().replace(
+                    "__DOCUMENT_ID__", json.dumps(state.document_id))
+                return self.respond(source.encode(), "text/javascript; charset=utf-8")
+            if path == "/viewport-browser.js":
+                return self.respond((ROOT / "tests/viewport-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
             if path == "/entry-bootstrap.js":
                 with state.lock:
                     if not state.bundle:

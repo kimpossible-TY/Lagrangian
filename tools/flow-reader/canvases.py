@@ -15,7 +15,7 @@ def validate_canvases(requests, known):
         if identifier not in known or not isinstance(request, dict):
             raise ValueError("Unknown canvas")
         clean = {}
-        for key, minimum, maximum in (("width", 32, 4096), ("fontSize", 14, 30)):
+        for key, minimum, maximum in (("width", 32, 4096), ("fontSize", 13, 30)):
             value = request.get(key)
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or not minimum <= value <= maximum):

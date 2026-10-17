@@ -12,6 +12,25 @@ slides, a next-section click, or a separate enlarged-equation view. Compose long
 mathematics and figure layouts to the available width, preserving their meaning
 and readable labels. Optional navigation and saved-highlight controls are allowed.
 
+The default body size is 13 CSS pixels, shared by the initial HTML/CSS and the
+Reader module. A versioned local preference starts legacy readers at 13px once;
+subsequent explicit choices persist, with 1px controls up to 30px. Existing
+quotations and saved reading positions are retained. Canvas and relationship
+requests accept the new 13px lower boundary.
+
+The viewport uses device width with initial/minimum scale 1 and
+`shrink-to-fit=no`; it does not cap user enlargement or intercept gestures.
+Safari text-size adjustment is 100% so rotation keeps the selected text size.
+Reading anchors compare the root layout width (`clientWidth`) rather than
+`innerWidth`, which WebKit can change during a pinch without a new text layout.
+No page transform, CSS zoom, or root overflow clipping is used to obtain a fit.
+Before a debounce or compiler busy check, decoration and relationship schedulers
+remove obsolete SVG paint, including while their mathematical terms are pending.
+The previous wider drawing cannot enlarge the page while its replacement loads.
+The `viewport` browser fixture checks fresh and legacy preferences, reloads,
+actual width changes and a synthetic visual-only resize. That last check is not
+a substitute for a physical iPhone pinch test.
+
 The legacy drawing path still has unresolved widths and small labels. The native
 label option below remains under figure and device validation. Notes and
 relationships are now shown inline automatically.

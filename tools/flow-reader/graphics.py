@@ -49,7 +49,7 @@ def validate_geometry(graphs: dict, known: dict) -> dict:
             clean[tag] = {"fragments": rectangles} if "fragments" in bounds else rectangles[0]
         result[identifier] = {"width": width, "height": height, "markers": clean}
         if "fontSize" in geometry:
-            result[identifier]["fontSize"] = number(geometry["fontSize"], 14, 30)
+            result[identifier]["fontSize"] = number(geometry["fontSize"], 13, 30)
         if "routes" in geometry:
             routes = geometry["routes"]
             if not isinstance(routes, dict) or not 1 <= len(routes) <= 64:

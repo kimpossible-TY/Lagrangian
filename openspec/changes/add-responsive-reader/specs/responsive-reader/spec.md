@@ -119,6 +119,16 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **WHEN** a reader enlarges text or rotates the device
 - **THEN** paragraphs reflow, labels remain readable, and the same logical passage stays in view
 
+#### Scenario: Default text size and visual zoom
+- **WHEN** a new reader opens or a legacy font preference is first migrated
+- **THEN** the body uses 13 CSS pixels, including before JavaScript initialization
+- **AND** subsequent explicit font choices persist in 1px steps from 13px through 30px
+- **AND** content fits the device layout width without whole-page scaling
+- **AND** automatic shrink-to-fit is disabled while user enlargement remains available
+- **AND** a pinch-related visual resize does not restore an obsolete reading anchor when the layout width has not changed
+- **AND** saved quotations and reading positions are preserved
+- **AND** obsolete decoration and relationship SVGs cannot widen the page while mathematical layout or compilation is pending
+
 #### Scenario: Direct target navigation during initial composition
 - **WHEN** the reader opens a named target while mathematical or drawing layout is still completing
 - **THEN** that target crosses the same reference line used for reading restoration

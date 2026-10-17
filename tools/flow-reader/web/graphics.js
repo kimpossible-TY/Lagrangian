@@ -301,6 +301,25 @@ export class GraphicalAnnotations {
   }
 
   schedule() {
+    // Invalid overlays must not widen the page while render() is busy or waits
+    // for mathematical composition. Hidden SVGs still have overflow geometry.
+    for (const record of this.records.values()) {
+      if (!record.svg?.isConnected) continue;
+      const temporary = record.nodes.some((source) =>
+        visualFragments(source).some((node) =>
+          ["native", "pending"].includes(node.closest(".flow-math-view")?.dataset.mathState),
+        ),
+      );
+      if (!temporary && record.key === this.measure(record)?.key) continue;
+      this.preserve(() => {
+        record.svg.remove();
+        record.rail?.remove();
+        record.rail = null;
+        record.key = null;
+        record.note.dataset.graphicState = "pending";
+        record.note.textContent = "수식의 관계 그림을 준비하는 중…";
+      });
+    }
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.render(), 200);
   }

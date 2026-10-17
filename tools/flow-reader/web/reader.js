@@ -10,14 +10,18 @@ const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
+const defaultFontSize = 13;
+// Start existing readers at the new requested default once. Subsequent explicit
+// choices persist; the old setting and saved quotations/positions stay intact.
+const fontSizeSetting = "fontSizeV2";
 let storageKey = `flow-reader:${location.pathname}`;
 let revision = null;
 let pending = null;
 let blocks = [];
 let stableAnchor = null;
 let stableScrollY = scrollY;
-let anchorWidth = innerWidth;
-let fontSize = 18;
+let anchorWidth = document.documentElement.clientWidth;
+let fontSize = defaultFontSize;
 let manifest = null;
 let currentSection = null;
 let loadSequence = 0;
@@ -199,7 +203,7 @@ function restoreAnchor(anchor) {
       ?.getBoundingClientRect();
     if (rect?.height > 0) {
       window.scrollBy(0, rect.top + rect.height * anchor.canvasFraction - 90);
-      if (innerWidth === anchorWidth) {
+      if (document.documentElement.clientWidth === anchorWidth) {
         stableAnchor = anchor;
         stableScrollY = scrollY;
       }
@@ -211,7 +215,7 @@ function restoreAnchor(anchor) {
     if (section) {
       const rect = section.getBoundingClientRect();
       window.scrollBy(0, rect.top + rect.height * anchor.fraction - 90);
-      if (innerWidth === anchorWidth) {
+      if (document.documentElement.clientWidth === anchorWidth) {
         stableAnchor = anchor;
         stableScrollY = scrollY;
       }
@@ -230,7 +234,7 @@ function restoreAnchor(anchor) {
     (candidates.length === 1 ? candidates[0] : null);
   if (block) {
     window.scrollBy(0, block.getBoundingClientRect().top - 90 - anchor.offset);
-    if (innerWidth === anchorWidth) {
+    if (document.documentElement.clientWidth === anchorWidth) {
       stableAnchor = anchor;
       stableScrollY = scrollY;
     }
@@ -238,12 +242,12 @@ function restoreAnchor(anchor) {
 }
 function setFont(size) {
   const anchor = readingAnchor();
-  fontSize = Math.max(14, Math.min(30, size));
+  fontSize = Math.max(defaultFontSize, Math.min(30, size));
   document.documentElement.style.setProperty("--reader-font-size", `${fontSize}px`);
   document.querySelector("#reader-size").value = fontSize;
-  document.querySelector("#reader-smaller").disabled = fontSize === 14;
+  document.querySelector("#reader-smaller").disabled = fontSize === defaultFontSize;
   document.querySelector("#reader-larger").disabled = fontSize === 30;
-  store("fontSize", fontSize);
+  store(fontSizeSetting, fontSize);
   mathematics.schedule();
   canvases.schedule();
   decorations.schedule();
@@ -252,10 +256,11 @@ function setFont(size) {
 }
 
 window.addEventListener("resize", () => {
-  // Mobile browser bars change height during ordinary vertical scrolling.
-  // Only a width change needs restoration across a new text composition.
-  if (innerWidth === anchorWidth) return;
-  anchorWidth = innerWidth;
+  // WebKit can change innerWidth during pinch zoom without changing layout.
+  // Restore only after an actual text-width change, not a visual zoom or bar.
+  const width = document.documentElement.clientWidth;
+  if (width === anchorWidth) return;
+  anchorWidth = width;
   restoreAnchor(stableAnchor);
 });
 document.fonts.addEventListener("loadingdone", () => {
@@ -573,8 +578,8 @@ article.addEventListener("click", (event) => {
     return;
   }
 });
-document.querySelector("#reader-smaller").addEventListener("click", () => setFont(fontSize - 2));
-document.querySelector("#reader-larger").addEventListener("click", () => setFont(fontSize + 2));
+document.querySelector("#reader-smaller").addEventListener("click", () => setFont(fontSize - 1));
+document.querySelector("#reader-larger").addEventListener("click", () => setFont(fontSize + 1));
 menu.addEventListener("click", () => {
   outline.hidden = !outline.hidden;
   menu.setAttribute("aria-expanded", !outline.hidden);
@@ -599,7 +604,7 @@ function savePosition() {
 window.addEventListener(
   "scroll",
   () => {
-    if (innerWidth === anchorWidth) {
+    if (document.documentElement.clientWidth === anchorWidth) {
       stableAnchor = readingAnchor();
       stableScrollY = scrollY;
     }
@@ -609,7 +614,7 @@ window.addEventListener(
   { passive: true },
 );
 window.addEventListener("pagehide", savePosition);
-setFont(Number(readStored("fontSize", 18)) || 18);
+setFont(Number(readStored(fontSizeSetting, defaultFontSize)) || defaultFontSize);
 
 async function refresh() {
   try {
@@ -619,7 +624,7 @@ async function refresh() {
     const documentStorageKey = state.documentID ? `flow-reader:${state.documentID}` : storageKey;
     if (documentStorageKey !== storageKey) {
       storageKey = documentStorageKey;
-      setFont(Number(readStored("fontSize", 18)) || 18);
+      setFont(Number(readStored(fontSizeSetting, defaultFontSize)) || defaultFontSize);
     }
     const original = document.querySelector("#reader-original");
     if (state.originalURL) {
