@@ -1,7 +1,18 @@
+User clarification, 2026-10-17: the mobile solution must make all essential content
+readable directly in the body. Slides, horizontal movement, zoom, and extra clicks
+to enlarge equations are not acceptable substitutes for responsive composition.
+The existing scrolling and annotation-dialog prototype does not meet this contract.
+
 - [x] Inspect current engine, preview, Flow profiles, Tail Hosting ownership, and PDE HTML failures.
 - [x] Add isolated target-aware package adapters and a reproducible reader build command.
 - [x] Compile the full PDE document with math, references, footnotes, and annotation adapters; verify graphical programs separately.
-- [ ] Implement responsive Reader frontend, figure layouts, and local equation expansion.
+- [x] Evaluate automatic math line breaking against all 1,411 PDE display equations; record remaining overflow and fragment-identity issues.
+- [ ] Separate mathematical content from mark/decoration SVGs and distinguish derivation alignment from matrix structure.
+- [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
+- [ ] Recompose CeTZ figures and labels for the reading width without uniform text shrinkage.
+- [ ] Show essential annotations and graphical relationships inline without reveal/expand actions.
+- [ ] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
+- [ ] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
 - [x] Add saved quotations with context-based relocation, cross-section navigation, and explicit ambiguous/missing states.
 - [ ] Complete broader reading-position and selection update checks on actual PDE content.
 - [x] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.

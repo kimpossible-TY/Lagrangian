@@ -16,7 +16,18 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **THEN** marked terms remain associated with their annotation content after reflow
 
 ### Requirement: Responsive readable content
-The reader SHALL reflow ordinary text at 320–768 CSS px and the user's font size without whole-document horizontal scrolling. Multi-panel figures SHALL support narrow layouts. Oversize indivisible mathematics MAY use local scrolling or expansion.
+The reader SHALL lay out ordinary text, mathematical expressions, figures, and essential annotations at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this content MUST NOT require zooming, horizontal panning, a slide/carousel, opening a separate equation view, or clicking to reveal essential content. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
+
+#### Scenario: A long equation or wide drawing
+- **WHEN** an equation, matrix, or drawing exceeds the available width at readable text size
+- **THEN** the layout stage uses mathematically valid line breaks, alignment changes, or an explicit faithful alternate composition
+- **AND** figure panels, labels, and legends are recomposed rather than uniformly shrinking their text
+- **AND** unresolved layout is a failed release requirement; clipping, scrolling, and expansion controls do not satisfy it
+
+#### Scenario: Continuous reading
+- **WHEN** a reader reaches a section boundary or a mathematical annotation
+- **THEN** the next content is available through ordinary vertical reading without a required next-section button or reveal action
+- **AND** storage or lazy loading boundaries are not presented as slides
 
 #### Scenario: Font or orientation change
 - **WHEN** a reader enlarges text or rotates the device

@@ -4,6 +4,19 @@ The independent reader modules are in `tools/flow-reader`. They generate HTML
 from the saved Typst entrypoint, using a temporary package overlay. The installed
 packages, paged service, and source documents are not rewritten by a reader build.
 
+== Required reading behavior
+
+All essential text, equations, figures, and annotations must be readable in the
+continuous body at the chosen font size. Do not require zoom, horizontal panning,
+slides, a next-section click, or a separate enlarged-equation view. Compose long
+mathematics and figure layouts to the available width, preserving their meaning
+and readable labels. Optional navigation and saved-highlight controls are allowed.
+
+The current development prototype does not yet meet this contract: local equation
+scrolling, collapsed notes, and modal graphical relationships remain to be replaced.
+A document-wide overflow check is insufficient; audit each component and every
+required reading action before promotion.
+
 == Build and inspect
 
 ```sh

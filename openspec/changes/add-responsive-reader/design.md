@@ -22,6 +22,47 @@ Page-relative annotation packages cannot run unchanged in HTML. Represent marked
 
 Replace decorative blocks with semantic HTML containers so nested equation labels and references remain visible to the document introspector. Keep theorem kinds, counter resets, and target-location numbering. Use MathML where faithful and SVG for unsupported mathematical constructs. Figure panels stack at narrow widths; vector scaling alone is insufficient when it makes labels unreadable.
 
+## Required reading interaction
+
+The user's clarification on 2026-10-17 is the acceptance boundary: ordinary
+vertical reading must expose all mathematical and explanatory content at readable
+font sizes. Do not introduce slides/carousels, horizontal scrolling, zoom, or
+click-to-expand equation views to compensate for a layout that does not fit.
+TOC navigation, saved-highlight management, and an explicit original-page link
+remain optional controls; they are not required to read any part of the text.
+
+Introduce a width-aware layout stage between semantic content and final DOM/SVG.
+For mathematics, retain operators, grouping, numbering, labels and term identities
+while choosing valid breaks and alignment for the available width. Native MathML
+output alone does not establish automatic line breaking. Evaluate an established
+math layout engine or extend the Typst math IR; verify fidelity before adopting a
+renderer. Matrices and indivisible structures need explicit faithful alternate
+compositions where generic line breaking is insufficient. Do not silently alter
+the mathematical expression or shrink it below the selected readable size.
+
+The isolated MathJax 4.1.3 corpus probe rejects a direct renderer swap as sufficient:
+81 of 1,411 display equations overflow at 390px/18px, and 294 at 320px/30px.
+The first implementation must preserve mathematical content separately from
+decorations: the existing `core-mark` SVG fallback can freeze an entire long term
+into one unbreakable image. Export the term's semantic children and its decoration
+intent independently, then lay out decorations against the final fragments.
+Likewise distinguish aligned derivation tables from mathematical matrices; page
+alignment columns and trailing footnote cells cannot dictate narrow-screen width.
+
+Keep logical term IDs and quotation text independent of presentation DOM order.
+The probe found superscript/subscript DOM reordering and repeated marker attributes
+after line breaking. A logical marked term may have multiple visual fragments;
+graphical geometry must represent all of them rather than `querySelector`'s first
+match or a single oversized union rectangle. Renderer adoption also requires
+explicit accessibility, embedded-SVG, and reference verification. See the
+reproducible evaluation in `tools/flow-reader/research/README.md`.
+
+CeTZ figures need dimensions and layout constraints that distinguish coordinates,
+label font size, panel ordering and legend placement. Re-evaluate appropriate
+figure code against those constraints. Treat a fixed complete SVG as an unresolved
+responsive case when fitting it makes its labels too small. Essential annotation
+text and graphical relationships belong inline and must be laid out automatically.
+
 ## Reader protocol
 
 Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open annotation.
@@ -40,16 +81,23 @@ MathML. Browsers without that API retain the saved list and mark the associated
 block. This storage does not yet synchronize devices or survive clearing site
 data. Updates wait while any reader dialog or text selection is active.
 
-Partition the accepted HTML at top-level block boundaries. Keep every annotation
+Partition the accepted HTML at top-level block boundaries for transport and cache
+management, then load sections automatically into a continuous vertical reading
+flow. Transport boundaries must not require next/previous clicks. Keep every annotation
 in the same section as its preceding marked terms. Assign reading keys globally
 before partitioning; the manifest maps native anchors and reading keys to their
-sections. Fetch only the displayed section and a bounded cache of recent HTML.
+sections. Fetch the visible and adjacent sections, then append/prepend automatically
+as the reader approaches their boundaries. Preserve reading anchors and selections
+when managing a bounded DOM/cache; the continuous reading experience must not
+depend on the transport partition.
 Keep large SVG and raster images as separate unchanged assets, with SVG hyperlinks
 remaining inline. Revision-specific requests reject stale revisions.
 
-For graphical annotations, the browser measures cloned marked terms in an
-expanded equation scene. The service passes only validated numeric geometry to
-the original CeTZ program and returns its overlay. A source fingerprint belongs
+For graphical annotations, the browser must measure marked terms in the actual
+reflowed body layout and allocate space for their inline relationships. The
+service passes only validated numeric geometry to the original CeTZ program and
+returns its drawing. The existing modal/cloned-scene implementation is development
+scaffolding to replace; it does not meet the clarified reading contract. A source fingerprint belongs
 to the accepted snapshot, not the latest failed compile. Cache by revision and
 geometry, namespace SVG identifiers, and reject uncached requests after source
 changes. The first implementation uses an isolated full compile; a persistent
@@ -58,3 +106,8 @@ compiler can later reduce its latency without changing this protocol.
 ## Validation and delivery
 
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.
+
+A layout pass is not successful merely because the document root has no horizontal
+overflow: inspect each equation, table, drawing, annotation and required content
+control. Include 30px text, narrow widths, and rotated layouts. No clipped terms,
+unreadably scaled labels, or required reveal actions may be hidden by the audit.

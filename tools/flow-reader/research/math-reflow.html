@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; worker-src 'self' blob:"
+    />
+    <title>수식 자동 줄바꿈 검증</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font:
+          18px/1.6 Georgia,
+          serif;
+        background: #fcfaf6;
+        color: #242c34;
+      }
+      h1 {
+        font: 20px system-ui;
+      }
+      .equation {
+        margin: 1rem 0;
+        border-top: 1px solid #ddd;
+        min-width: 0;
+      }
+      .label {
+        font: 12px system-ui;
+        color: #667279;
+      }
+      pre {
+        font: 12px/1.5 monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      mjx-container {
+        max-width: 100%;
+      }
+    </style>
+    <script>
+      const assets = new URL("./vendor/", location.href).href;
+      window.MathJax = {
+        mml: { allowHtmlInTokenNodes: true },
+        loader: { paths: { mathjax: assets + "mathjax" } },
+        output: {
+          displayOverflow: "linebreak",
+          linebreaks: { inline: true, width: "100%", lineleading: 0.3 },
+          font: "mathjax-newcm",
+          fontPath: assets + "%%FONT%%",
+        },
+        chtml: {
+          fontURL: assets + "mathjax-newcm/chtml/woff2",
+          dynamicPrefix: assets + "mathjax-newcm/chtml/dynamic",
+        },
+        // Isolate layout from speech-worker startup. This intentionally does
+        // NOT establish production accessibility or speech-generation support.
+        options: {
+          enableMenu: false,
+          enableEnrichment: false,
+          enableSpeech: false,
+          enableBraille: false,
+          enableExplorer: false,
+          menuOptions: { settings: { enrich: false, speech: false, braille: false } },
+        },
+        startup: { typeset: false },
+      };
+    </script>
+    <script defer src="./vendor/mathjax/mml-chtml.js"></script>
+    <script defer src="./math-reflow.js"></script>
+  </head>
+  <body>
+    <h1>본문 안에서 자동 줄바꿈</h1>
+    <p class="label">실제 PDE 문서의 수식 · 조판 후보 검증용</p>
+    <p id="progress" role="status">조판 준비 중…</p>
+    <main></main>
+    <pre id="report"></pre>
+  </body>
+</html>
