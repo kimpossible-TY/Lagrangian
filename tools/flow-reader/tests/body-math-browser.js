@@ -10,15 +10,34 @@ ResponsiveMath.prototype.measure = function (record) {
   if (this.article.id === "reader-document") renderer = this;
   return measure.call(this, record);
 };
-const report = { width: innerWidth, checks: [], errors: [], sections: [], failures: [] };
-const output = document.createElement("pre");
+const report = { width: innerWidth, checks: 0, errors: [], sections: [], failures: [] };
+const output = document.createElement("script");
+output.type = "application/json";
 output.id = "body-math-report";
-output.style.cssText =
+const progress = document.createElement("pre");
+progress.id = "body-math-progress";
+progress.style.cssText =
   "white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace;margin:16px";
-document.body.append(output);
-const publish = () => (output.textContent = JSON.stringify(report, null, 2));
+document.body.append(output, progress);
+const publish = () => {
+  // Thousands of diagnostic strings must not become part of the laid-out
+  // reading page or its accessibility tree while scrolling the real content.
+  output.textContent = JSON.stringify(report);
+  progress.textContent = JSON.stringify(
+    {
+      width: report.width,
+      active: report.active,
+      sections: report.sections.length,
+      checks: report.checks,
+      errors: report.errors,
+      failures: report.failures.length,
+    },
+    null,
+    2,
+  );
+};
 function check(name, condition) {
-  report.checks.push(name);
+  report.checks++;
   if (!condition) report.errors.push(name);
 }
 async function until(condition, name, timeout = 90000) {
@@ -36,6 +55,7 @@ try {
   report.width = innerWidth;
   await until(() => renderer && document.querySelector("[data-reader-key]"), "Reader body");
   const manifest = await (await fetch("/api/manifest")).json();
+  report.revision = manifest.revision;
   const sections = await Promise.all(
     manifest.sections.map(async (section) => {
       const source = new DOMParser().parseFromString(
@@ -50,6 +70,9 @@ try {
     sections.every((s) => s.anchor),
   );
   const fonts = query.get("fonts") ? query.get("fonts").split(",").map(Number) : [18, 30];
+  const start = Number(query.get("start") ?? 0);
+  if (!Number.isInteger(start) || start < 0 || start >= sections.length)
+    throw new Error("Invalid first transport section");
   for (const font of fonts) {
     while (Number(document.querySelector("#reader-size").value) !== font)
       document
@@ -59,7 +82,7 @@ try {
             : "#reader-smaller",
         )
         .click();
-    for (const section of sections) {
+    for (const section of sections.slice(start)) {
       // Exercise the Reader's actual link handler. A direct location.hash write
       // inherits history state and can restore an older saved reading anchor.
       const link = document.createElement("a");
@@ -81,6 +104,15 @@ try {
           root.contains(view) &&
           !view.closest("table,[data-flow-canvas-model],.flow-graphic-scene"),
       );
+      const checksBefore = report.checks;
+      const errorsBefore = report.errors.length;
+      const bodyViews = [...root.querySelectorAll(".flow-math-view")].filter(
+        (view) => !view.closest("table,[data-flow-canvas-model],.flow-graphic-scene"),
+      );
+      check(
+        `${font}px ${section.id} audits every body expression`,
+        records.length === bodyViews.length,
+      );
       const stats = {
         font,
         section: section.id,
@@ -94,7 +126,11 @@ try {
       for (const [index, record] of records.entries()) {
         report.active = { font, section: section.id, expression: index + 1 };
         const expected = text(record.template);
-        record.view.scrollIntoView({ block: "center" });
+        // The Reader preserves its 90px reading reference. Centering a short
+        // passage can leave that reference inside a preceding, expanding
+        // formula; align the audited passage with the reference instead.
+        record.view.scrollIntoView({ block: "start" });
+        await new Promise(requestAnimationFrame);
         renderer.schedule(0);
         await until(
           () => {
@@ -136,11 +172,13 @@ try {
       }
       stats.widths = [...widths].sort((a, b) => a - b);
       stats.fontSizes = [...sizes].sort((a, b) => a - b);
-      report.sections.push(stats);
       check(
         `${font}px ${section.id} keeps the whole reading page bounded`,
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
       );
+      stats.checks = report.checks - checksBefore;
+      stats.errors = report.errors.length - errorsBefore;
+      report.sections.push(stats);
       publish();
     }
   }
@@ -149,5 +187,7 @@ try {
 } catch (error) {
   report.errors.push(String(error));
   document.body.dataset.bodyMathState = "error";
+} finally {
+  ResponsiveMath.prototype.measure = measure;
 }
 publish();

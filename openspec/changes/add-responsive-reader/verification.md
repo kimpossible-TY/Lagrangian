@@ -1050,7 +1050,77 @@ or automatic-default promotion.
 
 Tail Hosting's observation/mode/identity changes pass all 14 management tests.
 Reader's public-state option test is part of the 61 passing Python tests in
-`python-tests-mobile-state.log`. Companion deployment remains pending. An
-additional body-math browser sweep now traverses the actual Reader sections and
+`python-tests-mobile-state.log`. An additional body-math browser sweep now traverses the actual Reader sections and
 their nested containers with normal viewport eligibility and publication;
 it does not replace real container widths with the independent corpus budget.
+
+Clean runtime `d6cd3f1d6d70d47f22bae895f77c041a475a92ef` is installed as PID
+90739. The accepted live revision is
+`e24d800b937d13bc184e2081848e300f382c159a7dbe4431f8199d2514052dd4`, with a
+64.645-second compiler result during concurrent validation. Native figures stay
+enabled and development remains explicit. Only the Reader and the Tail Hosting
+status monitor were updated; PDF PID 39357 is unchanged and serves HTTP 200.
+
+The Dashboard files are published atomically after comparison with saved file
+hashes. Both served assets match their published files. Its actual HTTPS card
+preserves an explicit Reader choice across reloads, and its direct document
+link opens the actual managed Reader at port 23627 with the original-page link
+intact. The choice is restored to automatic after checking. At 390px both
+controls are 44px high and the page is bounded at 375/375px. Evidence is
+`dashboard-mobile-publication.json`, `mobile-managed-delivery.json`,
+`dashboard-live-navigation.json`, `dashboard-live-controls-390.json` and
+`dashboard-live-reader-390.jpg` under `dist/reader-entry-checks`. The development
+Reader is correctly excluded from automatic selection; no mobile-default
+promotion is claimed. The original PDF and ingress are preserved.
+
+Both companion patches apply to their recorded bases and reproduce all changed
+files exactly. Existing external files are preserved under
+`dist/reader-entry-checks/mobile-base-20261017-205126-138881`. The completed
+loopback Dashboard fixture tab and port 61522 server are closed.
+
+The actual Reader body sweep completes all 56 frozen PDE transport sections at
+320px with the 30px font setting: 7,006 body-math occurrences and 21,075 completed
+checks pass with no mathematical or horizontal-ink failures. These include the
+Reader's visible explanatory-note occurrences and exclude native figure, data
+table and relationship math covered separately. The real nested budgets reach
+170px in the completed first range; they are not replaced with the independent
+273px corpus width. `body-math-pde-320-30.json` records the combined evidence.
+
+The first attempt completes sections 0–30, then stops while a short arrow is
+outside the normal rendering margin. Centering that arrow left the Reader's
+90px reading reference inside a preceding expanding formula. The harness now
+aligns each audited passage to the ordinary reading reference. Sections 31–55
+then pass all 10,697 checks, zero errors/failures, as recorded in
+`body-math-tail-320-30-summary.json` and its full native accessibility record.
+The prefix's bridge-truncated check-name list is explicitly disclosed in the
+combined result; its completed section counts, ready counts and error summary
+are retained. No production layout or source code changes are needed for this
+test navigation correction.
+
+The body harness also keeps its large report as non-executable JSON outside the
+layout/accessibility tree and displays a compact progress summary. It records
+numeric check counts and per-section counters so the bridge cannot truncate a
+long list of successful check names. The initial browser-control session stops
+responding while collecting a long report; resetting only that tool restores
+native observation without restarting document services.
+
+The 430px and 768px table sweeps each pass all 629 checks for the six actual
+tables and 94 original cells at both font settings. Together with the existing
+320px/390px runs, every required width passes. Evidence is `tables-pde-430.json`
+and `tables-pde-768.json`. Their completed temporary tab is reused for the
+390px/18px body sweep; the unused port 61520 fixture server and timed-out
+background relationship tab are closed. The broader 390px relationship sweep
+is incomplete: eight 18px relationships pass before its inactive-tab wait
+expires at relationship 9. This is not counted as a completed wider sweep or a
+layout pass.
+
+The compact current body harness also completes all 56 sections at 390px/18px:
+7,006 body-math occurrences, all 21,131 checks passing, zero errors/failures.
+This run includes the additional per-section expression-coverage check and
+retains all section counters without bridge truncation. Evidence is
+`body-math-pde-390-18.json`, bound to frozen revision
+`faeb2eb5506ff1379bb5f3d9bb780bd5aba643b18fffb15600df534d38bb19c8`.
+The temporary viewport is reset and the completed test tab is closed. These
+results do not claim wider relationship acceptance or Safari/VoiceOver testing.
+The port 61523 fixture server is then stopped with no compiler children left;
+`body-fixture-cleanup.json` records its cleanup. No temporary test servers remain.
