@@ -190,6 +190,15 @@ Loading-notice changes use the same preservation callback as geometry changes.
 Passage offsets use whole CSS pixels to avoid accumulating scroll rounding over
 many mathematical label publications.
 
+CeTZ 0.3.4 uses a separate Reader fork because Fletcher 0.5.8 depends on that
+version. Its processing context, transformations and geometry renderer remain
+version-specific. Only canonical native export is shared through a small local
+package. Unsupported relative units retain the original paint and a diagnostic.
+Intrinsic label width is an output of mathematical composition, not its next
+line-breaking budget. Native math uses the canvas width, minus enclosing insets,
+with a matching optical inset in the candidate and published view for accent
+and italic overhangs.
+
 Offscreen native drawings also reset obsolete placements immediately on font or
 width changes. Empty leader SVGs have explicit zero dimensions until publication.
 Large native geometry stays inline across transport-section asset separation,

@@ -364,6 +364,10 @@ mjx-container mjx-stretchy-v {
 .flow-canvas-label-body > :last-child {
   margin-block-end: 0;
 }
+.flow-canvas-label-body .flow-math-view {
+  /* An intrinsic label box must also contain italic/accent glyph overhangs. */
+  padding-inline: 0.15em;
+}
 .flow-canvas-label-number {
   display: inline-flex;
   align-items: center;

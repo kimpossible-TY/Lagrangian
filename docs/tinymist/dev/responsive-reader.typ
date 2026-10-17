@@ -106,6 +106,30 @@ native path: five layout-wrapped diagrams and four rendered surface plots.
 Keep those gates open before mobile-default rollout. Disabling the option keeps
 the established coordinate-unit delivery path.
 
+== Older CeTZ and Fletcher figures
+
+The Reader also overlays CeTZ 0.3.4, as required by Fletcher 0.5.8. Its original
+processing context, bounds and transformations remain in that version. Both
+adapters share only the native HTML/MathML exporter in `@local/flow-canvas:0.1.0`.
+Original package hashes and licenses remain in the overlay provenance.
+Relative 0.3.4 coordinate units retain their original paint with an explicit
+unsupported diagnostic; they are not silently accepted as native composition.
+
+Native label mathematics receives its budget from the available canvas width,
+not the intrinsic width of its previous glyph box. This prevents a short accent
+from alternating between inline and block composition. A small optical inset,
+included in both measurement and publication, retains italic/accent overhangs.
+
+This covers five previously opaque PDE diagrams. The frozen source now exposes
+63 native figures. At 320px, all 1,387 checks pass at 18px and 30px; the five older
+figures also pass 111 checks at 390px. The controlled older-version/Fletcher
+fixture passes 45 checks and the original native fixture retains 159 passes.
+All 2,121 retained vector primitives have the original attributes and ancestor
+transforms. Removed label paint is represented by the native mathematical bodies.
+The complete fixed-timestamp PDE PDF remains byte-identical, with the same hash
+recorded above. Four Maquette raster/vector surface plots remain outside this
+path; they require their own label adapter.
+
 == Build and inspect
 
 ```sh

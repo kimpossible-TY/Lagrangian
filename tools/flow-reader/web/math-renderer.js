@@ -152,10 +152,26 @@ export class ResponsiveMath {
       container = container.parentElement;
     const parentStyle = getComputedStyle(container);
     const style = getComputedStyle(record.view);
-    const width =
+    let width =
       container.clientWidth -
       parseFloat(parentStyle.paddingLeft) -
       parseFloat(parentStyle.paddingRight);
+    const label = record.view.closest(".flow-canvas-label-body");
+    const canvas = label?.closest("[data-flow-canvas-model]");
+    if (canvas) {
+      // Label boxes shrink to their natural content after composition. Their
+      // intrinsic width is an output, not the next mathematical line budget:
+      // otherwise a short accent alternates between inline and full-width block.
+      width = Math.floor(canvas.getBoundingClientRect().width);
+      for (let node = container; node && label.contains(node); node = node.parentElement) {
+        const style = getComputedStyle(node);
+        width -=
+          parseFloat(style.paddingLeft) +
+          parseFloat(style.paddingRight) +
+          parseFloat(style.borderLeftWidth) +
+          parseFloat(style.borderRightWidth);
+      }
+    }
     const fontSize = parseFloat(style.fontSize);
     if (width < 1 || fontSize < 1) return null;
     const key = JSON.stringify([
@@ -168,6 +184,7 @@ export class ResponsiveMath {
     return {
       width,
       fontSize,
+      inset: { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight) },
       font: style.font,
       key,
       left:
@@ -199,6 +216,8 @@ export class ResponsiveMath {
     stage.inert = true;
     stage.style.width = `${measurement.width}px`;
     stage.style.font = measurement.font;
+    stage.style.paddingLeft = `${measurement.inset.left}px`;
+    stage.style.paddingRight = `${measurement.inset.right}px`;
     const template = record.template.cloneNode(true);
     const prefix = `math-stage-${++serial}-`;
     const ids = new Map(
@@ -218,12 +237,15 @@ export class ResponsiveMath {
     let frames = new MathFrames(stage);
     const metrics = {
       ...mathjax.getMetricsFor(record.view, record.display),
-      containerWidth: measurement.width,
+      containerWidth: Math.max(
+        1,
+        measurement.width - measurement.inset.left - measurement.inset.right,
+      ),
     };
     let blueprint = [...stage.childNodes].map((node) => node.cloneNode(true));
     let promoted = false;
     let corrections = 0;
-    let frameWidth = measurement.width - measurement.fontSize * 1.5;
+    let frameWidth = metrics.containerWidth - measurement.fontSize * 1.5;
     let frameAttempts = 0;
     let best;
     try {

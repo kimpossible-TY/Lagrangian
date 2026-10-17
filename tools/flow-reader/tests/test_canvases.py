@@ -154,6 +154,35 @@ class CanvasCompilerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((output / "original.pdf").read_bytes(), (output / "reader.pdf").read_bytes())
 
+    def test_fletcher_and_older_cetz_export_native_labels_with_unchanged_pdf(self):
+        project = Project(self.project.root, Path("legacy-canvases.typ"), self.packages,
+                          compiler=self.compiler, semantic_canvases=True)
+        before = (project.root / project.entry).read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = compile_project(project, output)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            self.assertEqual(report["compilerLossWarnings"], [])
+            self.assertEqual(len(report["canvases"]), 2)
+            source = (output / "document.html").read_text()
+            for phrase in ["Older readable source label", "Original node", "Target node", "Original edge"]:
+                self.assertIn(phrase, source)
+            parser = SvgRanges(source)
+            parser.feed(source)
+            self.assertEqual(len(parser.ranges), 2)
+            for start, end in parser.ranges:
+                svg = ET.fromstring(source[start:end])
+                self.assertTrue(list(svg.iter("{http://www.w3.org/2000/svg}path")))
+                self.assertFalse(list(svg.iter("{http://www.w3.org/2000/svg}symbol")))
+            prepare_packages(self.packages, output / "overlay")
+            for name, packages in [("original", self.packages), ("reader", output / "overlay")]:
+                result = subprocess.run([self.compiler, "compile", "--creation-timestamp", "1760000000",
+                                         "--package-path", str(packages), str(project.root / project.entry),
+                                         str(output / f"{name}.pdf")], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((output / "original.pdf").read_bytes(), (output / "reader.pdf").read_bytes())
+        self.assertEqual((project.root / project.entry).read_bytes(), before)
+
     def test_canvas_endpoint_caches_and_rejects_changed_sources_and_revisions(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
