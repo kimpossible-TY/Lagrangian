@@ -1163,3 +1163,17 @@ reproduced, and mobile-default promotion remains gated. WebKit documents its
 wide-content shrinking behavior at
 https://webkit.org/blog/7367/new-interaction-behaviors-in-ios-10/ ; its current
 `ViewportConfiguration.cpp` implements `shrink-to-fit` and minimum-scale handling.
+
+Clean commit `c25d65efde2c57f48f9024fc70f967fcde2a9328` is installed in the
+managed Reader only, with development/native-canvas settings retained. Public
+HTML, CSS and all changed runtime modules match their committed bytes. Reader
+PID 98459 accepts revision
+`7706cb8b575d8f8e2c12e12e8e6e8835bbaace46c4b1589d1def49347158e110`
+with exit 0 and content gate true. The actual Translation Invariance passage
+uses 13px throughout visible math at 390 → 320 → 430 → 390px, with matching
+layout/scroll widths 375, 305, 415 and 375px. The original PDF remains HTTP 200
+in unchanged PID 39357. `managed-delivery.json`, `managed-pde-widths.json` and
+`managed-13px-390.jpg` record delivery under `dist/reader-viewport-checks`.
+The additional 320px/13px native fixture also passes all 80 checks. Both
+temporary fixture ports 61524/61525 are closed, and the viewport override is
+reset. No physical iPhone pinch result is claimed.
