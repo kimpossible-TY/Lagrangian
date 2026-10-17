@@ -360,6 +360,10 @@ range's empty font ascent/descent would falsely cover a fixed endpoint. Assistiv
 and staging copies are excluded; prose retains its measured range bounds and
 every mathematical surface retains its marked-term identity.
 
+In dark appearance, a relationship frame retains its original light drawing
+paper with a complete local light palette. Equation numbers and links inherit
+the matching readable ink for that light background.
+
 The server caches each relationship by its accepted revision and complete
 geometry independently of request batching. A mixed batch compiles only missing
 layouts and retains unchanged results. Accepted revision changes clear both

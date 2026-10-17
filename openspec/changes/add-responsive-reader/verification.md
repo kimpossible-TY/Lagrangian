@@ -993,3 +993,31 @@ original marked targets, zero ink collisions/unrouted connections, unchanged
 compiler path/arrowhead/transform signatures and bounded component/page width.
 `graphics-glyph-surfaces-critical-320-30.json` records the result and measured
 glyph obstacles. The temporary viewport was reset and the focused tab closed.
+
+The full current-client sweep now passes all 211 checks for all 15 actual frozen
+PDE relationships at 320px and both 18px/30px. Every source target, complete
+formula, compiler path/arrowhead/transform signature and component/page bound
+passes, with zero ink collisions or unrouted connections. Evidence is
+`graphics-complete-glyph-surfaces-320.json`. The temporary viewport was reset;
+the completed test tab and its owned server were closed.
+
+Clean runtime commit `60275aeba39e3bf3e02101e09e8ca76ba65c0aad` is installed,
+PID 78847. Its accepted compile exits zero and passes the content gate in 26.356
+seconds, revision
+`c2e6365469a6e9f5ed32c8c1cc00f335dc40f36b6f08f5ad58cc9a1b20af75f9`.
+All eight inspected assets match; the live source retains 66 native figures,
+685 labels and zero opaque SVG roots. The original PDF remains HTTP 200 in
+unchanged PID 39357. `managed-glyph-ink-delivery.json` records the delivery.
+
+An actual PDE relationship batch is then reused as individual requests with
+identical results in 0.0383 and 0.0204 seconds. The uncached two-program batch
+takes 52.4846 seconds under concurrent validation load. This proves cross-batch
+cache reuse, not fast initial compilation. `managed-component-cache.json`
+records the measurements. The actual deployed sixth relationship also reaches
+ready at 320px/30px with complete 30px mathematics, zero collisions/unrouted
+connections and 273/273px scene plus 305/305px page bounds.
+
+Final dark-mode inspection finds the equation number on its light relationship
+paper inherits the page's pale muted color, RGB 160/177/184. The frame now scopes
+the matching light palette, including numbers and references. Mathematical
+geometry and source coordinates are unchanged by this color correction.

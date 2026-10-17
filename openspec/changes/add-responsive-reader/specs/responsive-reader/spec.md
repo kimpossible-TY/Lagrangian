@@ -174,6 +174,11 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **AND** every visible mathematical surface retains its original marked-term identity
 - **AND** assistive and staging copies cannot introduce duplicate obstacles
 
+#### Scenario: A dark reader includes a light relationship panel
+- **WHEN** original mathematical drawing paint requires light paper
+- **THEN** its mathematical text, equation numbers and references use a readable local light palette
+- **AND** the surrounding reader retains its selected appearance
+
 #### Scenario: Visible relationships are requested in a different batch
 - **WHEN** an already rendered relationship is requested with the same accepted revision and geometry
 - **THEN** its original result is reused independently of other requested components
