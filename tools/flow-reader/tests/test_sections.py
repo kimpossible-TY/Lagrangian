@@ -18,6 +18,25 @@ def body(source):
 
 
 class SectionTests(unittest.TestCase):
+    def test_source_language_survives_section_transport(self):
+        for root_language, body_language, expected in (
+            (' lang="en"', '', "en"),
+            (' lang="en"', ' lang="ko"', "ko"),
+            (' lang="en"', ' lang=""', ""),
+            ('', '', None),
+        ):
+            with self.subTest(root=root_language, body=body_language):
+                source = (f'<html{root_language}><body{body_language}>'
+                          '<h2 id="topic">English heading</h2><p lang="fr">Bonjour</p>'
+                          '<p>Another passage.</p></body></html>')
+                bundle = split_document(source, "language-test", max_blocks=1)
+                self.assertEqual(bundle.manifest["language"], expected)
+                self.assertEqual(len(bundle.documents), 3)
+                for document in bundle.documents.values():
+                    self.assertIn(f'<html{root_language}>'.encode(), document)
+                    self.assertIn(f'<body{body_language}>'.encode(), document)
+                self.assertTrue(any(b'lang="fr"' in document for document in bundle.documents.values()))
+
     def test_table_cells_have_stable_leaf_reading_keys(self):
         before = '<html><body><h2>Table topic</h2><table><tr><td>Name</td><td>Meaning</td></tr><tr><td>K</td><td>Keep this table passage.</td></tr></table></body></html>'
         after = before.replace('<tr><td>K</td>', '<tr><td>J</td><td>New row.</td></tr><tr><td>K</td>')

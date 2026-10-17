@@ -1177,3 +1177,74 @@ in unchanged PID 39357. `managed-delivery.json`, `managed-pde-widths.json` and
 The additional 320px/13px native fixture also passes all 80 checks. Both
 temporary fixture ports 61524/61525 are closed, and the viewport override is
 reset. No physical iPhone pinch result is claimed.
+
+### Device confirmation and current-source acceptance (2026-10-18)
+
+The user confirms the refreshed 13px Reader on a physical iPhone returns from
+pinch reduction with no blank margin: “여백 없이 정상입니다”. This supersedes
+the earlier pending physical-pinch result, without asserting a browser version,
+VoiceOver speech or a complete mobile Safari fidelity audit.
+`dist/reader-rollout-checks/iphone-pinch-confirmation.json` records the answer
+against installed runtime `c25d65ef`.
+
+A new frozen dependency snapshot copies 48 discovered project inputs and 16
+fonts (6,113,884 bytes), records 136 external dependency hashes, and verifies
+the originals stayed unchanged during capture. It does not copy the project's
+unrelated gigabyte of files. At revision
+`dabba9c4ad86787922eccf1862b2dadb467df7c0f168a5f078a30b0ac19538df`,
+all 15 relationships at 390px and 13px/18px/30px pass all 316 checks, including
+original vector content, mathematical ink and noncolliding routed geometry.
+The harness uses ordinary Reader links for unloaded targets, records its active
+phase and stores its full report outside layout and the accessibility tree.
+This is a complete run; the earlier incomplete wider run is not counted.
+Evidence is `graphics-pde-390-13-18-30.json` under the same audit directory.
+
+Using this source snapshot, the original and Reader-overlay PDF compilations
+produce identical 10,772,752-byte files, SHA-256
+`bfe87286c97ec8b375426e3ddebffe6a4efaa0a416b493f7932a1c36ed7376b5`.
+Both use creation timestamp 1735689600 and the same project/font inputs.
+`pdf/verification.json` records the commands and digests. No original source,
+CeTZ coordinate or installed package is rewritten.
+
+Actual-book navigation passes seven checks covering distant native hash links,
+back, forward and reload. A separate owned source copy passes ten selection
+checks through an invalid save and a valid insertion of 200 preceding paragraphs.
+The selected Translation Invariance equation moves from transport section 43 to
+44; the exact quotation and reading top 87.59375px survive the failed save,
+deferred accepted revision and selection release. All 64 copied inputs are then
+restored; the watcher is stopped and its port closed. Evidence is
+`native-history-pde-390.json`, `selection-source-update-pde-390.json` and
+`source-update-cleanup.json`. Original source files are never edited.
+
+The English export previously inherited the Korean Reader shell because its
+HTML wrapper was discarded. The Reader now preserves the exported document
+language on the article, outline titles, original notes, copied targets and
+mathematical views; Korean interface/status names have their own language.
+The browser fixture passes all 11 language checks, with HTML/MathML/SVG namespace
+handling and explicit local language parts. Typst 0.15.1 does not export every
+local `text(lang: ...)` rule; the fixture uses explicit HTML attributes to check
+Reader preservation. Unknown source language is not inferred. This validates
+markup and tree ancestry, not audible VoiceOver behavior. W3C's language-of-parts
+guidance explains why this metadata matters:
+https://www.w3.org/WAI/WCAG22/Understanding/language-of-parts.html .
+Evidence is `a11y-language-before.json` and `language-browser.json`.
+
+An isolated real launchd job switches immutable runtime c25 (13px) to d6 (18px)
+and back to c25 (13px), accepting the complete document after each switch.
+Release manifests verify all 357/355 runtime files. The original PDF PID 39357
+and production Reader PID 98459 remain unchanged, and all 183 paired HTTP samples
+are 200. Cleanup leaves no test job, listener or agent file.
+`managed-lifecycle.json` records the completed rehearsal. Failed preliminary
+receipts are retained separately: launchd could not execute a Documents-hosted
+test launcher, and immediate stop/start could observe a terminating old job.
+The fixture uses standard Application Support runtime storage; Reader management
+now waits for launchd job removal after bootout. A bounded failure does not
+signal another process. The corrected manager is exercised by the completed
+rehearsal. Production configuration/launcher/jobs are untouched by that test.
+
+All 64 Python tests and 48 Node tests pass, and the updated Typst developer guide
+compiles. The normal actual-Reader runtime suite also passes all 25 checks after
+the language change (`runtime-after-language.json`), including canonical copy,
+selection-aware publication and automatic error recovery. Wider/default-font
+sweeps and spoken screen-reader/device checks remain
+separate acceptance work; this checkpoint does not promote automatic mobile entry.

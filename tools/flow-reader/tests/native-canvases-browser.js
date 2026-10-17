@@ -3,11 +3,24 @@ import { mathOverflow } from "/math-layout.js";
 import { inkContrast } from "/canvas-labels.js";
 
 const report = { width: innerWidth, checks: [], errors: [], measurements: [] };
-const output = document.createElement("pre");
+const output = document.createElement("script");
+output.type = "application/json";
 output.id = "native-canvases-report";
-output.style.cssText =
+const progress = document.createElement("pre");
+progress.id = "native-canvases-progress";
+progress.style.cssText =
   "white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace;margin:16px";
-document.body.append(output);
+document.body.append(output, progress);
+function publish() {
+  output.textContent = JSON.stringify(report);
+  progress.textContent = JSON.stringify({
+    width: report.width,
+    active: report.active,
+    completed: report.measurements.length,
+    checks: report.checks.length,
+    errors: report.errors,
+  });
+}
 const sourceOf = (body) => logicalTextIndex(body, { includeNested: true }).text;
 const direct = (canvas) =>
   [...canvas.querySelectorAll("[data-flow-canvas-label]")].filter(
@@ -22,7 +35,7 @@ window.fetch = (...args) => {
 function check(name, condition) {
   report.checks.push(name);
   if (!condition) report.errors.push(name);
-  output.textContent = JSON.stringify(report, null, 2);
+  publish();
 }
 async function until(condition, name) {
   const deadline = Date.now() + 45000;
@@ -38,12 +51,18 @@ function overlaps(a, b) {
   );
 }
 try {
-  await until(() => document.querySelector("[data-flow-canvas-model]"), "native source");
+  await until(
+    () => document.querySelector("#reader-document [data-reader-key]"),
+    "reading document",
+  );
+  const manifest = await (await fetch("/api/manifest")).json();
+  report.revision = manifest.revision;
   const source = new DOMParser().parseFromString(
     await (await fetch("/document.html")).text(),
     "text/html",
   );
   const original = [...source.querySelectorAll("[data-flow-canvas-model]")];
+  check("The canonical source exposes native figure models", original.length > 0);
   const query = new URL(location.href).searchParams;
   if (query.get("width"))
     await until(() => innerWidth === Number(query.get("width")), "requested viewport");
@@ -63,8 +82,14 @@ try {
       if (query.get("only") && query.get("only") !== id) continue;
       if (query.get("package") && query.get("package") !== before.dataset.flowCanvasPackage)
         continue;
+      report.active = { font, id };
+      publish();
       if (!document.querySelector(`[data-flow-canvas="${id}"]`)) {
-        location.hash = `#flow-${id}`;
+        const link = document.createElement("a");
+        link.href = `#flow-${id}`;
+        document.getElementById("reader-document").append(link);
+        link.click();
+        link.remove();
         await until(() => document.querySelector(`[data-flow-canvas="${id}"]`), `${id} section`);
       }
       const canvas = document.querySelector(`[data-flow-canvas="${id}"]`);
@@ -253,4 +278,4 @@ try {
   report.errors.push(String(error));
   document.body.dataset.nativeCanvasesState = "error";
 }
-output.textContent = JSON.stringify(report, null, 2);
+publish();

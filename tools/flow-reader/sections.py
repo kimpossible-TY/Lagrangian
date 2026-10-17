@@ -208,10 +208,13 @@ class BodyIndex(SvgRanges):
         self.headings = []
         self.heading = None
         self.body_start = self.body_end = None
+        self.language = None
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         offset = self.source_offset()
+        if tag in {"html", "body"} and "lang" in attributes:
+            self.language = attributes["lang"]
         if tag == "body":
             self.body_start = offset + len(self.get_starttag_text())
         elif self.stack == ["html", "body"] or self.stack == ["body"]:
@@ -307,6 +310,7 @@ def split_document(source, revision, max_chars=180000, max_blocks=140):
                        for identity, entries in index.canvas_identities.items()}
     canvas_sections = {identity: next(iter(entries)) for identity, entries in canvas_sections.items()
                        if len(entries) == 1}
-    return SectionBundle({"revision": revision, "sections": sections, "anchors": anchors,
+    return SectionBundle({"revision": revision, "language": index.language,
+                          "sections": sections, "anchors": anchors,
                           "blocks": blocks, "canvasIdentities": canvas_sections, "outline": outline}, documents, assets,
                          PassageIndex(source, blocks).passages)

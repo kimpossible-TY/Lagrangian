@@ -47,6 +47,7 @@ if (new URL(location.href).searchParams.has("debug")) {
       id: record.id,
       state: record.note.dataset.graphicState,
       paintVisibility: getComputedStyle(record.svg).visibility,
+      paintConnected: record.svg.isConnected,
       routes: measurement.geometry.routes,
       geometry: measurement.geometry,
       body: record.scene.body.getBoundingClientRect().toJSON(),
@@ -82,12 +83,28 @@ function paintSignature(svg) {
     }),
   );
 }
-const output = document.createElement("pre");
+const output = document.createElement("script");
+output.type = "application/json";
 output.id = "graphics-report";
-output.style.cssText =
+const progress = document.createElement("pre");
+progress.id = "graphics-progress";
+progress.style.cssText =
   "white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace;margin:16px";
-document.body.append(output);
-const publish = () => (output.textContent = JSON.stringify(report, null, 2));
+document.body.append(output, progress);
+const publish = () => {
+  output.textContent = JSON.stringify(report);
+  progress.textContent = JSON.stringify(
+    {
+      width: report.width,
+      active: report.active,
+      checks: report.checks.length,
+      completed: report.measurements.length,
+      errors: report.errors,
+    },
+    null,
+    2,
+  );
+};
 function check(name, condition) {
   report.checks.push(name);
   if (!condition) report.errors.push(name);
@@ -106,6 +123,7 @@ try {
     "reading document",
   );
   const manifest = await (await fetch("/api/manifest")).json();
+  report.revision = manifest.revision;
   const targets = (
     await Promise.all(
       manifest.sections.map(async (section) => {
@@ -147,13 +165,24 @@ try {
         .click();
     for (const target of targets) {
       if (query.get("only") && !query.get("only").split(",").includes(target.id)) continue;
-      if (!document.getElementById(target.anchor)) location.hash = target.anchor;
+      report.active = { font, id: target.id, phase: "navigation" };
+      publish();
+      // Exercise the real Reader link handler. A direct hash change inherits
+      // the previous history entry's reading anchor and can restore that section.
+      const link = document.createElement("a");
+      link.href = `#${target.anchor}`;
+      document.getElementById("reader-document").append(link);
+      link.click();
+      link.remove();
       await until(() => document.getElementById(target.anchor), `${target.id} section`);
       document.getElementById(target.anchor).scrollIntoView({ block: "start" });
+      await new Promise(requestAnimationFrame);
       const note = () =>
         document.querySelector(`.flow-graphic-status[data-graphic-id="${target.id}"]`);
       await until(() => note(), `${target.id} scene`);
       const scene = note().closest(".flow-graphic-scene");
+      report.active.phase = "mathematics";
+      publish();
       await until(
         () =>
           [...scene.querySelectorAll(".flow-math-view")].every((view) =>
@@ -161,6 +190,8 @@ try {
           ),
         `${target.id} native math`,
       );
+      report.active.phase = "geometry";
+      publish();
       await until(
         () => ["ready", "collision", "overflow"].includes(note().dataset.graphicState),
         `${target.id} automatic geometry`,
@@ -188,7 +219,7 @@ try {
           publications.some((item) => item.state === "pending") &&
             publications
               .filter((item) => item.state === "pending")
-              .every((item) => item.paintVisibility === "hidden"),
+              .every((item) => !item.paintConnected || item.paintVisibility === "hidden"),
         );
       }
       check(

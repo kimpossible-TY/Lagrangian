@@ -62,6 +62,8 @@ def handler_for(state):
                           "tables": "tables-browser.js",
                           "graphics": "graphics-browser.js",
                           "viewport": "viewport-browser.js",
+                          "navigation": "navigation-browser.js",
+                          "language": "language-browser.js",
                           "body-math": "body-math-browser.js",
                           "position": "position-browser.js", "entry": "entry-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
@@ -79,6 +81,12 @@ def handler_for(state):
                 return self.respond(source.encode(), "text/javascript; charset=utf-8")
             if path == "/viewport-browser.js":
                 return self.respond((ROOT / "tests/viewport-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/navigation-browser.js":
+                return self.respond((ROOT / "tests/navigation-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/language-browser.js":
+                return self.respond((ROOT / "tests/language-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             if path == "/entry-bootstrap.js":
                 with state.lock:

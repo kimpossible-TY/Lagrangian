@@ -1,4 +1,5 @@
 import { NativeCanvasLabels } from "./canvas-labels.js";
+import { setLanguage, uiLanguage } from "./language.js";
 
 // CeTZ coordinate units adapt before rendering. The browser never scales the
 // resulting text to force a fit. A width fit is not a label-collision guarantee.
@@ -54,6 +55,7 @@ export class AdaptiveCanvases {
       const record = { node, id: node.dataset.flowCanvas, visible: false, key: null };
       const message = document.createElement("span");
       message.className = "flow-canvas-status";
+      setLanguage(message, uiLanguage());
       message.textContent = "그림을 화면 폭에 맞추는 중…";
       record.message = message;
       const image = node.querySelector("svg,img");

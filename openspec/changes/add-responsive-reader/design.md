@@ -16,6 +16,18 @@ Tail Hosting consumes the helper's compatible profile/control interface and
 reports the Reader's compile state separately from HTTP reachability. This does
 not require replacing the installed native app or engine during rollout.
 
+Reader stop waits for launchd to remove the terminating job before returning.
+`bootout` may return earlier; an immediate start must not treat its old PID as an
+already running Reader. A bounded wait reports failure without signalling other
+processes or changing the original service.
+
+Transport metadata carries the exported document language. The article, original
+annotation bodies, copied target terms and mathematical views retain that language
+independently of the Korean UI shell and status/region labels. Empty language
+explicitly means unknown. Preserve local language attributes already present in
+the export; do not infer missing language from text. DOM checks do not establish
+spoken screen-reader behavior.
+
 ## Fidelity
 
 Page-relative annotation packages cannot run unchanged in HTML. Represent marked mathematical terms and annotation text as linked semantic content. Preserve custom graphical relationships through faithful rendering or explicit adapters. Never silently discard an annotation or mathematical decoration to obtain a successful compile.

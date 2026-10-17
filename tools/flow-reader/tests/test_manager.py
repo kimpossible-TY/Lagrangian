@@ -1,6 +1,7 @@
 """Reader lifecycle must reuse Flow inputs without taking over paged jobs."""
 
 import json
+import os
 from pathlib import Path
 import plistlib
 import sys
@@ -97,6 +98,30 @@ class ReaderManagerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not own"):
                 self.manager.control("stop", profile)
             command.assert_not_called()
+
+    def test_stop_waits_for_launchd_to_remove_the_terminating_job(self):
+        profile = self.resolve()
+        target = f"gui/{os.getuid()}/{profile['label']}"
+        with patch.object(self.manager, "job_pid", return_value=123), \
+                patch.object(self.manager, "owns_agent", return_value=True), \
+                patch("manage.run", side_effect=["", "", "state = terminating", "pid = 123", ""]) as command, \
+                patch("manage.time.sleep") as sleep:
+            self.manager.control("stop", profile)
+        self.assertEqual([call.args[0][1] for call in command.call_args_list],
+                         ["disable", "bootout", "print", "print", "print"])
+        self.assertEqual(command.call_args.args[0][-1], target)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_a_stuck_stop_is_reported_without_restarting_or_signalling_other_processes(self):
+        profile = self.resolve()
+        with patch.object(self.manager, "job_pid", return_value=123), \
+                patch.object(self.manager, "owns_agent", return_value=True), \
+                patch("manage.run", return_value="state = terminating") as command, \
+                patch("manage.time.monotonic", side_effect=[0, 11]):
+            with self.assertRaisesRegex(ValueError, "finished stopping"):
+                self.manager.control("stop", profile)
+        self.assertEqual([call.args[0][1] for call in command.call_args_list],
+                         ["disable", "bootout", "print"])
 
 
 if __name__ == "__main__":

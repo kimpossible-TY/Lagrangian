@@ -3,6 +3,7 @@
 import { visualFragments } from "./math-identity.js";
 import { mathInkNodes } from "./math-layout.js";
 import { routeConnections } from "./connector-routing.js";
+import { setLanguage, uiLanguage } from "./language.js";
 
 export function paintedPathPoint(path, distance, length, linecap = "butt") {
   if (length > 0) {
@@ -217,6 +218,7 @@ export class GraphicalAnnotations {
   register(id, tags, nodes, note) {
     if (nodes.some((node) => !node)) throw new Error(`Missing target for ${id}`);
     note.className = "flow-graphic-status";
+    setLanguage(note, uiLanguage());
     note.dataset.graphicId = id;
     note.setAttribute("role", "status");
     note.textContent = "수식의 관계 그림을 준비하는 중…";
@@ -433,6 +435,7 @@ export class GraphicalAnnotations {
     const top = layout.top + measurement.y;
     svg.classList.add("flow-graphic-overlay");
     svg.setAttribute("role", "img");
+    setLanguage(svg, uiLanguage());
     svg.setAttribute("aria-label", "표시된 수식 항 사이의 관계 그림");
     svg.dataset.graphicId = record.id;
     svg.style.left = `${left}px`;

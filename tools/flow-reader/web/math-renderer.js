@@ -9,6 +9,7 @@ import {
 import { namespaceClone } from "./graphics.js";
 import { MathFrames } from "./math-frames.js";
 import { loadMathJax } from "./mathjax-loader.js";
+import { languageOf, setLanguage, uiLanguage } from "./language.js";
 
 let serial = 0;
 
@@ -83,6 +84,7 @@ export class ResponsiveMath {
       const display = math.getAttribute("display") === "block";
       const view = document.createElement("span");
       view.className = "flow-math-view";
+      setLanguage(view, languageOf(math) ?? "");
       view.dataset.mathDisplay = display ? "block" : "inline";
       view.dataset.mathState = "native";
       const model = new MathIdentity(math, `math-${++serial}`);
@@ -203,6 +205,7 @@ export class ResponsiveMath {
     if (!record.notice) {
       record.notice = document.createElement("span");
       record.notice.className = "flow-math-status";
+      setLanguage(record.notice, uiLanguage());
       record.notice.setAttribute("role", "status");
       record.view.after(record.notice);
     }
