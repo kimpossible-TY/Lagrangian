@@ -94,6 +94,54 @@
         "src/lib/decorations/path.typ": "953b0066d0ebc3cc4c9e0f6b481330e88bfd532a436fb1f90583651b0f6e7d23",
         "src/lib/decorations/brace.typ": "17aa7d25fe6a7b5e6cc9cbf46106fe843b750dec03e7f603d949952234449a09"
       }
+    },
+    {
+      "package": "preview/cetz/0.3.4",
+      "upstream": {
+        "repository": "https://github.com/cetz-package/cetz",
+        "version": "0.3.4"
+      },
+      "files": {
+        "LICENSE": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+        "README.md": "789b58d05c497a0b7734721f67db964ba53097523b0edad7062297c915a03604",
+        "src/aabb.typ": "51719aa9283158e1318bd1b4042fbf1440389aa7e1bc029f241d009fb9bea0ee",
+        "src/anchor.typ": "9b7ced31d04759f5be23a9be7fe41da6f49ca47b5d6258728e5d5916b8384690",
+        "src/bezier.typ": "da51eee17a8b74c6f6fa12be4aa7252029c8237d47028f91736bf53872e9b848",
+        "src/canvas.typ": "20c8de60f439a51ffbe2a79600cffe11239eea8dc7e3b49d027e60d4c07ebece",
+        "src/complex.typ": "ea463f2cc596b3b25775b6ffefa323d3240898683c9883331b73108eecfc52b6",
+        "src/coordinate.typ": "6a3be134fd3eb876774cd0764a7f2bdcfa9463a48268be828423eb520bbc762e",
+        "src/deps.typ": "f5d80ee8c77fcba03e732706416f4a71477ec917ecddc62f1eba08ff39bdd8f1",
+        "src/draw/grouping.typ": "cf0f4678f54184a07968da31f8a602329fd6de21558aee9ea49e0b4f4d725f3b",
+        "src/draw/projection.typ": "0e0bf95b232285f1a353d6658c7f5078b2f3c2765da0b10848bdedc5b11c7076",
+        "src/draw/shapes.typ": "9dd0e3cdb408ffd708fc45c0c92e8c54f7ed0f5db7322983d75f3f400e23292c",
+        "src/draw/styling.typ": "c47ad97dae4bd32ab88eb20e9ee84db84c53e5fb2a7229b5b5c0006032551ce2",
+        "src/draw/transformations.typ": "81aea825e94b3ec3a716fd891c1114b32254ecaf6b5d14a7fd70ab01fd32cbcd",
+        "src/draw/util.typ": "061e5fba87bc94b3e6703160bc84f2f1e598ccc4e77bc0d5f52a8f1d35d0d640",
+        "src/draw.typ": "8d06f508555d256400f3ac80a7e165241ae136dbe7a9d8ace9b93046b45da7af",
+        "src/drawable.typ": "63654e2f4f29951b18f997cbed7a47a11757874f10e4e94efb1f11048ccc1c3e",
+        "src/hobby.typ": "7d7cf7f226dbddc4bbee1049d90ec5960e7c3e09feef8b771224df6a5850bdbe",
+        "src/intersection.typ": "76a2996d016f95cac4b1185aa9dbd31be9c0d879254548dc225ce5bef06af986",
+        "src/lib/angle.typ": "549208087d6374157225530d828c359ba4b5e1bc31751d96f717997efb1bd1a9",
+        "src/lib/decorations/brace.typ": "05e38ca735f893d873a7376071362f6d230094b64adb21480ebefd29d804f72b",
+        "src/lib/decorations/path.typ": "d5be08899a6a3a03ace9aeec899bdddcc13d98f85c9fbd1d22c26ac2a1a71766",
+        "src/lib/decorations.typ": "1f44aa27842638530864ba3bed22dc3012546f16e7ee9d7a5f2d6afe34acf2ac",
+        "src/lib/palette.typ": "29111ad2ca7cc5d34aa17a256efee5808d71d3ef29c3eac6e40341dda96065b3",
+        "src/lib/pin.typ": "c75574113ef8bddeaba74becdc04347a8a7496a20e4842935a7874df63f9612b",
+        "src/lib/tree.typ": "ccf0bfafa5a4f9d4f26c8a74e4bffb3b1eeb90789433298d238a5137524feefd",
+        "src/lib.typ": "53380cd9de16c1f845f325e9d8be8e0f03493c2073fba1c54d546e1906a8f8ed",
+        "src/mark-shapes.typ": "bcae84d928665b62d11189412450aaff4a96a1f97ec177e2ab827c9ead7253c0",
+        "src/mark.typ": "eafcdedd2861f525520c87ad2aa8312dbc542c13d22bfa792af67f391a87cd6d",
+        "src/matrix.typ": "037ed170b64045e6749d0b161dc91ddaefde6473460a409436809493765e4c28",
+        "src/path-util.typ": "669a0d9535a9439535a90dc6299efdcc24589b47e6633cc68c59e0422fcfc0ed",
+        "src/polygon.typ": "40686e96f2212141a3347770450c1e6e02ca6a7bbbdc902383df91a0fe005e33",
+        "src/process.typ": "7d49b2e44fbbc62f50306534bb96d99575109e47a185d4c103fb22e89fdf02a2",
+        "src/sorting.typ": "d9cafee6e584100c3e71e7a787841589aa289e1900b1eb3d181bc1325400a6ae",
+        "src/styles.typ": "d960f771cf0b3a05f0d0811cef7dc499a453c60e25a54c3ce19121ce459618fe",
+        "src/util.typ": "6cd6e53722b9ea203540fbc2954a137166a8267e95613f6bdc2bd2b356d7cfaa",
+        "src/vector.typ": "169fdb9e8cc46faeb90df0f689a3a326f8ec0ca454aecdd6e616800c57bf05d4",
+        "src/version.typ": "9b8f852c17d784fa153ff4ab195a87aee71b424e8bac10f11d04e8c38e5f65a3",
+        "typst.toml": "01b05d19618fd200435fd8ead76a52fca5fe8f5f3fcf72be43a0e8c22acbb8c6"
+      }
     }
   ],
   "importNotes": "Trailing whitespace and redundant terminal blank lines in imported Typst sources are normalized. File hashes above identify original package files before reader edits."

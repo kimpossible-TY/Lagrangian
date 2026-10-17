@@ -789,3 +789,46 @@ islands remain: five diagrams using the separate CeTZ 0.3.4 dependency and four
 Maquette raster/vector surface plots. Full arrow/leader fidelity, source-update
 and selection behavior for native labels, mobile Safari and assistive reading
 remain open work. Existing PDF serving and mobile entry routing are unchanged.
+
+### Managed native label delivery
+
+Clean commit `7dd8e8c7db02ddacea989e4ed4a2bfa40e98843c` is installed as the
+independent development Reader, PID 46603. Its live saved-source compile exits
+zero and passes the content gate. All six inspected modules/styles match the
+commit. The real torsion diagram has width/scroll width 343/343 at 390px/18px;
+all six labels are native, with four at their source points and two continuous
+legends. Whole-page width/scroll width is 375/375. The original PDF remains
+HTTP 200 in unchanged PID 39357. Receipts and screenshot are
+`managed-update.json`, `managed-browser.json` and `managed-native-390.png` under
+the label evidence. Mobile-default routing remains unchanged.
+
+## CeTZ 0.3.4 and Fletcher coverage
+
+The separate older-version fork preserves its original processing and geometry
+while sharing native export with 0.4.2. All seven compiler/API tests pass,
+including the older CeTZ/Fletcher PDF fixture's byte identity. Its browser
+fixture passes 45 checks at 320px, with explicit hat/tilde regression cases.
+The actual five newly covered diagrams pass 111 checks at 390px. The frozen
+PDE now exposes 63 native figures; all 1,387 checks at 320px pass across 18px
+and 30px. The existing native fixture retains 159 passing checks.
+
+The older figures exposed an intrinsic-width feedback loop for short accents.
+Their mathematical budget now comes from the available canvas width; optical
+insets are included in candidate and published geometry, retaining the complete
+italic/accent ink without changing font sizes. Relative 0.3.4 units remain an
+explicit unsupported case, retaining their original paint.
+
+All 67 original SVG roots retain their dimensions. Each of the 2,121 retained
+vector primitives has identical attributes and ancestor transformations to the
+source rendering. The 51 removed paint primitives belong to semantic label
+content, including mathematical bars and transparent boxes. All 1,913 reference
+display strings outside drawing wrappers and all 358,311 non-whitespace prose
+characters remain identical. The complete PDE PDF remains byte-identical:
+10,758,514 bytes and SHA-256
+`3fb2b8cb775215a9d7a3905048489299bad22331b3401c7223bbc48f86d1ef46`.
+
+Evidence under `dist/reader-label-checks` includes `legacy-cetz-fixture-320.json`,
+`legacy-cetz-pde-390.json`, `shared-native-fixture-320.json`,
+`shared-native-pde-320.json`, `legacy-cetz-vector-fidelity.json`,
+`legacy-cetz-outside-text.json` and `legacy-cetz-pdf/verification.json`.
+Four Maquette raster/vector surface plots remain outside native composition.

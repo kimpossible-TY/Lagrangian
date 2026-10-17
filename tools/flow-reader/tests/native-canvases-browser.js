@@ -58,6 +58,8 @@ try {
     for (const before of original) {
       const id = before.dataset.flowCanvas;
       if (query.get("only") && query.get("only") !== id) continue;
+      if (query.get("package") && query.get("package") !== before.dataset.flowCanvasPackage)
+        continue;
       if (!document.querySelector(`[data-flow-canvas="${id}"]`)) {
         location.hash = `#flow-${id}`;
         await until(() => document.querySelector(`[data-flow-canvas="${id}"]`), `${id} section`);
