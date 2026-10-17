@@ -13,7 +13,8 @@ mathematics and figure layouts to the available width, preserving their meaning
 and readable labels. Optional navigation and saved-highlight controls are allowed.
 
 The current development prototype does not yet meet this contract: local equation
-scrolling, collapsed notes, and modal graphical relationships remain to be replaced.
+scrolling, unresolved drawing widths, label sizes, and overlapping relationships
+still need work. Notes and relationships are now shown inline automatically.
 A document-wide overflow check is insufficient; audit each component and every
 required reading action before promotion.
 
@@ -89,7 +90,7 @@ publication. The served revision includes that snapshot, so changes to a dynamic
 drawing invalidate the revision even when its placeholder HTML is unchanged.
 
 The reader supports native text selection, a heading outline, font size changes,
-local equation scrolling, linked annotation dialogs, reading anchors, and saved
+local equation scrolling, visible inline annotations, reading anchors, and saved
 highlights. Select a passage and choose the save action; the toolbar's saved list
 returns to the passage. Records belong to this document in the current browser's
 local storage. They do not synchronize devices and are removed with site data.
@@ -122,20 +123,34 @@ retry automatically. Transport HTML is cached separately from the bounded DOM.
 Large vector drawings and embedded images are delivered unchanged as separate,
 lazy-loaded assets. SVG drawings with interactive links remain inline.
 
-Graphical annotations retain their original CeTZ programs. Opening a relationship
-dialog measures the actual marked terms in its equation layout and sends those
-rectangles to `/api/graphics`. The service evaluates the original program against
-the measured geometry and returns a namespaced SVG overlay. No source code is
-accepted in this request. The published revision and source fingerprint must
-still match; source changes reject a new rendering until a current document is
-available. Completed geometry requests are cached.
+Text annotations are visible beside the reading flow, with a preview of their
+marked expressions and an accessible association from the original terms. Authored
+small prose sizes inherit the chosen reading size. There are no note disclosure
+controls or relationship dialogs.
+
+Graphical annotations retain their original CeTZ programs. The browser measures
+marked terms in the original body nodes and sends those rectangles and the chosen
+font size to `/api/graphics` automatically. Overlapping relationships share a scene;
+relationships spanning blocks preserve the intervening prose and original order.
+The common adapter preserves the first marked term as the coordinate origin for
+both literal coordinates and named anchors. The service returns the complete SVG
+bounds, including negative offsets. The body reserves vertical room for these
+bounds; labels inherit the reading size through a fresh Typst measurement context.
+No authored figure coordinates are rewritten, and no source code is accepted in
+the request. Revision changes and changed term positions reject obsolete overlays.
 
 The initial implementation recompiles the full source for an uncached graphical
-request. On the PDE project this can take several seconds; the dialog shows a
-pending state. Reusing a persistent compiler is a subsequent performance task.
-Drawing a connection correctly does not imply an arbitrary figure can be
-recomposed automatically. Figure label sizes and narrow layouts still require
-their own validation.
+request. On the PDE project this can take several seconds; nearby scenes start
+loading automatically and failures retry without a reveal action. Cached results
+are reused. Reusing a persistent compiler is a subsequent performance task.
+
+Width diagnostics compare the full drawing with the actual body width. A
+conservative collision diagnostic compares label rectangles with body text and
+samples stroked connector paths against unmarked text. It is not a complete
+collision solver: overlay-to-overlay intersections and opaque image content are
+not covered. Explicit small label sizes still need a policy. Actual Jacobi formula
+geometry at 320px remains wider than the body and intersects other text. Inline
+delivery therefore does not establish responsive readability or permit promotion.
 
 == Managed installation
 

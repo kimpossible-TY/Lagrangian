@@ -9,36 +9,7 @@
 #import "process.typ"
 #import "coordinate.typ"
 
-/// Sets up a canvas for drawing on.
-///
-/// - length (length): Used to specify what 1 coordinate unit is. Note that ratios are no longer supported! You can wrap the canvas into a `layout(ly => canvas(length: ly.width * <ratio>, ...))`.
-/// - baseline (none,number,coordinate): Specifies the coordinate to use as the baseline. Setting this the canvas behaves like a `box` element instead of a `block`.
-/// - body (none, array, element): A code block in which functions from the `draw` module have been called.
-/// - background (none, color): A color to be used for the background of the canvas.
-/// - stroke (none, stroke): Stroke style to apply to the canvas top-level element (box or block)
-/// - padding (none, number, array, dictionary) = none: How much padding to add to the canvas. `none` applies no padding. A number applies padding to all sides equally. A dictionary applies padding following Typst's `pad` function: https://typst.app/docs/reference/layout/pad/. An array follows CSS like padding: `(y, x)`, `(top, x, bottom)` or `(top, right, bottom, left)`.
-/// - debug (bool): Shows the bounding boxes of each element when `true`.
-/// -> content
-#let _paged-canvas(length: 1cm, baseline: none, debug: false, background: none, stroke: none, padding: none, body) = context {
-  if body == none {
-    return []
-  }
-  assert(
-    type(body) == array,
-    message: "Incorrect type for body: " + repr(type(body)),
-  )
-
-  // TODO: Remove in later versions
-  if type(length) == ratio {
-    panic("Canvas relative length support got removed! Wrap your canvas in `layout(ly => canvas(length: <ratio> * ly.width, ...))`")
-  }
-
-  assert(type(length) == std.length, message: "Expected `length` to be of type length, got " + repr(length))
-  let length = length.to-absolute()
-  assert(length / 1cm != 0,
-    message: "Canvas length must be != 0!")
-
-  let ctx = (
+#let _canvas-context(length, debug: false, background: none) = (
     version: version.version,
     length: length,
     debug: debug,
@@ -69,6 +40,55 @@
     // CeTZ itself does not use this dictionary for data.
     shared-state: (:),
   )
+
+// Reader-only inspection uses the same layout context as the paged renderer.
+// Offsets remain relative to the input coordinate origin, including negative bounds.
+#let reader-bounds(body, length: 1cm) = {
+  let result = process.many(_canvas-context(length.to-absolute()), body)
+  let bounds = result.bounds
+  if bounds == none { return (left: 0pt, top: 0pt, width: 0pt, height: 0pt, labels: ()) }
+  let (width, height, ..) = vector.scale(aabb.size(bounds), length)
+  let labels = drawable.filter-tagged(result.drawables, drawable.TAG.hidden)
+    .filter(item => item.type == "content")
+    .map(item => (
+      left: (item.pos.at(0) - item.width / 2) * length,
+      top: (item.pos.at(1) - item.height / 2) * length,
+      width: item.width * length, height: item.height * length,
+    ))
+  (left: bounds.low.at(0) * length, top: bounds.low.at(1) * length,
+   width: width, height: height, labels: labels)
+}
+
+/// Sets up a canvas for drawing on.
+///
+/// - length (length): Used to specify what 1 coordinate unit is. Note that ratios are no longer supported! You can wrap the canvas into a `layout(ly => canvas(length: ly.width * <ratio>, ...))`.
+/// - baseline (none,number,coordinate): Specifies the coordinate to use as the baseline. Setting this the canvas behaves like a `box` element instead of a `block`.
+/// - body (none, array, element): A code block in which functions from the `draw` module have been called.
+/// - background (none, color): A color to be used for the background of the canvas.
+/// - stroke (none, stroke): Stroke style to apply to the canvas top-level element (box or block)
+/// - padding (none, number, array, dictionary) = none: How much padding to add to the canvas. `none` applies no padding. A number applies padding to all sides equally. A dictionary applies padding following Typst's `pad` function: https://typst.app/docs/reference/layout/pad/. An array follows CSS like padding: `(y, x)`, `(top, x, bottom)` or `(top, right, bottom, left)`.
+/// - debug (bool): Shows the bounding boxes of each element when `true`.
+/// -> content
+#let _paged-canvas(length: 1cm, baseline: none, debug: false, background: none, stroke: none, padding: none, body) = context {
+  if body == none {
+    return []
+  }
+  assert(
+    type(body) == array,
+    message: "Incorrect type for body: " + repr(type(body)),
+  )
+
+  // TODO: Remove in later versions
+  if type(length) == ratio {
+    panic("Canvas relative length support got removed! Wrap your canvas in `layout(ly => canvas(length: <ratio> * ly.width, ...))`")
+  }
+
+  assert(type(length) == std.length, message: "Expected `length` to be of type length, got " + repr(length))
+  let length = length.to-absolute()
+  assert(length / 1cm != 0,
+    message: "Canvas length must be != 0!")
+
+  let ctx = _canvas-context(length, debug: debug, background: background)
 
   let (ctx, bounds, drawables) = process.many(ctx, body)
   if bounds == none {

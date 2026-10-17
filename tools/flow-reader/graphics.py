@@ -1,6 +1,8 @@
 """Render original CeTZ annotation programs against measured browser geometry."""
 
+import json
 import math
+from xml.etree import ElementTree as ET
 
 from content import SvgRanges, namespace_svg_ids
 
@@ -38,6 +40,8 @@ def validate_geometry(graphs: dict, known: dict) -> dict:
                 raise ValueError("Marker extends beyond its scene")
             clean[tag] = {"x": x, "y": y, "width": w, "height": h}
         result[identifier] = {"width": width, "height": height, "markers": clean}
+        if "fontSize" in geometry:
+            result[identifier]["fontSize"] = number(geometry["fontSize"], 14, 30)
     return result
 
 
@@ -47,12 +51,14 @@ class GraphicSvgExtractor(SvgRanges):
         self.stack = []
         self.graphic = None
         self.graphics = {}
+        self.layouts = {}
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         graphic = attributes.get("data-flow-graphic")
         if graphic and attributes.get("data-flow-rendered") == "true":
             self.graphic = graphic
+            self.layouts[graphic] = json.loads(attributes["data-flow-graphic-layout"])
         if tag not in {"area", "base", "br", "col", "embed", "hr", "img", "input",
                        "link", "meta", "param", "source", "track", "wbr"}:
             self.stack.append((tag, graphic))
@@ -74,5 +80,13 @@ def extract_graphics(source: str, requested: dict, namespace: str) -> dict:
     parser.feed(source)
     if set(parser.graphics) != set(requested):
         raise ValueError("The compiler did not produce every requested graphical annotation")
-    return {identifier: namespace_svg_ids(svg, f"flow-{namespace}-{identifier}")
-            for identifier, svg in parser.graphics.items()}
+    result = {}
+    for identifier, source_svg in parser.graphics.items():
+        svg = ET.fromstring(namespace_svg_ids(source_svg, f"flow-{namespace}-{identifier}"))
+        layout = parser.layouts[identifier]
+        svg.set("data-flow-graphic-layout", json.dumps(layout, separators=(",", ":")))
+        svg.set("width", str(layout["width"]))
+        svg.set("height", str(layout["height"]))
+        svg.set("style", f'width:{layout["width"]}px;height:{layout["height"]}px;overflow:visible')
+        result[identifier] = ET.tostring(svg, encoding="unicode")
+    return result
