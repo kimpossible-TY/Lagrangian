@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 from build import HERE, Project, compile_project
 from graphics import extract_graphics, validate_geometry
 from sections import split_document
+from passages import locate_passages
 
 
 class ReaderState:
@@ -26,6 +27,8 @@ class ReaderState:
         self.output = output
         self.original_url = original_url
         self.allow_incomplete = allow_incomplete
+        self.document_id = hashlib.sha256(
+            json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
         self.lock = threading.RLock()
         self.report = {}
         self.document = None
@@ -60,6 +63,7 @@ class ReaderState:
                 (report["revision"] + json.dumps(source_stamp)).encode()).hexdigest()
             document = (self.output / "document.html").read_bytes()
             bundle = split_document(document.decode(), report["revision"])
+            bundle.manifest["documentID"] = self.document_id
             compressed = gzip.compress(document)
             section_compressed = {key: gzip.compress(value) for key, value in bundle.documents.items()}
             manifest_json = json.dumps(bundle.manifest, ensure_ascii=False).encode()
@@ -119,8 +123,20 @@ class ReaderState:
                 "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
                 "elapsedSeconds", "compiledAt",
             )} | {"revision": self.revision, "compiling": self.compiling,
+                  "documentID": self.document_id,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "graphics": self.graphics}
+
+    def locate(self, revision, fragments):
+        with self.lock:
+            if not self.bundle or revision != self.revision:
+                raise RevisionChanged("The document revision has changed")
+            bundle = self.bundle
+        results = locate_passages(bundle.passages, fragments)
+        with self.lock:
+            if revision != self.revision:
+                raise RevisionChanged("The document revision has changed")
+        return {"revision": revision, "locations": results}
 
     def render_graphics(self, revision, graphs):
         with self.lock:
@@ -208,7 +224,8 @@ def watch(state, stopped):
 def handler_for(state):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if urlsplit(self.path).path != "/api/graphics":
+            path = urlsplit(self.path).path
+            if path not in {"/api/graphics", "/api/locate"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -223,7 +240,9 @@ def handler_for(state):
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                result = state.render_graphics(request.get("revision"), request.get("graphs"))
+                result = (state.locate(request.get("revision"), request.get("fragments"))
+                          if path == "/api/locate" else
+                          state.render_graphics(request.get("revision"), request.get("graphs")))
                 self.respond(json.dumps(result).encode(), "application/json")
             except RevisionChanged as error:
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 409)
@@ -278,6 +297,7 @@ def handler_for(state):
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
                       "/graphics.js": ("graphics.js", "text/javascript; charset=utf-8"),
+                      "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/reader.css": ("reader.css", "text/css; charset=utf-8")}
             if path in assets:
                 filename, content_type = assets[path]

@@ -95,19 +95,49 @@ readable at phone width; that remains a separate requirement.
 Tests cover nested references, annotation associations, math decorations, SVG ID
 namespacing, MathML/HTML boundaries, unchanged paged output, package isolation,
 and preservation of the previous served document after an actual compile error.
-Sixteen tests also cover geometry-dependent CeTZ output, geometry validation,
+Twenty-seven tests now cover geometry-dependent CeTZ output, geometry validation,
 cached responses, rejection after failed source edits, section/annotation
 boundaries, image-byte preservation, and stable reading keys after both a section
-boundary and a generated Typst label change.
+boundary and a generated Typst label change. They additionally cover immutable
+installation, inherited Flow project settings, port and process ownership,
+compiler dependency watching, and quotation relocation with ambiguous/missing
+results and revision checks.
 JavaScript syntax is checked with `node --check tools/flow-reader/web/reader.js`.
+
+## Saved highlights and lifecycle checkpoint
+
+Saved quotation checks use the synthetic fixture in
+`dist/reader-highlight-checks`, independently of the managed PDE service.
+The browser saved a Korean quotation, retained it across reload, and found it
+again after its paragraph was edited and moved from section 0 to section 1.
+An open saved-list dialog held the previous document while an update arrived.
+At 320 CSS px with 30px text, the document scroll width remains 320px. A selected
+MathML equation survives save and reload with all six original token children and
+the MathML namespace intact. Evidence: `mobile-restored.png` and `mobile-math.png`.
+These are desktop browser checks; iPhone Safari and broader PDE highlight cases
+remain to be verified.
+
+The managed Reader installer and lifecycle helper were implemented in commits
+`2c68a2aa` and `6bfa698a`. A separate LaunchAgent and immutable release are installed
+for `typst-pde-reader` on loopback port 23627. Port 23626 belongs to the user's
+separate Ewald Flow profile and was preserved. Tail Hosting's adapter passes
+12 management tests; the new service has not been registered or routed yet.
+
+The first managed PDE compile waited on the macOS Documents permission prompt for
+its Python 3.15 executable. TCC logs identified the prompt, and a process sample
+showed Typst waiting to access its working directory. Subsequent readback confirms
+that the wait resolved and the managed compile succeeded: `exitCode: 0`,
+`contentGatePassed: true`, no compiler-loss warnings, and an accepted revision.
+The assistant did not change macOS privacy settings. The existing paged endpoint
+on 23625 still returns HTTP 200. Restart/recovery and ingress remain unverified.
 
 ## Outstanding requirements
 
 - Broader visual checks of the 15 graphical annotations and lower uncached latency.
 - Width-aware figure composition and readable labels; the current canvas adapter
   preserves SVG content but still scales complete canvases.
-- Persistent highlights, source selection sharing, and broader update/anchor tests.
+- PDE and real-device highlight checks, source selection sharing, and broader update/anchor tests.
 - Offline reload and font delivery on a real mobile browser.
-- Managed Flow lifecycle, new Tailnet endpoint, explicit view preference, and
+- Managed Reader update and recovery checks, new Tailnet endpoint, explicit view preference, and
   mobile entry routing while preserving the existing page view.
 - End-to-end mobile delivery and regression verification before promotion.

@@ -12,6 +12,7 @@
     <a class="reader-skip" href="#reader-document">본문으로 이동</a>
     <header class="reader-toolbar">
       <button id="reader-menu" aria-controls="reader-outline" aria-expanded="false">목차</button>
+      <button id="reader-highlights-open" aria-haspopup="dialog" disabled>표시</button>
       <span class="reader-brand">Flow <span>Reader</span></span>
       <div class="reader-type-controls" aria-label="본문 글자 크기">
         <button id="reader-smaller" aria-label="글자 작게">A−</button>
@@ -31,6 +32,19 @@
     <dialog id="reader-note">
       <button id="reader-note-close" autofocus>닫기</button>
       <div id="reader-note-body"></div>
+    </dialog>
+    <aside id="reader-selection" aria-label="선택한 구절" hidden>
+      <span id="reader-selection-hint">선택한 구절</span>
+      <button id="reader-highlight-save">표시 저장</button>
+      <button id="reader-selection-cancel">취소</button>
+    </aside>
+    <p id="reader-highlight-message" role="status" aria-live="polite"></p>
+    <dialog id="reader-highlights" aria-labelledby="reader-highlights-title">
+      <button id="reader-highlights-close" autofocus>닫기</button>
+      <h2 id="reader-highlights-title">저장한 표시</h2>
+      <p>이 기기의 현재 브라우저에 저장됩니다. 브라우저 데이터를 지우면 함께 삭제됩니다.</p>
+      <p id="reader-highlights-empty">본문의 구절을 선택한 뒤 ‘표시 저장’을 눌러 주세요.</p>
+      <ul id="reader-highlights-list"></ul>
     </dialog>
     <div id="reader-document-styles"></div>
   </body>

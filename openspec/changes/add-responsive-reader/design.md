@@ -28,6 +28,18 @@ Every published document snapshot carries a revision and diagnostic status. Fail
 
 Use content and asset requests on the reader's own origin. The original paged view remains reachable from the reader. Initial mobile routing must honor an explicit choice and offer both views.
 
+Store highlights in browser-local storage scoped to a document identity derived
+from the project root and entrypoint. A record contains one or more quotations,
+their reading keys, and surrounding text. A revision-specific `/api/locate`
+request resolves those quotations against the accepted snapshot across every
+section. Use an existing key first, then exact quotation and matching context;
+ties remain explicitly ambiguous. Removed quotations stay in the saved list.
+The passage index stays on the service rather than enlarging the manifest.
+Use CSS Custom Highlight ranges to paint text without inserting HTML into
+MathML. Browsers without that API retain the saved list and mark the associated
+block. This storage does not yet synchronize devices or survive clearing site
+data. Updates wait while any reader dialog or text selection is active.
+
 Partition the accepted HTML at top-level block boundaries. Keep every annotation
 in the same section as its preceding marked terms. Assign reading keys globally
 before partitioning; the manifest maps native anchors and reading keys to their

@@ -9,6 +9,7 @@ import re
 from xml.etree import ElementTree as ET
 
 from content import MathHtmlEmbedding, SvgRanges
+from passages import PassageIndex
 
 
 def separate_assets(source):
@@ -218,6 +219,7 @@ class SectionBundle:
     manifest: dict
     documents: dict[str, bytes]
     assets: dict[str, bytes]
+    passages: list[dict]
 
 
 def split_document(source, revision, max_chars=180000, max_blocks=140):
@@ -255,6 +257,7 @@ def split_document(source, revision, max_chars=180000, max_blocks=140):
     outline = [{"id": heading["id"], "title": heading["text"], "level": heading["level"],
                 "section": block_sections[heading["block"]]}
                for heading in index.headings if heading["id"]]
+    blocks = {key: block_sections[block] for key, block in index.blocks.items()}
     return SectionBundle({"revision": revision, "sections": sections, "anchors": anchors,
-                          "blocks": {key: block_sections[block] for key, block in index.blocks.items()},
-                          "outline": outline}, documents, assets)
+                          "blocks": blocks, "outline": outline}, documents, assets,
+                         PassageIndex(source, blocks).passages)

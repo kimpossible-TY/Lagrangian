@@ -5,7 +5,7 @@ const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
 const noteDialog = document.querySelector("#reader-note");
-const storageKey = `flow-reader:${location.pathname}`;
+let storageKey = `flow-reader:${location.pathname}`;
 let revision = null;
 let pending = null;
 let blocks = [];
@@ -15,6 +15,16 @@ let currentSection = null;
 let loadSequence = 0;
 const sectionCache = new Map();
 const graphics = new GraphicalAnnotations(noteDialog, () => revision);
+let highlights;
+import("./highlights.js")
+  .then(({ ReaderHighlights }) => {
+    highlights = new ReaderHighlights(article, navigateAnchor);
+    if (manifest && currentSection) highlights.onDocument(manifest, currentSection);
+  })
+  .catch(() => {
+    // Keep reading available during a mixed-version development update.
+    document.querySelector("#reader-highlights-open").hidden = true;
+  });
 
 function readStored(key, fallback) {
   try {
@@ -179,7 +189,7 @@ function containWideMathematics(root) {
 }
 
 function selectionActive() {
-  return !window.getSelection()?.isCollapsed || noteDialog.open;
+  return !window.getSelection()?.isCollapsed || Boolean(document.querySelector("dialog[open]"));
 }
 
 function renderDocument(html, nextManifest, section, options) {
@@ -209,6 +219,7 @@ function renderDocument(html, nextManifest, section, options) {
   revision = nextManifest.revision;
   manifest = nextManifest;
   currentSection = section;
+  highlights?.onDocument(manifest, currentSection);
   indexOutline(manifest);
   updateSectionNavigation();
   pending = null;
@@ -388,6 +399,11 @@ async function refresh() {
     const response = await fetch("api/state", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const state = await response.json();
+    const documentStorageKey = state.documentID ? `flow-reader:${state.documentID}` : storageKey;
+    if (documentStorageKey !== storageKey) {
+      storageKey = documentStorageKey;
+      setFont(Number(readStored("fontSize", 18)) || 18);
+    }
     const original = document.querySelector("#reader-original");
     if (state.originalURL) {
       original.href = state.originalURL;
