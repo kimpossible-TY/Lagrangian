@@ -1,5 +1,6 @@
 """Actual CeTZ output must change geometry without scaling its label glyphs."""
 
+import base64
 import json
 from html.parser import HTMLParser
 import os
@@ -182,6 +183,70 @@ class CanvasCompilerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((output / "original.pdf").read_bytes(), (output / "reader.pdf").read_bytes())
         self.assertEqual((project.root / project.entry).read_bytes(), before)
+
+    def test_surface_pixels_and_original_axis_anchors_survive_native_export(self):
+        class Models(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.models = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if "data-flow-canvas-model" in attributes:
+                    self.models.append(json.loads(attributes["data-flow-canvas-model"]))
+
+        def images(source):
+            parser = SvgRanges(source)
+            parser.feed(source)
+            pixels, anchors = [], []
+            for start, end in parser.ranges:
+                svg = ET.fromstring(source[start:end])
+                for image in svg.iter("{http://www.w3.org/2000/svg}image"):
+                    href = image.get("href", image.get("{http://www.w3.org/1999/xlink}href", ""))
+                    if href.startswith("data:image/png;base64,"):
+                        pixels.append(href)
+                    elif href.startswith("data:image/svg+xml;base64,"):
+                        overlay = ET.fromstring(base64.b64decode(href.split(",", 1)[1]))
+                        anchors.extend((float(node.get("x")), float(node.get("y")),
+                                        node.get("text-anchor"), "".join(node.itertext()))
+                                       for node in overlay.iter("{http://www.w3.org/2000/svg}text"))
+            return pixels, anchors
+
+        entry = Path("surface-canvases.typ")
+        before = (self.project.root / entry).read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            variants = {}
+            for enabled in [False, True]:
+                folder = output / str(enabled)
+                project = Project(self.project.root, entry, self.packages, compiler=self.compiler,
+                                  semantic_canvases=enabled)
+                report = compile_project(project, folder)
+                self.assertTrue(report["contentGatePassed"], (folder / "compile.log").read_text())
+                self.assertEqual(report["compilerLossWarnings"], [])
+                variants[enabled] = (folder / "document.html").read_text()
+            parser = Models()
+            parser.feed(variants[True])
+            self.assertEqual(len(parser.models), 2)
+            original_pixels, original_anchors = images(variants[False])
+            native_pixels, remaining_anchors = images(variants[True])
+            self.assertEqual(len(original_pixels), 2)
+            self.assertEqual(native_pixels, original_pixels, "Surface pixel data must stay byte-identical")
+            self.assertEqual(remaining_anchors, [])
+            native_anchors = [(label["left"], label["top"], label["align"])
+                              for model in parser.models for label in model["labels"]]
+            self.assertEqual(native_anchors, [anchor[:3] for anchor in original_anchors])
+            self.assertTrue(all(label["baseline"] for model in parser.models for label in model["labels"]))
+            for text in ["z₁", "z₂"]:
+                self.assertEqual(variants[True].count(text), 2)
+            prepare_packages(self.packages, output / "overlay")
+            for name, packages in [("original", self.packages), ("reader", output / "overlay")]:
+                result = subprocess.run([self.compiler, "compile", "--creation-timestamp", "1760000000",
+                                         "--package-path", str(packages), str(self.project.root / entry),
+                                         str(output / f"{name}.pdf")], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((output / "original.pdf").read_bytes(), (output / "reader.pdf").read_bytes())
+        self.assertEqual((self.project.root / entry).read_bytes(), before)
 
     def test_canvas_endpoint_caches_and_rejects_changed_sources_and_revisions(self):
         with tempfile.TemporaryDirectory() as temporary:

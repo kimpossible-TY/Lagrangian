@@ -124,6 +124,39 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 ### Requirement: Revision-aware updates
 The reader SHALL expose the compiled revision and compilation state, retain the last successful output on compilation failure, and preserve reading anchors and selections across updates.
 
+#### Scenario: A preceding figure changes generated numbering
+- **WHEN** a saved edit inserts a figure before the native figure being read
+- **THEN** its label quotation and geometry reading point retain their source figure identity
+- **AND** a reused canvas counter or repeated axis label cannot select another figure
+- **AND** an active text selection remains intact until the reader releases it
+
+#### Scenario: Reading a mathematical table on a narrow screen
+- **WHEN** a source table exceeds the available reading width
+- **THEN** its original rows and cells compose vertically at the selected font size
+- **AND** all original math, source order and header associations remain available
+- **AND** repeated column hints do not duplicate logical source text or equations
+- **AND** no horizontal movement or reveal action is required
+
+#### Scenario: A surface plot includes SVG axis text
+- **WHEN** the supported Maquette source is exported for native figure reading
+- **THEN** its original pixels and vector geometry retain their source data
+- **AND** original axis text becomes native content at a readable font size with its original anchor and baseline
+- **AND** the original paged output remains identical
+
+#### Scenario: A literal-coordinate arrow conflicts with reflowed mathematics
+- **WHEN** a pure vector annotation without named endpoint connections overlaps text or exceeds the reading width
+- **THEN** its complete original vector paths remain visible in an automatic band below their source scene
+- **AND** geometry fitting retains the original transforms, arrowheads and physical stroke thickness
+- **AND** no destination term is inferred from unrelated numeric coordinates
+- **AND** named endpoint connections continue to use the measured term geometry
+
+#### Scenario: One end of an annotation is a free coordinate
+- **WHEN** an open line or Bezier names a source term at only one endpoint
+- **THEN** that named endpoint remains exact during responsive routing
+- **AND** its explicitly free endpoint may move into clear space within the reading width
+- **AND** unmarked mathematical ink remains a routing obstacle
+- **AND** the original CeTZ renderer retains the path's styling and arrowheads
+
 #### Scenario: Failed source edit
 - **WHEN** a saved edit fails to compile
 - **THEN** the last valid document remains usable with an explicit stale/error status

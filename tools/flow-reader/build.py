@@ -17,6 +17,7 @@ import time
 from urllib.parse import unquote
 
 from content import namespace_svg_ids, normalize_math_html
+from figures import stamp_canvas_identities
 
 
 HERE = Path(__file__).resolve().parent
@@ -180,6 +181,7 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
         report["dependencies"] = sorted(dependencies)
         if result.returncode == 0:
             content = normalize_math_html(namespace_svg_ids((work / "document.html").read_text()))
+            content = stamp_canvas_identities(content)
             (work / "document.html").write_text(content)
             audit = ContentAudit()
             audit.feed(content)

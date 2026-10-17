@@ -18,6 +18,17 @@ def body(source):
 
 
 class SectionTests(unittest.TestCase):
+    def test_table_cells_have_stable_leaf_reading_keys(self):
+        before = '<html><body><h2>Table topic</h2><table><tr><td>Name</td><td>Meaning</td></tr><tr><td>K</td><td>Keep this table passage.</td></tr></table></body></html>'
+        after = before.replace('<tr><td>K</td>', '<tr><td>J</td><td>New row.</td></tr><tr><td>K</td>')
+        keys = []
+        for source in (before, after):
+            indexed = assign_block_ids(source)
+            keys.append(re.search(r'<td\b[^>]*data-reader-key="([^"]+)"[^>]*>Keep this table passage\.', indexed)[1])
+        self.assertEqual(keys[0], keys[1])
+        nested = '<html><body><table><tr><td><p>Only the leaf passage.</p></td></tr></table></body></html>'
+        self.assertEqual(assign_block_ids(nested).count('data-reader-key='), 1)
+
     def test_native_label_keys_follow_content_and_nested_labels_have_leaf_keys(self):
         before = '<html><body><h2>Figure topic</h2><div class="flow-canvas-label"><span class="flow-canvas-label-number">1</span><div class="flow-canvas-label-body">Keep this readable label.</div></div></body></html>'
         after = before.replace('>1</span>', '>12</span>').replace('<div class="flow-canvas-label">',

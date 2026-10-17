@@ -352,3 +352,56 @@ A layout pass is not successful merely because the document root has no horizont
 overflow: inspect each equation, table, drawing, annotation and required content
 control. Include 30px text, narrow widths, and rotated layouts. No clipped terms,
 unreadably scaled labels, or required reveal actions may be hidden by the audit.
+
+## Native surface figures and source identity
+
+The separate Maquette 0.1.3 overlay exports flat SVG axis text through the same
+native figure protocol. Original raw raster pixels and non-text SVG geometry
+remain intact; x/y, text anchors and measured baselines locate readable labels.
+The generic native exporter is shared with both version-specific CeTZ adapters.
+Geometry uses the available width even when the authored drawing was smaller,
+without scaling label glyphs or physical stroke thickness. Nested raster frames
+fill the original viewBox independently of the selected reading font.
+
+Canonical geometry hashes normalize internal SVG references and attribute order.
+Native label keys include this source figure identity, and the manifest maps
+unique figure identities to transport sections. A source update cannot restore
+to a different plot merely because an earlier insertion reused its numeric ID
+or axis quotation. Ambiguous text fallbacks are rejected. This identifies the
+source geometry, not a semantic equivalence between arbitrary drawing programs.
+
+## Responsive tables and free drawing placement
+
+Keep original table, row, cell and mathematical nodes. Stack logical rows in the
+continuous reading body and expose column/header associations with native table
+elements and explicit roles. Honor explicit headers; infer only a recognized
+bare-cell header pattern. Unknown first rows remain data. Repeated prose hints
+are CSS generated content, excluded from canonical text and mathematical IDs.
+Reading keys belong to leaf cells or nested source passages.
+
+A literal-coordinate annotation may have no named destination endpoint. When
+such a pure vector drawing collides with reflowed text or exceeds the width,
+preserve its complete original paths, transforms and arrowheads in an automatic
+band immediately below its original source scene. Fit only its geometry and
+retain stroke thickness. Do not invent a connection to another term. This
+fallback excludes embedded glyphs and measured label bodies. Named connections
+continue to use measured endpoints and routing, with explicit failure if they
+cannot be composed. All essential material stays visible through vertical reading.
+
+A late font-loading event must not restore a stale passage over a newer scroll
+whose scroll event has not yet been delivered. Track the scroll position of the
+saved anchor before applying that delayed restoration.
+
+Open line/Bezier annotations with one named endpoint expose that fixed endpoint
+and an explicitly free literal endpoint. The browser may move the latter into
+clear reading space, preserving the named endpoint exactly. Unmarked text remains
+an obstacle even though the free endpoint has no tag. The compiler validates
+named endpoint equality and renders the original styles/arrowheads on the new
+route. Pure numeric drawings without any named endpoint retain the separate
+continuous-band policy.
+
+Within derivation rows, discard only transparent alignment-column scaffolding;
+retain attributed cells and semantic mathematical groups. A right-hand alignment
+column must not become an indivisible mathematical object at some font/width
+combinations. Audit the actual annotated Reader scene as well as the independent
+candidate corpus.

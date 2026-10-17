@@ -142,6 +142,20 @@
         "src/version.typ": "9b8f852c17d784fa153ff4ab195a87aee71b424e8bac10f11d04e8c38e5f65a3",
         "typst.toml": "01b05d19618fd200435fd8ead76a52fca5fe8f5f3fcf72be43a0e8c22acbb8c6"
       }
+    },
+    {
+      "package": "preview/maquette/0.1.3",
+      "upstream": {
+        "repository": "https://github.com/bernsteining/maquette",
+        "version": "0.1.3"
+      },
+      "files": {
+        "LICENSE": "d46fe3ac7d925a9d5e6f5eb3ba8be0e1d38a23c3f23bec996677afe76c769f28",
+        "README.md": "916055a236f7b4001a0d7eb1801762cc29d614afd41099160542e0b8c3069f9d",
+        "maquette.typ": "211052fc614ac08c89d4bf31484b3cbeb13558464a37c8df7a0f387008bfae55",
+        "maquette.wasm": "f7fd592ca5beeec2c984349a8da04c91463236968cdcfada9a0b6e59509cc872",
+        "typst.toml": "c46821cc38afbbb64d6fab03fedb4aaf8c024ca3a1264796c3a5952c7996ea12"
+      }
     }
   ],
   "importNotes": "Trailing whitespace and redundant terminal blank lines in imported Typst sources are normalized. File hashes above identify original package files before reader edits."

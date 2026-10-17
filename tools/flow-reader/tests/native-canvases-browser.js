@@ -45,6 +45,9 @@ try {
   );
   const original = [...source.querySelectorAll("[data-flow-canvas-model]")];
   const query = new URL(location.href).searchParams;
+  if (query.get("width"))
+    await until(() => innerWidth === Number(query.get("width")), "requested viewport");
+  report.width = innerWidth;
   const fonts = query.get("fonts") ? query.get("fonts").split(",").map(Number) : [18, 30];
   for (const font of fonts) {
     while (Number(document.querySelector("#reader-size").value) !== font)

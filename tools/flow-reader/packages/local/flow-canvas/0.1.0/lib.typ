@@ -52,6 +52,24 @@
   body
 }
 
+#let native-figure(id, model, geometry, labels, package: none) = context {
+  let attrs = (class: "flow-drawing flow-canvas", id: "flow-" + id,
+    "data-flow-canvas": id, "data-flow-canvas-model": json.encode(model))
+  if package != none { attrs.insert("data-flow-canvas-package", package) }
+  html.elem("div", attrs: attrs, [
+    #html.elem("div", attrs: (class: "flow-canvas-stage"),
+      geometry)
+    #html.elem("div", attrs: (class: "flow-canvas-labels"), {
+      for (i, item) in labels.enumerate() {
+        html.elem("div", attrs: (class: "flow-canvas-label", "data-flow-canvas-label": str(i)), [
+          #html.elem("span", attrs: (class: "flow-canvas-label-number", "aria-hidden": "true"), str(i + 1))
+          #html.elem("div", attrs: (class: "flow-canvas-label-body"), _native-label-body(item.body))
+        ])
+      }
+    })
+  ])
+}
+
 #let native-canvas(id, render, inspect, package: none) = context {
   let bounds = inspect(sources: true)
   let size = measure(render())
@@ -62,19 +80,5 @@
     width: item.width / px, height: item.height / px,
   ))
   let model = (version: 1, width: size.width / px, height: size.height / px, labels: labels)
-  let attrs = (class: "flow-drawing flow-canvas", id: "flow-" + id,
-    "data-flow-canvas": id, "data-flow-canvas-model": json.encode(model))
-  if package != none { attrs.insert("data-flow-canvas-package", package) }
-  html.elem("div", attrs: attrs, [
-    #html.elem("div", attrs: (class: "flow-canvas-stage"),
-      html.frame(render(skip-labels: true)))
-    #html.elem("div", attrs: (class: "flow-canvas-labels"), {
-      for (i, item) in bounds.labels.enumerate() {
-        html.elem("div", attrs: (class: "flow-canvas-label", "data-flow-canvas-label": str(i)), [
-          #html.elem("span", attrs: (class: "flow-canvas-label-number", "aria-hidden": "true"), str(i + 1))
-          #html.elem("div", attrs: (class: "flow-canvas-label-body"), _native-label-body(item.body))
-        ])
-      }
-    })
-  ])
+  native-figure(id, model, html.frame(render(skip-labels: true)), bounds.labels, package: package)
 }

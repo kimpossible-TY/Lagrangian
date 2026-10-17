@@ -21,7 +21,11 @@
   if state == none { return (ctx: ctx, points: none) }
   let start = marker-reference(source-start, state.markers)
   let end = marker-reference(source-end, state.markers)
-  if start == none or end == none { return (ctx: ctx, points: none) }
+  if start == none and end == none { return (ctx: ctx, points: none) }
+  // A literal free endpoint is not another mathematical term. It may adapt to
+  // the available space, while every named endpoint remains exact.
+  if start == none { start = (tag: none, anchor: "free", free: true) }
+  if end == none { end = (tag: none, anchor: "free", free: true) }
   let px = 0.75pt / ctx.length
   let global = points.map(point => util.apply-transform(ctx.transform, point))
   if global.any(point => calc.abs(point.at(2)) > 0.000001) {
@@ -35,8 +39,8 @@
   ctx.shared-state.insert("flow-reader-routing", state)
   if route == none { return (ctx: ctx, points: none) }
   let routed = route.map(point => (point.x * px, point.y * px, 0))
-  assert(vector.dist(global.first(), routed.first()) < px * 0.01 and
-    vector.dist(global.last(), routed.last()) < px * 0.01,
+  assert((start.at("free", default: false) or vector.dist(global.first(), routed.first()) < px * 0.01) and
+    (end.at("free", default: false) or vector.dist(global.last(), routed.last()) < px * 0.01),
     message: "Reader connector route changed its original endpoints")
   (ctx: ctx, points: routed.map(point => util.revert-transform(ctx.transform, point)))
 }

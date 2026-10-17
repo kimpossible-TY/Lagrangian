@@ -831,4 +831,62 @@ Evidence under `dist/reader-label-checks` includes `legacy-cetz-fixture-320.json
 `legacy-cetz-pde-390.json`, `shared-native-fixture-320.json`,
 `shared-native-pde-320.json`, `legacy-cetz-vector-fidelity.json`,
 `legacy-cetz-outside-text.json` and `legacy-cetz-pdf/verification.json`.
-Four Maquette raster/vector surface plots remain outside native composition.
+At this older-version checkpoint, four Maquette raster/vector surface plots
+remained outside native composition; the following adapter covers them.
+
+## Maquette axes, source update and table composition
+
+The frozen PDE now has 67 native figures and 699 native labels: 58 CeTZ 0.4.2,
+five CeTZ 0.3.4/Fletcher and four Maquette 0.1.3 figures. No opaque SVG root
+remains in this snapshot. Original Maquette PNG data URIs are byte-identical.
+Native axis x/y, text anchors and baselines retain their original data; font
+changes no longer rescale the nested raster frame a second time. Geometry
+fills its available width while label/stroke sizes remain independent.
+The surface fixture and full PDE PDF remain byte-identical. Full PDF proof:
+10,758,514 bytes, SHA-256
+`3fb2b8cb775215a9d7a3905048489299bad22331b3401c7223bbc48f86d1ef46`.
+Receipts are `surface-source-audit.json` and `surface-pdf/verification.json`.
+
+After full-width fitting and the late-font scroll guard, all 67 native figures
+pass 1,475 checks at 320px with both 18px and 30px fonts. No label, mathematical
+ink, source text, contrast, marker, physical stroke, page-width or canvas-request
+check fails. Evidence is `all-native-fullwidth-pde-320.json`.
+
+Canonical geometry identities normalize internal SVG IDs. Source label keys
+include their enclosing figure identity, and manifest lookups survive transport
+repartitioning and numeric ID reuse. In an isolated copy of the actual PDE,
+eleven browser checks pass after two preceding surface insertions. An active
+native axis selection remains intact across the first accepted source update;
+its logical quotation relocates to the same plot. The original panel IDs change
+55→56→57, retaining source identity
+`01578404a7bb7d55ea54468c69ba2a50e0f3d8c816d2c8b921cca2a11c413719`.
+Its label top changes 88px→87.546875px; the second update preserves the geometry
+reading fraction within the 1px tolerance. `pde-native-source-update.json`
+records the result. The original PDE sources were not edited.
+
+All six actual HTML tables now compose vertically without cloning source cells
+or mathematical nodes. Their 94 cells retain canonical content and original
+order. At 320px and 18px/30px fonts, 629 browser checks pass, including mathematical
+ink, readable fonts, header associations and component/page bounds. A merged
+header fixture and an unheaded-data fixture also pass in the same report:
+`tables-pde-320.json`.
+
+All 59 Python tests and 37 JavaScript tests pass with compiler integration
+enabled. Mobile Safari, assistive devices and mobile-default acceptance remain
+open; these software checks do not establish physical-device behavior.
+
+At 390px, the six tables pass the same 629 checks at 18px/30px; every component
+and the page remain bounded. Evidence is `tables-pde-390.json`.
+
+The all-relationship audit exposed transparent alignment columns blocking one
+derivation's RHS from wrapping at 273px/18px. Flattening only those columns fixes
+the actual scene; all eight checks pass, including the original compiler path,
+arrowhead and transform signature. All 6,873 saved corpus expressions pass at
+273px at both 18px and 30px with zero overflow, errors, token binding failures, logical-text or
+SVG changes. Evidence is `graphics-12-fixed-320.json` and
+`alignment-corpus-273-18.json` and `alignment-corpus-273-30.json`; these include
+the current renderer hashes alongside the original corpus provenance. The full
+relationship audit continues separately.
+
+The final overlay PDF, including one-ended connector support, is still
+byte-identical: `complete-native-pdf/verification.json`.

@@ -120,6 +120,7 @@ class BlockIdentifiers(SvgRanges):
         super().__init__(source)
         self.stack = []
         self.active = []
+        self.canvas_scopes = []
         self.heading = "document"
         self.counts = {}
         self.insertions = []
@@ -127,16 +128,20 @@ class BlockIdentifiers(SvgRanges):
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         classes = attributes.get("class", "").split()
+        if "data-flow-canvas-identity" in attributes:
+            self.canvas_scopes.append((len(self.stack), attributes["data-flow-canvas-identity"]))
         if "body" in self.stack and not {"math", "svg", "nav"}.intersection(self.stack) and (
-            tag in {"h1", "h2", "h3", "h4", "h5", "p", "figcaption"}
+            tag in {"h1", "h2", "h3", "h4", "h5", "p", "figcaption", "td", "th"}
             or (tag == "div" and {"flow-equation", "flow-canvas-label-body"}.intersection(classes))
         ):
             for parent in self.active:
-                if parent.get("native_label"):
+                if parent.get("native_label") or parent.get("table_cell"):
                     parent["child_block"] = True
             self.active.append({"depth": len(self.stack), "tag": tag, "text": [],
                                 "id": attributes.get("id"), "heading": self.heading,
+                                "canvas_scope": self.canvas_scopes[-1][1] if self.canvas_scopes else "",
                                 "native_label": "flow-canvas-label-body" in classes,
+                                "table_cell": tag in {"td", "th"},
                                 "position": self.source_offset() + len(self.get_starttag_text()) - 1})
         if tag not in MathHtmlEmbedding.VOID:
             self.stack.append(tag)
@@ -150,16 +155,19 @@ class BlockIdentifiers(SvgRanges):
         if not self.stack or self.stack[-1] != tag:
             return
         self.stack.pop()
+        if self.canvas_scopes and self.canvas_scopes[-1][0] == len(self.stack):
+            self.canvas_scopes.pop()
         if self.active and self.active[-1]["depth"] == len(self.stack):
             node = self.active.pop()
-            if node.get("native_label") and node.get("child_block"):
+            if (node.get("native_label") or node.get("table_cell")) and node.get("child_block"):
                 return
             text = " ".join("".join(node["text"]).split())
             # Named labels are explicit stable identities. Typst's generated
             # loc-N labels shift after edits, so use contextual text for those.
             label = node["id"]
+            heading = node["heading"] + ("\nfigure:" + node["canvas_scope"] if node["canvas_scope"] else "")
             identity = f"label:{label}" if label and not re.fullmatch(r"loc-\d+", label) else (
-                node["heading"] + "\n" + tag + "\n" + text)
+                heading + "\n" + tag + "\n" + text)
             digest = hashlib.sha256(identity.encode()).hexdigest()[:20]
             count = self.counts.get(digest, 0) + 1
             self.counts[digest] = count
@@ -195,6 +203,7 @@ class BodyIndex(SvgRanges):
         self.anchors = {}
         self.blocks = {}
         self.marks = {}
+        self.canvas_identities = {}
         self.unsplittable = set()
         self.headings = []
         self.heading = None
@@ -214,6 +223,8 @@ class BodyIndex(SvgRanges):
                 self.anchors[identifier] = index
             if key := attributes.get("data-reader-key"):
                 self.blocks[key] = index
+            if identity := attributes.get("data-flow-canvas-identity"):
+                self.canvas_identities.setdefault(identity, set()).add(index)
             if mark := attributes.get("data-flow-mark"):
                 self.marks[mark] = index
             if targets := attributes.get("data-flow-targets"):
@@ -292,6 +303,10 @@ def split_document(source, revision, max_chars=180000, max_blocks=140):
                 "section": block_sections[heading["block"]]}
                for heading in index.headings if heading["id"]]
     blocks = {key: block_sections[block] for key, block in index.blocks.items()}
+    canvas_sections = {identity: {block_sections[block] for block in entries}
+                       for identity, entries in index.canvas_identities.items()}
+    canvas_sections = {identity: next(iter(entries)) for identity, entries in canvas_sections.items()
+                       if len(entries) == 1}
     return SectionBundle({"revision": revision, "sections": sections, "anchors": anchors,
-                          "blocks": blocks, "outline": outline}, documents, assets,
+                          "blocks": blocks, "canvasIdentities": canvas_sections, "outline": outline}, documents, assets,
                          PassageIndex(source, blocks).passages)
