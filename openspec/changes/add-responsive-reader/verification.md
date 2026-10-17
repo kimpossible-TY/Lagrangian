@@ -2,6 +2,38 @@
 
 This is an implementation checkpoint, not a completed mobile rollout.
 
+The user clarified that reading must not require zoom, slides, horizontal panning,
+or an extra click to expand equations/essential annotations. Earlier checks of
+whole-document overflow do not satisfy that requirement. The current prototype
+still fails it: at 390px, a real PDE equation needs 367px inside a 343px container;
+section progression still has a required next button, and other sections contain
+collapsed annotations and graphical-view buttons. Historical checks below remain
+useful evidence of rendering fidelity and lifecycle, but are not a responsive
+reading acceptance result.
+
+## Width-aware renderer experiment after the clarification
+
+The isolated, self-hosted MathJax 4.1.3 probe checks all 1,411 outer display
+equations from the accepted PDE HTML. At 390px with 18px text, 81 equations still
+overflow; at 320px with 30px text, 294 overflow. There are no MathJax input errors
+or SVG count changes in those runs. Presentation text order changes in 604/607
+equations, and marker occurrence lists change in 31/61: these require logical
+identity and selection handling independent of the rendered DOM. They are not
+automatically evidence of mathematical corruption.
+
+The experiment demonstrates useful line breaking for some equations but rejects
+a direct MathJax swap as a complete solution. Long decorated terms already
+flattened into SVG and multi-column derivation tables are concrete failure cases.
+There were no changes to the installed Reader, original PDF service, or mobile
+default from this experiment. Enhanced speech/exploration is disabled in this
+isolated probe; production accessibility remains unverified. Surrounding content
+and annotation programs are outside its acceptance scope.
+
+Reproduction: `tools/flow-reader/research/README.md`. Local evidence:
+`dist/reader-reflow-probe/corpus-390-18.json`, `corpus-320-30.json`, `390-18.png`,
+and `320-30.png`. The corpus source SHA-256 is
+`fb664809f1aff548bb2ea8c5379e9c8b3a87f5cd48167755685b072355040a96`.
+
 ## Actual PDE compilation
 
 The full `Partial_Differential_Equations/main.typ` was compiled using Typst 0.15.1,
@@ -153,8 +185,9 @@ The screenshot is `dist/reader-highlight-checks/pde-https-highlight.png`.
 ## Outstanding requirements
 
 - Broader visual checks of the 15 graphical annotations and lower uncached latency.
-- Width-aware figure composition and readable labels; the current canvas adapter
-  preserves SVG content but still scales complete canvases.
+- Width-aware equation and figure composition with readable labels, inline essential
+  annotations, and automatic continuous section loading. Current local scrolling,
+  complete-canvas scaling, and modal relationship views fail the clarified contract.
 - PDE and real-device highlight checks, source selection sharing, and broader update/anchor tests.
 - Offline reload and font delivery on a real mobile browser.
 - Explicit view preference and mobile entry routing after figure and fidelity

@@ -1,0 +1,138 @@
+// Standalone corpus probe. This never changes the live Reader or source files.
+const main = document.querySelector("main");
+const progress = document.querySelector("#progress");
+const reportNode = document.querySelector("#report");
+const parameters = new URLSearchParams(location.search);
+const fontSize = Number(parameters.get("font") || 18);
+document.body.style.fontSize = `${fontSize}px`;
+
+function text(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement.closest("svg,.label")
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  let result = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) result += node.data;
+  // MathJax adds invisible function/application operators to presentation text.
+  return result.replace(/[\s\u2061-\u2064]/g, "");
+}
+
+function prepare(item) {
+  const section = document.createElement("section");
+  section.className = "equation";
+  section.id = `equation-${item.index}`;
+  section.dataset.index = item.index;
+  section.innerHTML = item.mathml;
+  section.querySelectorAll("script,iframe,object,embed,form,base").forEach((n) => n.remove());
+  for (const node of section.querySelectorAll("*")) {
+    for (const attribute of [...node.attributes]) {
+      if (
+        /^on/i.test(attribute.name) ||
+        (/^(href|src|xlink:href)$/i.test(attribute.name) &&
+          /^\s*javascript:/i.test(attribute.value))
+      )
+        node.removeAttribute(attribute.name);
+    }
+  }
+  // MathJax requires an HTML integration wrapper around foreign SVG tokens.
+  for (const svg of section.querySelectorAll("math mtext > svg")) {
+    const span = document.createElement("span");
+    svg.replaceWith(span);
+    span.append(svg);
+  }
+  const label = document.createElement("p");
+  label.className = "label";
+  label.textContent = `식 ${item.index + 1}`;
+  section.prepend(label);
+  return section;
+}
+
+async function run() {
+  await MathJax.startup.promise;
+  const response = await fetch("./corpus.json");
+  if (!response.ok) throw new Error(`Corpus HTTP ${response.status}`);
+  const corpus = await response.json();
+  const selected = parameters.has("index") ? Number(parameters.get("index")) : null;
+  const records = corpus.roots.filter((item) =>
+    selected === null ? item.display === "block" : item.index === selected,
+  );
+  const report = {
+    sourceSha256: corpus.sourceSha256,
+    mathjaxVersion: corpus.mathjaxVersion,
+    scope: selected === null ? "all display math roots" : `root ${selected}`,
+    viewport: innerWidth,
+    fontSize,
+    total: records.length,
+    checked: 0,
+    errors: [],
+    overflow: [],
+    textChanges: [],
+    svgChanges: [],
+    markerChanges: [],
+    // These are intentionally separate from a visual/semantic acceptance result.
+    productionAcceptance: false,
+    speechAndAccessibilityTested: false,
+  };
+  const batchSize = 25;
+  for (let i = 0; i < records.length; i += batchSize) {
+    MathJax.typesetClear([main]);
+    main.replaceChildren(...records.slice(i, i + batchSize).map(prepare));
+    const sections = [...main.children];
+    const before = sections.map((node) => ({
+      text: text(node),
+      svg: node.querySelectorAll("svg").length,
+      markers: [...node.querySelectorAll("[data-flow-mark]")].map((n) => n.dataset.flowMark),
+    }));
+    await MathJax.typesetPromise([main]);
+    await document.fonts.ready;
+    sections.forEach((node, index) => {
+      const id = Number(node.dataset.index);
+      const errors = [...node.querySelectorAll("mjx-merror")].map((n) =>
+        n.getAttribute("data-mjx-error"),
+      );
+      if (errors.length) report.errors.push({ index: id, errors });
+      const bounds = node.getBoundingClientRect();
+      const glyphs = [...node.querySelectorAll("mjx-c,mjx-utext,svg")]
+        .flatMap((n) => [...n.getClientRects()])
+        .filter((r) => r.width && r.height);
+      const left = Math.min(bounds.left, ...glyphs.map((r) => r.left));
+      const right = Math.max(bounds.right, ...glyphs.map((r) => r.right));
+      if (
+        node.scrollWidth > node.clientWidth + 1 ||
+        left < bounds.left - 1 ||
+        right > bounds.right + 1
+      ) {
+        report.overflow.push({
+          index: id,
+          available: node.clientWidth,
+          required: node.scrollWidth,
+          left: bounds.left - left,
+          right: right - bounds.right,
+        });
+      }
+      const actual = text(node);
+      if (actual !== before[index].text)
+        report.textChanges.push({ index: id, before: before[index].text, after: actual });
+      const svg = node.querySelectorAll("svg").length;
+      if (svg !== before[index].svg)
+        report.svgChanges.push({ index: id, before: before[index].svg, after: svg });
+      const markers = [...node.querySelectorAll("[data-flow-mark]")].map((n) => n.dataset.flowMark);
+      if (JSON.stringify(markers) !== JSON.stringify(before[index].markers)) {
+        report.markerChanges.push({ index: id, before: before[index].markers, after: markers });
+      }
+    });
+    report.checked += sections.length;
+    progress.textContent = `${report.checked} / ${report.total}개 수식 검사`;
+    reportNode.textContent = JSON.stringify(report, null, 2);
+    // Yield between batches without relying on animation frames in a hidden tab.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  document.body.dataset.state = "ready";
+}
+run().catch((error) => {
+  document.body.dataset.state = "error";
+  progress.textContent = "검증 실패";
+  reportNode.textContent = String(error);
+});
