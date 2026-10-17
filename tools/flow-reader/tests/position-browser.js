@@ -45,10 +45,28 @@ function nearCanvasesReady() {
 }
 try {
   await until(() => math(), "actual PDE target");
+  await until(() => math().dataset.mathState === "ready", "entry PDE equation");
+  await until(nearCanvasesReady, "entry nearby drawings");
+  report.measurements.push({
+    name: "Target before initial font normalization",
+    top: target().getBoundingClientRect().top,
+    font: document.querySelector("#reader-size").value,
+    anchor: history.state?.readerAnchor,
+  });
+  check(
+    "The PDE entry target is aligned before changing the saved font",
+    Math.abs(target().getBoundingClientRect().top - 88) <= 3,
+  );
   while (Number(document.querySelector("#reader-size").value) > 18)
     document.querySelector("#reader-smaller").click();
   await until(() => math().dataset.mathState === "ready", "initial PDE equation");
   await until(nearCanvasesReady, "initial nearby drawings");
+  report.measurements.push({
+    name: "Initial target after composition",
+    top: target().getBoundingClientRect().top,
+    font: document.querySelector("#reader-size").value,
+    anchor: history.state?.readerAnchor,
+  });
   check(
     "Direct PDE target navigation stays at the reading reference",
     Math.abs(target().getBoundingClientRect().top - 88) <= 3,

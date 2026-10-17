@@ -42,11 +42,16 @@ class ReaderInstallTests(unittest.TestCase):
             args = argparse.Namespace(data=work / "installed", profile="install-fixture", port=25002,
                                       public_url="", development=True, flow_manager=flow,
                                       python=Path(sys.executable), compiler=Path(sys.executable), start=False)
+            args.semantic_canvases = True
             with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"):
                 result = installer.install(args)
                 manager = Path(result["manager"])
                 profiles = json.loads(subprocess.check_output([manager, "--profiles"], text=True))
                 self.assertEqual(profiles["profiles"][0]["root"], str(project))
+                self.assertTrue(profiles["profiles"][0]["semanticCanvases"])
+                args.semantic_canvases = None
+                installer.install(args)
+                self.assertTrue(json.loads((args.data / "config.json").read_text())["services"][0]["semanticCanvases"])
                 config = (args.data / "config.json").read_bytes()
                 launcher = manager.read_bytes()
                 marker.write_text("uncommitted source")

@@ -1,15 +1,24 @@
+import { NativeCanvasLabels } from "./canvas-labels.js";
+
 // CeTZ coordinate units adapt before rendering. The browser never scales the
 // resulting text to force a fit. A width fit is not a label-collision guarantee.
 export class AdaptiveCanvases {
-  constructor(article, getRevision, preserve = (change) => change()) {
+  constructor(
+    article,
+    getRevision,
+    preserve = (change) => change(),
+    selectionActive = () => false,
+  ) {
     this.article = article;
     this.getRevision = getRevision;
     this.preserve = preserve;
+    this.selectionActive = selectionActive;
     this.sequence = 0;
     this.records = [];
     this.cache = new Map();
     this.resize = new ResizeObserver(() => this.schedule());
     this.resize.observe(article);
+    document.addEventListener("selectionchange", () => this.schedule());
   }
 
   onDocument() {
@@ -56,6 +65,16 @@ export class AdaptiveCanvases {
       node.dataset.canvasLayout = "pending";
       node.dataset.canvasPlaceholder = "true";
       record.node.append(message);
+      if (node.dataset.flowCanvasModel) {
+        record.semantic = true;
+        try {
+          record.native = new NativeCanvasLabels(node, this.preserve, this.selectionActive);
+          node.dataset.canvasPlaceholder = "false";
+        } catch (error) {
+          message.textContent = error.message;
+          node.dataset.canvasLayout = "error";
+        }
+      }
       this.records.push(record);
       this.intersection.observe(record.node);
     }
@@ -71,6 +90,11 @@ export class AdaptiveCanvases {
       if (!record.node.isConnected) continue;
       const width = Math.floor(record.node.getBoundingClientRect().width);
       if (width < 1) continue;
+      if (record.native) {
+        record.native.prepare(width, fontSize);
+        continue;
+      }
+      if (record.semantic) continue;
       const key = JSON.stringify([revision, record.id, width, fontSize]);
       if (record.key === key && record.result && record.node.dataset.canvasLayout === "pending") {
         this.apply(record, record.result, key);
@@ -129,15 +153,36 @@ export class AdaptiveCanvases {
   }
 
   async render() {
+    const fontSize = parseFloat(getComputedStyle(this.article).fontSize);
+    for (const record of this.records) {
+      if (!record.native || !record.visible || !record.node.isConnected) continue;
+      try {
+        const width = Math.floor(record.node.getBoundingClientRect().width);
+        if (width < 32) continue;
+        const ready = record.native.layout(width, fontSize);
+        const message = ready ? "" : "그림의 글자를 배치하는 중…";
+        if (record.message.textContent !== message)
+          this.preserve(() => {
+            // Loading notices also occupy reading space. Removing the notice
+            // must preserve the following passage just like drawing publication.
+            record.message.textContent = message;
+          });
+      } catch (error) {
+        this.preserve(() => {
+          record.message.textContent = error.message;
+          record.node.dataset.canvasLayout = "error";
+        });
+      }
+    }
     if (this.busy) {
       this.again = true;
       return;
     }
     const revision = this.getRevision();
     if (!revision) return;
-    const fontSize = parseFloat(getComputedStyle(this.article).fontSize);
     const pending = [];
     for (const record of this.records) {
+      if (record.semantic) continue;
       if (!record.visible || !record.node.isConnected) continue;
       const width = Math.floor(record.node.getBoundingClientRect().width);
       if (width < 32 || width > 4096) continue;

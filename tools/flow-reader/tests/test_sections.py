@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import base64
+import re
 import sys
 import unittest
 
@@ -17,6 +18,18 @@ def body(source):
 
 
 class SectionTests(unittest.TestCase):
+    def test_native_label_keys_follow_content_and_nested_labels_have_leaf_keys(self):
+        before = '<html><body><h2>Figure topic</h2><div class="flow-canvas-label"><span class="flow-canvas-label-number">1</span><div class="flow-canvas-label-body">Keep this readable label.</div></div></body></html>'
+        after = before.replace('>1</span>', '>12</span>').replace('<div class="flow-canvas-label">',
+            '<div class="flow-canvas-label-body">Inserted unrelated label.</div><div class="flow-canvas-label">')
+        keys = []
+        for source in (before, after):
+            indexed = assign_block_ids(source)
+            keys.append(re.search(r'<div\b[^>]*class="flow-canvas-label-body"[^>]*data-reader-key="([^"]+)"[^>]*>Keep this readable label\.', indexed)[1])
+        self.assertEqual(keys[0], keys[1])
+        nested = '<html><body><div class="flow-canvas-label-body">outer<div class="flow-canvas-label-body">leaf</div></div></body></html>'
+        self.assertEqual(assign_block_ids(nested).count('data-reader-key='), 1)
+
     def test_embedded_image_bytes_and_dimensions_survive_asset_separation(self):
         content = b"test-image-content"
         source = '<html><body><img width="300" height="200" src="data:image/png;base64,' + base64.b64encode(content).decode() + '"></body></html>'
@@ -61,6 +74,8 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(list(bundle.assets.values()), [drawing.encode()])
         self.assertLess(len(bundle.documents["section-0"]), 500)
         self.assertIn(b'loading="lazy"', bundle.documents["section-0"])
+        native = '<div class="flow-canvas-stage">' + drawing + '</div>'
+        self.assertEqual(separate_assets(native), (native, {}))
         linked = drawing.replace('</svg>', '<a href="#equation"><path d="M0 0L10 10"/></a></svg>')
         result, assets = separate_assets(linked)
         self.assertEqual(result, linked)

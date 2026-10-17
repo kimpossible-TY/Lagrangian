@@ -1,6 +1,7 @@
 """Actual CeTZ output must change geometry without scaling its label glyphs."""
 
 import json
+from html.parser import HTMLParser
 import os
 from pathlib import Path
 import shutil
@@ -20,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from build import Project, compile_project, prepare_packages
 from canvases import extract_canvases, validate_canvases
 from serve import ReaderState, handler_for
+from content import SvgRanges
 
 
 def request(width=280, font=18):
@@ -45,6 +47,64 @@ class CanvasCompilerTests(unittest.TestCase):
         cls.packages = Path(packages)
         cls.project = Project(ROOT / "tests/fixtures", Path("canvases.typ"),
                               cls.packages, compiler=cls.compiler)
+
+    def test_native_geometry_and_label_sources_are_exported_without_text_flattening(self):
+        class NativeSources(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.models = {}
+                self.styles = []
+                self.math = 0
+                self.math_depth = 0
+                self.math_html = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if "data-flow-canvas-model" in attributes:
+                    self.models[attributes["data-flow-canvas"]] = json.loads(attributes["data-flow-canvas-model"])
+                if tag == "span" and "font-size:" in attributes.get("style", ""):
+                    self.styles.append(attributes["style"])
+                self.math += tag == "math"
+                self.math_depth += tag == "math"
+                if tag == "span" and self.math_depth:
+                    self.math_html.append(attributes)
+
+            def handle_endtag(self, tag):
+                self.math_depth -= tag == "math"
+
+        project = Project(self.project.root, Path("native-canvases.typ"), self.packages,
+                          compiler=self.compiler, semantic_canvases=True)
+        before = {path: path.read_bytes() for path in (project.root / project.entry,
+                                                      self.project.root / self.project.entry)}
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = compile_project(project, output)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            self.assertEqual(report["compilerLossWarnings"], [])
+            source = (output / "document.html").read_text()
+            parser = NativeSources()
+            parser.feed(source)
+            self.assertEqual(len(parser.models), 7)
+            self.assertAlmostEqual(parser.models["canvas-2"]["width"], 500 / .75)
+            self.assertEqual(len(parser.models["canvas-3"]["labels"]), 7)
+            for model in parser.models.values():
+                self.assertEqual(model["version"], 1)
+                self.assertEqual(len({item["id"] for item in model["labels"]}), len(model["labels"]))
+            self.assertTrue(any("font-size:1em" in style for style in parser.styles))
+            self.assertTrue(any("font-size:2.545" in style and "color:#b5261e" in style
+                                and "font-weight:700" in style for style in parser.styles))
+            self.assertEqual(parser.math, 6)
+            self.assertEqual(parser.math_html, [], "Mathematical glyphs must remain native MathML")
+            self.assertIn("Original stacked label", source)
+            self.assertIn("This fixed content box cannot shrink.", source)
+            self.assertIn("Nested readable label", source)
+            ranges = SvgRanges(source)
+            ranges.feed(source)
+            self.assertEqual(len(ranges.ranges), 7)
+            for start, end in ranges.ranges:
+                svg = ET.fromstring(source[start:end])
+                self.assertFalse(list(svg.iter("{http://www.w3.org/2000/svg}symbol")))
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
 
     def test_coordinate_unit_adapts_but_glyphs_and_physical_strokes_do_not_shrink(self):
         before = (self.project.root / self.project.entry).read_bytes()

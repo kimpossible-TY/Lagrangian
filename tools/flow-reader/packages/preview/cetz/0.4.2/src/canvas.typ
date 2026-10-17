@@ -43,18 +43,24 @@
 
 // Reader-only inspection uses the same layout context as the paged renderer.
 // Offsets remain relative to the input coordinate origin, including negative bounds.
-#let reader-bounds(body, length: 1cm) = {
+#let reader-bounds(body, length: 1cm, sources: false, padding: none) = {
   let result = process.many(_canvas-context(length.to-absolute()), body)
   let bounds = result.bounds
   if bounds == none { return (left: 0pt, top: 0pt, width: 0pt, height: 0pt, labels: ()) }
+  let padding = util.map-dict(util.as-padding-dict(padding), (_, v) => util.resolve-number(result.ctx, v))
+  bounds = aabb.padded(bounds, padding)
   let (width, height, ..) = vector.scale(aabb.size(bounds), length)
   let labels = drawable.filter-tagged(result.drawables, drawable.TAG.hidden)
     .filter(item => item.type == "content")
-    .map(item => (
-      left: (item.pos.at(0) - item.width / 2) * length,
-      top: (item.pos.at(1) - item.height / 2) * length,
-      width: item.width * length, height: item.height * length,
-    ))
+    .map(item => {
+      let label = (
+        left: (item.pos.at(0) - item.width / 2) * length,
+        top: (item.pos.at(1) - item.height / 2) * length,
+        width: item.width * length, height: item.height * length,
+      )
+      if sources { label.insert("body", item.at("reader-body", default: item.body)) }
+      label
+    })
   let routing = result.ctx.shared-state.at("flow-reader-routing", default: none)
   let connectors = if routing == none { () } else { routing.connectors }
   if routing != none {
@@ -75,7 +81,7 @@
 /// - padding (none, number, array, dictionary) = none: How much padding to add to the canvas. `none` applies no padding. A number applies padding to all sides equally. A dictionary applies padding following Typst's `pad` function: https://typst.app/docs/reference/layout/pad/. An array follows CSS like padding: `(y, x)`, `(top, x, bottom)` or `(top, right, bottom, left)`.
 /// - debug (bool): Shows the bounding boxes of each element when `true`.
 /// -> content
-#let _paged-canvas(length: 1cm, baseline: none, debug: false, background: none, stroke: none, padding: none, body) = context {
+#let _paged-canvas(length: 1cm, baseline: none, debug: false, background: none, stroke: none, padding: none, skip-labels: false, body) = context {
   if body == none {
     return []
   }
@@ -192,7 +198,7 @@
           fill-rule: drawable.at("fill-rule", default: "non-zero"),
           ..vertices,
         )
-      } else if drawable.type == "content" {
+      } else if drawable.type == "content" and not skip-labels {
         let (width, height) = std.measure(drawable.body)
         move(
           dx: (drawable.pos.at(0) - offset-x) * length - width / 2,
@@ -204,8 +210,88 @@
   }))
 }
 
+// Preserve original label bodies before the paged renderer flattens their text.
+// Native children participate in the same HTML/MathML export and counter pass
+// as the surrounding document; dynamic geometry never recreates these bodies.
+#let _native-label-body(body) = context {
+  let base-size = text.size
+  let math-depth = state("flow-native-label-math-depth", 0)
+  let font-style() = {
+    let weights = (thin: 100, hairline: 100, extralight: 200, light: 300,
+      regular: 400, normal: 400, medium: 500, semibold: 600, bold: 700,
+      extrabold: 800, black: 900, heavy: 900)
+    let weight = if type(text.weight) in (int, float) { text.weight }
+      else { weights.at(str(text.weight).replace("-", ""), default: 400) }
+    ("font-size:" + str(calc.max(1, text.size / base-size)) + "em;" +
+    "font-weight:" + str(weight) + ";font-style:" + str(text.style) + ";" +
+    if type(text.fill) == color { "color:" + text.fill.to-hex() + ";" } else { "" })
+  }
+  // Typst's experimental HTML exporter does not retain every text set rule.
+  // Materialize the supported label typography at its semantic boundary.
+  show text: it => context {
+    if target() == "html" and math-depth.get() == 0 {
+      html.elem("span", attrs: (style: font-style()), it)
+    }
+    else { it }
+  }
+  show math.equation: it => context {
+    if target() == "html" and math-depth.get() == 0 {
+      // An identity text show rule still permits inherited rules to run.
+      // Guard mathematical leaves explicitly: HTML wrappers there would turn
+      // glyphs into embedded HTML and apply the outer font scale twice.
+      html.elem("span", attrs: (style: font-style()), [
+        #math-depth.update(value => value + 1)
+        #it
+        #math-depth.update(value => value - 1)
+      ])
+    } else { it }
+  }
+  show stack: it => context {
+    if target() == "html" {
+      let horizontal = it.dir in (ltr, rtl)
+      html.elem("div", attrs: (class: "flow-canvas-stack",
+        style: "display:flex;flex-wrap:wrap;gap:.25em;flex-direction:" +
+          if horizontal { "row" } else { "column" }),
+        it.children.filter(child => type(child) == content).join())
+    } else { it }
+  }
+  show box: it => context {
+    if target() == "html" { html.elem("span", it.body) } else { it }
+  }
+  show scale: it => context {
+    if target() == "html" { it.body } else { it }
+  }
+  body
+}
+
+#let _reader-native-canvas(id, render, inspect) = context {
+  let bounds = inspect(sources: true)
+  let size = measure(render())
+  let px = 0.75pt
+  let labels = bounds.labels.enumerate().map(((i, item)) => (
+    id: str(i), left: (item.left - bounds.left) / px,
+    top: (item.top - bounds.top) / px,
+    width: item.width / px, height: item.height / px,
+  ))
+  let model = (version: 1, width: size.width / px, height: size.height / px, labels: labels)
+  html.elem("div", attrs: (class: "flow-drawing flow-canvas",
+    id: "flow-" + id, "data-flow-canvas": id, "data-flow-canvas-model": json.encode(model)), [
+    #html.elem("div", attrs: (class: "flow-canvas-stage"),
+      html.frame(render(skip-labels: true)))
+    #html.elem("div", attrs: (class: "flow-canvas-labels"), {
+      for (i, item) in bounds.labels.enumerate() {
+        html.elem("div", attrs: (class: "flow-canvas-label", "data-flow-canvas-label": str(i)), [
+          #html.elem("span", attrs: (class: "flow-canvas-label-number", "aria-hidden": "true"), str(i + 1))
+          #html.elem("div", attrs: (class: "flow-canvas-label-body"), _native-label-body(item.body))
+        ])
+      }
+    })
+  ])
+}
+
 // Reader geometry is expressed in CSS pixels. The drawing program and its
-// coordinates are preserved; only the coordinate unit changes before layout.
+// coordinates are preserved. A uniform geometry transform also handles authored
+// physical lengths; label boxes, glyphs and physical strokes are measured afresh.
 #let _reader-canvas-counter = counter("flow-reader-canvas")
 
 #let _reader-canvas(id, render, original-length) = context {
@@ -260,12 +346,16 @@
 
 // Individual place elements cannot be exported as independent HTML content.
 #let canvas(length: 1cm, baseline: none, debug: false, background: none, stroke: none, padding: none, body) = context {
-  let render(unit) = _paged-canvas(length: unit, baseline: baseline, debug: debug,
-    background: background, stroke: stroke, padding: padding, body)
+  let render(unit: length, skip-labels: false) = _paged-canvas(length: unit, baseline: baseline, debug: debug,
+    background: background, stroke: stroke, padding: padding, skip-labels: skip-labels, body)
+  let inspect(sources: false) = reader-bounds(body, length: length, sources: sources, padding: padding)
   if target() == "html" {
     _reader-canvas-counter.step()
     context {
-      _reader-canvas("canvas-" + str(_reader-canvas-counter.get().first()), render, length)
+      let id = "canvas-" + str(_reader-canvas-counter.get().first())
+      if sys.inputs.at("flow-native-labels", default: "false") == "true" {
+        _reader-native-canvas(id, render, inspect)
+      } else { _reader-canvas(id, unit => render(unit: unit), length) }
     }
-  } else { render(length) }
+  } else { render() }
 }

@@ -12,9 +12,9 @@ slides, a next-section click, or a separate enlarged-equation view. Compose long
 mathematics and figure layouts to the available width, preserving their meaning
 and readable labels. Optional navigation and saved-highlight controls are allowed.
 
-The current development prototype does not yet meet this contract: local equation
-scrolling, unresolved drawing widths, label sizes, and overlapping relationships
-still need work. Notes and relationships are now shown inline automatically.
+The legacy drawing path still has unresolved widths and small labels. The native
+label option below remains under figure and device validation. Notes and
+relationships are now shown inline automatically.
 A document-wide overflow check is insufficient; audit each component and every
 required reading action before promotion.
 
@@ -39,6 +39,72 @@ and 18px inherited text, 49 fit; at 273px and 30px, 44 fit. These drawing widths
 correspond to plain-body phone widths of 390px and 320px in the test browser,
 but nested callouts can be narrower. The browser measures the actual container.
 Evidence is under `dist/reader-canvas-checks`.
+
+== Native figure labels
+
+`--semantic-canvases` enables an independent figure path for development builds
+and services. It exports the original CeTZ label bodies as canonical HTML/MathML
+before SVG flattening, together with their original anchor bounds and a
+geometry-only SVG. Physical and numeric source coordinates are retained. The
+browser scales the geometry uniformly while keeping physical strokes independent
+of that scale. It never scales the completed label glyphs.
+
+Label mathematics uses the common mathematical renderer. Short labels stay at
+their original points when their measured boxes fit without other text or
+sampled strokes. Other labels remain completely visible below the figure,
+with matching readable diagram numbers and dotted leaders for displaced markers.
+No label reveal or enlarged view is required. Source order and mathematical
+identities remain intact; synthetic numbers and loading messages are excluded
+from quotations. Layout publication waits for a selection or reader dialog.
+Long legends use the full available width, with their number above the body;
+short legends can share a row with their number. The number must not subtract
+width already budgeted for mathematical composition.
+
+Label text keeps the chosen reading size and deliberately larger source sizes.
+The HTML adapter explicitly retains source size, weight and color, and converts
+stack/fixed-box label containers to native flow. The browser lowers the lightness
+of low-contrast label ink while preserving its RGB channel proportions; original
+colors remain in the exported source and the geometry palette is unchanged.
+Native labels have a paper background. The current actual source contains
+gray, mint and orange label colors with less than 3:1 contrast on that background,
+so font size alone is not a sufficient readability check.
+Text show rules are suppressed inside an exported mathematical equation. Its
+outer typography applies once; its glyphs stay native MathML instead of becoming
+embedded HTML with a second font multiplier.
+
+All native labels belong to the initial canonical export, including nested
+drawings, references and decoration IDs. Width/font changes need no canvas
+compiler request. Large geometry remains inline through transport asset
+separation so placement can inspect its paths. Offscreen figures reset obsolete
+placements immediately; pending empty leader SVGs have explicit zero dimensions
+so their default 300px box cannot widen a narrow reading page.
+Each leaf label passage has a source-derived reading key independent of its
+generated diagram number. Reading a diagram without a passage across the
+reference line preserves its point in the original geometry. Font and width
+changes restore those anchors. All mathematical labels compose when any part
+of their canvas is nearby, including a later passage in a long legend.
+Loading-notice removal also preserves the reading anchor. Passage offsets use
+whole CSS pixels so repeated publications cannot accumulate scroll rounding.
+
+The frozen PDE snapshot exposes 58 native figures and 658 label bodies. Browser
+runs at 320px and 390px each pass 1,277 checks at 18px and 30px, covering canonical
+text, complete label boxes, font floors, ink contrast, physical strokes, separate
+markers, mathematical ink, full page width and absence of canvas compiler
+requests. A controlled nested/fixed-size fixture passes 159 checks. Separate
+six-check position runs cover native label passages, geometry points and viewport
+changes, including the actual PDE document. Evidence is under
+`dist/reader-label-checks`.
+
+The paired full PDE PDFs remain byte-identical at a fixed creation timestamp:
+10,758,514 bytes, SHA-256
+`3fb2b8cb775215a9d7a3905048489299bad22331b3401c7223bbc48f86d1ef46`.
+All 1,914 reference display strings outside canvases are unchanged. The extracted
+outside-canvas prose differs only by one whitespace boundary; its non-whitespace
+text is identical. These checks do not establish complete arrow/leader geometry
+or physical-device accessibility. Nine opaque SVG islands remain outside this
+native path: five layout-wrapped diagrams and four rendered surface plots.
+Keep those gates open before mobile-default rollout. Disabling the option keeps
+the established coordinate-unit delivery path.
 
 == Build and inspect
 
@@ -385,6 +451,12 @@ Evidence is under `dist/reader-entry-checks`. The
 mathematical and update regression fixtures retain their 69 and 25 passing
 checks. Evidence is under `dist/reader-position-checks`.
 
+The managed named-link fix is installed at commit `43c046d3`. A fresh tab at the
+same previously saved energy-flux URL aligns its target at 87.625px, with no
+whole-page overflow at 390px. Its accepted compile passes; the original PDF
+service retains PID 39357 and returns HTTP 200. The delivery receipt is
+`dist/reader-entry-checks/managed-update.json`.
+
 These delivery checks do not validate every figure's label collisions or
 readability. The mobile default still waits for the remaining figure and device
 checks.
@@ -471,6 +543,11 @@ directory. A stable launcher in `reader/bin/flow-reader` exposes `--profiles`,
 `--launch-plan ID`, `--status ID`, and `--control start|stop|restart ID`. Reader IDs
 append `-reader` to the parent ID. Port validation includes every saved Flow
 profile, including projects that are currently stopped.
+
+The installer also accepts `--semantic-canvases` for native figure evaluation.
+Omitting this option preserves its installed setting; `--no-semantic-canvases`
+returns to coordinate-unit delivery. This setting belongs only to the Reader;
+the parent Flow/PDF profile is unchanged.
 
 Tail Hosting registers the derived profile using this launcher as `managerBinary`
 and `kind: typst-reader`. The maintained adapter is

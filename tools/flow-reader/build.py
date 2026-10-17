@@ -29,6 +29,7 @@ class Project:
     packages: Path
     fonts: tuple[Path, ...] = ()
     compiler: str = "typst"
+    semantic_canvases: bool = False
 
     def relative_entry(self) -> str:
         entry = (self.root / self.entry).resolve()
@@ -133,6 +134,8 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
         command = [project.compiler, "compile", "--features", "html", "--root", str(root),
                    "--deps", str(work / "dependencies.json"),
                    "--package-path", str(work / "packages"), "--input", "flow-reader=true"]
+        if project.semantic_canvases:
+            command.extend(["--input", "flow-native-labels=true"])
         for font in project.fonts:
             command.extend(["--font-path", str((root / font).resolve())])
         if geometry is not None:
@@ -206,9 +209,12 @@ def main() -> int:
     parser.add_argument("--package-path", type=Path, required=True)
     parser.add_argument("--font-path", type=Path, action="append", default=[])
     parser.add_argument("--compiler", default="typst")
+    parser.add_argument("--semantic-canvases", action="store_true",
+                        help="Evaluate native figure labels independently of vector geometry")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    project = Project(args.root, args.entry, args.package_path, tuple(args.font_path), args.compiler)
+    project = Project(args.root, args.entry, args.package_path, tuple(args.font_path), args.compiler,
+                      args.semantic_canvases)
     report = compile_project(project, args.output.resolve())
     print(json.dumps(report, ensure_ascii=False, indent=2))
     # Compiling alone is not proof of faithful output; callers must check the gate.

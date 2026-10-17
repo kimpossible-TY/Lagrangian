@@ -295,6 +295,97 @@ mjx-container mjx-stretchy-v {
 .flow-canvas-status:empty {
   display: none;
 }
+.flow-canvas[data-flow-canvas-model] {
+  position: relative;
+  color: #242c34;
+  background: #fcfaf6;
+  isolation: isolate;
+}
+.flow-canvas-stage {
+  position: relative;
+  width: 100%;
+}
+.flow-canvas[data-canvas-layout="pending"] > .flow-canvas-stage > svg:not(.flow-canvas-leaders) {
+  width: 100% !important;
+  height: auto !important;
+  left: 0 !important;
+  top: 0 !important;
+}
+.flow-canvas-markers {
+  font-size: var(--reader-font-size);
+}
+.flow-canvas-leaders {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  background: transparent !important;
+}
+.flow-canvas-leaders path {
+  stroke: #21685f;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  fill: none;
+}
+.flow-canvas-leaders circle {
+  fill: #21685f;
+}
+.flow-canvas-labels {
+  position: static;
+  display: grid;
+  gap: 0.5em;
+  font-size: var(--reader-font-size);
+}
+.flow-canvas-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.4em;
+  min-width: 0;
+  font-size: var(--reader-font-size);
+}
+.flow-canvas-label[data-label-mode="legend"][data-label-wide="false"] {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.flow-canvas-label-body {
+  display: flow-root;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: var(--reader-font-size);
+  background: #fcfaf6;
+}
+.flow-canvas-label-body :where(p, div, span, table, img) {
+  max-width: 100%;
+}
+.flow-canvas-label-body > :first-child {
+  margin-block-start: 0;
+}
+.flow-canvas-label-body > :last-child {
+  margin-block-end: 0;
+}
+.flow-canvas-label-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  min-height: 1.6em;
+  padding: 0 0.15em;
+  border: 1px solid #21685f;
+  border-radius: 0.25em;
+  color: #163f39;
+  background: #fcfaf6;
+  font: inherit;
+  line-height: 1.3;
+  justify-self: start;
+}
+.flow-canvas-label[data-label-mode="inline"] {
+  position: absolute;
+  display: block;
+}
+.flow-canvas-label[data-label-mode="inline"] > .flow-canvas-label-number {
+  display: none;
+}
 .flow-mark svg,
 math svg {
   max-width: none;

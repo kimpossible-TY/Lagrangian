@@ -354,6 +354,7 @@ def handler_for(state):
                       "/connector-routing.js": ("connector-routing.js", "text/javascript; charset=utf-8"),
                       "/decorations.js": ("decorations.js", "text/javascript; charset=utf-8"),
                       "/canvases.js": ("canvases.js", "text/javascript; charset=utf-8"),
+                      "/canvas-labels.js": ("canvas-labels.js", "text/javascript; charset=utf-8"),
                       "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/math-identity.js": ("math-identity.js", "text/javascript; charset=utf-8"),
@@ -402,6 +403,7 @@ def main():
     parser.add_argument("--package-path", type=Path, required=True)
     parser.add_argument("--font-path", type=Path, action="append", default=[])
     parser.add_argument("--compiler", default="typst")
+    parser.add_argument("--semantic-canvases", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--original-url", required=True)
     parser.add_argument("--port", type=int, default=0)
@@ -410,7 +412,7 @@ def main():
                         help="Local development only: show explicit fidelity diagnostics")
     args = parser.parse_args()
     project = Project(args.root.resolve(), args.entry, args.package_path.resolve(),
-                      tuple(args.font_path), args.compiler)
+                      tuple(args.font_path), args.compiler, args.semantic_canvases)
     project.relative_entry()
     state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))

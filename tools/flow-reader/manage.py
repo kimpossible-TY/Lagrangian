@@ -83,11 +83,15 @@ class ReaderManager:
                         or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
                     raise ValueError("Reader public URL must be an HTTPS origin")
             parent = by_id[parent_id]
+            semantic_canvases = service.get("semanticCanvases", False)
+            if type(semantic_canvases) is not bool:
+                raise ValueError("Reader semanticCanvases must be a boolean")
             profile = {**parent, "id": identifier, "parentID": parent_id,
                        "name": parent["name"] + " · Reader", "port": port,
                        "label": LABEL_PREFIX + identifier, "publicURL": url,
                        "originalURL": parent.get("publicURL") or f"http://127.0.0.1:{parent['port']}/",
-                       "development": bool(service.get("development", False))}
+                       "development": bool(service.get("development", False)),
+                       "semanticCanvases": semantic_canvases}
             result.append(profile)
             ids.add(identifier)
             ports.add(port)
@@ -114,6 +118,8 @@ class ReaderManager:
             arguments.extend(["--font-path", font])
         if profile["development"]:
             arguments.append("--allow-incomplete")
+        if profile.get("semanticCanvases"):
+            arguments.append("--semantic-canvases")
         return arguments
 
     def agent(self, profile):
