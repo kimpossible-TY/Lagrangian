@@ -37,7 +37,8 @@ function collisions(record, layout, measurement) {
   const ink = [];
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      return node.textContent.trim() && !node.parentElement.closest("svg,script,style")
+      return node.textContent.trim() &&
+        !node.parentElement.closest("svg,script,style,mjx-assistive-mml,.flow-math-stage")
         ? NodeFilter.FILTER_ACCEPT
         : NodeFilter.FILTER_REJECT;
     },
@@ -322,6 +323,16 @@ export class GraphicalAnnotations {
     const pending = [];
     for (const record of this.records.values()) {
       if (!record.scene?.visible || !record.scene.node.isConnected) continue;
+      // Initial MathML will shortly be replaced. Do not spend a full compiler
+      // request on geometry already known to be temporary.
+      if (
+        record.nodes.some((source) =>
+          visualFragments(source).some(
+            (node) => node.closest(".flow-math-view")?.dataset.mathState === "native",
+          ),
+        )
+      )
+        continue;
       const measurement = this.measure(record);
       if (!measurement) {
         record.note.textContent = "관계 그림의 배치 범위를 확인해야 합니다.";

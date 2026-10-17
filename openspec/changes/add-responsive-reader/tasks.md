@@ -14,6 +14,9 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Bind canonical mathematical text to all rendered token occurrences and preserve selected quotations/highlights when script DOM order changes.
 - [x] Carry every logical target fragment into graphical annotation requests and resolve CeTZ anchors on actual fragment surfaces without source edits.
 - [ ] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
+- [x] Integrate local MathJax/CHTML composition, validated publication, selection-aware updates, and per-fragment decoration/relationship refresh in the Reader.
+- [x] Verify local asset integrity, canonical copy, font changes, obsolete results, and automatic failure recovery in the actual Reader browser fixture.
+- [ ] Complete screen-reader and mobile Safari verification of the integrated mathematical renderer.
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [ ] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.
 - [x] Show essential annotations and graphical relationships inline without reveal/expand actions.

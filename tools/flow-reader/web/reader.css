@@ -209,6 +209,32 @@ button:hover {
 .flow-inline-equation > math {
   width: max-content;
 }
+.flow-math-view[data-math-display="block"] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.flow-math-stage {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+.flow-math-view > .flow-derivation,
+.flow-math-stage > .flow-derivation {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.flow-math-status {
+  display: block;
+  color: var(--muted);
+  font:
+    0.8rem/1.5 system-ui,
+    sans-serif;
+}
 .flow-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

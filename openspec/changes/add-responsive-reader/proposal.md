@@ -6,4 +6,10 @@ The reader preserves headings, mathematical notation, numbering, references, foo
 
 Implement the reader as independent modules within this repository. Flow owns compilation and project settings; Tail Hosting exposes the new endpoint. Keep the installed paged service and address available throughout development and rollout. Validate the full PDE document, not only a simplified demo, before making the mobile reader the default mobile entry.
 
+Use the semantic HTML/MathML output with a local, width-aware mathematical
+renderer. Retain logical token identities across line breaks so selections,
+decorations, and original CeTZ relationships follow the new composition. Publish
+only validated results for the current document and geometry. Preserve authored
+drawing coordinates through shared adapters.
+
 Non-goals: replacing Typst's parser or evaluator, removing PDF export, changing mathematical meaning, or automatically inferring a responsive layout from every arbitrary drawing program.

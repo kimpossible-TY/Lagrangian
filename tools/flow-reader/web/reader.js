@@ -3,6 +3,7 @@ import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
 import { AdaptiveCanvases } from "./canvases.js";
 import { ContinuousSections } from "./sections.js";
 import { logicalTextIndex } from "./math-identity.js";
+import { ResponsiveMath } from "./math-renderer.js";
 
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
@@ -44,6 +45,20 @@ const sections = new ContinuousSections(article, {
   changed: mountedSectionsChanged,
   anchor: readingAnchor,
   restore: restoreAnchor,
+});
+const mathematics = new ResponsiveMath(article, {
+  preserve(change) {
+    const anchor = readingAnchor();
+    change();
+    restoreAnchor(anchor);
+  },
+  changed() {
+    decorations.sync();
+    graphics.schedule();
+    highlights?.repaint();
+    sections.schedule();
+  },
+  selectionActive,
 });
 let highlights;
 import("./highlights.js")
@@ -129,6 +144,7 @@ function setFont(size) {
   document.querySelector("#reader-smaller").disabled = fontSize === 14;
   document.querySelector("#reader-larger").disabled = fontSize === 30;
   store("fontSize", fontSize);
+  mathematics.schedule();
   canvases.schedule();
   decorations.schedule();
   graphics.schedule();
@@ -289,6 +305,7 @@ function prepareSection(html, section) {
   prepareNotes(parsed.body, section);
   containWideMathematics(parsed.body);
   graphics.prepare(parsed.body);
+  mathematics.prepare(parsed.body);
   const content = document.createDocumentFragment();
   content.append(...parsed.body.childNodes);
   return content;
@@ -296,6 +313,7 @@ function prepareSection(html, section) {
 
 function mountedSectionsChanged() {
   indexDocument();
+  mathematics.sync();
   graphics.sync();
   canvases.sync();
   decorations.sync();
@@ -303,6 +321,7 @@ function mountedSectionsChanged() {
 }
 
 function renderDocument(html, nextManifest, section, options) {
+  mathematics.clear();
   graphics.clear();
   decorations.clear();
   revision = nextManifest.revision;
@@ -310,6 +329,7 @@ function renderDocument(html, nextManifest, section, options) {
   currentSection = section;
   sections.reset(manifest, section, html);
   indexDocument();
+  mathematics.sync();
   article.setAttribute("aria-busy", "false");
   canvases.onDocument();
   decorations.sync();

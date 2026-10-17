@@ -40,6 +40,7 @@ test("measuring a wrapped mark keeps every rectangle and no empty union", () => 
 function renderer() {
   const record = {
     id: "graphic-1",
+    nodes: [{ closest: () => null }],
     note: { dataset: {} },
     scene: { visible: true, node: { isConnected: true } },
   };
@@ -58,6 +59,14 @@ function renderer() {
   });
   return { value, record };
 }
+
+test("temporary native math cannot trigger an obsolete annotation compile", async () => {
+  const { value, record } = renderer();
+  record.nodes = [{ closest: () => ({ dataset: { mathState: "native" } }) }];
+  value.measure = () => assert.fail("Initial math geometry is not ready");
+  await value.render();
+  assert.equal(value.busy, undefined);
+});
 
 test("an annotation response cannot enter a newer document", async () => {
   const { value } = renderer();

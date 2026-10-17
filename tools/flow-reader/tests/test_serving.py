@@ -2,6 +2,8 @@
 
 from http.server import ThreadingHTTPServer
 import json
+import gzip
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -20,6 +22,39 @@ from serve import ReaderState, handler_for, source_signature
 
 
 class ReaderServingTests(unittest.TestCase):
+    def test_local_math_assets_match_the_manifest_and_use_versioned_caching(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(None))
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        vendor = "/vendor/mathjax-4.1.3/"
+        try:
+            manifest = json.load(urlopen(base + vendor + "manifest.json"))
+            for name, digest in manifest["files"].items():
+                with self.subTest(asset=name), urlopen(base + vendor + name) as response:
+                    self.assertEqual(hashlib.sha256(response.read()).hexdigest(), digest)
+                    self.assertIn("immutable", response.headers["Cache-Control"])
+                    if name.endswith(".woff2"):
+                        self.assertEqual(response.headers["Content-Type"], "font/woff2")
+            with urlopen(Request(base + vendor + "mathjax/mml-chtml.js",
+                                 headers={"Accept-Encoding": "gzip"})) as response:
+                self.assertEqual(response.headers["Content-Encoding"], "gzip")
+                self.assertEqual(hashlib.sha256(gzip.decompress(response.read())).hexdigest(),
+                                 manifest["files"]["mathjax/mml-chtml.js"])
+            for name in ("math-renderer.js", "mathjax-loader.js", "math-layout.js"):
+                with urlopen(base + "/" + name) as response:
+                    self.assertIn("javascript", response.headers["Content-Type"])
+                    self.assertEqual(response.headers["Cache-Control"], "no-store")
+            for path in ("missing.js", "../README.md", "%2e%2e/README.md"):
+                with self.assertRaises(HTTPError) as missing:
+                    urlopen(base + vendor + path)
+                self.assertEqual(missing.exception.code, 404)
+                missing.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+
     def test_only_compiler_dependencies_are_watched_and_import_edits_update_revision(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")

@@ -1,4 +1,4 @@
-// Keep mathematical glyphs native. Original Typst callbacks draw only the paint
+// Keep mathematical glyphs semantic. Original Typst callbacks draw only the paint
 // around their measured fragments, so line breaking never has to split an image.
 export class MathDecorations {
   constructor(article, getRevision, changed, preserve) {
@@ -48,6 +48,7 @@ export class MathDecorations {
   sync() {
     const groups = new Map();
     for (const node of this.article.querySelectorAll("[data-flow-decoration]")) {
+      if (node.closest("mjx-assistive-mml,.flow-math-stage")) continue;
       const id = node.dataset.flowDecoration;
       if (!groups.has(id)) groups.set(id, []);
       groups.get(id).push(node);
@@ -115,6 +116,10 @@ export class MathDecorations {
   }
 
   measure(record) {
+    if (
+      record.nodes.some((node) => node.closest(".flow-math-view")?.dataset.mathState === "native")
+    )
+      return null;
     const fragments = record.nodes.flatMap((node) => {
       const surface = this.surface(node);
       const base = surface.getBoundingClientRect();
