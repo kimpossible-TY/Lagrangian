@@ -30,6 +30,19 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **THEN** the last valid document remains usable with an explicit stale/error status
 - **AND** a successful subsequent compilation updates the reader without losing its logical reading position
 
+### Requirement: Persistent local highlights
+The reader SHALL save explicitly selected quotations in browser-local storage scoped to the current document, including context for relocation after edits. It SHALL preserve the original quotation when relocation is uncertain or impossible.
+
+#### Scenario: Paragraph or section moves
+- **WHEN** a saved quotation remains present after surrounding text or section boundaries change
+- **THEN** the reader locates it in the accepted revision and can navigate to its current section
+- **AND** rendering the highlight does not insert HTML elements into MathML
+
+#### Scenario: Ambiguous or removed quotation
+- **WHEN** no unique current location can be established
+- **THEN** the saved quotation remains visible with its missing or ambiguous status
+- **AND** the reader does not guess a location or silently remove the saved record
+
 ### Requirement: Independent serving boundary
 Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expose and monitor the reader endpoint without taking ownership of document rendering or duplicating the service lifecycle.
 

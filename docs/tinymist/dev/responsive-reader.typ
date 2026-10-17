@@ -54,10 +54,19 @@ publication. The served revision includes that snapshot, so changes to a dynamic
 drawing invalidate the revision even when its placeholder HTML is unchanged.
 
 The reader supports native text selection, a heading outline, font size changes,
-local equation scrolling, linked annotation dialogs, and reading anchors. Updates
-wait for an active selection or annotation dialog to close. Persistent highlights,
-source selection sharing, offline reload, and the remaining mobile rollout work
-are tracked in the responsive-reader OpenSpec change.
+local equation scrolling, linked annotation dialogs, reading anchors, and saved
+highlights. Select a passage and choose the save action; the toolbar's saved list
+returns to the passage. Records belong to this document in the current browser's
+local storage. They do not synchronize devices and are removed with site data.
+Updates wait for an active selection or any reader dialog to close.
+
+A highlight stores exact text and surrounding context for each selected block.
+`/api/locate` resolves it against the accepted snapshot, including when edits move
+it to another section or change an automatically generated label. Ambiguous or
+removed text remains in the list with an explicit status. CSS Custom Highlight
+ranges preserve MathML structure; unsupported browsers show a block marker and
+the saved quotation. Source selection sharing, offline reload, and the remaining
+mobile rollout work are tracked in the responsive-reader OpenSpec change.
 
 == Sections and graphical annotations
 
@@ -120,7 +129,11 @@ existing handlers. The installer itself does not modify ingress.
 To stop or roll back, stop the Reader ID with its launcher, disable only its new
 ingress port, and retain the original paged endpoint. Installed Reader releases
 are kept for recovery. Changing a saved Flow project's paths takes effect when
-its Reader is restarted.
+its Reader is restarted. macOS may separately request Documents access for the
+Reader's configured Python executable. A background compile waiting on this OS
+request is not a successful readiness check. Resolve the normal permission prompt
+before verifying managed delivery; do not treat a working foreground preview as
+proof that the LaunchAgent can access the same inputs.
 
 == Verification
 

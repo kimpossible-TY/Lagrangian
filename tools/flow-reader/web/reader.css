@@ -287,7 +287,8 @@ math svg {
   padding: 0.4em;
   border-bottom: 1px solid var(--line);
 }
-#reader-note {
+#reader-note,
+#reader-highlights {
   background: var(--paper);
   color: var(--ink);
   border: 1px solid var(--line);
@@ -296,12 +297,117 @@ math svg {
   max-height: 80vh;
   padding: 1.3rem;
 }
-#reader-note::backdrop {
+#reader-note::backdrop,
+#reader-highlights::backdrop {
   background: #0005;
 }
-#reader-note-close {
+#reader-note-close,
+#reader-highlights-close {
   display: block;
   margin-inline-start: auto;
+}
+::highlight(reader-saved) {
+  background: #f2d46b99;
+  color: inherit;
+}
+.reader-saved-block {
+  box-shadow: -3px 0 #d5ae36;
+}
+#reader-selection {
+  position: fixed;
+  z-index: 6;
+  bottom: max(0.7rem, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 1rem);
+  padding: 0.4rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  box-shadow: 0 3px 20px #0003;
+  font:
+    0.85rem/1.4 system-ui,
+    sans-serif;
+}
+#reader-selection-hint {
+  display: block;
+  padding-inline: 0.7rem;
+  color: var(--muted);
+}
+#reader-highlight-save {
+  background: var(--accent);
+  color: var(--paper);
+}
+#reader-highlight-message {
+  position: fixed;
+  z-index: 7;
+  bottom: max(0.7rem, env(safe-area-inset-bottom));
+  left: 1rem;
+  right: 1rem;
+  max-width: 32rem;
+  margin: auto;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  font:
+    0.85rem/1.5 system-ui,
+    sans-serif;
+}
+#reader-highlight-message:empty {
+  display: none;
+}
+#reader-highlights {
+  width: 36rem;
+}
+#reader-highlights > p {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+#reader-highlights-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#reader-highlights-list li {
+  display: flex;
+  align-items: start;
+  gap: 0.3rem;
+  border-top: 1px solid var(--line);
+  padding-block: 0.6rem;
+}
+.reader-highlight-jump {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+}
+.reader-highlight-quote {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 10em;
+  overflow: auto;
+  font:
+    1rem/1.5 Georgia,
+    serif;
+}
+.reader-highlight-location {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+@media (max-width: 440px) {
+  .reader-brand {
+    display: none;
+  }
+  .reader-toolbar {
+    gap: 0;
+  }
+  #reader-original {
+    margin-inline-start: auto;
+  }
 }
 #reader-note-body {
   font:
