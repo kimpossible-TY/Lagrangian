@@ -2,6 +2,7 @@
 // A token can have several visual occurrences after line breaking. Bind every
 // occurrence and reject missing text rather than guessing a quotation location.
 const models = new WeakMap();
+const markedSources = new WeakMap();
 const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets],.flow-math-accessible";
 const tokenTags = new Set(["mi", "mn", "mo", "mtext", "ms"]);
 const ignorable = /[\u2061-\u2064\ufe00-\ufe0f]/u;
@@ -88,7 +89,9 @@ export class MathIdentity {
       if (node.hasAttribute("data-flow-mark") || node.hasAttribute("data-flow-decoration")) {
         const id = `${prefix}-mark-${this.marks.length}`;
         node.dataset.flowMarkInstance = id;
-        this.marks.push({ id, source: node });
+        const mark = { id, source: node, model: this };
+        this.marks.push(mark);
+        markedSources.set(node, mark);
       }
       if (
         node.namespaceURI !== "http://www.w3.org/1998/Math/MathML" ||
@@ -186,6 +189,13 @@ export class MathIdentity {
       }));
     });
   }
+}
+
+// Relationship records retain the authored node while a renderer replaces its
+// presentation. Never collapse its line fragments to the first occurrence.
+export function visualFragments(source) {
+  const mark = markedSources.get(source);
+  return mark?.model.bound ? mark.fragments : [source];
 }
 
 export function logicalTextIndex(block) {

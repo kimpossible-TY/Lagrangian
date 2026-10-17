@@ -32,13 +32,21 @@ def validate_geometry(graphs: dict, known: dict) -> dict:
         for tag, bounds in markers.items():
             if not isinstance(bounds, dict):
                 raise ValueError("Expected marker bounds")
-            x = number(bounds.get("x"), 0, width)
-            y = number(bounds.get("y"), 0, height)
-            w = number(bounds.get("width"), 0.01, width)
-            h = number(bounds.get("height"), 0.01, height)
-            if x + w > width + 1 or y + h > height + 1:
-                raise ValueError("Marker extends beyond its scene")
-            clean[tag] = {"x": x, "y": y, "width": w, "height": h}
+            fragments = bounds.get("fragments", [bounds])
+            if not isinstance(fragments, list) or not 1 <= len(fragments) <= 256:
+                raise ValueError("Expected between 1 and 256 marker fragments")
+            rectangles = []
+            for fragment in fragments:
+                if not isinstance(fragment, dict):
+                    raise ValueError("Expected marker fragment bounds")
+                x = number(fragment.get("x"), 0, width)
+                y = number(fragment.get("y"), 0, height)
+                w = number(fragment.get("width"), 0.01, width)
+                h = number(fragment.get("height"), 0.01, height)
+                if x + w > width + 1 or y + h > height + 1:
+                    raise ValueError("Marker extends beyond its scene")
+                rectangles.append({"x": x, "y": y, "width": w, "height": h})
+            clean[tag] = {"fragments": rectangles} if "fragments" in bounds else rectangles[0]
         result[identifier] = {"width": width, "height": height, "markers": clean}
         if "fontSize" in geometry:
             result[identifier]["fontSize"] = number(geometry["fontSize"], 14, 30)

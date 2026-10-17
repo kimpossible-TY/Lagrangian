@@ -181,6 +181,17 @@ body scene so the browser can reserve vertical space without scaling glyphs.
 Report horizontal overflow rather than hiding it. Width fit, label size, and
 collision freedom remain separate acceptance requirements.
 
+Marked mathematical terms retain their source identity when a renderer replaces
+their DOM nodes. Resolve each relationship target to all of its bound fragments;
+send their individual client rectangles in logical order. Keep the previous
+single-rectangle protocol accepted. Multi-fragment markers expose anchors on
+actual rectangles: directional edges maximize projection in the requested
+direction, ties prefer the area-weighted center, and center/default chooses the
+nearest actual fragment center. Perimeter anchors traverse the separate rectangle
+perimeters in order. Literal coordinates retain the first fragment's origin.
+The empty inter-line union is not a valid marked surface. This defines anchoring,
+not collision-free connector routing or semantic simplification of the drawing.
+
 ## Validation and delivery
 
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.

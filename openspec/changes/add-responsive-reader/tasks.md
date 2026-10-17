@@ -12,6 +12,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Add an isolated, opt-in derivation-row composition probe and compare it with the prior adapter against a frozen source snapshot.
 - [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Bind canonical mathematical text to all rendered token occurrences and preserve selected quotations/highlights when script DOM order changes.
+- [x] Carry every logical target fragment into graphical annotation requests and resolve CeTZ anchors on actual fragment surfaces without source edits.
 - [ ] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [ ] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.

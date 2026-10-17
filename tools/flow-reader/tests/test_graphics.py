@@ -23,6 +23,19 @@ def geometry(right_x=260):
 
 
 class GeometryValidationTests(unittest.TestCase):
+    def test_fragment_geometry_preserves_gaps_and_checks_each_rectangle(self):
+        known = {"graphic-1": ["left", "right"]}
+        value = geometry()
+        marker = value["graphic-1"]["markers"]["left"]
+        fragments = [marker, {"x": 10, "y": 120, "width": 60, "height": 25}]
+        value["graphic-1"]["markers"]["left"] = {"fragments": fragments}
+        self.assertEqual(validate_geometry(value, known), value)
+        for invalid in ([], fragments * 129, [marker, None],
+                        [marker, {"x": 380, "y": 120, "width": 60, "height": 25}]):
+            value["graphic-1"]["markers"]["left"]["fragments"] = invalid
+            with self.assertRaises(ValueError):
+                validate_geometry(value, known)
+
     def test_unknown_tags_and_nonfinite_geometry_are_rejected(self):
         known = {"graphic-1": ["left", "right"]}
         self.assertEqual(validate_geometry(geometry(), known), geometry())
@@ -43,6 +56,26 @@ class GeometryValidationTests(unittest.TestCase):
 
 
 class GraphicCompilerTests(unittest.TestCase):
+    def test_fragment_anchors_land_on_actual_terms_and_keep_the_first_origin(self):
+        compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not compiler or not packages:
+            self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        project = Project(ROOT / "tests/fixtures", Path("graphics-fragments.typ"), Path(packages), compiler=compiler)
+        request = geometry()
+        request["graphic-1"]["markers"]["left"] = {"fragments": [
+            {"x": 80, "y": 20, "width": 40, "height": 20},
+            {"x": 10, "y": 60, "width": 70, "height": 20},
+        ]}
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = compile_project(project, output, geometry=request)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            # Assertions inside the original CeTZ callback check cardinal,
+            # arbitrary-angle, center, and perimeter anchors against both lines.
+            svg = extract_graphics((output / "document.html").read_text(), request, "fragments")["graphic-1"]
+            self.assertGreater(len(list(ET.fromstring(svg).iter("{http://www.w3.org/2000/svg}path"))), 1)
+
     def test_label_measurement_and_drawing_follow_the_reading_font_size(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")

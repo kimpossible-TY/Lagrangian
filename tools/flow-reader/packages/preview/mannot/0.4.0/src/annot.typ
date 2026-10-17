@@ -600,6 +600,7 @@
   core-annot(tag, overlay)
 }
 #let _reader-graphic-counter = counter("flow-reader-graphic")
+#import "reader-anchors.typ": fragment-marker
 
 #let _reader-graphic(id, tags, cetz, drawable) = context {
   let geometry = json(bytes(sys.inputs.at("flow-geometry", default: "{}"))).at(id, default: none)
@@ -613,12 +614,13 @@
       // so that the author's relative offsets and curve control points retain
       // their original units. SVG display is explicitly sized by the reader.
       let px = 0.75pt / 1cm
-      let origin = geometry.markers.at(tags.first())
+      let fragments(tag) = {
+        let marker = geometry.markers.at(tag)
+        marker.at("fragments", default: (marker,))
+      }
+      let origin = fragments(tags.first()).first()
       let boxes = tags.map(tag => {
-        let rect = geometry.markers.at(tag)
-        cetz.draw.rect(((rect.x - origin.x) * px, -(rect.y - origin.y) * px),
-          ((rect.x + rect.width - origin.x) * px, -(rect.y + rect.height - origin.y) * px),
-          name: tag, stroke: none, fill: none)
+        fragment-marker(cetz, tag, fragments(tag), origin)
       }).join()
       let boundary = cetz.draw.rect((0, 0),
         (geometry.width * px, -geometry.height * px), stroke: none, fill: none)

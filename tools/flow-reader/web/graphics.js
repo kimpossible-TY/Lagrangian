@@ -1,5 +1,7 @@
 // Relationships use the original equation nodes in the continuous body.
 // Original CeTZ programs are evaluated against the actual marked term geometry.
+import { visualFragments } from "./math-identity.js";
+
 function spanFor(records) {
   const roots = [
     ...new Set(
@@ -43,7 +45,9 @@ function collisions(record, layout, measurement) {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const range = document.createRange();
     range.selectNodeContents(node);
-    const target = record.nodes.some((mark) => mark.contains(node));
+    const target = record.nodes.some((mark) =>
+      visualFragments(mark).some((fragment) => fragment.contains(node)),
+    );
     for (const rect of range.getClientRects()) {
       if (rect.width && rect.height) ink.push({ rect, target });
     }
@@ -202,21 +206,28 @@ export class GraphicalAnnotations {
 
   measure(record) {
     const rect = record.scene.body.getBoundingClientRect();
-    const bounds = record.nodes.map((node) => {
-      const rect = node.getBoundingClientRect();
-      if (!node.dataset.flowAnchor) return rect;
-      const anchor = JSON.parse(node.dataset.flowAnchor);
-      const left = rect.left + anchor.left,
-        top = rect.top + anchor.top;
-      return {
-        left,
-        top,
-        right: left + anchor.width,
-        bottom: top + anchor.height,
-        width: anchor.width,
-        height: anchor.height,
-      };
-    });
+    const groups = record.nodes.map((source) =>
+      visualFragments(source).flatMap((node) =>
+        [...node.getClientRects()]
+          .filter((r) => r.width && r.height)
+          .map((rect) => {
+            if (!node.dataset.flowAnchor) return rect;
+            const anchor = JSON.parse(node.dataset.flowAnchor);
+            const left = rect.left + anchor.left,
+              top = rect.top + anchor.top;
+            return {
+              left,
+              top,
+              right: left + anchor.width,
+              bottom: top + anchor.height,
+              width: anchor.width,
+              height: anchor.height,
+            };
+          }),
+      ),
+    );
+    if (groups.some((fragments) => !fragments.length)) return null;
+    const bounds = groups.flat();
     const x = Math.min(0, ...bounds.map((item) => item.left - rect.left));
     const y = Math.min(0, ...bounds.map((item) => item.top - rect.top));
     const width = Math.max(rect.width, ...bounds.map((item) => item.right - rect.left)) - x;
@@ -231,10 +242,12 @@ export class GraphicalAnnotations {
         record.tags.map((tag, index) => [
           tag,
           {
-            x: round(bounds[index].left - rect.left - x),
-            y: round(bounds[index].top - rect.top - y),
-            width: round(bounds[index].width),
-            height: round(bounds[index].height),
+            fragments: groups[index].map((bounds) => ({
+              x: round(bounds.left - rect.left - x),
+              y: round(bounds.top - rect.top - y),
+              width: round(bounds.width),
+              height: round(bounds.height),
+            })),
           },
         ]),
       ),

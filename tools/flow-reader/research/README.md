@@ -138,11 +138,13 @@ local MathJax/font assets), then open `/math-identity.html` at 320px:
 cp tools/flow-reader/tests/fixtures/math-identity.html dist/reader-reflow-probe/
 cp tools/flow-reader/tests/identity-browser.js dist/reader-reflow-probe/
 cp tools/flow-reader/web/math-identity.js dist/reader-reflow-probe/
+cp tools/flow-reader/web/graphics.js dist/reader-reflow-probe/
 ```
 
 It checks native prose exclusion, source order, actual script reordering,
 superscript-only selection, disjoint logical intervals, base/subscript-only
-highlighting, all marker fragments, and width fit. The fixture paints the base
+highlighting, all marker fragments, relationship geometry from the detached
+original mark, and width fit. The fixture paints the base
 and subscripts while leaving the superscript unpainted. Reports and the screenshot
 are under `dist/reader-identity-checks`. These helpers are wired into Reader
 selection and reading-position text; the MathJax renderer itself is still separate.

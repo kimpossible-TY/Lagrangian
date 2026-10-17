@@ -2,6 +2,41 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GraphicalAnnotations } from "../web/graphics.js";
 
+test("measuring a wrapped mark keeps every rectangle and no empty union", () => {
+  const rectangle = (left, top, width, height) => ({
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+  });
+  const fragments = [rectangle(90, 30, 40, 20), rectangle(20, 70, 70, 20)];
+  const originalStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({ fontSize: "18px" });
+  try {
+    const value = Object.create(GraphicalAnnotations.prototype);
+    value.getRevision = () => "revision";
+    const record = {
+      id: "graphic-1",
+      tags: ["left"],
+      nodes: [{ dataset: {}, getClientRects: () => fragments }],
+      scene: { body: { getBoundingClientRect: () => rectangle(10, 10, 300, 100) } },
+    };
+    const before = value.measure(record);
+    assert.deepEqual(before.geometry.markers.left.fragments, [
+      { x: 80, y: 20, width: 40, height: 20 },
+      { x: 10, y: 60, width: 70, height: 20 },
+    ]);
+    fragments[1] = rectangle(20, 75, 70, 20);
+    assert.notEqual(value.measure(record).key, before.key);
+    fragments.length = 0;
+    assert.equal(value.measure(record), null);
+  } finally {
+    globalThis.getComputedStyle = originalStyle;
+  }
+});
+
 function renderer() {
   const record = {
     id: "graphic-1",
