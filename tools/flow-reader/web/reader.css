@@ -225,6 +225,25 @@ button:hover {
   height: auto;
   margin: auto;
 }
+.flow-canvas {
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+.flow-canvas > svg,
+#reader-document .flow-canvas > img {
+  max-width: none;
+}
+.flow-canvas-status {
+  display: block;
+  color: var(--muted);
+  font:
+    0.8rem/1.5 system-ui,
+    sans-serif;
+}
+.flow-canvas-status:empty {
+  display: none;
+}
 .flow-mark svg,
 math svg {
   max-width: none;

@@ -1,4 +1,5 @@
 import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
+import { AdaptiveCanvases } from "./canvases.js";
 
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
@@ -15,6 +16,7 @@ let currentSection = null;
 let loadSequence = 0;
 const sectionCache = new Map();
 const graphics = new GraphicalAnnotations(noteDialog, () => revision);
+const canvases = new AdaptiveCanvases(article, () => revision);
 let highlights;
 import("./highlights.js")
   .then(({ ReaderHighlights }) => {
@@ -79,6 +81,7 @@ function setFont(size) {
   document.querySelector("#reader-smaller").disabled = fontSize === 14;
   document.querySelector("#reader-larger").disabled = fontSize === 30;
   store("fontSize", fontSize);
+  canvases.schedule();
   requestAnimationFrame(() => restoreAnchor(anchor));
 }
 
@@ -219,6 +222,7 @@ function renderDocument(html, nextManifest, section, options) {
   revision = nextManifest.revision;
   manifest = nextManifest;
   currentSection = section;
+  canvases.onDocument();
   highlights?.onDocument(manifest, currentSection);
   indexOutline(manifest);
   updateSectionNavigation();

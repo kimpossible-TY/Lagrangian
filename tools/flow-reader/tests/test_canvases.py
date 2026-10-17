@@ -1,0 +1,138 @@
+"""Actual CeTZ output must change geometry without scaling its label glyphs."""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+from http.server import ThreadingHTTPServer
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+from unittest.mock import patch
+from xml.etree import ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from build import Project, compile_project, prepare_packages
+from canvases import extract_canvases, validate_canvases
+from serve import ReaderState, handler_for
+
+
+def request(width=280, font=18):
+    return {"canvas-1": {"width": width, "fontSize": font}}
+
+
+class CanvasValidationTests(unittest.TestCase):
+    def test_only_known_canvases_and_finite_supported_sizes(self):
+        self.assertEqual(validate_canvases(request(), ["canvas-1"]), request())
+        for value in [request(float("nan")), request(0), request(True),
+                      request(font=100), {"unknown": {"width": 280, "fontSize": 18}}]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_canvases(value, ["canvas-1"])
+
+
+class CanvasCompilerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not cls.compiler or not packages:
+            raise unittest.SkipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        cls.packages = Path(packages)
+        cls.project = Project(ROOT / "tests/fixtures", Path("canvases.typ"),
+                              cls.packages, compiler=cls.compiler)
+
+    def test_coordinate_unit_adapts_but_glyphs_and_physical_strokes_do_not_shrink(self):
+        before = (self.project.root / self.project.entry).read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            rendered = []
+            for width, font in [(560, 18), (280, 18), (280, 30)]:
+                asks = request(width, font)
+                report = compile_project(self.project, output, canvases=asks)
+                self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+                result = extract_canvases((output / "document.html").read_text(), asks, "test")["canvas-1"]
+                self.assertEqual(result["layout"]["status"], "width-fit")
+                self.assertLessEqual(result["layout"]["width"], width + 1)
+                root = ET.fromstring(result["svg"])
+                ns = "{http://www.w3.org/2000/svg}"
+                glyphs = [path.attrib["d"] for symbol in root.iter(ns + "symbol")
+                          for path in symbol.iter(ns + "path")]
+                self.assertGreater(len(glyphs), 5)
+                self.assertTrue(all(path.attrib["stroke-width"] == "1" for path in root.iter(ns + "path")
+                                    if "stroke-width" in path.attrib))
+                rendered.append((result["layout"], glyphs))
+            self.assertLess(rendered[1][0]["width"], rendered[0][0]["width"])
+            self.assertEqual(rendered[0][1], rendered[1][1], "Fitting must not shrink label glyphs")
+            self.assertNotEqual(rendered[1][1], rendered[2][1], "Larger reading size must affect labels")
+        self.assertEqual((self.project.root / self.project.entry).read_bytes(), before)
+
+    def test_fixed_physical_drawing_reports_overflow_without_clipping_or_scaling(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            asks = {"canvas-2": {"width": 280, "fontSize": 18}}
+            report = compile_project(self.project, output, canvases=asks)
+            self.assertTrue(report["contentGatePassed"], report)
+            result = extract_canvases((output / "document.html").read_text(), asks, "test")["canvas-2"]
+            self.assertEqual(result["layout"]["status"], "overflow")
+            self.assertAlmostEqual(result["layout"]["width"], 500 / .75)
+            self.assertEqual(result["layout"]["unitScale"], 1)
+
+    def test_paged_fixture_is_byte_identical_with_canvas_adapter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            prepare_packages(self.packages, output / "overlay")
+            for name, packages in [("original", self.packages), ("reader", output / "overlay")]:
+                result = subprocess.run([self.compiler, "compile", "--creation-timestamp", "1760000000",
+                                         "--package-path", str(packages),
+                                         str(self.project.root / self.project.entry), str(output / f"{name}.pdf")],
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((output / "original.pdf").read_bytes(), (output / "reader.pdf").read_bytes())
+
+    def test_canvas_endpoint_caches_and_rejects_changed_sources_and_revisions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            source = output / "source"
+            source.mkdir()
+            shutil.copyfile(self.project.root / self.project.entry, source / "main.typ")
+            state = ReaderState(Project(source, Path("main.typ"), self.packages, compiler=self.compiler),
+                                output / "build", "https://example.test/original", True)
+            state.compile()
+            revision = state.revision
+            self.assertIsNotNone(revision, state.report)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(state))
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            url = f"http://127.0.0.1:{server.server_port}/api/canvases"
+            def post(width=280, rev=revision, drawings=None):
+                return Request(url, json.dumps({"revision": rev, "canvases": drawings or request(width)}).encode(),
+                               {"Content-Type": "application/json"})
+            try:
+                with urlopen(post(drawings=request() | {"canvas-2": {"width": 280, "fontSize": 18}})) as response:
+                    result = json.load(response)
+                self.assertEqual(result["canvases"]["canvas-1"]["layout"]["status"], "width-fit")
+                # A canvas rendered in a larger batch must also be cached when
+                # the viewport later requests it alone.
+                result["canvases"].pop("canvas-2")
+                with patch("serve.compile_project", side_effect=AssertionError("Cached canvas recompiled")):
+                    with urlopen(post()) as response:
+                        self.assertEqual(json.load(response), result)
+                (source / "main.typ").write_text("#not-a-function()")
+                state.compile()
+                self.assertEqual(state.revision, revision)
+                for bad in [post(300), post(rev="stale")]:
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(bad)
+                    self.assertEqual(error.exception.code, 409)
+                    error.exception.close()
+                with urlopen(post()) as response:
+                    self.assertEqual(json.load(response), result)
+            finally:
+                server.shutdown()
+                server.server_close()
+                worker.join()

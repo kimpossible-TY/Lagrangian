@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from build import HERE, Project, compile_project
 from graphics import extract_graphics, validate_geometry
+from canvases import extract_canvases, validate_canvases
 from sections import split_document
 from passages import locate_passages
 
@@ -37,8 +38,10 @@ class ReaderState:
         self.compiling = False
         self.source_stamp = None
         self.graphic_cache = OrderedDict()
+        self.canvas_cache = OrderedDict()
         self.graphic_lock = threading.Lock()
         self.graphics = {}
+        self.canvases = []
         self.bundle = None
         self.section_compressed = {}
         self.asset_snapshots = OrderedDict()
@@ -84,7 +87,9 @@ class ReaderState:
                 self.source_stamp = source_stamp
                 self.accepted_dependencies = set(self.dependencies)
                 self.graphics = report.get("graphics", {})
+                self.canvases = report.get("canvases", [])
                 self.graphic_cache.clear()
+                self.canvas_cache.clear()
 
     def compile(self):
         with self.lock:
@@ -125,7 +130,7 @@ class ReaderState:
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
-                  "graphics": self.graphics}
+                  "graphics": self.graphics, "canvases": self.canvases}
 
     def locate(self, revision, fragments):
         with self.lock:
@@ -139,13 +144,23 @@ class ReaderState:
         return {"revision": revision, "locations": results}
 
     def render_graphics(self, revision, graphs):
+        return self.render_dynamic(revision, graphs, "graphics")
+
+    def render_canvases(self, revision, canvases):
+        return self.render_dynamic(revision, canvases, "canvases")
+
+    def render_dynamic(self, revision, requests, kind):
         with self.lock:
             if not self.revision or revision != self.revision:
                 raise RevisionChanged("The document revision has changed")
-            geometry = validate_geometry(graphs, self.graphics)
+            geometry = (validate_geometry(requests, self.graphics) if kind == "graphics"
+                        else validate_canvases(requests, self.canvases))
             stamp = self.source_stamp
             dependencies = set(self.accepted_dependencies)
-        key = hashlib.sha256(json.dumps([revision, geometry], sort_keys=True).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([kind, revision, geometry], sort_keys=True).encode()).hexdigest()
+        canvas_keys = {identifier: json.dumps([revision, identifier, layout], sort_keys=True)
+                       for identifier, layout in geometry.items()} if kind == "canvases" else {}
+        cached = {}
         with self.graphic_lock:
             with self.lock:
                 if self.revision != revision:
@@ -153,20 +168,36 @@ class ReaderState:
                 if key in self.graphic_cache:
                     self.graphic_cache.move_to_end(key)
                     return self.graphic_cache[key]
+                for identifier, canvas_key in canvas_keys.items():
+                    if canvas_key in self.canvas_cache:
+                        cached[identifier] = self.canvas_cache[canvas_key]
+                        self.canvas_cache.move_to_end(canvas_key)
+                if cached:
+                    geometry = {identifier: layout for identifier, layout in geometry.items()
+                                if identifier not in cached}
+                    if not geometry:
+                        return {"revision": revision, kind: cached}
             if stamp != source_signature(self.project, dependencies):
                 raise RevisionChanged("Saved sources have changed")
-            with tempfile.TemporaryDirectory(prefix="graphics-", dir=self.output) as temporary:
+            with tempfile.TemporaryDirectory(prefix=f"{kind}-", dir=self.output) as temporary:
                 work = Path(temporary)
-                report = compile_project(self.project, work, geometry=geometry)
+                arguments = {"geometry" if kind == "graphics" else "canvases": geometry}
+                report = compile_project(self.project, work, **arguments)
                 if not report["contentGatePassed"]:
-                    raise ValueError("Graphical annotation compilation failed")
-                graphics = extract_graphics((work / "document.html").read_text(), geometry, key[:16])
+                    raise ValueError(f"{kind.capitalize()} compilation failed")
+                extract = extract_graphics if kind == "graphics" else extract_canvases
+                drawings = extract((work / "document.html").read_text(), geometry, key[:16])
             if stamp != source_signature(self.project, dependencies):
                 raise RevisionChanged("Saved sources changed during graphical rendering")
-            result = {"revision": revision, "graphics": graphics}
+            result = {"revision": revision, kind: cached | drawings}
             with self.lock:
                 if self.revision != revision:
                     raise RevisionChanged("The document revision has changed")
+                for identifier, drawing in drawings.items():
+                    if identifier in canvas_keys:
+                        self.canvas_cache[canvas_keys[identifier]] = drawing
+                while len(self.canvas_cache) > 256:
+                    self.canvas_cache.popitem(last=False)
                 self.graphic_cache[key] = result
                 while len(self.graphic_cache) > 48:
                     self.graphic_cache.popitem(last=False)
@@ -225,7 +256,7 @@ def handler_for(state):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in {"/api/graphics", "/api/locate"}:
+            if path not in {"/api/graphics", "/api/locate", "/api/canvases"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -240,9 +271,12 @@ def handler_for(state):
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                result = (state.locate(request.get("revision"), request.get("fragments"))
-                          if path == "/api/locate" else
-                          state.render_graphics(request.get("revision"), request.get("graphs")))
+                if path == "/api/locate":
+                    result = state.locate(request.get("revision"), request.get("fragments"))
+                elif path == "/api/canvases":
+                    result = state.render_canvases(request.get("revision"), request.get("canvases"))
+                else:
+                    result = state.render_graphics(request.get("revision"), request.get("graphs"))
                 self.respond(json.dumps(result).encode(), "application/json")
             except RevisionChanged as error:
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 409)
@@ -297,6 +331,7 @@ def handler_for(state):
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
                       "/graphics.js": ("graphics.js", "text/javascript; charset=utf-8"),
+                      "/canvases.js": ("canvases.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/reader.css": ("reader.css", "text/css; charset=utf-8")}
             if path in assets:

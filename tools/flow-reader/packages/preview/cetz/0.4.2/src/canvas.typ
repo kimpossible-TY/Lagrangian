@@ -178,12 +178,68 @@
   }))
 }
 
-// Flow reader adapter: preserve the complete drawing as one SVG island.
+// Reader geometry is expressed in CSS pixels. The drawing program and its
+// coordinates are preserved; only the coordinate unit changes before layout.
+#let _reader-canvas-counter = counter("flow-reader-canvas")
+
+#let _reader-canvas(id, render, original-length) = context {
+  let request = json(bytes(sys.inputs.at("flow-canvases", default: "{}"))).at(id, default: none)
+  let attrs = (class: "flow-drawing flow-canvas", "data-flow-canvas": id)
+  if request == none {
+    html.elem("span", attrs: attrs, html.frame(render(original-length)))
+  } else {
+    let px = 0.75pt
+    // Content is laid out again at the requested reading size, instead of
+    // scaling a completed SVG (which would shrink its glyphs with the paths).
+    // Explicit sizes in authored content can override this inherited size;
+    // width-fit alone is deliberately not a complete readability verdict.
+    set text(size: request.fontSize * px)
+    let available = request.width * px
+    let unit = original-length
+    let size = measure(render(unit))
+    let natural-width = size.width
+    let attempts = 0
+    // Content bounds depend on unit length too, so a single proportional scale
+    // is insufficient. Re-measure after every change; bound the work and retain
+    // all content when fixed physical lengths prevent a width fit.
+    for _ in range(12) {
+      if size.width <= available + 0.25pt { break }
+      let next-unit = unit * calc.max(0.05, calc.min(0.95, available / size.width * 0.99))
+      if next-unit < original-length / 4096 { break }
+      let next-size = measure(render(next-unit))
+      if next-size.width >= size.width - 0.01pt { break }
+      unit = next-unit
+      size = next-size
+      attempts += 1
+    }
+    let fitted = size.width <= available + 0.25pt
+    let attempted-width = size.width
+    if not fitted {
+      // An impossible fit must not leave geometry crushed around fixed labels.
+      unit = original-length
+      size = measure(render(unit))
+    }
+    let result = (
+      status: if fitted { "width-fit" } else { "overflow" },
+      width: size.width / px, height: size.height / px,
+      available: request.width, fontSize: request.fontSize,
+      naturalWidth: natural-width / px, unitScale: unit / original-length,
+      attemptedWidth: attempted-width / px,
+      attempts: attempts,
+    )
+    attrs.insert("data-flow-canvas-layout", json.encode(result))
+    html.elem("span", attrs: attrs, html.frame(render(unit)))
+  }
+}
+
 // Individual place elements cannot be exported as independent HTML content.
 #let canvas(length: 1cm, baseline: none, debug: false, background: none, stroke: none, padding: none, body) = context {
-  let drawing = _paged-canvas(length: length, baseline: baseline, debug: debug,
+  let render(unit) = _paged-canvas(length: unit, baseline: baseline, debug: debug,
     background: background, stroke: stroke, padding: padding, body)
   if target() == "html" {
-    html.elem("span", attrs: (class: "flow-drawing"), html.frame(drawing))
-  } else { drawing }
+    _reader-canvas-counter.step()
+    context {
+      _reader-canvas("canvas-" + str(_reader-canvas-counter.get().first()), render, length)
+    }
+  } else { render(length) }
 }
