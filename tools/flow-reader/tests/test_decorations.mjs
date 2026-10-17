@@ -45,6 +45,70 @@ test("temporary native math waits for composition before requesting decoration",
     assert.equal(value.measure({ nodes: [{ closest: () => ({ dataset: { mathState } }) }] }), null);
 });
 
+test("a visible cancellation does not wait for its uncomposed explanatory copy", () => {
+  const original = [globalThis.getComputedStyle, globalThis.innerHeight];
+  globalThis.getComputedStyle = () => ({ fontSize: "13px", color: "rgb(36, 44, 52)" });
+  globalThis.innerHeight = 844;
+  const surface = {
+    clientLeft: 0,
+    clientTop: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+    getBoundingClientRect: () => ({ left: 10, top: 20 }),
+  };
+  const states = ["ready", "native"];
+  const nodes = states.map((_, member) => ({
+    closest: (selector) =>
+      selector === ".flow-math-view" ? { dataset: { mathState: states[member] } } : surface,
+    getClientRects: () => [{ left: 20, top: 30, bottom: 50, width: 80, height: 20 }],
+  }));
+  const value = Object.create(MathDecorations.prototype);
+  value.getRevision = () => "revision";
+  try {
+    const source = value.measure({ id: "cancellation", nodes });
+    assert.equal(source.fragments.length, 1);
+    assert.equal(source.fragments[0].node, nodes[0]);
+    states.reverse();
+    const copy = value.measure({ id: "cancellation", nodes });
+    assert.equal(copy.fragments[0].node, nodes[1]);
+    assert.equal(source.signature, copy.signature, "Equal geometry can reuse the callback paint");
+    assert.notEqual(source.key, copy.key, "A different occurrence must receive its own paint");
+    states[0] = "ready";
+    assert.equal(value.measure({ id: "cancellation", nodes }).fragments.length, 2);
+  } finally {
+    [globalThis.getComputedStyle, globalThis.innerHeight] = original;
+  }
+});
+
+test("previously composed offscreen copies cannot supply stale fragment geometry", () => {
+  const original = [globalThis.getComputedStyle, globalThis.innerHeight];
+  globalThis.getComputedStyle = () => ({ fontSize: "30px", color: "rgb(36, 44, 52)" });
+  globalThis.innerHeight = 844;
+  const surface = {
+    clientLeft: 0,
+    clientTop: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+  };
+  const nodes = [30, 4400].map((top, member) => ({
+    closest: (selector) =>
+      selector === ".flow-math-view" ? { dataset: { mathState: "ready" } } : surface,
+    getClientRects: () => [
+      { left: 20, top, bottom: top + 20, width: member ? 80 : 40, height: 20 },
+    ],
+  }));
+  const value = Object.create(MathDecorations.prototype);
+  value.getRevision = () => "revision";
+  try {
+    const result = value.measure({ id: "d", nodes });
+    assert.deepEqual(result.request.fragments, [{ width: 40, height: 20 }]);
+    assert.equal(result.fragments[0].node, nodes[0]);
+  } finally {
+    [globalThis.getComputedStyle, globalThis.innerHeight] = original;
+  }
+});
+
 test("a narrower or pending layout retires old paint before a busy compiler can finish", () => {
   const value = Object.create(MathDecorations.prototype);
   const record = {

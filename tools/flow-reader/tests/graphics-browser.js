@@ -150,6 +150,10 @@ try {
     targets.length > 0 && targets.every((target) => target.anchor),
   );
   const query = new URL(location.href).searchParams;
+  if (query.has("audit")) {
+    const { attachReport } = await import("/test-report.js");
+    attachReport({ kind: "graphics", id: "graphics-report", stateKey: "graphicsState" });
+  }
   if (query.get("width"))
     await until(() => innerWidth === Number(query.get("width")), "requested viewport");
   report.width = innerWidth;

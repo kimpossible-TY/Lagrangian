@@ -3,12 +3,24 @@ import { mathOverflow } from "/math-layout.js";
 import { prepareResponsiveTables } from "/tables.js";
 
 const report = { width: innerWidth, checks: [], errors: [], measurements: [] };
-const output = document.createElement("pre");
+const output = document.createElement("script");
+output.type = "application/json";
 output.id = "tables-report";
-output.style.cssText =
+const progress = document.createElement("pre");
+progress.id = "tables-progress";
+progress.style.cssText =
   "white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace;margin:16px";
-document.body.append(output);
-const publish = () => (output.textContent = JSON.stringify(report, null, 2));
+document.body.append(output, progress);
+const publish = () => {
+  output.textContent = JSON.stringify(report);
+  progress.textContent = JSON.stringify({
+    width: report.width,
+    active: report.active,
+    completed: report.measurements.length,
+    checks: report.checks.length,
+    errors: report.errors,
+  });
+};
 function check(name, condition) {
   report.checks.push(name);
   if (!condition) report.errors.push(name);
@@ -24,6 +36,10 @@ async function until(condition, name, timeout = 90000) {
 const text = (node) => logicalTextIndex(node, { includeNested: true }).text;
 try {
   const query = new URL(location.href).searchParams;
+  if (query.has("audit")) {
+    const { attachReport } = await import("/test-report.js");
+    attachReport({ kind: "tables", id: "tables-report", stateKey: "tablesState" });
+  }
   if (query.get("width"))
     await until(() => innerWidth === Number(query.get("width")), "requested viewport");
   report.width = innerWidth;
@@ -68,6 +84,7 @@ try {
     "reading document",
   );
   const manifest = await (await fetch("/api/manifest")).json();
+  report.revision = manifest.revision;
   const targets = (
     await Promise.all(
       manifest.sections.map(async (section) => {
@@ -88,7 +105,8 @@ try {
     "All source tables expose a native reading anchor",
     targets.length > 0 && targets.every((target) => target.anchor),
   );
-  for (const font of [18, 30]) {
+  const fonts = query.get("fonts") ? query.get("fonts").split(",").map(Number) : [18, 30];
+  for (const font of fonts) {
     while (Number(document.querySelector("#reader-size").value) !== font)
       document
         .querySelector(
@@ -98,7 +116,15 @@ try {
         )
         .click();
     for (const [index, target] of targets.entries()) {
-      if (!document.getElementById(target.anchor)) location.hash = target.anchor;
+      report.active = { font, table: index + 1 };
+      publish();
+      if (!document.getElementById(target.anchor)) {
+        const link = document.createElement("a");
+        link.href = `#${target.anchor}`;
+        document.getElementById("reader-document").append(link);
+        link.click();
+        link.remove();
+      }
       await until(() => document.getElementById(target.anchor), `table ${index + 1} section`);
       const table = document.getElementById(target.anchor).closest("table");
       const cells = [...table.rows].flatMap((row) => [...row.cells]);

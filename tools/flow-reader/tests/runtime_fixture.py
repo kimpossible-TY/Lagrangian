@@ -6,7 +6,10 @@ in a disposable project directory. The report appears after the reading body.
 
 from pathlib import Path
 import json
+import re
 import sys
+import threading
+import time
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,11 +17,59 @@ sys.path.insert(0, str(ROOT))
 import serve
 
 normal_handler = serve.handler_for
+report_lock = threading.Lock()
+
+
+def save_browser_report(state, origin, expected_origin, payload):
+    owned = (ROOT.parents[1] / "dist").resolve()
+    if (not state.project.root.resolve().is_relative_to(owned)
+            or not state.output.resolve().is_relative_to(owned)):
+        raise PermissionError("Browser reports require an owned disposable fixture")
+    if origin != expected_origin:
+        raise PermissionError("Browser report origin does not match the fixture")
+    run, kind = payload.get("run"), payload.get("kind")
+    if (not isinstance(run, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,63}", run)
+            or kind not in {"body-math", "graphics", "native-canvases", "tables", "decorations"}):
+        raise ValueError("Invalid browser report identity")
+    sequence = payload.get("sequence")
+    if type(sequence) is not int or sequence < 1 or payload.get("state") not in {"progress", "ready", "error"}:
+        raise ValueError("Invalid browser report sequence or state")
+    report = payload.get("report")
+    with state.lock:
+        revision = state.revision
+    if not isinstance(report, dict) or not revision or report.get("revision") != revision:
+        raise ValueError("Browser report does not describe the accepted fixture revision")
+    directory = state.output / "browser-audits"
+    path = directory / f"{kind}-{run}.json"
+    with report_lock:
+        if path.exists() and json.loads(path.read_text())["sequence"] >= sequence:
+            return {"saved": False, "sequence": sequence}
+        directory.mkdir(exist_ok=True)
+        record = {**payload, "receivedAt": time.time(), "origin": origin}
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(record, ensure_ascii=False))
+        temporary.replace(path)
+    return {"saved": True, "sequence": sequence}
 
 
 def handler_for(state):
     class Handler(normal_handler(state)):
         def do_POST(self):
+            if urlsplit(self.path).path == "/api/test-report":
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 2 * 1024 * 1024:
+                        raise ValueError("Invalid browser report size")
+                    payload = json.loads(self.rfile.read(length))
+                    if not isinstance(payload, dict):
+                        raise ValueError("Invalid browser report")
+                    result = save_browser_report(state, self.headers.get("Origin"),
+                        f"http://127.0.0.1:{self.server.server_port}", payload)
+                    return self.respond(json.dumps(result).encode(), "application/json")
+                except PermissionError as error:
+                    return self.respond(str(error).encode(), "text/plain", 403)
+                except (ValueError, TypeError, KeyError):
+                    return self.respond(b"Invalid owned browser report", "text/plain", 400)
             if urlsplit(self.path).path != "/api/test-edit":
                 return super().do_POST()
             # This write protocol exists only in this test wrapper and only for
@@ -65,6 +116,7 @@ def handler_for(state):
                           "navigation": "navigation-browser.js",
                           "language": "language-browser.js",
                           "body-math": "body-math-browser.js",
+                          "decoration-copy": "decoration-copy-browser.js",
                           "position": "position-browser.js", "entry": "entry-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
                     "</body>", f'<script type="module" src="/{module}"></script></body>')
@@ -84,6 +136,12 @@ def handler_for(state):
                                     "text/javascript; charset=utf-8")
             if path == "/navigation-browser.js":
                 return self.respond((ROOT / "tests/navigation-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/test-report.js":
+                return self.respond((ROOT / "tests/test-report.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/decoration-copy-browser.js":
+                return self.respond((ROOT / "tests/decoration-copy-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             if path == "/language-browser.js":
                 return self.respond((ROOT / "tests/language-browser.js").read_bytes(),

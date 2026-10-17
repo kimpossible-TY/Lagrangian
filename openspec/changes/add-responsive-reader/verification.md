@@ -1262,3 +1262,62 @@ only the Reader changes from PID 98459 to 9310. Receipts are
 `managed-13px-language-390.jpg` in the rollout audit directory. Native Safari
 inspection times out before a tab is acquired; its running-app inventory alone
 does not establish a WebKit or spoken accessibility pass (`safari-attempt.json`).
+
+### Current source, original paint and actual inline lines (2026-10-18)
+
+The user explicitly defers actual VoiceOver speech testing to follow-up work.
+`voiceover-deferral.json` records that decision. It is neither a speech-test pass
+nor a reason to block this rollout; the remaining device and layout checks are
+tracked separately.
+
+The frozen source's 8,756,496-byte HTML is byte-identical to the production
+Reader document, SHA-256
+`3577cab937601fc63eca8381a85196cc132d750343987784380f0eed9fc533e5`.
+`html-source-equivalence.json` records both responses. This source has 66 native
+figures, 171 decoration IDs and 7,049 body-math occurrences; older counts describe
+their earlier frozen snapshots. All 66 figures pass 728 checks at each of 320,
+390, 430 and 768px with 13px text. The 768px result combines complete disjoint
+ranges after an observation timeout, retaining that timeout and its provenance.
+The current 320px/30px figure run also passes all 728 checks.
+
+All 56 current body sections at 320px/13px pass 21,260 mathematical checks. Its
+receipt combines complete ranges with the same accepted revision, exact section
+coverage, and matching expression totals. The 430px/13px sweep also passes all
+21,260 checks. All six tables and 94 cells pass 317 checks at 320, 390 and 430px
+with 13px text. These receipts precede the stronger dynamic-paint sweep and do
+not by themselves claim visual decoration coverage.
+
+Two additional runtime defects are reproduced and corrected. In a tall equation,
+an original cancellation is visible at y=103px while its explanatory copy at
+y=4424px remains native. Previously that copy blocked all paint for the callback.
+`decorations-copy-baseline.json` retains the failed result. Nearby occurrences
+now compose independently; publication keys distinguish equal-shaped members.
+The corrected fixture passes ten checks at 13px and 30px, painting the original
+before visiting its copy and retaining both canonical text and assistive
+cancellation notation (`decorations-copy-fixed.json`).
+
+The actual PDE Fourier-hat paragraph at 430px/30px previously reports 2.78125px
+of italic/accent overhang at a line end. Adding the block warning itself moves
+the expression to the next line, where the ink fits, but the old warning remains.
+`body-math-fhat430trace.json` records those before/after measurements. Publication
+now retires previous notices first, checks the real line and gives an overhanging
+inline expression an ordinary line at the same font size. All 77 expressions in
+that actual section pass 234 checks afterward (`body-math-fhat430fixed.json`).
+
+The test fixture now persists bounded, same-origin, accepted-revision reports
+inside owned `dist` source/output directories. Three real-HTTP tests cover its
+origin, revision, path and sequence checks. This endpoint is absent from the
+production handler. Reports keep completed ranges separate from interrupted
+ones. An initial table audit failure comes from its diagnostic receipt's own
+unbroken JSON line; wrapping that test-only receipt and rerunning yields the
+completed results above. The failed artifact remains available. The isolated
+320px relationship 6 passes all 15 checks at 13px/30px after an earlier full-run
+timeout; that timeout is retained and does not count as complete coverage.
+
+All 67 Python tests pass with the real Typst/package configuration, all 50 Node
+tests pass, and the developer guide compiles. Full current-source body sweeps now
+also require actual decoration paint after ordinary scrolling at four widths
+and 13px/30px. Their pending results and mobile device verification still gate
+automatic-entry promotion at this checkpoint. Evidence is under
+`dist/reader-rollout-checks`, with raw durable reports in
+`runtime-durable/browser-audits` and `runtime-decoration-copy/browser-audits`.

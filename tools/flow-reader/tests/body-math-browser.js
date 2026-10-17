@@ -3,7 +3,8 @@ import { logicalTextIndex } from "/math-identity.js";
 import { mathOverflow } from "/math-layout.js";
 
 // Observe the real renderer without changing its viewport eligibility, budgets,
-// scheduling or publication. Scroll each body passage into the normal margin.
+// scheduling or publication. Scroll uncomposed passages into the normal margin;
+// already current, nearby expressions need no additional scroll or render.
 let renderer;
 const measure = ResponsiveMath.prototype.measure;
 ResponsiveMath.prototype.measure = function (record) {
@@ -11,6 +12,28 @@ ResponsiveMath.prototype.measure = function (record) {
   return measure.call(this, record);
 };
 const report = { width: innerWidth, checks: 0, errors: [], sections: [], failures: [] };
+const notice = ResponsiveMath.prototype.notice;
+if (new URL(location.href).searchParams.has("trace")) {
+  ResponsiveMath.prototype.notice = function (record, message) {
+    const snapshot = () => {
+      const measurement = this.measure(record);
+      return (
+        measurement && {
+          measurement,
+          bounds: mathOverflow(record.view, measurement),
+          rect: record.view.getBoundingClientRect().toJSON(),
+          wrapper: record.view.parentElement.getBoundingClientRect().toJSON(),
+        }
+      );
+    };
+    const before = record.view.dataset.mathState === "overflow" && snapshot();
+    notice.call(this, record, message);
+    if (before) {
+      report.trace ??= [];
+      report.trace.push({ text: text(record.template), before, after: snapshot() });
+    }
+  };
+}
 const output = document.createElement("script");
 output.type = "application/json";
 output.id = "body-math-report";
@@ -50,6 +73,10 @@ async function until(condition, name, timeout = 90000) {
 const text = (node) => logicalTextIndex(node, { includeNested: true }).text;
 try {
   const query = new URL(location.href).searchParams;
+  if (query.has("audit")) {
+    const { attachReport } = await import("/test-report.js");
+    attachReport({ kind: "body-math", id: "body-math-report", stateKey: "bodyMathState" });
+  }
   if (query.get("width"))
     await until(() => innerWidth === Number(query.get("width")), "requested viewport");
   report.width = innerWidth;
@@ -71,8 +98,11 @@ try {
   );
   const fonts = query.get("fonts") ? query.get("fonts").split(",").map(Number) : [18, 30];
   const start = Number(query.get("start") ?? 0);
+  const end = Number(query.get("end") ?? sections.length);
   if (!Number.isInteger(start) || start < 0 || start >= sections.length)
     throw new Error("Invalid first transport section");
+  if (!Number.isInteger(end) || end <= start || end > sections.length)
+    throw new Error("Invalid last transport section");
   for (const font of fonts) {
     while (Number(document.querySelector("#reader-size").value) !== font)
       document
@@ -82,7 +112,7 @@ try {
             : "#reader-smaller",
         )
         .click();
-    for (const section of sections.slice(start)) {
+    for (const section of sections.slice(start, end)) {
       // Exercise the Reader's actual link handler. A direct location.hash write
       // inherits history state and can restore an older saved reading anchor.
       const link = document.createElement("a");
@@ -120,6 +150,9 @@ try {
         widths: [],
         fontSizes: [],
         ready: 0,
+        scrolls: 0,
+        alreadyCurrent: 0,
+        decoratedExpressions: 0,
       };
       const widths = new Set();
       const sizes = new Set();
@@ -129,22 +162,24 @@ try {
         // The Reader preserves its 90px reading reference. Centering a short
         // passage can leave that reference inside a preceding, expanding
         // formula; align the audited passage with the reference instead.
-        record.view.scrollIntoView({ block: "start" });
-        await new Promise(requestAnimationFrame);
-        renderer.schedule(0);
-        await until(
-          () => {
-            if (!record.view.isConnected) throw new Error("Audited passage was replaced");
-            const current = renderer.measure(record);
-            return (
-              current &&
-              (record.view.dataset.mathState === "error" ||
-                (record.key === current.key &&
-                  ["ready", "overflow"].includes(record.view.dataset.mathState)))
-            );
-          },
-          `${font}px ${section.id} expression ${index + 1}`,
-        );
+        const current = () => {
+          if (!record.view.isConnected) throw new Error("Audited passage was replaced");
+          const measurement = renderer.measure(record);
+          return (
+            measurement &&
+            (record.view.dataset.mathState === "error" ||
+              (record.key === measurement.key &&
+                ["ready", "overflow"].includes(record.view.dataset.mathState)))
+          );
+        };
+        if (current()) stats.alreadyCurrent++;
+        else {
+          stats.scrolls++;
+          record.view.scrollIntoView({ block: "start" });
+          await new Promise(requestAnimationFrame);
+          renderer.schedule(0);
+          await until(current, `${font}px ${section.id} expression ${index + 1}`);
+        }
         const measurement = renderer.measure(record);
         const bounds = mathOverflow(record.view, measurement);
         const prefix = `${font}px ${section.id} expression ${index + 1}`;
@@ -168,6 +203,34 @@ try {
             bounds,
             notice: record.notice?.textContent,
           });
+        const decorations = () =>
+          [...record.view.querySelectorAll("[data-flow-decoration]")].filter(
+            (node) => !node.closest("mjx-assistive-mml"),
+          );
+        if (decorations().length) {
+          stats.decoratedExpressions++;
+          // The decoration margin is narrower than the math prefetch margin.
+          // Read the marked passage itself before requiring its original paint.
+          record.view.scrollIntoView({ block: "start" });
+          await new Promise(requestAnimationFrame);
+          await until(
+            () =>
+              current() &&
+              decorations().every(
+                (node) =>
+                  node.dataset.decorationState === "error" ||
+                  (node.dataset.decorationState === "ready" && node.dataset.flowAnchor),
+              ),
+            `${prefix} original decoration paint`,
+            300000,
+          );
+          check(
+            `${prefix} paints every visible emphasis or cancellation without visiting a copy`,
+            decorations().every(
+              (node) => node.dataset.decorationState === "ready" && node.dataset.flowAnchor,
+            ),
+          );
+        }
         if ((index + 1) % 32 === 0) publish();
       }
       stats.widths = [...widths].sort((a, b) => a - b);
@@ -189,5 +252,6 @@ try {
   document.body.dataset.bodyMathState = "error";
 } finally {
   ResponsiveMath.prototype.measure = measure;
+  ResponsiveMath.prototype.notice = notice;
 }
 publish();

@@ -125,8 +125,10 @@ All 1,914 reference display strings outside canvases are unchanged. The extracte
 outside-canvas prose differs only by one whitespace boundary; its non-whitespace
 text is identical. These checks do not establish complete arrow/leader geometry
 or physical-device accessibility. The remaining older diagrams and surface plots
-are covered by the adapters described below. Keep device and accessibility gates
-open before mobile-default rollout. Disabling the option keeps
+are covered by the adapters described below. Device and visual-fidelity acceptance
+remain required before mobile-default rollout. On 2026-10-18 the user explicitly
+deferred actual VoiceOver speech validation to follow-up work; it is not a gate
+for this rollout and must not be reported as completed. Disabling the option keeps
 the established coordinate-unit delivery path.
 
 == Older CeTZ and Fletcher figures
@@ -420,6 +422,14 @@ unknown IDs, invalid geometry, changed revisions, and missing or duplicate layer
 An empty SVG is a valid present layer. Document equation numbering must not leak
 into stretched bracket decorations. SVG normalization preserves XML tag casing.
 
+Repeated explanatory targets compose independently. A nearby original term must
+not wait for a far-offscreen copy's mathematical composition before receiving its
+highlight or cancellation. Only nearby, composed fragments supply geometry;
+publication keys include their occurrence identity even when their dimensions
+match. The same callback paint can still be reused. A tall-equation fixture
+verifies the original cancellation while its explanation remains uncomposed,
+then verifies that copy through ordinary scrolling at 13px and 30px.
+
 The mathematical renderer distinguishes authored derivation alignment from
 matrix/cases/vector structure. Its row composition moves original nodes into
 separately breakable mathematical rows, preserving anchors and nested tables.
@@ -470,12 +480,18 @@ correction, and cannot establish production acceptance. Evidence is under
 == Inline expressions wider than the body
 
 A wide inline expression can automatically compose as a block in the reading
-body. Short expressions remain inline; a wider container can restore the original
+body. Short expressions whose complete ink fits remain inline; a wider container can restore the original
 presentation. Explicit `mstyle` preserves the original inline fraction, limit,
 and script typography during block line breaking. The ordinary publication guards
 still protect active selections, revision changes, and obsolete measurements.
 Original paint follows the resulting marked fragments, and surrounding sentence
 text retains its source order. This requires no expansion control or font reduction.
+
+Publication also checks the actual paragraph line. An accent can fit in isolation
+yet overhang when its short expression lands at the right edge. In that case the
+Reader gives it an ordinary body line at the same size. A previous status notice
+is removed before measuring, so its block cannot change line breaks and leave a
+false warning. The actual PDE Fourier-hat paragraph reproduces this at 430px/30px.
 
 The actual Reader fixture checks both 18px and 30px text at 320px and 390px,
 including fraction-size comparison, canonical copying, accessible references,
@@ -673,6 +689,15 @@ canonical copying, font reflow, active selections, obsolete candidate rejection,
 and automatic error recovery. Evidence is under `dist/reader-runtime-checks`.
 Unresolved mathematical overflow and drawing collisions still prevent promotion
 to the mobile default.
+
+Long browser sweeps can opt into `audit=NAME` on the disposable runtime fixture.
+Their hidden JSON reports are checkpointed through its test-only, same-origin
+endpoint under the fixture output. Revision checks, bounded payloads and an owned
+`dist` source/output requirement keep that protocol separate from the production
+server. Completed evidence survives a browser-control disconnection. Body sweeps
+retain per-section counts, visit every actual mathematical occurrence, check
+canonical text and ink, and require original decoration paint on marked passages.
+An incomplete range is never counted as completed coverage.
 
 == Managed installation
 

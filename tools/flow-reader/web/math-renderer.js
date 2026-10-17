@@ -355,12 +355,25 @@ export class ResponsiveMath {
             const errors = record.model.bind(result.stage, { view: record.view });
             if (errors.length) throw new Error("원본 수식과 조판 결과를 연결하지 못했습니다.");
             record.view.replaceChildren(...result.stage.childNodes);
-            record.view.dataset.mathLayout = result.layout;
-            if (record.view.parentElement.matches(".flow-inline-equation"))
-              record.view.parentElement.dataset.mathLayout = result.layout;
+            const layout = (value) => {
+              record.view.dataset.mathLayout = value;
+              if (record.view.parentElement.matches(".flow-inline-equation"))
+                record.view.parentElement.dataset.mathLayout = value;
+            };
+            layout(result.layout);
+            // A previous block notice changes an inline wrapper's line breaks.
+            // Measure the actual reading layout after retiring that notice.
+            this.notice(record, "");
             record.key = measurement.key;
             record.retryAt = 0;
-            const bounds = mathOverflow(record.view, measurement);
+            let bounds = mathOverflow(record.view, measurement);
+            if (result.layout === "inline" && Math.max(bounds.left, bounds.right) > 1) {
+              // An accent/italic overhang can cross the paragraph edge when a
+              // short formula lands at a line end, despite fitting alone in its
+              // staging area. Give it an ordinary body line at the same size.
+              layout("block");
+              bounds = mathOverflow(record.view, measurement);
+            }
             const overflow = Math.max(bounds.left, bounds.right) > 1;
             record.view.dataset.mathState = overflow ? "overflow" : "ready";
             this.notice(

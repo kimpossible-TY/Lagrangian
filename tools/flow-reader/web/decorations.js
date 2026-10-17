@@ -119,30 +119,31 @@ export class MathDecorations {
   }
 
   measure(record) {
-    if (
-      record.nodes.some((node) =>
-        ["native", "pending"].includes(node.closest(".flow-math-view")?.dataset.mathState),
-      )
-    )
-      return null;
-    const fragments = record.nodes.flatMap((node) => {
+    const fragments = record.nodes.flatMap((node, member) => {
+      // Explanations can repeat this callback far below its original term.
+      // Compose and paint each nearby occurrence independently; an offscreen
+      // native copy must not withhold a visible cancellation or emphasis.
+      if (["native", "pending"].includes(node.closest(".flow-math-view")?.dataset.mathState))
+        return [];
       const surface = this.surface(node);
       const base = surface.getBoundingClientRect();
       return [...node.getClientRects()]
         .filter((r) => r.width && r.height)
         .map((rect) => ({
           node,
+          member,
           surface,
           width: rect.width,
           height: rect.height,
           x: rect.left - base.left - surface.clientLeft + surface.scrollLeft,
           y: rect.top - base.top - surface.clientTop + surface.scrollTop,
           visible: rect.bottom > -1000 && rect.top < innerHeight + 1000,
-        }));
+        }))
+        .filter((fragment) => fragment.visible);
     });
-    if (!fragments.length || !fragments.some((f) => f.visible)) return null;
+    if (!fragments.length) return null;
     const round = (n) => Math.round(n * 1000) / 1000;
-    const color = getComputedStyle(record.nodes[0]).color.match(/[\d.]+/g);
+    const color = getComputedStyle(fragments[0].node).color.match(/[\d.]+/g);
     const ink =
       "#" +
       (color ?? [36, 44, 52])
@@ -150,12 +151,15 @@ export class MathDecorations {
         .map((n) => Math.round(Number(n)).toString(16).padStart(2, "0"))
         .join("");
     const request = {
-      fontSize: parseFloat(getComputedStyle(record.nodes[0]).fontSize),
+      fontSize: parseFloat(getComputedStyle(fragments[0].node).fontSize),
       ink,
       fragments: fragments.map((f) => ({ width: round(f.width), height: round(f.height) })),
     };
     const signature = JSON.stringify([this.getRevision(), record.id, request]);
-    const key = JSON.stringify([signature, fragments.map((f) => [round(f.x), round(f.y)])]);
+    const key = JSON.stringify([
+      signature,
+      fragments.map((f) => [f.member, round(f.x), round(f.y)]),
+    ]);
     return { request, signature, key, fragments };
   }
 
