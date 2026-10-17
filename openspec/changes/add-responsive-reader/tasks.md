@@ -1,6 +1,6 @@
 - [x] Inspect current engine, preview, Flow profiles, Tail Hosting ownership, and PDE HTML failures.
 - [x] Add isolated target-aware package adapters and a reproducible reader build command.
-- [ ] Compile the full PDE document with faithful math, references, footnotes, and annotations.
+- [x] Compile the full PDE document with math, references, footnotes, and annotation adapters; verify graphical programs separately.
 - [ ] Implement responsive Reader frontend, figure layouts, and local equation expansion.
 - [ ] Preserve reading position, references, text selection, and highlights through updates.
 - [ ] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.
@@ -10,6 +10,9 @@
 
 Implementation checkpoint: the complete PDE document compiles to HTML with no
 missing anchor targets, duplicate SVG IDs, unresolved annotation targets, or
-unhandled compiler-loss warnings. Fifteen graphical annotation adapters still
-emit explicit diagnostics and block promotion. The local reader is a development
-preview; Tailnet routing and the mobile default have not changed.
+unhandled compiler-loss warnings. All 15 graphical annotation programs render
+against supplied term geometry; the browser verifies an actual PDE relationship
+at normal and large font sizes. The reader loads one of 57 sections, preserving
+cross-section references and reading keys. Figure layouts, persistent highlights,
+offline delivery, and managed deployment remain unfinished. Tailnet routing and
+the mobile default have not changed.

@@ -1,3 +1,5 @@
+import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
+
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
@@ -8,6 +10,11 @@ let revision = null;
 let pending = null;
 let blocks = [];
 let fontSize = 18;
+let manifest = null;
+let currentSection = null;
+let loadSequence = 0;
+const sectionCache = new Map();
+const graphics = new GraphicalAnnotations(noteDialog, () => revision);
 
 function readStored(key, fallback) {
   try {
@@ -42,6 +49,9 @@ function readingAnchor() {
     key: block.dataset.readerKey,
     text: textOf(block).slice(0, 180),
     offset: block.getBoundingClientRect().top - 90,
+    section: currentSection,
+    id: block.id,
+    url: location.href,
   };
 }
 function restoreAnchor(anchor) {
@@ -76,6 +86,7 @@ function noteGroup(after) {
 }
 
 function prepareNotes(root) {
+  graphics.clear();
   const marks = new Map();
   let noteNumber = 0;
   // Traverse in document order: a repeated tag resolves to its preceding mark.
@@ -91,7 +102,21 @@ function prepareNotes(root) {
     const note = document.createElement("div");
     note.className = "flow-note";
     note.id = `reader-note-${++noteNumber}`;
-    note.append(...node.childNodes);
+    if (node.dataset.flowGraphic) {
+      const id = node.dataset.flowGraphic;
+      graphics.register(
+        id,
+        targets,
+        targets.map((tag) => marks.get(tag)),
+      );
+      const button = document.createElement("button");
+      button.className = "flow-graphic-open";
+      button.dataset.graphicId = id;
+      button.textContent = "관계 그림 보기";
+      note.append(button);
+    } else {
+      note.append(...node.childNodes);
+    }
     if (node.dataset.flowDiagnostic) {
       note.classList.add("flow-unresolved");
       note.dataset.flowDiagnostic = node.dataset.flowDiagnostic;
@@ -123,19 +148,22 @@ function indexDocument() {
   );
   for (const node of blocks) {
     if (/^H[1-5]$/.test(node.tagName)) heading = node.id || fingerprint(textOf(node));
+    if (node.dataset.readerKey) continue;
     const base = node.id || `${heading}-${fingerprint(textOf(node))}`;
     const count = (counts.get(base) ?? 0) + 1;
     counts.set(base, count);
     node.dataset.readerKey = `${base}:${count}`;
     if (!node.id) node.id = `reader-block-${base}-${count}`;
   }
+}
+
+function indexOutline(nextManifest) {
   outline.replaceChildren();
-  for (const node of article.querySelectorAll("h1,h2,h3,h4")) {
-    if (!node.id || node.closest("nav")) continue;
+  for (const node of nextManifest.outline) {
     const link = document.createElement("a");
     link.href = `#${encodeURIComponent(node.id)}`;
-    link.textContent = textOf(node);
-    link.dataset.level = node.tagName[1];
+    link.textContent = node.title;
+    link.dataset.level = node.level;
     outline.append(link);
   }
 }
@@ -154,12 +182,7 @@ function selectionActive() {
   return !window.getSelection()?.isCollapsed || noteDialog.open;
 }
 
-function renderDocument(html, nextRevision) {
-  if (selectionActive()) {
-    pending = { html, revision: nextRevision };
-    return;
-  }
-  const anchor = revision ? readingAnchor() : readStored("position", null);
+function renderDocument(html, nextManifest, section, options) {
   const parsed = new DOMParser().parseFromString(html, "text/html");
   // Typst output is document content; it does not control the reader shell.
   parsed.querySelectorAll("script,iframe,object,embed,form,base").forEach((node) => node.remove());
@@ -183,15 +206,113 @@ function renderDocument(html, nextRevision) {
   document.title = parsed.title ? `${parsed.title} · Flow Reader` : "Flow Reader";
   indexDocument();
   article.setAttribute("aria-busy", "false");
-  const firstLoad = !revision;
-  revision = nextRevision;
+  revision = nextManifest.revision;
+  manifest = nextManifest;
+  currentSection = section;
+  indexOutline(manifest);
+  updateSectionNavigation();
   pending = null;
   requestAnimationFrame(() => {
-    if (firstLoad && location.hash)
-      document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
-    else restoreAnchor(anchor);
+    if (options.target) document.getElementById(options.target)?.scrollIntoView();
+    else if (options.anchor) restoreAnchor(options.anchor);
+    else window.scrollTo(0, 0);
   });
 }
+
+function fragment() {
+  try {
+    return decodeURIComponent(location.hash.slice(1));
+  } catch {
+    return "";
+  }
+}
+
+async function loadSection(nextManifest, section, options = {}) {
+  const sequence = ++loadSequence;
+  const key = `${nextManifest.revision}:${section}`;
+  article.setAttribute("aria-busy", "true");
+  try {
+    let html = sectionCache.get(key);
+    if (!html) {
+      const response = await fetch(
+        `api/sections/${encodeURIComponent(section)}?revision=${nextManifest.revision}`,
+      );
+      if (!response.ok) throw new Error(`Section HTTP ${response.status}`);
+      html = await response.text();
+      sectionCache.set(key, html);
+      while (sectionCache.size > 6) sectionCache.delete(sectionCache.keys().next().value);
+    }
+    if (sequence !== loadSequence) return;
+    // A source update must not dismiss a note or disturb a selection made while
+    // its network request was in flight. Explicit navigation is the user's choice.
+    if (options.update && selectionActive()) {
+      pending = nextManifest;
+      return;
+    }
+    renderDocument(html, nextManifest, section, options);
+    if (options.history) {
+      const url = new URL(location.href);
+      url.searchParams.set("section", section);
+      url.hash = options.target ? encodeURIComponent(options.target) : "";
+      history.pushState(null, "", url);
+    }
+  } catch {
+    status.dataset.state = "error";
+    status.textContent = "이 절을 불러오지 못했습니다. 현재 내용은 계속 읽을 수 있습니다.";
+  } finally {
+    if (sequence === loadSequence) article.setAttribute("aria-busy", "false");
+  }
+}
+
+function sectionFor(nextManifest, anchor, target) {
+  return (
+    nextManifest.anchors[target] ??
+    nextManifest.blocks[anchor?.key] ??
+    nextManifest.anchors[anchor?.id] ??
+    nextManifest.sections.find((section) => section.id === anchor?.section)?.id ??
+    nextManifest.sections[0].id
+  );
+}
+
+function updateSectionNavigation() {
+  const index = manifest.sections.findIndex((section) => section.id === currentSection);
+  document.querySelector("#reader-section-name").textContent =
+    `${index + 1} / ${manifest.sections.length} · ${manifest.sections[index].title}`;
+  document.querySelector("#reader-previous").disabled = index === 0;
+  document.querySelector("#reader-next").disabled = index === manifest.sections.length - 1;
+  document.querySelector("#reader-section-navigation").hidden = false;
+}
+
+async function navigateAnchor(target, push = true) {
+  if (!manifest) return;
+  const section = manifest.anchors[target];
+  const local = document.getElementById(target);
+  if (local && (!section || section === currentSection)) {
+    local.scrollIntoView();
+    if (push) history.pushState(null, "", `#${encodeURIComponent(target)}`);
+  } else if (section) {
+    await loadSection(manifest, section, { target, history: push });
+  }
+}
+
+for (const [id, direction] of [
+  ["reader-previous", -1],
+  ["reader-next", 1],
+]) {
+  document.getElementById(id).addEventListener("click", () => {
+    const index = manifest.sections.findIndex((section) => section.id === currentSection);
+    const next = manifest.sections[index + direction];
+    if (next) loadSection(manifest, next.id, { history: true });
+  });
+}
+window.addEventListener("popstate", () => {
+  if (!manifest) return;
+  if (fragment()) navigateAnchor(fragment(), false);
+  else {
+    const id = new URL(location.href).searchParams.get("section") ?? manifest.sections[0].id;
+    if (manifest.sections.some((section) => section.id === id)) loadSection(manifest, id);
+  }
+});
 
 function showNote(mark) {
   const notes = mark.dataset.readerNote
@@ -199,13 +320,33 @@ function showNote(mark) {
     .map((id) => document.getElementById(id))
     .filter(Boolean);
   const body = document.querySelector("#reader-note-body");
-  body.replaceChildren(...notes.map((note) => note.cloneNode(true)));
-  body.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+  if (notes.length === 1 && notes[0].querySelector(".flow-graphic-open")) {
+    graphics.show(notes[0].querySelector(".flow-graphic-open").dataset.graphicId);
+    return;
+  }
+  body.replaceChildren(
+    ...notes.map((note, i) => namespaceClone(note.cloneNode(true), `reader-dialog-${i}-`)),
+  );
   noteDialog.showModal();
 }
 article.addEventListener("click", (event) => {
+  const link = event.target.closest('a[href^="#"]');
+  if (link && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+    event.preventDefault();
+    navigateAnchor(decodeURIComponent(link.getAttribute("href").slice(1)));
+    return;
+  }
+  const graphic = event.target.closest(".flow-graphic-open");
+  if (graphic) {
+    graphics.show(graphic.dataset.graphicId);
+    return;
+  }
   const mark = event.target.closest("[data-reader-note]");
   if (mark && window.getSelection()?.isCollapsed) showNote(mark);
+});
+noteDialog.addEventListener("click", (event) => {
+  const graphic = event.target.closest(".flow-graphic-open");
+  if (graphic) graphics.show(graphic.dataset.graphicId);
 });
 article.addEventListener("keydown", (event) => {
   const mark = event.target.closest("[data-reader-note]");
@@ -222,9 +363,12 @@ menu.addEventListener("click", () => {
   menu.setAttribute("aria-expanded", !outline.hidden);
 });
 outline.addEventListener("click", (event) => {
-  if (event.target.closest("a")) {
+  const link = event.target.closest("a");
+  if (link) {
+    event.preventDefault();
     outline.hidden = true;
     menu.setAttribute("aria-expanded", "false");
+    navigateAnchor(decodeURIComponent(link.hash.slice(1)));
   }
 });
 let saveTimer;
@@ -253,24 +397,33 @@ async function refresh() {
       ? "compiling"
       : state.exitCode
         ? "error"
-        : state.contentGatePassed
+        : state.contentGatePassed && !state.development
           ? "ready"
           : "incomplete";
     status.textContent = state.compiling
       ? "저장된 변경 사항을 반영하는 중…"
       : state.exitCode
         ? "컴파일 오류가 있어 마지막으로 읽을 수 있었던 문서를 표시합니다."
-        : state.contentGatePassed
+        : state.contentGatePassed && !state.development
           ? "저장된 문서 · 화면에 맞춰 읽기"
           : "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다.";
     if (state.revision && state.revision !== revision && state.revision !== pending?.revision) {
-      const documentResponse = await fetch(
-        `document.html?revision=${encodeURIComponent(state.revision)}`,
+      const manifestResponse = await fetch(
+        `api/manifest?revision=${encodeURIComponent(state.revision)}`,
       );
-      if (!documentResponse.ok) throw new Error(`HTTP ${documentResponse.status}`);
-      renderDocument(await documentResponse.text(), state.revision);
+      if (!manifestResponse.ok) throw new Error(`HTTP ${manifestResponse.status}`);
+      pending = await manifestResponse.json();
     }
-    if (pending && !selectionActive()) renderDocument(pending.html, pending.revision);
+    if (pending && !selectionActive()) {
+      const anchor = revision ? readingAnchor() : readStored("position", null);
+      const target = !revision && anchor?.url !== location.href ? fragment() : null;
+      const sectionHint = !revision && new URL(location.href).searchParams.get("section");
+      const section =
+        sectionHint && pending.sections.some((item) => item.id === sectionHint)
+          ? (pending.anchors[target] ?? sectionHint)
+          : sectionFor(pending, anchor, target);
+      await loadSection(pending, section, { anchor, target, update: true });
+    }
   } catch {
     status.dataset.state = "error";
     status.textContent = revision

@@ -72,6 +72,7 @@ class ContentAudit(HTMLParser):
         self.diagnostics: Counter[str] = Counter()
         self.marks: Counter[str] = Counter()
         self.annotation_targets: list[list[str]] = []
+        self.graphics: dict[str, list[str]] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
@@ -86,6 +87,8 @@ class ContentAudit(HTMLParser):
             self.marks[mark] += 1
         if targets := attributes.get("data-flow-targets"):
             self.annotation_targets.append(json.loads(targets))
+            if graphic := attributes.get("data-flow-graphic"):
+                self.graphics[graphic] = json.loads(targets)
 
     def report(self) -> dict:
         missing_links = sorted(set(self.links) - self.ids.keys())
@@ -99,13 +102,14 @@ class ContentAudit(HTMLParser):
             "annotations": len(self.annotation_targets),
             "unresolvedAnnotationTargets": missing_marks,
             "unsupported": dict(self.diagnostics),
+            "graphics": self.graphics,
             "contentGatePassed": not (
                 missing_links or duplicate_ids or missing_marks or self.diagnostics
             ),
         }
 
 
-def compile_project(project: Project, output: Path) -> dict:
+def compile_project(project: Project, output: Path, *, geometry: dict | None = None) -> dict:
     root = project.root.resolve()
     entry = project.relative_entry()
     output.mkdir(parents=True, exist_ok=True)
@@ -121,6 +125,8 @@ def compile_project(project: Project, output: Path) -> dict:
                    "--package-path", str(work / "packages"), "--input", "flow-reader=true"]
         for font in project.fonts:
             command.extend(["--font-path", str((root / font).resolve())])
+        if geometry is not None:
+            command.extend(["--input", "flow-geometry=" + json.dumps(geometry, separators=(",", ":"))])
         command.extend(["-", str(work / "document.html")])
         result = subprocess.run(command, input=wrapper, text=True, capture_output=True, cwd=root)
         (output / "compile.log").write_text(result.stderr)

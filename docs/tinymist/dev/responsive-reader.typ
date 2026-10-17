@@ -49,8 +49,33 @@ compiled successfully. A failed compile retains the previous document.
 The reader supports native text selection, a heading outline, font size changes,
 local equation scrolling, linked annotation dialogs, and reading anchors. Updates
 wait for an active selection or annotation dialog to close. Persistent highlights,
-source selection sharing, offline reload, graphical annotation reflow, and managed
-Flow/Tail Hosting integration remain subsequent implementation work.
+source selection sharing, offline reload, and managed Flow/Tail Hosting integration
+remain subsequent implementation work.
+
+== Sections and graphical annotations
+
+The service publishes a revision-specific `/api/manifest` and HTML sections at
+`/api/sections/section-N?revision=...`. Only the current section is inserted into
+the browser DOM. The manifest resolves references and footnotes across sections.
+Reading keys are assigned before partitioning, using named labels or contextual
+text, so a section boundary change does not itself invalidate a saved passage.
+Large vector drawings and embedded images are delivered unchanged as separate,
+lazy-loaded assets. SVG drawings with interactive links remain inline.
+
+Graphical annotations retain their original CeTZ programs. Opening a relationship
+dialog measures the actual marked terms in its equation layout and sends those
+rectangles to `/api/graphics`. The service evaluates the original program against
+the measured geometry and returns a namespaced SVG overlay. No source code is
+accepted in this request. The published revision and source fingerprint must
+still match; source changes reject a new rendering until a current document is
+available. Completed geometry requests are cached.
+
+The initial implementation recompiles the full source for an uncached graphical
+request. On the PDE project this can take several seconds; the dialog shows a
+pending state. Reusing a persistent compiler is a subsequent performance task.
+Drawing a connection correctly does not imply an arbitrary figure can be
+recomposed automatically. Figure label sizes and narrow layouts still require
+their own validation.
 
 == Verification
 

@@ -599,6 +599,31 @@
 
   core-annot(tag, overlay)
 }
+#let _reader-graphic-counter = counter("flow-reader-graphic")
+
+#let _reader-graphic(id, tags, cetz, drawable) = context {
+  let geometry = json(bytes(sys.inputs.at("flow-geometry", default: "{}"))).at(id, default: none)
+  let attrs = (class: "flow-graphic", "data-flow-graphic": id,
+    "data-flow-targets": json.encode(tags))
+  let drawing = if geometry != none {
+    // Browser coordinates are CSS pixels. CeTZ coordinates stay in centimetres
+    // so that the author's relative offsets and curve control points retain
+    // their original units. SVG display is explicitly sized by the reader.
+    let px = 0.75pt / 1cm
+    let boxes = tags.map(tag => {
+      let rect = geometry.markers.at(tag)
+      cetz.draw.rect((rect.x * px, -rect.y * px),
+        ((rect.x + rect.width) * px, -(rect.y + rect.height) * px),
+        name: tag, stroke: none, fill: none)
+    }).join()
+    let boundary = cetz.draw.rect((0, 0),
+      (geometry.width * px, -geometry.height * px), stroke: none, fill: none)
+    attrs.insert("data-flow-rendered", "true")
+    html.frame(cetz.canvas(boundary + cetz.draw.floating(boxes + drawable)))
+  } else { [] }
+  html.elem("mtext", html.elem("span", attrs: attrs, drawing))
+}
+
 #let annot-cetz(
   /// The tag (or an array of tags) associated with the content to annotate.
   /// This tag must match the tag previously used in a marking function.
@@ -614,10 +639,10 @@
   return context {
     if target() == "html" {
       let tags = if type(tag) == array { tag.map(str) } else { (str(tag),) }
-      html.elem("mtext", html.elem("span", attrs: (
-        class: "flow-unresolved", "data-flow-diagnostic": "graphical-annotation",
-        "data-flow-targets": json.encode(tags),
-      ), [Graphical annotation requires the original view.]))
+      _reader-graphic-counter.step()
+      context {
+        _reader-graphic("graphic-" + str(_reader-graphic-counter.get().first()), tags, cetz, drawable)
+      }
     } else { _paged-annot-cetz(tag, cetz, drawable) }
   }
 }
