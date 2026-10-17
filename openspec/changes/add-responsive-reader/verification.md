@@ -514,3 +514,14 @@ creation-time/source conditions and was not a valid byte comparison; the paired
 `pdf-paired.json` is the current evidence. Remaining wide mathematics, figure
 labels, unsupported connectors, accessibility/device checks, and mobile rollout
 remain open.
+
+The clean implementation commit `c8c4cd9c7f333bf56cbd5debab00f2541f1638ca`
+is installed as the independent development Reader on HTTPS port 23627. Its five
+checked frontend modules match the release, accepted PDE compilation passes the
+content gate, and the actual HTTPS Jacobi scene at 390px/18px reports zero
+text/label collisions with the blue connection rerouted and the red curve kept.
+The original PDF endpoint remains HTTP 200 in PID 39357. Installation and browser
+receipts are `managed-update.json`, `managed-browser.json`, and
+`managed-pde-390.png` under `dist/reader-routing-checks`. The temporary fixture
+servers and verification tab were closed, and the viewport override was reset.
+The mobile default remains pending full fidelity validation.
