@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Flow Reader</title>
+    <link rel="stylesheet" href="reader.css" />
+    <script type="module" src="reader.js"></script>
+  </head>
+  <body>
+    <a class="reader-skip" href="#reader-document">본문으로 이동</a>
+    <header class="reader-toolbar">
+      <button id="reader-menu" aria-controls="reader-outline" aria-expanded="false">목차</button>
+      <span class="reader-brand">Flow <span>Reader</span></span>
+      <div class="reader-type-controls" aria-label="본문 글자 크기">
+        <button id="reader-smaller" aria-label="글자 작게">A−</button>
+        <output id="reader-size">18</output>
+        <button id="reader-larger" aria-label="글자 크게">A+</button>
+      </div>
+      <a id="reader-original" hidden>페이지 보기</a>
+    </header>
+    <div id="reader-status" role="status">문서를 불러오는 중…</div>
+    <nav id="reader-outline" aria-label="문서 목차" hidden></nav>
+    <main id="reader-document" tabindex="-1" aria-busy="true"></main>
+    <dialog id="reader-note">
+      <button id="reader-note-close" autofocus>닫기</button>
+      <div id="reader-note-body"></div>
+    </dialog>
+    <div id="reader-document-styles"></div>
+  </body>
+</html>

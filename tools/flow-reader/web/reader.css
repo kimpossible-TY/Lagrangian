@@ -1,0 +1,338 @@
+:root {
+  color-scheme: light dark;
+  --reader-font-size: 18px;
+  --paper: #fcfaf6;
+  --ink: #242c34;
+  --muted: #667279;
+  --line: #d9dedc;
+  --accent: #21685f;
+  --wash: #edf3ef;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: system-ui, sans-serif;
+  scroll-padding-top: 7rem;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+select,
+output {
+  font: inherit;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+button,
+.reader-toolbar a {
+  min-height: 44px;
+  border: 0;
+  border-radius: 0.4rem;
+  padding: 0.55rem 0.7rem;
+}
+a {
+  color: var(--accent);
+  text-underline-offset: 0.16em;
+}
+button:hover {
+  background: var(--wash);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.reader-skip {
+  position: fixed;
+  top: -100px;
+}
+.reader-skip:focus {
+  top: 0.5rem;
+  z-index: 10;
+  background: var(--paper);
+}
+.reader-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem max(0.5rem, env(safe-area-inset-right)) 0.35rem
+    max(0.5rem, env(safe-area-inset-left));
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.reader-brand {
+  font-weight: 650;
+  margin-inline-end: auto;
+  white-space: nowrap;
+}
+.reader-brand span {
+  font-weight: 400;
+  color: var(--muted);
+}
+.reader-type-controls {
+  display: flex;
+  align-items: center;
+}
+#reader-size {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 1.1rem;
+  text-align: center;
+}
+#reader-status {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 78ch;
+  margin: 0.8rem auto;
+  padding: 0 1rem;
+}
+#reader-status[data-state="error"],
+#reader-status[data-state="incomplete"] {
+  color: #a14e22;
+}
+#reader-outline {
+  position: fixed;
+  inset: 3.6rem auto 0 0;
+  width: min(88vw, 24rem);
+  z-index: 4;
+  background: var(--paper);
+  border-right: 1px solid var(--line);
+  overflow: auto;
+  padding: 1rem;
+  box-shadow: 8px 0 24px #0001;
+}
+#reader-outline a {
+  display: block;
+  padding: 0.55rem;
+  text-decoration: none;
+  font-size: 14px;
+}
+#reader-outline a[data-level="3"],
+#reader-outline a[data-level="4"] {
+  padding-left: 1.5rem;
+  font-size: 13px;
+}
+#reader-document {
+  width: 100%;
+  max-width: 76ch;
+  margin: 2rem auto 6rem;
+  padding: 0 clamp(16px, 4vw, 36px);
+  font-family: "New Computer Modern", "Times New Roman", Georgia, serif;
+  font-size: var(--reader-font-size);
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+#reader-document p {
+  margin: 0.8em 0;
+}
+#reader-document h1,
+#reader-document h2,
+#reader-document h3,
+#reader-document h4,
+#reader-document h5 {
+  line-height: 1.25;
+  margin: 2em 0 0.65em;
+  overflow-wrap: anywhere;
+}
+#reader-document h1 {
+  font-size: 1.9em;
+}
+#reader-document h2 {
+  font-size: 1.6em;
+  border-top: 1px solid var(--line);
+  padding-top: 1em;
+}
+#reader-document h3 {
+  font-size: 1.3em;
+}
+#reader-document h4,
+#reader-document h5 {
+  font-size: 1.08em;
+}
+#reader-document figure {
+  margin: 1.3em 0;
+  min-width: 0;
+}
+#reader-document figcaption {
+  font-size: 0.9em;
+  color: var(--muted);
+  margin-top: 0.6em;
+}
+#reader-document img {
+  max-width: 100%;
+  height: auto;
+}
+#reader-document math {
+  font-size: 1em;
+  overflow-wrap: normal;
+}
+#reader-document math[display="block"] {
+  margin: 0.6em 0;
+}
+.flow-equation {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding: 0.6em 0.2em;
+  margin: 0.8em 0;
+}
+.flow-equation > math {
+  width: max-content;
+  min-width: 100%;
+}
+.flow-equation-number {
+  display: block;
+  text-align: end;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+.flow-inline-equation {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.12em;
+  overscroll-behavior-inline: contain;
+}
+.flow-inline-equation > math {
+  width: max-content;
+}
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.2em;
+}
+.flow-drawing {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.flow-drawing > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: auto;
+}
+.flow-mark svg,
+math svg {
+  max-width: none;
+  vertical-align: middle;
+}
+.flow-callout {
+  padding: 1em;
+  border-inline-start: 3px solid var(--accent);
+  background: var(--wash);
+  border-radius: 3px;
+}
+.flow-callout-title {
+  font-weight: bold;
+  margin-bottom: 0.6em;
+}
+.flow-derivation {
+  border-block: 1px solid var(--line);
+  padding: 0.6em 0;
+  margin: 1em 0;
+}
+.flow-book-cover {
+  margin: 2em 0 3em;
+}
+.flow-book-cover h1 {
+  margin-top: 0 !important;
+}
+.flow-notes {
+  margin: 0.6em 0 1em;
+  padding: 0.4em 0.7em;
+  border-inline-start: 2px solid var(--accent);
+  font-size: 0.92em;
+}
+.flow-notes summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-family: system-ui, sans-serif;
+  font-size: 0.8em;
+}
+.flow-note {
+  margin: 0.5em 0;
+}
+.flow-mark[data-reader-note] {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.flow-unresolved {
+  display: block;
+  font-family: system-ui, sans-serif;
+  font-size: 0.8em;
+  color: #a14e22;
+}
+#reader-document table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+#reader-document td,
+#reader-document th {
+  padding: 0.4em;
+  border-bottom: 1px solid var(--line);
+}
+#reader-note {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  max-width: min(90vw, 40rem);
+  max-height: 80vh;
+  padding: 1.3rem;
+}
+#reader-note::backdrop {
+  background: #0005;
+}
+#reader-note-close {
+  display: block;
+  margin-inline-start: auto;
+}
+#reader-note-body {
+  font:
+    1.1rem/1.6 Georgia,
+    serif;
+  overflow-x: auto;
+}
+@media (max-width: 580px) {
+  .flow-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 360px) {
+  .reader-brand span {
+    display: none;
+  }
+  .reader-toolbar {
+    gap: 0;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151c21;
+    --ink: #e1e6e8;
+    --muted: #a0b1b8;
+    --line: #36434a;
+    --accent: #86c9b6;
+    --wash: #1e2c30;
+  }
+  #reader-document svg {
+    background: #fcfaf6;
+    border-radius: 2px;
+  }
+}
