@@ -1,0 +1,88 @@
+--- a/bin/tail-hosting
++++ b/bin/tail-hosting
+@@ -187,7 +187,9 @@
+             result='unknown' if state.get('compiling') or state.get('exitCode') is None else 'failed' if state['exitCode']!=0 or not state.get('contentGatePassed') else 'ok' if state.get('revision') else 'unknown'
+             return {'state':result,'checkedAt':state.get('compiledAt'),
+                     'source':'Reader compilation state','revision':state.get('revision'),
+-                    'development':bool(state.get('development'))}
++                    'observedAt':time.time(),
++                    'development':state.get('development') if type(state.get('development')) is bool else None,
++                    'semanticCanvases':state.get('semanticCanvases') if type(state.get('semanticCanvases')) is bool else None}
+         except (OSError,ValueError,KeyError): return {'state':'unknown','checkedAt':None}
+     if s['id'] != 'typst-pde': return {'state':'unknown','checkedAt':None}
+     current_fingerprint=source_fingerprint()
+@@ -228,6 +230,8 @@
+     result={'id':s['id'],'name':s['name'],'registration':s.get('registration'),'url':f"{i.get('scheme','http')}://{DNS}:{i.get('port',b.get('port',''))}{i.get('path','/')}",'intended':intended,'registrationCheck':{'state':'ok' if registered else 'planned'},'process':container_process_check(s['containerName']) if s.get('containerName') else process_check(label) if label else {'state':'unknown'},'listener':listener,'http':http,'websocket':ws,'compile':compile_check(s),'checkedAt':time.time()}
+     root=str(pathlib.Path(s['projectRoot']))
+     result['project']={'id':root,'name':s.get('projectName') or pathlib.Path(root).name}
++    result['kind']=s.get('kind','unknown')
++    if s.get('entrypoint'): result['entrypoint']=s['entrypoint']
+     if s.get('endpoints'):
+         result['endpoints']=[]
+         for endpoint in s['endpoints']:
+--- a/scripts/test-management.py
++++ b/scripts/test-management.py
+@@ -16,6 +16,20 @@
+                 result=h.compile_check(service)
+                 self.assertEqual(result['state'],expected)
+                 self.assertEqual(result['revision'],state['revision'])
++
++    def test_reader_observation_time_and_native_mode_are_explicit(self):
++        service={'kind':'typst-reader','backend':{'host':'127.0.0.1','port':23627}}
++        base={'exitCode':0,'contentGatePassed':True,'revision':'accepted','compiledAt':100}
++        for flags in ({'development':False,'semanticCanvases':True},{'development':True,'semanticCanvases':False},
++                      {'development':'false','semanticCanvases':1},{}):
++            state=base|flags
++            with self.subTest(flags=flags),patch.object(h.time,'time',return_value=1000),patch.object(h.urllib.request,'urlopen',return_value=io.BytesIO(json.dumps(state).encode())):
++                result=h.compile_check(service)
++                self.assertEqual(result['checkedAt'],100)
++                self.assertEqual(result['observedAt'],1000)
++                for name in ('development','semanticCanvases'):
++                    expected=flags.get(name) if type(flags.get(name)) is bool else None
++                    self.assertIs(result[name],expected)
+
+     def test_reader_control_delegates_only_to_its_manager(self):
+         service={'id':'reader','kind':'typst-reader','registration':'managed','managerBinary':'/reader/manager'}
+@@ -37,6 +51,16 @@
+         self.assertEqual([e['http']['state'] for e in result['endpoints']],['ok','failed'])
+         self.assertTrue(result['endpoints'][1]['url'].endswith('/admin'))
+         self.assertTrue(all(e['checkedAt'] for e in result['endpoints']))
++
++    def test_document_role_and_entrypoint_reach_the_status_report(self):
++        s={'id':'doc-reader','name':'Reader','kind':'typst-reader','entrypoint':'main.typ',
++           'registration':'managed','projectRoot':'/projects/doc','backend':{'host':'127.0.0.1','port':23627},
++           'ingress':{'scheme':'https','port':23627,'path':'/'}}
++        with patch.object(h,'tcp_listener',return_value=True),patch.object(h,'compile_check',return_value={'state':'ok'}),patch.object(h,'http_check',return_value={'state':'ok','status':200}):
++            result=h.service_status(s)
++        self.assertEqual(result['kind'],'typst-reader')
++        self.assertEqual(result['entrypoint'],'main.typ')
++        self.assertEqual(result['project']['id'],'/projects/doc')
+
+     def test_invalid_endpoint_paths_and_duplicates_rejected(self):
+         data={'schemaVersion':1,'host':{'dnsName':h.DNS},'services':[{'id':'web','registration':'observed','projectRoot':'/projects/web','backend':{'host':'127.0.0.1','port':3010},'ingress':{'kind':'tailscale-serve','scheme':'https','port':8443,'path':'/'}}]}
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -13,7 +13,7 @@
+         └── .runtime/status.json → Tail_dashboard / Hosting 화면
+ ```
+
+-Tail Hosting은 `tinymist`와 `Tail_dashboard`의 형제 프로젝트입니다. Typst 렌더링과 Origin 정책은 Tinymist의 책임이고, 프로젝트별 실행 환경과 고정 주소는 Tail Hosting의 책임입니다. 대시보드는 현황 표시를 담당합니다.
++Tail Hosting은 `tinymist`와 `Tail_dashboard`의 형제 프로젝트입니다. Typst 렌더링과 Origin 정책은 Tinymist의 책임이고, 프로젝트별 실행 환경과 고정 주소는 Tail Hosting의 책임입니다. 대시보드는 현황 표시와 문서 주소 선택을 담당하며 서비스 운영 명령은 제공하지 않습니다.
+
+ ## 등록과 포트 배정
+
+@@ -45,6 +45,14 @@
+
+ 비밀값과 원문 로그는 상태 보고서에 포함하지 않습니다. 대시보드는 운영 명령을 제공하지 않습니다. observed 서비스는 계속 읽기 전용입니다.
+
++### 원본 페이지와 모바일 Reader
++
++`typst-reader`는 Flow Reader의 별도 관리 실행기에 수명주기를 위임합니다. 원본 `typst-always-preview` 프로세스, 포트와 Serve 경로는 유지합니다. 보고서에는 서비스 `kind`, `entrypoint`, 프로젝트 식별자와 기본 URL을 포함하여 Dashboard가 정확한 부모/Reader 쌍을 식별할 수 있게 합니다. Reader ID는 부모 ID 뒤에 `-reader`를 붙입니다.
++
++Reader의 `/api/state`를 관찰한 시각은 `compile.observedAt`, 마지막 컴파일 시각은 `compile.checkedAt`입니다. `development`, `semanticCanvases`는 실제 boolean인 경우에만 그대로 전달하며, 누락되거나 잘못된 값은 `null`로 둡니다. 오래전에 성공한 문서라도 최신 관찰이 정상이면 사용할 수 있고, 실패한 저장 뒤에 제공하는 마지막 정상 revision은 실패한 컴파일 상태와 함께 보고합니다.
++
++Dashboard의 자동 모바일 선택은 최신 연결 상태와 명시적인 정식/native Reader, 정상 revision을 요구합니다. 개발본과 알 수 없는 설정은 자동 승격하지 않으며 사용자가 보기 방식을 직접 선택할 수 있습니다. 기존 PDF 주소는 계속 PDF를 엽니다. 상태 보고 코드만 바뀐 경우 `com.taeyoung.tail-hosting-status` 모니터만 다시 시작하면 되며 문서 서비스를 재설치하거나 재시작할 필요가 없습니다.
++
+ ## 구현과 운영
+
+ `bin/tail-hosting validate|list|status|install|start|stop|restart`로 운영합니다. `install`은 로컬 리스너와 현재 Serve 포트 충돌을 확인하고 실제 PDE 컴파일을 통과한 뒤 고정 포트와 LaunchAgent를 설치합니다. `stop`은 등록부의 의도 상태를 갱신하고 LaunchAgent를 disable한 뒤 bootout합니다. 장애에 따른 종료는 `KeepAlive`가 복구하며 명시적 중지는 자동 재시작하지 않습니다.

@@ -133,6 +133,7 @@ class ReaderState:
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
+                  "semanticCanvases": self.project.semantic_canvases,
                   "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
 
     def locate(self, revision, fragments):

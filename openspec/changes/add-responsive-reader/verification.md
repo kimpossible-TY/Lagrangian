@@ -1021,3 +1021,36 @@ Final dark-mode inspection finds the equation number on its light relationship
 paper inherits the page's pale muted color, RGB 160/177/184. The frame now scopes
 the matching light palette, including numbers and references. Mathematical
 geometry and source coordinates are unchanged by this color correction.
+
+The clean `b0838f54b4d2ba23b1430090bcea2bf530b6df5b` runtime is installed as
+PID 82631. Its accepted compile passes the content gate in 10.027 seconds,
+revision `962a18d6490b4f4effc258f61452465bfd3844ebc134d68337f130d9185fa49c`.
+All eight inspected assets match; the original PDF remains HTTP 200 in unchanged
+PID 39357. Actual equation-number contrast on light relationship paper improves
+from 2.125866 to 4.742045. `managed-light-palette.json` and
+`managed-light-palette-delivery.json` record the measured colors and delivery.
+`managed-light-palette-table-390.jpg` shows the actual current table at 390px,
+18px base mathematics, with 343/343px table and 375/375px page bounds.
+
+The complete 67-figure native sweep also passes all 1,475 checks at each of
+390px, 430px and 768px, with both 18px/30px fonts. Evidence is
+`all-native-pde-390.json`, `all-native-pde-430.json` and
+`all-native-pde-768.json`. Together with the current 320px repeat, these cover all
+four required viewport widths for native figures; device accessibility and
+other component gates remain separate.
+
+The guarded Dashboard entry passes 15 Node tests and 14 independent browser
+checks at 390px with simulated touch input. The browser fixture performs a real
+reload and covers explicit preference, focus retention, status refresh, strict
+versus development output, failed saves, missing revisions and unavailable
+storage. Its direct open link reaches the exact owned Reader sentinel in a new
+tab. Logs and `dashboard-entry-browser-390.json` are under
+`dist/reader-entry-checks`. These are fixture results, not actual-device proof
+or automatic-default promotion.
+
+Tail Hosting's observation/mode/identity changes pass all 14 management tests.
+Reader's public-state option test is part of the 61 passing Python tests in
+`python-tests-mobile-state.log`. Companion deployment remains pending. An
+additional body-math browser sweep now traverses the actual Reader sections and
+their nested containers with normal viewport eligibility and publication;
+it does not replace real container widths with the independent corpus budget.

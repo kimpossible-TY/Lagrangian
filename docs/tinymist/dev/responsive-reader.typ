@@ -688,6 +688,41 @@ request is not a successful readiness check. Resolve the normal permission promp
 before verifying managed delivery; do not treat a working foreground preview as
 proof that the LaunchAgent can access the same inputs.
 
+== Document entry through Tail Dashboard
+
+The Hosting project card offers `문서 열기` directly, with `자동`, `읽기 화면`
+and `원본 페이지` choices. A browser-local choice takes precedence over automatic
+device selection and survives refreshes. An unavailable storage API still allows
+the current explicit choice. Opening the original PDF address directly retains
+that original view; no new redirect or service proxy is installed.
+
+Automatic touch-device opening requires exactly one parent/derived-Reader pair
+with the same project and nonempty entrypoint and both primary service URLs.
+Registration, process, listener, HTTP and Reader observations must be fresh and
+healthy. The running Reader must explicitly report `development: false`,
+`semanticCanvases: true` and an accepted revision. Missing flags, stale state,
+development builds and ambiguous pairs keep the original default. A strict
+Reader's accepted output stays usable during a new or failed save, with compile
+failure still reported independently. An explicit Reader choice permits preview
+of the development build; this does not promote the mobile default.
+
+`/api/state` reports the actual native-label option. Tail Hosting carries service
+kind, entrypoint and `compile.observedAt`; `compile.checkedAt` continues to mean
+the last compilation time. An old but unchanged accepted document must not be
+mistaken for an unreachable service.
+
+Apply `apps/macos/tail-hosting-reader-mobile.patch` in Tail Hosting after the
+existing Reader adapter, and `apps/macos/tail-dashboard-reader-mobile.patch` in
+Tail Dashboard. The patches include focused tests and a loopback browser fixture.
+Update the Reader from a clean commit, then restart only the Tail Hosting status
+monitor to load its new report fields. Dashboard static assets are served without
+caching and do not require a server restart. Do not run a full Hosting install
+or document lifecycle check just to update these read-only reports.
+
+Keep `--development` while the remaining layout and device gates are open. To
+roll back the entry, select the original page or restore the saved Dashboard
+assets. The original service and its ingress do not depend on this integration.
+
 == Verification
 
 ```sh

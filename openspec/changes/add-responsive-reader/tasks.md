@@ -42,6 +42,8 @@ The development prototype still needs mathematical and drawing layout work to me
 - [ ] Verify reader at mobile widths and large font sizes against actual PDE content.
 - [x] Expose an independent development Reader through Tail Hosting and Tailnet HTTPS.
 - [ ] Connect the mobile entry and explicit view preference after fidelity validation, retaining the original view.
+- [x] Implement and test a guarded Dashboard document entry, exact profile pairing, explicit browser preference and independently observed Reader mode flags.
+- [ ] Publish and verify the companion status/Dashboard integration, then promote automatic mobile reading after the remaining acceptance gates.
 - [ ] Verify existing paged service and reader delivery, document operation and rollback.
 
 Implementation checkpoint: the complete PDE document compiles to HTML with no
