@@ -42,6 +42,41 @@ test("uniform geometry and original label coordinates survive narrow composition
   assert.equal(result.labels[0].mode, "inline");
 });
 
+test("SVG text anchors retain their exact source point and measured baseline", () => {
+  const source = {
+    ...label(0, 80, 50, 40, 32),
+    source: { left: 80, top: 50, width: 0, height: 0, align: "end", baseline: true },
+    baseline: 24,
+  };
+  const result = composeCanvas({ width: 200, height: 100 }, 204, [source], 18);
+  const placed = result.labels[0];
+  assert.equal(placed.mode, "inline");
+  assert.equal(placed.anchor.x, 82);
+  assert.equal(placed.anchor.y, 68);
+  assert.equal(placed.left + placed.width, placed.anchor.x);
+  assert.equal(placed.top + source.baseline, placed.anchor.y);
+  assert.deepEqual(source.source, {
+    left: 80,
+    top: 50,
+    width: 0,
+    height: 0,
+    align: "end",
+    baseline: true,
+  });
+});
+
+test("a small authored diagram uses the reading width without scaling its native label", () => {
+  const source = label(0, 50, 25, 40, 28);
+  const before = structuredClone(source);
+  const result = composeCanvas({ width: 100, height: 50 }, 304, [source], 18);
+  assert.equal(result.geometry.width, 300);
+  assert.equal(result.geometry.height, 150);
+  assert.equal(result.labels[0].width, 40);
+  assert.equal(result.labels[0].height, 28);
+  assert.equal(result.labels[0].anchor.x, 152);
+  assert.deepEqual(source, before);
+});
+
 test("crowded labels retain readable badges and complete continuous legends", () => {
   const labels = Array.from({ length: 26 }, (_, i) => label(i, 300, 80, 220, 90));
   const result = composeCanvas({ width: 600, height: 160 }, 210, labels, 30);

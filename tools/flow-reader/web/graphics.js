@@ -107,6 +107,64 @@ function collisions(record, layout, measurement) {
   return { labels: labelHits, paths: pathHits };
 }
 
+function inlineGeometry(record, width) {
+  const svg = record.svg;
+  const matrix = svg.getScreenCTM();
+  if (!matrix) throw new Error("관계 그림의 크기를 측정하지 못했습니다.");
+  const inverse = matrix.inverse();
+  const points = [];
+  for (const shape of svg.querySelectorAll(
+    "path,rect,circle,ellipse,line,polyline,polygon,use,text",
+  )) {
+    if (shape.closest("defs,symbol")) continue;
+    const style = getComputedStyle(shape);
+    if (
+      style.display === "none" ||
+      Number(style.opacity) === 0 ||
+      (style.stroke === "none" && style.fill === "none")
+    )
+      continue;
+    const transform = shape.getScreenCTM();
+    if (!transform) continue;
+    const box = shape.getBBox();
+    for (const [x, y] of [
+      [box.x, box.y],
+      [box.x + box.width, box.y],
+      [box.x, box.y + box.height],
+      [box.x + box.width, box.y + box.height],
+    ]) {
+      const point = new DOMPoint(x, y).matrixTransform(transform).matrixTransform(inverse);
+      points.push(point);
+    }
+    if (style.stroke !== "none") {
+      const stroke =
+        parseFloat(style.strokeWidth) *
+        Math.max(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d));
+      shape.style.strokeWidth = `${stroke}px`;
+      shape.setAttribute("vector-effect", "non-scaling-stroke");
+    }
+  }
+  if (!points.length) throw new Error("관계 그림의 선을 찾지 못했습니다.");
+  const left = Math.min(...points.map((point) => point.x)) - 4;
+  const top = Math.min(...points.map((point) => point.y)) - 4;
+  const sourceWidth = Math.max(...points.map((point) => point.x)) - left + 4;
+  const sourceHeight = Math.max(...points.map((point) => point.y)) - top + 4;
+  svg.setAttribute("viewBox", `${left} ${top} ${sourceWidth} ${sourceHeight}`);
+  Object.assign(svg.style, {
+    position: "relative",
+    left: "0",
+    top: "0",
+    width: `${width}px`,
+    height: `${(width * sourceHeight) / sourceWidth}px`,
+    maxWidth: "100%",
+  });
+  const rail = document.createElement("div");
+  rail.className = "flow-graphic-inline";
+  rail.append(svg);
+  record.scene.frame.append(rail);
+  record.rail = rail;
+}
+
 export class GraphicalAnnotations {
   constructor(article, getRevision, preserve) {
     Object.assign(this, { article, getRevision, preserve });
@@ -134,6 +192,7 @@ export class GraphicalAnnotations {
   register(id, tags, nodes, note) {
     if (nodes.some((node) => !node)) throw new Error(`Missing target for ${id}`);
     note.className = "flow-graphic-status";
+    note.dataset.graphicId = id;
     note.setAttribute("role", "status");
     note.textContent = "수식의 관계 그림을 준비하는 중…";
     this.records.set(id, { id, tags, nodes, note, key: null });
@@ -337,6 +396,8 @@ export class GraphicalAnnotations {
     const overflow = left < -1 || left + layout.width > measurement.width + 1;
     this.preserve(() => {
       record.svg?.remove();
+      record.rail?.remove();
+      record.rail = null;
       record.svg = document.importNode(svg, true);
       record.scene.body.append(record.svg);
       record.bounds = {
@@ -345,7 +406,22 @@ export class GraphicalAnnotations {
       };
       record.scene.frame.style.paddingTop = `${Math.max(...record.scene.records.map((item) => item.bounds?.top ?? 0))}px`;
       record.scene.frame.style.paddingBottom = `${Math.max(...record.scene.records.map((item) => item.bounds?.bottom ?? 0))}px`;
-      const hits = collisions(record, layout, measurement);
+      let hits = collisions(record, layout, measurement);
+      const floating =
+        !layout.connectors?.length &&
+        !layout.labels?.length &&
+        !record.svg.querySelector("symbol,use,text") &&
+        (overflow || hits.labels || hits.paths);
+      if (floating) {
+        // Numeric offsets do not identify a destination term. Preserve their
+        // vector drawing in the continuous flow rather than invent endpoints
+        // or let it cover reflowed mathematics. Named connections stay anchored.
+        inlineGeometry(record, measurement.width);
+        record.bounds = { top: 4, bottom: 4 };
+        record.scene.frame.style.paddingTop = `${Math.max(...record.scene.records.map((item) => item.bounds?.top ?? 0))}px`;
+        record.scene.frame.style.paddingBottom = `${Math.max(...record.scene.records.map((item) => item.bounds?.bottom ?? 0))}px`;
+        hits = collisions(record, layout, measurement);
+      }
       const plan = routeConnections(
         layout.connectors ?? [],
         measurement.ink,
@@ -360,12 +436,15 @@ export class GraphicalAnnotations {
       const collision = hits.labels + hits.paths > 0 || plan.unresolved.length > 0;
       record.note.dataset.graphicCollisions = JSON.stringify(hits);
       record.note.dataset.graphicUnrouted = JSON.stringify(plan.unresolved);
-      record.note.textContent = overflow
-        ? "수식과 관계 그림의 폭 조정이 아직 필요합니다."
-        : collision
-          ? "관계선 또는 설명이 본문과 겹쳐 배치 조정이 필요합니다."
-          : "";
-      record.note.dataset.graphicState = overflow ? "overflow" : collision ? "collision" : "ready";
+      record.note.dataset.graphicMode = floating ? "inline" : "anchored";
+      record.note.textContent =
+        overflow && !floating
+          ? "수식과 관계 그림의 폭 조정이 아직 필요합니다."
+          : collision
+            ? "관계선 또는 설명이 본문과 겹쳐 배치 조정이 필요합니다."
+            : "";
+      record.note.dataset.graphicState =
+        overflow && !floating ? "overflow" : collision ? "collision" : "ready";
       record.key = measurement.key;
       if (layout.connectors?.length) {
         const attempts = record.routeKey === measurement.baseKey ? (record.routeAttempts ?? 0) : 0;

@@ -68,6 +68,40 @@ class GeometryValidationTests(unittest.TestCase):
 
 
 class GraphicCompilerTests(unittest.TestCase):
+    def test_free_endpoints_can_adapt_while_named_endpoints_remain_exact(self):
+        compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not compiler or not packages:
+            self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        project = Project(ROOT / "tests/fixtures", Path("graphics-free-endpoints.typ"), Path(packages), compiler=compiler)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            request = geometry()
+            report = compile_project(project, output, geometry=request)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            def rendered():
+                svg = ET.fromstring(extract_graphics((output / "document.html").read_text(), request, "free")["graphic-1"])
+                return json.loads(svg.attrib["data-flow-graphic-layout"])
+            before = rendered()["connectors"]
+            self.assertEqual(len(before), 2)
+            self.assertTrue(before[0]["end"]["free"])
+            self.assertTrue(before[1]["start"]["free"])
+            self.assertEqual(before[0]["start"], {"tag": "left", "anchor": "south"})
+            self.assertEqual(before[1]["end"], {"tag": "right", "anchor": "south"})
+            request["graphic-1"]["routes"] = {
+                "connector-1": [before[0]["points"][0], {"x": 370, "y": 130}],
+                "connector-2": [{"x": 20, "y": 140}, before[1]["points"][-1]],
+            }
+            report = compile_project(project, output, geometry=request)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            after = rendered()
+            self.assertTrue(all(item["routed"] for item in after["connectors"]))
+            self.assertLessEqual(after["width"], 400.01)
+            request["graphic-1"]["routes"]["connector-1"][0] = {"x": 1, "y": 1}
+            report = compile_project(project, output, geometry=request)
+            self.assertEqual(report["exitCode"], 1)
+            self.assertIn("changed its original endpoints", (output / "compile.log").read_text())
+
     def test_routing_keeps_original_named_endpoints_and_cetz_marks(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")

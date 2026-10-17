@@ -445,6 +445,41 @@ math svg {
   padding: 0.4em;
   border-bottom: 1px solid var(--line);
 }
+#reader-document table.flow-table,
+#reader-document .flow-table > :is(thead, tbody, tfoot) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+#reader-document .flow-table tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0.8em 0;
+  border: 1px solid var(--line);
+  border-radius: 0.3em;
+}
+#reader-document .flow-table :is(td, th) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: start;
+  font-weight: inherit;
+}
+#reader-document .flow-table [role="rowheader"],
+#reader-document .flow-table .flow-table-headings {
+  background: var(--wash);
+}
+#reader-document .flow-table [data-reader-column-label]::before {
+  content: attr(data-reader-column-label);
+  display: block;
+  margin-bottom: 0.25em;
+  color: var(--muted);
+  font: inherit;
+}
 #reader-highlights {
   background: var(--paper);
   color: var(--ink);
@@ -616,6 +651,14 @@ math svg {
   pointer-events: none;
   background: transparent;
   border-radius: 0;
+}
+#reader-document .flow-graphic-inline {
+  width: 100%;
+  min-width: 0;
+  margin-block: 1em;
+}
+#reader-document .flow-graphic-inline > svg {
+  display: block;
 }
 @media (prefers-color-scheme: dark) {
   .flow-graphic-frame {

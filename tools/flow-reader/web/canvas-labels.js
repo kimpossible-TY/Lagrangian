@@ -56,7 +56,7 @@ function intersects(a, b, box) {
 // changes. Text that cannot occupy its anchor safely has an always-visible
 // numbered legend; a leader connects a displaced number to its original point.
 export function composeCanvas(model, width, labels, fontSize, segments = []) {
-  const scale = Math.min(1, Math.max(1, width - 4) / Math.max(1, model.width));
+  const scale = Math.max(1, width - 4) / Math.max(1, model.width);
   const pad = Math.ceil(fontSize);
   const geometry = { left: 2, top: pad, width: model.width * scale, height: model.height * scale };
   const occupied = [];
@@ -78,8 +78,18 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
   for (const label of sorted) {
     const anchor = point(label);
     const box = {
-      left: anchor.x - label.width / 2,
-      top: anchor.y - label.height / 2,
+      left:
+        anchor.x -
+        (label.source.align === "end"
+          ? label.width
+          : label.source.align === "start"
+            ? 0
+            : label.width / 2),
+      top:
+        anchor.y -
+        (label.source.baseline && Number.isFinite(label.baseline)
+          ? label.baseline
+          : label.height / 2),
       width: label.width,
       height: label.height,
     };
@@ -132,7 +142,7 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
 function segmentsOf(svg, stage, geometry) {
   const rect = stage.getBoundingClientRect();
   const segments = [];
-  for (const path of svg.querySelectorAll("path")) {
+  for (const path of svg.querySelectorAll("path,rect,circle,ellipse,line,polyline,polygon")) {
     if (path.closest("defs") || getComputedStyle(path).stroke === "none") continue;
     const matrix = path.getScreenCTM();
     if (!matrix) continue;
@@ -168,6 +178,21 @@ export class NativeCanvasLabels {
       }));
     if (this.model.version !== 1 || !this.svg || this.labels.length !== this.model.labels.length)
       throw new Error("그림의 라벨 정보를 읽지 못했습니다.");
+    for (const [i, label] of this.labels.entries()) {
+      if (!this.model.labels[i].baseline) continue;
+      const probe = document.createElement("span");
+      probe.setAttribute("aria-hidden", "true");
+      probe.style.cssText =
+        "display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline";
+      label.body.prepend(probe);
+      label.baselineProbe = probe;
+    }
+    for (const raster of this.svg.querySelectorAll("[data-flow-raster-layer] > svg")) {
+      // The original pixel data fills the unchanged source viewBox. Its nested
+      // Typst frame's em sizes must not scale again with the reading font.
+      raster.style.width = "100%";
+      raster.style.height = "100%";
+    }
     this.overlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     this.overlay.classList.add("flow-canvas-leaders");
     this.overlay.setAttribute("aria-hidden", "true");
@@ -281,6 +306,9 @@ export class NativeCanvasLabels {
         source: this.model.labels[i],
         width: body.width,
         height: body.height,
+        baseline: label.baselineProbe
+          ? label.baselineProbe.getBoundingClientRect().top - body.top
+          : undefined,
         markerWidth: label.markerWidth || Math.max(1.5 * fontSize, String(i + 1).length * fontSize),
         markerHeight: label.markerHeight || 1.6 * fontSize,
         nested: Boolean(label.body.querySelector("[data-flow-canvas]")),

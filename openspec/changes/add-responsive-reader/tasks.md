@@ -23,10 +23,13 @@ The development prototype still needs mathematical and drawing layout work to me
 - [ ] Complete screen-reader and mobile Safari verification of the integrated mathematical renderer.
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [x] Bound pending canvas delivery, preserve reading anchors through drawing/font/viewport changes, and verify actual PDE page width and position in both viewport directions.
-- [ ] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.
+- [x] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.
 - [x] Export original native label bodies, geometry and anchor bounds behind an independent Reader option, preserving source order, typography and readable automatic legends.
 - [x] Preserve source-derived native label passages and geometry reading points through font/width changes, including long offscreen legends and loading-notice removal.
 - [x] Cover the five CeTZ 0.3.4/Fletcher PDE figures without changing their version-specific geometry, and verify stable accent math and optical ink bounds.
+- [x] Export the four Maquette surface plots with native axis text, unchanged source pixels, coordinates and complete PDF output.
+- [x] Preserve native label selections, quotations and source geometry reading points after preceding figure insertions in an isolated actual PDE copy.
+- [x] Compose all six actual PDE tables vertically while retaining their 94 original cells, mathematical ink and header associations.
 - [ ] Complete native figure checks for geometry, arrowheads, leaders, palette readability, source updates and device behavior before default rollout.
 - [x] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.

@@ -1,5 +1,5 @@
-// Route only connections whose original named endpoints are known. Coordinates
-// stay in body CSS pixels; CeTZ renders the proposed path and its original marks.
+// Keep named term endpoints exact; literal free ends may adapt to reading space.
+// Coordinates stay in CSS pixels; CeTZ retains the path's original marks/styles.
 const EPS = 0.001;
 const round = (n) => Math.round(n * 1000) / 1000;
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -126,17 +126,56 @@ function simplify(points) {
   return result;
 }
 
+function freeEndpoint(point, blocked, width, height, fontSize) {
+  const edge = Math.max(6, fontSize * 0.3);
+  const left = Math.min(edge, width / 3),
+    right = width - left;
+  const x = Math.max(left, Math.min(right, point.x));
+  const y = Math.max(-fontSize * 3, Math.min(height + fontSize * 3, point.y));
+  const xs = [x, left, right, ...blocked.flatMap((rect) => [rect.left, rect.right])].filter(
+    (value) => value >= left && value <= right,
+  );
+  const ys = [
+    y,
+    -fontSize * 3,
+    height + fontSize * 3,
+    ...blocked.flatMap((rect) => [rect.top, rect.bottom]),
+  ];
+  const candidates = xs
+    .flatMap((x) => ys.map((y) => ({ x: round(x), y: round(y) })))
+    .filter((candidate) => !blocked.some((rect) => segmentHits(candidate, candidate, rect)))
+    .sort((a, b) => distance(a, { x, y }) - distance(b, { x, y }));
+  return candidates[0] ?? null;
+}
+
 export function routeConnection(connector, obstacles, width, height, fontSize) {
-  const original = sampleConnection(connector);
   const padding = Math.max(3, fontSize * 0.16);
   const blocked = obstacles.map((rect) => padded(rect, padding));
-  if (!pathHits(original, blocked)) return { changed: false, points: connector.points };
-  const start = connector.points[0],
-    end = connector.points.at(-1);
+  const points = connector.points.map((point) => ({ ...point }));
+  let relocated = false;
+  for (const [endpoint, index] of [
+    [connector.start, 0],
+    [connector.end, points.length - 1],
+  ]) {
+    if (!endpoint.free) continue;
+    const replacement = freeEndpoint(points[index], blocked, width, height, fontSize);
+    if (!replacement) return null;
+    relocated ||= distance(points[index], replacement) > EPS;
+    points[index] = replacement;
+  }
+  const original = sampleConnection({ ...connector, points });
+  if (
+    !relocated &&
+    original.every((point) => point.x >= 1 && point.x <= width - 1) &&
+    !pathHits(original, blocked)
+  )
+    return { changed: false, points: connector.points };
+  const start = points[0],
+    end = points.at(-1);
   if (distance(start, end) < EPS) return null;
   const lead = Math.max(8, fontSize * 0.35);
-  const [sx, sy] = direction(connector.start, connector.points, false),
-    [ex, ey] = direction(connector.end, connector.points, true);
+  let [sx, sy] = direction(connector.start, points, false),
+    [ex, ey] = direction(connector.end, points, true);
   const top = -fontSize * 4,
     bottom = height + fontSize * 4;
   const inside = (p) => p.x >= 1 && p.x <= width - 1 && p.y >= top && p.y <= bottom;
@@ -144,9 +183,29 @@ export function routeConnection(connector, obstacles, width, height, fontSize) {
     [lead, lead * 0.6, lead * 0.3, 1]
       .map((length) => ({ x: round(point.x + dx * length), y: round(point.y + dy * length) }))
       .find((candidate) => inside(candidate) && !pathHits([point, candidate], blocked));
-  const from = port(start, sx, sy),
-    to = port(end, ex, ey);
+  const choosePort = (point, endpoint, dx, dy) => {
+    const directions = endpoint.free
+      ? [
+          [dx, dy],
+          [0, -1],
+          [0, 1],
+          [-1, 0],
+          [1, 0],
+        ]
+      : [[dx, dy]];
+    for (const [x, y] of directions) {
+      const result = port(point, x, y);
+      if (result) return { point: result, direction: [x, y] };
+    }
+    return null;
+  };
+  const startPort = choosePort(start, connector.start, sx, sy),
+    endPort = choosePort(end, connector.end, ex, ey);
+  const from = startPort?.point,
+    to = endPort?.point;
   if (!from || !to) return null;
+  [sx, sy] = startPort.direction;
+  [ex, ey] = endPort.direction;
   const unique = (values) => [...new Set(values.map(round))].sort((a, b) => a - b);
   const xs = unique([
     1,
@@ -229,7 +288,7 @@ export function routeConnections(connectors, ink, { width, height, fontSize }, l
   const routes = {},
     unresolved = [];
   for (const connector of connectors) {
-    const endpoints = new Set([connector.start.tag, connector.end.tag]);
+    const endpoints = new Set([connector.start.tag, connector.end.tag].filter(Boolean));
     const obstacles = ink.filter((item) => !endpoints.has(item.tag)).concat(labels);
     const result = routeConnection(connector, obstacles, width, height, fontSize);
     if (!result) unresolved.push(connector.id);

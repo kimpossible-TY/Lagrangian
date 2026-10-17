@@ -355,6 +355,7 @@ def handler_for(state):
                       "/decorations.js": ("decorations.js", "text/javascript; charset=utf-8"),
                       "/canvases.js": ("canvases.js", "text/javascript; charset=utf-8"),
                       "/canvas-labels.js": ("canvas-labels.js", "text/javascript; charset=utf-8"),
+                      "/tables.js": ("tables.js", "text/javascript; charset=utf-8"),
                       "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/math-identity.js": ("math-identity.js", "text/javascript; charset=utf-8"),

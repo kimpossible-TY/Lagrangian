@@ -116,7 +116,11 @@ export function splitDerivations(root) {
         const part = document.createElementNS(NS, "mrow");
         attributes(cell, part, ["columnalign", "rowalign", "columnspan", "rowspan"]);
         part.append(...cell.childNodes);
-        body.append(part);
+        // Alignment columns are scaffolding, not indivisible mathematical
+        // groups. A transparent column must not force its entire RHS onto one
+        // line at particular font/width combinations. Retain attributed cells.
+        if (part.attributes.length) body.append(part);
+        else body.append(...part.childNodes);
       });
       style.append(body);
       line.append(style);

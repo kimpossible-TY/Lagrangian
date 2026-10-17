@@ -86,7 +86,7 @@ of their canvas is nearby, including a later passage in a long legend.
 Loading-notice removal also preserves the reading anchor. Passage offsets use
 whole CSS pixels so repeated publications cannot accumulate scroll rounding.
 
-The frozen PDE snapshot exposes 58 native figures and 658 label bodies. Browser
+The first CeTZ 0.4.2 checkpoint exposed 58 native figures and 658 label bodies. Browser
 runs at 320px and 390px each pass 1,277 checks at 18px and 30px, covering canonical
 text, complete label boxes, font floors, ink contrast, physical strokes, separate
 markers, mathematical ink, full page width and absence of canvas compiler
@@ -101,9 +101,9 @@ The paired full PDE PDFs remain byte-identical at a fixed creation timestamp:
 All 1,914 reference display strings outside canvases are unchanged. The extracted
 outside-canvas prose differs only by one whitespace boundary; its non-whitespace
 text is identical. These checks do not establish complete arrow/leader geometry
-or physical-device accessibility. Nine opaque SVG islands remain outside this
-native path: five layout-wrapped diagrams and four rendered surface plots.
-Keep those gates open before mobile-default rollout. Disabling the option keeps
+or physical-device accessibility. The remaining older diagrams and surface plots
+are covered by the adapters described below. Keep device and accessibility gates
+open before mobile-default rollout. Disabling the option keeps
 the established coordinate-unit delivery path.
 
 == Older CeTZ and Fletcher figures
@@ -127,8 +127,63 @@ fixture passes 45 checks and the original native fixture retains 159 passes.
 All 2,121 retained vector primitives have the original attributes and ancestor
 transforms. Removed label paint is represented by the native mathematical bodies.
 The complete fixed-timestamp PDE PDF remains byte-identical, with the same hash
-recorded above. Four Maquette raster/vector surface plots remain outside this
-path; they require their own label adapter.
+recorded above.
+
+== Surface plots and stable source figures
+
+The Maquette 0.1.3 adapter keeps the original raster pixels and vector axes,
+exporting the original SVG text as native label bodies. SVG text anchor and
+baseline alignment retain their source x/y positions. The original 3D mesh,
+camera and author coordinates are unchanged. Both the original raster payloads
+and the complete PDE PDF remain byte-identical. Nested raster frame dimensions
+are normalized to the original viewBox, avoiding a second scale when reading
+fonts change.
+
+The frozen PDE now has 67 native figures and 699 label bodies: 58 from CeTZ 0.4.2,
+five from CeTZ 0.3.4/Fletcher and four from Maquette. No opaque SVG island remains
+in this snapshot. Geometry fills its available width, including originally
+small diagrams, while label fonts and physical strokes retain independent sizes.
+The eight canvas compiler/API tests include exact source pixel, axis position and
+PDF comparisons. `surface-source-audit.json` and `surface-pdf/verification.json`
+under the label evidence record the full-source comparisons.
+
+All 67 figures pass 1,475 browser checks at 320px with 18px and 30px fonts after
+full-width geometry fitting. The report includes every native label, readable
+ink/markers, complete mathematical paint, physical strokes, bounded component
+width and absence of per-canvas compiler requests. Evidence is
+`all-native-fullwidth-pde-320.json`.
+
+Native geometry receives a source identity independent of generated canvas
+counters and internal SVG IDs. Source label keys include that identity, so
+repeated axis labels do not jump between different plots after an insertion.
+The manifest indexes geometry identities as well as reading keys. Source-update
+restoration checks the original geometry rather than trusting a reused counter.
+Identical duplicate geometry remains subject to unique-context relocation;
+ambiguous text alone is never sufficient.
+
+An isolated copy of the actual PDE source passes eleven browser update checks.
+It inserts two preceding surface panels while preserving a selected native axis,
+its quotation, and a geometry reading point. The original panel counter changes
+55 to 56 to 57 while its source identity remains stable. The selected label moves
+from 88px to 87.55px at the reading line. The original PDE files are not edited.
+Evidence is `pde-native-source-update.json`.
+
+== Tables in continuous reading
+
+HTML tables keep their original cells, math nodes and source order. The Reader
+stacks each logical row vertically with column associations; it does not clone
+or shrink mathematical content. Explicit headers remain authoritative. The
+common bare-cell header pattern receives header roles, while unrecognized first
+rows remain data. Repeated prose column hints use CSS generated content so they
+cannot duplicate canonical quotations or mathematical identities. Header spans
+map to their logical columns. Cells receive stable leaf reading keys, including
+direct table navigation during asynchronous composition.
+
+The six actual PDE tables contain 94 cells. At 320px and both 18px and 30px fonts,
+629 browser checks pass for original node retention, source order, header
+associations, complete mathematical ink, readable fonts and bounded component
+width. Merged-header and unheaded-data fixtures are included. Evidence is
+`tables-pde-320.json`. These DOM checks do not replace assistive-device testing.
 
 == Build and inspect
 
@@ -150,8 +205,8 @@ missing links, duplicate anchors, and unresolved annotation targets.
 The package forks retain their original licenses. `packages/provenance.json`
 records the original package versions and per-file hashes. Reader-specific
 changes are target-aware and preserve paged output. The current CeTZ adapter
-keeps an entire canvas together as an SVG; figure font and width policies still
-need explicit validation before promotion.
+keeps its legacy coordinate-unit SVG path available alongside native composition.
+Figure and device policies still need their explicit rollout validation.
 
 == Local reader service
 
@@ -182,7 +237,7 @@ publication. The served revision includes that snapshot, so changes to a dynamic
 drawing invalidate the revision even when its placeholder HTML is unchanged.
 
 The reader supports native text selection, a heading outline, font size changes,
-local equation scrolling, visible inline annotations, reading anchors, and saved
+width-aware equations, visible inline annotations, reading anchors, and saved
 highlights. Select a passage and choose the save action; the toolbar's saved list
 returns to the passage. Records belong to this document in the current browser's
 local storage. They do not synchronize devices and are removed with site data.
@@ -230,6 +285,18 @@ bounds, including negative offsets. The body reserves vertical room for these
 bounds; labels inherit the reading size through a fresh Typst measurement context.
 No authored figure coordinates are rewritten, and no source code is accepted in
 the request. Revision changes and changed term positions reject obsolete overlays.
+
+Some authored arrows use only numeric offsets, with no named destination term.
+When a pure vector annotation of this kind collides with reflowed text or exceeds
+the width, the Reader preserves its complete original paths and arrowheads in a
+visible band directly below its source scene. Only geometry is fitted, retaining
+stroke thickness. No destination is invented from numeric coordinates. This
+fallback excludes baked glyphs and measured label bodies. Named connections
+continue to follow their measured terms and automatic routing.
+If only one endpoint names a term, that endpoint remains exact; its unbound
+literal endpoint may move into clear reading space without exempting unmarked
+mathematical ink from the route obstacles. CeTZ renders the resulting path and
+its original arrowheads. A route request cannot move a named term endpoint.
 
 Each logical marked term can supply an ordered array of fragment rectangles.
 Relationship records keep the original source node, and the mathematical identity
@@ -516,6 +583,15 @@ line breaking within each authored derivation step; matrices and cases retain
 their structure. `web/vendor/mathjax-4.1.3/manifest.json` records package origins
 and every retained asset hash. The server exposes those listed assets with
 versioned caching. Renderer scripts, dynamic font data, and fonts need no CDN.
+
+Transparent alignment columns are flattened within each derivation row, keeping
+attributed cells and mathematical grouping intact. Alignment scaffolding must not
+make an entire right-hand side indivisible at a particular font/width combination.
+All 6,873 expressions in the saved corpus pass the actual candidate renderer at
+273px at both 18px and 30px after this adjustment, with no overflow, lost token, source-text change
+or SVG change. The real annotated PDE derivation also passes its eight component
+checks. Evidence is `alignment-corpus-273-18.json`, `alignment-corpus-273-30.json` and
+`graphics-12-fixed-320.json`.
 
 `web/math-renderer.js` retains the original semantic template and builds each
 candidate in a hidden, inert stage. It publishes only after fonts settle and all

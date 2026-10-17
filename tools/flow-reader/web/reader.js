@@ -4,6 +4,7 @@ import { AdaptiveCanvases } from "./canvases.js";
 import { ContinuousSections } from "./sections.js";
 import { logicalTextIndex } from "./math-identity.js";
 import { ResponsiveMath } from "./math-renderer.js";
+import { prepareResponsiveTables } from "./tables.js";
 
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
@@ -14,6 +15,7 @@ let revision = null;
 let pending = null;
 let blocks = [];
 let stableAnchor = null;
+let stableScrollY = scrollY;
 let anchorWidth = innerWidth;
 let fontSize = 18;
 let manifest = null;
@@ -134,6 +136,7 @@ function readingAnchor() {
       const { node, rect } = labels[0];
       return {
         key: node.dataset.readerKey,
+        canvasIdentity: canvas.dataset.flowCanvasIdentity,
         text: textOf(node).slice(0, 180),
         offset: Math.round(rect.top) - 90,
         id: node.id,
@@ -149,6 +152,7 @@ function readingAnchor() {
     if (rect?.height > 0 && plane?.top <= 90 && plane.bottom > 90) {
       return {
         canvas: canvas.id,
+        canvasIdentity: canvas.dataset.flowCanvasIdentity,
         canvasFraction: (90 - rect.top) / rect.height,
         text: logicalTextIndex(canvas, { includeNested: true }).text.slice(0, 180),
         section: canvas.closest("[data-reader-section]")?.dataset.readerSection ?? currentSection,
@@ -173,12 +177,21 @@ function readingAnchor() {
 function restoreAnchor(anchor) {
   if (!anchor) return;
   if (anchor.canvas && Number.isFinite(anchor.canvasFraction)) {
-    const matches = (node) =>
+    const matchesText = (node) =>
       node?.hasAttribute("data-flow-canvas-model") &&
       logicalTextIndex(node, { includeNested: true }).text.startsWith(anchor.text);
+    const matches = (node) =>
+      matchesText(node) &&
+      (!anchor.canvasIdentity || node.dataset.flowCanvasIdentity === anchor.canvasIdentity);
     let canvas = document.getElementById(anchor.canvas);
     if (!matches(canvas)) {
       const candidates = [...article.querySelectorAll("[data-flow-canvas-model]")].filter(matches);
+      canvas = candidates.length === 1 ? candidates[0] : null;
+    }
+    if (!canvas && anchor.canvasIdentity) {
+      const candidates = [...article.querySelectorAll("[data-flow-canvas-model]")].filter(
+        matchesText,
+      );
       canvas = candidates.length === 1 ? candidates[0] : null;
     }
     const rect = canvas
@@ -186,7 +199,10 @@ function restoreAnchor(anchor) {
       ?.getBoundingClientRect();
     if (rect?.height > 0) {
       window.scrollBy(0, rect.top + rect.height * anchor.canvasFraction - 90);
-      if (innerWidth === anchorWidth) stableAnchor = anchor;
+      if (innerWidth === anchorWidth) {
+        stableAnchor = anchor;
+        stableScrollY = scrollY;
+      }
     }
     return;
   }
@@ -195,16 +211,29 @@ function restoreAnchor(anchor) {
     if (section) {
       const rect = section.getBoundingClientRect();
       window.scrollBy(0, rect.top + rect.height * anchor.fraction - 90);
-      if (innerWidth === anchorWidth) stableAnchor = anchor;
+      if (innerWidth === anchorWidth) {
+        stableAnchor = anchor;
+        stableScrollY = scrollY;
+      }
     }
     return;
   }
+  const candidates = blocks.filter(
+    (node) =>
+      textOf(node).startsWith(anchor.text) &&
+      (!anchor.canvasIdentity ||
+        node.closest("[data-flow-canvas-model]")?.dataset.flowCanvasIdentity ===
+          anchor.canvasIdentity),
+  );
   const block =
     blocks.find((node) => node.dataset.readerKey === anchor.key) ??
-    blocks.find((node) => textOf(node).startsWith(anchor.text));
+    (candidates.length === 1 ? candidates[0] : null);
   if (block) {
     window.scrollBy(0, block.getBoundingClientRect().top - 90 - anchor.offset);
-    if (innerWidth === anchorWidth) stableAnchor = anchor;
+    if (innerWidth === anchorWidth) {
+      stableAnchor = anchor;
+      stableScrollY = scrollY;
+    }
   }
 }
 function setFont(size) {
@@ -229,7 +258,11 @@ window.addEventListener("resize", () => {
   anchorWidth = innerWidth;
   restoreAnchor(stableAnchor);
 });
-document.fonts.addEventListener("loadingdone", () => restoreAnchor(stableAnchor));
+document.fonts.addEventListener("loadingdone", () => {
+  // A scroll can happen before its queued scroll event. A late font must not
+  // restore the preceding passage over that newer navigation.
+  if (Math.abs(scrollY - stableScrollY) < 1) restoreAnchor(stableAnchor);
+});
 
 function noteGroup(after) {
   let group = after.nextElementSibling;
@@ -322,14 +355,15 @@ function indexDocument() {
   let heading = "document";
   const counts = new Map();
   blocks = [
-    ...article.querySelectorAll("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id]"),
+    ...article.querySelectorAll("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id],td,th"),
   ].filter(
     (node) =>
       !node.closest("svg,math,.flow-math-view,.flow-math-stage,.flow-notes,nav") &&
+      !(node.matches("td,th") && node.querySelector("[data-reader-key]")) &&
       !(
         node.tagName === "DIV" &&
         !node.classList.contains("flow-equation") &&
-        node.querySelector("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id]")
+        node.querySelector("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id],td,th")
       ),
   );
   for (const node of blocks) {
@@ -391,6 +425,7 @@ function prepareSection(html, section) {
     shellRevision = revision;
   }
   prepareNotes(parsed.body, section);
+  prepareResponsiveTables(parsed.body);
   containWideMathematics(parsed.body);
   graphics.prepare(parsed.body);
   mathematics.prepare(parsed.body);
@@ -497,6 +532,7 @@ function sectionFor(nextManifest, anchor, target) {
   return (
     nextManifest.anchors[target] ??
     nextManifest.blocks[anchor?.key] ??
+    nextManifest.canvasIdentities?.[anchor?.canvasIdentity] ??
     nextManifest.anchors[anchor?.id] ??
     nextManifest.sections.find((section) => section.id === anchor?.section)?.id ??
     nextManifest.sections[0].id
@@ -563,7 +599,10 @@ function savePosition() {
 window.addEventListener(
   "scroll",
   () => {
-    if (innerWidth === anchorWidth) stableAnchor = readingAnchor();
+    if (innerWidth === anchorWidth) {
+      stableAnchor = readingAnchor();
+      stableScrollY = scrollY;
+    }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(savePosition, 300);
   },

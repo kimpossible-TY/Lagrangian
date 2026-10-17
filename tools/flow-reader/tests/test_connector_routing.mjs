@@ -43,6 +43,64 @@ test("an already clear curve retains the author's controls", () => {
   assert.equal(result.points, connection.points);
 });
 
+test("a curve outside the reading width reroutes even without a text collision", () => {
+  const connector = {
+    ...connection,
+    points: [connection.points[0], { x: -200, y: 70 }, { x: 300, y: 70 }, connection.points.at(-1)],
+  };
+  const result = routeConnection(connector, [], 100, 100, 18);
+  assert.equal(result.changed, true);
+  assert.deepEqual(result.points[0], connector.points[0]);
+  assert.deepEqual(result.points.at(-1), connector.points.at(-1));
+  assert.ok(result.points.every((point) => point.x >= 1 && point.x <= 99));
+});
+
+test("a literal free endpoint fits the width while its named term stays exact", () => {
+  const connector = {
+    ...connection,
+    kind: "polyline",
+    end: { tag: null, anchor: "free", free: true },
+    points: [
+      { x: 10, y: 40 },
+      { x: 450, y: 70 },
+    ],
+  };
+  const result = routeConnection(connector, [obstacle], 100, 100, 18);
+  assert.equal(result.changed, true);
+  assert.deepEqual(result.points[0], connector.points[0]);
+  assert.ok(result.points.at(-1).x < 100);
+  assert.ok(result.points.every((point) => point.x >= 1 && point.x <= 99));
+  assert.equal(pathHits(result.points, [{ left: 37, top: 27, right: 63, bottom: 73 }]), false);
+  const reversed = {
+    ...connector,
+    start: connector.end,
+    end: connector.start,
+    points: [...connector.points].reverse(),
+  };
+  const back = routeConnection(reversed, [obstacle], 100, 100, 18);
+  assert.deepEqual(back.points.at(-1), connector.points[0]);
+  assert.ok(back.points[0].x < 100);
+});
+
+test("a free endpoint cannot exempt unmarked mathematical ink from routing", () => {
+  const connector = {
+    ...connection,
+    kind: "polyline",
+    end: { tag: null, anchor: "free", free: true },
+    points: [
+      { x: 10, y: 40 },
+      { x: 450, y: 70 },
+    ],
+  };
+  const result = routeConnections([connector], [{ ...obstacle, tag: null }], {
+    width: 100,
+    height: 100,
+    fontSize: 18,
+  });
+  assert.deepEqual(result.unresolved, []);
+  assert.equal(pathHits(result.routes["connector-1"], [obstacle]), false);
+});
+
 test("a colliding closed loop cannot be collapsed into a zero-length connection", () => {
   const loop = {
     ...connection,
