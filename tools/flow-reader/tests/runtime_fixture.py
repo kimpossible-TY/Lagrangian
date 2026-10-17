@@ -61,6 +61,7 @@ def handler_for(state):
                           "native-update": "native-update-browser.js",
                           "tables": "tables-browser.js",
                           "graphics": "graphics-browser.js",
+                          "body-math": "body-math-browser.js",
                           "position": "position-browser.js", "entry": "entry-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
                     "</body>", f'<script type="module" src="/{module}"></script></body>')
@@ -94,6 +95,9 @@ def handler_for(state):
                                     "text/javascript; charset=utf-8")
             if path == "/graphics-browser.js":
                 return self.respond((ROOT / "tests/graphics-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/body-math-browser.js":
+                return self.respond((ROOT / "tests/body-math-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             if path == "/runtime-browser.js":
                 return self.respond((ROOT / "tests/runtime-browser.js").read_bytes(),

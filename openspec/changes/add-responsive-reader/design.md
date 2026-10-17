@@ -219,6 +219,30 @@ those alone must not reject dynamic rendering or force a source recompilation.
 
 Use content and asset requests on the reader's own origin. The original paged view remains reachable from the reader. Initial mobile routing must honor an explicit choice and offer both views.
 
+The configured document entry belongs to the existing Tail Dashboard Hosting
+card. A direct document link and an automatic/Reader/original-page preference
+sit outside its address-details button. Browser-local preferences are scoped to
+the project; unavailable storage still permits the current explicit choice.
+This entry does not redirect existing paged URLs or add another proxy/lifecycle.
+Tail Dashboard only reads Tail Hosting's report and opens the selected address.
+
+Automatic touch-device selection requires exactly one original/Reader pair in
+the same project, the exact derived Reader service ID, the same nonempty
+entrypoint and their primary service URLs. Fresh registration, process, listener
+and HTTP checks must succeed. The Reader state observation must be at most 60
+seconds old, with explicit `development: false`, `semanticCanvases: true` and a
+nonempty accepted revision. Missing or incorrectly typed flags cannot promote a
+legacy service. The observation time is distinct from the last compilation:
+accepted strict output stays usable during a new or failed save. Explicit view
+choices take precedence, including evaluation of the development Reader.
+Unvalidated, unavailable, stale or ambiguous pairs retain the original entry.
+
+Reader `/api/state` reports its actual native-figure setting. Tail Hosting
+publishes service kind, entrypoint and the observation timestamp alongside the
+compile timestamp. Its status monitor can be updated independently of both
+document services. Portable companion patches are maintained under `apps/macos`;
+they preserve each project's ownership and existing ingress.
+
 Store highlights in browser-local storage scoped to a document identity derived
 from the project root and entrypoint. A record contains one or more quotations,
 their reading keys, and surrounding text. A revision-specific `/api/locate`

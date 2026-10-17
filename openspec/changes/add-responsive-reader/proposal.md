@@ -6,6 +6,12 @@ The reader preserves headings, mathematical notation, numbering, references, foo
 
 Implement the reader as independent modules within this repository. Flow owns compilation and project settings; Tail Hosting exposes the new endpoint. Keep the installed paged service and address available throughout development and rollout. Validate the full PDE document, not only a simplified demo, before making the mobile reader the default mobile entry.
 
+Use the existing Tail Dashboard Hosting card as the configured document entry.
+Keep a direct open action and browser-local automatic/Reader/original preference.
+Only a fresh, healthy, strictly published native Reader qualifies for automatic
+touch-device selection; development and unknown runtime flags keep the original
+entry. Existing paged bookmarks and both document lifecycles remain unchanged.
+
 Use the semantic HTML/MathML output with a local, width-aware mathematical
 renderer. Retain logical token identities across line breaks so selections,
 decorations, and original CeTZ relationships follow the new composition. Publish

@@ -22,6 +22,15 @@ from serve import ReaderState, handler_for, source_signature
 
 
 class ReaderServingTests(unittest.TestCase):
+    def test_public_state_reports_the_actual_native_canvas_option(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "main.typ").write_text("A document")
+            for enabled in (False, True):
+                project = Project(root, Path("main.typ"), root / "packages", semantic_canvases=enabled)
+                state = ReaderState(project, root / "output", "https://example.test/paged/", False)
+                self.assertIs(state.public()["semanticCanvases"], enabled)
+
     def test_directory_metadata_does_not_change_inputs_but_a_new_import_does(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

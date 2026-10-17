@@ -1,0 +1,332 @@
+--- a/public/hosting.js
++++ b/public/hosting.js
+@@ -18,7 +18,11 @@
+   for(const endpoint of endpoints){
+    const outdated=stale || !fresh(now,endpoint.checkedAt) || !fresh(now,service.checkedAt);
+    const state=x=>outdated?'stale':(typeof x==='string'?x:x?.state||'unknown');
+-   const checks={registration:state(service.registrationCheck),process:state(service.process),listener:state(service.listener),http:state(endpoint.http),websocket:state(service.websocket),compile:state(fresh(now,service.compile?.checkedAt,300)?service.compile:null)};
++   const compilation=service.compile??{};
++   const checks={registration:state(service.registrationCheck),process:state(service.process),listener:state(service.listener),http:state(endpoint.http),websocket:state(service.websocket),compile:state(fresh(now,compilation.observedAt??compilation.checkedAt,300)?compilation:null)};
++   // A strict Reader's published revision remains readable during a new or
++   // failed save. Its observation time is separate from its compilation time.
++   const acceptedReader=service.kind==='typst-reader'&&checks.registration==='ok'&&['ok','running'].includes(checks.process)&&checks.listener==='ok'&&checks.http==='ok'&&fresh(now,compilation.observedAt)&&compilation.development===false&&compilation.semanticCanvases===true&&typeof compilation.revision==='string'&&Boolean(compilation.revision.trim());
+    let tone='waiting',glyph='·',title='상태 확인 필요',caption='점검 상세에서 기록을 확인하세요';
+    if(outdated){tone='attention';glyph='!';title='최신 상태 확인 필요';caption='상태 업데이트가 지연되고 있습니다';}
+    else if(service.intended==='stopped'&&checks.process==='stopped'){glyph='Ⅱ';title='서비스 중지됨';caption='설정에 따라 실행을 멈췄습니다';}
+@@ -28,7 +32,7 @@
+     caption=checks.registration==='failed'?'서비스 등록을 확인해 주세요':checks.process==='failed'?'서비스 실행을 확인해 주세요':checks.listener==='failed'||checks.http==='failed'?'서비스 연결을 확인해 주세요':checks.websocket==='failed'?'실시간 연결을 확인해 주세요':'컴파일 결과를 확인해 주세요';
+    }
+    else if(['running','ok'].includes(checks.process)&&checks.listener==='ok'&&checks.http==='ok'){tone='saved';glyph='✓';title='정상 운영 중';caption='서비스 연결 정상';}
+-   groups.get(projectId).endpoints.push({id:domId('endpoint',[service.id,endpoint.id]),name:endpoint.name||service.name||'주소',url:safeURL(endpoint.url),service,endpoint,checks,tone,glyph,title,caption});
++   groups.get(projectId).endpoints.push({id:domId('endpoint',[service.id,endpoint.id]),name:endpoint.name||service.name||'주소',url:safeURL(endpoint.url),service,endpoint,checks,tone,glyph,title,caption,acceptedReader});
+   }
+  }
+  return {valid,stale,projects:[...groups.values()]};
+@@ -37,7 +41,7 @@
+ function checkDetails(item){
+  const {service:s,endpoint,checks,url}=item;
+  const checksRows=[['등록',checks.registration],['프로세스',checks.process],['리스너',checks.listener],['HTTP',checks.http],['WebSocket',checks.websocket],['컴파일',checks.compile]];
+- return `<dl class="status-details hosting-details">${checksRows.map(([name,value])=>`<div><dt>${name}</dt><dd class="hosting-check ${['ok','running'].includes(value)?'good':value==='failed'?'attention':''}">${label(value)}</dd></div>`).join('')}${Number.isFinite(endpoint.http?.status)?row('HTTP 응답',`${endpoint.http.status}${endpoint.http.redirected?' · 리다이렉트 후 응답':''}`):''}${row('점검 범위','HTTP 응답 확인 · 로그인 후 기능 제외')}${row('실행 설정',({running:'실행 유지',stopped:'중지 유지'})[s.intended]||'확인 불가')}${row('최근 확인',stamp(endpoint.checkedAt))}${s.compile?.checkedAt?row('컴파일 확인',stamp(s.compile.checkedAt)):''}${url?`<div><dt>연결 주소</dt><dd><a id="${item.id}-url" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></dd></div>`:''}</dl>`;
++ return `<dl class="status-details hosting-details">${checksRows.map(([name,value])=>`<div><dt>${name}</dt><dd class="hosting-check ${['ok','running'].includes(value)?'good':value==='failed'?'attention':''}">${label(value)}</dd></div>`).join('')}${Number.isFinite(endpoint.http?.status)?row('HTTP 응답',`${endpoint.http.status}${endpoint.http.redirected?' · 리다이렉트 후 응답':''}`):''}${row('점검 범위','HTTP 응답 확인 · 로그인 후 기능 제외')}${row('실행 설정',({running:'실행 유지',stopped:'중지 유지'})[s.intended]||'확인 불가')}${row('최근 확인',stamp(endpoint.checkedAt))}${s.compile?.checkedAt?row('최근 컴파일',stamp(s.compile.checkedAt)):''}${s.compile?.observedAt?row('컴파일 상태 확인',stamp(s.compile.observedAt)):''}${url?`<div><dt>연결 주소</dt><dd><a id="${item.id}-url" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></dd></div>`:''}</dl>`;
+ }
+ function overview({tone,glyph,title,caption}){
+  return `<div class="status-overview"><span class="status-orbit ${tone}" aria-hidden="true">${glyph}</span><div><strong class="status-label">${title}</strong><p class="status-caption">${caption}</p></div></div>`;
+@@ -46,21 +50,59 @@
+  const {id,service:s,url}=item;
+  return `<article class="card status-card hosting-card"><div class="card-head"><h3>${esc(s.name||'Hosting 서비스')}</h3>${url?`<a id="${id}-link" class="status-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(s.name||'서비스')} 열기 (새 탭)">열기 ↗</a>`:''}</div>${overview(item)}<p class="status-context">${s.registration==='managed'?'자동 관리 서비스':s.registration==='observed'?'상태 모니터링 서비스':'서비스 등록 확인 필요'}</p><details class="status-disclosure" id="${id}-details"><summary id="${id}-toggle">점검 상세</summary>${checkDetails(item)}</details></article>`;
+ }
+-function projectCard(project){
++function documentPair(project){
++ const primary=endpoint=>endpoint.url&&endpoint.url===safeURL(endpoint.service.url);
++ const pages=project?.endpoints?.filter(e=>e.service.kind==='typst-always-preview'&&typeof e.service.entrypoint==='string'&&e.service.entrypoint&&primary(e))??[];
++ const pairs=pages.flatMap(paged=>project.endpoints.filter(reader=>reader.service.kind==='typst-reader'&&reader.service.id===`${paged.service.id}-reader`&&reader.service.entrypoint===paged.service.entrypoint&&primary(reader)).map(reader=>({paged,reader})));
++ return pairs.length===1?pairs[0]:null;
++}
++const normalizedView=value=>['reader','paged'].includes(value)?value:'auto';
++export function documentView(project,{mobile=false,preference='auto'}={}){
++ const pair=documentPair(project);if(!pair)return null;
++ preference=normalizedView(preference);
++ const mode=preference==='reader'||(preference==='auto'&&mobile===true&&pair.reader.acceptedReader)?'reader':'paged';
++ const selected=pair[mode];
++ const revision=pair.reader.service.compile?.revision,published=typeof revision==='string'&&Boolean(revision.trim());
++ const caption=mode==='reader'
++  ?pair.reader.service.compile?.development===true?'읽기 화면 미리보기로 열립니다.':pair.reader.service.compile?.state==='ok'?'읽기 화면으로 열립니다.':published?'마지막으로 저장된 읽기 화면으로 열립니다.':'읽기 화면으로 연결합니다.'
++  :preference==='auto'&&mobile===true&&!pair.reader.acceptedReader?'읽기 화면 확인 중 · 원본 페이지로 열립니다.':'원본 페이지로 열립니다.';
++ return {mode,preference,url:selected.url,caption};
++}
++function documentOpenMarkup(project,context){
++ const view=documentView(project,{mobile:context.mobile,preference:context.preferences?.[project.id]});
++ if(!view)return '';
++ const id=`${project.id}-reading`,mode=view.mode==='reader'?'읽기 화면':'원본 페이지';
++ return `<div class="hosting-reading" role="group" aria-label="${esc(project.name)} 문서 보기"><label for="${id}-choice">보기 방식</label><div class="hosting-reading-controls"><select id="${id}-choice" data-reading-project="${esc(project.id)}" aria-describedby="${id}-caption">${[['auto','자동'],['reader','읽기 화면'],['paged','원본 페이지']].map(([value,text])=>`<option value="${value}"${view.preference===value?' selected':''}>${text}</option>`).join('')}</select><a id="${id}-open" class="status-link" href="${esc(view.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(project.name)} ${mode} 열기 (새 탭)">문서 열기 ↗</a></div><p id="${id}-caption">${esc(view.caption)}</p></div>`;
++}
++function projectCard(project,context){
+  const {id,name,endpoints}=project, normal=endpoints.filter(e=>e.tone==='saved').length;
+  const attention=endpoints.some(e=>e.tone==='attention'), allGood=normal===endpoints.length;
+  const summary={tone:allGood?'saved':attention?'attention':'waiting',glyph:allGood?'✓':attention?'!':'·',title:allGood?'모든 주소 정상':attention?'확인이 필요한 주소':'주소 상태 확인 필요',caption:`${endpoints.length}개 주소 중 ${normal}개 정상`};
+- return `<article class="card status-card hosting-card hosting-project"><button type="button" class="hosting-project-toggle" id="${id}-toggle" data-hosting-project="${id}" aria-haspopup="dialog" aria-controls="hosting-dialog"><span class="card-head"><strong class="hosting-project-name">${esc(name)}</strong><span class="hosting-count">${endpoints.length}개 주소</span></span>${overview(summary).replaceAll('<div','<span').replaceAll('</div>','</span>').replaceAll('<p','<span').replaceAll('</p>','</span>')}<span class="hosting-endpoints">${endpoints.map(e=>`<span class="hosting-endpoint"><span class="hosting-endpoint-name">${esc(e.name)}</span><span class="hosting-indicator ${e.tone}"><span aria-hidden="true">${e.glyph}</span> ${e.tone==='saved'?'정상':esc(e.title)}</span></span>`).join('')}</span><span class="hosting-project-hint"><span>주소별 상세 보기</span><span class="hosting-chevron" aria-hidden="true">↗</span></span></button></article>`;
++ return `<article class="card status-card hosting-card hosting-project"><button type="button" class="hosting-project-toggle" id="${id}-toggle" data-hosting-project="${id}" aria-haspopup="dialog" aria-controls="hosting-dialog"><span class="card-head"><strong class="hosting-project-name">${esc(name)}</strong><span class="hosting-count">${endpoints.length}개 주소</span></span>${overview(summary).replaceAll('<div','<span').replaceAll('</div>','</span>').replaceAll('<p','<span').replaceAll('</p>','</span>')}<span class="hosting-endpoints">${endpoints.map(e=>`<span class="hosting-endpoint"><span class="hosting-endpoint-name">${esc(e.name)}</span><span class="hosting-indicator ${e.tone}"><span aria-hidden="true">${e.glyph}</span> ${e.tone==='saved'?'정상':esc(e.title)}</span></span>`).join('')}</span><span class="hosting-project-hint"><span>주소별 상세 보기</span><span class="hosting-chevron" aria-hidden="true">↗</span></span></button>${documentOpenMarkup(project,context)}</article>`;
+ }
+ export function hostingDialogMarkup(project){
+  return project.endpoints.map(item=>({...item,id:`${item.id}-modal`})).map(e=>`<section class="hosting-address" aria-labelledby="${e.id}-heading"><div class="card-head"><h3 id="${e.id}-heading">${esc(e.name)}</h3>${e.url?`<a id="${e.id}-link" class="status-link" href="${esc(e.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(project.name)} ${esc(e.name)} 열기 (새 탭)">열기 ↗</a>`:''}</div><p class="hosting-indicator ${e.tone}"><span aria-hidden="true">${e.glyph}</span> ${e.title}</p>${checkDetails(e)}</section>`).join('');
+ }
+
+-export function hostingMarkup(model){
++export function hostingMarkup(model,context={}){
+  if(!model.valid)return '<article class="card status-card"><div class="status-overview"><span class="status-orbit attention" aria-hidden="true">!</span><div><strong class="status-label">Hosting 상태 확인 필요</strong><p class="status-caption">서비스 상태 기록을 불러올 수 없습니다.</p></div></div></article>';
+- return model.projects.map(p=>p.endpoints.length===1?singleCard(p.endpoints[0]):projectCard(p)).join('')||'<article class="card status-card"><p class="status-caption">표시할 Hosting 서비스가 없습니다.</p></article>';
++ return model.projects.map(p=>p.endpoints.length===1?singleCard(p.endpoints[0]):projectCard(p,context)).join('')||'<article class="card status-card"><p class="status-caption">표시할 Hosting 서비스가 없습니다.</p></article>';
+ }
+-let renderKey, latestModel, dialog, selectedProject, returnFocusId, motion, motionVersion=0, closing=false;
++const temporaryViews=new Map();
++const viewKey=id=>`tail-dashboard:document-view:${id}`;
++function preferredView(id){
++ if(temporaryViews.has(id))return temporaryViews.get(id);
++ try{return normalizedView(localStorage.getItem(viewKey(id)));}catch{return 'auto';}
++}
++function rememberView(id,value){
++ value=normalizedView(value);
++ try{if(value==='auto')localStorage.removeItem(viewKey(id));else localStorage.setItem(viewKey(id),value);temporaryViews.delete(id);}
++ catch{temporaryViews.set(id,value);}
++}
++function readingContext(model){
++ return {mobile:matchMedia('(any-pointer: coarse)').matches,preferences:Object.fromEntries(model.projects.map(p=>[p.id,preferredView(p.id)]))};
++}
++let renderKey, latestModel, latestPayload, dialog, selectedProject, returnFocusId, motion, motionVersion=0, closing=false;
+ let reduced;
+ function animateDialog(close){
+  if(close&&closing)return;
+@@ -113,16 +155,21 @@
+   updateDialog();dialog.querySelector('.hosting-dialog-body').scrollTop=0;
+   document.getElementById('hosting-dialog-close').focus({preventScroll:true});animateDialog(false);
+  });
++ root.addEventListener('change',event=>{
++  const choice=event.target.closest('[data-reading-project]');if(!choice)return;
++  rememberView(choice.dataset.readingProject,choice.value);
++  renderKey=null;renderHosting(latestPayload);
++ });
+ }
+ export function renderHosting(payload){
+  const root=document.getElementById('hosting-services'), time=document.getElementById('hosting-time'), model=hostingModel(payload);
+- latestModel=model;ensureDialog(root);
++ latestModel=model;latestPayload=payload;ensureDialog(root);
+  time.textContent=!model.valid?'상태 확인 필요':model.stale?'업데이트 지연':'자동 업데이트';
+  time.title=model.valid?`${payload.status.version||''} · ${stamp(payload.status.collectedAt)}`:'상태 기록 없음';
+- const key=JSON.stringify(model);if(key===renderKey)return;renderKey=key;
++ const context=readingContext(model),key=JSON.stringify([model,context]);if(key===renderKey)return;renderKey=key;
+  const expanded=[...root.querySelectorAll('details[open]')].map(el=>el.id);
+  const focused=root.contains(document.activeElement)?document.activeElement.id:null;
+- root.innerHTML=hostingMarkup(model);
++ root.innerHTML=hostingMarkup(model,context);
+  expanded.forEach(id=>{const el=document.getElementById(id);if(el)el.open=true;});
+  if(focused&&!dialog.open)document.getElementById(focused)?.focus({preventScroll:true});
+  updateDialog();
+--- a/public/style.css
++++ b/public/style.css
+@@ -33,6 +33,12 @@
+ .hosting-project-hint{display:flex;justify-content:space-between;align-items:center;min-height:40px;font-size:11px;color:var(--muted);gap:12px}
+ .hosting-chevron{font-size:18px;transition:transform 160ms ease}
+ .hosting-project-toggle .status-caption{display:block}
++.hosting-reading{display:grid;gap:8px;padding:16px 25px 22px;border-top:1px solid var(--line)}
++.hosting-reading label,.hosting-reading p{margin:0;font-size:11px;line-height:1.6;color:var(--muted)}
++.hosting-reading-controls{display:flex;align-items:center;gap:12px;min-width:0}
++.hosting-reading select{min-width:0;min-height:44px;max-width:100%;flex:1;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px}
++.hosting-reading .status-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;white-space:nowrap}
++.hosting-reading select:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+ .hosting-address .card-head{margin-bottom:8px}
+ .hosting-address h3{margin:0;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+ .hosting-address .hosting-indicator{margin:0 0 12px}
+@@ -58,7 +64,7 @@
+ @media(max-width:650px){#hosting-dialog{width:calc(100% - 24px);max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));border-radius:30px}.hosting-dialog-header{padding:22px 20px 18px}#hosting-dialog-title{font-size:20px}.hosting-dialog-body{grid-template-columns:1fr;padding:18px 16px 20px;gap:16px}.hosting-dialog-body .hosting-address{padding:18px 16px 4px}}
+ @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){#hosting-dialog::backdrop{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgb(15 20 30 / 70%)}}
+ @media(forced-colors:active){#hosting-dialog{border:2px solid CanvasText}#hosting-dialog-close{border:1px solid ButtonText}}
+-@media(max-width:600px){.hosting-project{padding:0}.hosting-project-toggle{padding:20px 20px 10px}}
++@media(max-width:600px){.hosting-project{padding:0}.hosting-project-toggle{padding:20px 20px 10px}.hosting-reading{padding:16px 20px 20px}}
+ @media(max-width:360px){.hosting-endpoint{align-items:flex-start;flex-direction:column;gap:3px}.hosting-endpoint .hosting-indicator{flex-shrink:1}}
+ @media(forced-colors:active){.hosting-project-toggle:focus-visible{outline-color:Highlight}.hosting-indicator{color:CanvasText!important}}
+
+--- a/tests/hosting.test.mjs
++++ b/tests/hosting.test.mjs
+@@ -1,6 +1,6 @@
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
+-import {hostingModel,hostingMarkup,hostingDialogMarkup} from '../public/hosting.js';
++import {hostingModel,hostingMarkup,hostingDialogMarkup,documentView} from '../public/hosting.js';
+
+ const service=(id='renew')=>({id,name:'Renew Preview',project:{id:'/projects/renew',name:'Renew_homepage'},registration:'observed',registrationCheck:{state:'ok'},process:{state:'running'},listener:{state:'ok'},http:{state:'ok',status:200},url:'https://example.test/',checkedAt:1000});
+ const payload=services=>({now:1000,status:{schemaVersion:1,collectedAt:1000,services}});
+@@ -45,3 +45,79 @@
+  const html=hostingMarkup(hostingModel(payload([s])));
+  assert.doesNotMatch(html,/<img|<script|javascript:/);assert.match(html,/&lt;script&gt;/);
+ });
++
++const documents=()=>{
++ const project={id:'/projects/pde',name:'PDE'};
++ return [
++  {...service('pde'),project,name:'원본 페이지',kind:'typst-always-preview',entrypoint:'main.typ',url:'https://example.test:23625/'},
++  {...service('pde-reader'),project,name:'읽기 화면',kind:'typst-reader',entrypoint:'main.typ',url:'https://example.test:23627/',compile:{state:'ok',checkedAt:100,observedAt:1000,revision:'accepted',development:false,semanticCanvases:true}},
++ ];
++};
++const documentProject=rows=>hostingModel(payload(rows??documents())).projects[0];
++
++test('automatic document opening selects the released reader on touch devices and paged view elsewhere',()=>{
++ const p=documentProject();
++ assert.equal(documentView(p,{mobile:true}).url,'https://example.test:23627/');
++ assert.equal(documentView(p,{mobile:false}).url,'https://example.test:23625/');
++ assert.equal(documentView(p,{mobile:'true'}).mode,'paged');
++ assert.equal(p.endpoints[1].checks.compile,'ok');
++});
++test('an explicit choice takes precedence over device defaults, including reader evaluation',()=>{
++ const rows=documents();rows[1].compile.development=true;
++ const p=documentProject(rows);
++ assert.equal(documentView(p,{mobile:true}).mode,'paged');
++ assert.equal(documentView(p,{mobile:false,preference:'reader'}).mode,'reader');
++ assert.match(documentView(p,{preference:'reader'}).caption,/미리보기/);
++ assert.equal(documentView(documentProject(),{mobile:true,preference:'paged'}).mode,'paged');
++ assert.equal(documentView(documentProject(),{mobile:true,preference:'invalid'}).preference,'auto');
++});
++test('old or unknown runtime flags cannot silently enable automatic mobile reading',()=>{
++ for(const change of [c=>delete c.development,c=>c.development='false',c=>delete c.semanticCanvases,c=>c.semanticCanvases=false,c=>c.semanticCanvases=1,c=>delete c.revision,c=>c.revision=' ',c=>delete c.observedAt]){
++  const rows=documents();change(rows[1].compile);
++  assert.equal(documentView(documentProject(rows),{mobile:true}).mode,'paged');
++ }
++});
++test('published strict output remains the mobile entry during compilation and failed saves',()=>{
++ for(const state of ['unknown','failed']){
++  const rows=documents();rows[1].compile.state=state;
++  const view=documentView(documentProject(rows),{mobile:true});
++  assert.equal(view.mode,'reader');assert.match(view.caption,/마지막으로 저장된/);
++ }
++ const rows=documents();delete rows[1].compile.revision;rows[1].compile.state='unknown';
++ assert.doesNotMatch(documentView(documentProject(rows),{preference:'reader'}).caption,/저장된/);
++});
++test('stale observations and unhealthy transport cannot enable automatic reading',()=>{
++ for(const change of [r=>r.compile.observedAt=900,r=>r.compile.observedAt=1001,r=>r.http={state:'failed'},r=>r.listener={state:'failed'},r=>r.process={state:'stopped'},r=>r.registrationCheck={state:'planned'}]){
++  const rows=documents();change(rows[1]);
++  assert.equal(documentView(documentProject(rows),{mobile:true}).mode,'paged');
++ }
++});
++test('document pairing requires the exact derived service, project, entrypoint and primary URL',()=>{
++ for(const change of [r=>r.id='other-reader',r=>r.entrypoint='other.typ',r=>delete r.kind,r=>r.url='javascript:alert(1)',r=>r.endpoints=[{id:'state',name:'상태',url:'https://example.test:23627/api/state',checkedAt:1000,http:{state:'ok'}}]]){
++  const rows=documents();change(rows[1]);
++  assert.equal(documentView(documentProject(rows),{mobile:true}),null);
++ }
++ const rows=documents();rows[1].project={id:'/another-project',name:'PDE'};
++ const model=hostingModel(payload(rows));
++ assert.equal(model.projects.length,2);assert.equal(documentView(model.projects[0]),null);
++});
++test('multiple documents in one project keep explicit address selection',()=>{
++ const rows=documents(),second=documents();
++ second[0]={...second[0],id:'second',entrypoint:'second.typ',url:'https://example.test:23629/'};
++ second[1]={...second[1],id:'second-reader',entrypoint:'second.typ',url:'https://example.test:23630/'};
++ const model=hostingModel(payload([...rows,...second]));
++ assert.equal(model.projects[0].endpoints.length,4);
++ assert.equal(documentView(model.projects[0],{mobile:true}),null);
++ assert.doesNotMatch(hostingMarkup(model),/data-reading-project/);
++ assert.match(hostingDialogMarkup(model.projects[0]),/23625|23627|23629|23630/);
++});
++test('the project opens directly without nesting reading controls inside its details button',()=>{
++ const model=hostingModel(payload(documents())),p=model.projects[0];
++ const html=hostingMarkup(model,{mobile:true,preferences:{[p.id]:'reader'}});
++ assert.match(html,/<label for="[^"]+-choice">보기 방식<\/label>/);
++ assert.match(html,/<option value="reader" selected>/);
++ assert.match(html,/href="https:\/\/example.test:23627\/"/);
++ assert.ok(html.indexOf('<select')>html.indexOf('</button>'));
++ const raw=hostingDialogMarkup(p);
++ assert.match(raw,/23625/);assert.match(raw,/23627/);
++});
+--- a/README.md
++++ b/README.md
+@@ -98,6 +98,12 @@
+
+ Hosting 카드도 백업 카드와 같은 원형 상태 표시를 사용합니다. 정상 운영·중지·점검 필요 상태와 관리 방식을 먼저 보여주며, 개별 연결 점검·실행 설정·수집 시각·주소는 점검 상세를 펼쳐 확인할 수 있습니다. 상세 영역과 키보드 포커스는 자동 갱신 후에도 유지합니다. 상태 기록이 오래되면 업데이트 지연으로 표시하고, 컴파일 확인은 최근 기록만 사용합니다.
+
++같은 프로젝트와 문서 진입점의 원본/Reader 서비스가 정확히 한 쌍이면 카드 아래에 **문서 열기**와 **자동 / 읽기 화면 / 원본 페이지** 선택을 표시합니다. 문서를 열기 위해 주소 상세를 펼칠 필요가 없습니다. 선택은 프로젝트별로 현재 브라우저에 저장하고 새로고침 후에도 유지합니다. 브라우저 저장소를 사용할 수 없어도 현재 화면에서 직접 고른 보기 방식은 적용합니다.
++
++자동은 터치 입력 기기에서 최신 연결 상태가 정상이고, 명시적으로 정식/native 설정과 정상 문서 revision을 보고하는 Reader만 선택합니다. 개발 중이거나 상태가 오래되거나 설정을 알 수 없으면 원본 페이지를 엽니다. 정식 Reader가 새 저장을 컴파일하는 중이거나 저장에 실패해도 이전 정상 문서를 계속 제공한다면 해당 문서로 열립니다. 컴파일 실패 표시는 별도로 유지합니다. **읽기 화면**을 직접 선택하면 개발본도 미리 볼 수 있습니다. 기존 PDF 주소는 변경하거나 리다이렉트하지 않으며 다른 주소 링크도 상세에서 계속 제공합니다.
++
++Tail Hosting은 서비스 종류·문서 진입점과 Reader 관찰 시각(`compile.observedAt`)을 전달해야 합니다. 마지막 컴파일 시각(`compile.checkedAt`)과 현재 서비스 관찰 시각은 구분합니다. Dashboard는 상태를 읽고 주소를 여는 역할만 수행하며 문서 서비스 운영 명령이나 새로운 프록시를 추가하지 않습니다. `node --test tests/hosting.test.mjs`로 선택 정책을 검사할 수 있으며, `tests/hosting-entry-browser.html`은 loopback 정적 서버에서 터치 환경·새로고침·저장소 오류를 모의하는 독립 검사입니다.
++
+ ## 이름이 있는 링크 복사
+
+ 상단 클립보드 아이콘 버튼은 현재 메뉴의 이름과 주소를 함께 복사합니다. 복사 성공 시 원 테두리가 그려진 뒤 체크 표시로 전환되고, 잠시 후 클립보드로 돌아옵니다. 실패 시 원 안의 느낌표로 표시하고 접근성 안내를 제공합니다. 동작 줄이기 설정에서는 그리기 애니메이션 없이 상태를 표시합니다. Hosting은 `tail_dashboard-hosting`, Overview는 `tail_dashboard-overview`처럼 표시하며, 브라우저 탭 제목도 메뉴를 따라 바뀝니다. 복사하는 주소는 현재 접속한 주소이므로 다른 기기에서 사용할 링크는 Tailscale HTTPS 주소에서 복사하세요.
+--- /dev/null
++++ b/tests/hosting-entry-browser.html
+@@ -0,0 +1,69 @@
++<!doctype html>
++<html lang="ko" data-theme="dark">
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
++<title>문서 보기 선택 검증</title>
++<link rel="stylesheet" href="../public/style.css">
++<style>main{max-width:720px;margin:auto;padding:16px}#entry-report{white-space:pre-wrap;font:13px/1.6 monospace;overflow-wrap:anywhere}</style>
++<main><h1>문서 보기 선택 검증</h1><p>터치 환경과 서비스 상태를 모의한 독립 검사입니다.</p><span id="hosting-time"></span><div id="hosting-services"></div><pre id="entry-report"></pre></main>
++<script type="module">
++import {renderHosting,hostingModel} from '../public/hosting.js';
++const output=document.querySelector('#entry-report');
++const phase=new URL(location.href).searchParams.get('phase');
++const report=phase==='2'?JSON.parse(sessionStorage.getItem('hosting-entry-test')||'{"checks":[],"errors":[]}'):{checks:[],errors:[]};
++report.width=innerWidth;report.simulatedTouch=true;
++const normalMedia=window.matchMedia.bind(window);
++window.matchMedia=query=>query==='(any-pointer: coarse)'?{matches:true}:normalMedia(query);
++const now=Date.now()/1000;
++const project={id:'/fixtures/pde',name:'PDE 보기 선택 검증'};
++const service=(id,name,path,kind)=>({id,name,kind,entrypoint:'main.typ',project,url:new URL(path,location.href).href,registration:'managed',registrationCheck:{state:'ok'},process:{state:'running'},listener:{state:'ok'},http:{state:'ok',status:200},checkedAt:now});
++const paged=service('pde','원본 페이지','fixtures/entry-paged.html','typst-always-preview');
++const reader=service('pde-reader','읽기 화면','fixtures/entry-reader.html','typst-reader');
++reader.compile={state:'ok',checkedAt:now-3600,observedAt:now,revision:'accepted-fixture',development:false,semanticCanvases:true};
++const payload={now,status:{schemaVersion:1,collectedAt:now,services:[paged,reader]}};
++const projectID=hostingModel(payload).projects[0].id;
++const key=`tail-dashboard:document-view:${projectID}`;
++const select=()=>document.querySelector('[data-reading-project]');
++const link=()=>document.querySelector('.hosting-reading .status-link');
++function check(name,value){report.checks.push(name);if(!value)report.errors.push(name);output.textContent=JSON.stringify(report,null,2);}
++function choose(value){const node=select();node.focus();node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));}
++try{
++ if(phase!=='2')localStorage.removeItem(key);
++ renderHosting(payload);
++ if(phase!=='2'){
++  check('a touch device opens the published Reader automatically',select().value==='auto'&&link().href===reader.url);
++  choose('paged');
++  check('an explicit page preference keeps the original endpoint',link().href===paged.url);
++  check('changing the preference retains keyboard focus',document.activeElement===select());
++  reader.checkedAt+=1;payload.now+=1;payload.status.collectedAt+=1;
++  renderHosting(payload);
++  check('status refresh preserves the page preference',select().value==='paged'&&link().href===paged.url);
++  choose('reader');
++  check('the Reader preference is saved',localStorage.getItem(key)==='reader');
++  sessionStorage.setItem('hosting-entry-test',JSON.stringify(report));
++  location.replace('hosting-entry-browser.html?phase=2');
++ }else{
++  check('a fresh page restores the Reader preference',select().value==='reader'&&link().href===reader.url);
++  reader.compile.development=true;renderHosting(payload);
++  check('an explicit Reader choice can evaluate the development version',link().href===reader.url);
++  choose('auto');
++  check('automatic selection does not promote the development Reader',link().href===paged.url);
++  reader.compile.development=false;renderHosting(payload);
++  check('a validated publication enables automatic reading',link().href===reader.url);
++  reader.compile.state='failed';renderHosting(payload);
++  check('a failed save retains the accepted Reader entry',link().href===reader.url);
++  reader.compile.revision=null;renderHosting(payload);
++  check('a Reader with no published document falls back to pages',link().href===paged.url);
++  const descriptor=Object.getOwnPropertyDescriptor(window,'localStorage');
++  Object.defineProperty(window,'localStorage',{configurable:true,get(){throw new Error('Fixture storage unavailable');}});
++  try{choose('reader');check('unavailable storage still honors the current explicit choice',select().value==='reader'&&link().href===reader.url);}
++  finally{if(descriptor)Object.defineProperty(window,'localStorage',descriptor);else delete window.localStorage;}
++  reader.compile.state='ok';reader.compile.revision='accepted-fixture';choose('auto');
++  const root=document.querySelector('main');
++  check('the controls remain within the reading viewport',root.scrollWidth<=root.clientWidth+1&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1);
++  check('the original addresses remain in the details view',payload.status.services[0].url===paged.url&&payload.status.services[1].url===reader.url);
++  document.body.dataset.entryState=report.errors.length?'error':'ready';
++ }
++}catch(error){report.errors.push(String(error));document.body.dataset.entryState='error';output.textContent=JSON.stringify(report,null,2);}
++</script>
++</html>
+--- /dev/null
++++ b/tests/fixtures/entry-reader.html
+@@ -0,0 +1 @@
++<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reader entry fixture</title><body data-entry="reader"><h1>읽기 화면 진입 검증</h1><p>독립 검사 페이지입니다.</p></body></html>
+--- /dev/null
++++ b/tests/fixtures/entry-paged.html
+@@ -0,0 +1 @@
++<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Paged entry fixture</title><body data-entry="paged"><h1>원본 페이지 진입 검증</h1><p>독립 검사 페이지입니다.</p></body></html>

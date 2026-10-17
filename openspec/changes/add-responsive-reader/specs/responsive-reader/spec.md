@@ -8,6 +8,18 @@ The system SHALL produce a reflowable HTML reading view from the same saved Typs
 - **THEN** it receives the responsive reader and can explicitly open the original paged view
 - **AND** the user's explicit view preference is respected
 
+#### Scenario: Guarded Dashboard document entry
+- **WHEN** the Hosting card contains exactly one original/Reader pair with the same project and entrypoint and the exact derived service ID
+- **THEN** its document link honors the browser-local automatic, Reader or original-page preference without opening address details
+- **AND** automatic touch-device selection uses only fresh, healthy Reader delivery with explicit strict/native flags and an accepted revision
+- **AND** development, missing flags, stale observations, unhealthy delivery and ambiguous pairs do not silently change the original default
+- **AND** existing paged URLs and service lifecycles remain unchanged
+
+#### Scenario: Accepted document during a failed save
+- **WHEN** a strict Reader still serves its accepted revision during a new or failed compilation
+- **THEN** fresh healthy delivery can retain the automatic Reader entry
+- **AND** the failed compilation remains visible as a separate status
+
 ### Requirement: Mathematical fidelity
 The reader MUST retain mathematical symbols and decorations, equation and theorem numbers, cross references, footnotes, and annotation meaning. Unsupported constructs MUST use faithful alternative rendering or produce a visible diagnostic, never silently disappear.
 
@@ -222,3 +234,5 @@ Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expos
 - **WHEN** Tail Hosting checks the Reader
 - **THEN** it distinguishes HTTP reachability from the Reader's reported compile and content-validation result
 - **AND** serving the last accepted revision after a failed save is reported as a compile failure
+- **AND** the time of observing the running Reader is distinct from the time of its last compilation
+- **AND** the report preserves the actual development/native-figure settings, service kind and entrypoint for view selection
