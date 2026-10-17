@@ -20,4 +20,8 @@ drawing coordinates through shared adapters.
 Keep cancellation and overline bodies semantic as well. Original cancellation
 properties draw paint around measured fragments; overlines span their full bodies.
 
+Preserve exported source-language metadata separately from localized controls,
+including moved mathematical annotations. Managed release switches wait for the
+previous Reader job to finish stopping before activating another release.
+
 Non-goals: replacing Typst's parser or evaluator, removing PDF export, changing mathematical meaning, or automatically inferring a responsive layout from every arbitrary drawing program.

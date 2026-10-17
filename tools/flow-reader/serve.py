@@ -360,6 +360,7 @@ def handler_for(state):
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/math-identity.js": ("math-identity.js", "text/javascript; charset=utf-8"),
                       "/math-renderer.js": ("math-renderer.js", "text/javascript; charset=utf-8"),
+                      "/language.js": ("language.js", "text/javascript; charset=utf-8"),
                       "/math-frames.js": ("math-frames.js", "text/javascript; charset=utf-8"),
                       "/mathjax-loader.js": ("mathjax-loader.js", "text/javascript; charset=utf-8"),
                       "/math-layout.js": ("math-layout.js", "text/javascript; charset=utf-8"),

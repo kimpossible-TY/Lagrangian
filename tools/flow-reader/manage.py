@@ -143,6 +143,15 @@ class ReaderManager:
         agent = plistlib.loads(path.read_bytes())
         return agent.get("ProgramArguments") == self.agent(profile)["ProgramArguments"]
 
+    def wait_unloaded(self, target):
+        # bootout can return while launchd still reports the terminating job.
+        # A following start must not mistake that old PID for a running Reader.
+        deadline = time.monotonic() + 10
+        while run(["/bin/launchctl", "print", target], check=False).strip():
+            if time.monotonic() >= deadline:
+                raise ValueError("The Reader job has not finished stopping")
+            time.sleep(.1)
+
     def control(self, action, profile):
         if action not in {"start", "stop", "restart"}:
             raise ValueError("Expected start, stop, or restart")
@@ -155,6 +164,7 @@ class ReaderManager:
             if action == "stop":
                 run(["/bin/launchctl", "disable", target])
                 run(["/bin/launchctl", "bootout", target], check=False)
+                self.wait_unloaded(target)
                 return
             self.arguments(profile)
             owners = run(["/usr/sbin/lsof", "-nP", f"-iTCP:{profile['port']}", "-sTCP:LISTEN", "-t"], check=False)
@@ -166,6 +176,7 @@ class ReaderManager:
             (self.data / "logs").mkdir(parents=True, exist_ok=True)
             atomic_write(path, plistlib.dumps(self.agent(profile)))
             run(["/bin/launchctl", "bootout", target], check=False)
+            self.wait_unloaded(target)
             run(["/bin/launchctl", "enable", target])
             for attempt in range(5):
                 try:

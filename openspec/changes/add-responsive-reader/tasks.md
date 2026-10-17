@@ -41,7 +41,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
 - [ ] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
 - [x] Add saved quotations with context-based relocation, cross-section navigation, and explicit ambiguous/missing states.
-- [ ] Complete broader reading-position and selection update checks on actual PDE content.
+- [x] Complete broader reading-position and selection update checks on actual PDE content.
 - [x] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.
 - [ ] Verify reader at mobile widths and large font sizes against actual PDE content.
 - [x] Expose an independent development Reader through Tail Hosting and Tailnet HTTPS.
@@ -49,7 +49,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Implement and test a guarded Dashboard document entry, exact profile pairing, explicit browser preference and independently observed Reader mode flags.
 - [x] Publish and verify the companion status/Dashboard integration against the actual managed Reader and original service.
 - [ ] Promote automatic mobile reading after the remaining fidelity and device acceptance gates.
-- [ ] Verify existing paged service and reader delivery, document operation and rollback.
+- [x] Verify existing paged service and reader delivery, document operation and rollback.
 
 Implementation checkpoint: the complete PDE document compiles to HTML with no
 missing anchor targets, duplicate SVG IDs, unresolved annotation targets, or

@@ -74,6 +74,17 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** copied text retains canonical source order without assistive-content duplicates
 - **AND** semantic math and keyboard-accessible references remain available to assistive technology
 
+#### Scenario: Original content inside a localized Reader shell
+- **WHEN** the exported document language differs from the Reader interface language
+- **THEN** the article, moved notes, copied target terms and mathematical views retain their exported source language
+- **AND** interface names and status messages retain the interface language
+- **AND** local language attributes survive while an unknown source language remains explicitly unknown
+
+#### Scenario: Reader release switch after stop
+- **WHEN** a managed Reader is stopped before activating another installed release
+- **THEN** stop waits for the terminating launchd job to disappear
+- **AND** a timed-out stop reports failure without restarting or signalling unrelated services
+
 #### Scenario: A long equation or wide drawing
 - **WHEN** an equation, matrix, or drawing exceeds the available width at readable text size
 - **THEN** the layout stage uses mathematically valid line breaks, alignment changes, or an explicit faithful alternate composition

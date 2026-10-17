@@ -1,5 +1,7 @@
 // Keep mathematical glyphs semantic. Original Typst callbacks draw only the paint
 // around their measured fragments, so line breaking never has to split an image.
+import { setLanguage, uiLanguage } from "./language.js";
+
 export class MathDecorations {
   constructor(article, getRevision, changed, preserve) {
     Object.assign(this, { article, getRevision, changed, preserve });
@@ -97,6 +99,7 @@ export class MathDecorations {
           if (!this.notices.has(surface)) {
             const notice = document.createElement("span");
             notice.className = "flow-decoration-notice";
+            setLanguage(notice, uiLanguage());
             notice.setAttribute("role", "status");
             surface.after(notice);
             this.notices.set(surface, notice);

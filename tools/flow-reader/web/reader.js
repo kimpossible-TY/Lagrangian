@@ -5,6 +5,7 @@ import { ContinuousSections } from "./sections.js";
 import { logicalTextIndex } from "./math-identity.js";
 import { ResponsiveMath } from "./math-renderer.js";
 import { prepareResponsiveTables } from "./tables.js";
+import { languageOf, setLanguage, uiLanguage } from "./language.js";
 
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
@@ -274,6 +275,7 @@ function noteGroup(after) {
   if (!group?.classList.contains("flow-notes")) {
     group = document.createElement("aside");
     group.className = "flow-notes";
+    setLanguage(group, uiLanguage());
     group.setAttribute("aria-label", "수식 해설");
     after.after(group);
   }
@@ -283,9 +285,11 @@ function noteGroup(after) {
 function noteTargets(nodes, prefix) {
   const heading = document.createElement("div");
   heading.className = "flow-note-targets";
+  setLanguage(heading, uiLanguage());
   heading.setAttribute("aria-label", "해설 대상");
   nodes.forEach((node, index) => {
     if (!node) return;
+    const language = languageOf(node) ?? "";
     const copy = namespaceClone(node.cloneNode(true), `${prefix}-${index}-`);
     for (const child of [copy, ...copy.querySelectorAll("*")]) {
       for (const name of [
@@ -304,9 +308,13 @@ function noteTargets(nodes, prefix) {
     if (index) heading.append(document.createTextNode(" · "));
     if (copy.namespaceURI === "http://www.w3.org/1998/Math/MathML" && copy.localName !== "math") {
       const math = document.createElementNS("http://www.w3.org/1998/Math/MathML", "math");
+      setLanguage(math, language);
       math.append(copy);
       heading.append(math);
-    } else heading.append(copy);
+    } else {
+      setLanguage(copy, language);
+      heading.append(copy);
+    }
   });
   return heading;
 }
@@ -328,6 +336,7 @@ function prepareNotes(root, section) {
     const group = noteGroup(destination);
     const note = document.createElement("div");
     note.className = "flow-note";
+    setLanguage(note, languageOf(node) ?? "");
     note.id = `reader-note-${section}-${++noteNumber}`;
     if (node.dataset.flowGraphic) {
       const id = node.dataset.flowGraphic;
@@ -389,6 +398,7 @@ function indexOutline(nextManifest) {
     link.href = `#${encodeURIComponent(node.id)}`;
     link.textContent = node.title;
     link.dataset.level = node.level;
+    setLanguage(link, nextManifest.language ?? "");
     outline.append(link);
   }
 }
@@ -423,6 +433,7 @@ function prepareSection(html, section) {
     }
   }
   if (shellRevision !== revision) {
+    setLanguage(article, languageOf(parsed.body) ?? "");
     document
       .querySelector("#reader-document-styles")
       .replaceChildren(...parsed.head.querySelectorAll("style"));

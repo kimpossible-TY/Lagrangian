@@ -31,6 +31,10 @@ The `viewport` browser fixture checks fresh and legacy preferences, reloads,
 actual width changes and a synthetic visual-only resize. That last check is not
 a substitute for a physical iPhone pinch test.
 
+On 2026-10-18 the user refreshed the installed 13px Reader on a physical iPhone,
+pinched to reduce it and released: “여백 없이 정상입니다”. This confirms the
+reported margin behavior for that device; its browser version was not supplied.
+
 The legacy drawing path still has unresolved widths and small labels. The native
 label option below remains under figure and device validation. Notes and
 relationships are now shown inline automatically.
@@ -650,6 +654,16 @@ glyphs are hidden from the accessibility tree, while references remain ordinary
 keyboard-accessible links. These DOM/tree checks are prerequisites, not a claim
 that VoiceOver or mobile Safari has been verified.
 
+The source document's HTML language is retained on the reading article and in
+section metadata. English source content no longer inherits the Korean Reader
+shell. Notes, copied mathematical targets and rendered/assistive mathematical
+roots retain their source language when moved. Korean region names and temporary
+status messages keep the UI language. Unknown source language remains explicitly
+unknown. Existing local language attributes survive transport and rendering;
+Typst 0.15.1 does not itself export all local `text(lang: ...)` changes. The
+`language` browser fixture checks the exported attributes and mathematical DOM;
+it does not validate spoken VoiceOver output.
+
 The browser integration fixture combines a long highlighted sum, original CeTZ
 relationship, scripts, derivation rows, matrix, SVG decorations, and references.
 Run `tests/runtime_fixture.py` with normal server arguments against a disposable
@@ -667,6 +681,11 @@ Flow app's `--profiles` output on each start. Its configuration stores a parent
 profile ID and Reader runtime/port options; it does not copy the project root,
 fonts, entrypoint, or package settings. It installs its own LaunchAgent and does
 not replace or restart the existing paged app or engine.
+
+After a Reader stop, wait until launchd removes the terminating job before
+starting another release. A successful `bootout` can precede that removal; an
+immediate start can otherwise mistake the old PID for a running Reader. A stop
+that does not finish is reported without signalling unrelated processes.
 
 Install only from a clean commit:
 
