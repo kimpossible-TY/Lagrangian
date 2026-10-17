@@ -286,7 +286,7 @@ export class ReaderHighlights {
     for (const record of this.records) {
       record.fragments.forEach((part, i) => {
         const location = this.locations.get(`${record.id}:${i}`);
-        if (!location || location.state !== "located" || location.section !== this.section) return;
+        if (!location || location.state !== "located") return;
         const block = nodes.get(location.key);
         if (!block) return;
         const index = textIndex(block);

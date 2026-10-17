@@ -434,19 +434,20 @@ math svg {
     serif;
   overflow-x: auto;
 }
-#reader-section-navigation {
-  max-width: 48rem;
-  margin: 1rem auto 4rem;
-  padding: 1rem;
-  border-top: 1px solid var(--line);
+.reader-section {
+  display: flow-root;
+  min-width: 0;
+}
+.reader-continuation {
+  padding-block: 1rem;
+  color: var(--muted);
   font:
-    0.9rem/1.5 system-ui,
+    0.85rem/1.5 system-ui,
     sans-serif;
 }
-#reader-section-navigation button {
-  padding: 0.7rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 0.4rem;
+.reader-section[data-section-state="parked"] > .reader-continuation {
+  position: sticky;
+  top: 6rem;
 }
 .flow-graphic-open {
   color: var(--accent);

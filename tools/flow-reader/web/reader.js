@@ -1,5 +1,6 @@
 import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
 import { AdaptiveCanvases } from "./canvases.js";
+import { ContinuousSections } from "./sections.js";
 
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
@@ -14,9 +15,17 @@ let fontSize = 18;
 let manifest = null;
 let currentSection = null;
 let loadSequence = 0;
+let shellRevision = null;
 const sectionCache = new Map();
 const graphics = new GraphicalAnnotations(noteDialog, () => revision);
 const canvases = new AdaptiveCanvases(article, () => revision);
+const sections = new ContinuousSections(article, {
+  fetchSection,
+  prepare: prepareSection,
+  changed: mountedSectionsChanged,
+  anchor: readingAnchor,
+  restore: restoreAnchor,
+});
 let highlights;
 import("./highlights.js")
   .then(({ ReaderHighlights }) => {
@@ -55,19 +64,39 @@ function textOf(node) {
 }
 
 function readingAnchor() {
+  const parked = [...article.querySelectorAll('[data-section-state="parked"]')].find((node) => {
+    const rect = node.getBoundingClientRect();
+    return rect.top <= 90 && rect.bottom > 90;
+  });
+  if (parked) {
+    const rect = parked.getBoundingClientRect();
+    return {
+      section: parked.dataset.readerSection,
+      fraction: (90 - rect.top) / rect.height,
+      url: location.href,
+    };
+  }
   const block = blocks.find((node) => node.getBoundingClientRect().bottom > 90);
   if (!block) return null;
   return {
     key: block.dataset.readerKey,
     text: textOf(block).slice(0, 180),
     offset: block.getBoundingClientRect().top - 90,
-    section: currentSection,
+    section: block.closest("[data-reader-section]")?.dataset.readerSection ?? currentSection,
     id: block.id,
     url: location.href,
   };
 }
 function restoreAnchor(anchor) {
   if (!anchor) return;
+  if (Number.isFinite(anchor.fraction)) {
+    const section = article.querySelector(`[data-reader-section="${CSS.escape(anchor.section)}"]`);
+    if (section) {
+      const rect = section.getBoundingClientRect();
+      window.scrollBy(0, rect.top + rect.height * anchor.fraction - 90);
+    }
+    return;
+  }
   const block =
     blocks.find((node) => node.dataset.readerKey === anchor.key) ??
     blocks.find((node) => textOf(node).startsWith(anchor.text));
@@ -98,8 +127,7 @@ function noteGroup(after) {
   return group;
 }
 
-function prepareNotes(root) {
-  graphics.clear();
+function prepareNotes(root, section) {
   const marks = new Map();
   let noteNumber = 0;
   // Traverse in document order: a repeated tag resolves to its preceding mark.
@@ -114,7 +142,7 @@ function prepareNotes(root) {
     const group = noteGroup(destination);
     const note = document.createElement("div");
     note.className = "flow-note";
-    note.id = `reader-note-${++noteNumber}`;
+    note.id = `reader-note-${section}-${++noteNumber}`;
     if (node.dataset.flowGraphic) {
       const id = node.dataset.flowGraphic;
       graphics.register(
@@ -195,7 +223,7 @@ function selectionActive() {
   return !window.getSelection()?.isCollapsed || Boolean(document.querySelector("dialog[open]"));
 }
 
-function renderDocument(html, nextManifest, section, options) {
+function prepareSection(html, section) {
   const parsed = new DOMParser().parseFromString(html, "text/html");
   // Typst output is document content; it does not control the reader shell.
   parsed.querySelectorAll("script,iframe,object,embed,form,base").forEach((node) => node.remove());
@@ -210,27 +238,44 @@ function renderDocument(html, nextManifest, section, options) {
       }
     }
   }
-  document
-    .querySelector("#reader-document-styles")
-    .replaceChildren(...parsed.head.querySelectorAll("style"));
-  prepareNotes(parsed.body);
+  if (shellRevision !== revision) {
+    document
+      .querySelector("#reader-document-styles")
+      .replaceChildren(...parsed.head.querySelectorAll("style"));
+    document.title = parsed.title ? `${parsed.title} · Flow Reader` : "Flow Reader";
+    shellRevision = revision;
+  }
+  prepareNotes(parsed.body, section);
   containWideMathematics(parsed.body);
-  article.replaceChildren(...parsed.body.childNodes);
-  document.title = parsed.title ? `${parsed.title} · Flow Reader` : "Flow Reader";
+  const content = document.createDocumentFragment();
+  content.append(...parsed.body.childNodes);
+  return content;
+}
+
+function mountedSectionsChanged() {
   indexDocument();
-  article.setAttribute("aria-busy", "false");
+  graphics.prune();
+  canvases.sync();
+  highlights?.repaint();
+}
+
+function renderDocument(html, nextManifest, section, options) {
+  graphics.clear();
   revision = nextManifest.revision;
   manifest = nextManifest;
   currentSection = section;
+  sections.reset(manifest, section, html);
+  indexDocument();
+  article.setAttribute("aria-busy", "false");
   canvases.onDocument();
   highlights?.onDocument(manifest, currentSection);
   indexOutline(manifest);
-  updateSectionNavigation();
   pending = null;
   requestAnimationFrame(() => {
     if (options.target) document.getElementById(options.target)?.scrollIntoView();
     else if (options.anchor) restoreAnchor(options.anchor);
     else window.scrollTo(0, 0);
+    sections.schedule();
   });
 }
 
@@ -242,21 +287,36 @@ function fragment() {
   }
 }
 
+async function fetchSection(nextManifest, section, signal) {
+  const key = `${nextManifest.revision}:${section}`;
+  let html = sectionCache.get(key);
+  if (!html) {
+    const response = await fetch(
+      `api/sections/${encodeURIComponent(section)}?revision=${nextManifest.revision}`,
+      { signal },
+    );
+    if (!response.ok) throw new Error(`Section HTTP ${response.status}`);
+    html = await response.text();
+  }
+  sectionCache.delete(key);
+  sectionCache.set(key, html);
+  while (sectionCache.size > 6) sectionCache.delete(sectionCache.keys().next().value);
+  return html;
+}
+
+function navigationHistory(section, target) {
+  history.replaceState({ readerAnchor: readingAnchor() }, "", location.href);
+  const url = new URL(location.href);
+  url.searchParams.set("section", section);
+  url.hash = target ? encodeURIComponent(target) : "";
+  history.pushState(null, "", url);
+}
+
 async function loadSection(nextManifest, section, options = {}) {
   const sequence = ++loadSequence;
-  const key = `${nextManifest.revision}:${section}`;
   article.setAttribute("aria-busy", "true");
   try {
-    let html = sectionCache.get(key);
-    if (!html) {
-      const response = await fetch(
-        `api/sections/${encodeURIComponent(section)}?revision=${nextManifest.revision}`,
-      );
-      if (!response.ok) throw new Error(`Section HTTP ${response.status}`);
-      html = await response.text();
-      sectionCache.set(key, html);
-      while (sectionCache.size > 6) sectionCache.delete(sectionCache.keys().next().value);
-    }
+    const html = await fetchSection(nextManifest, section);
     if (sequence !== loadSequence) return;
     // A source update must not dismiss a note or disturb a selection made while
     // its network request was in flight. Explicit navigation is the user's choice.
@@ -264,13 +324,13 @@ async function loadSection(nextManifest, section, options = {}) {
       pending = nextManifest;
       return;
     }
-    renderDocument(html, nextManifest, section, options);
-    if (options.history) {
-      const url = new URL(location.href);
-      url.searchParams.set("section", section);
-      url.hash = options.target ? encodeURIComponent(options.target) : "";
-      history.pushState(null, "", url);
+    if (options.update && revision) {
+      options.anchor = readingAnchor();
+      const destination = sectionFor(nextManifest, options.anchor, options.target);
+      if (destination !== section) return loadSection(nextManifest, destination, options);
     }
+    if (options.history) navigationHistory(section, options.target);
+    renderDocument(html, nextManifest, section, options);
   } catch {
     status.dataset.state = "error";
     status.textContent = "이 절을 불러오지 못했습니다. 현재 내용은 계속 읽을 수 있습니다.";
@@ -289,40 +349,26 @@ function sectionFor(nextManifest, anchor, target) {
   );
 }
 
-function updateSectionNavigation() {
-  const index = manifest.sections.findIndex((section) => section.id === currentSection);
-  document.querySelector("#reader-section-name").textContent =
-    `${index + 1} / ${manifest.sections.length} · ${manifest.sections[index].title}`;
-  document.querySelector("#reader-previous").disabled = index === 0;
-  document.querySelector("#reader-next").disabled = index === manifest.sections.length - 1;
-  document.querySelector("#reader-section-navigation").hidden = false;
-}
-
 async function navigateAnchor(target, push = true) {
   if (!manifest) return;
   const section = manifest.anchors[target];
   const local = document.getElementById(target);
-  if (local && (!section || section === currentSection)) {
+  if (local && article.contains(local)) {
+    // A newer local jump must supersede an earlier remote jump still fetching.
+    loadSequence++;
+    article.setAttribute("aria-busy", "false");
+    if (push) navigationHistory(section ?? currentSection, target);
     local.scrollIntoView();
-    if (push) history.pushState(null, "", `#${encodeURIComponent(target)}`);
   } else if (section) {
     await loadSection(manifest, section, { target, history: push });
   }
 }
 
-for (const [id, direction] of [
-  ["reader-previous", -1],
-  ["reader-next", 1],
-]) {
-  document.getElementById(id).addEventListener("click", () => {
-    const index = manifest.sections.findIndex((section) => section.id === currentSection);
-    const next = manifest.sections[index + direction];
-    if (next) loadSection(manifest, next.id, { history: true });
-  });
-}
-window.addEventListener("popstate", () => {
+window.addEventListener("popstate", (event) => {
   if (!manifest) return;
-  if (fragment()) navigateAnchor(fragment(), false);
+  const anchor = event.state?.readerAnchor;
+  if (anchor) loadSection(manifest, sectionFor(manifest, anchor), { anchor });
+  else if (fragment()) navigateAnchor(fragment(), false);
   else {
     const id = new URL(location.href).searchParams.get("section") ?? manifest.sections[0].id;
     if (manifest.sections.some((section) => section.id === id)) loadSection(manifest, id);
@@ -387,15 +433,22 @@ outline.addEventListener("click", (event) => {
   }
 });
 let saveTimer;
+history.scrollRestoration = "manual";
+function savePosition() {
+  const anchor = readingAnchor();
+  if (!anchor) return;
+  store("position", anchor);
+  history.replaceState({ readerAnchor: anchor }, "", location.href);
+}
 window.addEventListener(
   "scroll",
   () => {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => store("position", readingAnchor()), 300);
+    saveTimer = setTimeout(savePosition, 300);
   },
   { passive: true },
 );
-window.addEventListener("pagehide", () => store("position", readingAnchor()));
+window.addEventListener("pagehide", savePosition);
 setFont(Number(readStored("fontSize", 18)) || 18);
 
 async function refresh() {
@@ -437,7 +490,12 @@ async function refresh() {
     if (pending && !selectionActive()) {
       const anchor = revision ? readingAnchor() : readStored("position", null);
       const target = !revision && anchor?.url !== location.href ? fragment() : null;
-      const sectionHint = !revision && new URL(location.href).searchParams.get("section");
+      // A reload resumes the saved block. A section query is an entry hint only
+      // when the URL differs from the saved location (e.g. a newly opened link).
+      const sectionHint =
+        !revision &&
+        anchor?.url !== location.href &&
+        new URL(location.href).searchParams.get("section");
       const section =
         sectionHint && pending.sections.some((item) => item.id === sectionHint)
           ? (pending.anchors[target] ?? sectionHint)
