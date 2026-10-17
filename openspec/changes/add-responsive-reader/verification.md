@@ -609,3 +609,45 @@ they are separate from the older stand-alone MathJax probe. Paragraph context,
 dynamic paint, relationships, publication, selection, and device acceptance remain
 separate checks. Source and renderer hashes are retained with the evidence under
 `dist/reader-inline-checks`.
+
+## Measured composition inside mathematical structures
+
+The frame planner now passes width budgets into fraction children, radicands,
+spanning brace/bar bodies and labels, scripted bases, and table cells. It keeps
+short fenced groups intact, reserves attached-script widths, and introduces
+zero-width discretionary product breaks. Wide PDE matrices retain four rows and
+four columns, use compact inter-cell spacing and narrower full-height fences;
+their entry and script fonts retain the selected reading size. No PDE source,
+CeTZ drawing program, or PDF adapter changed in this step.
+
+The final paired runtime snapshots use the same frozen HTML SHA-256
+`f44aecb6c6aedead171a16798af603bd06235f718975148735535bde8cecd6b5`:
+
+| Common body width / font | Previous inline renderer | Structured renderer |
+| --- | ---: | ---: |
+| 273px / 30px | 53 overflow | 0 overflow |
+| 343px / 18px | 5 overflow | 0 overflow |
+
+Each run checks all 6,759 source roots and 6,873 expressions, with zero rendering,
+token-binding, canonical-text, and SVG-count errors. Source and renderer hashes
+are recorded. Actual paragraph contexts, publication, paint, figures and device
+acceptance are not claimed by this isolated candidate probe.
+
+The actual Reader structure fixture passes all 69 checks at both 320px and 390px,
+covering 18px and 30px text. It checks canonical copying, full horizontal/vertical
+ink, page scroll width, matrix dimensions and entry fonts, full-height fences,
+intact short norms, a full-width multi-line overline, and original paint on every
+marked fragment. The existing inline, selection/update, connector-routing and
+native-decoration fixtures pass 26, 25, 15 and 21 checks at 320px. The Python
+suite passes 48 tests and the JavaScript suite passes 27 tests. The canonical
+developer guide compiles successfully.
+
+Two boundary fixes are covered by these checks: candidate and published width
+use the same fractional CSS measurement; MathJax's already-masked extender
+surfaces use a matching axis scroll mask, preserving complete visible operators
+without phantom overflow from their stencil glyphs. The frame planner performs
+at most four passes and two small global corrections, retaining its least-wide
+candidate. Evidence is under `dist/reader-frame-checks`, including
+`runtime-320-30-final.json`, `runtime-390-18-final.json`, viewport fixture reports,
+regression reports, and screenshots. Figure fidelity and mobile-default rollout
+remain unfinished.

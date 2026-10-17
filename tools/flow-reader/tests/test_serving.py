@@ -55,7 +55,7 @@ class ReaderServingTests(unittest.TestCase):
                 self.assertEqual(response.headers["Content-Encoding"], "gzip")
                 self.assertEqual(hashlib.sha256(gzip.decompress(response.read())).hexdigest(),
                                  manifest["files"]["mathjax/mml-chtml.js"])
-            for name in ("math-renderer.js", "mathjax-loader.js", "math-layout.js", "connector-routing.js"):
+            for name in ("math-renderer.js", "math-frames.js", "mathjax-loader.js", "math-layout.js", "connector-routing.js"):
                 with urlopen(base + "/" + name) as response:
                     self.assertIn("javascript", response.headers["Content-Type"])
                     self.assertEqual(response.headers["Cache-Control"], "no-store")

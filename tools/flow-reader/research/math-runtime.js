@@ -116,6 +116,15 @@ async function run() {
           const overflow = mathOverflow(result.stage, { width });
           if (Math.max(overflow.left, overflow.right) > 1)
             report.overflow.push({ index: item.index, nested, display, width, ...overflow });
+          if (parameters.has("preview")) {
+            const section = document.createElement("section");
+            section.id = `root-${item.index}-${nested}`;
+            const label = document.createElement("p");
+            label.textContent = `${item.index} / ${nested}`;
+            section.append(label, result.stage);
+            document.querySelector("#previews").append(section);
+            result = null;
+          }
         } catch (error) {
           report.errors.push({ index: item.index, nested, error: String(error) });
         } finally {

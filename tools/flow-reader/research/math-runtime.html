@@ -30,6 +30,10 @@
         padding: 0;
         visibility: hidden;
       }
+      #previews > section {
+        margin-block: 1.5em;
+        border-top: 1px solid #888;
+      }
     </style>
     <script type="module" src="math-runtime.js"></script>
   </head>
@@ -37,6 +41,7 @@
     <h1>실제 Reader 조판 경로</h1>
     <p id="progress" role="status">준비 중…</p>
     <article id="reader-document" aria-hidden="true" inert></article>
+    <main id="previews"></main>
     <pre id="report"></pre>
   </body>
 </html>
