@@ -1,4 +1,11 @@
-import { MathIdentity, logicalTextIndex, rangesFor, selectedIntervals } from "./math-identity.js";
+import {
+  MathIdentity,
+  logicalTextIndex,
+  rangesFor,
+  selectedIntervals,
+  visualFragments,
+} from "./math-identity.js";
+import { GraphicalAnnotations } from "./graphics.js";
 
 const report = { checks: [], errors: [] };
 function check(name, condition) {
@@ -55,6 +62,23 @@ try {
   report.logicalMarks = identity.marks.length;
   report.visualMarkFragments = identity.marks.flatMap((mark) => mark.fragments).length;
   check("All line-broken marker fragments remain associated", report.visualMarkFragments > 1);
+  const originalMark = identity.marks[0].source;
+  const renderer = Object.create(GraphicalAnnotations.prototype);
+  renderer.article = fixture;
+  renderer.getRevision = () => "fixture";
+  const measurement = renderer.measure({
+    id: "graphic-1",
+    tags: ["sum"],
+    nodes: [originalMark],
+    scene: { body: view },
+  });
+  check(
+    "A relationship follows all fragments of the detached original mark",
+    !originalMark.isConnected &&
+      visualFragments(originalMark).length > 1 &&
+      measurement.geometry.markers.sum.fragments.length === report.visualMarkFragments,
+  );
+  report.relationshipFragments = measurement.geometry.markers.sum.fragments;
   check("The expression fits at the selected font", view.scrollWidth <= view.clientWidth + 1);
   document.body.dataset.state = report.errors.length ? "error" : "ready";
 } catch (error) {

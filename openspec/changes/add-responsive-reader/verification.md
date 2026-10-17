@@ -407,3 +407,35 @@ All 39 Python tests and 13 Node tests pass. Evidence is under
 `selection-320.json`, `selection-320.png`, and test logs. The candidate renderer
 is not yet connected to the Reader. Multi-fragment relationship anchors, renderer
 asset delivery/lifecycle, accessibility, and full mobile layout acceptance remain open.
+
+The clean commit `c74039a85a47e3ae192e923a980604764002ea9c` was subsequently
+installed as the separate development Reader on HTTPS port 23627. Accepted PDE
+compilation passes the content gate with 102 decoration IDs. At 390px the actual
+PDE page paints five nearby decoration layers and retains its saved quotation.
+Both HTTPS endpoints return 200; the original paged process remains PID 39357.
+Evidence is in `dist/reader-identity-checks/managed-update.json`,
+`managed-browser.json`, and `managed-pde-390.png`. The screenshot also documents
+remaining equation overflow; installation is not mobile layout acceptance.
+
+## Fragment-aware relationship anchors
+
+Relationship targets now resolve the retained source mark to all of its visual
+fragments. The browser sends separate rectangles and includes each in the request
+identity, so movement of a later line invalidates the overlay. The compiler
+validates every rectangle and retains the legacy single-rectangle protocol.
+Multi-fragment CeTZ nodes resolve compass and arbitrary-angle anchors on actual
+fragment edges, center/default on an actual fragment center, and path anchors
+along the separate perimeters in logical order. The first fragment remains the
+literal coordinate origin. Authored PDE drawing programs are unchanged.
+
+All 41 Python tests and 14 Node tests pass, including the existing byte-identical
+paged fixture check. The new compiler fixture asserts cardinal, center, perimeter,
+and 24 angular anchor locations. The browser fixture at 320px/30px passes ten
+checks and carries all four rendered fragments from its detached original mark
+into a relationship measurement. The frozen PDE's 15 original graphical programs
+compile against 126 supplied fragments across 42 marked targets with the content
+gate passing. That corpus audit uses synthetic geometry, so it does not establish
+collision-free real-page rendering. Evidence is under `dist/reader-fragment-checks`.
+
+The MathJax candidate still requires Reader lifecycle/asset integration and full
+layout/accessibility validation. The mobile default remains unchanged.

@@ -139,6 +139,17 @@ bounds; labels inherit the reading size through a fresh Typst measurement contex
 No authored figure coordinates are rewritten, and no source code is accepted in
 the request. Revision changes and changed term positions reject obsolete overlays.
 
+Each logical marked term can supply an ordered array of fragment rectangles.
+Relationship records keep the original source node, and the mathematical identity
+model resolves it to every presentation fragment after typesetting. The request
+retains gaps between lines instead of treating them as marked content. Single
+rectangles keep the previous CeTZ behavior. For multiple fragments, compass and
+angle anchors choose an actual fragment edge in that direction; ties prefer the
+edge nearest the area-weighted center. The default/center anchor is the nearest
+fragment center. Path anchors traverse the fragment perimeters in logical order,
+without adding paths through the gaps. Literal coordinates remain relative to
+the first logical fragment. This anchor policy does not solve connector collisions.
+
 The initial implementation recompiles the full source for an uncached graphical
 request. On the PDE project this can take several seconds; nearby scenes start
 loading automatically and failures retry without a reveal action. Cached results
@@ -175,8 +186,8 @@ The isolated MathJax probe also distinguishes authored derivation alignment from
 matrix/cases/vector structure. Its optional row composition moves original nodes
 into separately breakable mathematical rows, preserving anchors and nested tables.
 This candidate is not connected to the Reader. Ordinary MathML rendering still
-has wide equations; cancellation/overline SVG islands, logical selection identity,
-multi-fragment graphical anchors, and collision-free composition remain open.
+has wide equations; cancellation/overline SVG islands, renderer integration,
+and collision-free composition remain open.
 
 The full PDE compile retains 102 decoration IDs; a separate compiler audit renders
 two fragments for each one. The dedicated fixture verifies six decoration kinds,
@@ -207,8 +218,9 @@ A browser fixture checks superscript-only
 selection and base-plus-subscript highlighting after real MathJax reordering.
 Evidence is under `dist/reader-identity-checks`. This does not establish mathematical
 visual fidelity, accessibility, or completed Reader integration: the installed
-Reader still uses native MathML, and multi-fragment CeTZ relationship anchors
-remain necessary before enabling the candidate renderer.
+Reader still uses native MathML. Fragment-aware relationship geometry is ready
+for integration, while renderer assets, lifecycle, accessibility, and actual
+decorated-equation layout remain necessary before enabling the candidate renderer.
 
 == Managed installation
 

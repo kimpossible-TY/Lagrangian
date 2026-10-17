@@ -21,6 +21,12 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **AND** the original decoration is rendered against every fragment without painting the inter-line gap
 - **AND** obsolete geometry cannot paint the new document or retain a misleading decoration after a font change
 
+#### Scenario: A graphical relationship targets a wrapped term
+- **WHEN** one logical marked term occupies several visual fragments
+- **THEN** the relationship request retains every fragment rectangle and the original logical target identity
+- **AND** named and angular anchors resolve to actual fragment surfaces, not an empty inter-line bounding rectangle
+- **AND** the original CeTZ callback and its literal coordinate origin are preserved without editing authored figure positions
+
 ### Requirement: Responsive readable content
 The reader SHALL lay out ordinary text, mathematical expressions, figures, and essential annotations at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this content MUST NOT require zooming, horizontal panning, a slide/carousel, opening a separate equation view, or clicking to reveal essential content. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
 
