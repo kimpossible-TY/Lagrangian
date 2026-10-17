@@ -61,7 +61,9 @@ class GeometryValidationTests(unittest.TestCase):
         value = geometry()
         value["graphic-1"]["fontSize"] = 30
         self.assertEqual(validate_geometry(value, known), value)
-        for size in (True, 0, 31, float("nan")):
+        value["graphic-1"]["fontSize"] = 13
+        self.assertEqual(validate_geometry(value, known), value)
+        for size in (True, 0, 12, 31, float("nan")):
             value["graphic-1"]["fontSize"] = size
             with self.assertRaises(ValueError):
                 validate_geometry(value, known)

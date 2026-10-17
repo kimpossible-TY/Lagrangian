@@ -144,8 +144,14 @@ try {
   const first = article.querySelector("#long-sum .flow-math-view");
   if (Number(document.querySelector("#reader-size").value) !== 18) {
     const previous = first.firstElementChild;
-    while (Number(document.querySelector("#reader-size").value) > 18)
-      document.querySelector("#reader-smaller").click();
+    while (Number(document.querySelector("#reader-size").value) !== 18)
+      document
+        .querySelector(
+          Number(document.querySelector("#reader-size").value) < 18
+            ? "#reader-larger"
+            : "#reader-smaller",
+        )
+        .click();
     await until(
       () => first.firstElementChild !== previous && first.dataset.mathState === "ready",
       "initial 18px composition",

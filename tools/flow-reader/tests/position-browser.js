@@ -57,8 +57,14 @@ try {
     "The PDE entry target is aligned before changing the saved font",
     Math.abs(target().getBoundingClientRect().top - 88) <= 3,
   );
-  while (Number(document.querySelector("#reader-size").value) > 18)
-    document.querySelector("#reader-smaller").click();
+  while (Number(document.querySelector("#reader-size").value) !== 18)
+    document
+      .querySelector(
+        Number(document.querySelector("#reader-size").value) < 18
+          ? "#reader-larger"
+          : "#reader-smaller",
+      )
+      .click();
   await until(() => math().dataset.mathState === "ready", "initial PDE equation");
   await until(nearCanvasesReady, "initial nearby drawings");
   report.measurements.push({

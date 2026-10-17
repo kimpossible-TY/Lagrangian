@@ -1124,3 +1124,42 @@ The temporary viewport is reset and the completed test tab is closed. These
 results do not claim wider relationship acceptance or Safari/VoiceOver testing.
 The port 61523 fixture server is then stopped with no compiler children left;
 `body-fixture-cleanup.json` records its cleanup. No temporary test servers remain.
+
+### 13px default and viewport correction (2026-10-18)
+
+The supplied iPhone image shows a narrow left column after a pinch. The Reader
+has no whole-page transform or CSS zoom. A browser resize probe reproduces a
+related real overflow: at 320px outer width the layout is 305px, while obsolete
+decoration/relationship SVGs retain 359px scroll width during recomposition.
+`dist/reader-viewport-checks/before-stale-paint-fix.json` records that failure.
+
+The paint schedulers now retire obsolete SVGs synchronously before debounce or
+compiler busy checks, including when their math is pending. The viewport also
+requests device width, initial/minimum scale 1 and `shrink-to-fit=no`, without
+disabling user enlargement. Anchor handling compares root `clientWidth` instead
+of WebKit's pinch-sensitive `innerWidth`. The selected text size is held at 100%
+text-size adjustment. HTML, CSS, JavaScript and drawing validation support the
+13px default. Legacy font preferences transition once; subsequent choices persist
+in 1px steps. Saved position and highlight keys are unchanged.
+
+Fresh and legacy-20px browser cases each pass 26 checks across
+390 → 320 → 430 → 390px, including reload persistence and a synthetic visual-only
+resize. At the 320px step both layout and scroll width are now 305px. Final
+original relationship paint and both decorations return automatically, with no
+overflow. `fresh-font-viewport.json` and `legacy-font-viewport.json` record the
+results. The normal runtime browser suite passes 25 checks, including selections,
+canonical mathematical text, decorations, original relationship paint and failed
+request recovery. The 320px and 390px native figure fixtures each pass 80 checks
+at 13px, preserving original geometry, native labels and complete math.
+The 61 Python tests and 46 Node tests pass; the additional actual legacy-canvas
+compile at 13px passes all eight canvas tests. The Typst developer guide compiles.
+The generated-document check cannot run because `typlite` is unavailable; the
+changed guide is not one of that script's generated Markdown inputs.
+
+This evidence is desktop Chromium with explicit viewport sizes. The synthetic
+visual resize isolates anchor behavior; it is not a physical iPhone pinch test.
+The supplied device's exact Safari/WKWebView behavior is not independently
+reproduced, and mobile-default promotion remains gated. WebKit documents its
+wide-content shrinking behavior at
+https://webkit.org/blog/7367/new-interaction-behaviors-in-ios-10/ ; its current
+`ViewportConfiguration.cpp` implements `shrink-to-fit` and minimum-scale handling.

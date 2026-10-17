@@ -192,6 +192,16 @@ export class MathDecorations {
   }
 
   schedule() {
+    // A previous wide SVG can enlarge Safari's page even while a different
+    // compiler request is busy. Retire obsolete paint before the debounce.
+    let changed = false;
+    for (const record of this.records.values()) {
+      if (!record.svgs?.length || record.key === this.measure(record)?.key) continue;
+      this.clearPaint(record);
+      for (const node of record.nodes) node.dataset.decorationState = "pending";
+      changed = true;
+    }
+    if (changed) this.changed();
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.render(), 150);
   }

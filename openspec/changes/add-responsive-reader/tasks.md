@@ -35,6 +35,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Verify all 67 native figures and all six tables at 320px, 390px, 430px and 768px with 18px/30px font settings.
 - [x] Traverse every actual Reader body section at 320px/30px, checking all 7,006 body-math occurrences against their real nested container budgets.
 - [x] Repeat all 56 actual body sections at 390px/18px with complete expression coverage, canonical text and horizontal-ink checks.
+- [x] Set the 13px default, migrate legacy font choices once, and verify viewport-width handling without automatic whole-page shrinking.
 - [ ] Complete native figure checks for geometry, arrowheads, leaders, palette readability, source updates and device behavior before default rollout.
 - [x] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.

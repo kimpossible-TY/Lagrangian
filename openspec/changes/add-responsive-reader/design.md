@@ -59,6 +59,25 @@ The Reader owns scroll anchoring: browser anchoring is disabled, font mutations
 restore synchronously, and viewport/font loading restores use the last stable
 logical block and viewport offset.
 Height-only browser-bar changes do not trigger manual anchor restoration.
+The body starts at 13 CSS pixels. A versioned font preference resets the earlier
+18px default and legacy saved sizes once; later explicit choices persist in
+1px steps from 13px through 30px. Highlights and reading positions retain their
+existing keys. HTML and CSS use the same default before JavaScript starts.
+
+The viewport uses device width, initial/minimum scale 1 and `shrink-to-fit=no`.
+The browser must not shrink the entire document to compensate for wide content;
+component layout continues to use its actual available CSS width. User zoom-in
+remains available without a maximum-scale cap or gesture interception. Safari
+text inflation is held at 100% so rotation respects the selected text size.
+Reading-anchor restoration compares the root's layout `clientWidth`, because
+WebKit can change `innerWidth` during pinch without changing text layout. A
+visual-only resize must not undo a newer scroll or recompose the reading column.
+Decoration and relationship schedulers synchronously retire paint whose measured
+key is obsolete or whose math is awaiting recomposition. This happens before
+debouncing and the compiler's busy check. An old absolute SVG can otherwise
+retain the wider page overflow during a narrow layout or a slow request, even
+though the new paragraphs fit. Removing stale paint does not clip mathematical
+content; the current revision's original drawing is published automatically.
 Direct navigation uses 88px root scroll padding so its target crosses the 90px
 reading reference line. Initial asynchronous composition then preserves that
 target instead of the tail of the preceding paragraph.

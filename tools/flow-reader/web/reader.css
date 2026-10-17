@@ -1,6 +1,9 @@
 :root {
   color-scheme: light dark;
-  --reader-font-size: 18px;
+  --reader-font-size: 13px;
+  /* Keep the chosen text size when Safari changes orientation. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   --paper: #fcfaf6;
   --ink: #242c34;
   --muted: #667279;

@@ -45,6 +45,53 @@ test("temporary native math waits for composition before requesting decoration",
     assert.equal(value.measure({ nodes: [{ closest: () => ({ dataset: { mathState } }) }] }), null);
 });
 
+test("a narrower or pending layout retires old paint before a busy compiler can finish", () => {
+  const value = Object.create(MathDecorations.prototype);
+  const record = {
+    key: "wide",
+    nodes: [{ dataset: { flowAnchor: "old" } }],
+    svgs: [
+      {
+        remove() {
+          this.removed = true;
+        },
+      },
+    ],
+  };
+  const paint = record.svgs[0];
+  Object.assign(value, {
+    busy: true,
+    records: new Map([["d", record]]),
+    measure: () => ({ key: "narrow" }),
+    changed: () => {
+      value.changedPaint = true;
+    },
+  });
+  try {
+    value.schedule();
+    assert.equal(paint.removed, true);
+    assert.equal(record.nodes[0].dataset.flowAnchor, undefined);
+    assert.equal(record.nodes[0].dataset.decorationState, "pending");
+    assert.equal(value.changedPaint, true);
+    record.key = "narrow";
+    record.svgs = [
+      {
+        remove() {
+          assert.fail("Unchanged paint removed");
+        },
+      },
+    ];
+    value.schedule();
+    record.svgs = [paint];
+    paint.removed = false;
+    value.measure = () => null;
+    value.schedule();
+    assert.equal(paint.removed, true, "Pending mathematics cannot retain stale paint");
+  } finally {
+    clearTimeout(value.timer);
+  }
+});
+
 test("decoration responses from an obsolete document cannot paint the new one", async () => {
   let complete;
   const original = globalThis.fetch;

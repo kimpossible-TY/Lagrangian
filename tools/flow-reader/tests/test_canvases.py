@@ -32,8 +32,9 @@ def request(width=280, font=18):
 class CanvasValidationTests(unittest.TestCase):
     def test_only_known_canvases_and_finite_supported_sizes(self):
         self.assertEqual(validate_canvases(request(), ["canvas-1"]), request())
+        self.assertEqual(validate_canvases(request(font=13), ["canvas-1"]), request(font=13))
         for value in [request(float("nan")), request(0), request(True),
-                      request(font=100), {"unknown": {"width": 280, "fontSize": 18}}]:
+                      request(font=12), request(font=100), {"unknown": {"width": 280, "fontSize": 18}}]:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_canvases(value, ["canvas-1"])
 
@@ -112,7 +113,7 @@ class CanvasCompilerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
             rendered = []
-            for width, font in [(560, 18), (280, 18), (280, 30)]:
+            for width, font in [(560, 18), (280, 18), (280, 30), (280, 13)]:
                 asks = request(width, font)
                 report = compile_project(self.project, output, canvases=asks)
                 self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
@@ -130,6 +131,7 @@ class CanvasCompilerTests(unittest.TestCase):
             self.assertLess(rendered[1][0]["width"], rendered[0][0]["width"])
             self.assertEqual(rendered[0][1], rendered[1][1], "Fitting must not shrink label glyphs")
             self.assertNotEqual(rendered[1][1], rendered[2][1], "Larger reading size must affect labels")
+            self.assertNotEqual(rendered[1][1], rendered[3][1], "The 13px default must reach the original label renderer")
         self.assertEqual((self.project.root / self.project.entry).read_bytes(), before)
 
     def test_fixed_physical_drawing_reports_overflow_without_clipping_or_scaling(self):
