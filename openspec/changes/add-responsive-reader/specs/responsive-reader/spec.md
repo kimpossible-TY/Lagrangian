@@ -30,6 +30,19 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 ### Requirement: Responsive readable content
 The reader SHALL lay out ordinary text, mathematical expressions, figures, and essential annotations at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this content MUST NOT require zooming, horizontal panning, a slide/carousel, opening a separate equation view, or clicking to reveal essential content. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
 
+#### Scenario: Asynchronous mathematical composition
+- **WHEN** a mathematical expression is recomposed for a new width or reading font
+- **THEN** the reader validates its logical tokens before replacing the current expression
+- **AND** results from an obsolete document, removed section, or obsolete measurement cannot publish
+- **AND** publication waits for an active text selection or reader dialog to end
+- **AND** a failed composition preserves the current expression, reports the failure, and retries automatically
+
+#### Scenario: Local mathematical assets and semantic reading
+- **WHEN** the reader composes mathematical content
+- **THEN** its renderer and fonts load from the Reader origin without a third-party CDN
+- **AND** copied text retains canonical source order without assistive-content duplicates
+- **AND** semantic math and keyboard-accessible references remain available to assistive technology
+
 #### Scenario: A long equation or wide drawing
 - **WHEN** an equation, matrix, or drawing exceeds the available width at readable text size
 - **THEN** the layout stage uses mathematically valid line breaks, alignment changes, or an explicit faithful alternate composition

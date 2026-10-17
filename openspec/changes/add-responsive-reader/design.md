@@ -194,6 +194,29 @@ not collision-free connector routing or semantic simplification of the drawing.
 
 ## Validation and delivery
 
+The development Reader now owns the mathematical rendering lifecycle. It stamps
+source tokens before mounting a section, then composes nearby expressions using
+the pinned local MathJax 4.1.3 MathML-to-CHTML conversion API. Display derivation
+rows use the evaluated row adapter; matrices remain intact. A hidden, inert stage
+holds a candidate until fonts are available and every source token/mark binds.
+Publication preserves reading anchors and updates decoration, relationship, and
+saved-highlight geometry. A rejected candidate leaves the current expression
+readable. Revision, mounted-record, width/font, and active-selection checks run
+again after asynchronous composition. Distant parked sections release records;
+restoration prepares new records. Failed loads/compositions retry automatically.
+
+The renderer and retained font distributions are served from a versioned local
+manifest with immutable caching; their upstream bytes and license metadata are
+retained. No CDN is needed. Conversion results are not registered MathJax page
+items, so Reader lifecycle owns recomposition and disposal. Copy uses canonical
+source text, excluding the native assistive MathML duplicate. That assistive
+MathML supplies the semantic accessibility representation; presentation glyphs
+are hidden while visible reference links remain keyboard-accessible. DOM and
+browser accessibility-tree checks do not replace actual screen-reader validation.
+Overflow remains a visible failed layout condition. This integration does not
+resolve the remaining indivisible structures, drawing collisions, or mobile
+rollout requirements.
+
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.
 
 A layout pass is not successful merely because the document root has no horizontal

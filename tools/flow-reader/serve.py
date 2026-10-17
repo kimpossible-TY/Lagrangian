@@ -259,6 +259,11 @@ def watch(state, stopped):
 
 
 def handler_for(state):
+    vendor = HERE / "web/vendor/mathjax-4.1.3"
+    vendor_files = json.loads((vendor / "manifest.json").read_text())["files"]
+    vendor_routes = {"/vendor/mathjax-4.1.3/" + name: vendor / name for name in vendor_files}
+    vendor_routes["/vendor/mathjax-4.1.3/manifest.json"] = vendor / "manifest.json"
+
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
@@ -344,17 +349,28 @@ def handler_for(state):
                       "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/math-identity.js": ("math-identity.js", "text/javascript; charset=utf-8"),
+                      "/math-renderer.js": ("math-renderer.js", "text/javascript; charset=utf-8"),
+                      "/mathjax-loader.js": ("mathjax-loader.js", "text/javascript; charset=utf-8"),
+                      "/math-layout.js": ("math-layout.js", "text/javascript; charset=utf-8"),
                       "/reader.css": ("reader.css", "text/css; charset=utf-8")}
             if path in assets:
                 filename, content_type = assets[path]
                 return self.respond((HERE / "web" / filename).read_bytes(), content_type)
+            if path in vendor_routes:
+                asset = vendor_routes[path]
+                content_type = {".js": "text/javascript; charset=utf-8", ".woff2": "font/woff2",
+                                ".json": "application/json"}.get(asset.suffix, "text/plain; charset=utf-8")
+                compressed = asset.suffix == ".js" and "gzip" in self.headers.get("Accept-Encoding", "")
+                content = asset.read_bytes()
+                return self.respond(gzip.compress(content) if compressed else content, content_type,
+                                    compressed=compressed, cache="public, max-age=31536000, immutable")
             self.respond(b"Not found", "text/plain", 404)
 
-        def respond(self, content, content_type, code=200, compressed=False):
+        def respond(self, content, content_type, code=200, compressed=False, cache="no-store"):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
             if compressed:

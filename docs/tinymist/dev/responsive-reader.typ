@@ -216,11 +216,42 @@ including 1,412 display equations, with no binding failures or logical quotation
 changes. It retains 324 logical marked nodes across 395 presentation fragments.
 A browser fixture checks superscript-only
 selection and base-plus-subscript highlighting after real MathJax reordering.
-Evidence is under `dist/reader-identity-checks`. This does not establish mathematical
-visual fidelity, accessibility, or completed Reader integration: the installed
-Reader still uses native MathML. Fragment-aware relationship geometry is ready
-for integration, while renderer assets, lifecycle, accessibility, and actual
-decorated-equation layout remain necessary before enabling the candidate renderer.
+Evidence is under `dist/reader-identity-checks`. This corpus result establishes
+logical binding, not complete mathematical visual fidelity or accessibility.
+
+== Mathematical renderer lifecycle
+
+The development Reader composes nearby expressions with a locally bundled
+MathJax 4.1.3 MathML-to-CHTML renderer. The common derivation-row adapter permits
+line breaking within each authored derivation step; matrices and cases retain
+their structure. `web/vendor/mathjax-4.1.3/manifest.json` records package origins
+and every retained asset hash. The server exposes those listed assets with
+versioned caching. Renderer scripts, dynamic font data, and fonts need no CDN.
+
+`web/math-renderer.js` retains the original semantic template and builds each
+candidate in a hidden, inert stage. It publishes only after fonts settle and all
+source tokens and marks bind successfully. Publication refreshes fragment paint,
+relationship geometry, and saved highlights while preserving the reading anchor.
+The renderer checks revision generation, mounted records, current width/font,
+and active selections after asynchronous work. Font changes wait for selection
+to end; source updates continue to use the Reader's existing selection/dialog
+guard. Failure retains the current expression, displays a diagnostic, and retries.
+
+Canonical copying excludes duplicate assistive content and retains original
+script order. Native assistive MathML accompanies the visual CHTML. Presentation
+glyphs are hidden from the accessibility tree, while references remain ordinary
+keyboard-accessible links. These DOM/tree checks are prerequisites, not a claim
+that VoiceOver or mobile Safari has been verified.
+
+The browser integration fixture combines a long highlighted sum, original CeTZ
+relationship, scripts, derivation rows, matrix, SVG decorations, and references.
+Run `tests/runtime_fixture.py` with normal server arguments against a disposable
+project containing `tests/fixtures/responsive-math.typ` as `main.typ`. It exercises
+the actual Reader and exposes its report after the body. The checks include
+canonical copying, font reflow, active selections, obsolete candidate rejection,
+and automatic error recovery. Evidence is under `dist/reader-runtime-checks`.
+Unresolved mathematical overflow and drawing collisions still prevent promotion
+to the mobile default.
 
 == Managed installation
 

@@ -450,3 +450,31 @@ HTTPS endpoints return 200 and the original PDF process remains PID 39357.
 `managed-update.json`, `managed-browser.json`, and `managed-pde-390.png` retain
 the verification. Temporary fixture servers and the Chrome verification tab
 were closed; the temporary viewport override was reset.
+
+## Reader mathematical runtime
+
+The Reader now uses locally bundled MathJax 4.1.3 conversion for nearby
+expressions. Source token validation precedes publication, logical copying
+excludes assistive duplicates, and the existing decoration/relationship modules
+measure the resulting fragments. Initial temporary native geometry is withheld
+from dynamic compiler requests. Versioned assets are restricted to the retained
+manifest; the original distribution bytes and license metadata are preserved.
+
+The existing 41 Python tests pass, and a separate new HTTP test verifies every
+manifest asset hash, font content types, JavaScript compression, versioned caching,
+and unknown-path rejection. All 17 Node tests pass, including loader network and
+startup failure recovery. The actual Reader browser
+fixture at 320px/30px and 390px/30px passes 25 checks: canonical copy and scripts,
+selection-preserving font changes, fragment paint, intact matrices/derivation
+rows, reference links, local assets, assistive MathML/ID handling, obsolete
+revision/width rejection, and automatic recovery from an intentional composition
+failure. The canonical Typst developer guide compiles, and formatting/diff checks
+pass. Evidence is under `dist/reader-runtime-checks`.
+
+The frozen full PDE document compiles with the content gate passing. At 390px/18px,
+the actual Jacobi scene composes five mathematical rows, with 36 nearby expressions
+successfully rendered and no mathematical error notice. Its original graphical
+callback paints at the 343px body width. The relationship still reports a collision;
+width fitting is not collision-free acceptance. Dynamic full-document compiler
+requests remain slow. Actual screen-reader/mobile Safari checks, unresolved wide
+mathematics, label collisions, and the mobile default rollout remain open.

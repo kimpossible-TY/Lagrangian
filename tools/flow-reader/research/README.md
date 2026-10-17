@@ -1,8 +1,9 @@
 # Width-aware math renderer evaluation
 
 This isolated probe evaluates MathJax 4.1.3 against the accepted Reader's MathML.
-It is not connected to the installed Reader, and a completed probe is not a
-mobile-reading acceptance result. The user requires all essential content to be
+It remains an isolated benchmark; the development Reader now has a separate
+integration described in `docs/tinymist/dev/responsive-reader.typ`. A completed
+probe is not a mobile-reading acceptance result. The user requires all essential content to be
 readable inline without zoom, horizontal movement, slides, or reveal actions.
 
 Build a corpus from a compiled `document.html` (not from private source paths
@@ -147,7 +148,8 @@ highlighting, all marker fragments, relationship geometry from the detached
 original mark, and width fit. The fixture paints the base
 and subscripts while leaving the superscript unpainted. Reports and the screenshot
 are under `dist/reader-identity-checks`. These helpers are wired into Reader
-selection and reading-position text; the MathJax renderer itself is still separate.
+selection and reading-position text. The later runtime fixture verifies the
+integrated renderer, local assets, and asynchronous update handling independently.
 
 Useful primary references:
 

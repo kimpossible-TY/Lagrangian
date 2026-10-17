@@ -17,7 +17,10 @@ test("a split term retains every rectangle without painting the gap between line
     { left: 20, top: 30, bottom: 50, width: 80, height: 20 },
     { left: 30, top: 60, bottom: 80, width: 40, height: 20 },
   ];
-  const node = { closest: () => surface, getClientRects: () => rects };
+  const node = {
+    closest: (selector) => (selector === ".flow-math-view" ? null : surface),
+    getClientRects: () => rects,
+  };
   const value = Object.create(MathDecorations.prototype);
   value.getRevision = () => "revision";
   try {
@@ -34,6 +37,14 @@ test("a split term retains every rectangle without painting the gap between line
   } finally {
     [globalThis.getComputedStyle, globalThis.innerHeight] = original;
   }
+});
+
+test("temporary native math waits for composition before requesting decoration", () => {
+  const value = Object.create(MathDecorations.prototype);
+  assert.equal(
+    value.measure({ nodes: [{ closest: () => ({ dataset: { mathState: "native" } }) }] }),
+    null,
+  );
 });
 
 test("decoration responses from an obsolete document cannot paint the new one", async () => {

@@ -3,7 +3,8 @@
 // occurrence and reject missing text rather than guessing a quotation location.
 const models = new WeakMap();
 const markedSources = new WeakMap();
-const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets],.flow-math-accessible";
+const excluded =
+  "svg,script,style,nav,[data-flow-targets],.flow-math-accessible,mjx-assistive-mml,.flow-math-stage,.flow-math-status";
 const tokenTags = new Set(["mi", "mn", "mo", "mtext", "ms"]);
 const ignorable = /[\u2061-\u2064\ufe00-\ufe0f]/u;
 const spacing = /\s/u;
@@ -20,7 +21,7 @@ function glyphCharacter(character) {
 function textNodes(root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) =>
-      node.parentElement.closest("svg,script,style")
+      node.parentElement.closest("svg,script,style,mjx-assistive-mml")
         ? NodeFilter.FILTER_REJECT
         : NodeFilter.FILTER_ACCEPT,
   });
@@ -122,10 +123,11 @@ export class MathIdentity {
     this.text = this.segments.map((segment) => segment.text).join("");
   }
 
-  bind(root) {
+  bind(root, { view = root } = {}) {
     const occurrences = new Map();
     const elements = new Map();
     for (const node of root.querySelectorAll("[data-flow-token]")) {
+      if (node.closest("mjx-assistive-mml")) continue;
       const id = node.dataset.flowToken;
       if (!occurrences.has(id)) occurrences.set(id, []);
       occurrences.get(id).push(units(textNodes(node)));
@@ -133,9 +135,10 @@ export class MathIdentity {
       elements.get(id).push(node);
     }
     const errors = [];
+    const bindings = new Map();
     for (const token of this.tokens) {
       const parts = occurrences.get(token.id) ?? [];
-      token.points = matchToken(token.text, parts);
+      let points = matchToken(token.text, parts);
       // Stretchy operators can be drawn from glyph pieces with no text node,
       // or use a glyph alias (e.g. | -> ∣). Their carried source token ID maps
       // the complete visual operator, not a guessed replacement character.
@@ -143,7 +146,7 @@ export class MathIdentity {
       const atomic =
         token.kind === "mo" && [...token.text].filter((c) => !ignorable.test(c)).length === 1;
       if (
-        !token.points &&
+        !points &&
         atomic &&
         visible.length &&
         visible.every((node) => node.getClientRects().length)
@@ -152,12 +155,13 @@ export class MathIdentity {
           const offset = [...node.parentNode.childNodes].indexOf(node);
           return { start: [node.parentNode, offset], end: [node.parentNode, offset + 1] };
         });
-        token.points = Array.from({ length: token.text.length }, () => ({
+        points = Array.from({ length: token.text.length }, () => ({
           ...alternatives[0],
           alternatives,
         }));
       }
-      if ((!parts.length && token.text) || !token.points)
+      bindings.set(token, points);
+      if ((!parts.length && token.text) || !points)
         errors.push({
           token: token.id,
           kind: token.kind,
@@ -166,16 +170,23 @@ export class MathIdentity {
           occurrences: parts.length,
         });
     }
+    const fragments = new Map();
     for (const mark of this.marks) {
-      mark.fragments = [
-        ...root.querySelectorAll(`[data-flow-mark-instance="${CSS.escape(mark.id)}"]`),
-      ];
-      if (!mark.fragments.length) errors.push({ mark: mark.id });
+      fragments.set(
+        mark,
+        [...root.querySelectorAll(`[data-flow-mark-instance="${CSS.escape(mark.id)}"]`)].filter(
+          (node) => !node.closest("mjx-assistive-mml"),
+        ),
+      );
+      if (!fragments.get(mark).length) errors.push({ mark: mark.id });
     }
-    this.bound = errors.length === 0;
-    if (this.bound) {
-      this.view = root;
-      models.set(root, this);
+    // A rejected candidate must not invalidate the currently readable view.
+    if (!errors.length) {
+      for (const [token, points] of bindings) token.points = points;
+      for (const [mark, nodes] of fragments) mark.fragments = nodes;
+      this.bound = true;
+      this.view = view;
+      models.set(view, this);
     }
     return errors;
   }
@@ -198,7 +209,7 @@ export function visualFragments(source) {
   return mark?.model.bound ? mark.fragments : [source];
 }
 
-export function logicalTextIndex(block) {
+export function logicalTextIndex(block, { includeNested = false, includeNotes = false } = {}) {
   const entries = [];
   function visit(node) {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -211,7 +222,12 @@ export function logicalTextIndex(block) {
       return;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
-    if (node.matches(excluded) || (node !== block && node.hasAttribute("data-reader-key"))) return;
+    if (
+      node.matches(excluded) ||
+      (!includeNotes && node.matches(".flow-notes")) ||
+      (!includeNested && node !== block && node.hasAttribute("data-reader-key"))
+    )
+      return;
     const model = models.get(node);
     if (model?.bound) entries.push(...model.entries());
     else for (const child of node.childNodes) visit(child);
