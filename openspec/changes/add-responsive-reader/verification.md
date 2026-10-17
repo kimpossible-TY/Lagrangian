@@ -439,3 +439,14 @@ collision-free real-page rendering. Evidence is under `dist/reader-fragment-chec
 
 The MathJax candidate still requires Reader lifecycle/asset integration and full
 layout/accessibility validation. The mobile default remains unchanged.
+
+The clean implementation commit `4cb61ce73e6eeeb676fc437b78de72256d8cbe55` is
+installed as the development Reader on port 23627. Its served modules match the
+release, its accepted PDE compile passes the content gate, and the actual Jacobi
+relationship returns and paints through the new fragment request protocol at
+390px. The scene correctly reports its remaining overflow (406.313px drawing
+inside a 343px body); this is delivery evidence, not layout acceptance. Both
+HTTPS endpoints return 200 and the original PDF process remains PID 39357.
+`managed-update.json`, `managed-browser.json`, and `managed-pde-390.png` retain
+the verification. Temporary fixture servers and the Chrome verification tab
+were closed; the temporary viewport override was reset.
