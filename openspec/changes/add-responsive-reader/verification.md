@@ -705,3 +705,21 @@ is under `dist/reader-position-checks`: canvas loading/shrink reports, PDE
 position reports and screenshots, and regression/unit logs. Other chapters,
 figure label collisions/readability, actual devices and source-update selections
 remain separate acceptance work.
+
+### Managed delivery and direct target alignment
+
+Clean commit `131b7b54cb75ad7177c5330d42a0098335076985` is installed as the separate
+development Reader, PID 23896. Its six served modules/styles match that commit;
+the live PDE compile has exit code zero and passes the content gate. At 390px
+and 18px text the equation component has width/scroll width 343/343, and the
+whole page is 375/375. Original PDF port 23625 remains HTTP 200 in PID 39357.
+The delivery receipt and screenshot are `managed-update.json`,
+`managed-browser.json`, and `managed-pde-390.png` under the position evidence.
+
+The managed check exposed a separate initial-navigation issue: 112px scroll
+padding could leave the preceding paragraph across the 90px reading reference.
+Its later growth could move the requested equation. Root scroll padding now
+places the requested target at 88px. The actual-PDE position fixture additionally
+checks this initial target before manually settling its font-change baseline.
+All nine checks pass for 320→390px and 390→320px with 18→30px text. Evidence is
+`pde-direct-320-390.json` and `pde-direct-390-320.json` and their screenshots.

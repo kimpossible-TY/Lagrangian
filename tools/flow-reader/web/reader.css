@@ -10,7 +10,8 @@
   background: var(--paper);
   color: var(--ink);
   font-family: system-ui, sans-serif;
-  scroll-padding-top: 7rem;
+  /* A target must cross the 90px reading line during asynchronous reflow. */
+  scroll-padding-top: 88px;
   overflow-anchor: none;
 }
 * {
