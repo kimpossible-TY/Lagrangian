@@ -5,6 +5,7 @@ in a disposable project directory. The report appears after the reading body.
 """
 
 from pathlib import Path
+import json
 import sys
 from urllib.parse import parse_qs, urlsplit
 
@@ -24,10 +25,25 @@ def handler_for(state):
                 module = {"routing": "routing-browser.js", "native": "native-browser.js",
                           "inline": "inline-browser.js", "structure": "structure-browser.js",
                           "canvas-loading": "canvas-loading-browser.js",
-                          "position": "position-browser.js"}.get(check, "runtime-browser.js")
+                          "position": "position-browser.js", "entry": "entry-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
                     "</body>", f'<script type="module" src="/{module}"></script></body>')
+                if check == "entry":
+                    source = source.replace('<script type="module" src="reader.js">',
+                                            '<script src="/entry-bootstrap.js"></script><script type="module" src="reader.js">')
                 return self.respond(source.encode(), "text/html; charset=utf-8")
+            if path == "/entry-bootstrap.js":
+                with state.lock:
+                    if not state.bundle:
+                        return self.respond(b"Compile not ready", "text/plain", 503)
+                    key, section = next(iter(state.bundle.manifest["blocks"].items()))
+                    anchor = {"key": key, "text": "", "offset": 0, "section": section}
+                source = (ROOT / "tests/entry-bootstrap.js").read_text().replace(
+                    "__SEED_ANCHOR__", json.dumps(anchor)).replace("__DOCUMENT_ID__", json.dumps(state.document_id))
+                return self.respond(source.encode(), "text/javascript; charset=utf-8")
+            if path == "/entry-browser.js":
+                return self.respond((ROOT / "tests/entry-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
             if path == "/runtime-browser.js":
                 return self.respond((ROOT / "tests/runtime-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")

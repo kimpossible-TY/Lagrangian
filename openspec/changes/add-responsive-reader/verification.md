@@ -723,3 +723,16 @@ places the requested target at 88px. The actual-PDE position fixture additionall
 checks this initial target before manually settling its font-change baseline.
 All nine checks pass for 320→390px and 390→320px with 18→30px text. Evidence is
 `pde-direct-320-390.json` and `pde-direct-390-320.json` and their screenshots.
+
+### New entries versus reloads
+
+A further browser check found that URL equality alone could treat a newly opened
+named link as a reload, restoring an older position instead of the explicit
+target. Initial loading now considers the history entry and navigation type.
+The test bootstrap deliberately stores another reading block with exactly the
+URL being opened. The new link still lands at its target; after scrolling to a
+different paragraph, reloading that URL restores the paragraph instead of its
+original fragment. All four checks pass with a 1px before/after reload offset
+and no page overflow. Test-only bootstrap code runs before the Reader module;
+normal serving does not expose it. Evidence is `entry-browser.json` and
+`entry-reload-390.png` under `dist/reader-entry-checks`.

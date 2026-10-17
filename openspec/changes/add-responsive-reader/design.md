@@ -62,6 +62,10 @@ Height-only browser-bar changes do not trigger manual anchor restoration.
 Direct navigation uses 88px root scroll padding so its target crosses the 90px
 reading reference line. Initial asynchronous composition then preserves that
 target instead of the tail of the preceding paragraph.
+An initial navigation also distinguishes a new named link from reload/history
+restoration. It uses the current history entry and navigation type, rather than
+URL equality alone: a new tab can open the exact URL stored by an older reading
+session. Source updates continue to preserve the visible reading anchor.
 
 Introduce a width-aware layout stage between semantic content and final DOM/SVG.
 For mathematics, retain operators, grouping, numbering, labels and term identities
