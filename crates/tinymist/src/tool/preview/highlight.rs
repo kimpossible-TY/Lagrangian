@@ -40,9 +40,7 @@ pub(super) fn selection_range(
     if let Some(range) = literal_range(source, first, last, text) {
         return coverage_matches(&range, text, glyphs, false).then_some(range);
     }
-    if !matches!(function, HighlightFunction::MathAware) {
-        return None;
-    }
+    let math = matches!(function, HighlightFunction::MathAware);
     let root = LinkedNode::new(source.root());
     let first_node = root.leaf_at(first, Side::After)?;
     if !editable_context(&first_node) {
@@ -101,7 +99,7 @@ pub(super) fn selection_range(
         let end = glyphs
             .iter()
             .find(|glyph| glyph.offset == last)
-            .map(|glyph| last + glyph.text.len())
+            .map(|glyph| glyph.end)
             .or_else(|| {
                 source
                     .text()
@@ -128,9 +126,13 @@ pub(super) fn selection_range(
             if root
                 .leaf_at(range.start, Side::After)
                 .is_some_and(|node| editable_context(&node))
-                && reviewable_markup(root.clone(), &range, true, false)
-                && contains_equation(root.clone(), &range)
-                && coverage_matches(&range, text, glyphs, true)
+                && reviewable_markup(root.clone(), &range, math, false)
+                && coverage_matches(
+                    &range,
+                    text,
+                    glyphs,
+                    contains_equation(root.clone(), &range),
+                )
             {
                 matches.push(range);
             }
@@ -421,7 +423,12 @@ fn reviewable_markup(
                 .next_sibling()
                 .is_some_and(|next| reference_call(&next) && range.end >= next.range().end);
         }
-        return matches!(node.kind(), SyntaxKind::Text | SyntaxKind::Space);
+        // Smart quotes have a different source spelling from their rendered
+        // glyphs. Only accept them through the same full-coverage validation.
+        return matches!(
+            node.kind(),
+            SyntaxKind::Text | SyntaxKind::Space | SyntaxKind::SmartQuote
+        );
     }
     node.children()
         .all(|child| reviewable_markup(child, range, math, references))
@@ -593,7 +600,9 @@ mod tests {
                 let node = root.leaf_at(offset, Side::After).unwrap();
                 RenderedGlyph {
                     offset,
-                    end: if equation_range(node.clone()).is_some() {
+                    end: if equation_range(node.clone()).is_some()
+                        || node.kind() == SyntaxKind::SmartQuote
+                    {
                         node.range().end
                     } else {
                         offset + text.len()
@@ -602,6 +611,107 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn smart_quotes_use_rendered_coverage_and_source_byte_boundaries() {
+        let source = Source::detached("Let's now satisfy a boundary condition.");
+        let glyphs = make_glyphs(
+            source.text(),
+            &[
+                ("Let", "Let"),
+                ("'", "’"),
+                ("s now", "s now satisfy a boundary condition."),
+            ],
+        );
+        for function in [HighlightFunction::Standard, HighlightFunction::MathAware] {
+            assert_eq!(
+                selection_range(
+                    &source,
+                    0,
+                    source.text().len() - 1,
+                    "Let’s now satisfy a boundary\ncondition.",
+                    &glyphs,
+                    function
+                ),
+                Some(0..source.text().len())
+            );
+            // A quote at either endpoint must use its one-byte source extent,
+            // not the three-byte UTF-8 spelling of the shaped smart quote.
+            assert_eq!(
+                selection_range(&source, 0, 3, "Let’", &glyphs, function),
+                Some(0..4)
+            );
+            assert_eq!(
+                selection_range(&source, 3, 3, "’", &glyphs, function),
+                Some(3..4)
+            );
+            assert!(selection_range(
+                &source,
+                0,
+                source.text().len() - 1,
+                "Let's now satisfy a boundary condition.",
+                &glyphs,
+                function
+            )
+            .is_none());
+            assert!(selection_range(
+                &source,
+                0,
+                source.text().len() - 1,
+                "condition. boundary a satisfy now Let’s",
+                &glyphs,
+                function
+            )
+            .is_none());
+        }
+        let mut repeated = glyphs;
+        repeated.push(RenderedGlyph {
+            offset: 3,
+            end: 4,
+            text: "’".into(),
+        });
+        assert!(selection_range(
+            &source,
+            0,
+            source.text().len() - 1,
+            "Let’s now satisfy a boundary condition.",
+            &repeated,
+            HighlightFunction::Standard
+        )
+        .is_none());
+
+        let source = Source::detached("앞 \"Hello\" 뒤");
+        let first = source.text().find('"').unwrap();
+        let last = source.text().rfind('"').unwrap();
+        let glyphs = vec![
+            RenderedGlyph {
+                offset: first,
+                end: first + 1,
+                text: "“".into(),
+            },
+            RenderedGlyph {
+                offset: first + 1,
+                end: last,
+                text: "Hello".into(),
+            },
+            RenderedGlyph {
+                offset: last,
+                end: last + 1,
+                text: "”".into(),
+            },
+        ];
+        assert_eq!(
+            selection_range(
+                &source,
+                first,
+                last,
+                "“Hello”",
+                &glyphs,
+                HighlightFunction::Standard
+            ),
+            Some(first..last + 1)
+        );
     }
 
     #[test]
