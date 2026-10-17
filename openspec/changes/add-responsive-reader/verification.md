@@ -37,8 +37,10 @@ installed engine, LaunchAgent, and Tailnet ingress were not changed.
 
 ## Browser checks on the actual PDE document
 
-The local development reader runs at `http://127.0.0.1:58538/` with the explicit
-`--allow-incomplete` flag. It is not the mobile default or a managed service.
+The following earlier checks used the development reader on port 58538 with
+`--allow-incomplete`. That temporary process has now been stopped after the
+managed Reader on HTTPS port 23627 was verified. The managed endpoint also remains
+in development mode and is not the mobile default.
 
 | Viewport width | Client width | Document scroll width |
 | --- | --- | --- |
@@ -121,7 +123,11 @@ The managed Reader installer and lifecycle helper were implemented in commits
 `2c68a2aa` and `6bfa698a`. A separate LaunchAgent and immutable release are installed
 for `typst-pde-reader` on loopback port 23627. Port 23626 belongs to the user's
 separate Ewald Flow profile and was preserved. Tail Hosting's adapter passes
-12 management tests; the new service has not been registered or routed yet.
+12 management tests. The development Reader is now registered separately, with
+HTTPS port 23627 forwarding to its loopback listener. The complete preexisting
+Serve configuration was compared before and after allocation; every other route
+remains identical. Both the new Reader and original PDF HTTPS URLs return 200.
+The status reporter was restarted to load the new Reader monitoring adapter.
 
 The first managed PDE compile waited on the macOS Documents permission prompt for
 its Python 3.15 executable. TCC logs identified the prompt, and a process sample
@@ -129,7 +135,20 @@ showed Typst waiting to access its working directory. Subsequent readback confir
 that the wait resolved and the managed compile succeeded: `exitCode: 0`,
 `contentGatePassed: true`, no compiler-loss warnings, and an accepted revision.
 The assistant did not change macOS privacy settings. The existing paged endpoint
-on 23625 still returns HTTP 200. Restart/recovery and ingress remain unverified.
+on 23625 still returns HTTP 200. The quotation implementation is installed from
+clean commit `be7c8bfd`, and restarting only the Reader through Tail Hosting
+succeeded. An actual PDE quotation was saved and found through the HTTPS reader.
+The browser fixture also verifies an ambiguous result remains visible and a
+user-deleted highlight stays deleted after reload.
+
+A Reader-only SIGTERM test changed its PID from 86457 to 86684; launchd restored
+the listener and accepted document within 14.65 seconds. All seven checks of the
+original PDF during recovery returned HTTP 200, and its engine PID remained
+39357. Evidence is in `dist/reader-highlight-checks/managed-recovery.json`.
+Tail Hosting's refreshed status reports both services running with compile state
+`ok`. The HTTPS Reader retained the saved PDE quotation after restart; at a
+390px viewport its client and scroll widths both equal 375px (15px scrollbar).
+The screenshot is `dist/reader-highlight-checks/pde-https-highlight.png`.
 
 ## Outstanding requirements
 
@@ -138,6 +157,6 @@ on 23625 still returns HTTP 200. Restart/recovery and ingress remain unverified.
   preserves SVG content but still scales complete canvases.
 - PDE and real-device highlight checks, source selection sharing, and broader update/anchor tests.
 - Offline reload and font delivery on a real mobile browser.
-- Managed Reader update and recovery checks, new Tailnet endpoint, explicit view preference, and
-  mobile entry routing while preserving the existing page view.
+- Explicit view preference and mobile entry routing after figure and fidelity
+  validation, while preserving the existing page view.
 - End-to-end mobile delivery and regression verification before promotion.

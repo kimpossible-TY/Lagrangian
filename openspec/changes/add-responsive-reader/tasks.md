@@ -4,9 +4,10 @@
 - [ ] Implement responsive Reader frontend, figure layouts, and local equation expansion.
 - [x] Add saved quotations with context-based relocation, cross-section navigation, and explicit ambiguous/missing states.
 - [ ] Complete broader reading-position and selection update checks on actual PDE content.
-- [ ] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.
+- [x] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.
 - [ ] Verify reader at mobile widths and large font sizes against actual PDE content.
-- [ ] Expose a new Tailnet endpoint and connect the mobile entry while retaining the original view.
+- [x] Expose an independent development Reader through Tail Hosting and Tailnet HTTPS.
+- [ ] Connect the mobile entry and explicit view preference after fidelity validation, retaining the original view.
 - [ ] Verify existing paged service and reader delivery, document operation and rollback.
 
 Implementation checkpoint: the complete PDE document compiles to HTML with no
@@ -17,7 +18,8 @@ at normal and large font sizes. The reader loads one of 57 sections, preserving
 cross-section references and reading keys. Saved highlights pass automated relocation tests and browser checks on a synthetic
 fixture. Managed lifecycle and compiler-dependency watching are implemented and
 tested. The separate managed PDE Reader completed its first accepted compilation after
-the macOS Documents access wait resolved. Restart/recovery and ingress checks
-remain to be verified. Figure layouts,
-offline delivery, and deployment validation remain unfinished. Tailnet routing
-and the mobile default have not changed.
+the macOS Documents access wait resolved. The installed Reader update and Tail Hosting restart succeeded. Its separate
+Tailnet HTTPS route is available. An intentional Reader-only exit recovered in
+14.65 seconds while all original PDF checks stayed HTTP 200. Figure layouts,
+offline delivery, and deployment validation remain unfinished. The Reader has its own HTTPS endpoint on port 23627. The original PDF route,
+other services, and the mobile default are preserved.
