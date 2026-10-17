@@ -166,10 +166,39 @@ for both adapters, with identical frozen input files and measurement code. Their
 overflow counts are 16 before / 14 after at 390px/18px and 164 before / 157 after
 at 320px/30px. All four runs have zero rendering, token-binding, logical-text,
 and SVG-count errors. The newer measurement includes complete stretched surfaces;
-do not compare these counts directly with the earlier probe's glyph-only counts.
+do not compare these counts directly with the earlier 1,412-display-root reports
+or measurements that omitted complete stretched-operator surfaces.
 This remains an isolated probe without dynamic paint, relationships, or the
 Reader runtime's bounded small-overhang correction. Full layout, assistive-device
 checks, and mobile rollout remain pending.
+
+## Actual Reader candidate renderer
+
+Snapshot the current Reader modules, styles, local renderer, and fonts directly:
+
+```sh
+python3 tools/flow-reader/research/math_runtime_probe.py /absolute/path/document.html \
+  --output dist/reader-runtime-probe
+python3 -m http.server 61508 --bind 127.0.0.1 --directory dist/reader-runtime-probe
+```
+
+Open `/math-runtime.html?font=30&width=273`. This calls `ResponsiveMath.candidate`
+with the common body width (and equation padding), including its inline
+promotion and small-overhang correction. It checks all 6,759 input roots and
+6,873 expressions after annotation relocation. The report includes source and
+renderer hashes, actual promotions, overflow, token binding, and canonical text.
+Use `&index=1139` to inspect a single input root. All assets load from this origin.
+
+Paired snapshots before/after inline promotion have 97 / 53 overflows at a 273px
+body with 30px text, and eight / five at 343px with 18px text. All four runs have
+zero rendering, token-binding, logical-text, or SVG-count errors. Canonical source
+text uses the same whitespace normalization as published quotations, including
+non-breaking spaces in equation references.
+
+This audit uses common reading widths and font context. Actual surrounding
+paragraph styles, publication, selection, dynamic decoration paint, relationships,
+figures, and device accessibility need separate browser validation. The report
+keeps those acceptance flags false. Evidence is under `dist/reader-inline-checks`.
 
 Useful primary references:
 

@@ -556,8 +556,9 @@ The isolated paired corpus probe uses complete stretched-operator surfaces rathe
 than their clipped overlapping glyph pieces, and checks scroll width as well.
 Both versions use the same measurement and frozen source. At 390px/18px, overflow
 is 16 before and 14 after; at 320px/30px, it is 164 before and 157 after. These
-counts are not directly comparable with older measurements that omitted complete
-stretched-operator surfaces. Every run checks all 6,759 roots with zero rendering,
+counts are not directly comparable with the older 1,412-display-root reports;
+these runs also include inline roots and complete stretched-operator surfaces.
+Every run checks all 6,759 roots with zero rendering,
 token-binding, logical-text, or SVG-count errors. New semantic bodies retain 394
 logical marks across 482 presentation fragments at 320px/30px. The probe omits
 dynamic paint, relationships, and the runtime's bounded small-overhang correction;
@@ -582,3 +583,29 @@ in PID 2042. Installation, content/module hashes, actual browser measurements,
 remaining overflow locations, and the screenshot are saved as `managed-update.json`,
 `managed-browser.json`, `managed-overflow.json`, and `managed-pde-390.png` under
 the same evidence directory. The mobile default remains unchanged.
+
+## Automatic composition of wide inline expressions
+
+Wide inline mathematics can automatically use block line breaking while an
+explicit `mstyle` preserves its original inline fractions, limits, and scripts.
+Short mathematics remains inline and widening a container restores the original
+presentation. Publication still waits for token validation and respects active
+selection, revision changes, and obsolete width/font measurements.
+
+The actual Reader fixture at 320px and 390px passes 26 checks per viewport,
+covering 18px and 30px fonts, exact fraction-size comparison, canonical copying,
+surrounding sentence order, original paint for every wrapped mark, visible full
+vertical content, keyboard-accessible math references, and automatic restoration
+in a wider container.
+
+The reproducible runtime corpus probe snapshots the actual candidate renderer and
+its local dependencies. Its paired snapshots use the same frozen PDE HTML and
+common reading widths: all 6,759 input roots yield 6,873 expressions after note
+relocation. Overflow falls from 97 to 53 at 273px/30px and from eight to five at
+343px/18px. Every run has zero rendering, token-binding, canonical-text, and
+SVG-count errors. The larger-font run promotes 50 expressions. These figures
+exercise the actual conversion API and calibration, with expression padding;
+they are separate from the older stand-alone MathJax probe. Paragraph context,
+dynamic paint, relationships, publication, selection, and device acceptance remain
+separate checks. Source and renderer hashes are retained with the evidence under
+`dist/reader-inline-checks`.

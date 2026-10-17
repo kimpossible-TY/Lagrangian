@@ -68,6 +68,12 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** figure panels, labels, and legends are recomposed rather than uniformly shrinking their text
 - **AND** unresolved layout is a failed release requirement; clipping, scrolling, and expansion controls do not satisfy it
 
+#### Scenario: A wide inline expression
+- **WHEN** an inline expression cannot fit its reading container at the chosen font size
+- **THEN** it may recompose into a block within the continuous body without a user action
+- **AND** its inline mathematical style, fraction sizing, limits, and logical text remain unchanged
+- **AND** short inline expressions keep their original presentation
+
 #### Scenario: Continuous reading
 - **WHEN** a reader reaches a section boundary or a mathematical annotation
 - **THEN** the next content is available through ordinary vertical reading without a required next-section button or reveal action

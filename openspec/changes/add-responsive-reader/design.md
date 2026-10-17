@@ -250,6 +250,14 @@ A small measured display overhang can trigger up to two additional line-breaking
 passes at the same font size, reserving at most one em of the available width.
 Large indivisible structures remain explicit layout failures.
 
+An inline expression that remains wider than its reading container may be
+recomposed as a block in the continuous body. Retain its original `displaystyle`
+(false by default for inline math), so fractions, limits, and script sizes do
+not change merely to obtain block line breaking. Only publish this alternate
+composition after the usual token, revision, geometry, and selection checks;
+short inline expressions stay inline and widening the viewport can restore the
+original presentation. No expansion action or font reduction is involved.
+
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.
 
 A layout pass is not successful merely because the document root has no horizontal

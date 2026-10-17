@@ -264,6 +264,44 @@ probe does not run dynamic paint, connector composition, or this runtime width
 correction, and cannot establish production acceptance. Evidence is under
 `dist/reader-math-overflow-checks`.
 
+== Inline expressions wider than the body
+
+A wide inline expression can automatically compose as a block in the reading
+body. Short expressions remain inline; a wider container can restore the original
+presentation. Explicit `mstyle` preserves the original inline fraction, limit,
+and script typography during block line breaking. The ordinary publication guards
+still protect active selections, revision changes, and obsolete measurements.
+Original paint follows the resulting marked fragments, and surrounding sentence
+text retains its source order. This requires no expansion control or font reduction.
+
+The actual Reader fixture checks both 18px and 30px text at 320px and 390px,
+including fraction-size comparison, canonical copying, accessible references,
+all fragment paint, vertical visibility, and restoration in a wider container.
+
+The runtime corpus probe snapshots the Reader modules and their local assets,
+then calls `ResponsiveMath.candidate` for every source mathematical root and each
+nested expression relocated from an annotation. The frozen corpus has 6,759 roots
+and 6,873 resulting expressions. At a 273px reading body with 30px text, overflow
+falls from 97 to 53; at 343px with 18px text, it falls from eight to five. All four
+runs retain zero rendering, token-binding, logical-text, and SVG-count errors.
+These figures use the actual candidate conversion path and common reading widths.
+Contextual paragraph styles, dynamic paint, graphical relationships, publication,
+and device accessibility still require separate checks. Evidence is under
+`dist/reader-inline-checks`.
+
+Run the reproducible candidate probe with the bundled renderer and fonts:
+
+```sh
+python3 tools/flow-reader/research/math_runtime_probe.py /absolute/path/document.html --output dist/reader-runtime-probe
+python3 -m http.server 61508 --bind 127.0.0.1 --directory dist/reader-runtime-probe
+```
+
+Open `/math-runtime.html?font=30&width=273` at the intended viewport. The report
+records the source hash, renderer file hashes, input roots, composed expressions,
+promotions, overflow, and semantic errors. Completion is not mobile layout
+acceptance; unresolved fractions, bracketed groups, figures, and device checks
+remain open.
+
 == Logical mathematical selections
 
 `web/math-identity.js` assigns source token IDs before mathematical typesetting.
