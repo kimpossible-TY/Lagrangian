@@ -41,6 +41,12 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **AND** an overline visibly spans its complete mathematical body
 - **AND** the paged output is unchanged
 
+#### Scenario: An explanation repeats an offscreen decorated term
+- **WHEN** a visible marked term also appears in an explanation outside the composition margin
+- **THEN** its original decoration paints without waiting for the offscreen mathematical copy
+- **AND** the copied occurrence receives its own current paint during ordinary scrolling
+- **AND** equal geometry cannot cause paint for one occurrence to be mistaken for another
+
 #### Scenario: A graphical relationship targets a wrapped term
 - **WHEN** one logical marked term occupies several visual fragments
 - **THEN** the relationship request retains every fragment rectangle and the original logical target identity
@@ -96,6 +102,12 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **THEN** it may recompose into a block within the continuous body without a user action
 - **AND** its inline mathematical style, fraction sizing, limits, and logical text remain unchanged
 
+#### Scenario: An inline accent crosses the actual paragraph edge
+- **WHEN** an inline expression fits in isolation but its glyph overhang crosses the edge of its actual line
+- **THEN** the reader places it on an ordinary body line at the same font size
+- **AND** publication measures after retiring any previous status notice
+- **AND** fitting content does not retain an obsolete overflow warning
+
 #### Scenario: Original CeTZ labels become responsive native content
 - **WHEN** native figure composition is enabled for a saved Typst source
 - **THEN** original label bodies are exported once as semantic HTML/MathML before SVG flattening
@@ -105,7 +117,7 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** generated markers and loading messages do not enter copied logical source text
 - **AND** width/font changes require no per-canvas compiler request and an obsolete offscreen placement cannot widen the reading page
 - **AND** the original paged source and output are preserved
-- **AND** short inline expressions keep their original presentation
+- **AND** short inline expressions keep their original presentation when their complete ink fits the actual line
 
 #### Scenario: Reading a native diagram during recomposition
 - **WHEN** the viewport or selected font changes while reading a diagram label or geometry

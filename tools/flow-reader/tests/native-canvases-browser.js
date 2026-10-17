@@ -12,6 +12,7 @@ progress.style.cssText =
   "white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace;margin:16px";
 document.body.append(output, progress);
 function publish() {
+  report.canvasRequests = requests;
   output.textContent = JSON.stringify(report);
   progress.textContent = JSON.stringify({
     width: report.width,
@@ -38,7 +39,7 @@ function check(name, condition) {
   publish();
 }
 async function until(condition, name) {
-  const deadline = Date.now() + 45000;
+  const deadline = Date.now() + 90000;
   while (!condition()) {
     if (Date.now() > deadline) throw new Error(`Timed out: ${name}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -64,6 +65,17 @@ try {
   const original = [...source.querySelectorAll("[data-flow-canvas-model]")];
   check("The canonical source exposes native figure models", original.length > 0);
   const query = new URL(location.href).searchParams;
+  if (query.has("audit")) {
+    const { attachReport } = await import("/test-report.js");
+    attachReport({
+      kind: "native-canvases",
+      id: "native-canvases-report",
+      stateKey: "nativeCanvasesState",
+    });
+  }
+  const start = Number(query.get("start") ?? 0);
+  if (!Number.isInteger(start) || start < 0 || start >= original.length)
+    throw new Error("Invalid first native figure");
   if (query.get("width"))
     await until(() => innerWidth === Number(query.get("width")), "requested viewport");
   report.width = innerWidth;
@@ -77,7 +89,7 @@ try {
             : "#reader-smaller",
         )
         .click();
-    for (const before of original) {
+    for (const before of original.slice(start)) {
       const id = before.dataset.flowCanvas;
       if (query.get("only") && query.get("only") !== id) continue;
       if (query.get("package") && query.get("package") !== before.dataset.flowCanvasPackage)

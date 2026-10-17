@@ -10,6 +10,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Separate mathematical content from mark/decoration SVGs and distinguish derivation alignment from matrix structure.
 - [x] Preserve mannot bodies as semantic MathML and render original decoration callbacks for each measured fragment; validate all PDE decoration IDs.
 - [x] Preserve native cancellation and overline bodies as semantic mathematics, with original per-fragment cancellation paint and assistive enclosure notation.
+- [x] Paint visible original terms independently from uncomposed offscreen explanatory copies, and verify both occurrences through ordinary scrolling.
 - [x] Add an isolated, opt-in derivation-row composition probe and compare it with the prior adapter against a frozen source snapshot.
 - [x] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Bind canonical mathematical text to all rendered token occurrences and preserve selected quotations/highlights when script DOM order changes.
@@ -20,9 +21,11 @@ The development prototype still needs mathematical and drawing layout work to me
 - [ ] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
 - [x] Integrate local MathJax/CHTML composition, validated publication, selection-aware updates, and per-fragment decoration/relationship refresh in the Reader.
 - [x] Automatically recompose wide inline expressions in the body while retaining their original math style, text order, fragment paint, and narrower/wider container behavior.
+- [x] Resolve actual-line accent overhang at the selected font size without leaving a notice-induced false overflow warning.
 - [x] Compose wide fraction/radical children, spanning decorations, scripted bases and current PDE matrices with measured internal budgets while preserving canonical text, readable entry fonts, and full operator paint.
 - [x] Verify local asset integrity, canonical copy, font changes, obsolete results, and automatic failure recovery in the actual Reader browser fixture.
-- [ ] Complete screen-reader and mobile Safari verification of the integrated mathematical renderer.
+- [ ] Complete mobile Safari verification of the integrated mathematical renderer; physical iPhone pinch is confirmed.
+- [ ] Follow up actual VoiceOver speech validation (explicitly deferred by the user on 2026-10-18; not a gate for this rollout).
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [x] Bound pending canvas delivery, preserve reading anchors through drawing/font/viewport changes, and verify actual PDE page width and position in both viewport directions.
 - [x] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.

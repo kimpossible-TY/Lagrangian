@@ -125,6 +125,11 @@ No mathematical glyphs are copied into that decoration image. The browser paints
 the layers around the original semantic nodes; cache keys include all fragments.
 This protocol must reject stale revisions, missing fragments, and unknown IDs.
 
+An explanatory copy outside the composition margin cannot block its visible
+original. Measure only nearby composed occurrences, and include the member's
+identity in the publication key. Geometry-only signatures retain callback-cache
+reuse while equal-shaped copies still receive their own paint after scrolling.
+
 A subsequent paired probe uses frozen project dependencies and moves annotation
 prose into visible notes in both variants. Combining semantic mannot bodies with
 optional derivation-row composition reduces overflow from 26 to 12 at 390px/18px
@@ -371,6 +376,9 @@ source text, excluding the native assistive MathML duplicate. That assistive
 MathML supplies the semantic accessibility representation; presentation glyphs
 are hidden while visible reference links remain keyboard-accessible. DOM and
 browser accessibility-tree checks do not replace actual screen-reader validation.
+The user explicitly defers actual VoiceOver speech validation to follow-up on
+2026-10-18. Retain it as unverified, without blocking this mobile-entry rollout
+on that deferred check. Visual/device and mathematical-fidelity checks remain.
 Overflow remains a visible failed layout condition. This integration does not
 resolve the remaining indivisible structures, drawing collisions, or mobile
 rollout requirements.
@@ -398,8 +406,14 @@ recomposed as a block in the continuous body. Retain its original `displaystyle`
 (false by default for inline math), so fractions, limits, and script sizes do
 not change merely to obtain block line breaking. Only publish this alternate
 composition after the usual token, revision, geometry, and selection checks;
-short inline expressions stay inline and widening the viewport can restore the
+short inline expressions whose complete ink fits stay inline and widening the viewport can restore the
 original presentation. No expansion action or font reduction is involved.
+
+Retire any previous status notice before measuring publication in the actual
+paragraph. A short accent at a line end can overhang even though the isolated
+candidate fits; move that occurrence to an ordinary body line at the same size
+and remeasure. A block warning must not itself change line breaks and become a
+false permanent overflow state.
 
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.
 
