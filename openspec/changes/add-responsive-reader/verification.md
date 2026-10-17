@@ -218,6 +218,16 @@ fixture is `tools/flow-reader/tests/continuous_fixture.py`. Evidence is
 `dist/reader-continuous-checks/browser-checks.json`, `fixture-saved.png`,
 `pde-boundary-390.png`, and `pde-boundary-320-30.png`.
 
+The continuous reader and preceding canvas adapter are installed as the separate
+development Reader from clean commit `88973e75e4a88a94d882acc5bbd2cb675494ba5e`.
+Only the Reader was stopped and started; the original paged engine retains PID
+39357. Both HTTPS endpoints return 200. The new Reader reports a successful
+accepted compile, and its served `sections.js` matches the committed module.
+The HTTPS browser at 390px loads sections 0 and 1 automatically with zero
+next/previous controls and retains its existing saved quotation. Evidence is
+`managed-update.json` and `managed-pde-390.png` in the same directory. It remains
+in development mode; mobile default routing has not changed.
+
 ## Saved highlights and lifecycle checkpoint
 
 Saved quotation checks use the synthetic fixture in
