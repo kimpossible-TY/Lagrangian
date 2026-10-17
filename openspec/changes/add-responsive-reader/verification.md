@@ -564,3 +564,21 @@ dynamic paint, relationships, and the runtime's bounded small-overhang correctio
 it does not establish production layout or screen-reader acceptance. Remaining
 fractions, bracketed annotations, matrices, drawing labels, device checks, and
 mobile rollout remain open. Evidence is under `dist/reader-math-overflow-checks`.
+
+The clean implementation commit `d3fdd37e67f0d312674e00b4285fa01db250f6e6`
+is installed as the independent development Reader on HTTPS port 23627. Its five
+checked frontend modules match the release and accepted compilation passes the
+content gate. The current live PDE has evolved beyond the frozen snapshot: it
+contains 6,802 outer math roots, 67 cancellations, 12 overlines, and no mathematical
+SVG islands. At 390px/18px, the actual Levi-Civita derivation retains two cancelled
+fragments, all five paint layers, and assistive cancellation notation. Its 336px
+math view has 336px scroll width and no math or decoration notice. The document
+as a whole still overflows (541px scroll width versus 375px document width),
+including pending distant drawings and unresolved expressions; this component
+verification does not establish page-wide mobile acceptance.
+
+The original PDF endpoint remains HTTP 200 in PID 39357; the updated Reader runs
+in PID 2042. Installation, content/module hashes, actual browser measurements,
+remaining overflow locations, and the screenshot are saved as `managed-update.json`,
+`managed-browser.json`, `managed-overflow.json`, and `managed-pde-390.png` under
+the same evidence directory. The mobile default remains unchanged.
