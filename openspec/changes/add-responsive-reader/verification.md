@@ -7,8 +7,8 @@ or an extra click to expand equations/essential annotations. Earlier checks of
 whole-document overflow do not satisfy that requirement. The current prototype
 still fails it: at 390px, a real PDE equation needs 367px inside a 343px container;
 section progression previously required a next button. Continuous loading now
-removes that requirement, but sections still contain collapsed annotations and
-graphical-view buttons. Historical checks below remain
+removes that requirement; annotations and relationships now also appear inline
+without reveal controls. Width and collision failures remain. Historical checks below remain
 useful evidence of rendering fidelity and lifecycle, but are not a responsive
 reading acceptance result.
 
@@ -277,9 +277,51 @@ The screenshot is `dist/reader-highlight-checks/pde-https-highlight.png`.
 - Broader visual checks of the 15 graphical annotations and lower uncached latency.
 - Width-aware equation and figure composition with readable labels and inline essential
   annotations. Current local scrolling,
-  complete-canvas scaling, and modal relationship views fail the clarified contract.
+  unresolved width fitting and graphical collisions fail the clarified contract.
 - PDE and real-device highlight checks, source selection sharing, and broader update/anchor tests.
 - Offline reload and font delivery on a real mobile browser.
 - Explicit view preference and mobile entry routing after figure and fidelity
   validation, while preserving the existing page view.
 - End-to-end mobile delivery and regression verification before promotion.
+
+
+## Inline annotations checkpoint
+
+The Reader now displays text notes and graphical relationships in the continuous
+body. No note disclosure, relationship button, or annotation dialog is required.
+Graphical scenes reuse the original equation nodes, preserve intervening prose,
+and merge overlapping relationships. Original CeTZ programs and source coordinates
+are preserved. A common translation restores the original first-marker coordinate
+origin; complete drawing bounds reserve vertical room outside the equation.
+
+The compiler tests cover literal coordinates after moving the first marker,
+negative drawing bounds, physical SVG dimensions, and the requested font size in
+both label measurement and rendering. Browser checks use the dedicated
+`inline-annotations.typ` fixture: two graphs share one equation, another spans
+separate blocks, and an authored 6pt prose note inherits the reading font size.
+The intentional cross-block connector is reported as a collision with intervening
+prose. This is conservative detection, not automatic collision resolution;
+opaque image ink and intersections between independent overlays are not audited.
+
+The actual PDE Jacobi formula at 320px/18px uses a 406.313px scene inside a 273px
+body. Its original graphical program renders automatically and the diagnostic
+reports both overflow and a sampled path/text collision. The equation still needs
+width-aware mathematical layout. Essential annotations now being inline does not
+make this a completed responsive reader. Explicit small labels, other figures,
+selection/history behavior, offline delivery, and real iPhone Safari remain open.
+
+A full PDE comparison with a fixed creation timestamp produced byte-identical
+PDFs from the original packages and the reader overlay (SHA-256
+`54a0deaf35d426b750aa45c0b8f655ecf0d2faf002b6adc4e1e35e62de9ac3ab`).
+Evidence is under `dist/reader-inline-checks`: `paged/comparison.json`, browser
+measurements and screenshots, and the reader test log.
+
+At 390px/18px and 320px/30px, the fixture renders all three graphs automatically
+in two scenes. Both relationships on the first equation fit without sampled
+text collisions. The intentional cross-block collision is detected at both sizes.
+Text notes use 18px and 30px respectively, including the authored 6pt span; no
+disclosure controls, annotation dialogs, or duplicate IDs remain in the fixture.
+All 34 Python tests and 8 Node tests pass. The Node tests include obsolete-document
+responses, changed term geometry, replacement records after parking, and automatic
+retry. JavaScript syntax, diff whitespace, and the canonical Typst guide compile
+also pass.

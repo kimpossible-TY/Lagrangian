@@ -603,25 +603,43 @@
 
 #let _reader-graphic(id, tags, cetz, drawable) = context {
   let geometry = json(bytes(sys.inputs.at("flow-geometry", default: "{}"))).at(id, default: none)
-  let attrs = (class: "flow-graphic", "data-flow-graphic": id,
-    "data-flow-targets": json.encode(tags))
-  let drawing = if geometry != none {
-    // Browser coordinates are CSS pixels. CeTZ coordinates stay in centimetres
-    // so that the author's relative offsets and curve control points retain
-    // their original units. SVG display is explicitly sized by the reader.
-    let px = 0.75pt / 1cm
-    let boxes = tags.map(tag => {
-      let rect = geometry.markers.at(tag)
-      cetz.draw.rect((rect.x * px, -rect.y * px),
-        ((rect.x + rect.width) * px, -(rect.y + rect.height) * px),
-        name: tag, stroke: none, fill: none)
-    }).join()
-    let boundary = cetz.draw.rect((0, 0),
-      (geometry.width * px, -geometry.height * px), stroke: none, fill: none)
-    attrs.insert("data-flow-rendered", "true")
-    html.frame(cetz.canvas(boundary + cetz.draw.floating(boxes + drawable)))
-  } else { [] }
-  html.elem("mtext", html.elem("span", attrs: attrs, drawing))
+  set text(size: if geometry == none { 13.5pt } else { geometry.at("fontSize", default: 18) * 0.75pt })
+  // Enter a fresh context so label measurement sees the requested text size.
+  context {
+    let attrs = (class: "flow-graphic", "data-flow-graphic": id,
+      "data-flow-targets": json.encode(tags))
+    let drawing = if geometry != none {
+      // Browser coordinates are CSS pixels. CeTZ coordinates stay in centimetres
+      // so that the author's relative offsets and curve control points retain
+      // their original units. SVG display is explicitly sized by the reader.
+      let px = 0.75pt / 1cm
+      let origin = geometry.markers.at(tags.first())
+      let boxes = tags.map(tag => {
+        let rect = geometry.markers.at(tag)
+        cetz.draw.rect(((rect.x - origin.x) * px, -(rect.y - origin.y) * px),
+          ((rect.x + rect.width - origin.x) * px, -(rect.y + rect.height - origin.y) * px),
+          name: tag, stroke: none, fill: none)
+      }).join()
+      let boundary = cetz.draw.rect((0, 0),
+        (geometry.width * px, -geometry.height * px), stroke: none, fill: none)
+      // Literal coordinates, as well as named anchors, are relative to the first
+      // marked term in the original annotation contract.
+      let drawing = boundary + cetz.draw.scope(
+        cetz.draw.translate((origin.x * px, -origin.y * px)) + boxes + drawable)
+      let bounds = cetz.reader-bounds(drawing)
+      attrs.insert("data-flow-graphic-layout", json.encode((
+        left: bounds.left / 0.75pt, top: bounds.top / 0.75pt,
+        width: bounds.width / 0.75pt, height: bounds.height / 0.75pt,
+        sceneWidth: geometry.width, sceneHeight: geometry.height,
+        fontSize: geometry.at("fontSize", default: 18),
+        labels: bounds.labels.map(item => (left: item.left / 0.75pt, top: item.top / 0.75pt,
+          width: item.width / 0.75pt, height: item.height / 0.75pt)),
+      )))
+      attrs.insert("data-flow-rendered", "true")
+      html.frame(cetz.canvas(drawing))
+    } else { [] }
+    html.elem("mtext", html.elem("span", attrs: attrs, drawing))
+  }
 }
 
 #let annot-cetz(

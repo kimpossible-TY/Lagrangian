@@ -1,7 +1,7 @@
 User clarification, 2026-10-17: the mobile solution must make all essential content
 readable directly in the body. Slides, horizontal movement, zoom, and extra clicks
 to enlarge equations are not acceptable substitutes for responsive composition.
-The existing scrolling and annotation-dialog prototype does not meet this contract.
+The development prototype still needs mathematical and drawing layout work to meet this contract.
 
 - [x] Inspect current engine, preview, Flow profiles, Tail Hosting ownership, and PDE HTML failures.
 - [x] Add isolated target-aware package adapters and a reproducible reader build command.
@@ -11,7 +11,7 @@ The existing scrolling and annotation-dialog prototype does not meet this contra
 - [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [ ] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.
-- [ ] Show essential annotations and graphical relationships inline without reveal/expand actions.
+- [x] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
 - [ ] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
 - [x] Add saved quotations with context-based relocation, cross-section navigation, and explicit ambiguous/missing states.

@@ -1,156 +1,363 @@
-// A graphical annotation is evaluated by CeTZ at measured DOM term positions.
-// The original programs, curve directions, labels and units remain authoritative.
-export class GraphicalAnnotations {
-  constructor(dialog, getRevision) {
-    this.dialog = dialog;
-    this.getRevision = getRevision;
-    this.records = new Map();
-    this.sequence = 0;
-    dialog.addEventListener("close", () => this.stop());
-  }
-
-  register(id, tags, nodes) {
-    if (nodes.some((node) => !node)) throw new Error(`Missing target for ${id}`);
-    this.records.set(id, { tags, nodes });
-  }
-
-  clear() {
-    this.stop();
-    this.records.clear();
-  }
-
-  prune() {
-    for (const [id, record] of this.records) {
-      if (record.nodes.some((node) => !node.isConnected)) this.records.delete(id);
-    }
-  }
-
-  stop() {
-    this.observer?.disconnect();
-    this.controller?.abort();
-    clearTimeout(this.timer);
-    this.sequence++;
-  }
-
-  async show(id) {
-    const record = this.records.get(id);
-    if (!record) return;
-    this.stop();
-    const sequence = this.sequence;
-    const revision = this.getRevision();
-    const body = this.dialog.querySelector("#reader-note-body");
-    const title = document.createElement("h2");
-    title.textContent = "수식의 관계";
-    const status = document.createElement("p");
-    status.className = "flow-graphic-status";
-    status.setAttribute("role", "status");
-    status.textContent = "관계 그림을 준비하고 있습니다…";
-    const scroll = document.createElement("div");
-    scroll.className = "flow-graphic-scroll";
-    const scene = document.createElement("div");
-    scene.className = "flow-graphic-scene";
-    scene.dataset.graphicId = id;
-    const roots = [
-      ...new Set(
+// Relationships use the original equation nodes in the continuous body.
+// Original CeTZ programs are evaluated against the actual marked term geometry.
+function spanFor(records) {
+  const roots = [
+    ...new Set(
+      records.flatMap((record) =>
         record.nodes.map(
           (node) =>
             node.closest(".flow-equation") ?? node.closest("p") ?? node.closest("math") ?? node,
         ),
       ),
-    ].sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-    for (const root of roots) {
-      const clone = root.cloneNode(true);
-      namespaceClone(clone, `reader-scene-${sequence}-`);
-      clone.querySelectorAll("[data-reader-note]").forEach((node) => {
-        node.removeAttribute("data-reader-note");
-        node.removeAttribute("tabindex");
-        node.removeAttribute("role");
-        node.removeAttribute("aria-haspopup");
-      });
-      scene.append(clone);
-    }
-    scroll.append(scene);
-    body.replaceChildren(title, status, scroll);
-    if (!this.dialog.open) this.dialog.showModal();
-    await document.fonts.ready;
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    if (this.sequence !== sequence) return;
+    ),
+  ];
+  let parent = roots[0].parentElement;
+  while (!roots.every((node) => parent.contains(node))) parent = parent.parentElement;
+  const children = [...parent.childNodes];
+  const indices = roots.map((node) => {
+    while (node.parentNode !== parent) node = node.parentNode;
+    return children.indexOf(node);
+  });
+  const first = children[Math.min(...indices)];
+  const last = children[Math.max(...indices)];
+  const range = document.createRange();
+  range.setStartBefore(first);
+  range.setEndAfter(last);
+  return { records, first, last, range };
+}
 
-    let lastGeometry;
-    const render = async () => {
-      if (this.sequence !== sequence || !this.dialog.open) return;
-      const rect = scene.getBoundingClientRect();
-      const markers = {};
-      for (const tag of record.tags) {
-        const mark = scene.querySelector(`[data-flow-mark="${CSS.escape(tag)}"]`);
-        if (!mark) {
-          status.textContent = "연결된 수식 항을 찾을 수 없습니다.";
-          return;
+function overlaps(a, b) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+function collisions(record, layout, measurement) {
+  const body = record.scene.body;
+  const ink = [];
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.textContent.trim() && !node.parentElement.closest("svg,script,style")
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    },
+  });
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const target = record.nodes.some((mark) => mark.contains(node));
+    for (const rect of range.getClientRects()) {
+      if (rect.width && rect.height) ink.push({ rect, target });
+    }
+  }
+  const origin = body.getBoundingClientRect();
+  const labels = layout.labels ?? [];
+  let labelHits = 0;
+  for (const label of labels) {
+    const left = origin.left + measurement.x + label.left;
+    const top = origin.top + measurement.y + label.top;
+    const rect = { left, top, right: left + label.width, bottom: top + label.height };
+    if (ink.some((item) => overlaps(rect, item.rect))) labelHits++;
+  }
+  let pathHits = 0;
+  const obstacles = ink.filter((item) => !item.target).map((item) => item.rect);
+  for (const path of record.svg.querySelectorAll("path[stroke]")) {
+    if (path.closest("defs,symbol") || path.getAttribute("stroke") === "none") continue;
+    const matrix = path.getScreenCTM();
+    if (!matrix) continue;
+    const length = path.getTotalLength();
+    const scale = Math.max(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d));
+    const samples = Math.min(2000, Math.max(1, Math.ceil((length * scale) / 2)));
+    const radius = Math.max(0.5, (parseFloat(getComputedStyle(path).strokeWidth) * scale) / 2);
+    for (let i = 0; i <= samples; i++) {
+      const point = path.getPointAtLength((length * i) / samples).matrixTransform(matrix);
+      if (
+        obstacles.some(
+          (rect) =>
+            point.x + radius > rect.left &&
+            point.x - radius < rect.right &&
+            point.y + radius > rect.top &&
+            point.y - radius < rect.bottom,
+        )
+      ) {
+        pathHits++;
+        break;
+      }
+    }
+  }
+  return { labels: labelHits, paths: pathHits };
+}
+
+export class GraphicalAnnotations {
+  constructor(article, getRevision, preserve) {
+    Object.assign(this, { article, getRevision, preserve });
+    this.records = new Map();
+    this.scenes = new Set();
+    this.cache = new Map();
+    this.sequence = 0;
+    this.resize = new ResizeObserver(() => this.schedule());
+    this.intersection = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          for (const scene of this.scenes) {
+            if (scene.node === entry.target) scene.visible = entry.isIntersecting;
+          }
         }
-        const bounds = mark.getBoundingClientRect();
-        markers[tag] = {
-          x: bounds.x - rect.x,
-          y: bounds.y - rect.y,
-          width: bounds.width,
-          height: bounds.height,
-        };
+        this.schedule();
+      },
+      { rootMargin: "1200px 0px" },
+    );
+    document.fonts.ready.then(() => this.schedule());
+    document.fonts.addEventListener("loadingdone", () => this.schedule());
+    article.addEventListener("scroll", () => this.schedule(), true);
+  }
+
+  register(id, tags, nodes, note) {
+    if (nodes.some((node) => !node)) throw new Error(`Missing target for ${id}`);
+    note.className = "flow-graphic-status";
+    note.setAttribute("role", "status");
+    note.textContent = "수식의 관계 그림을 준비하는 중…";
+    this.records.set(id, { id, tags, nodes, note, key: null });
+  }
+
+  prepare(root) {
+    let groups = [...this.records.values()]
+      .filter((record) => root.contains(record.nodes[0]))
+      .map((record) => spanFor([record]));
+    // Merge overlapping spans before moving nodes, including nested callouts.
+    for (let changed = true; changed; ) {
+      changed = false;
+      outer: for (let i = 0; i < groups.length; i++) {
+        for (let j = i + 1; j < groups.length; j++) {
+          if (
+            groups[i].range.intersectsNode(groups[j].first) ||
+            groups[j].range.intersectsNode(groups[i].first)
+          ) {
+            groups[i] = spanFor([...groups[i].records, ...groups[j].records]);
+            groups.splice(j, 1);
+            changed = true;
+            break outer;
+          }
+        }
       }
-      const geometry = { width: rect.width, height: rect.height, markers };
-      if (lastGeometry === undefined) {
-        const bounds = Object.values(markers);
-        const left = Math.min(...bounds.map((mark) => mark.x));
-        const right = Math.max(...bounds.map((mark) => mark.x + mark.width));
-        scroll.scrollLeft =
-          right - left < scroll.clientWidth - 48
-            ? (left + right - scroll.clientWidth) / 2
-            : left - 24;
+    }
+    for (const group of groups) {
+      const node = document.createElement("div");
+      node.className = "flow-graphic-scene";
+      const frame = document.createElement("div");
+      frame.className = "flow-graphic-frame";
+      const body = document.createElement("div");
+      body.className = "flow-graphic-body";
+      group.first.before(node);
+      for (let child = group.first; child; ) {
+        const next = child.nextSibling;
+        body.append(child);
+        if (child === group.last) break;
+        child = next;
       }
-      const signature = JSON.stringify(geometry);
-      if (lastGeometry === signature) return;
-      lastGeometry = signature;
-      this.controller?.abort();
-      this.controller = new AbortController();
-      scene.dataset.renderState = "pending";
-      scene.querySelector(".flow-graphic-overlay")?.remove();
-      status.textContent = "관계 그림을 준비하고 있습니다…";
-      try {
+      frame.append(body);
+      node.append(frame);
+      const scene = { node, frame, body, records: group.records, visible: false };
+      for (const record of group.records) {
+        record.scene = scene;
+        node.append(record.note);
+      }
+      this.scenes.add(scene);
+    }
+    for (const group of root.querySelectorAll(".flow-notes")) {
+      if (!group.querySelector(".flow-note")) group.remove();
+    }
+  }
+
+  clear() {
+    this.sequence++;
+    this.controller?.abort();
+    clearTimeout(this.timer);
+    this.resize.disconnect();
+    this.intersection.disconnect();
+    this.scenes.clear();
+    this.records.clear();
+  }
+
+  sync() {
+    for (const scene of this.scenes) {
+      if (!scene.node.isConnected) {
+        this.intersection.unobserve(scene.node);
+        this.resize.unobserve(scene.body);
+        this.scenes.delete(scene);
+        for (const record of scene.records) {
+          if (this.records.get(record.id) === record) this.records.delete(record.id);
+        }
+      } else if (!scene.observed) {
+        scene.observed = true;
+        this.intersection.observe(scene.node);
+        this.resize.observe(scene.body);
+      }
+    }
+    this.schedule();
+  }
+
+  schedule() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.render(), 200);
+  }
+
+  measure(record) {
+    const rect = record.scene.body.getBoundingClientRect();
+    const bounds = record.nodes.map((node) => node.getBoundingClientRect());
+    const x = Math.min(0, ...bounds.map((item) => item.left - rect.left));
+    const y = Math.min(0, ...bounds.map((item) => item.top - rect.top));
+    const width = Math.max(rect.width, ...bounds.map((item) => item.right - rect.left)) - x;
+    const height = Math.max(rect.height, ...bounds.map((item) => item.bottom - rect.top)) - y;
+    if (width < 1 || height < 1 || width > 30000 || height > 30000) return null;
+    const round = (value) => Math.round(value * 1000) / 1000;
+    const geometry = {
+      width: round(width),
+      height: round(height),
+      fontSize: parseFloat(getComputedStyle(this.article).fontSize),
+      markers: Object.fromEntries(
+        record.tags.map((tag, index) => [
+          tag,
+          {
+            x: round(bounds[index].left - rect.left - x),
+            y: round(bounds[index].top - rect.top - y),
+            width: round(bounds[index].width),
+            height: round(bounds[index].height),
+          },
+        ]),
+      ),
+    };
+    const signature = JSON.stringify([this.getRevision(), record.id, geometry]);
+    return {
+      geometry,
+      signature,
+      x,
+      y,
+      width: rect.width,
+      height: rect.height,
+      key: JSON.stringify([signature, round(x), round(y), round(rect.width), round(rect.height)]),
+    };
+  }
+
+  apply(record, source, measurement) {
+    const parsed = new DOMParser().parseFromString(source, "image/svg+xml");
+    if (parsed.querySelector("parsererror")) throw new Error("관계 그림을 읽지 못했습니다.");
+    const svg = parsed.documentElement;
+    svg.querySelectorAll("script,foreignObject").forEach((node) => node.remove());
+    for (const node of [svg, ...svg.querySelectorAll("*")]) {
+      for (const attribute of [...node.attributes]) {
+        if (
+          /^on/i.test(attribute.name) ||
+          (/^(href|src|xlink:href)$/i.test(attribute.name) &&
+            /^\s*javascript:/i.test(attribute.value))
+        )
+          node.removeAttribute(attribute.name);
+      }
+    }
+    const layout = JSON.parse(svg.getAttribute("data-flow-graphic-layout"));
+    const left = layout.left + measurement.x;
+    const top = layout.top + measurement.y;
+    svg.classList.add("flow-graphic-overlay");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "표시된 수식 항 사이의 관계 그림");
+    svg.dataset.graphicId = record.id;
+    svg.style.left = `${left}px`;
+    svg.style.top = `${top}px`;
+    const overflow = left < -1 || left + layout.width > measurement.width + 1;
+    this.preserve(() => {
+      record.svg?.remove();
+      record.svg = document.importNode(svg, true);
+      record.scene.body.append(record.svg);
+      record.bounds = {
+        top: Math.max(0, -top) + 4,
+        bottom: Math.max(0, top + layout.height - measurement.height) + 4,
+      };
+      record.scene.frame.style.paddingTop = `${Math.max(...record.scene.records.map((item) => item.bounds?.top ?? 0))}px`;
+      record.scene.frame.style.paddingBottom = `${Math.max(...record.scene.records.map((item) => item.bounds?.bottom ?? 0))}px`;
+      const hits = collisions(record, layout, measurement);
+      const collision = hits.labels + hits.paths > 0;
+      record.note.dataset.graphicCollisions = JSON.stringify(hits);
+      record.note.textContent = overflow
+        ? "수식과 관계 그림의 폭 조정이 아직 필요합니다."
+        : collision
+          ? "관계선 또는 설명이 본문과 겹쳐 배치 조정이 필요합니다."
+          : "";
+      record.note.dataset.graphicState = overflow ? "overflow" : collision ? "collision" : "ready";
+      record.key = measurement.key;
+    });
+  }
+
+  async render() {
+    if (this.busy) {
+      this.again = true;
+      return;
+    }
+    const revision = this.getRevision();
+    if (!revision) return;
+    const pending = [];
+    for (const record of this.records.values()) {
+      if (!record.scene?.visible || !record.scene.node.isConnected) continue;
+      const measurement = this.measure(record);
+      if (!measurement) {
+        record.note.textContent = "관계 그림의 배치 범위를 확인해야 합니다.";
+        record.note.dataset.graphicState = "unsupported";
+        continue;
+      }
+      if (record.key === measurement.key) continue;
+      record.svg?.remove();
+      if (this.cache.has(measurement.signature)) {
+        this.apply(record, this.cache.get(measurement.signature), measurement);
+      } else {
+        record.note.dataset.graphicState = "pending";
+        record.note.textContent = "수식의 관계 그림을 준비하는 중…";
+        pending.push({ record, measurement });
+      }
+    }
+    if (!pending.length) return;
+    this.busy = true;
+    const sequence = this.sequence;
+    this.controller = new AbortController();
+    try {
+      for (let start = 0; start < pending.length; start += 32) {
+        const batch = pending.slice(start, start + 32);
         const response = await fetch("api/graphics", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision, graphs: { [id]: geometry } }),
+          body: JSON.stringify({
+            revision,
+            graphs: Object.fromEntries(
+              batch.map(({ record, measurement }) => [record.id, measurement.geometry]),
+            ),
+          }),
           signal: this.controller.signal,
         });
-        if (response.status === 409)
-          throw new Error("문서가 변경되었습니다. 닫은 뒤 다시 열어 주세요.");
-        if (!response.ok) throw new Error("관계 그림을 만들지 못했습니다. 다시 열어 주세요.");
+        if (!response.ok)
+          throw new Error("관계 그림을 갱신하지 못했습니다. 자동으로 다시 시도합니다.");
         const result = await response.json();
-        if (
-          this.sequence !== sequence ||
-          this.getRevision() !== result.revision ||
-          lastGeometry !== signature
-        )
-          return;
-        const parsed = new DOMParser().parseFromString(result.graphics[id], "image/svg+xml");
-        if (parsed.querySelector("parsererror")) throw new Error("관계 그림을 읽지 못했습니다.");
-        const svg = parsed.documentElement;
-        svg.classList.add("flow-graphic-overlay");
-        svg.setAttribute("aria-label", "표시된 수식 항 사이의 관계 그림");
-        scene.append(document.importNode(svg, true));
-        scene.dataset.renderState = "ready";
-        status.textContent = "좌우로 이동해 전체 수식과 관계선을 볼 수 있습니다.";
-      } catch (error) {
-        if (error.name !== "AbortError" && this.sequence === sequence) {
-          scene.dataset.renderState = "error";
-          status.textContent = error.message;
+        if (sequence !== this.sequence || result.revision !== this.getRevision()) return;
+        for (const { record, measurement } of batch) {
+          const source = result.graphics[record.id];
+          this.cache.set(measurement.signature, source);
+          if (!record.scene.node.isConnected) continue;
+          const current = this.measure(record);
+          if (current?.key === measurement.key) this.apply(record, source, current);
+          else this.again = true;
         }
+        while (this.cache.size > 64) this.cache.delete(this.cache.keys().next().value);
       }
-    };
-    this.observer = new ResizeObserver(() => {
-      clearTimeout(this.timer);
-      this.timer = setTimeout(render, 200);
-    });
-    this.observer.observe(scene);
-    render();
+    } catch (error) {
+      if (error.name !== "AbortError" && sequence === this.sequence) {
+        for (const { record } of pending) {
+          record.note.textContent = error.message;
+          record.note.dataset.graphicState = "error";
+        }
+        this.timer = setTimeout(() => this.render(), 5000);
+      }
+    } finally {
+      this.busy = false;
+      if (this.again || sequence !== this.sequence) {
+        this.again = false;
+        this.schedule();
+      }
+    }
   }
 }
 

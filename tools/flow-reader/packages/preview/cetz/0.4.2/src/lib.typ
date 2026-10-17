@@ -1,6 +1,6 @@
 #import "version.typ": version
 
-#import "canvas.typ": canvas
+#import "canvas.typ": canvas, reader-bounds
 #import "draw.typ"
 
 // Expose utilities

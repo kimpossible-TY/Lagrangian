@@ -6,7 +6,6 @@ const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
-const noteDialog = document.querySelector("#reader-note");
 let storageKey = `flow-reader:${location.pathname}`;
 let revision = null;
 let pending = null;
@@ -17,7 +16,15 @@ let currentSection = null;
 let loadSequence = 0;
 let shellRevision = null;
 const sectionCache = new Map();
-const graphics = new GraphicalAnnotations(noteDialog, () => revision);
+const graphics = new GraphicalAnnotations(
+  article,
+  () => revision,
+  (change) => {
+    const anchor = readingAnchor();
+    change();
+    restoreAnchor(anchor);
+  },
+);
 const canvases = new AdaptiveCanvases(article, () => revision);
 const sections = new ContinuousSections(article, {
   fetchSection,
@@ -111,20 +118,50 @@ function setFont(size) {
   document.querySelector("#reader-larger").disabled = fontSize === 30;
   store("fontSize", fontSize);
   canvases.schedule();
+  graphics.schedule();
   requestAnimationFrame(() => restoreAnchor(anchor));
 }
 
 function noteGroup(after) {
   let group = after.nextElementSibling;
   if (!group?.classList.contains("flow-notes")) {
-    group = document.createElement("details");
+    group = document.createElement("aside");
     group.className = "flow-notes";
-    const summary = document.createElement("summary");
-    summary.textContent = "수식 해설";
-    group.append(summary);
+    group.setAttribute("aria-label", "수식 해설");
     after.after(group);
   }
   return group;
+}
+
+function noteTargets(nodes, prefix) {
+  const heading = document.createElement("div");
+  heading.className = "flow-note-targets";
+  heading.setAttribute("aria-label", "해설 대상");
+  nodes.forEach((node, index) => {
+    if (!node) return;
+    const copy = namespaceClone(node.cloneNode(true), `${prefix}-${index}-`);
+    for (const child of [copy, ...copy.querySelectorAll("*")]) {
+      for (const name of [
+        "data-reader-key",
+        "data-flow-mark",
+        "data-reader-note",
+        "aria-details",
+        "aria-describedby",
+        "tabindex",
+        "role",
+        "aria-haspopup",
+      ])
+        child.removeAttribute(name);
+    }
+    copy.querySelectorAll("[data-flow-targets]").forEach((child) => child.remove());
+    if (index) heading.append(document.createTextNode(" · "));
+    if (copy.namespaceURI === "http://www.w3.org/1998/Math/MathML" && copy.localName !== "math") {
+      const math = document.createElementNS("http://www.w3.org/1998/Math/MathML", "math");
+      math.append(copy);
+      heading.append(math);
+    } else heading.append(copy);
+  });
+  return heading;
 }
 
 function prepareNotes(root, section) {
@@ -138,24 +175,18 @@ function prepareNotes(root, section) {
       continue;
     }
     const targets = JSON.parse(node.dataset.flowTargets);
-    const destination = node.closest(".flow-equation") ?? node.closest("p") ?? node;
+    const targetNodes = targets.map((tag) => marks.get(tag));
+    const destination =
+      node.closest(".flow-equation") ?? node.closest("p") ?? node.closest("math") ?? node;
     const group = noteGroup(destination);
     const note = document.createElement("div");
     note.className = "flow-note";
     note.id = `reader-note-${section}-${++noteNumber}`;
     if (node.dataset.flowGraphic) {
       const id = node.dataset.flowGraphic;
-      graphics.register(
-        id,
-        targets,
-        targets.map((tag) => marks.get(tag)),
-      );
-      const button = document.createElement("button");
-      button.className = "flow-graphic-open";
-      button.dataset.graphicId = id;
-      button.textContent = "관계 그림 보기";
-      note.append(button);
+      graphics.register(id, targets, targetNodes, note);
     } else {
+      note.append(noteTargets(targetNodes, note.id));
       note.append(...node.childNodes);
     }
     if (node.dataset.flowDiagnostic) {
@@ -169,10 +200,7 @@ function prepareNotes(root, section) {
       const ids = (mark.dataset.readerNote ?? "").split(" ").filter(Boolean);
       ids.push(note.id);
       mark.dataset.readerNote = ids.join(" ");
-      mark.setAttribute("tabindex", "0");
-      mark.setAttribute("role", "button");
-      mark.setAttribute("aria-label", `${textOf(mark) || "표시된 수식"}: 해설 보기`);
-      mark.setAttribute("aria-haspopup", "dialog");
+      mark.setAttribute("aria-details", ids.join(" "));
     }
     // Empty MathML token containers would otherwise retain unwanted spacing.
     const parent = node.parentElement;
@@ -247,6 +275,7 @@ function prepareSection(html, section) {
   }
   prepareNotes(parsed.body, section);
   containWideMathematics(parsed.body);
+  graphics.prepare(parsed.body);
   const content = document.createDocumentFragment();
   content.append(...parsed.body.childNodes);
   return content;
@@ -254,7 +283,7 @@ function prepareSection(html, section) {
 
 function mountedSectionsChanged() {
   indexDocument();
-  graphics.prune();
+  graphics.sync();
   canvases.sync();
   highlights?.repaint();
 }
@@ -268,6 +297,7 @@ function renderDocument(html, nextManifest, section, options) {
   indexDocument();
   article.setAttribute("aria-busy", "false");
   canvases.onDocument();
+  graphics.sync();
   highlights?.onDocument(manifest, currentSection);
   indexOutline(manifest);
   pending = null;
@@ -375,21 +405,6 @@ window.addEventListener("popstate", (event) => {
   }
 });
 
-function showNote(mark) {
-  const notes = mark.dataset.readerNote
-    .split(" ")
-    .map((id) => document.getElementById(id))
-    .filter(Boolean);
-  const body = document.querySelector("#reader-note-body");
-  if (notes.length === 1 && notes[0].querySelector(".flow-graphic-open")) {
-    graphics.show(notes[0].querySelector(".flow-graphic-open").dataset.graphicId);
-    return;
-  }
-  body.replaceChildren(
-    ...notes.map((note, i) => namespaceClone(note.cloneNode(true), `reader-dialog-${i}-`)),
-  );
-  noteDialog.showModal();
-}
 article.addEventListener("click", (event) => {
   const link = event.target.closest('a[href^="#"]');
   if (link && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
@@ -397,26 +412,7 @@ article.addEventListener("click", (event) => {
     navigateAnchor(decodeURIComponent(link.getAttribute("href").slice(1)));
     return;
   }
-  const graphic = event.target.closest(".flow-graphic-open");
-  if (graphic) {
-    graphics.show(graphic.dataset.graphicId);
-    return;
-  }
-  const mark = event.target.closest("[data-reader-note]");
-  if (mark && window.getSelection()?.isCollapsed) showNote(mark);
 });
-noteDialog.addEventListener("click", (event) => {
-  const graphic = event.target.closest(".flow-graphic-open");
-  if (graphic) graphics.show(graphic.dataset.graphicId);
-});
-article.addEventListener("keydown", (event) => {
-  const mark = event.target.closest("[data-reader-note]");
-  if (mark && (event.key === "Enter" || event.key === " ")) {
-    event.preventDefault();
-    showNote(mark);
-  }
-});
-document.querySelector("#reader-note-close").addEventListener("click", () => noteDialog.close());
 document.querySelector("#reader-smaller").addEventListener("click", () => setFont(fontSize - 2));
 document.querySelector("#reader-larger").addEventListener("click", () => setFont(fontSize + 2));
 menu.addEventListener("click", () => {

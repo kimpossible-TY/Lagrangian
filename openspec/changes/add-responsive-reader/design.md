@@ -94,7 +94,7 @@ ID remain outside this adapter; they must be covered before final acceptance.
 
 ## Reader protocol
 
-Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open annotation.
+Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open reader dialog.
 
 Use content and asset requests on the reader's own origin. The original paged view remains reachable from the reader. Initial mobile routing must honor an explicit choice and offer both views.
 
@@ -134,12 +134,23 @@ remaining inline. Revision-specific requests reject stale revisions.
 For graphical annotations, the browser must measure marked terms in the actual
 reflowed body layout and allocate space for their inline relationships. The
 service passes only validated numeric geometry to the original CeTZ program and
-returns its drawing. The existing modal/cloned-scene implementation is development
-scaffolding to replace; it does not meet the clarified reading contract. A source fingerprint belongs
+returns its drawing. Inline scenes replace the former modal/cloned-scene
+implementation. A source fingerprint belongs
 to the accepted snapshot, not the latest failed compile. Cache by revision and
 geometry, namespace SVG identifiers, and reject uncached requests after source
 changes. The first implementation uses an isolated full compile; a persistent
 compiler can later reduce its latency without changing this protocol.
+
+Inline annotations use ordinary visible body content, with explicit associations
+to their marked terms rather than dialog buttons. Graphical annotations group
+overlapping target spans into a shared scene containing the original DOM nodes
+in their original order. Never clone equations into a separate reading view.
+Render nearby scenes automatically; resize/font changes invalidate their measured
+geometry. Preserve the original annotation coordinate origin at the first marked
+term. The compiler returns the complete drawing bounds and its offset from the
+body scene so the browser can reserve vertical space without scaling glyphs.
+Report horizontal overflow rather than hiding it. Width fit, label size, and
+collision freedom remain separate acceptance requirements.
 
 ## Validation and delivery
 
