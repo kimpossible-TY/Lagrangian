@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import threading
 import tempfile
+import time
 from urllib.parse import parse_qs, urlsplit
 
 from build import HERE, Project, compile_project
@@ -78,7 +79,8 @@ class ReaderState:
             self.load_result(after)
         except Exception as error:
             with self.lock:
-                self.report = {"exitCode": 1, "contentGatePassed": False, "error": str(error)}
+                self.report = {"exitCode": 1, "contentGatePassed": False, "error": str(error),
+                               "compiledAt": time.time()}
         finally:
             with self.lock:
                 self.compiling = False
@@ -87,7 +89,7 @@ class ReaderState:
         with self.lock:
             return {key: self.report.get(key) for key in (
                 "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
-                "elapsedSeconds",
+                "elapsedSeconds", "compiledAt",
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "graphics": self.graphics}

@@ -137,6 +137,7 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             "compiler": project.compiler,
             "exitCode": result.returncode,
             "elapsedSeconds": round(time.monotonic() - started, 3),
+            "compiledAt": time.time(),
             "warnings": dict(Counter(line for line in result.stderr.splitlines()
                                      if line.startswith("warning:"))),
         }

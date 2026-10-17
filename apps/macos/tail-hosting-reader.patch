@@ -1,0 +1,70 @@
+--- a/bin/tail-hosting
++++ b/bin/tail-hosting
+@@ -177,6 +177,18 @@
+     return None
+ 
+ def compile_check(s):
++    if s.get('kind') == 'typst-reader':
++        backend=s.get('backend',{})
++        if backend.get('host') != '127.0.0.1': return {'state':'unknown','checkedAt':None}
++        try:
++            with urllib.request.urlopen(f"http://127.0.0.1:{backend['port']}/api/state",timeout=5) as response:
++                state=json.load(response)
++            if not isinstance(state,dict): raise ValueError('invalid Reader state')
++            result='unknown' if state.get('compiling') or state.get('exitCode') is None else 'failed' if state['exitCode']!=0 or not state.get('contentGatePassed') else 'ok' if state.get('revision') else 'unknown'
++            return {'state':result,'checkedAt':state.get('compiledAt'),
++                    'source':'Reader compilation state','revision':state.get('revision'),
++                    'development':bool(state.get('development'))}
++        except (OSError,ValueError,KeyError): return {'state':'unknown','checkedAt':None}
+     if s['id'] != 'typst-pde': return {'state':'unknown','checkedAt':None}
+     current_fingerprint=source_fingerprint()
+     if current_fingerprint is None: return {'state':'unknown','checkedAt':time.time(),'detail':'source access unavailable'}
+@@ -316,6 +328,13 @@
+ 
+ def control(data,action,sid):
+     s=service(data,sid)
++    if s.get('kind')=='typst-reader' and s.get('managerBinary') and s.get('registration')=='managed':
++        if action!='stop': check_allocation(s)
++        require([s['managerBinary'],'--control',action,sid],timeout=30)
++        s['desiredState']='stopped' if action=='stop' else 'running'
++        atomic_write(REGISTRY,data)
++        report(data)
++        return
+     if sid!='typst-pde': raise RuntimeError('observed services are read-only')
+     path=target_plist(LABEL); desired=RUNTIME/'typst-pde.desired'
+     if s.get('managerBinary'):
+--- a/scripts/test-management.py
++++ b/scripts/test-management.py
+@@ -1,11 +1,31 @@
+ #!/usr/bin/env python3
+-import importlib.machinery, importlib.util, json, pathlib, tempfile, unittest
++import importlib.machinery, importlib.util, io, json, pathlib, tempfile, unittest
+ from types import SimpleNamespace
+ from unittest.mock import patch
+ ROOT=pathlib.Path(__file__).resolve().parents[1]
+ loader=importlib.machinery.SourceFileLoader('hosting',str(ROOT/'bin/tail-hosting'))
+ spec=importlib.util.spec_from_loader(loader.name,loader);h=importlib.util.module_from_spec(spec);loader.exec_module(h)
+ class ManagementChecks(unittest.TestCase):
++    def test_reader_compile_state_comes_from_compiler_not_http_success(self):
++        service={'kind':'typst-reader','backend':{'host':'127.0.0.1','port':23627}}
++        for state,expected in [({'exitCode':0,'contentGatePassed':True,'revision':'accepted','compiledAt':123},'ok'),
++                               ({'exitCode':0,'contentGatePassed':False,'revision':'last-good'},'failed'),
++                               ({'exitCode':1,'contentGatePassed':False,'revision':'last-good','compiledAt':124},'failed'),
++                               ({'exitCode':0,'contentGatePassed':True,'revision':'old','compiling':True},'unknown')]:
++            with self.subTest(state=state),patch.object(h.urllib.request,'urlopen',return_value=io.BytesIO(json.dumps(state).encode())):
++                result=h.compile_check(service)
++                self.assertEqual(result['state'],expected)
++                self.assertEqual(result['revision'],state['revision'])
++
++    def test_reader_control_delegates_only_to_its_manager(self):
++        service={'id':'reader','kind':'typst-reader','registration':'managed','managerBinary':'/reader/manager'}
++        data={'services':[service]}
++        with patch.object(h,'check_allocation') as allocation,patch.object(h,'require') as run,patch.object(h,'atomic_write'),patch.object(h,'report'):
++            h.control(data,'start','reader')
++            allocation.assert_called_once_with(service)
++            run.assert_called_once_with(['/reader/manager','--control','start','reader'],timeout=30)
++            self.assertEqual(service['desiredState'],'running')
++
+     def test_endpoints_checked_independently_with_project_identity(self):
+         s={'id':'web','name':'Web','registration':'observed','projectRoot':'/projects/web','launchAgentLabel':'web',
+            'backend':{'host':'127.0.0.1','port':3010},'ingress':{'scheme':'https','port':8443,'path':'/'},
