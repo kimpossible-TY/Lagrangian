@@ -90,6 +90,13 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **WHEN** a reader enlarges text or rotates the device
 - **THEN** paragraphs reflow, labels remain readable, and the same logical passage stays in view
 
+#### Scenario: An offscreen drawing awaits responsive compilation
+- **WHEN** a source canvas has not yet been adapted to the reading width
+- **THEN** a bounded inline placeholder reserves space and the original drawing does not widen the whole page
+- **AND** fitting and publication happen automatically without an expansion action
+- **AND** replacing the placeholder or a previous fitted drawing preserves the reading anchor
+- **AND** a failed width fit retains its complete drawing and explicit diagnostic
+
 ### Requirement: Revision-aware updates
 The reader SHALL expose the compiled revision and compilation state, retain the last successful output on compilation failure, and preserve reading anchors and selections across updates.
 

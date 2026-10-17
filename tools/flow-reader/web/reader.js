@@ -13,6 +13,8 @@ let storageKey = `flow-reader:${location.pathname}`;
 let revision = null;
 let pending = null;
 let blocks = [];
+let stableAnchor = null;
+let anchorWidth = innerWidth;
 let fontSize = 18;
 let manifest = null;
 let currentSection = null;
@@ -28,7 +30,15 @@ const graphics = new GraphicalAnnotations(
     restoreAnchor(anchor);
   },
 );
-const canvases = new AdaptiveCanvases(article, () => revision);
+const canvases = new AdaptiveCanvases(
+  article,
+  () => revision,
+  (change) => {
+    const anchor = readingAnchor();
+    change();
+    restoreAnchor(anchor);
+  },
+);
 const decorations = new MathDecorations(
   article,
   () => revision,
@@ -128,13 +138,17 @@ function restoreAnchor(anchor) {
     if (section) {
       const rect = section.getBoundingClientRect();
       window.scrollBy(0, rect.top + rect.height * anchor.fraction - 90);
+      if (innerWidth === anchorWidth) stableAnchor = anchor;
     }
     return;
   }
   const block =
     blocks.find((node) => node.dataset.readerKey === anchor.key) ??
     blocks.find((node) => textOf(node).startsWith(anchor.text));
-  if (block) window.scrollBy(0, block.getBoundingClientRect().top - 90 - anchor.offset);
+  if (block) {
+    window.scrollBy(0, block.getBoundingClientRect().top - 90 - anchor.offset);
+    if (innerWidth === anchorWidth) stableAnchor = anchor;
+  }
 }
 function setFont(size) {
   const anchor = readingAnchor();
@@ -148,8 +162,17 @@ function setFont(size) {
   canvases.schedule();
   decorations.schedule();
   graphics.schedule();
-  requestAnimationFrame(() => restoreAnchor(anchor));
+  restoreAnchor(anchor);
 }
+
+window.addEventListener("resize", () => {
+  // Mobile browser bars change height during ordinary vertical scrolling.
+  // Only a width change needs restoration across a new text composition.
+  if (innerWidth === anchorWidth) return;
+  anchorWidth = innerWidth;
+  restoreAnchor(stableAnchor);
+});
+document.fonts.addEventListener("loadingdone", () => restoreAnchor(stableAnchor));
 
 function noteGroup(after) {
   let group = after.nextElementSibling;
@@ -241,8 +264,16 @@ function prepareNotes(root, section) {
 function indexDocument() {
   let heading = "document";
   const counts = new Map();
-  blocks = [...article.querySelectorAll("h1,h2,h3,h4,h5,p,.flow-equation,figcaption")].filter(
-    (node) => !node.closest("svg,math,.flow-notes,nav"),
+  blocks = [
+    ...article.querySelectorAll("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id]"),
+  ].filter(
+    (node) =>
+      !node.closest("svg,math,.flow-math-view,.flow-math-stage,.flow-notes,nav") &&
+      !(
+        node.tagName === "DIV" &&
+        !node.classList.contains("flow-equation") &&
+        node.querySelector("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id]")
+      ),
   );
   for (const node of blocks) {
     if (/^H[1-5]$/.test(node.tagName)) heading = node.id || fingerprint(textOf(node));
@@ -475,6 +506,7 @@ function savePosition() {
 window.addEventListener(
   "scroll",
   () => {
+    if (innerWidth === anchorWidth) stableAnchor = readingAnchor();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(savePosition, 300);
   },

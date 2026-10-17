@@ -11,6 +11,7 @@
   color: var(--ink);
   font-family: system-ui, sans-serif;
   scroll-padding-top: 7rem;
+  overflow-anchor: none;
 }
 * {
   box-sizing: border-box;
@@ -275,6 +276,13 @@ mjx-container mjx-stretchy-v {
 .flow-canvas > svg,
 #reader-document .flow-canvas > img {
   max-width: none;
+}
+.flow-canvas[data-canvas-placeholder="true"] {
+  aspect-ratio: var(--flow-canvas-aspect, 2);
+}
+.flow-canvas[data-canvas-placeholder="true"] > svg,
+.flow-canvas[data-canvas-placeholder="true"] > img {
+  display: none !important;
 }
 .flow-canvas-status {
   display: block;

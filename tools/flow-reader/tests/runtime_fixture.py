@@ -22,7 +22,9 @@ def handler_for(state):
             if path == "/":
                 check = parse_qs(urlsplit(self.path).query).get("check", [""])[0]
                 module = {"routing": "routing-browser.js", "native": "native-browser.js",
-                          "inline": "inline-browser.js", "structure": "structure-browser.js"}.get(check, "runtime-browser.js")
+                          "inline": "inline-browser.js", "structure": "structure-browser.js",
+                          "canvas-loading": "canvas-loading-browser.js",
+                          "position": "position-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
                     "</body>", f'<script type="module" src="/{module}"></script></body>')
                 return self.respond(source.encode(), "text/html; charset=utf-8")
@@ -40,6 +42,12 @@ def handler_for(state):
                                     "text/javascript; charset=utf-8")
             if path == "/structure-browser.js":
                 return self.respond((ROOT / "tests/structure-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/canvas-loading-browser.js":
+                return self.respond((ROOT / "tests/canvas-loading-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/position-browser.js":
+                return self.respond((ROOT / "tests/position-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             super().do_GET()
     return Handler
