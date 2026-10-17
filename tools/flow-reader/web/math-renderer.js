@@ -7,6 +7,7 @@ import {
   splitDerivations,
 } from "./math-layout.js";
 import { namespaceClone } from "./graphics.js";
+import { MathFrames } from "./math-frames.js";
 import { loadMathJax } from "./mathjax-loader.js";
 
 let serial = 0;
@@ -204,6 +205,7 @@ export class ResponsiveMath {
     }
     splitDerivations(stage);
     prepareNativeDecorations(stage);
+    let frames = new MathFrames(stage);
     const metrics = {
       ...mathjax.getMetricsFor(record.view, record.display),
       containerWidth: measurement.width,
@@ -211,9 +213,12 @@ export class ResponsiveMath {
     let blueprint = [...stage.childNodes].map((node) => node.cloneNode(true));
     let promoted = false;
     let corrections = 0;
+    let frameWidth = measurement.width - measurement.fontSize * 1.5;
+    let frameAttempts = 0;
+    let best;
     try {
       this.article.append(stage);
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
         if (attempt) stage.replaceChildren(...blueprint.map((node) => node.cloneNode(true)));
         for (const math of [...stage.querySelectorAll("math")].filter(
           (n) => !n.parentElement.closest("math"),
@@ -232,16 +237,30 @@ export class ResponsiveMath {
         // Layout boxes do not include every italic/stretched glyph overhang.
         // Rebreak a small measured overhang at the same font; do not squeeze an
         // indivisible structure or loop trying to fix a fundamentally wide one.
-        const overflow = mathOverflow(stage);
+        const overflow = mathOverflow(stage, { width: measurement.width });
         const excess = Math.max(overflow.left, overflow.right);
+        if (!best || excess < best.excess)
+          best = { excess, nodes: [...stage.childNodes].map((node) => node.cloneNode(true)) };
         if (!record.display && !promoted && excess > 1) {
           const source = document.createElement("span");
           source.append(...blueprint.map((node) => node.cloneNode(true)));
           promoteInlineMath(source);
           splitDerivations(source);
+          frames = new MathFrames(source);
           blueprint = [...source.childNodes];
           promoted = true;
+          best = null;
           continue;
+        }
+        if (excess > 1 && frameAttempts < 4) {
+          if (!frameAttempts) frames.measure(stage);
+          else frameWidth -= Math.max(measurement.fontSize * 0.5, excess + 1);
+          const composed = frames.compose(Math.max(measurement.fontSize * 2, frameWidth));
+          if (composed) {
+            blueprint = [...composed.childNodes];
+            frameAttempts++;
+            continue;
+          }
         }
         const correction = 2 * excess + 1;
         if (
@@ -253,6 +272,7 @@ export class ResponsiveMath {
         metrics.containerWidth = Math.max(1, metrics.containerWidth - correction);
         corrections++;
       }
+      if (best) stage.replaceChildren(...best.nodes);
       return { stage, ids, layout: record.display || promoted ? "block" : "inline" };
     } catch (error) {
       stage.remove();

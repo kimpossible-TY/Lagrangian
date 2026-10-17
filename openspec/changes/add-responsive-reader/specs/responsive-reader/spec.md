@@ -74,6 +74,13 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** its inline mathematical style, fraction sizing, limits, and logical text remain unchanged
 - **AND** short inline expressions keep their original presentation
 
+#### Scenario: A wide structured mathematical body
+- **WHEN** a fraction, radical, spanning decoration, scripted base, or matrix exceeds the reading width
+- **THEN** the reader may compose its children at a measured inner width while retaining their mathematical grouping, script levels, labels, and canonical text
+- **AND** matrix rows and columns remain intact and entry fonts retain the selected reading size
+- **AND** short norms and intervals remain on one line when they fit
+- **AND** a stretched operator remains completely visible, without scroll area from its masked stencil pieces
+
 #### Scenario: Continuous reading
 - **WHEN** a reader reaches a section boundary or a mathematical annotation
 - **THEN** the next content is available through ordinary vertical reading without a required next-section button or reveal action

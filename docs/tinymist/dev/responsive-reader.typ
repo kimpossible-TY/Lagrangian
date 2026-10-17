@@ -302,6 +302,45 @@ promotions, overflow, and semantic errors. Completion is not mobile layout
 acceptance; unresolved fractions, bracketed groups, figures, and device checks
 remain open.
 
+== Structured mathematical composition
+
+The frame planner measures fractions, radicands, spanning braces and bars,
+scripted bases, and table cells in the actual calibrated mathematical font.
+An explicit inner MathML box permits line breaking inside a wide child while
+retaining the original operators, grouping, script level, labels, and token IDs.
+Zero-width discretionary spaces allow product breaks after preferred operator
+breaks. Small norms and intervals stay intact, and a function name remains with
+its argument. Scripted bases reserve the measured width of attached scripts.
+
+The planner makes at most four frame passes plus two small overhang corrections,
+then retains the candidate with the least measured overflow. Candidate and
+published checks use the same fractional CSS width. A wide matrix retains all
+rows and columns; inter-cell spacing becomes 0.1em and surrounding fences use a
+narrower optical size while still stretching to the full table height. Matrix
+entries and their scripts keep their original reading sizes.
+
+MathJax masks overlapping extender glyphs when painting a stretched operator.
+The Reader applies matching axis clipping to those stencil surfaces so invisible
+pieces do not add scroll area. Complete operator surfaces and real glyphs still
+participate in width checks. This mask does not clip the mathematical body.
+
+The actual Reader fixture includes the PDE energy-flux identity, a nested
+Poisson-kernel fraction, a Hamiltonian radical, an electromagnetic 4-by-4 matrix,
+an originally painted marked brace, a volume-form product and a long overline.
+It checks canonical copying, horizontal and vertical geometry, matrix structure
+and font size, intact norms, full-height fences, complete overlines and every
+marked fragment at 18px and 30px. All 69 checks pass at each of 320px and 390px.
+The existing inline, selection/update, routing and native-decoration fixtures
+also pass their 26, 25, 15 and 21 checks at 320px.
+
+The paired frozen PDE runtime probe now has zero overflow among all 6,873
+expressions at both 273px/30px and 343px/18px. The previous inline renderer had
+53 and five overflows at those respective settings. Both new runs retain zero
+rendering, binding, canonical-text and SVG-count errors. These are candidate
+conversion checks at common reading widths; real paragraph contexts, dynamic
+paint and figures, device behavior and assistive reading remain separate work.
+Evidence is under `dist/reader-frame-checks`.
+
 == Logical mathematical selections
 
 `web/math-identity.js` assigns source token IDs before mathematical typesetting.

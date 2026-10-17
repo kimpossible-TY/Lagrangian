@@ -233,6 +233,17 @@ button:hover {
   padding: 0;
   margin: 0;
 }
+/* MathJax masks overlapping extender glyphs with clip-path. Apply the same
+   axis mask to scroll geometry so invisible stencil pieces cannot widen a
+   fitted expression. The complete stretched operator remains visible. */
+mjx-container mjx-stretchy-h {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+mjx-container mjx-stretchy-v {
+  overflow-x: visible;
+  overflow-y: clip;
+}
 .flow-math-status {
   display: block;
   color: var(--muted);

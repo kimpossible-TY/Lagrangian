@@ -200,6 +200,16 @@ paragraph styles, publication, selection, dynamic decoration paint, relationship
 figures, and device accessibility need separate browser validation. The report
 keeps those acceptance flags false. Evidence is under `dist/reader-inline-checks`.
 
+The structured renderer snapshots additionally record `math-frames.js`. At the
+same two widths/fonts it reduces all remaining 53 / five overflows to zero,
+without rendering, token-binding, canonical-text, or SVG-count errors. These
+results cover the same 6,759 source roots and 6,873 composed expressions. The
+actual Reader structure fixture separately passes 69 checks at each of 320px and
+390px, including large reading text, matrix structure and fonts, spanning paint,
+canonical copy, and whole-page width. Evidence is under `dist/reader-frame-checks`.
+Add `&preview=1` with a single `index` to retain a composed expression for visual
+inspection; the probe still does not exercise dynamic paint or publication.
+
 Useful primary references:
 
 - [MathJax automatic line breaking](https://docs.mathjax.org/en/stable/output/linebreaks.html)

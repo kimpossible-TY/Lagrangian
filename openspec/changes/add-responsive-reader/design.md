@@ -31,6 +31,24 @@ click-to-expand equation views to compensate for a layout that does not fit.
 TOC navigation, saved-highlight management, and an explicit original-page link
 remain optional controls; they are not required to read any part of the text.
 
+Structured mathematical composition measures fraction children, radicands,
+spanning brace/bar bodies and labels, scripted bases, and table cells in the
+actual calibrated math font. Wide children receive an inner MathML line-breaking
+box while their original operator tree, script level and logical identities stay
+intact. Discretionary zero-width spaces permit product breaks after preferred
+operator breaks; short fenced groups and a function name with its argument stay
+together. Scripted bases reserve the measured width of their attached scripts.
+The planner uses at most four frame passes and two small overhang corrections,
+retaining the measured candidate with the least overflow. Both candidate and
+published geometry use the same fractional CSS width.
+
+A wide matrix keeps every row and column. Its inter-cell spacing can become
+0.1em; its surrounding fences use a narrower optical size while stretching to
+the complete table height. Entry and script fonts remain unchanged. MathJax's
+overlapping extender pieces already have a paint mask; matching axis clipping
+prevents those invisible stencil pieces from adding horizontal scroll area.
+The complete stretched operator remains part of width and visibility checks.
+
 Introduce a width-aware layout stage between semantic content and final DOM/SVG.
 For mathematics, retain operators, grouping, numbering, labels and term identities
 while choosing valid breaks and alignment for the available width. Native MathML
