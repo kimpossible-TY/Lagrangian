@@ -12,16 +12,44 @@ from content import MathHtmlEmbedding, SvgRanges
 from passages import PassageIndex
 
 
+class AssetSvgRanges(SvgRanges):
+    """Native figure geometry must stay inspectable for label placement."""
+
+    def __init__(self, source):
+        super().__init__(source)
+        self.stack = []
+        self.inline = set()
+
+    def handle_starttag(self, tag, attrs):
+        native = (self.stack and self.stack[-1][1]) or (
+            "flow-canvas-stage" in dict(attrs).get("class", "").split())
+        if tag == "svg" and self.depth == 0 and native:
+            self.inline.add(self.source_offset())
+        if tag not in MathHtmlEmbedding.VOID:
+            self.stack.append((tag, native))
+        super().handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        super().handle_endtag(tag)
+        if self.stack and self.stack[-1][0] == tag:
+            self.stack.pop()
+
+    def handle_startendtag(self, tag, attrs):
+        if tag == "svg" and self.depth == 0 and self.stack and self.stack[-1][1]:
+            self.inline.add(self.source_offset())
+        super().handle_startendtag(tag, attrs)
+
+
 def separate_assets(source):
     """Keep large vector drawings out of the reader DOM without rasterizing them."""
-    parser = SvgRanges(source)
+    parser = AssetSvgRanges(source)
     parser.feed(source)
     assets = {}
     pieces = []
     previous = 0
     for start, end in parser.ranges:
         svg = source[start:end]
-        if len(svg) < 30000:
+        if len(svg) < 30000 or start in parser.inline:
             continue
         root = ET.fromstring(svg)
         ids = {node.get("id") for node in root.iter()}
@@ -101,10 +129,14 @@ class BlockIdentifiers(SvgRanges):
         classes = attributes.get("class", "").split()
         if "body" in self.stack and not {"math", "svg", "nav"}.intersection(self.stack) and (
             tag in {"h1", "h2", "h3", "h4", "h5", "p", "figcaption"}
-            or (tag == "div" and "flow-equation" in classes)
+            or (tag == "div" and {"flow-equation", "flow-canvas-label-body"}.intersection(classes))
         ):
+            for parent in self.active:
+                if parent.get("native_label"):
+                    parent["child_block"] = True
             self.active.append({"depth": len(self.stack), "tag": tag, "text": [],
                                 "id": attributes.get("id"), "heading": self.heading,
+                                "native_label": "flow-canvas-label-body" in classes,
                                 "position": self.source_offset() + len(self.get_starttag_text()) - 1})
         if tag not in MathHtmlEmbedding.VOID:
             self.stack.append(tag)
@@ -120,6 +152,8 @@ class BlockIdentifiers(SvgRanges):
         self.stack.pop()
         if self.active and self.active[-1]["depth"] == len(self.stack):
             node = self.active.pop()
+            if node.get("native_label") and node.get("child_block"):
+                return
             text = " ".join("".join(node["text"]).split())
             # Named labels are explicit stable identities. Typst's generated
             # loc-N labels shift after edits, so use contextual text for those.

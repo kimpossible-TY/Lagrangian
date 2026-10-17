@@ -72,7 +72,24 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **WHEN** an inline expression cannot fit its reading container at the chosen font size
 - **THEN** it may recompose into a block within the continuous body without a user action
 - **AND** its inline mathematical style, fraction sizing, limits, and logical text remain unchanged
+
+#### Scenario: Original CeTZ labels become responsive native content
+- **WHEN** native figure composition is enabled for a saved Typst source
+- **THEN** original label bodies are exported once as semantic HTML/MathML before SVG flattening
+- **AND** the geometry retains the original coordinate system and aspect ratio while native text retains a reading-size floor and larger authored typography
+- **AND** labels that cannot occupy their original anchors safely remain completely visible below the figure with matching readable markers and explicit associations
+- **AND** low-contrast label ink is adapted for its reading background while retaining the source color in the export
+- **AND** generated markers and loading messages do not enter copied logical source text
+- **AND** width/font changes require no per-canvas compiler request and an obsolete offscreen placement cannot widen the reading page
+- **AND** the original paged source and output are preserved
 - **AND** short inline expressions keep their original presentation
+
+#### Scenario: Reading a native diagram during recomposition
+- **WHEN** the viewport or selected font changes while reading a diagram label or geometry
+- **THEN** the same source passage or geometry point stays at the reading reference
+- **AND** generated diagram numbering does not determine a label passage's reading key
+- **AND** long mathematical labels retain the full available width and compose even when the diagram geometry is offscreen
+- **AND** loading-notice changes cannot move a following reading target
 
 #### Scenario: A wide structured mathematical body
 - **WHEN** a fraction, radical, spanning decoration, scripted base, or matrix exceeds the reading width

@@ -1064,6 +1064,7 @@
 
   return (ctx => {
     let body = body
+    let source-body = body
     let style = styles.resolve(ctx.style, merge: style, root: "content")
     let padding = util.map-dict(util.as-padding-dict(style.padding), (_, v) => {
       util.resolve-number(ctx, v)
@@ -1240,7 +1241,7 @@
             text(top-edge: "cap-height", bottom-edge: "baseline", body)
           )
         )
-      )
+      ) + (reader-body: source-body,)
     )
 
     let (transform, anchors) = anchor_.setup(

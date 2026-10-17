@@ -32,9 +32,14 @@ def install(args):
                 if manager.job_pid(profile):
                     raise ValueError("Stop the Reader services before updating their installed release")
         config.update(flowManager=str(args.flow_manager), python=str(args.python), compiler=str(args.compiler))
+        previous = next((service for service in config["services"] if service["id"] == identifier), {})
+        semantic_canvases = getattr(args, "semantic_canvases", None)
+        if semantic_canvases is None:
+            semantic_canvases = previous.get("semanticCanvases", False)
         services = [service for service in config["services"] if service["id"] != identifier]
         services.append({"id": identifier, "parentID": args.profile, "port": args.port,
-                         "publicURL": args.public_url, "development": args.development})
+                         "publicURL": args.public_url, "development": args.development,
+                         "semanticCanvases": semantic_canvases})
         config["services"] = services
         # Resolve the live parent profile and validate its inputs before touching
         # either the existing Reader configuration or its stable launcher.
@@ -92,6 +97,8 @@ def main():
     parser.add_argument("--python", type=Path, default=Path(shutil.which("python3") or "/missing/python3"))
     parser.add_argument("--compiler", type=Path, default=Path(shutil.which("typst") or "/missing/typst"))
     parser.add_argument("--development", action="store_true", help="Retain the visible development notice; do not use as the mobile default")
+    parser.add_argument("--semantic-canvases", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable native figure labels; omission preserves the installed setting")
     parser.add_argument("--start", action="store_true")
     args = parser.parse_args()
     print(json.dumps(install(args), indent=2))

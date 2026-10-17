@@ -133,7 +133,17 @@ export class ResponsiveMath {
   measure(record) {
     if (!record.view.isConnected) return null;
     const rect = record.view.getBoundingClientRect();
-    if (rect.bottom < -1200 || rect.top > innerHeight + 1200) return null;
+    if (rect.bottom < -1200 || rect.top > innerHeight + 1200) {
+      // A figure can have long semantic legends. Compose all its labels when
+      // any part of their canvas is nearby, including a later legend passage.
+      let canvas = record.view.closest("[data-flow-canvas-model]");
+      while (canvas) {
+        const area = canvas.getBoundingClientRect();
+        if (area.bottom >= -1200 && area.top <= innerHeight + 1200) break;
+        canvas = canvas.parentElement.closest("[data-flow-canvas-model]");
+      }
+      if (!canvas) return null;
+    }
     let container = record.view.parentElement;
     while (
       container !== this.article &&

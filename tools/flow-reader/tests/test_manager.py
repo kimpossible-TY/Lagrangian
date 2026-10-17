@@ -64,10 +64,21 @@ class ReaderManagerTests(unittest.TestCase):
         self.assertEqual(arguments[arguments.index("--font-path") + 1], "fonts")
         self.assertEqual(arguments[arguments.index("--original-url") + 1], self.parent["publicURL"])
         self.assertNotIn("--allow-incomplete", arguments)
+        self.assertNotIn("--semantic-canvases", arguments)
         agent = self.manager.agent(profile)
         self.assertTrue(agent["KeepAlive"])
         self.assertEqual(agent["ProgramArguments"], [str(self.manager.launcher), "--serve", "parent-reader"])
         self.assertNotEqual(agent["Label"], self.parent["label"])
+
+    def test_native_figure_setting_is_reader_only_and_boolean(self):
+        self.config["services"][0]["semanticCanvases"] = True
+        self.save()
+        self.assertIn("--semantic-canvases", self.manager.arguments(self.resolve()))
+        self.assertNotIn("semanticCanvases", self.parent)
+        self.config["services"][0]["semanticCanvases"] = "true"
+        self.save()
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            self.resolve()
 
     def test_unrelated_port_owner_cannot_be_stopped_or_replaced(self):
         profile = self.resolve()

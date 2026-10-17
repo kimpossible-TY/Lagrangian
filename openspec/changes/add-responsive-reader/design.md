@@ -157,6 +157,49 @@ compiles with annotation compiles. It uses the accepted revision/input checks
 already used for graphical annotations. Opaque layout/SVG islands without a canvas
 ID remain outside this adapter; they must be covered before final acceptance.
 
+The opt-in `--semantic-canvases` path separates labels before SVG flattening.
+The initial canonical HTML exports each original label body as HTML/MathML,
+alongside its original CeTZ bounds and a geometry-only SVG. Label math uses the
+same renderer, identities, decorations and references as ordinary body math.
+Stack and fixed-box label containers become native flow containers. Explicit
+text size, weight and color are materialized where experimental Typst HTML
+would otherwise discard them. The browser applies the reading-size floor,
+retains larger typography, and lowers low-contrast ink lightness without changing
+its channel proportions; exported source colors and the geometry palette remain
+available and unchanged. Label bodies have a stable paper background.
+
+The geometry keeps the original coordinate system and uniform aspect ratio.
+Physical strokes keep their CSS thickness independently of its scale. Short
+native labels occupy their original anchors when their measured boxes fit and
+do not intersect other labels or sampled strokes. Other labels remain fully
+visible below the drawing with matching readable numbers at their original
+points. Displaced numbers have dotted leaders. DOM/source order is preserved;
+generated numbers and loading UI are excluded from logical quotations. This is
+continuous composition, with no reveal action or separate enlarged view.
+Long legend bodies retain the full measured width with their number above them.
+Mathematical leaves remain MathML: the label text show rule is guarded inside
+equations so the outer typography is applied only once.
+
+Leaf label passages receive source-derived reading keys independent of diagram
+numbering. A reading line over geometry preserves its fractional point in the
+original coordinate plane; ambiguous source matches do not restore to another
+drawing. Font and width publication use those shared anchors. All labels of a
+nearby canvas compose together even when a long legend puts its geometry far
+above the current viewport.
+Loading-notice changes use the same preservation callback as geometry changes.
+Passage offsets use whole CSS pixels to avoid accumulating scroll rounding over
+many mathematical label publications.
+
+Offscreen native drawings also reset obsolete placements immediately on font or
+width changes. Empty leader SVGs have explicit zero dimensions until publication.
+Large native geometry stays inline across transport-section asset separation,
+since label placement needs its paths. Resizing this path requires no canvas
+compiler requests. Layout publication defers during a selection or reader dialog.
+The legacy coordinate-unit path remains unchanged when the option is disabled.
+Full arrow/leader geometry, device accessibility, source-update and rollout
+acceptance remain separate gates; successful native-label checks alone do not
+promote the Reader to the mobile default.
+
 ## Reader protocol
 
 Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open reader dialog.

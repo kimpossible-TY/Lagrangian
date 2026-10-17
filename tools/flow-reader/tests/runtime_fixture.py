@@ -25,6 +25,8 @@ def handler_for(state):
                 module = {"routing": "routing-browser.js", "native": "native-browser.js",
                           "inline": "inline-browser.js", "structure": "structure-browser.js",
                           "canvas-loading": "canvas-loading-browser.js",
+                          "native-canvases": "native-canvases-browser.js",
+                          "native-position": "native-position-browser.js",
                           "position": "position-browser.js", "entry": "entry-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
                     "</body>", f'<script type="module" src="/{module}"></script></body>')
@@ -43,6 +45,12 @@ def handler_for(state):
                 return self.respond(source.encode(), "text/javascript; charset=utf-8")
             if path == "/entry-browser.js":
                 return self.respond((ROOT / "tests/entry-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/native-canvases-browser.js":
+                return self.respond((ROOT / "tests/native-canvases-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/native-position-browser.js":
+                return self.respond((ROOT / "tests/native-position-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             if path == "/runtime-browser.js":
                 return self.respond((ROOT / "tests/runtime-browser.js").read_bytes(),

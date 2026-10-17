@@ -736,3 +736,56 @@ original fragment. All four checks pass with a 1px before/after reload offset
 and no page overflow. Test-only bootstrap code runs before the Reader module;
 normal serving does not expose it. Evidence is `entry-browser.json` and
 `entry-reload-390.png` under `dist/reader-entry-checks`.
+
+## Native canvas labels before SVG flattening
+
+The independent `--semantic-canvases` option exports original CeTZ label bodies
+as semantic HTML/MathML, source anchor bounds, and geometry without baked label
+glyphs. Source coordinates are unchanged. Geometry scales uniformly, physical
+strokes retain CSS thickness, labels retain their reading-size floor and larger
+authored typography, and low-contrast label ink is adapted to its paper surface.
+Colliding labels become continuous numbered legends with original-point leaders.
+Long bodies keep the full measured width, placing their number above the body.
+
+The compiler fixture covers tiny and larger text/math, fixed physical geometry,
+explicit label scaling, stack/fixed-box content and nested canvases. Mathematical
+leaves remain MathML without embedded HTML font wrappers. Native labels take part
+in the initial counter/reference pass and use the common mathematical renderer;
+width/font changes require no canvas compiler requests. Large native geometry
+stays inline across transport sections. Offscreen obsolete placements reset
+immediately and empty leader SVGs cannot add their default 300px width.
+
+The frozen PDE exposes 58 native figures and 658 label bodies. Each full run at
+390px and 320px passes 1,277 checks, covering both 18px and 30px reading sizes,
+canonical text, complete label/marker boxes, text/ink sizes, contrast, physical
+strokes, separate labels, legend associations and bounded full-page width. The
+controlled fixture passes 159 checks at 320px. Evidence under
+`dist/reader-label-checks` includes `native-pde-current-390.json`,
+`native-pde-wide-legends-320.json` and `native-fixture-current-320.json`.
+
+Source-derived leaf label keys are independent of generated diagram numbering.
+Diagram geometry has a source-checked fractional reading anchor. Separate native
+position runs pass six checks, including an actual PDE diagram, across font and
+viewport changes. A long-legend deadlock is fixed by composing every mathematical
+label when any part of its owning canvas is nearby. A real PDE body regression
+also found that native loading-notice removal changed page height outside anchor
+preservation. That change now uses the shared callback; whole-pixel passage
+offsets prevent cumulative scroll rounding. All ten body position checks pass
+for 390→320px, with the direct target at 88.125px before font normalization and
+88.3125px afterward. Reports are `native-pde-position-390-320.json`,
+`native-fixture-position.json` and `native-body-position-390-320.json`.
+
+The paired complete frozen PDE PDFs are byte-identical with a fixed creation
+timestamp: 10,758,514 bytes, SHA-256
+`3fb2b8cb775215a9d7a3905048489299bad22331b3401c7223bbc48f86d1ef46`.
+All 1,914 outside-canvas reference display strings are identical. The extracted
+outside-canvas text differs only at one whitespace boundary and its 358,311
+non-whitespace characters are identical. Evidence is under `paired-source`.
+All 51 Python tests and 32 JavaScript tests pass; compiler integration tests are
+enabled with the installed package/compiler paths. The canonical guide compiles.
+
+This is a development option, not mobile-default acceptance. Nine opaque SVG
+islands remain: five diagrams using the separate CeTZ 0.3.4 dependency and four
+Maquette raster/vector surface plots. Full arrow/leader fidelity, source-update
+and selection behavior for native labels, mobile Safari and assistive reading
+remain open work. Existing PDF serving and mobile entry routing are unchanged.
