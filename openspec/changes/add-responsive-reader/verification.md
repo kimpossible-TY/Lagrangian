@@ -1248,3 +1248,17 @@ the language change (`runtime-after-language.json`), including canonical copy,
 selection-aware publication and automatic error recovery. Wider/default-font
 sweeps and spoken screen-reader/device checks remain
 separate acceptance work; this checkpoint does not promote automatic mobile entry.
+
+Clean commit `f273e9832e789d14ed94892b4ac00dec8c3ba26e` is then installed
+in the production Reader with development/native settings retained. Its seven
+public HTML/runtime assets match committed bytes. The accepted revision is
+`2b148de81bfe6aaf6d76ae586b3f751fd608ce38818e45a2ce8782163f87c86b`,
+exit 0, content gate true, 15 relationships and 66 native figures. Manifest and
+article language are English, while the Reader UI is Korean. At the actual
+Translation Invariance passage, 390px viewport layout/scroll width is 375px and
+all visible math is ready at 13px. The original PDF keeps PID 39357 and HTTP 200;
+only the Reader changes from PID 98459 to 9310. Receipts are
+`language-managed-delivery.json`, `managed-language-observation.json` and
+`managed-13px-language-390.jpg` in the rollout audit directory. Native Safari
+inspection times out before a tab is acquired; its running-app inventory alone
+does not establish a WebKit or spoken accessibility pass (`safari-attempt.json`).
