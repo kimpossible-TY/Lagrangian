@@ -49,8 +49,8 @@ compiled successfully. A failed compile retains the previous document.
 The reader supports native text selection, a heading outline, font size changes,
 local equation scrolling, linked annotation dialogs, and reading anchors. Updates
 wait for an active selection or annotation dialog to close. Persistent highlights,
-source selection sharing, offline reload, and managed Flow/Tail Hosting integration
-remain subsequent implementation work.
+source selection sharing, offline reload, and the remaining mobile rollout work
+are tracked in the responsive-reader OpenSpec change.
 
 == Sections and graphical annotations
 
@@ -76,6 +76,44 @@ pending state. Reusing a persistent compiler is a subsequent performance task.
 Drawing a connection correctly does not imply an arbitrary figure can be
 recomposed automatically. Figure label sizes and narrow layouts still require
 their own validation.
+
+== Managed installation
+
+The Reader lifecycle module belongs to this repository and reads the installed
+Flow app's `--profiles` output on each start. Its configuration stores a parent
+profile ID and Reader runtime/port options; it does not copy the project root,
+fonts, entrypoint, or package settings. It installs its own LaunchAgent and does
+not replace or restart the existing paged app or engine.
+
+Install only from a clean commit:
+
+```sh
+python3 tools/flow-reader/install.py \
+  --profile existing-flow-profile \
+  --port 23627 \
+  --public-url https://your-host.ts.net:23627/ \
+  --start
+```
+
+During validation, add `--development` to retain the development notice and keep
+the Reader out of the default mobile entry. The installer archives the committed
+Reader sources into an immutable release under the Flow application support
+directory. A stable launcher in `reader/bin/flow-reader` exposes `--profiles`,
+`--launch-plan ID`, `--status ID`, and `--control start|stop|restart ID`. Reader IDs
+append `-reader` to the parent ID. Port validation includes every saved Flow
+profile, including projects that are currently stopped.
+
+Tail Hosting registers the derived profile using this launcher as `managerBinary`
+and `kind: typst-reader`. The maintained adapter is
+`apps/macos/tail-hosting-reader.patch`. It delegates lifecycle operations and reads
+`/api/state` for compile status; an HTTP 200 from the shell does not imply a valid
+compile. The new Tailscale Serve route must use a free port and preserve all
+existing handlers. The installer itself does not modify ingress.
+
+To stop or roll back, stop the Reader ID with its launcher, disable only its new
+ingress port, and retain the original paged endpoint. Installed Reader releases
+are kept for recovery. Changing a saved Flow project's paths takes effect when
+its Reader is restarted.
 
 == Verification
 

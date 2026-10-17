@@ -32,3 +32,14 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 
 ### Requirement: Independent serving boundary
 Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expose and monitor the reader endpoint without taking ownership of document rendering or duplicating the service lifecycle.
+
+#### Scenario: Independent Reader lifecycle
+- **WHEN** the Reader is started, stopped, restarted, or recovered after an unexpected exit
+- **THEN** only its own managed process and LaunchAgent are affected
+- **AND** the original paged service remains available
+- **AND** a new Reader start resolves the current parent Flow project settings
+
+#### Scenario: Compile monitoring
+- **WHEN** Tail Hosting checks the Reader
+- **THEN** it distinguishes HTTP reachability from the Reader's reported compile and content-validation result
+- **AND** serving the last accepted revision after a failed save is reported as a compile failure
