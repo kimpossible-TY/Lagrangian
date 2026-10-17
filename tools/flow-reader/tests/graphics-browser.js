@@ -1,4 +1,62 @@
+import { GraphicalAnnotations, paintedPathPoint } from "/graphics.js";
+
 const report = { width: innerWidth, checks: [], errors: [], measurements: [] };
+if (new URL(location.href).searchParams.has("debug")) {
+  const originalApply = GraphicalAnnotations.prototype.apply;
+  GraphicalAnnotations.prototype.apply = function (record, source, measurement) {
+    originalApply.call(this, record, source, measurement);
+    const ink = this.ink(record).filter((item) => !item.target);
+    const hits = [];
+    for (const [index, path] of [...record.svg.querySelectorAll("path[stroke]")].entries()) {
+      if (path.closest("defs,symbol") || path.getAttribute("stroke") === "none") continue;
+      const matrix = path.getScreenCTM(),
+        length = path.getTotalLength();
+      if (!matrix) continue;
+      const scale = Math.max(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d));
+      const steps = Math.min(2000, Math.max(1, Math.ceil((length * scale) / 2)));
+      const radius = Math.max(0.5, (parseFloat(getComputedStyle(path).strokeWidth) * scale) / 2);
+      for (let i = 0; i <= steps; i++) {
+        const sample = paintedPathPoint(
+          path,
+          (length * i) / steps,
+          length,
+          getComputedStyle(path).strokeLinecap,
+        );
+        if (!sample) continue;
+        const point = sample.matrixTransform(matrix);
+        const obstacle = ink.find(
+          ({ rect }) =>
+            point.x + radius > rect.left &&
+            point.x - radius < rect.right &&
+            point.y + radius > rect.top &&
+            point.y - radius < rect.bottom,
+        );
+        if (obstacle) {
+          hits.push({
+            path: index,
+            point: { x: point.x, y: point.y },
+            ink: obstacle.rect.toJSON(),
+            tag: obstacle.tag,
+          });
+          break;
+        }
+      }
+    }
+    report.debug ??= [];
+    report.debug.push({
+      id: record.id,
+      state: record.note.dataset.graphicState,
+      paintVisibility: getComputedStyle(record.svg).visibility,
+      routes: measurement.geometry.routes,
+      geometry: measurement.geometry,
+      body: record.scene.body.getBoundingClientRect().toJSON(),
+      hits,
+      ink: measurement.ink,
+    });
+    report.debug = report.debug.slice(-4);
+    publish();
+  };
+}
 const compilerPaint = new Map();
 const normalFetch = window.fetch;
 window.fetch = async (...args) => {
@@ -119,8 +177,20 @@ try {
       );
       check(
         `${prefix} composes its relationship automatically`,
-        note().dataset.graphicState === "ready" && Boolean(svg),
+        note().dataset.graphicState === "ready" &&
+          Boolean(svg) &&
+          getComputedStyle(svg).visibility !== "hidden",
       );
+      if (query.has("publication")) {
+        const publications = (report.debug ?? []).filter((item) => item.id === target.id);
+        check(
+          `${prefix} withholds colliding paint while routing automatically`,
+          publications.some((item) => item.state === "pending") &&
+            publications
+              .filter((item) => item.state === "pending")
+              .every((item) => item.paintVisibility === "hidden"),
+        );
+      }
       check(
         `${prefix} preserves every native marked target`,
         target.tags.every((tag) =>

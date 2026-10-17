@@ -405,3 +405,15 @@ retain attributed cells and semantic mathematical groups. A right-hand alignment
 column must not become an indivisible mathematical object at some font/width
 combinations. Audit the actual annotated Reader scene as well as the independent
 candidate corpus.
+
+Reserve the original arrowhead's paint when choosing a free endpoint, rather
+than checking only its centerline. Keep a colliding candidate invisible while
+its automatic replacement is pending; publish the complete original or routed
+paint only with its terminal layout state.
+
+Collision sampling must follow painted SVG geometry. A zero-distance path sample
+can identify an isolated, unpainted initial move before the real subpath. Begin
+nonempty path sampling at a subpixel positive distance; retain painted
+zero-length round/square caps and ignore unpainted butt-cap moves. Share this
+policy between relationship routing and native figure label placement so neither
+can introduce phantom obstacles from the same SVG.

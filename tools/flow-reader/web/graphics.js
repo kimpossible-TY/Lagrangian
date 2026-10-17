@@ -3,6 +3,21 @@
 import { visualFragments } from "./math-identity.js";
 import { routeConnections } from "./connector-routing.js";
 
+export function paintedPathPoint(path, distance, length, linecap = "butt") {
+  if (length > 0) {
+    // Typst may begin with an isolated `M 0 0` before the real subpath. SVG's
+    // zero-distance sample can return that unpainted origin. A positive offset
+    // reaches the actual stroke, including its cap to subpixel precision.
+    return path.getPointAtLength(Math.max(Math.min(0.001, length / 2), distance));
+  }
+  if (!["round", "square"].includes(linecap)) return null;
+  const box = path.getBBox();
+  const point = path.ownerSVGElement.createSVGPoint();
+  point.x = box.x;
+  point.y = box.y;
+  return point;
+}
+
 function spanFor(records) {
   const roots = [
     ...new Set(
@@ -87,9 +102,12 @@ function collisions(record, layout, measurement) {
     const length = path.getTotalLength();
     const scale = Math.max(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d));
     const samples = Math.min(2000, Math.max(1, Math.ceil((length * scale) / 2)));
-    const radius = Math.max(0.5, (parseFloat(getComputedStyle(path).strokeWidth) * scale) / 2);
+    const style = getComputedStyle(path);
+    const radius = Math.max(0.5, (parseFloat(style.strokeWidth) * scale) / 2);
     for (let i = 0; i <= samples; i++) {
-      const point = path.getPointAtLength((length * i) / samples).matrixTransform(matrix);
+      const sample = paintedPathPoint(path, (length * i) / samples, length, style.strokeLinecap);
+      if (!sample) continue;
+      const point = sample.matrixTransform(matrix);
       if (
         obstacles.some(
           (rect) =>
@@ -466,6 +484,9 @@ export class GraphicalAnnotations {
           this.schedule();
         }
       }
+      // Measure the compiler's paint to route it, but do not cover readable
+      // mathematics with a candidate awaiting its automatic replacement.
+      record.svg.style.visibility = record.note.dataset.graphicState === "pending" ? "hidden" : "";
     });
   }
 

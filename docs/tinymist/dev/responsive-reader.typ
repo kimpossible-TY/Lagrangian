@@ -347,6 +347,13 @@ two route adjustments are requested per measured geometry. Unresolved collisions
 remain visible layout failures. Newly composed math is required before measuring
 connections or paint after a width/font change.
 
+Free literal endpoints reserve space for the original arrowhead as well as its
+centerline. A colliding candidate remains invisible while its replacement is
+pending, preventing temporary paint across readable mathematics. SVG sampling
+ignores an isolated initial move that has no painted stroke; zero-length round
+and square caps remain obstacles. Native figure label placement uses the same
+painted-path sampling policy.
+
 The frozen PDE compiler audit identifies 23 supported connections across 12 of
 its 15 graphical annotation programs. This is protocol coverage, not a claim that
 every relationship is now collision-free. The browser fixture uses the original

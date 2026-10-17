@@ -157,6 +157,17 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **AND** unmarked mathematical ink remains a routing obstacle
 - **AND** the original CeTZ renderer retains the path's styling and arrowheads
 
+#### Scenario: A relationship needs an automatic replacement
+- **WHEN** a measured candidate overlaps readable mathematical ink
+- **THEN** its paint remains withheld while routing is pending
+- **AND** a free endpoint reserves room for its complete original arrowhead
+- **AND** the terminal result publishes automatically without a user action
+
+#### Scenario: SVG geometry begins with an unpainted move
+- **WHEN** a path contains an isolated initial move before its painted subpath
+- **THEN** relationship and native label collision measurements ignore that unpainted point
+- **AND** painted zero-length round or square caps remain obstacles
+
 #### Scenario: Failed source edit
 - **WHEN** a saved edit fails to compile
 - **THEN** the last valid document remains usable with an explicit stale/error status

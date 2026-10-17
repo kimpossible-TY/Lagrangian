@@ -158,7 +158,10 @@ export function routeConnection(connector, obstacles, width, height, fontSize) {
     [connector.end, points.length - 1],
   ]) {
     if (!endpoint.free) continue;
-    const replacement = freeEndpoint(points[index], blocked, width, height, fontSize);
+    // The free end includes the original arrowhead, not only the path's thin
+    // centerline. Reserve its paint before choosing an otherwise clear port.
+    const endpointInk = obstacles.map((rect) => padded(rect, Math.max(12, fontSize * 0.5)));
+    const replacement = freeEndpoint(points[index], endpointInk, width, height, fontSize);
     if (!replacement) return null;
     relocated ||= distance(points[index], replacement) > EPS;
     points[index] = replacement;

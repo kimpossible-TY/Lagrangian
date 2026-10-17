@@ -1,3 +1,5 @@
+import { paintedPathPoint } from "./graphics.js";
+
 const gap = 4;
 const paper = [252, 250, 246];
 
@@ -143,7 +145,8 @@ function segmentsOf(svg, stage, geometry) {
   const rect = stage.getBoundingClientRect();
   const segments = [];
   for (const path of svg.querySelectorAll("path,rect,circle,ellipse,line,polyline,polygon")) {
-    if (path.closest("defs") || getComputedStyle(path).stroke === "none") continue;
+    const style = getComputedStyle(path);
+    if (path.closest("defs") || style.stroke === "none") continue;
     const matrix = path.getScreenCTM();
     if (!matrix) continue;
     const length = path.getTotalLength();
@@ -153,7 +156,9 @@ function segmentsOf(svg, stage, geometry) {
     );
     let previous;
     for (let i = 0; i <= count; i++) {
-      const transformed = path.getPointAtLength((length * i) / count).matrixTransform(matrix);
+      const sample = paintedPathPoint(path, (length * i) / count, length, style.strokeLinecap);
+      if (!sample) continue;
+      const transformed = sample.matrixTransform(matrix);
       const current = { x: transformed.x - rect.left, y: transformed.y - rect.top };
       if (previous) segments.push([previous, current]);
       previous = current;
