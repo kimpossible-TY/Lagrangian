@@ -232,6 +232,24 @@ Overflow remains a visible failed layout condition. This integration does not
 resolve the remaining indivisible structures, drawing collisions, or mobile
 rollout requirements.
 
+Native cancellation must retain a semantic `menclose` body instead of freezing
+the cancelled text into SVG. The Reader-only adapter captures the resolved
+cancellation properties and uses the existing fragment-decoration protocol to
+draw the original Typst cancellation on an empty measured box. For visual line
+breaking, replace only these paint-backed enclosures with transparent rows;
+restore their enclosure notation in assistive MathML. Arbitrary enclosures remain
+intact. The compiler's `mrow` boundary keeps nested show-rule bodies in math mode;
+the HTML normalizer promotes the tagged row afterward. Overlines use native
+accented MathML with an explicitly stretchy spacing macron spanning their whole
+body. A combining accent can remain a short glyph and is insufficient. Neither
+adapter changes the paged target or authored source coordinates.
+Check measured glyph and stretched-operator extents as well as scroll width.
+Use a stretched operator's complete visible surface rather than its clipped,
+overlapping glyph pieces; those pieces do not represent independent visible ink.
+A small measured display overhang can trigger up to two additional line-breaking
+passes at the same font size, reserving at most one em of the available width.
+Large indivisible structures remain explicit layout failures.
+
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.
 
 A layout pass is not successful merely because the document root has no horizontal

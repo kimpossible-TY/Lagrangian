@@ -67,7 +67,8 @@ function prepare(item) {
 }
 
 async function run() {
-  const { splitDerivations } = await import("./math-layout.js");
+  const { splitDerivations, prepareNativeDecorations, restoreNativeDecorations, mathOverflow } =
+    await import("./math-layout.js");
   const { MathIdentity, logicalTextIndex } = await import("./math-identity.js");
   await MathJax.startup.promise;
   const response = await fetch(
@@ -152,7 +153,9 @@ async function run() {
         if (text(node) !== before) report.compositionChanges.push(Number(node.dataset.index));
       }
     }
+    prepareNativeDecorations(main);
     await MathJax.typesetPromise([main]);
+    restoreNativeDecorations(main);
     await document.fonts.ready;
     sections.forEach((node, index) => {
       const id = Number(node.dataset.index);
@@ -179,23 +182,14 @@ async function run() {
         n.getAttribute("data-mjx-error"),
       );
       if (errors.length) report.errors.push({ index: id, errors });
-      const bounds = node.getBoundingClientRect();
-      const glyphs = [...node.querySelectorAll("mjx-c,mjx-utext,svg")]
-        .flatMap((n) => [...n.getClientRects()])
-        .filter((r) => r.width && r.height);
-      const left = Math.min(bounds.left, ...glyphs.map((r) => r.left));
-      const right = Math.max(bounds.right, ...glyphs.map((r) => r.right));
-      if (
-        node.scrollWidth > node.clientWidth + 1 ||
-        left < bounds.left - 1 ||
-        right > bounds.right + 1
-      ) {
+      const overflow = mathOverflow(node);
+      if (Math.max(overflow.left, overflow.right) > 1) {
         report.overflow.push({
           index: id,
           available: node.clientWidth,
           required: node.scrollWidth,
-          left: bounds.left - left,
-          right: right - bounds.right,
+          left: overflow.left,
+          right: overflow.right,
         });
       }
       const actual = text(node);

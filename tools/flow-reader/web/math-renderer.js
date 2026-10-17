@@ -1,13 +1,14 @@
 import { MathIdentity, logicalTextIndex, selectedIntervals } from "./math-identity.js";
-import { splitDerivations } from "./math-layout.js";
+import {
+  mathOverflow,
+  prepareNativeDecorations,
+  restoreNativeDecorations,
+  splitDerivations,
+} from "./math-layout.js";
 import { namespaceClone } from "./graphics.js";
 import { loadMathJax } from "./mathjax-loader.js";
 
 let serial = 0;
-
-function visualNodes(root, selector) {
-  return [...root.querySelectorAll(selector)].filter((n) => !n.closest("mjx-assistive-mml"));
-}
 
 function restoreIdentifiers(root, ids) {
   const seen = new Set();
@@ -201,25 +202,43 @@ export class ResponsiveMath {
       span.append(svg);
     }
     splitDerivations(stage);
+    prepareNativeDecorations(stage);
     const metrics = {
       ...mathjax.getMetricsFor(record.view, record.display),
       containerWidth: measurement.width,
     };
+    const blueprint = [...stage.childNodes].map((node) => node.cloneNode(true));
     try {
-      for (const math of [...stage.querySelectorAll("math")].filter(
-        (n) => !n.parentElement.closest("math"),
-      )) {
-        const converted = await mathjax.mathml2chtmlPromise(
-          new XMLSerializer().serializeToString(math),
-          { ...metrics, display: math.getAttribute("display") === "block" },
-        );
-        math.replaceWith(converted);
-      }
-      mathjax.startup.document.reset();
-      mathjax.startup.document.updateDocument();
       this.article.append(stage);
-      await document.fonts.ready;
-      if (stage.querySelector("mjx-merror")) throw new Error("수식 조판 오류가 발생했습니다.");
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt) stage.replaceChildren(...blueprint.map((node) => node.cloneNode(true)));
+        for (const math of [...stage.querySelectorAll("math")].filter(
+          (n) => !n.parentElement.closest("math"),
+        )) {
+          const converted = await mathjax.mathml2chtmlPromise(
+            new XMLSerializer().serializeToString(math),
+            { ...metrics, display: math.getAttribute("display") === "block" },
+          );
+          math.replaceWith(converted);
+        }
+        mathjax.startup.document.reset();
+        mathjax.startup.document.updateDocument();
+        restoreNativeDecorations(stage);
+        await document.fonts.ready;
+        if (stage.querySelector("mjx-merror")) throw new Error("수식 조판 오류가 발생했습니다.");
+        // Layout boxes do not include every italic/stretched glyph overhang.
+        // Rebreak a small measured overhang at the same font; do not squeeze an
+        // indivisible structure or loop trying to fix a fundamentally wide one.
+        const overflow = mathOverflow(stage);
+        const correction = 2 * Math.max(overflow.left, overflow.right) + 1;
+        if (
+          !record.display ||
+          Math.max(overflow.left, overflow.right) <= 1 ||
+          measurement.width - metrics.containerWidth + correction > measurement.fontSize
+        )
+          break;
+        metrics.containerWidth = Math.max(1, metrics.containerWidth - correction);
+      }
       return { stage, ids };
     } catch (error) {
       stage.remove();
@@ -269,13 +288,8 @@ export class ResponsiveMath {
             record.view.replaceChildren(...result.stage.childNodes);
             record.key = measurement.key;
             record.retryAt = 0;
-            const rects = visualNodes(record.view, "mjx-c,mjx-utext,svg")
-              .flatMap((n) => [...n.getClientRects()])
-              .filter((r) => r.width && r.height);
-            const overflow = rects.some(
-              (r) =>
-                r.left < measurement.left - 1 || r.right > measurement.left + measurement.width + 1,
-            );
+            const bounds = mathOverflow(record.view, measurement);
+            const overflow = Math.max(bounds.left, bounds.right) > 1;
             record.view.dataset.mathState = overflow ? "overflow" : "ready";
             this.notice(
               record,

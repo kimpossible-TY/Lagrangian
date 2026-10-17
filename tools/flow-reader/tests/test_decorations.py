@@ -1,6 +1,8 @@
 """Semantic terms and authored decoration layers must survive independently."""
 import json
+import math
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -42,6 +44,98 @@ class DecorationValidationTests(unittest.TestCase):
 
 
 class DecorationCompilerTests(unittest.TestCase):
+    def test_native_cancellation_retains_terms_and_resolved_paint_properties(self):
+        from html.parser import HTMLParser
+
+        class Enclosures(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.notations = []
+                self.asserted = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "menclose":
+                    attributes = dict(attrs)
+                    self.notations.append(attributes["notation"])
+                    self.asserted.append(attributes.get("data-flow-cancel") == attributes["notation"])
+
+        compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not compiler or not packages:
+            self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        project = Project(ROOT / "tests/fixtures", Path("native-decorations.typ"), Path(packages), compiler=compiler)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = compile_project(project, output)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            source = (output / "document.html").read_text()
+            parser = Enclosures()
+            parser.feed(source)
+            self.assertTrue(all(parser.asserted))
+            self.assertEqual(parser.notations, ["updiagonalstrike",
+                             "updiagonalstrike downdiagonalstrike", "downdiagonalstrike", "updiagonalstrike"])
+            self.assertEqual(len(report["decorations"]), 4)
+            self.assertNotIn("<svg", source)
+            self.assertIn("<msup>", source)
+            self.assertIn("<msub>", source)
+            self.assertIn('<mover accent="true" data-flow-overline="true">', source)
+            self.assertIn('<mo stretchy="true">¯</mo>', source)
+            requests = {identifier: {"fontSize": 30, "ink": "#abcdef", "fragments": [
+                {"width": 100, "height": 30}, {"width": 60, "height": 25}]}
+                for identifier in report["decorations"]}
+            requested = compile_project(project, output, decorations=requests)
+            self.assertTrue(requested["contentGatePassed"], (output / "compile.log").read_text())
+            drawings = extract_decorations((output / "document.html").read_text(), requests, "native")
+            paths = {}
+            for identifier, layers in drawings.items():
+                paths[identifier] = []
+                self.assertEqual({(d["fragment"], d["layer"]) for d in layers}, {(0, "over"), (1, "over")})
+                for drawing in layers:
+                    svg = ET.fromstring(drawing["svg"])
+                    self.assertFalse(list(svg.iter("{http://www.w3.org/2000/svg}use")), "Paint must not repeat body glyphs")
+                    paths[identifier].append(list(svg.iter("{http://www.w3.org/2000/svg}path")))
+                    parents = {child: parent for parent in svg.iter() for child in parent}
+                    geometry = requests[identifier]["fragments"][drawing["fragment"]]
+                    for path in paths[identifier][-1]:
+                        length = abs(float(re.search(r"v ([\d.-]+)$", path.get("d"))[1]))
+                        a, b, c, d, x, y = map(float, re.search(r"matrix\(([^)]+)\)", path.get("transform"))[1].split())
+                        x -= c * length / 2
+                        y -= d * length / 2
+                        parent = parents[path]
+                        while parent is not svg:
+                            if transform := parent.get("transform"):
+                                translated = re.fullmatch(r"translate\(([^)]+)\)", transform)
+                                self.assertIsNotNone(translated)
+                                dx, dy = map(float, translated[1].split())
+                                x += dx
+                                y += dy
+                            parent = parents[parent]
+                        self.assertAlmostEqual(x, geometry["width"] * 0.75 / 2, places=6)
+                        self.assertAlmostEqual(y, geometry["height"] * 0.75 / 2, places=6,
+                                               msg="Inline paragraph leading must not shift cancellation paint")
+            for index, fragment in enumerate(paths["decoration-2"]):
+                self.assertEqual(len(fragment), 2, "The set-rule cross must draw both diagonals")
+                for path in fragment:
+                    self.assertEqual(path.get("stroke"), "#ff4136")
+                    self.assertEqual(path.get("stroke-width"), "1.5")
+                    self.assertIn("stroke-dasharray", path.attrib)
+                geometry = requests["decoration-2"]["fragments"][index]
+                width, height = (geometry[key] * 0.75 for key in ("width", "height"))
+                length = abs(float(re.search(r"v ([\d.-]+)$", fragment[0].get("d"))[1]))
+                self.assertAlmostEqual(length, math.hypot(width, height) * 1.3, places=6)
+                transform = list(map(float, re.search(r"matrix\(([^)]+)\)", fragment[0].get("transform"))[1].split()))
+                angle = math.atan2(width, height) + math.radians(10)
+                self.assertAlmostEqual(transform[0], math.cos(angle), places=6)
+                self.assertAlmostEqual(transform[1], math.sin(angle), places=6)
+            self.assertTrue(all(path.get("stroke") == "#0074d9" for part in paths["decoration-3"] for path in part))
+            inverted = paths["decoration-3"][0][0]
+            transform = list(map(float, re.search(r"matrix\(([^)]+)\)", inverted.get("transform"))[1].split()))
+            self.assertAlmostEqual(transform[0], math.cos(math.radians(30)), places=6)
+            self.assertAlmostEqual(transform[1], -math.sin(math.radians(30)), places=6)
+            length = abs(float(re.search(r"v ([\d.-]+)$", inverted.get("d"))[1]))
+            self.assertAlmostEqual(length, math.hypot(75, 22.5) + 30 * 0.75 * 0.6, places=6)
+            self.assertTrue(all(path.get("stroke") == "#abcdef" for part in paths["decoration-4"] for path in part))
+
     def test_native_math_and_all_authored_layers_for_multiple_fragments(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")

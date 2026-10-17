@@ -7,8 +7,9 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Add isolated target-aware package adapters and a reproducible reader build command.
 - [x] Compile the full PDE document with math, references, footnotes, and annotation adapters; verify graphical programs separately.
 - [x] Evaluate automatic math line breaking against all 1,411 PDE display equations; record remaining overflow and fragment-identity issues.
-- [ ] Separate mathematical content from mark/decoration SVGs and distinguish derivation alignment from matrix structure.
+- [x] Separate mathematical content from mark/decoration SVGs and distinguish derivation alignment from matrix structure.
 - [x] Preserve mannot bodies as semantic MathML and render original decoration callbacks for each measured fragment; validate all PDE decoration IDs.
+- [x] Preserve native cancellation and overline bodies as semantic mathematics, with original per-fragment cancellation paint and assistive enclosure notation.
 - [x] Add an isolated, opt-in derivation-row composition probe and compare it with the prior adapter against a frozen source snapshot.
 - [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Bind canonical mathematical text to all rendered token occurrences and preserve selected quotations/highlights when script DOM order changes.

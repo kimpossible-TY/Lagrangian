@@ -64,6 +64,29 @@ class ContentAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Non-phrasing"):
             build.normalize_math_html('<math><mrow><div>note</div></mrow></math>')
 
+    def test_only_tagged_math_cancellation_is_promoted_to_a_semantic_enclosure(self):
+        row = ('<mrow data-flow-cancel="updiagonalstrike" notation="updiagonalstrike">'
+               '<mrow><mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></mrow>')
+        result = build.normalize_math_html('<math>' + row + '</math>')
+        self.assertIn('<menclose data-flow-cancel="updiagonalstrike"', result)
+        self.assertIn('<mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></menclose>', result)
+        self.assertEqual(build.normalize_math_html(result), result)
+        self.assertEqual(build.normalize_math_html(row), row)
+        mismatch = row.replace('notation="updiagonalstrike"', 'notation="box"')
+        self.assertEqual(build.normalize_math_html('<math>' + mismatch + '</math>'), '<math>' + mismatch + '</math>')
+
+    def test_overline_spans_a_grouped_body_with_a_stretchy_spacing_bar(self):
+        body = '<mi>a</mi><mo>+</mo><mi>b</mi>'
+        row = '<mrow accent="true" data-flow-overline="true">' + body + '</mrow>'
+        result = build.normalize_math_html('<math>' + row + '</math>')
+        expected = ('<math><mover accent="true" data-flow-overline="true"><mrow>' + body
+                    + '</mrow><mo stretchy="true">¯</mo></mover></math>')
+        self.assertEqual(result, expected)
+        self.assertEqual(build.normalize_math_html(result), result)
+        empty = build.normalize_math_html('<math><mrow accent="true" data-flow-overline="true"/></math>')
+        self.assertIn('<mrow></mrow><mo stretchy="true">¯</mo></mover>', empty)
+        self.assertEqual(build.normalize_math_html(empty), empty)
+
     def test_math_normalization_keeps_svg_case_for_later_xml_extraction(self):
         from xml.etree import ElementTree as ET
         svg = ('<svg xmlns="http://www.w3.org/2000/svg"><defs>'
@@ -108,7 +131,9 @@ class TypstIntegrationTests(unittest.TestCase):
             self.assertTrue(report["contentGatePassed"], report)
             self.assertEqual(report["annotations"], 2)
             self.assertGreater(report["elements"]["math"], 5)
-            self.assertGreater(report["elements"]["svg"], 0)
+            self.assertEqual(report["elements"].get("svg", 0), 0)
+            self.assertGreater(report["elements"]["menclose"], 0)
+            self.assertGreater(report["elements"]["mover"], 0)
 
     def test_paged_output_is_unchanged_by_package_overlay(self):
         with tempfile.TemporaryDirectory() as temp:

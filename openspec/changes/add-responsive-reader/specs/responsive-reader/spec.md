@@ -21,6 +21,14 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **AND** the original decoration is rendered against every fragment without painting the inter-line gap
 - **AND** obsolete geometry cannot paint the new document or retain a misleading decoration after a font change
 
+#### Scenario: Native cancellation and overline
+- **WHEN** a source equation contains a cancellation or overline
+- **THEN** its mathematical body remains semantic, selectable text
+- **AND** cancellation paint retains the resolved source stroke, angle, length, inversion, and cross settings on every measured fragment
+- **AND** assistive mathematics retains the cancellation notation after visual line breaking
+- **AND** an overline visibly spans its complete mathematical body
+- **AND** the paged output is unchanged
+
 #### Scenario: A graphical relationship targets a wrapped term
 - **WHEN** one logical marked term occupies several visual fragments
 - **THEN** the relationship request retains every fragment rectangle and the original logical target identity

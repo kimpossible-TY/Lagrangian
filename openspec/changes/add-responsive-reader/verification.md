@@ -525,3 +525,42 @@ receipts are `managed-update.json`, `managed-browser.json`, and
 `managed-pde-390.png` under `dist/reader-routing-checks`. The temporary fixture
 servers and verification tab were closed, and the viewport override was reset.
 The mobile default remains pending full fidelity validation.
+
+## Native mathematical decorations
+
+Cancellation bodies remain semantic `menclose` content, with the original Typst
+cancellation properties drawing only paint on each measured fragment. A tagged
+`mrow` integration boundary preserves nested mathematical show rules during
+export; normalization restores semantic enclosures afterward. The visual pass
+makes only these paint-backed enclosures breakable and restores their notation
+in assistive MathML. Overlines use a grouped body and explicitly stretchy spacing
+macron; a browser regression verifies the bar spans the complete body.
+
+The frozen source snapshot's 65 files are unchanged. All 6,759 outer mathematical
+roots remain, including 1,412 display roots, while mathematical SVG islands fall
+from 77 to zero (67 cancellations and ten overlines). The full PDE compile has no
+mathematical-loss warnings and passes the content gate. All 169 decoration IDs
+produce both requested fragments, totaling 338 layers. The final paired PDF
+comparison uses identical frozen sources, fonts, and creation timestamp; both
+SHA-256 values remain `3fb2b8cb775215a9d7a3905048489299bad22331b3401c7223bbc48f86d1ef46`.
+
+All 48 Python and 27 Node tests pass. Geometry tests check cancellation length,
+function and fixed angles, inversion, crossed diagonals, inherited and explicit
+ink, thickness, and dashes. The actual Reader fixture passes 21 checks at each
+of 320px and 390px, covering 18px and 30px text, canonical copying, fragment paint,
+assistive cancellation, and full-width overlines. The existing 25-check math
+selection/update fixture and 15-check CeTZ routing fixture pass at 320px. The
+canonical guide compiles; formatting and diff checks pass.
+
+The isolated paired corpus probe uses complete stretched-operator surfaces rather
+than their clipped overlapping glyph pieces, and checks scroll width as well.
+Both versions use the same measurement and frozen source. At 390px/18px, overflow
+is 16 before and 14 after; at 320px/30px, it is 164 before and 157 after. These
+counts are not directly comparable with older measurements that omitted complete
+stretched-operator surfaces. Every run checks all 6,759 roots with zero rendering,
+token-binding, logical-text, or SVG-count errors. New semantic bodies retain 394
+logical marks across 482 presentation fragments at 320px/30px. The probe omits
+dynamic paint, relationships, and the runtime's bounded small-overhang correction;
+it does not establish production layout or screen-reader acceptance. Remaining
+fractions, bracketed annotations, matrices, drawing labels, device checks, and
+mobile rollout remain open. Evidence is under `dist/reader-math-overflow-checks`.
