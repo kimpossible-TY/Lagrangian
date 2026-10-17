@@ -651,3 +651,18 @@ candidate. Evidence is under `dist/reader-frame-checks`, including
 `runtime-320-30-final.json`, `runtime-390-18-final.json`, viewport fixture reports,
 regression reports, and screenshots. Figure fidelity and mobile-default rollout
 remain unfinished.
+
+### Managed structured-math delivery
+
+Clean commit `c782df3ef7100241e542c9b1e786a66f1fc0a69e` is installed in the
+independent development Reader on HTTPS port 23627, PID 16288. Its six served
+renderer module/style hashes match that commit. The live saved PDE compilation
+passes the content gate with exit code zero. The actual energy-flux identity
+has component width/scroll width 343/343 at 390px/18px and 273/273 at 320px/30px;
+both states are `ready`. Original PDF port 23625 remains HTTP 200 in PID 39357.
+
+Whole-page widths still exceed the phone viewport because distant unadapted
+canvases contribute their natural bounds. The font-change check also exposed a
+reading-position drift before navigating back to the equation. Those failures
+remain explicit; mobile default routing is unchanged. Delivery, browser geometry
+and screenshots are under `dist/reader-frame-checks/managed-*`.

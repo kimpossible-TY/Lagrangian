@@ -341,6 +341,13 @@ conversion checks at common reading widths; real paragraph contexts, dynamic
 paint and figures, device behavior and assistive reading remain separate work.
 Evidence is under `dist/reader-frame-checks`.
 
+The clean structured-math commit is installed in the independent development
+Reader. The actual PDE energy-flux identity fits its complete component at
+390px/18px and 320px/30px. The original PDF service retains its process and
+returns HTTP 200. Distant unadapted canvases still widen the whole document, and
+font changes exposed a reading-position drift; neither issue is covered by the
+zero-overflow candidate result. Both remain rollout work.
+
 == Logical mathematical selections
 
 `web/math-identity.js` assigns source token IDs before mathematical typesetting.
