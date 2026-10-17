@@ -168,6 +168,18 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **THEN** relationship and native label collision measurements ignore that unpainted point
 - **AND** painted zero-length round or square caps remain obstacles
 
+#### Scenario: A mathematical font line box extends into a clear channel
+- **WHEN** a relationship lies in the empty ascent/descent space around a mathematical glyph
+- **THEN** collision measurements use the glyph's actual surface and complete stretched-operator surfaces
+- **AND** every visible mathematical surface retains its original marked-term identity
+- **AND** assistive and staging copies cannot introduce duplicate obstacles
+
+#### Scenario: Visible relationships are requested in a different batch
+- **WHEN** an already rendered relationship is requested with the same accepted revision and geometry
+- **THEN** its original result is reused independently of other requested components
+- **AND** only missing or changed component layouts require compilation
+- **AND** a failed source save cannot mix a new uncached layout with the previous accepted revision
+
 #### Scenario: Failed source edit
 - **WHEN** a saved edit fails to compile
 - **THEN** the last valid document remains usable with an explicit stale/error status

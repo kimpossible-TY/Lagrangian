@@ -417,3 +417,17 @@ nonempty path sampling at a subpixel positive distance; retain painted
 zero-length round/square caps and ignore unpainted butt-cap moves. Share this
 policy between relationship routing and native figure label placement so neither
 can introduce phantom obstacles from the same SVG.
+
+CHTML text ranges include the font's full ascent/descent, leaving false obstacles
+between mathematical rows and sometimes covering a fixed endpoint. Measure each
+mathematical glyph's own surface, stretched operators once at their complete
+surface, and carried SVG math. Exclude assistive and staging copies. Keep prose
+range bounds and each mathematical surface's original marked-term identity.
+Share the glyph/stretched-surface policy with horizontal mathematical bounds.
+
+Dynamic response reuse is per component as well as per request batch. Key each
+graphic, canvas and decoration by kind, accepted revision, ID and complete
+validated geometry. A differently grouped request reuses unchanged components
+and compiles only the missing layouts. A failed source save retains already
+rendered accepted output; uncached geometry against changed sources is rejected.
+Clear both cache levels when a new revision is accepted.

@@ -160,6 +160,62 @@ class ReaderServingTests(unittest.TestCase):
                 server.server_close()
                 worker.join()
 
+    def test_graphics_reuse_components_across_batches_and_compile_only_changed_layouts(self):
+        compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not compiler or not packages:
+            self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        from build import compile_project
+        from figures import geometry_identity
+        from graphics import extract_graphics
+        from serve import RevisionChanged
+        from test_graphics import geometry
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            source = work / "source"
+            source.mkdir()
+            fixture = (ROOT / "tests/fixtures/graphics.typ").read_text()
+            second = fixture[fixture.index("$"):].replace("left", "left-two").replace("right", "right-two")
+            entry = source / "main.typ"
+            entry.write_text(fixture + "\n" + second)
+            state = ReaderState(Project(source, Path("main.typ"), Path(packages), compiler=compiler),
+                                work / "output", "https://example.test/paged/", False)
+            state.compile()
+            revision = state.revision
+            self.assertIsNotNone(revision, state.report)
+            other = geometry()["graphic-1"]
+            other["markers"] = {key + "-two": value for key, value in other["markers"].items()}
+            batch = geometry() | {"graphic-2": other}
+            rendered = state.render_graphics(revision, batch)
+            with patch("serve.compile_project", side_effect=AssertionError("Unexpected recompilation")):
+                for identifier, layout in batch.items():
+                    reused = state.render_graphics(revision, {identifier: layout})
+                    self.assertEqual(reused["graphics"], {identifier: rendered["graphics"][identifier]})
+            changed = geometry(220) | {"graphic-2": other}
+            with patch("serve.compile_project", wraps=compile_project) as compile_spy:
+                updated = state.render_graphics(revision, changed)
+            self.assertEqual(compile_spy.call_count, 1)
+            self.assertEqual(compile_spy.call_args.kwargs["geometry"], {"graphic-1": changed["graphic-1"]})
+            self.assertEqual(updated["graphics"]["graphic-2"], rendered["graphics"]["graphic-2"])
+            fresh = work / "fresh"
+            report = compile_project(state.project, fresh, geometry={"graphic-2": other})
+            self.assertTrue(report["contentGatePassed"], report)
+            expected = extract_graphics((fresh / "document.html").read_text(), {"graphic-2": other}, "fresh")
+            self.assertEqual(geometry_identity(expected["graphic-2"]),
+                             geometry_identity(rendered["graphics"]["graphic-2"]))
+            entry.write_text("#does-not-exist()")
+            state.compile()
+            self.assertEqual(state.revision, revision)
+            with patch("serve.compile_project", side_effect=AssertionError("Unexpected recompilation")):
+                self.assertEqual(state.render_graphics(revision, {"graphic-2": other})["graphics"],
+                                 {"graphic-2": rendered["graphics"]["graphic-2"]})
+            with self.assertRaises(RevisionChanged):
+                state.render_graphics(revision, {"graphic-2": other | {"width": 450}})
+            entry.write_text(fixture + "\n" + second.replace("(0, -0.5)", "(0, -0.9)"))
+            state.compile()
+            self.assertNotEqual(state.revision, revision)
+            self.assertFalse(state.component_cache)
+
     def test_compile_failure_keeps_the_previous_document_available(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")

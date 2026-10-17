@@ -2,18 +2,23 @@
 // cases, vectors, and nested tables are mathematical structures and stay intact.
 const NS = "http://www.w3.org/1998/Math/MathML";
 
-export function mathOverflow(
-  root,
-  { width = root.clientWidth, left = root.getBoundingClientRect().left } = {},
-) {
-  const rects = [...root.querySelectorAll("mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,svg")]
-    .filter((node) => {
+export function mathInkNodes(root) {
+  return [...root.querySelectorAll("mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,svg")].filter(
+    (node) => {
       if (node.closest("mjx-assistive-mml")) return false;
       // Stretched operators stencil overlapping glyph pieces. Their raw piece
       // rectangles extend past the visible bar/fence; measure its surface once.
       const stretch = node.closest("mjx-stretchy-h,mjx-stretchy-v");
       return !stretch || stretch === node;
-    })
+    },
+  );
+}
+
+export function mathOverflow(
+  root,
+  { width = root.clientWidth, left = root.getBoundingClientRect().left } = {},
+) {
+  const rects = mathInkNodes(root)
     .flatMap((node) => [...node.getClientRects()])
     .filter((rect) => rect.width && rect.height);
   return {

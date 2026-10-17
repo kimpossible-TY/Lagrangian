@@ -39,7 +39,7 @@ class ReaderState:
         self.compiling = False
         self.source_stamp = None
         self.graphic_cache = OrderedDict()
-        self.canvas_cache = OrderedDict()
+        self.component_cache = OrderedDict()
         self.graphic_lock = threading.Lock()
         self.graphics = {}
         self.canvases = []
@@ -92,7 +92,7 @@ class ReaderState:
                 self.canvases = report.get("canvases", [])
                 self.decorations = report.get("decorations", {})
                 self.graphic_cache.clear()
-                self.canvas_cache.clear()
+                self.component_cache.clear()
 
     def compile(self):
         with self.lock:
@@ -163,8 +163,8 @@ class ReaderState:
             stamp = self.source_stamp
             dependencies = set(self.accepted_dependencies)
         key = hashlib.sha256(json.dumps([kind, revision, geometry], sort_keys=True).encode()).hexdigest()
-        canvas_keys = {identifier: json.dumps([kind, revision, identifier, layout], sort_keys=True)
-                       for identifier, layout in geometry.items()} if kind != "graphics" else {}
+        component_keys = {identifier: json.dumps([kind, revision, identifier, layout], sort_keys=True)
+                          for identifier, layout in geometry.items()}
         cached = {}
         with self.graphic_lock:
             with self.lock:
@@ -173,10 +173,10 @@ class ReaderState:
                 if key in self.graphic_cache:
                     self.graphic_cache.move_to_end(key)
                     return self.graphic_cache[key]
-                for identifier, canvas_key in canvas_keys.items():
-                    if canvas_key in self.canvas_cache:
-                        cached[identifier] = self.canvas_cache[canvas_key]
-                        self.canvas_cache.move_to_end(canvas_key)
+                for identifier, component_key in component_keys.items():
+                    if component_key in self.component_cache:
+                        cached[identifier] = self.component_cache[component_key]
+                        self.component_cache.move_to_end(component_key)
                 if cached:
                     geometry = {identifier: layout for identifier, layout in geometry.items()
                                 if identifier not in cached}
@@ -200,10 +200,9 @@ class ReaderState:
                 if self.revision != revision:
                     raise RevisionChanged("The document revision has changed")
                 for identifier, drawing in drawings.items():
-                    if identifier in canvas_keys:
-                        self.canvas_cache[canvas_keys[identifier]] = drawing
-                while len(self.canvas_cache) > 256:
-                    self.canvas_cache.popitem(last=False)
+                    self.component_cache[component_keys[identifier]] = drawing
+                while len(self.component_cache) > 256:
+                    self.component_cache.popitem(last=False)
                 self.graphic_cache[key] = result
                 while len(self.graphic_cache) > 48:
                     self.graphic_cache.popitem(last=False)

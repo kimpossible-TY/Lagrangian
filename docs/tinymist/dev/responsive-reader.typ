@@ -354,6 +354,18 @@ ignores an isolated initial move that has no painted stroke; zero-length round
 and square caps remain obstacles. Native figure label placement uses the same
 painted-path sampling policy.
 
+Mathematical obstacles use each CHTML glyph's own surface and complete stretched
+operator surfaces. This preserves channels between derivation rows where a text
+range's empty font ascent/descent would falsely cover a fixed endpoint. Assistive
+and staging copies are excluded; prose retains its measured range bounds and
+every mathematical surface retains its marked-term identity.
+
+The server caches each relationship by its accepted revision and complete
+geometry independently of request batching. A mixed batch compiles only missing
+layouts and retains unchanged results. Accepted revision changes clear both
+cache levels. After a failed save, cached accepted paint remains available while
+new uncached geometry against changed source is rejected.
+
 The frozen PDE compiler audit identifies 23 supported connections across 12 of
 its 15 graphical annotation programs. This is protocol coverage, not a claim that
 every relationship is now collision-free. The browser fixture uses the original
