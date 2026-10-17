@@ -57,11 +57,23 @@ match or a single oversized union rectangle. Renderer adoption also requires
 explicit accessibility, embedded-SVG, and reference verification. See the
 reproducible evaluation in `tools/flow-reader/research/README.md`.
 
-CeTZ figures need dimensions and layout constraints that distinguish coordinates,
-label font size, panel ordering and legend placement. Re-evaluate appropriate
-figure code against those constraints. Treat a fixed complete SVG as an unresolved
-responsive case when fitting it makes its labels too small. Essential annotation
-text and graphical relationships belong inline and must be laid out automatically.
+Preserve the author's CeTZ coordinates and drawing programs. The user's follow-up
+clarification favors a shared adaptive canvas over manually repositioning every
+figure. Numeric CeTZ coordinates use the canvas `length` unit; first evaluate a
+reader-only adapter that maps the original coordinate system into the available
+width while retaining readable text and appropriate stroke widths. Changing an
+outer HTML box alone does not change absolute drawing positions. Scaling a
+completed SVG scales its text as well, so it is not sufficient when labels become
+unreadable. Re-evaluation with a changed coordinate unit must also account for
+explicit physical lengths and user-defined text scaling.
+
+Measure the resulting bounds and label collisions. Apply centralized panel/legend
+layout rules only where unit scaling cannot satisfy readability; do not assume
+that every authored canvas can be rearranged without semantic layout information.
+Do not rewrite each source figure's coordinates as the default strategy. Keep
+PDF layout and original source files intact. Essential annotations and graphical
+relationships belong inline; their anchors must follow the reflowed mathematical
+terms rather than retain page positions.
 
 ## Reader protocol
 

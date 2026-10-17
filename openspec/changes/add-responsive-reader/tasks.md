@@ -9,7 +9,7 @@ The existing scrolling and annotation-dialog prototype does not meet this contra
 - [x] Evaluate automatic math line breaking against all 1,411 PDE display equations; record remaining overflow and fragment-identity issues.
 - [ ] Separate mathematical content from mark/decoration SVGs and distinguish derivation alignment from matrix structure.
 - [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
-- [ ] Recompose CeTZ figures and labels for the reading width without uniform text shrinkage.
+- [ ] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.
 - [ ] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [ ] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
 - [ ] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
