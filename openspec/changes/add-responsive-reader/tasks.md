@@ -32,6 +32,9 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Export the four Maquette surface plots with native axis text, unchanged source pixels, coordinates and complete PDF output.
 - [x] Preserve native label selections, quotations and source geometry reading points after preceding figure insertions in an isolated actual PDE copy.
 - [x] Compose all six actual PDE tables vertically while retaining their 94 original cells, mathematical ink and header associations.
+- [x] Verify all 67 native figures and all six tables at 320px, 390px, 430px and 768px with 18px/30px font settings.
+- [x] Traverse every actual Reader body section at 320px/30px, checking all 7,006 body-math occurrences against their real nested container budgets.
+- [x] Repeat all 56 actual body sections at 390px/18px with complete expression coverage, canonical text and horizontal-ink checks.
 - [ ] Complete native figure checks for geometry, arrowheads, leaders, palette readability, source updates and device behavior before default rollout.
 - [x] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
@@ -43,7 +46,8 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Expose an independent development Reader through Tail Hosting and Tailnet HTTPS.
 - [ ] Connect the mobile entry and explicit view preference after fidelity validation, retaining the original view.
 - [x] Implement and test a guarded Dashboard document entry, exact profile pairing, explicit browser preference and independently observed Reader mode flags.
-- [ ] Publish and verify the companion status/Dashboard integration, then promote automatic mobile reading after the remaining acceptance gates.
+- [x] Publish and verify the companion status/Dashboard integration against the actual managed Reader and original service.
+- [ ] Promote automatic mobile reading after the remaining fidelity and device acceptance gates.
 - [ ] Verify existing paged service and reader delivery, document operation and rollback.
 
 Implementation checkpoint: the complete PDE document compiles to HTML with no
