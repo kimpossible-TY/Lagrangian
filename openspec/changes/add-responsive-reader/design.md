@@ -125,6 +125,10 @@ ID remain outside this adapter; they must be covered before final acceptance.
 
 Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open reader dialog.
 
+Known input parent directories use entry-name fingerprints to detect import
+creation. Their timestamps and Finder metadata are not compiler inputs; changing
+those alone must not reject dynamic rendering or force a source recompilation.
+
 Use content and asset requests on the reader's own origin. The original paged view remains reachable from the reader. Initial mobile routing must honor an explicit choice and offer both views.
 
 Store highlights in browser-local storage scoped to a document identity derived
@@ -191,6 +195,17 @@ nearest actual fragment center. Perimeter anchors traverse the separate rectangl
 perimeters in order. Literal coordinates retain the first fragment's origin.
 The empty inter-line union is not a valid marked surface. This defines anchoring,
 not collision-free connector routing or semantic simplification of the drawing.
+
+For supported planar open line/Bezier connections between named marked terms, retain
+their endpoint identities and original path in Reader-only CeTZ metadata. The
+browser may propose a route around measured text and labels at the current
+geometry. Numeric route requests must preserve the original endpoints; the
+original CeTZ callback reevaluates the path and its marks/styles. Unsupported
+drawings retain their authored rendering and explicit unresolved-collision state.
+Never infer arbitrary drawing semantics or replace an arrowhead with an unrelated
+browser glyph. Route decisions belong to the measured revision/geometry and are
+bounded to prevent repeated compile loops. A route must fit horizontally without
+shrinking the selected text; vertical outsets reserve body space automatically.
 
 ## Validation and delivery
 

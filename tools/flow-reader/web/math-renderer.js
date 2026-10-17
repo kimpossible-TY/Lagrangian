@@ -114,6 +114,15 @@ export class ResponsiveMath {
   }
 
   schedule(delay = 100) {
+    for (const record of this.records) {
+      const measurement = this.measure(record);
+      if (
+        measurement &&
+        record.key !== measurement.key &&
+        record.view.dataset.mathState !== "error"
+      )
+        record.view.dataset.mathState = "pending";
+    }
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.render(), delay);
   }
@@ -241,6 +250,7 @@ export class ResponsiveMath {
         if (generation !== this.generation || this.selectionActive()) break;
         const measurement = this.measure(record);
         if (!measurement) continue;
+        record.view.dataset.mathState = "pending";
         let result;
         try {
           result = await this.candidate(record, measurement, mathjax);

@@ -23,6 +23,18 @@ def geometry(right_x=260):
 
 
 class GeometryValidationTests(unittest.TestCase):
+    def test_routes_are_numeric_bounded_and_preserved_in_the_request(self):
+        value = geometry()
+        value["graphic-1"]["routes"] = {"connector-1": [{"x": 80, "y": 70}, {"x": 90, "y": -20}]}
+        self.assertEqual(validate_geometry(value, {"graphic-1": ["left", "right"]}), value)
+        for routes in ({}, {"unknown": []}, {"connector-1": []},
+                       {"connector-1": [{"x": 80, "y": 70}, {"x": float("nan"), "y": 0}]},
+                       {"connector-1": [{"x": 80, "y": 70}, {"x": 401, "y": 0}]},
+                       {"connector-1": [{"x": 80, "y": 70}, {"x": 80, "y": -109}]}):
+            value["graphic-1"]["routes"] = routes
+            with self.assertRaises(ValueError):
+                validate_geometry(value, {"graphic-1": ["left", "right"]})
+
     def test_fragment_geometry_preserves_gaps_and_checks_each_rectangle(self):
         known = {"graphic-1": ["left", "right"]}
         value = geometry()
@@ -56,6 +68,45 @@ class GeometryValidationTests(unittest.TestCase):
 
 
 class GraphicCompilerTests(unittest.TestCase):
+    def test_routing_keeps_original_named_endpoints_and_cetz_marks(self):
+        compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not compiler or not packages:
+            self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        project = Project(ROOT / "tests/fixtures", Path("graphics-routed-anchors.typ"), Path(packages), compiler=compiler)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            request = geometry(220)
+            report = compile_project(project, output, geometry=request)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            original = ET.fromstring(extract_graphics((output / "document.html").read_text(), request, "before")["graphic-1"])
+            connector = json.loads(original.attrib["data-flow-graphic-layout"])["connectors"][0]
+            self.assertEqual(connector["start"], {"tag": "left", "anchor": "south"})
+            self.assertEqual(connector["end"], {"tag": "right", "anchor": "south"})
+            self.assertEqual(connector["kind"], "cubic")
+            self.assertFalse(connector["routed"])
+            a, b = connector["points"][0], connector["points"][-1]
+            request["graphic-1"]["routes"] = {"connector-1": [a, {"x": a["x"], "y": 170}, {"x": b["x"], "y": 170}, b]}
+            report = compile_project(project, output, geometry=request)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            routed = ET.fromstring(extract_graphics((output / "document.html").read_text(), request, "after")["graphic-1"])
+            revised = json.loads(routed.attrib["data-flow-graphic-layout"])["connectors"][0]
+            self.assertTrue(revised["routed"])
+            self.assertEqual(revised["points"], connector["points"])
+            self.assertNotEqual(json.loads(original.attrib["data-flow-graphic-layout"])["labels"],
+                                json.loads(routed.attrib["data-flow-graphic-layout"])["labels"])
+            # The original arrowhead remains a separate CeTZ stroke; the route
+            # is recomposed by CeTZ rather than replaced with a browser glyph.
+            before = [p for p in original.iter("{http://www.w3.org/2000/svg}path") if p.get("stroke")]
+            after = [p for p in routed.iter("{http://www.w3.org/2000/svg}path") if p.get("stroke")]
+            self.assertEqual(len(after), len(before))
+            self.assertEqual([p.get("stroke") for p in after], [p.get("stroke") for p in before])
+            self.assertNotEqual(after[0].get("d"), before[0].get("d"))
+            request["graphic-1"]["routes"]["connector-1"][0] = {"x": a["x"] + 2, "y": a["y"]}
+            report = compile_project(project, output, geometry=request)
+            self.assertEqual(report["exitCode"], 1)
+            self.assertIn("changed its original endpoints", (output / "compile.log").read_text())
+
     def test_fragment_anchors_land_on_actual_terms_and_keep_the_first_origin(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")

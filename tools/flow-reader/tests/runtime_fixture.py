@@ -6,7 +6,7 @@ in a disposable project directory. The report appears after the reading body.
 
 from pathlib import Path
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -20,11 +20,15 @@ def handler_for(state):
         def do_GET(self):
             path = urlsplit(self.path).path
             if path == "/":
+                module = "routing-browser.js" if parse_qs(urlsplit(self.path).query).get("check") == ["routing"] else "runtime-browser.js"
                 source = (ROOT / "web/index.html").read_text().replace(
-                    "</body>", '<script type="module" src="/runtime-browser.js"></script></body>')
+                    "</body>", f'<script type="module" src="/{module}"></script></body>')
                 return self.respond(source.encode(), "text/html; charset=utf-8")
             if path == "/runtime-browser.js":
                 return self.respond((ROOT / "tests/runtime-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/routing-browser.js":
+                return self.respond((ROOT / "tests/routing-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             super().do_GET()
     return Handler
