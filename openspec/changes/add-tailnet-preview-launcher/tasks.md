@@ -230,4 +230,4 @@ The reconnect prerequisite imports local commit `57cd14d05bef5b827b78ae3e04bd377
 - [x] 28.1 Identify smart-quote spelling and syntax rejection and define source-boundary/rendered-coverage behavior.
 - [x] 28.2 Support smart quotes with standard and document helpers while preserving syntax, ordering and repeated-origin checks.
 - [x] 28.3 Validate quote endpoints, wrapped sentences, Unicode offsets, mismatch/reuse rejection and existing highlight tests; run formatting, scoped lints and OpenSpec validation.
-- [ ] 28.4 Build and install a clean signed app with recovery, preserving profiles and checking smart-quote source edits in an isolated preview plus installed document delivery.
+- [x] 28.4 Build and install a clean signed app with recovery, preserving profiles and checking smart-quote source edits in an isolated preview plus installed document delivery.
