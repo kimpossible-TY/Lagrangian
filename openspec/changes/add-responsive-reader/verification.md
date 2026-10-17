@@ -6,8 +6,9 @@ The user clarified that reading must not require zoom, slides, horizontal pannin
 or an extra click to expand equations/essential annotations. Earlier checks of
 whole-document overflow do not satisfy that requirement. The current prototype
 still fails it: at 390px, a real PDE equation needs 367px inside a 343px container;
-section progression still has a required next button, and other sections contain
-collapsed annotations and graphical-view buttons. Historical checks below remain
+section progression previously required a next button. Continuous loading now
+removes that requirement, but sections still contain collapsed annotations and
+graphical-view buttons. Historical checks below remain
 useful evidence of rendering fidelity and lifecycle, but are not a responsive
 reading acceptance result.
 
@@ -172,6 +173,51 @@ physical stroke scaling, fixed-coordinate overflow, unchanged paged output, and
 cache reuse across differently grouped requests.
 JavaScript syntax is checked with `node --check` for `reader.js` and `canvases.js`.
 
+## Continuous reading checkpoint
+
+The reader now fetches adjacent transport sections automatically in both
+directions. Distant sections retain measured height while their DOM content is
+parked; nearby, selected, and focused content remains mounted. The nominal window
+is six mounted sections, but protecting content takes priority over that count.
+There are no next/previous section controls. Notes have section-scoped
+identifiers, canvas observation is updated without resetting existing drawings,
+and highlights paint all mounted sections.
+
+The dedicated synthetic fixture initially has 12 transport sections. Browser
+checks at 390px verify scrolling through successive sections, a six-section
+mounted window, zero duplicate IDs, retained native selection after automatic
+loading/parking, saved-quote return, and automatic loading in the reverse direction.
+Reload preserves the same reading key and a 4.140625px block top. A second reload
+after a linked jump and subsequent reading preserves a 30.171875px block top,
+even when the URL's section hint refers to an earlier location.
+Restoring a parked final section returns its five paragraphs and exactly the
+previous 803.28125px height, with six sections mounted afterward. Browser Back and
+Forward return to the same reading keys; the recorded Back check has 50px offset
+drift and Forward has 0.25px. Broader pixel-level history/anchoring checks remain
+open rather than treating those results as exact position preservation.
+
+Adding 20 preface paragraphs moves a selected block from section 5 to section 7.
+The new source revision is published, but the reader retains the selected word
+and its existing DOM until selection is cleared. After update, that block moves
+from 418.59375px to 418.078125px (less than 1px drift). Stopping only the fixture
+server leaves its 36 mounted paragraphs readable; after restart the next section
+loads automatically without a retry click.
+
+The full PDE is separately compiled and served with the production partition
+sizes. In a 390px browser, its first two sections join directly between the end
+of the linear-endomorphism proof and Jacobi's Formula, with zero duplicate IDs
+and zero orphan MathML `mrow` elements. At 320px/30px text they still form a
+continuous body. This is not a mathematics-fit result: the existing long equation
+in the screenshot still requires local horizontal scrolling and remains unfinished.
+
+All 32 Python integration/unit tests pass. Four Node tests additionally verify
+stale neighbor/restoration responses, automatic retry after a failed boundary
+request, and retention of selected/focused sections during parking. Reproduce
+with `node --test tools/flow-reader/tests/test_continuous.mjs`; the manual browser
+fixture is `tools/flow-reader/tests/continuous_fixture.py`. Evidence is
+`dist/reader-continuous-checks/browser-checks.json`, `fixture-saved.png`,
+`pde-boundary-390.png`, and `pde-boundary-320-30.png`.
+
 ## Saved highlights and lifecycle checkpoint
 
 Saved quotation checks use the synthetic fixture in
@@ -219,8 +265,8 @@ The screenshot is `dist/reader-highlight-checks/pde-https-highlight.png`.
 ## Outstanding requirements
 
 - Broader visual checks of the 15 graphical annotations and lower uncached latency.
-- Width-aware equation and figure composition with readable labels, inline essential
-  annotations, and automatic continuous section loading. Current local scrolling,
+- Width-aware equation and figure composition with readable labels and inline essential
+  annotations. Current local scrolling,
   complete-canvas scaling, and modal relationship views fail the clarified contract.
 - PDE and real-device highlight checks, source selection sharing, and broader update/anchor tests.
 - Offline reload and font delivery on a real mobile browser.

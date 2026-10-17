@@ -119,6 +119,15 @@ sections. Fetch the visible and adjacent sections, then append/prepend automatic
 as the reader approaches their boundaries. Preserve reading anchors and selections
 when managing a bounded DOM/cache; the continuous reading experience must not
 depend on the transport partition.
+The browser keeps a contiguous range of visited sections, loading either neighbor
+before its boundary reaches the viewport. It parks distant sections in measured
+height placeholders and restores them automatically on approach. Keep at least
+the nearby content and any selected/focused section mounted. Preserve a logical
+reading block and its viewport offset during insertions and restoration; an
+explicit jump may start a new window at its destination. Stale fetches from a
+previous revision or navigation must never append to the new window. Failed
+boundary requests retry automatically without discarding the readable content.
+Highlights resolve against the whole revision and paint all mounted sections.
 Keep large SVG and raster images as separate unchanged assets, with SVG hyperlinks
 remaining inline. Revision-specific requests reject stale revisions.
 

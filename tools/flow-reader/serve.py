@@ -332,6 +332,7 @@ def handler_for(state):
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
                       "/graphics.js": ("graphics.js", "text/javascript; charset=utf-8"),
                       "/canvases.js": ("canvases.js", "text/javascript; charset=utf-8"),
+                      "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
                       "/reader.css": ("reader.css", "text/css; charset=utf-8")}
             if path in assets:

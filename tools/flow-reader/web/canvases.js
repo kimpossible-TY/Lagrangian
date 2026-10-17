@@ -16,12 +16,8 @@ export class AdaptiveCanvases {
     this.controller?.abort();
     clearTimeout(this.timer);
     this.intersection?.disconnect();
-    this.records = [...this.article.querySelectorAll("[data-flow-canvas]")].map((node) => ({
-      node,
-      id: node.dataset.flowCanvas,
-      visible: false,
-      key: null,
-    }));
+    for (const record of this.records) record.message.remove();
+    this.records = [];
     this.intersection = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -32,12 +28,26 @@ export class AdaptiveCanvases {
       },
       { rootMargin: "800px 0px" },
     );
-    for (const record of this.records) {
+    this.sync();
+  }
+
+  sync() {
+    if (!this.intersection) return;
+    this.records = this.records.filter((record) => {
+      if (record.node.isConnected) return true;
+      this.intersection.unobserve(record.node);
+      return false;
+    });
+    const known = new Set(this.records.map((record) => record.node));
+    for (const node of this.article.querySelectorAll("[data-flow-canvas]")) {
+      if (known.has(node)) continue;
+      const record = { node, id: node.dataset.flowCanvas, visible: false, key: null };
       const message = document.createElement("span");
       message.className = "flow-canvas-status";
       message.textContent = "그림을 화면 폭에 맞추는 중…";
       record.message = message;
       record.node.append(message);
+      this.records.push(record);
       this.intersection.observe(record.node);
     }
     this.schedule();
@@ -125,6 +135,7 @@ export class AdaptiveCanvases {
         for (const item of batch) {
           const drawing = result.canvases[item.record.id];
           this.cache.set(item.key, drawing);
+          if (!item.record.node.isConnected) continue;
           const currentKey = JSON.stringify([
             revision,
             item.record.id,

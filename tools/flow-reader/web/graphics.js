@@ -19,6 +19,12 @@ export class GraphicalAnnotations {
     this.records.clear();
   }
 
+  prune() {
+    for (const [id, record] of this.records) {
+      if (record.nodes.some((node) => !node.isConnected)) this.records.delete(id);
+    }
+  }
+
   stop() {
     this.observer?.disconnect();
     this.controller?.abort();

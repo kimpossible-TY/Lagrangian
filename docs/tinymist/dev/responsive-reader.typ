@@ -106,10 +106,19 @@ mobile rollout work are tracked in the responsive-reader OpenSpec change.
 == Sections and graphical annotations
 
 The service publishes a revision-specific `/api/manifest` and HTML sections at
-`/api/sections/section-N?revision=...`. Only the current section is inserted into
-the browser DOM. The manifest resolves references and footnotes across sections.
+`/api/sections/section-N?revision=...`. The browser automatically appends and
+prepends neighboring sections as the reader approaches either edge. There are
+no next/previous section buttons. It normally retains six mounted sections,
+allowing more when content is nearby or contains a selection/focus. Distant
+sections become measured-height placeholders and are restored on approach.
+The manifest resolves references and footnotes across sections.
 Reading keys are assigned before partitioning, using named labels or contextual
 text, so a section boundary change does not itself invalidate a saved passage.
+Insertions, restoration, source updates, reloads, and browser history use the
+reading block and its viewport offset. A selected section is never parked;
+source updates wait until the selection or reader dialog closes. Saved highlights
+paint every mounted section. Boundary failures preserve the readable body and
+retry automatically. Transport HTML is cached separately from the bounded DOM.
 Large vector drawings and embedded images are delivered unchanged as separate,
 lazy-loaded assets. SVG drawings with interactive links remain inline.
 
@@ -176,7 +185,25 @@ proof that the LaunchAgent can access the same inputs.
 FLOW_READER_PACKAGES=/absolute/typst/packages \
   python3 -m unittest discover -s tools/flow-reader/tests -v
 node --check tools/flow-reader/web/reader.js
+node --test tools/flow-reader/tests/test_continuous.mjs
 ```
+
+For a small browser fixture with frequent transport boundaries:
+
+```sh
+python3 tools/flow-reader/tests/continuous_fixture.py \
+  --write-fixture dist/continuous-fixture
+python3 tools/flow-reader/tests/continuous_fixture.py \
+  --root dist/continuous-fixture --entry main.typ \
+  --package-path /absolute/typst/packages \
+  --output dist/continuous-fixture-build --watch --allow-incomplete
+```
+
+The fixture generator refuses to overwrite an existing source. Verify automatic
+forward/backward loading, distant-section parking, native selection, saved quote
+return, reload, browser history, and source changes that move a block across a
+transport boundary. Interrupt only the test server to verify automatic recovery.
+The current browser evidence is under `dist/reader-continuous-checks`.
 
 The integration tests invoke the compiler and compare paged outputs. Browser
 checks must additionally inspect MathML namespaces: HTML footnote markers inside
