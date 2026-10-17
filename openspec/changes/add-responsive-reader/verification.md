@@ -325,3 +325,11 @@ All 34 Python tests and 8 Node tests pass. The Node tests include obsolete-docum
 responses, changed term geometry, replacement records after parking, and automatic
 retry. JavaScript syntax, diff whitespace, and the canonical Typst guide compile
 also pass.
+
+The clean commit `0a6fa4ccd44dc488d1e97a5d673ce508879df6c4` is installed as the
+separate development Reader on HTTPS port 23627. Its accepted PDE compile passes
+the content gate, and the served shell, stylesheet, and JavaScript match that
+release. The managed browser displays inline notes at 390px and retains the
+existing saved quotation. The original paged endpoint remains HTTP 200 with its
+same process. Mobile default routing is unchanged. `managed-update.json` and
+`managed-pde-390.png` record this check. Temporary fixture/PDE services were stopped.
