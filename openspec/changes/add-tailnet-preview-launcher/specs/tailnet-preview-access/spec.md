@@ -322,6 +322,12 @@ Document preview SHALL offer an accessible web toolbar for a native text range w
 - **THEN** Highlight wraps that source slice in the real Typst highlight function and the watcher compiles the change
 - **AND** unsupported, ambiguous, stale or changed-disk selections do not modify source
 
+#### Scenario: Highlight text containing smart quotes
+- **WHEN** a current text selection contains smart quotes whose rendered spelling differs from source syntax
+- **THEN** Highlight resolves one syntax-checked source range using complete rendered glyph coverage, preserving the original source spelling
+- **AND** plain text retains exact normalized character order with either highlight helper
+- **AND** quote endpoints use source byte boundaries, while repeated origins and mismatched selections remain rejected
+
 #### Scenario: Highlight text containing an equation
 - **WHEN** the source module exports a callable `highlighted` helper and a current range covers complete equations alongside text
 - **THEN** the source edit uses `#highlighted[...]` so the document's helper handles the equation backgrounds and theme

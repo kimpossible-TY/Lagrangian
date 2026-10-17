@@ -83,3 +83,5 @@ Recover promptly when an iPhone/iPad home-screen viewer returns from another app
 ## Track edits while preview viewers are closed
 
 Keep bounded local source baselines and the latest observed authored source range shared across document palettes. Record filesystem saves even while viewer demand pauses layout, and map the latest source anchor into each palette when it compiles. Preserve theme-specific coordinates, read-only Git fallback and live-edit behavior.
+
+Accept text selections containing Typst smart quotes by verifying rendered glyph coverage against source byte ranges, retaining exact text order and single-use checks.
