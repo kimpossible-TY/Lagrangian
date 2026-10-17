@@ -185,6 +185,31 @@ full original-package and overlay PDF comparison is byte-identical. Evidence is
 under `dist/reader-semantic-checks`; see the research guide for the paired equation
 corpus measurements and their limits.
 
+== Logical mathematical selections
+
+`web/math-identity.js` assigns source token IDs before mathematical typesetting.
+A logical token can bind to several visual occurrences, including operators
+repeated at a continuation. The model retains the original Unicode characters
+and text order, while each character points to its actual browser range.
+Mathematical alphabet encoding, variation selectors, stretchy operator glyphs,
+and spacing are handled explicitly. Missing tokens or unexpected text fail binding.
+
+The Reader's quotation and highlight helpers now use this logical text index.
+Selections produce separate source intervals when presentation order is different;
+highlight ranges do not span intervening unselected scripts. Reading-position
+text also uses the same index. Native paragraphs keep their text and selection
+behavior. A renderer must bind the model successfully before publishing its view.
+
+The isolated PDE probe at 320px/30px checks all 6,759 outer mathematical roots,
+including 1,412 display equations, with no binding failures or logical quotation
+changes. It retains 324 logical marked nodes across 395 presentation fragments.
+A browser fixture checks superscript-only
+selection and base-plus-subscript highlighting after real MathJax reordering.
+Evidence is under `dist/reader-identity-checks`. This does not establish mathematical
+visual fidelity, accessibility, or completed Reader integration: the installed
+Reader still uses native MathML, and multi-fragment CeTZ relationship anchors
+remain necessary before enabling the candidate renderer.
+
 == Managed installation
 
 The Reader lifecycle module belongs to this repository and reads the installed

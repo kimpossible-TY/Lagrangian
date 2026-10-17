@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>수식 선택 순서 검증</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        color: #242c34;
+        background: #fcfaf6;
+        font: 18px/1.6 system-ui;
+      }
+      h1 {
+        font-size: 20px;
+      }
+      #fixture {
+        font-size: 30px;
+        margin: 2rem 0;
+      }
+      #report {
+        white-space: pre-wrap;
+        font: 13px/1.5 monospace;
+      }
+      ::highlight(logical-selection) {
+        background: #ffe28a;
+        color: #242c34;
+      }
+    </style>
+    <script>
+      const assets = new URL("./vendor/", location.href).href;
+      window.MathJax = {
+        mml: { allowHtmlInTokenNodes: true },
+        loader: { paths: { mathjax: assets + "mathjax" } },
+        output: {
+          displayOverflow: "linebreak",
+          linebreaks: { inline: true, width: "100%" },
+          font: "mathjax-newcm",
+          fontPath: assets + "%%FONT%%",
+        },
+        chtml: {
+          fontURL: assets + "mathjax-newcm/chtml/woff2",
+          dynamicPrefix: assets + "mathjax-newcm/chtml/dynamic",
+        },
+        options: {
+          enableMenu: false,
+          enableEnrichment: false,
+          enableSpeech: false,
+          enableBraille: false,
+          enableExplorer: false,
+          menuOptions: { settings: { enrich: false, speech: false, braille: false } },
+        },
+        startup: { typeset: false },
+      };
+    </script>
+    <script defer src="./vendor/mathjax/mml-chtml.js"></script>
+    <script type="module" src="./identity-browser.js"></script>
+  </head>
+  <body>
+    <h1>줄바꿈 뒤에도 같은 수식 항 선택</h1>
+    <p>노란 표시는 Γ와 아래첨자 i, j입니다. 위첨자 k는 포함하지 않습니다.</p>
+    <div id="fixture" data-reader-key="identity-fixture">
+      <div id="view">
+        <math display="block"
+          ><msubsup
+            ><mi>Γ</mi><mrow><mi>i</mi><mi>j</mi></mrow
+            ><mi>k</mi></msubsup
+          ><mo>=</mo
+          ><mrow data-flow-mark="sum"
+            ><mi>a</mi><mo>+</mo><mi>b</mi><mo>+</mo><mi>c</mi><mo>+</mo><mi>d</mi><mo>+</mo
+            ><mi>e</mi><mo>+</mo><mi>f</mi><mo>+</mo><mi>g</mi><mo>+</mo><mi>h</mi><mo>+</mo
+            ><mi>i</mi><mo>+</mo><mi>j</mi><mo>+</mo><mi>k</mi><mo>+</mo><mi>l</mi></mrow
+          ></math
+        >
+      </div>
+    </div>
+    <pre id="report" role="status">검증 중…</pre>
+  </body>
+</html>

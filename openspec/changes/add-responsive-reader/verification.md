@@ -377,3 +377,33 @@ corpus reports, `decoration-audit.json`, `decorations-390.png`, test logs, and
 remain HTTP 200. This checkpoint is not installed; mobile default routing remains
 unchanged. Cancellation/overline islands, multi-fragment graphical anchors,
 readable figure labels, collision resolution, and final mobile acceptance remain open.
+
+## Logical mathematical identity checkpoint
+
+The source token model binds every mathematical token to all of its visual
+occurrences, independently of renderer DOM order. It retains canonical Unicode
+and source order while mapping mathematical alphabet variants, variation selectors,
+spacing, repeated continuation operators, and stretchy operator glyphs. Unexpected
+text or missing tokens reject binding. Quotations split into separate logical
+intervals when a visual selection skips source-order characters. Highlight ranges
+do not include unselected superscripts between a base and its subscripts.
+
+At 320px/30px, the frozen PDE corpus passes for all 6,759 outer math roots:
+zero identity errors and zero logical text changes, with 324 logical marked nodes
+bound to 395 visual fragments. The 1,412 display-only roots also pass (322 marks,
+393 fragments). This is token association evidence, not a mathematical rendering
+or accessibility acceptance result. Remaining mathematical overflow is unchanged.
+
+The browser fixture passes nine checks, including source/presentation order,
+superscript-only selection, disjoint logical intervals, base/subscript-only paint,
+native prose exclusions, and a marked sum broken into four visual fragments.
+The current Reader's native MathML fixture loads without script errors, retains
+all eight decoration layers, and saves and relocates the selected heading word
+`decorations`. Double-clicking a native MathML glyph selected a newline in this
+browser; this does not establish general native mathematical selection ergonomics.
+
+All 39 Python tests and 13 Node tests pass. Evidence is under
+`dist/reader-identity-checks`: `all-math-320-30.json`, `corpus-320-30.json`,
+`selection-320.json`, `selection-320.png`, and test logs. The candidate renderer
+is not yet connected to the Reader. Multi-fragment relationship anchors, renderer
+asset delivery/lifecycle, accessibility, and full mobile layout acceptance remain open.

@@ -2,6 +2,7 @@ import { MathDecorations } from "./decorations.js";
 import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
 import { AdaptiveCanvases } from "./canvases.js";
 import { ContinuousSections } from "./sections.js";
+import { logicalTextIndex } from "./math-identity.js";
 
 const article = document.querySelector("#reader-document");
 const status = document.querySelector("#reader-status");
@@ -78,7 +79,7 @@ function fingerprint(text) {
   return (hash >>> 0).toString(36);
 }
 function textOf(node) {
-  return node.textContent.replace(/\s+/g, " ").trim();
+  return logicalTextIndex(node).text;
 }
 
 function readingAnchor() {
