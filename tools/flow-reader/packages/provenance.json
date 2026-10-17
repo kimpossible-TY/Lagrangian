@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "description": "Reader-only forks. Original package files are identified by SHA-256; paged installations are not replaced. mannot retains its MIT license. Local packages originate from the user\u2019s installed PDE packages.",
+  "packages": [
+    {
+      "package": "local/math-book/0.2.0",
+      "upstream": {},
+      "files": {
+        "typst.toml": "a4c36fcc5862d20f69a29f60550bca92d4305954335eafa3e0a1c5ba87c93be9",
+        "cover.typ": "a129bdd6f7b04addab45765e239fa1bf4ebeadcab37528547664c6eb745e7362",
+        "lib.typ": "943c400626fd66b1d80b7f95391a66b245da83db33b4a74e4a17aa6a1275e3e8",
+        "template/main.typ": "fc9705db11972bb0e42cdbcddf76a35bc89ebf0db8e285031fa8d65e01cef229",
+        "template/cover.typ": "617015e0aa959f4c16e3620f6d696b00e0ba3170393746ad65bcc684c267d814"
+      }
+    },
+    {
+      "package": "local/math-blocks/0.2.0",
+      "upstream": {},
+      "files": {
+        "typst.toml": "e5eeaa72f830e8893e5f7c4dd10129b9819f31a8f1b80b7fbe22551f1295c5c4",
+        "lib.typ": "542c7ce1ebfc6fbd51a7fefb2b55405a968a951b61d49170e49ef331948f36ff"
+      }
+    },
+    {
+      "package": "local/scoped-annotations/0.3.0",
+      "upstream": {},
+      "files": {
+        "typst.toml": "2deffaddbdcde7f320f9ff4ed8d16430b41ce0d933140ca7cfb8cdbb708f3dfd",
+        "lib.typ": "eb8e7ff7b31238c8fa4b996deb9502fec0ae4610240427a8b40873708e509203"
+      }
+    },
+    {
+      "package": "preview/mannot/0.4.0",
+      "upstream": {
+        "repository": "https://github.com/ryuryu-ymj/mannot",
+        "version": "0.4.0"
+      },
+      "files": {
+        "typst.toml": "aef4310b36955dc98d8b03ec4abf17d45777d0a08b65d6e67214752e57647545",
+        "LICENSE": "5aba3493920d5fb3d7b095f3e0c4a0311cf1feb24274789dbe16c5182febf1c9",
+        "README.md": "0aae2cc6968e42b8812181ee9ab8de296f8429c7f201d7f7c12e4b57b175cb0d",
+        "src/annot.typ": "12ea7288aeb7378bb6cdf8747d0d94fb3828def856521540a881edf25f4d42bd",
+        "src/lib.typ": "288027cea059b327bf3253c44ae975339e7afc0f149375d9d87ca1c1fe739f57",
+        "src/mark.typ": "86f7653d76aa4574f811c8b63a31f79b0a90c4989e24ac1277857334b6d35882",
+        "src/util.typ": "b88ea6e8d207c611925822d9d6ae7cb83bcf0486ba68af57807a9e4539b98583"
+      }
+    },
+    {
+      "package": "preview/cetz/0.4.2",
+      "upstream": {
+        "repository": "https://github.com/cetz-package/cetz",
+        "version": "0.4.2"
+      },
+      "files": {
+        "typst.toml": "2ccea70cc14ad8d79897179d3c8946758e610903e59f154acdb0f9b9ff81ac02",
+        "LICENSE": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+        "README.md": "0045647b07b2a251cf4ffbf7401d68f5c30bf2ff2d080096d422cae1f41426ea",
+        "cetz-core/cetz_core.wasm": "8e980195e214736aebd8d5faa962e4e7820015d16fc9b49edf9dcf7984f22788",
+        "src/deps.typ": "486a5c68c091cf47c59ad3767176b46c6bf92bc760bf83cad31e2594198f4daf",
+        "src/path-util.typ": "4eba2a39a2257c36fc81cae88600798641aae03295238d8f7645b03fc8084926",
+        "src/matrix.typ": "17ce3494b0e6ec567c991a1489206fcf40764f9acf5cfd6e5e9658c754f11d78",
+        "src/styles.typ": "717baee57a6135b5f33cbbbebe0bb03b81c2a30518a460f4e5221ddab8780ec7",
+        "src/draw.typ": "2ab63ab5c20e875c0f12a3630bb99606e47aa076b5b94769f6930f7a24270258",
+        "src/polygon.typ": "a4af08c24712f0005fed17a4647ba04b8855e5c2755483245bafc4ae73aea70c",
+        "src/vector.typ": "169fdb9e8cc46faeb90df0f689a3a326f8ec0ca454aecdd6e616800c57bf05d4",
+        "src/sorting.typ": "d9cafee6e584100c3e71e7a787841589aa289e1900b1eb3d181bc1325400a6ae",
+        "src/mark-shapes.typ": "223b5b737babc0b3a2c11b92d58f4d36866fe2ed55effc82532249a8233bad52",
+        "src/complex.typ": "ea463f2cc596b3b25775b6ffefa323d3240898683c9883331b73108eecfc52b6",
+        "src/drawable.typ": "727c3290105d00248c4784fbc4def7f3e6eafc9803391f3c32305dd8c7826bb2",
+        "src/aabb.typ": "a458c96cdb796955216b4c9b01cf232130359249461d4cbe6b34e2e4a3c2e9a5",
+        "src/lib.typ": "53380cd9de16c1f845f325e9d8be8e0f03493c2073fba1c54d546e1906a8f8ed",
+        "src/coordinate.typ": "c59ec4660d510f847d7ea245376a6eb1489db722d328c20b4d34c1fc3ff84216",
+        "src/version.typ": "a8db3068d965ccf4a8041e0a5d7afe13ced5b9f137fe67d9cbd45b7ce08c5c89",
+        "src/bezier.typ": "c5205f1f971d8274e7d506975e83576bea6c313c7976b11ce110db176dd65a63",
+        "src/wasm.typ": "b79986b390caafa7eb46832a17bb4f4f37538b9310ee9d4b8c46a312f4260f44",
+        "src/process.typ": "08fbc2ba0cfcf5517dd4f75e764f4e7fc962668d7e2c2375ce2f50f7f6221129",
+        "src/canvas.typ": "b22c4aeed144238f02614eee9710aa9d0e594d1d25399b9aef2d87bec5755974",
+        "src/mark.typ": "4cbe4de26abcba193543334f958ab03f4a426df8e71e032353094d1ca099e2f3",
+        "src/util.typ": "fd619fc3c6ee978e7cf5ff7b2b403cf94cb3b2cb17a853a44f2959db89c13b98",
+        "src/hobby.typ": "7d7cf7f226dbddc4bbee1049d90ec5960e7c3e09feef8b771224df6a5850bdbe",
+        "src/anchor.typ": "bcb7edfaa727b3d5b0be4f9003761b4446a5ff96ed374d64d836fde624b60a08",
+        "src/intersection.typ": "1c41308e5fa1b0dd8f4d86f7682e7937f3125dfd21a83cea408b1cca8d5f5c02",
+        "src/lib/pin.typ": "c75574113ef8bddeaba74becdc04347a8a7496a20e4842935a7874df63f9612b",
+        "src/lib/angle.typ": "8af04e34eec5ac8aa74a245829fe4f690c6ed5fbe33ac3bf817da68e3be345b8",
+        "src/lib/decorations.typ": "1f44aa27842638530864ba3bed22dc3012546f16e7ee9d7a5f2d6afe34acf2ac",
+        "src/lib/palette.typ": "29111ad2ca7cc5d34aa17a256efee5808d71d3ef29c3eac6e40341dda96065b3",
+        "src/lib/tree.typ": "77e0412502c13151744a25e4648bb1fc3b19ae1c42a8ddd42c06a6e50499ac03",
+        "src/draw/shapes.typ": "8001363447a69292df8a5210c3963987c65e203e7d0c6981759e7d4bf21e4db1",
+        "src/draw/grouping.typ": "82611e93ad2f6fccde4a313db02eb8a6aeb8d596ce959b747d4830f25d855da0",
+        "src/draw/projection.typ": "a0c7e67d8e6752fd1d9f383374f5aeacc86d0706618424e312bb2a8e437f5c92",
+        "src/draw/styling.typ": "83c0bbbc53e10c974776440355df41add4329436a78ad033fdcc2682f7a2e33a",
+        "src/draw/util.typ": "d3bae1e134665833e97700710df8ce7de0f0f5be6bab202088bc9250af589ae4",
+        "src/draw/transformations.typ": "98479838bee69d302d8ab394c9240c7ab1eb4794395927133350f433cfac8fc1",
+        "src/lib/decorations/path.typ": "953b0066d0ebc3cc4c9e0f6b481330e88bfd532a436fb1f90583651b0f6e7d23",
+        "src/lib/decorations/brace.typ": "17aa7d25fe6a7b5e6cc9cbf46106fe843b750dec03e7f603d949952234449a09"
+      }
+    }
+  ],
+  "importNotes": "Trailing whitespace and redundant terminal blank lines in imported Typst sources are normalized. File hashes above identify original package files before reader edits."
+}
