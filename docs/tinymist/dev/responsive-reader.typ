@@ -45,6 +45,13 @@ with visible fidelity diagnostics; do not use that flag for the mobile default.
 `/api/state` exposes compile state and the accepted revision. `/health` indicates
 whether a document is available, independently of whether the latest source
 compiled successfully. A failed compile retains the previous document.
+The HTTP shell is available while the first compile runs; readiness remains false
+until a document is accepted. File watching uses the compiler's dependency JSON
+and explicitly configured font directories. It does not recursively scan the
+project's unrelated media, caches, or cloud placeholders. A newly discovered
+dependency graph is compiled again against a measured input snapshot before
+publication. The served revision includes that snapshot, so changes to a dynamic
+drawing invalidate the revision even when its placeholder HTML is unchanged.
 
 The reader supports native text selection, a heading outline, font size changes,
 local equation scrolling, linked annotation dialogs, and reading anchors. Updates

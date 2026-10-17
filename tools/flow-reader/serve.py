@@ -7,7 +7,9 @@ import gzip
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
+import shutil
 import threading
 import tempfile
 import time
@@ -39,11 +41,23 @@ class ReaderState:
         self.asset_snapshots = OrderedDict()
         self.manifest_json = None
         self.manifest_compressed = None
+        self.dependencies = set()
+        self.accepted_dependencies = set()
+        self.watch_stamp = None
+        try:
+            self.dependencies.update(json.loads((output / "report.json").read_text()).get("dependencies", []))
+        except (OSError, ValueError):
+            pass
 
     def load_result(self, source_stamp):
         report = json.loads((self.output / "report.json").read_text())
         accepted = report["exitCode"] == 0 and (report["contentGatePassed"] or self.allow_incomplete)
         if accepted:
+            # Dynamic CeTZ programs can change without changing placeholder HTML.
+            # The served revision therefore includes the accepted input snapshot.
+            report["contentRevision"] = report["revision"]
+            report["revision"] = hashlib.sha256(
+                (report["revision"] + json.dumps(source_stamp)).encode()).hexdigest()
             document = (self.output / "document.html").read_bytes()
             bundle = split_document(document.decode(), report["revision"])
             compressed = gzip.compress(document)
@@ -64,6 +78,7 @@ class ReaderState:
                     self.asset_snapshots.popitem(last=False)
                 self.revision = report["revision"]
                 self.source_stamp = source_stamp
+                self.accepted_dependencies = set(self.dependencies)
                 self.graphics = report.get("graphics", {})
                 self.graphic_cache.clear()
 
@@ -71,12 +86,25 @@ class ReaderState:
         with self.lock:
             self.compiling = True
         try:
-            before = source_signature(self.project, self.output)
-            compile_project(self.project, self.output)
-            after = source_signature(self.project, self.output)
-            if before != after:
-                raise ValueError("Sources changed during compilation; waiting for a stable save")
-            self.load_result(after)
+            for attempt in range(3):
+                before = source_signature(self.project, self.dependencies)
+                report = compile_project(self.project, self.output)
+                discovered = set(report.get("dependencies", []))
+                new_dependencies = discovered - self.dependencies
+                self.dependencies.update(discovered)
+                if new_dependencies and report["exitCode"] == 0:
+                    # Discover the dependency graph once, then compile against a
+                    # measured before/after snapshot of every newly found input.
+                    continue
+                after = source_signature(self.project, self.dependencies)
+                self.watch_stamp = before
+                if before != after:
+                    raise ValueError("Sources changed during compilation; waiting for a stable save")
+                self.load_result(after)
+                self.watch_stamp = after
+                break
+            else:
+                raise ValueError("The source dependency graph did not stabilize")
         except Exception as error:
             with self.lock:
                 self.report = {"exitCode": 1, "contentGatePassed": False, "error": str(error),
@@ -100,6 +128,7 @@ class ReaderState:
                 raise RevisionChanged("The document revision has changed")
             geometry = validate_geometry(graphs, self.graphics)
             stamp = self.source_stamp
+            dependencies = set(self.accepted_dependencies)
         key = hashlib.sha256(json.dumps([revision, geometry], sort_keys=True).encode()).hexdigest()
         with self.graphic_lock:
             with self.lock:
@@ -108,7 +137,7 @@ class ReaderState:
                 if key in self.graphic_cache:
                     self.graphic_cache.move_to_end(key)
                     return self.graphic_cache[key]
-            if stamp != source_signature(self.project, self.output):
+            if stamp != source_signature(self.project, dependencies):
                 raise RevisionChanged("Saved sources have changed")
             with tempfile.TemporaryDirectory(prefix="graphics-", dir=self.output) as temporary:
                 work = Path(temporary)
@@ -116,7 +145,7 @@ class ReaderState:
                 if not report["contentGatePassed"]:
                     raise ValueError("Graphical annotation compilation failed")
                 graphics = extract_graphics((work / "document.html").read_text(), geometry, key[:16])
-            if stamp != source_signature(self.project, self.output):
+            if stamp != source_signature(self.project, dependencies):
                 raise RevisionChanged("Saved sources changed during graphical rendering")
             result = {"revision": revision, "graphics": graphics}
             with self.lock:
@@ -132,39 +161,48 @@ class RevisionChanged(ValueError):
     """A view request must be retried against the latest compiled snapshot."""
 
 
-def source_signature(project, output=None):
+def source_signature(project, dependencies=()):
+    """Stat compiler inputs; never recursively enumerate the user's project."""
     result = []
-    # Watch document data and both original and reader-specific package sources.
-    for root in (project.root, project.packages, HERE / "packages"):
-        for path in root.rglob("*"):
-            if output is not None and path.is_relative_to(output):
-                continue
-            if any(part in {".git", "node_modules", "dist", ".runtime", "__pycache__"}
-                   for part in path.relative_to(root).parts):
-                continue
-            if path.is_file() and path.suffix.lower() not in {".pdf", ".html", ".log"}:
-                try:
-                    stat = path.stat()
-                    result.append((str(path), stat.st_mtime_ns, stat.st_size))
-                except FileNotFoundError:
-                    pass
+    paths = {Path(path) for path in dependencies} | {project.root / project.entry}
+    compiler = shutil.which(project.compiler)
+    if compiler:
+        paths.add(Path(compiler))
+    # Fonts are not included in Typst's dependency JSON. Enumerate only the
+    # explicitly configured font roots, pruning ignored folders before descent.
+    for font in project.fonts:
+        root = project.root / font
+        paths.add(root)
+        for folder, directories, files in os.walk(root):
+            directories[:] = [name for name in directories if not name.startswith(".")]
+            paths.update(Path(folder) / name for name in files
+                         if Path(name).suffix.lower() in {".ttf", ".otf", ".ttc", ".otc"})
+    # Parent directory timestamps also detect creation of a previously missing
+    # import. Stat does not open or materialize unrelated cloud directories.
+    paths.update(path.parent for path in list(paths))
+    for path in paths:
+        try:
+            stat = path.stat()
+            result.append((str(path), stat.st_mtime_ns, stat.st_size))
+        except FileNotFoundError:
+            result.append((str(path), None, None))
     return tuple(sorted(result))
 
 
 def watch(state, stopped):
-    previous = state.source_stamp
+    previous = state.watch_stamp
     while not stopped.wait(1):
-        current = source_signature(state.project, state.output)
+        current = source_signature(state.project, state.dependencies)
         if current == previous:
             continue
         # Coalesce saves; a change made during compilation is picked up next time.
         if stopped.wait(.5):
             return
-        stable = source_signature(state.project, state.output)
+        stable = source_signature(state.project, state.dependencies)
         if stable != current:
             continue
-        previous = stable
         state.compile()
+        previous = state.watch_stamp or stable
 
 
 def handler_for(state):
@@ -284,11 +322,14 @@ def main():
                       tuple(args.font_path), args.compiler)
     project.relative_entry()
     state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete)
-    state.compile()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))
     stopped = threading.Event()
-    if args.watch:
-        threading.Thread(target=watch, args=(state, stopped), daemon=True).start()
+    def compile_and_watch():
+        state.compile()
+        if args.watch:
+            watch(state, stopped)
+    state.compiling = True
+    threading.Thread(target=compile_and_watch, daemon=True).start()
     print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/", **state.public()}), flush=True)
     try:
         server.serve_forever()
