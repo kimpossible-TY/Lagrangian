@@ -2,6 +2,20 @@
 // Keep mathematical text native except for decorations not yet handled by
 // Typst's MathML exporter. Never rasterize an entire paragraph or page.
 #let apply-reader(body) = {
+  // These tables encode mathematical structure, unlike equation alignment.
+  // Keep that distinction before the HTML backend turns both into mtable.
+  show math.mat: it => context {
+    if target() == "html" { html.elem("mrow", attrs: ("data-flow-math-kind": "matrix"), it) } else { it }
+  }
+  show math.vec: it => context {
+    if target() == "html" { html.elem("mrow", attrs: ("data-flow-math-kind": "vector"), it) } else { it }
+  }
+  show math.cases: it => context {
+    if target() == "html" { html.elem("mrow", attrs: ("data-flow-math-kind": "cases"), it) } else { it }
+  }
+  show math.binom: it => context {
+    if target() == "html" { html.elem("mrow", attrs: ("data-flow-math-kind": "binomial"), it) } else { it }
+  }
   show align: it => context {
     if target() == "html" {
       html.elem("div", attrs: (class: "flow-aligned"), it.body)

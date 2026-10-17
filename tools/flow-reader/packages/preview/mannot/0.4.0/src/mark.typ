@@ -1,4 +1,5 @@
 #import "util.typ": coerce-outset, default-stroke
+#import "reader.typ" as reader
 
 
 #let _sequence-func = ([x] + [y]).func()
@@ -372,10 +373,18 @@
       if underlay == none and overlay == none {
         html.elem("mrow", attrs: attrs, body)
       } else {
-        html.elem("mtext", html.elem("span", attrs: attrs, box(html.frame(
-          _paged-core-mark(body, color: color, underlay: underlay, overlay: overlay,
-            mark-outset: mark-outset, anchor-inset: anchor-inset, debug: debug)
-        ))))
+        if "style" in attrs { let _ = attrs.remove("style") }
+        reader.decoration-counter.step()
+        context {
+          let attrs = attrs
+          let id = "decoration-" + str(reader.decoration-counter.get().first())
+          attrs.insert("data-flow-decoration", id)
+          attrs.insert("data-flow-decoration-layers", json.encode(
+            (if underlay != none { ("under",) } else { () }) +
+            (if overlay != none { ("over",) } else { () })))
+          html.elem("mrow", attrs: attrs, body)
+          reader.decoration(id, underlay, overlay, color, mark-outset, anchor-inset)
+        }
       }
     } else {
       _paged-core-mark(body, tag: tag, color: color, underlay: underlay, overlay: overlay,

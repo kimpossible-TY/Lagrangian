@@ -333,3 +333,47 @@ release. The managed browser displays inline notes at 390px and retains the
 existing saved quotation. The original paged endpoint remains HTTP 200 with its
 same process. Mobile default routing is unchanged. `managed-update.json` and
 `managed-pde-390.png` record this check. Temporary fixture/PDE services were stopped.
+
+## Semantic decoration checkpoint
+
+The mannot adapter now emits native marked mathematical content separately from
+the original decoration callbacks. Revision-bound requests provide each fragment's
+dimensions, reading font, and ink; results retain layer order and anchor outsets.
+The browser paints every measured fragment separately, removes obsolete paint on
+geometry changes, reports pending/errors, and retries automatically. SVG XML case
+is preserved, and stretched bracket decorations no longer inherit equation numbers.
+
+All 102 PDE decoration IDs render at two supplied fragment sizes (204 fragments
+and 204 layers). The dedicated browser fixture at 390px/18px has seven semantic
+term occurrences, including a note preview, and eight ready paint layers. It
+retains mathematical body text independently of highlights, boxes, ordinary/wavy
+underlines, brackets, and a custom two-layer callback. This is compiler and fixture
+evidence, not a complete real-document layout acceptance result.
+
+Both adapter versions compile the same frozen PDE dependency snapshot with no
+missing link targets, duplicate IDs, unresolved annotation targets, or unhandled
+compiler-loss warnings. Each contains 6,759 outer math roots and 1,412 display
+roots. The new output exposes 102 decorations, 58 direct canvases, 25 cases, and
+11 matrices. The independently edited live source must not be mistaken for a
+stable before/after benchmark input.
+
+The isolated MathJax candidate combines semantic decoration bodies with optional
+composition of 398 derivation tables. Both comparison variants relocate note
+prose visibly before typesetting. Overflow changes from 26 to 12 at 390px/18px
+and 240 to 96 at 320px/30px. All four runs have zero input errors and zero SVG
+count changes; row composition itself preserves text order. MathJax presentation
+text and fragment occurrences still change. Dynamic decoration paint and graphical
+relationships are not drawn by this probe, and the candidate is not connected to
+the Reader. The research guide records exact hashes and limitations.
+
+The full PDF comparison is byte-identical between original packages and the new
+overlay (SHA-256 `8e86c79313fc61d207bc14c08bc10940e25dc820b23d3bc7917d00007dd4cd52`).
+All 39 Python and 10 Node tests pass, including every decoration layer, empty SVGs,
+cache reuse, failed saves, obsolete revisions, and separated fragment rectangles.
+JavaScript syntax, formatting, diff whitespace, and canonical guide compilation
+pass. Evidence is under `dist/reader-semantic-checks`, including the four frozen
+corpus reports, `decoration-audit.json`, `decorations-390.png`, test logs, and
+`paged/comparison.json`. The original PDF and installed development Reader both
+remain HTTP 200. This checkpoint is not installed; mobile default routing remains
+unchanged. Cancellation/overline islands, multi-fragment graphical anchors,
+readable figure labels, collision resolution, and final mobile acceptance remain open.

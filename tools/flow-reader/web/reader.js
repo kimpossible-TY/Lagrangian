@@ -1,3 +1,4 @@
+import { MathDecorations } from "./decorations.js";
 import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
 import { AdaptiveCanvases } from "./canvases.js";
 import { ContinuousSections } from "./sections.js";
@@ -26,6 +27,16 @@ const graphics = new GraphicalAnnotations(
   },
 );
 const canvases = new AdaptiveCanvases(article, () => revision);
+const decorations = new MathDecorations(
+  article,
+  () => revision,
+  () => graphics.schedule(),
+  (change) => {
+    const anchor = readingAnchor();
+    change();
+    restoreAnchor(anchor);
+  },
+);
 const sections = new ContinuousSections(article, {
   fetchSection,
   prepare: prepareSection,
@@ -118,6 +129,7 @@ function setFont(size) {
   document.querySelector("#reader-larger").disabled = fontSize === 30;
   store("fontSize", fontSize);
   canvases.schedule();
+  decorations.schedule();
   graphics.schedule();
   requestAnimationFrame(() => restoreAnchor(anchor));
 }
@@ -285,11 +297,13 @@ function mountedSectionsChanged() {
   indexDocument();
   graphics.sync();
   canvases.sync();
+  decorations.sync();
   highlights?.repaint();
 }
 
 function renderDocument(html, nextManifest, section, options) {
   graphics.clear();
+  decorations.clear();
   revision = nextManifest.revision;
   manifest = nextManifest;
   currentSection = section;
@@ -297,6 +311,7 @@ function renderDocument(html, nextManifest, section, options) {
   indexDocument();
   article.setAttribute("aria-busy", "false");
   canvases.onDocument();
+  decorations.sync();
   graphics.sync();
   highlights?.onDocument(manifest, currentSection);
   indexOutline(manifest);

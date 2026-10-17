@@ -74,6 +74,7 @@ class ContentAudit(HTMLParser):
         self.annotation_targets: list[list[str]] = []
         self.graphics: dict[str, list[str]] = {}
         self.canvases: list[str] = []
+        self.decorations: dict[str, list[str]] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
@@ -88,6 +89,8 @@ class ContentAudit(HTMLParser):
             self.marks[mark] += 1
         if canvas := attributes.get("data-flow-canvas"):
             self.canvases.append(canvas)
+        if decoration := attributes.get("data-flow-decoration"):
+            self.decorations[decoration] = json.loads(attributes["data-flow-decoration-layers"])
         if targets := attributes.get("data-flow-targets"):
             self.annotation_targets.append(json.loads(targets))
             if graphic := attributes.get("data-flow-graphic"):
@@ -107,6 +110,7 @@ class ContentAudit(HTMLParser):
             "unsupported": dict(self.diagnostics),
             "graphics": self.graphics,
             "canvases": self.canvases,
+            "decorations": self.decorations,
             "contentGatePassed": not (
                 missing_links or duplicate_ids or missing_marks or self.diagnostics
             ),
@@ -114,7 +118,7 @@ class ContentAudit(HTMLParser):
 
 
 def compile_project(project: Project, output: Path, *, geometry: dict | None = None,
-                    canvases: dict | None = None) -> dict:
+                    canvases: dict | None = None, decorations: dict | None = None) -> dict:
     root = project.root.resolve()
     entry = project.relative_entry()
     output.mkdir(parents=True, exist_ok=True)
@@ -133,6 +137,8 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             command.extend(["--font-path", str((root / font).resolve())])
         if geometry is not None:
             command.extend(["--input", "flow-geometry=" + json.dumps(geometry, separators=(",", ":"))])
+        if decorations is not None:
+            command.extend(["--input", "flow-decorations=" + json.dumps(decorations, separators=(",", ":"))])
         if canvases is not None:
             command.extend(["--input", "flow-canvases=" + json.dumps(canvases, separators=(",", ":"))])
         command.extend(["-", str(work / "document.html")])

@@ -64,6 +64,15 @@ class ContentAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Non-phrasing"):
             build.normalize_math_html('<math><mrow><div>note</div></mrow></math>')
 
+    def test_math_normalization_keeps_svg_case_for_later_xml_extraction(self):
+        from xml.etree import ElementTree as ET
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg"><defs>'
+               '<clipPath id="clip"><path d="M0 0L2 2"/></clipPath>'
+               '<linearGradient id="paint"><stop offset="0"/></linearGradient>'
+               '</defs></svg>')
+        normalized = build.normalize_math_html(svg)
+        self.assertEqual(ET.tostring(ET.fromstring(svg)), ET.tostring(ET.fromstring(normalized)))
+
 
 class PackageOverlayTests(unittest.TestCase):
     def test_does_not_replace_the_installed_package(self):

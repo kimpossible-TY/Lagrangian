@@ -504,3 +504,35 @@ math svg {
     border-radius: 2px;
   }
 }
+
+/* Decoration layers contain paint only; selection and glyphs stay in MathML. */
+.flow-decoration-surface {
+  position: relative;
+  isolation: isolate;
+}
+#reader-document .flow-decoration-paint {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
+  z-index: 1;
+}
+#reader-document .flow-decoration-paint[data-layer="under"] {
+  z-index: -1;
+}
+[data-decoration-state="pending"],
+[data-decoration-state="error"] {
+  outline: 1px dotted var(--muted);
+}
+.flow-decoration-notice {
+  display: block;
+  color: var(--muted);
+  font:
+    0.85rem/1.5 system-ui,
+    sans-serif;
+}
+.flow-decoration-notice:empty {
+  display: none;
+}

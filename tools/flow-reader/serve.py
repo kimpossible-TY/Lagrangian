@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 from build import HERE, Project, compile_project
 from graphics import extract_graphics, validate_geometry
 from canvases import extract_canvases, validate_canvases
+from decorations import extract_decorations, validate_decorations
 from sections import split_document
 from passages import locate_passages
 
@@ -42,6 +43,7 @@ class ReaderState:
         self.graphic_lock = threading.Lock()
         self.graphics = {}
         self.canvases = []
+        self.decorations = {}
         self.bundle = None
         self.section_compressed = {}
         self.asset_snapshots = OrderedDict()
@@ -88,6 +90,7 @@ class ReaderState:
                 self.accepted_dependencies = set(self.dependencies)
                 self.graphics = report.get("graphics", {})
                 self.canvases = report.get("canvases", [])
+                self.decorations = report.get("decorations", {})
                 self.graphic_cache.clear()
                 self.canvas_cache.clear()
 
@@ -130,7 +133,7 @@ class ReaderState:
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
-                  "graphics": self.graphics, "canvases": self.canvases}
+                  "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
 
     def locate(self, revision, fragments):
         with self.lock:
@@ -153,13 +156,15 @@ class ReaderState:
         with self.lock:
             if not self.revision or revision != self.revision:
                 raise RevisionChanged("The document revision has changed")
-            geometry = (validate_geometry(requests, self.graphics) if kind == "graphics"
-                        else validate_canvases(requests, self.canvases))
+            validate, known = {"graphics": (validate_geometry, self.graphics),
+                               "canvases": (validate_canvases, self.canvases),
+                               "decorations": (validate_decorations, self.decorations)}[kind]
+            geometry = validate(requests, known)
             stamp = self.source_stamp
             dependencies = set(self.accepted_dependencies)
         key = hashlib.sha256(json.dumps([kind, revision, geometry], sort_keys=True).encode()).hexdigest()
-        canvas_keys = {identifier: json.dumps([revision, identifier, layout], sort_keys=True)
-                       for identifier, layout in geometry.items()} if kind == "canvases" else {}
+        canvas_keys = {identifier: json.dumps([kind, revision, identifier, layout], sort_keys=True)
+                       for identifier, layout in geometry.items()} if kind != "graphics" else {}
         cached = {}
         with self.graphic_lock:
             with self.lock:
@@ -181,11 +186,12 @@ class ReaderState:
                 raise RevisionChanged("Saved sources have changed")
             with tempfile.TemporaryDirectory(prefix=f"{kind}-", dir=self.output) as temporary:
                 work = Path(temporary)
-                arguments = {"geometry" if kind == "graphics" else "canvases": geometry}
+                arguments = {"geometry" if kind == "graphics" else kind: geometry}
                 report = compile_project(self.project, work, **arguments)
                 if not report["contentGatePassed"]:
                     raise ValueError(f"{kind.capitalize()} compilation failed")
-                extract = extract_graphics if kind == "graphics" else extract_canvases
+                extract = {"graphics": extract_graphics, "canvases": extract_canvases,
+                           "decorations": extract_decorations}[kind]
                 drawings = extract((work / "document.html").read_text(), geometry, key[:16])
             if stamp != source_signature(self.project, dependencies):
                 raise RevisionChanged("Saved sources changed during graphical rendering")
@@ -256,7 +262,7 @@ def handler_for(state):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in {"/api/graphics", "/api/locate", "/api/canvases"}:
+            if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -273,6 +279,8 @@ def handler_for(state):
                     raise ValueError("Expected a JSON object")
                 if path == "/api/locate":
                     result = state.locate(request.get("revision"), request.get("fragments"))
+                elif path == "/api/decorations":
+                    result = state.render_dynamic(request.get("revision"), request.get("decorations"), "decorations")
                 elif path == "/api/canvases":
                     result = state.render_canvases(request.get("revision"), request.get("canvases"))
                 else:
@@ -331,6 +339,7 @@ def handler_for(state):
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
                       "/graphics.js": ("graphics.js", "text/javascript; charset=utf-8"),
+                      "/decorations.js": ("decorations.js", "text/javascript; charset=utf-8"),
                       "/canvases.js": ("canvases.js", "text/javascript; charset=utf-8"),
                       "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),

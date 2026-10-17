@@ -42,6 +42,22 @@ function prepare(item) {
     svg.replaceWith(span);
     span.append(svg);
   }
+  // Match the Reader's visible note relocation before measuring mathematics.
+  // Preserve the note bodies below the expression; do not count prose stuffed
+  // into an unbreakable MathML token as an equation layout limitation.
+  const notes = document.createElement("aside");
+  notes.className = "probe-notes";
+  for (const annotation of [...section.querySelectorAll("[data-flow-targets]")]) {
+    const note = document.createElement("div");
+    note.dataset.flowTargets = annotation.dataset.flowTargets;
+    note.append(...annotation.childNodes);
+    if (note.childNodes.length) notes.append(note);
+    const parent = annotation.parentElement;
+    annotation.remove();
+    if (parent?.localName === "mtext" && !parent.textContent && !parent.children.length)
+      parent.remove();
+  }
+  if (notes.children.length) section.append(notes);
   const label = document.createElement("p");
   label.className = "label";
   label.textContent = `식 ${item.index + 1}`;
@@ -50,8 +66,11 @@ function prepare(item) {
 }
 
 async function run() {
+  const { splitDerivations } = await import("./math-layout.js");
   await MathJax.startup.promise;
-  const response = await fetch("./corpus.json");
+  const response = await fetch(
+    parameters.get("source") === "baseline" ? "./baseline-corpus.json" : "./corpus.json",
+  );
   if (!response.ok) throw new Error(`Corpus HTTP ${response.status}`);
   const corpus = await response.json();
   const selected = parameters.has("index") ? Number(parameters.get("index")) : null;
@@ -67,10 +86,13 @@ async function run() {
     total: records.length,
     checked: 0,
     errors: [],
+    splitDerivations: 0,
+    compositionChanges: [],
     overflow: [],
     textChanges: [],
     svgChanges: [],
     markerChanges: [],
+    decorationChanges: [],
     // These are intentionally separate from a visual/semantic acceptance result.
     productionAcceptance: false,
     speechAndAccessibilityTested: false,
@@ -83,8 +105,18 @@ async function run() {
     const before = sections.map((node) => ({
       text: text(node),
       svg: node.querySelectorAll("svg").length,
+      decorations: [...node.querySelectorAll("[data-flow-decoration]")].map(
+        (n) => n.dataset.flowDecoration,
+      ),
       markers: [...node.querySelectorAll("[data-flow-mark]")].map((n) => n.dataset.flowMark),
     }));
+    if (parameters.get("rows") === "1") {
+      for (const node of sections) {
+        const before = text(node);
+        report.splitDerivations += splitDerivations(node);
+        if (text(node) !== before) report.compositionChanges.push(Number(node.dataset.index));
+      }
+    }
     await MathJax.typesetPromise([main]);
     await document.fonts.ready;
     sections.forEach((node, index) => {
@@ -118,6 +150,15 @@ async function run() {
       const svg = node.querySelectorAll("svg").length;
       if (svg !== before[index].svg)
         report.svgChanges.push({ index: id, before: before[index].svg, after: svg });
+      const decorations = [...node.querySelectorAll("[data-flow-decoration]")].map(
+        (n) => n.dataset.flowDecoration,
+      );
+      if (JSON.stringify(decorations) !== JSON.stringify(before[index].decorations))
+        report.decorationChanges.push({
+          index: id,
+          before: before[index].decorations,
+          after: decorations,
+        });
       const markers = [...node.querySelectorAll("[data-flow-mark]")].map((n) => n.dataset.flowMark);
       if (JSON.stringify(markers) !== JSON.stringify(before[index].markers)) {
         report.markerChanges.push({ index: id, before: before[index].markers, after: markers });

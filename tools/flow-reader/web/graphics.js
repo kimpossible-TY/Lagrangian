@@ -202,7 +202,21 @@ export class GraphicalAnnotations {
 
   measure(record) {
     const rect = record.scene.body.getBoundingClientRect();
-    const bounds = record.nodes.map((node) => node.getBoundingClientRect());
+    const bounds = record.nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      if (!node.dataset.flowAnchor) return rect;
+      const anchor = JSON.parse(node.dataset.flowAnchor);
+      const left = rect.left + anchor.left,
+        top = rect.top + anchor.top;
+      return {
+        left,
+        top,
+        right: left + anchor.width,
+        bottom: top + anchor.height,
+        width: anchor.width,
+        height: anchor.height,
+      };
+    });
     const x = Math.min(0, ...bounds.map((item) => item.left - rect.left));
     const y = Math.min(0, ...bounds.map((item) => item.top - rect.top));
     const width = Math.max(rect.width, ...bounds.map((item) => item.right - rect.left)) - x;
