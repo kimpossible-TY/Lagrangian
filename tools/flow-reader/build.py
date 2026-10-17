@@ -122,6 +122,7 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
         work = Path(temporary)
         prepare_packages(project.packages.resolve(), work / "packages")
         command = [project.compiler, "compile", "--features", "html", "--root", str(root),
+                   "--deps", str(work / "dependencies.json"),
                    "--package-path", str(work / "packages"), "--input", "flow-reader=true"]
         for font in project.fonts:
             command.extend(["--font-path", str((root / font).resolve())])
@@ -141,6 +142,26 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             "warnings": dict(Counter(line for line in result.stderr.splitlines()
                                      if line.startswith("warning:"))),
         }
+        dependencies = {str((root / entry).resolve())}
+        dependency_file = work / "dependencies.json"
+        if dependency_file.exists():
+            for filename in json.loads(dependency_file.read_text())["inputs"]:
+                path = Path(filename)
+                if path.name == "<stdin>":
+                    continue
+                if not path.is_absolute():
+                    path = root / path
+                # Map the temporary overlay back to the maintained package files.
+                # Otherwise its deletion would look like a source edit every time.
+                path = path.resolve()
+                overlay_root = (work / "packages").resolve()
+                if path.is_relative_to(overlay_root):
+                    relative = path.relative_to(overlay_root)
+                    adapter = HERE / "packages" / relative
+                    adapter_manifest = HERE / "packages" / Path(*relative.parts[:3]) / "typst.toml"
+                    path = adapter if adapter_manifest.exists() else project.packages / relative
+                dependencies.add(str(path.resolve()))
+        report["dependencies"] = sorted(dependencies)
         if result.returncode == 0:
             content = normalize_math_html(namespace_svg_ids((work / "document.html").read_text()))
             (work / "document.html").write_text(content)
