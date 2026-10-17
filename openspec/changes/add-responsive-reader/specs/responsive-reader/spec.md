@@ -60,6 +60,12 @@ The reader SHALL save explicitly selected quotations in browser-local storage sc
 - **THEN** the saved quotation remains visible with its missing or ambiguous status
 - **AND** the reader does not guess a location or silently remove the saved record
 
+#### Scenario: Mathematical presentation order changes
+- **WHEN** line breaking or script layout changes the presentation DOM order
+- **THEN** saved quotations retain the source's logical character order
+- **AND** highlighting a base and its subscript does not also highlight an unselected superscript
+- **AND** repeated visual occurrences retain their association with the same logical token
+
 ### Requirement: Independent serving boundary
 Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expose and monitor the reader endpoint without taking ownership of document rendering or duplicating the service lifecycle.
 

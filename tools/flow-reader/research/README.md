@@ -116,6 +116,37 @@ prevent production adoption. Evidence is under `dist/reader-semantic-checks`:
 `source-hashes.json`, `frozen-baseline/`, `frozen-semantic/`, and the four
 `frozen-{baseline,semantic}-{390-18,320-30}.json` reports.
 
+## Logical token and quotation identity
+
+Use `?font=30&rows=1&identity=1` to stamp source tokens and bind them to every
+rendered occurrence. Add `&scope=all` to include inline roots. The report records
+binding failures and logical text changes independently of presentation text
+changes. It does not replace visual fidelity or accessibility checks.
+
+The frozen semantic corpus above passes at 320px/30px: all 6,759 outer math roots
+have zero binding failures and zero logical quotation changes. Its 324 logical
+marked nodes bind to 395 visual fragments. The display-only run likewise passes
+for 1,412 roots, 322 marks, and 393 fragments. Mathematical alphabet encoding,
+variation selectors, whitespace, and stretchy operators are mapped explicitly;
+source characters remain unchanged in the quotation model.
+
+The browser selection fixture uses the same module as the Reader's quotation
+helpers. Copy the following beside an existing probe (which supplies its pinned
+local MathJax/font assets), then open `/math-identity.html` at 320px:
+
+```sh
+cp tools/flow-reader/tests/fixtures/math-identity.html dist/reader-reflow-probe/
+cp tools/flow-reader/tests/identity-browser.js dist/reader-reflow-probe/
+cp tools/flow-reader/web/math-identity.js dist/reader-reflow-probe/
+```
+
+It checks native prose exclusion, source order, actual script reordering,
+superscript-only selection, disjoint logical intervals, base/subscript-only
+highlighting, all marker fragments, and width fit. The fixture paints the base
+and subscripts while leaving the superscript unpainted. Reports and the screenshot
+are under `dist/reader-identity-checks`. These helpers are wired into Reader
+selection and reading-position text; the MathJax renderer itself is still separate.
+
 Useful primary references:
 
 - [MathJax automatic line breaking](https://docs.mathjax.org/en/stable/output/linebreaks.html)

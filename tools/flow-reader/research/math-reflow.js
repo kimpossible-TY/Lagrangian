@@ -5,6 +5,7 @@ const reportNode = document.querySelector("#report");
 const parameters = new URLSearchParams(location.search);
 const fontSize = Number(parameters.get("font") || 18);
 document.body.style.fontSize = `${fontSize}px`;
+const identities = new WeakMap();
 
 function text(root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -67,6 +68,7 @@ function prepare(item) {
 
 async function run() {
   const { splitDerivations } = await import("./math-layout.js");
+  const { MathIdentity, logicalTextIndex } = await import("./math-identity.js");
   await MathJax.startup.promise;
   const response = await fetch(
     parameters.get("source") === "baseline" ? "./baseline-corpus.json" : "./corpus.json",
@@ -75,12 +77,19 @@ async function run() {
   const corpus = await response.json();
   const selected = parameters.has("index") ? Number(parameters.get("index")) : null;
   const records = corpus.roots.filter((item) =>
-    selected === null ? item.display === "block" : item.index === selected,
+    selected === null
+      ? parameters.get("scope") === "all" || item.display === "block"
+      : item.index === selected,
   );
   const report = {
     sourceSha256: corpus.sourceSha256,
     mathjaxVersion: corpus.mathjaxVersion,
-    scope: selected === null ? "all display math roots" : `root ${selected}`,
+    scope:
+      selected === null
+        ? parameters.get("scope") === "all"
+          ? "all outer math roots"
+          : "all display math roots"
+        : `root ${selected}`,
     viewport: innerWidth,
     fontSize,
     total: records.length,
@@ -93,6 +102,10 @@ async function run() {
     svgChanges: [],
     markerChanges: [],
     decorationChanges: [],
+    identityErrors: [],
+    logicalTextChanges: [],
+    logicalMarks: 0,
+    visualMarkFragments: 0,
     // These are intentionally separate from a visual/semantic acceptance result.
     productionAcceptance: false,
     speechAndAccessibilityTested: false,
@@ -102,8 +115,30 @@ async function run() {
     MathJax.typesetClear([main]);
     main.replaceChildren(...records.slice(i, i + batchSize).map(prepare));
     const sections = [...main.children];
+    for (const section of sections) {
+      section.dataset.readerKey = `probe-${section.dataset.index}`;
+      const records = [];
+      if (parameters.get("identity") === "1") {
+        for (const math of [...section.querySelectorAll("math")].filter(
+          (n) => !n.parentElement.closest("math"),
+        )) {
+          const view = document.createElement(
+            math.getAttribute("display") === "block" ? "div" : "span",
+          );
+          view.className = "flow-math-probe";
+          math.replaceWith(view);
+          view.append(math);
+          records.push({
+            view,
+            model: new MathIdentity(math, `probe-${section.dataset.index}-${records.length}`),
+          });
+        }
+      }
+      identities.set(section, records);
+    }
     const before = sections.map((node) => ({
       text: text(node),
+      logicalText: logicalTextIndex(node).text,
       svg: node.querySelectorAll("svg").length,
       decorations: [...node.querySelectorAll("[data-flow-decoration]")].map(
         (n) => n.dataset.flowDecoration,
@@ -121,6 +156,25 @@ async function run() {
     await document.fonts.ready;
     sections.forEach((node, index) => {
       const id = Number(node.dataset.index);
+      for (const { view, model } of identities.get(node)) {
+        const errors = model.bind(view);
+        if (errors.length) report.identityErrors.push({ index: id, errors });
+        report.logicalMarks += model.marks.length;
+        report.visualMarkFragments += model.marks.reduce(
+          (sum, mark) => sum + mark.fragments.length,
+          0,
+        );
+      }
+      if (
+        parameters.get("identity") === "1" &&
+        logicalTextIndex(node).text !== before[index].logicalText
+      ) {
+        report.logicalTextChanges.push({
+          index: id,
+          before: before[index].logicalText,
+          after: logicalTextIndex(node).text,
+        });
+      }
       const errors = [...node.querySelectorAll("mjx-merror")].map((n) =>
         n.getAttribute("data-mjx-error"),
       );

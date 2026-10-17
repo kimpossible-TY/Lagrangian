@@ -1,37 +1,8 @@
 // Quotations are stored locally. DOM ranges paint them without wrapping MathML.
+import { logicalTextIndex, rangesFor, selectedIntervals } from "./math-identity.js";
 const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets]";
 
-export function textIndex(block) {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      return !node.parentElement.closest(excluded) &&
-        node.parentElement.closest("[data-reader-key]") === block
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT;
-    },
-  });
-  let text = "";
-  const points = [];
-  let space = null;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    for (let offset = 0; offset < node.data.length; offset++) {
-      const point = { start: [node, offset], end: [node, offset + 1] };
-      if (/\s/.test(node.data[offset])) {
-        if (space) space.end = point.end;
-        else space = point;
-      } else {
-        if (space && text) {
-          text += " ";
-          points.push(space);
-        }
-        space = null;
-        text += node.data[offset];
-        points.push(point);
-      }
-    }
-  }
-  return { text, points };
-}
+export const textIndex = logicalTextIndex;
 
 export function occurrences(text, exact) {
   const result = [];
@@ -39,14 +10,6 @@ export function occurrences(text, exact) {
     result.push(start);
   }
   return result;
-}
-
-function rangeFor(index, start, end) {
-  if (!index.points[start] || !index.points[end - 1]) return null;
-  const range = document.createRange();
-  range.setStart(...index.points[start].start);
-  range.setEnd(...index.points[end - 1].end);
-  return range;
 }
 
 function validRecord(record) {
@@ -176,24 +139,14 @@ export class ReaderHighlights {
     for (const block of this.article.querySelectorAll("[data-reader-key]")) {
       if (block.closest(excluded) || !range.intersectsNode(block)) continue;
       const index = textIndex(block);
-      let start = -1,
-        end = -1;
-      for (let i = 0; i < index.points.length; i++) {
-        const point = index.points[i];
-        if (range.comparePoint(...point.start) >= 0 && range.comparePoint(...point.end) <= 0) {
-          if (start < 0) start = i;
-          end = i + 1;
-        }
+      for (const [start, end] of selectedIntervals(index, range)) {
+        fragments.push({
+          key: block.dataset.readerKey,
+          exact: index.text.slice(start, end),
+          prefix: index.text.slice(Math.max(0, start - 64), start).trim(),
+          suffix: index.text.slice(end, end + 64).trim(),
+        });
       }
-      while (start >= 0 && start < end && index.text[start] === " ") start++;
-      while (end > start && index.text[end - 1] === " ") end--;
-      if (start < 0 || end <= start) continue;
-      fragments.push({
-        key: block.dataset.readerKey,
-        exact: index.text.slice(start, end),
-        prefix: index.text.slice(Math.max(0, start - 64), start).trim(),
-        suffix: index.text.slice(end, end + 64).trim(),
-      });
     }
     this.selection = fragments.length ? fragments : null;
     this.action.hidden = !this.selection;
@@ -292,8 +245,7 @@ export class ReaderHighlights {
         const index = textIndex(block);
         const start = occurrences(index.text, part.exact)[location.occurrence];
         if (start === undefined) return;
-        const range = rangeFor(index, start, start + part.exact.length);
-        if (range) ranges.push(range);
+        ranges.push(...rangesFor(index, start, start + part.exact.length));
         if (!this.supportsPaint) block.classList.add("reader-saved-block");
       });
     }

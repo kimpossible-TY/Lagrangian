@@ -343,6 +343,7 @@ def handler_for(state):
                       "/canvases.js": ("canvases.js", "text/javascript; charset=utf-8"),
                       "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
+                      "/math-identity.js": ("math-identity.js", "text/javascript; charset=utf-8"),
                       "/reader.css": ("reader.css", "text/css; charset=utf-8")}
             if path in assets:
                 filename, content_type = assets[path]

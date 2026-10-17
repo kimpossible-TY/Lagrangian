@@ -75,6 +75,17 @@ match or a single oversized union rectangle. Renderer adoption also requires
 explicit accessibility, embedded-SVG, and reference verification. See the
 reproducible evaluation in `tools/flow-reader/research/README.md`.
 
+The logical math model stamps source tokens before typesetting and binds their
+IDs to all output occurrences. It retains canonical source text independently of
+presentation order, including mathematical alphabet variants and invisible source
+selectors. Stretchy operators bind their complete glyph element when text nodes
+are replaced by glyph pieces. Missing tokens and unexpected text reject the bind.
+Quotation capture returns separate source intervals for visually contiguous but
+logically disjoint selections; highlight ranges do not cover intervening scripts.
+The Reader's text index uses this model when bound, and ordinary DOM text otherwise.
+This prerequisite is verified in the corpus probe; it does not itself enable the
+new math renderer or solve multi-fragment CeTZ anchor routing.
+
 Preserve the author's CeTZ coordinates and drawing programs. The user's follow-up
 clarification favors a shared adaptive canvas over manually repositioning every
 figure. Numeric CeTZ coordinates use the canvas `length` unit; first evaluate a
