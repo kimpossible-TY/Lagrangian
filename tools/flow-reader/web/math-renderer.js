@@ -2,6 +2,7 @@ import { MathIdentity, logicalTextIndex, selectedIntervals } from "./math-identi
 import {
   mathOverflow,
   prepareNativeDecorations,
+  promoteInlineMath,
   restoreNativeDecorations,
   splitDerivations,
 } from "./math-layout.js";
@@ -207,10 +208,12 @@ export class ResponsiveMath {
       ...mathjax.getMetricsFor(record.view, record.display),
       containerWidth: measurement.width,
     };
-    const blueprint = [...stage.childNodes].map((node) => node.cloneNode(true));
+    let blueprint = [...stage.childNodes].map((node) => node.cloneNode(true));
+    let promoted = false;
+    let corrections = 0;
     try {
       this.article.append(stage);
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt) stage.replaceChildren(...blueprint.map((node) => node.cloneNode(true)));
         for (const math of [...stage.querySelectorAll("math")].filter(
           (n) => !n.parentElement.closest("math"),
@@ -230,16 +233,27 @@ export class ResponsiveMath {
         // Rebreak a small measured overhang at the same font; do not squeeze an
         // indivisible structure or loop trying to fix a fundamentally wide one.
         const overflow = mathOverflow(stage);
-        const correction = 2 * Math.max(overflow.left, overflow.right) + 1;
+        const excess = Math.max(overflow.left, overflow.right);
+        if (!record.display && !promoted && excess > 1) {
+          const source = document.createElement("span");
+          source.append(...blueprint.map((node) => node.cloneNode(true)));
+          promoteInlineMath(source);
+          splitDerivations(source);
+          blueprint = [...source.childNodes];
+          promoted = true;
+          continue;
+        }
+        const correction = 2 * excess + 1;
         if (
-          !record.display ||
-          Math.max(overflow.left, overflow.right) <= 1 ||
+          excess <= 1 ||
+          corrections >= 2 ||
           measurement.width - metrics.containerWidth + correction > measurement.fontSize
         )
           break;
         metrics.containerWidth = Math.max(1, metrics.containerWidth - correction);
+        corrections++;
       }
-      return { stage, ids };
+      return { stage, ids, layout: record.display || promoted ? "block" : "inline" };
     } catch (error) {
       stage.remove();
       throw error;
@@ -286,6 +300,9 @@ export class ResponsiveMath {
             const errors = record.model.bind(result.stage, { view: record.view });
             if (errors.length) throw new Error("원본 수식과 조판 결과를 연결하지 못했습니다.");
             record.view.replaceChildren(...result.stage.childNodes);
+            record.view.dataset.mathLayout = result.layout;
+            if (record.view.parentElement.matches(".flow-inline-equation"))
+              record.view.parentElement.dataset.mathLayout = result.layout;
             record.key = measurement.key;
             record.retryAt = 0;
             const bounds = mathOverflow(record.view, measurement);

@@ -21,7 +21,8 @@ def handler_for(state):
             path = urlsplit(self.path).path
             if path == "/":
                 check = parse_qs(urlsplit(self.path).query).get("check", [""])[0]
-                module = {"routing": "routing-browser.js", "native": "native-browser.js"}.get(check, "runtime-browser.js")
+                module = {"routing": "routing-browser.js", "native": "native-browser.js",
+                          "inline": "inline-browser.js"}.get(check, "runtime-browser.js")
                 source = (ROOT / "web/index.html").read_text().replace(
                     "</body>", f'<script type="module" src="/{module}"></script></body>')
                 return self.respond(source.encode(), "text/html; charset=utf-8")
@@ -33,6 +34,9 @@ def handler_for(state):
                                     "text/javascript; charset=utf-8")
             if path == "/native-browser.js":
                 return self.respond((ROOT / "tests/native-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/inline-browser.js":
+                return self.respond((ROOT / "tests/inline-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             super().do_GET()
     return Handler

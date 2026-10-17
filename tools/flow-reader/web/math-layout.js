@@ -28,6 +28,21 @@ function attributes(from, to, omitted = []) {
   }
 }
 
+export function promoteInlineMath(root) {
+  for (const math of root.querySelectorAll("math")) {
+    if (math.parentElement.closest("math") || math.getAttribute("display") === "block") continue;
+    // Display controls the line-breaking context; displaystyle controls math
+    // typography. Preserve the inline fraction/limit/script presentation.
+    const displaystyle = math.getAttribute("displaystyle") ?? "false";
+    math.setAttribute("displaystyle", displaystyle);
+    const style = document.createElementNS(NS, "mstyle");
+    style.setAttribute("displaystyle", displaystyle);
+    style.append(...math.childNodes);
+    math.append(style);
+    math.setAttribute("display", "block");
+  }
+}
+
 // Only enclosures backed by the original Typst paint callback may become
 // breakable rows. Keep arbitrary menclose elements as mathematical structures.
 export function prepareNativeDecorations(root) {
