@@ -117,7 +117,9 @@ export class MathDecorations {
 
   measure(record) {
     if (
-      record.nodes.some((node) => node.closest(".flow-math-view")?.dataset.mathState === "native")
+      record.nodes.some((node) =>
+        ["native", "pending"].includes(node.closest(".flow-math-view")?.dataset.mathState),
+      )
     )
       return null;
     const fragments = record.nodes.flatMap((node) => {

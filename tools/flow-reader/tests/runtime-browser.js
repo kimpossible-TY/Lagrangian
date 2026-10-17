@@ -86,7 +86,7 @@ async function lifecycleChecks() {
     });
     check(
       "A completed old revision cannot replace the new document",
-      !old.view.isConnected && host.querySelector(".flow-math-view").dataset.mathState === "native",
+      !old.view.isConnected && Boolean(host.querySelector(".flow-math-view > math")),
     );
     await renderer.render();
     let record = [...renderer.records][0];

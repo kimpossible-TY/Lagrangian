@@ -55,8 +55,14 @@
       top: (item.pos.at(1) - item.height / 2) * length,
       width: item.width * length, height: item.height * length,
     ))
+  let routing = result.ctx.shared-state.at("flow-reader-routing", default: none)
+  let connectors = if routing == none { () } else { routing.connectors }
+  if routing != none {
+    assert(routing.routes.keys().all(id => id in connectors.map(item => item.id)),
+      message: "Unknown Reader connector route")
+  }
   (left: bounds.low.at(0) * length, top: bounds.low.at(1) * length,
-   width: width, height: height, labels: labels)
+   width: width, height: height, labels: labels, connectors: connectors)
 }
 
 /// Sets up a canvas for drawing on.

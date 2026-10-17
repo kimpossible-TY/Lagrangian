@@ -16,6 +16,7 @@
 #import "/src/mark-shapes.typ" as mark-shapes_
 #import "/src/polygon.typ" as polygon_
 #import "/src/aabb.typ"
+#import "/src/reader-routing.typ" as reader-routing
 
 #import "transformations.typ": *
 #import "styling.typ": *
@@ -571,6 +572,12 @@
     }
 
     let style = styles.resolve(ctx.style, merge: style, root: "line")
+
+    if not close and style.fill == none {
+      let routing = reader-routing.connector(ctx, first-elem, last-elem, pts, "polyline")
+      ctx = routing.ctx
+      if routing.points != none { pts = routing.points }
+    }
 
     let drawables = drawable.path(
       (path-util.make-subpath(pts.first(), pts.slice(1).map(pt => ("l", pt)), closed: close),),
@@ -1469,6 +1476,28 @@
   )
 }
 
+// Preserve Bezier node anchors and original marks even when the Reader supplies
+// a different path. In particular, an unnamed/default anchor stays at the start.
+#let _bezier-element(ctx, start, end, ctrl, style, name, routed: none) = {
+  let segments = if routed == none {
+    (path-util.make-subpath(start, (("c", ..ctrl, end),)),)
+  } else {
+    (path-util.make-subpath(routed.first(), routed.slice(1).map(point => ("l", point))),)
+  }
+  let drawables = drawable.path(segments, fill: style.fill,
+    fill-rule: style.fill-rule, stroke: style.stroke)
+  let (transform, anchors) = anchor_.setup(
+    anchor => (start: start, ctrl-0: ctrl.at(0), ctrl-1: ctrl.at(1)).at(anchor),
+    ("ctrl-0", "ctrl-1"), default: "start", name: name,
+    transform: ctx.transform, path-anchors: true, path: drawables)
+  if mark_.check-mark(style.mark) {
+    drawables = mark_.place-marks-along-path(ctx, style.mark, transform, drawables)
+  } else {
+    drawables = drawable.apply-transform(transform, drawables)
+  }
+  (ctx: ctx, name: name, anchors: anchors, drawables: drawables)
+}
+
 /// Draws a quadratic or cubic bezier curve
 ///
 /// ```typc example
@@ -1509,6 +1538,8 @@
 
   return (
     ctx => {
+      let source-start = start
+      let source-end = end
       let (ctx, start, ..ctrl, end) = coordinate.resolve(ctx, ..coordinates)
 
       if ctrl.len() == 1 {
@@ -1516,38 +1547,13 @@
       }
 
       let style = styles.resolve(ctx.style, merge: style, root: "bezier")
-      let drawables = drawable.path(
-        (path-util.make-subpath(start, (("c", ..ctrl, end),)),),
-        fill: style.fill,
-        fill-rule: style.fill-rule,
-        stroke: style.stroke,
-      )
-
-      let (transform, anchors) = anchor_.setup(
-        anchor => (
-          ctrl-0: ctrl.at(0),
-          ctrl-1: ctrl.at(1),
-        ).at(anchor),
-        ("ctrl-0", "ctrl-1"),
-        default: "start",
-        name: name,
-        transform: ctx.transform,
-        path-anchors: true,
-        path: drawables,
-      )
-
-      if mark_.check-mark(style.mark) {
-        drawables = mark_.place-marks-along-path(ctx, style.mark, transform, drawables)
-      } else {
-        drawables = drawable.apply-transform(transform, drawables)
+      let routed = none
+      if style.fill == none {
+        let routing = reader-routing.connector(ctx, source-start, source-end, (start, ..ctrl, end), "cubic")
+        ctx = routing.ctx
+        routed = routing.points
       }
-
-      return (
-        ctx: ctx,
-        name: name,
-        anchors: anchors,
-        drawables: drawables,
-      )
+      _bezier-element(ctx, start, end, ctrl, style, name, routed: routed)
     },
   )
 }
@@ -1573,11 +1579,20 @@
   style = style.named()
 
   return (ctx => {
+    let source-start = start
+    let source-end = end
     let (ctx, start, pass-through, end) = coordinate.resolve(ctx, start, pass-through, end)
 
     let (start, end, ..control) = bezier_.cubic-through-3points(start, pass-through, end)
 
-    return bezier(start, end, ..control, ..style, name: name).first()(ctx)
+    let resolved = styles.resolve(ctx.style, merge: style, root: "bezier")
+    let routed = none
+    if resolved.fill == none {
+      let routing = reader-routing.connector(ctx, source-start, source-end, (start, ..control, end), "cubic")
+      ctx = routing.ctx
+      routed = routing.points
+    }
+    return _bezier-element(ctx, start, end, control, resolved, name, routed: routed)
   },)
 }
 

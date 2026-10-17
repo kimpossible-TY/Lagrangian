@@ -17,6 +17,8 @@ test("measuring a wrapped mark keeps every rectangle and no empty union", () => 
   try {
     const value = Object.create(GraphicalAnnotations.prototype);
     value.getRevision = () => "revision";
+    let ink = [];
+    value.ink = () => ink;
     const record = {
       id: "graphic-1",
       tags: ["left"],
@@ -30,6 +32,11 @@ test("measuring a wrapped mark keeps every rectangle and no empty union", () => 
     ]);
     fragments[1] = rectangle(20, 75, 70, 20);
     assert.notEqual(value.measure(record).key, before.key);
+    const still = value.measure(record);
+    ink = [{ rect: rectangle(150, 35, 10, 20), tag: null }];
+    const changedInk = value.measure(record);
+    assert.equal(changedInk.signature, still.signature, "The original drawing cache can be reused");
+    assert.notEqual(changedInk.key, still.key, "Moved non-target text invalidates routing");
     fragments.length = 0;
     assert.equal(value.measure(record), null);
   } finally {
@@ -62,9 +69,11 @@ function renderer() {
 
 test("temporary native math cannot trigger an obsolete annotation compile", async () => {
   const { value, record } = renderer();
-  record.nodes = [{ closest: () => ({ dataset: { mathState: "native" } }) }];
   value.measure = () => assert.fail("Initial math geometry is not ready");
-  await value.render();
+  for (const mathState of ["native", "pending"]) {
+    record.nodes = [{ closest: () => ({ dataset: { mathState } }) }];
+    await value.render();
+  }
   assert.equal(value.busy, undefined);
 });
 

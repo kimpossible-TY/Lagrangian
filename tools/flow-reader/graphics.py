@@ -50,6 +50,25 @@ def validate_geometry(graphs: dict, known: dict) -> dict:
         result[identifier] = {"width": width, "height": height, "markers": clean}
         if "fontSize" in geometry:
             result[identifier]["fontSize"] = number(geometry["fontSize"], 14, 30)
+        if "routes" in geometry:
+            routes = geometry["routes"]
+            if not isinstance(routes, dict) or not 1 <= len(routes) <= 64:
+                raise ValueError("Expected between 1 and 64 connector routes")
+            clean_routes = {}
+            outset = geometry.get("fontSize", 18) * 6
+            for connector, points in routes.items():
+                if (not isinstance(connector, str) or not connector.startswith("connector-")
+                        or not connector[10:].isdigit() or not 1 <= int(connector[10:]) <= 64):
+                    raise ValueError("Unknown connector route identifier")
+                if not isinstance(points, list) or not 2 <= len(points) <= 64:
+                    raise ValueError("Expected between 2 and 64 route points")
+                clean_routes[connector] = []
+                for point in points:
+                    if not isinstance(point, dict):
+                        raise ValueError("Expected a numeric route point")
+                    clean_routes[connector].append({"x": number(point.get("x"), 0, width),
+                                                    "y": number(point.get("y"), -outset, height + outset)})
+            result[identifier]["routes"] = clean_routes
     return result
 
 

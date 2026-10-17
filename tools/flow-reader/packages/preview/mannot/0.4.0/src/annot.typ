@@ -626,7 +626,12 @@
         (geometry.width * px, -geometry.height * px), stroke: none, fill: none)
       // Literal coordinates, as well as named anchors, are relative to the first
       // marked term in the original annotation contract.
-      let drawing = boundary + cetz.draw.scope(
+      let configure = (ctx => {
+        ctx.shared-state.insert("flow-reader-routing", (markers: tags,
+          routes: geometry.at("routes", default: (:)), connectors: ()))
+        (ctx: ctx)
+      },)
+      let drawing = configure + boundary + cetz.draw.scope(
         cetz.draw.translate((origin.x * px, -origin.y * px)) + boxes + drawable)
       let bounds = cetz.reader-bounds(drawing)
       attrs.insert("data-flow-graphic-layout", json.encode((
@@ -636,6 +641,7 @@
         fontSize: geometry.at("fontSize", default: 18),
         labels: bounds.labels.map(item => (left: item.left / 0.75pt, top: item.top / 0.75pt,
           width: item.width / 0.75pt, height: item.height / 0.75pt)),
+        connectors: bounds.connectors,
       )))
       attrs.insert("data-flow-rendered", "true")
       html.frame(cetz.canvas(drawing))

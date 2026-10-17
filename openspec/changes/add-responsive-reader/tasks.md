@@ -13,6 +13,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Bind canonical mathematical text to all rendered token occurrences and preserve selected quotations/highlights when script DOM order changes.
 - [x] Carry every logical target fragment into graphical annotation requests and resolve CeTZ anchors on actual fragment surfaces without source edits.
+- [x] Expose named CeTZ connector endpoints and reroute supported colliding connections around measured text while preserving their original styling and arrowheads.
 - [ ] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
 - [x] Integrate local MathJax/CHTML composition, validated publication, selection-aware updates, and per-fragment decoration/relationship refresh in the Reader.
 - [x] Verify local asset integrity, canonical copy, font changes, obsolete results, and automatic failure recovery in the actual Reader browser fixture.

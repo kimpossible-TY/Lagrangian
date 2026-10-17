@@ -22,6 +22,20 @@ from serve import ReaderState, handler_for, source_signature
 
 
 class ReaderServingTests(unittest.TestCase):
+    def test_directory_metadata_does_not_change_inputs_but_a_new_import_does(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "main.typ").write_text('#include "missing.typ"')
+            project = Project(root, Path("main.typ"), root / "packages", compiler="missing-compiler")
+            before = source_signature(project)
+            stat = root.stat()
+            os.utime(root, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1000000000))
+            self.assertEqual(source_signature(project), before)
+            (root / ".DS_Store").write_bytes(b"Finder metadata")
+            self.assertEqual(source_signature(project), before)
+            (root / "missing.typ").write_text("Now available")
+            self.assertNotEqual(source_signature(project), before)
+
     def test_local_math_assets_match_the_manifest_and_use_versioned_caching(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(None))
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -41,7 +55,7 @@ class ReaderServingTests(unittest.TestCase):
                 self.assertEqual(response.headers["Content-Encoding"], "gzip")
                 self.assertEqual(hashlib.sha256(gzip.decompress(response.read())).hexdigest(),
                                  manifest["files"]["mathjax/mml-chtml.js"])
-            for name in ("math-renderer.js", "mathjax-loader.js", "math-layout.js"):
+            for name in ("math-renderer.js", "mathjax-loader.js", "math-layout.js", "connector-routing.js"):
                 with urlopen(base + "/" + name) as response:
                     self.assertIn("javascript", response.headers["Content-Type"])
                     self.assertEqual(response.headers["Cache-Control"], "no-store")
@@ -103,6 +117,9 @@ class ReaderServingTests(unittest.TestCase):
             state.compile()
             revision, stamp = state.revision, state.source_stamp
             self.assertIsNotNone(revision, state.report)
+            stat = source.stat()
+            os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1000000000))
+            self.assertEqual(source_signature(project=state.project, dependencies=state.accepted_dependencies), stamp)
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(state))
             worker = threading.Thread(target=server.serve_forever, daemon=True)
             worker.start()

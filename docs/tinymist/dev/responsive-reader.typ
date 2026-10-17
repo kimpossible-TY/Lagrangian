@@ -84,7 +84,9 @@ compiled successfully. A failed compile retains the previous document.
 The HTTP shell is available while the first compile runs; readiness remains false
 until a document is accepted. File watching uses the compiler's dependency JSON
 and explicitly configured font directories. It does not recursively scan the
-project's unrelated media, caches, or cloud placeholders. A newly discovered
+project's unrelated media, caches, or cloud placeholders. Known parent directories
+use their entry names to detect new imports; metadata-only timestamp changes and
+Finder's `.DS_Store` do not invalidate the accepted compiler inputs. A newly discovered
 dependency graph is compiled again against a measured input snapshot before
 publication. The served revision includes that snapshot, so changes to a dynamic
 drawing invalidate the revision even when its placeholder HTML is unchanged.
@@ -159,9 +161,42 @@ Width diagnostics compare the full drawing with the actual body width. A
 conservative collision diagnostic compares label rectangles with body text and
 samples stroked connector paths against unmarked text. It is not a complete
 collision solver: overlay-to-overlay intersections and opaque image content are
-not covered. Explicit small label sizes still need a policy. Actual Jacobi formula
-geometry at 320px remains wider than the body and intersects other text. Inline
-delivery therefore does not establish responsive readability or permit promotion.
+not covered. Explicit small label sizes still need a policy. Earlier native-MathML
+Jacobi checks demonstrated width and connector collisions. Inline delivery alone
+does not establish responsive readability or permit promotion.
+
+== Automatic connector paths
+
+The shared CeTZ adapter records planar open line and Bezier connections between named
+marked terms. Metadata retains each connection's original endpoint identities,
+anchor names, path, and whether a Reader route was applied. Ordinary canvases and
+paged rendering have no routing context. Authored PDE drawing programs and
+coordinate offsets remain intact.
+
+The browser plans a path around measured text ranges, stretched operators, and
+label bounds. Only the connection's own endpoint terms are exempt; other marked
+terms remain obstacles. A bounded orthogonal search keeps horizontal coordinates
+inside the body and permits vertical outsets. It preserves each anchor's outward
+direction and can turn earlier when the next line leaves a narrow gap. Clear
+connections retain their original curves. Closed loops and unsupported drawings
+are not collapsed into another representation.
+
+Numeric routes return through the revision-bound geometry request. CeTZ validates
+that their endpoints match its original resolved anchors, then draws the new
+path using the original stroke and mark definitions. Bezier default, control,
+and path anchors remain available; labels attached to the path follow it. Unknown
+route IDs, changed endpoints, and out-of-range coordinates are rejected. At most
+two route adjustments are requested per measured geometry. Unresolved collisions
+remain visible layout failures. Newly composed math is required before measuring
+connections or paint after a width/font change.
+
+The frozen PDE compiler audit identifies 23 supported connections across 12 of
+its 15 graphical annotation programs. This is protocol coverage, not a claim that
+every relationship is now collision-free. The browser fixture uses the original
+Jacobi connector program at normal and large reading sizes. Evidence is under
+`dist/reader-routing-checks`, including the paired full-PDE PDF comparison with
+an identical creation timestamp. Arbitrary drawing semantics, overlay-to-overlay
+crossings, label reflow, and remaining mathematical overflow still need work.
 
 == Semantic mathematical decorations
 

@@ -27,6 +27,12 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **AND** named and angular anchors resolve to actual fragment surfaces, not an empty inter-line bounding rectangle
 - **AND** the original CeTZ callback and its literal coordinate origin are preserved without editing authored figure positions
 
+#### Scenario: A supported connection crosses readable text
+- **WHEN** an open line or Bezier connection between named marked terms crosses the measured mathematical text
+- **THEN** the reader may recompose its path around text without changing its target anchors, styling, or arrowhead definitions
+- **AND** the route is validated for the current revision and geometry, with vertical space reserved for any outsets
+- **AND** an unsupported or unsuccessful route remains an explicit layout failure
+
 ### Requirement: Responsive readable content
 The reader SHALL lay out ordinary text, mathematical expressions, figures, and essential annotations at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this content MUST NOT require zooming, horizontal panning, a slide/carousel, opening a separate equation view, or clicking to reveal essential content. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
 
@@ -36,6 +42,11 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** results from an obsolete document, removed section, or obsolete measurement cannot publish
 - **AND** publication waits for an active text selection or reader dialog to end
 - **AND** a failed composition preserves the current expression, reports the failure, and retries automatically
+
+#### Scenario: Directory metadata changes without a saved-source edit
+- **WHEN** known input directory timestamps or Finder metadata change while the compiler inputs and entry names remain the same
+- **THEN** the accepted snapshot remains valid for dynamic rendering
+- **AND** creation of a previously missing import is still detected
 
 #### Scenario: Local mathematical assets and semantic reading
 - **WHEN** the reader composes mathematical content

@@ -1,6 +1,7 @@
 // Relationships use the original equation nodes in the continuous body.
 // Original CeTZ programs are evaluated against the actual marked term geometry.
 import { visualFragments } from "./math-identity.js";
+import { routeConnections } from "./connector-routing.js";
 
 function spanFor(records) {
   const roots = [
@@ -32,7 +33,7 @@ function overlaps(a, b) {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
-function collisions(record, layout, measurement) {
+function textInk(record) {
   const body = record.scene.body;
   const ink = [];
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
@@ -46,14 +47,29 @@ function collisions(record, layout, measurement) {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const range = document.createRange();
     range.selectNodeContents(node);
+    const tag = node.parentElement.closest("[data-flow-mark]")?.dataset.flowMark ?? null;
     const target = record.nodes.some((mark) =>
       visualFragments(mark).some((fragment) => fragment.contains(node)),
     );
     for (const rect of range.getClientRects()) {
-      if (rect.width && rect.height) ink.push({ rect, target });
+      if (rect.width && rect.height) ink.push({ rect, target, tag });
     }
   }
-  const origin = body.getBoundingClientRect();
+  for (const node of body.querySelectorAll("mjx-stretchy-v,mjx-stretchy-h,.flow-math-view svg")) {
+    if (node.closest("mjx-assistive-mml")) continue;
+    const target = record.nodes.some((mark) =>
+      visualFragments(mark).some((fragment) => fragment.contains(node)),
+    );
+    const tag = node.closest("[data-flow-mark]")?.dataset.flowMark ?? null;
+    for (const rect of node.getClientRects())
+      if (rect.width && rect.height) ink.push({ rect, target, tag });
+  }
+  return ink;
+}
+
+function collisions(record, layout, measurement) {
+  const ink = textInk(record);
+  const origin = record.scene.body.getBoundingClientRect();
   const labels = layout.labels ?? [];
   let labelHits = 0;
   for (const label of labels) {
@@ -205,6 +221,10 @@ export class GraphicalAnnotations {
     this.timer = setTimeout(() => this.render(), 200);
   }
 
+  ink(record) {
+    return textInk(record);
+  }
+
   measure(record) {
     const rect = record.scene.body.getBoundingClientRect();
     const groups = record.nodes.map((source) =>
@@ -253,6 +273,22 @@ export class GraphicalAnnotations {
         ]),
       ),
     };
+    const ink = this.ink(record).map(({ rect: item, tag }) => ({
+      left: round(item.left - rect.left - x),
+      top: round(item.top - rect.top - y),
+      right: round(item.right - rect.left - x),
+      bottom: round(item.bottom - rect.top - y),
+      tag,
+    }));
+    const baseKey = JSON.stringify([
+      this.getRevision(),
+      record.id,
+      geometry,
+      round(x),
+      round(y),
+      ink,
+    ]);
+    if (record.routeKey === baseKey && record.routes) geometry.routes = record.routes;
     const signature = JSON.stringify([this.getRevision(), record.id, geometry]);
     return {
       geometry,
@@ -261,7 +297,16 @@ export class GraphicalAnnotations {
       y,
       width: rect.width,
       height: rect.height,
-      key: JSON.stringify([signature, round(x), round(y), round(rect.width), round(rect.height)]),
+      ink,
+      baseKey,
+      key: JSON.stringify([
+        signature,
+        baseKey,
+        round(x),
+        round(y),
+        round(rect.width),
+        round(rect.height),
+      ]),
     };
   }
 
@@ -301,8 +346,20 @@ export class GraphicalAnnotations {
       record.scene.frame.style.paddingTop = `${Math.max(...record.scene.records.map((item) => item.bounds?.top ?? 0))}px`;
       record.scene.frame.style.paddingBottom = `${Math.max(...record.scene.records.map((item) => item.bounds?.bottom ?? 0))}px`;
       const hits = collisions(record, layout, measurement);
-      const collision = hits.labels + hits.paths > 0;
+      const plan = routeConnections(
+        layout.connectors ?? [],
+        measurement.ink,
+        measurement.geometry,
+        (layout.labels ?? []).map((label) => ({
+          left: label.left,
+          top: label.top,
+          right: label.left + label.width,
+          bottom: label.top + label.height,
+        })),
+      );
+      const collision = hits.labels + hits.paths > 0 || plan.unresolved.length > 0;
       record.note.dataset.graphicCollisions = JSON.stringify(hits);
+      record.note.dataset.graphicUnrouted = JSON.stringify(plan.unresolved);
       record.note.textContent = overflow
         ? "수식과 관계 그림의 폭 조정이 아직 필요합니다."
         : collision
@@ -310,6 +367,26 @@ export class GraphicalAnnotations {
           : "";
       record.note.dataset.graphicState = overflow ? "overflow" : collision ? "collision" : "ready";
       record.key = measurement.key;
+      if (layout.connectors?.length) {
+        const attempts = record.routeKey === measurement.baseKey ? (record.routeAttempts ?? 0) : 0;
+        const routes = {
+          ...(record.routeKey === measurement.baseKey ? record.routes : {}),
+          ...plan.routes,
+        };
+        if (
+          attempts < 2 &&
+          Object.keys(routes).length &&
+          JSON.stringify(routes) !== JSON.stringify(measurement.geometry.routes)
+        ) {
+          record.routeKey = measurement.baseKey;
+          record.routes = routes;
+          record.routeAttempts = attempts + 1;
+          record.key = null;
+          record.note.dataset.graphicState = "pending";
+          record.note.textContent = "관계선이 글자와 겹치지 않도록 배치하는 중…";
+          this.schedule();
+        }
+      }
     });
   }
 
@@ -327,8 +404,8 @@ export class GraphicalAnnotations {
       // request on geometry already known to be temporary.
       if (
         record.nodes.some((source) =>
-          visualFragments(source).some(
-            (node) => node.closest(".flow-math-view")?.dataset.mathState === "native",
+          visualFragments(source).some((node) =>
+            ["native", "pending"].includes(node.closest(".flow-math-view")?.dataset.mathState),
           ),
         )
       )

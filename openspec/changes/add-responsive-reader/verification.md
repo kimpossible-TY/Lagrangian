@@ -478,3 +478,39 @@ callback paints at the 343px body width. The relationship still reports a collis
 width fitting is not collision-free acceptance. Dynamic full-document compiler
 requests remain slow. Actual screen-reader/mobile Safari checks, unresolved wide
 mathematics, label collisions, and the mobile default rollout remain open.
+
+## Connector paths and stable input snapshots
+
+Reader-only CeTZ metadata identifies planar open lines and Bezier connections
+between named marked terms. Browser routes retain their original endpoints,
+stroke, and CeTZ mark definitions; path-attached labels and Bezier anchors are
+preserved. Search work and compile retries are bounded, with unresolved layouts
+reported explicitly. Other marked terms are obstacles, and short outward leads
+can use the space before the next wrapped line. Original drawing programs and
+coordinate offsets are unchanged.
+
+All 45 Python tests and 25 Node tests pass. The compiler tests verify numeric
+route validation, rejection of changed endpoints, original arrow marks, and named
+path anchors/labels. A source-input regression verifies that directory timestamp
+updates and Finder metadata do not reject rendering while newly created imports
+remain detectable. The actual Reader fixture passes 15 checks at each of 320px
+and 390px, covering 18px and 30px text, correct completed drawing font, endpoint
+identity, collision-free width, original colored arrows, and stable bounded
+requests. The existing 25-check mathematical selection/update fixture also passes
+at 320px after the pending-composition change.
+
+The frozen PDE compiler audit retains all 15 graphical programs and identifies
+23 supported connections across 12 programs. At 390px/18px, the actual full PDE
+Jacobi scene routes the colliding blue connection, retains the red curve, fits
+the 343px body, and reports zero text/label collisions and no unresolved route.
+This verifies one actual scene, not all graphical programs or all mobile layouts.
+Evidence is under `dist/reader-routing-checks`.
+
+A fresh paired full-PDE PDF compile uses the same frozen sources, fonts, and
+creation timestamp for the original packages and Reader overlay. Both SHA-256
+values are `3fb2b8cb775215a9d7a3905048489299bad22331b3401c7223bbc48f86d1ef46`.
+The earlier attempted comparison with a historical PDF hash used different
+creation-time/source conditions and was not a valid byte comparison; the paired
+`pdf-paired.json` is the current evidence. Remaining wide mathematics, figure
+labels, unsupported connectors, accessibility/device checks, and mobile rollout
+remain open.

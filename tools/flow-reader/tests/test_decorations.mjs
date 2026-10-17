@@ -41,10 +41,8 @@ test("a split term retains every rectangle without painting the gap between line
 
 test("temporary native math waits for composition before requesting decoration", () => {
   const value = Object.create(MathDecorations.prototype);
-  assert.equal(
-    value.measure({ nodes: [{ closest: () => ({ dataset: { mathState: "native" } }) }] }),
-    null,
-  );
+  for (const mathState of ["native", "pending"])
+    assert.equal(value.measure({ nodes: [{ closest: () => ({ dataset: { mathState } }) }] }), null);
 });
 
 test("decoration responses from an obsolete document cannot paint the new one", async () => {
