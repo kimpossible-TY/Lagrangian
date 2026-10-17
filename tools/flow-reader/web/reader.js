@@ -552,14 +552,18 @@ async function refresh() {
       pending = await manifestResponse.json();
     }
     if (pending && !selectionActive()) {
-      const anchor = revision ? readingAnchor() : readStored("position", null);
-      const target = !revision && anchor?.url !== location.href ? fragment() : null;
-      // A reload resumes the saved block. A section query is an entry hint only
-      // when the URL differs from the saved location (e.g. a newly opened link).
-      const sectionHint =
+      const entryAnchor = !revision ? history.state?.readerAnchor : null;
+      const anchor = revision ? readingAnchor() : (entryAnchor ?? readStored("position", null));
+      const navigationType = performance.getEntriesByType("navigation")[0]?.type;
+      const resuming =
         !revision &&
-        anchor?.url !== location.href &&
-        new URL(location.href).searchParams.get("section");
+        anchor?.url === location.href &&
+        (Boolean(entryAnchor) || ["reload", "back_forward"].includes(navigationType));
+      const target = !revision && !resuming ? fragment() : null;
+      // New named links take precedence over a previous session's position.
+      // Reload/history navigation restores its entry; section queries are entry hints.
+      const sectionHint =
+        !revision && !resuming && new URL(location.href).searchParams.get("section");
       const section =
         sectionHint && pending.sections.some((item) => item.id === sectionHint)
           ? (pending.anchors[target] ?? sectionHint)

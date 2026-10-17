@@ -94,6 +94,8 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **WHEN** the reader opens a named target while mathematical or drawing layout is still completing
 - **THEN** that target crosses the same reference line used for reading restoration
 - **AND** automatic composition keeps the intended target visible
+- **AND** a newly opened named link takes precedence over an older saved position at the same URL
+- **AND** a reload or history restoration resumes its reading entry
 
 #### Scenario: An offscreen drawing awaits responsive compilation
 - **WHEN** a source canvas has not yet been adapted to the reading width

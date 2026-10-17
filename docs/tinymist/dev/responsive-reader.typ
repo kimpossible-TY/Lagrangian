@@ -377,6 +377,11 @@ direct target navigation, canonical text, equation width, whole-page width, and
 reading position. Direct targets cross the same 90px reference line used for
 reading restoration: root scroll padding is 88px. This prevents the preceding
 paragraph from becoming the anchor during initial asynchronous composition. The
+entry policy distinguishes a newly opened link from a reload/history entry.
+A new named link wins even when its URL matches an older saved location; a
+reload resumes the current reading block. A four-check browser fixture seeds
+that conflict and verifies both actions, with 1px reload-position error.
+Evidence is under `dist/reader-entry-checks`. The
 mathematical and update regression fixtures retain their 69 and 25 passing
 checks. Evidence is under `dist/reader-position-checks`.
 
