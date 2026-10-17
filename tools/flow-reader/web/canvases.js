@@ -1,9 +1,10 @@
 // CeTZ coordinate units adapt before rendering. The browser never scales the
 // resulting text to force a fit. A width fit is not a label-collision guarantee.
 export class AdaptiveCanvases {
-  constructor(article, getRevision) {
+  constructor(article, getRevision, preserve = (change) => change()) {
     this.article = article;
     this.getRevision = getRevision;
+    this.preserve = preserve;
     this.sequence = 0;
     this.records = [];
     this.cache = new Map();
@@ -46,6 +47,14 @@ export class AdaptiveCanvases {
       message.className = "flow-canvas-status";
       message.textContent = "그림을 화면 폭에 맞추는 중…";
       record.message = message;
+      const image = node.querySelector("svg,img");
+      const viewBox = image?.getAttribute("viewBox")?.trim().split(/[ ,]+/).map(Number);
+      const width = viewBox?.[2] ?? parseFloat(image?.getAttribute("width"));
+      const height = viewBox?.[3] ?? parseFloat(image?.getAttribute("height"));
+      if (width > 0 && height > 0)
+        node.style.setProperty("--flow-canvas-aspect", String(width / height));
+      node.dataset.canvasLayout = "pending";
+      node.dataset.canvasPlaceholder = "true";
       record.node.append(message);
       this.records.push(record);
       this.intersection.observe(record.node);
@@ -54,6 +63,30 @@ export class AdaptiveCanvases {
   }
 
   schedule() {
+    // Width can change while another compiler request is in flight. Keep
+    // offscreen and pending drawings bounded before the network worker runs.
+    const revision = this.getRevision();
+    const fontSize = parseFloat(getComputedStyle(this.article).fontSize);
+    for (const record of this.records) {
+      if (!record.node.isConnected) continue;
+      const width = Math.floor(record.node.getBoundingClientRect().width);
+      if (width < 1) continue;
+      const key = JSON.stringify([revision, record.id, width, fontSize]);
+      if (record.key === key && record.result && record.node.dataset.canvasLayout === "pending") {
+        this.apply(record, record.result, key);
+        continue;
+      }
+      if (!record.fitted) continue;
+      const placeholder = String(Number(record.node.dataset.canvasWidth) > width + 1);
+      if (record.node.dataset.canvasPlaceholder === placeholder) continue;
+      this.preserve(() => {
+        record.node.dataset.canvasPlaceholder = placeholder;
+        if (placeholder === "true") {
+          record.node.dataset.canvasLayout = "pending";
+          record.message.textContent = "그림을 화면 폭에 맞추는 중…";
+        }
+      });
+    }
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.render(), 150);
   }
@@ -74,15 +107,25 @@ export class AdaptiveCanvases {
           node.removeAttribute(attribute.name);
       }
     }
-    record.node.replaceChildren(document.importNode(svg, true), record.message);
-    record.node.dataset.canvasLayout = result.layout.status;
-    record.node.dataset.canvasWidth = result.layout.width;
-    record.node.dataset.canvasFont = result.layout.fontSize;
-    record.message.textContent =
-      result.layout.status === "width-fit"
-        ? ""
-        : "이 그림은 고정된 길이 때문에 아직 화면 폭에 맞추지 못했습니다.";
-    record.key = key;
+    this.preserve(() => {
+      record.node.replaceChildren(document.importNode(svg, true), record.message);
+      record.node.dataset.canvasLayout = result.layout.status;
+      record.node.dataset.canvasWidth = result.layout.width;
+      record.node.dataset.canvasFont = result.layout.fontSize;
+      record.fitted = result.layout.status === "width-fit";
+      record.node.dataset.canvasPlaceholder = "false";
+      if (result.layout.width > 0 && result.layout.height > 0)
+        record.node.style.setProperty(
+          "--flow-canvas-aspect",
+          String(result.layout.width / result.layout.height),
+        );
+      record.message.textContent =
+        result.layout.status === "width-fit"
+          ? ""
+          : "이 그림은 고정된 길이 때문에 아직 화면 폭에 맞추지 못했습니다.";
+      record.key = key;
+      record.result = result;
+    });
   }
 
   async render() {
@@ -99,12 +142,24 @@ export class AdaptiveCanvases {
       const width = Math.floor(record.node.getBoundingClientRect().width);
       if (width < 32 || width > 4096) continue;
       const key = JSON.stringify([revision, record.id, width, fontSize]);
-      if (record.key === key) continue;
+      if (record.key === key) {
+        if (record.result && record.node.dataset.canvasLayout === "pending")
+          this.apply(record, record.result, key);
+        continue;
+      }
       if (this.cache.has(key)) {
         this.apply(record, this.cache.get(key), key);
       } else {
-        record.node.dataset.canvasLayout = "pending";
-        record.message.textContent = "그림을 화면 폭에 맞추는 중…";
+        this.preserve(() => {
+          // Keep a previously fitted drawing while a larger-font result loads.
+          // A drawing wider than the new container needs a bounded placeholder.
+          if (record.fitted)
+            record.node.dataset.canvasPlaceholder = String(
+              Number(record.node.dataset.canvasWidth) > width + 1,
+            );
+          record.node.dataset.canvasLayout = "pending";
+          record.message.textContent = "그림을 화면 폭에 맞추는 중…";
+        });
         pending.push({ record, key, request: { width, fontSize } });
       }
     }

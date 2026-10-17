@@ -666,3 +666,42 @@ canvases contribute their natural bounds. The font-change check also exposed a
 reading-position drift before navigating back to the equation. Those failures
 remain explicit; mobile default routing is unchanged. Delivery, browser geometry
 and screenshots are under `dist/reader-frame-checks/managed-*`.
+
+## Bounded drawing delivery and stable reading anchors
+
+Unadapted CeTZ SVGs/images now reserve an aspect-ratio placeholder and cannot
+widen the page before their automatic rendering completes. A previous fitted
+drawing remains visible during a font update; a narrower viewport bounds it
+immediately even while the renderer is busy. Obsolete width/font responses do
+not publish. Failed width fits retain the full drawing and explicit diagnostic.
+No source coordinates or drawing programs changed.
+
+Drawing replacement uses the shared reading-anchor preservation callback.
+The Reader owns scroll anchoring, restores a font mutation synchronously,
+remembers the prior viewport's logical block/offset for resize and font-loading
+events, and recognizes named plain Typst blocks without choosing a container
+instead of its paragraphs.
+
+The canvas-loading fixture passes 12 checks for 320→390px and 13 for 390→320px,
+the latter while a larger-font rendering request is deliberately held. A
+16-check width round trip also verifies immediate restoration of an accepted
+drawing before an obsolete narrower request completes. Its
+paragraph position remains within 2px through initial delivery, rapid 18→30px
+font changes, publication, and viewport changes. A real compiler result with an
+impossible fit remains completely visible with a diagnostic.
+
+The frozen actual PDE fixture passes eight checks in each viewport direction.
+At 30px text the energy-flux identity retains every canonical term and has
+component width/scroll width 273/273 at 320px and 343/343 at 390px. Whole-page
+width/scroll width is 305/305 and 375/375, respectively (the remaining 15px is
+the browser scrollbar). The test anchors the equation itself across the 90px
+reading reference line, after neighboring initial layout settles. It does not
+assert that an equation below a preceding anchored paragraph keeps its own top
+when that preceding paragraph becomes taller.
+
+The structure and selection/update browser regressions pass 69 and 25 checks at
+320px, and the Python/JavaScript suites retain 48 and 27 passing tests. Evidence
+is under `dist/reader-position-checks`: canvas loading/shrink reports, PDE
+position reports and screenshots, and regression/unit logs. Other chapters,
+figure label collisions/readability, actual devices and source-update selections
+remain separate acceptance work.

@@ -49,6 +49,17 @@ overlapping extender pieces already have a paint mask; matching axis clipping
 prevents those invisible stencil pieces from adding horizontal scroll area.
 The complete stretched operator remains part of width and visibility checks.
 
+Unadapted CeTZ canvases reserve an aspect-ratio placeholder within the body
+until their automatic width/font rendering completes. Their original SVG/image
+cannot widen the entire page while it waits outside the rendering margin. A
+previous fitted drawing can remain visible during a font update; a result that
+reports an impossible fit remains visible with its explicit failure diagnostic.
+Placeholder height changes and drawing publication preserve the reading anchor.
+The Reader owns scroll anchoring: browser anchoring is disabled, font mutations
+restore synchronously, and viewport/font loading restores use the last stable
+logical block and viewport offset.
+Height-only browser-bar changes do not trigger manual anchor restoration.
+
 Introduce a width-aware layout stage between semantic content and final DOM/SVG.
 For mathematics, retain operators, grouping, numbering, labels and term identities
 while choosing valid breaks and alignment for the available width. Native MathML

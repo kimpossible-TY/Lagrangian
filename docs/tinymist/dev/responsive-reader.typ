@@ -348,6 +348,39 @@ returns HTTP 200. Distant unadapted canvases still widen the whole document, and
 font changes exposed a reading-position drift; neither issue is covered by the
 zero-overflow candidate result. Both remain rollout work.
 
+== Drawing delivery and reading position
+
+An unadapted CeTZ canvas reserves a bounded aspect-ratio placeholder, using the
+original SVG/image dimensions. Its automatic width/font request replaces that
+placeholder. A previous fitted drawing remains visible during a font update if
+it still fits. A narrower viewport can reserve the placeholder immediately,
+including while a compiler request is in flight or the drawing is offscreen.
+An impossible fit retains its complete drawing and explicit diagnostic.
+
+Drawing replacement and placeholder changes preserve the logical reading anchor.
+The Reader owns scroll anchoring, restores font changes synchronously, and keeps
+a stable block/offset for width and font-loading events. Height-only changes
+from mobile browser bars retain ordinary vertical scrolling. Named plain Typst
+blocks can also be reading anchors. Containers with paragraph children defer to
+those children. A selection or revision guard on mathematical publication still
+applies independently.
+
+The actual canvas-loading fixture checks initial delivery, pending page width,
+full label size, rapid font changes, responsive publication, viewport changes,
+stale requests, and explicit failed fits. It passes 12 checks when growing the
+viewport and 13 when shrinking during a font request. A further 16-check width
+round trip restores the accepted drawing immediately while an obsolete request
+waits. A frozen actual-PDE fixture
+checks the energy-flux identity at 18px/30px while changing between 320px and
+390px in both directions. Its eight checks pass in each direction, including
+canonical text, equation width, whole-page width, and reading position. The
+mathematical and update regression fixtures retain their 69 and 25 passing
+checks. Evidence is under `dist/reader-position-checks`.
+
+These delivery checks do not validate every figure's label collisions or
+readability. The mobile default still waits for the remaining figure and device
+checks.
+
 == Logical mathematical selections
 
 `web/math-identity.js` assigns source token IDs before mathematical typesetting.
