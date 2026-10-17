@@ -47,9 +47,12 @@ try {
   await until(() => math(), "actual PDE target");
   while (Number(document.querySelector("#reader-size").value) > 18)
     document.querySelector("#reader-smaller").click();
-  target().scrollIntoView({ block: "start" });
   await until(() => math().dataset.mathState === "ready", "initial PDE equation");
   await until(nearCanvasesReady, "initial nearby drawings");
+  check(
+    "Direct PDE target navigation stays at the reading reference",
+    Math.abs(target().getBoundingClientRect().top - 88) <= 3,
+  );
   // Put the equation itself across the Reader's 90px reference line. Merely
   // putting its top at 112px can leave the preceding paragraph as the anchor.
   for (let attempt = 0; attempt < 4; attempt++) {

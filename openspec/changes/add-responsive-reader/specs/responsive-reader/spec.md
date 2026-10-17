@@ -90,6 +90,11 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **WHEN** a reader enlarges text or rotates the device
 - **THEN** paragraphs reflow, labels remain readable, and the same logical passage stays in view
 
+#### Scenario: Direct target navigation during initial composition
+- **WHEN** the reader opens a named target while mathematical or drawing layout is still completing
+- **THEN** that target crosses the same reference line used for reading restoration
+- **AND** automatic composition keeps the intended target visible
+
 #### Scenario: An offscreen drawing awaits responsive compilation
 - **WHEN** a source canvas has not yet been adapted to the reading width
 - **THEN** a bounded inline placeholder reserves space and the original drawing does not widen the whole page

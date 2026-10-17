@@ -344,9 +344,9 @@ Evidence is under `dist/reader-frame-checks`.
 The clean structured-math commit is installed in the independent development
 Reader. The actual PDE energy-flux identity fits its complete component at
 390px/18px and 320px/30px. The original PDF service retains its process and
-returns HTTP 200. Distant unadapted canvases still widen the whole document, and
-font changes exposed a reading-position drift; neither issue is covered by the
-zero-overflow candidate result. Both remain rollout work.
+returns HTTP 200. That checkpoint also exposed page widening from distant
+unadapted canvases and reading-position drift. The delivery stage below addresses
+those issues independently of the mathematical candidate audit.
 
 == Drawing delivery and reading position
 
@@ -372,8 +372,11 @@ viewport and 13 when shrinking during a font request. A further 16-check width
 round trip restores the accepted drawing immediately while an obsolete request
 waits. A frozen actual-PDE fixture
 checks the energy-flux identity at 18px/30px while changing between 320px and
-390px in both directions. Its eight checks pass in each direction, including
-canonical text, equation width, whole-page width, and reading position. The
+390px in both directions. Its nine checks pass in each direction, including
+direct target navigation, canonical text, equation width, whole-page width, and
+reading position. Direct targets cross the same 90px reference line used for
+reading restoration: root scroll padding is 88px. This prevents the preceding
+paragraph from becoming the anchor during initial asynchronous composition. The
 mathematical and update regression fixtures retain their 69 and 25 passing
 checks. Evidence is under `dist/reader-position-checks`.
 

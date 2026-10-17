@@ -59,6 +59,9 @@ The Reader owns scroll anchoring: browser anchoring is disabled, font mutations
 restore synchronously, and viewport/font loading restores use the last stable
 logical block and viewport offset.
 Height-only browser-bar changes do not trigger manual anchor restoration.
+Direct navigation uses 88px root scroll padding so its target crosses the 90px
+reading reference line. Initial asynchronous composition then preserves that
+target instead of the tail of the preceding paragraph.
 
 Introduce a width-aware layout stage between semantic content and final DOM/SVG.
 For mathematics, retain operators, grouping, numbering, labels and term identities
