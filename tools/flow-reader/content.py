@@ -118,7 +118,7 @@ class SvgRanges(HTMLParser):
             self.ranges.append((self.source_offset(), self.source_offset() + len(self.get_starttag_text())))
 
 
-def namespace_svg_ids(source: str) -> str:
+def namespace_svg_ids(source: str, prefix: str = "flow-svg") -> str:
     """Scope repeated glyph and clip definitions to their containing SVG.
 
     Typst emits self-contained SVG islands whose internal IDs can repeat in an
@@ -132,7 +132,7 @@ def namespace_svg_ids(source: str) -> str:
     for number, (start, end) in enumerate(parser.ranges):
         pieces.append(source[previous:start])
         root = ET.fromstring(source[start:end])
-        ids = {node.attrib["id"]: f"flow-svg-{number}-{node.attrib['id']}"
+        ids = {node.attrib["id"]: f"{prefix}-{number}-{node.attrib['id']}"
                for node in root.iter() if "id" in node.attrib}
         for node in root.iter():
             for key, value in list(node.attrib.items()):

@@ -18,6 +18,21 @@ Every published document snapshot carries a revision and diagnostic status. Fail
 
 Use content and asset requests on the reader's own origin. The original paged view remains reachable from the reader. Initial mobile routing must honor an explicit choice and offer both views.
 
+Partition the accepted HTML at top-level block boundaries. Keep every annotation
+in the same section as its preceding marked terms. Assign reading keys globally
+before partitioning; the manifest maps native anchors and reading keys to their
+sections. Fetch only the displayed section and a bounded cache of recent HTML.
+Keep large SVG and raster images as separate unchanged assets, with SVG hyperlinks
+remaining inline. Revision-specific requests reject stale revisions.
+
+For graphical annotations, the browser measures cloned marked terms in an
+expanded equation scene. The service passes only validated numeric geometry to
+the original CeTZ program and returns its overlay. A source fingerprint belongs
+to the accepted snapshot, not the latest failed compile. Cache by revision and
+geometry, namespace SVG identifiers, and reject uncached requests after source
+changes. The first implementation uses an isolated full compile; a persistent
+compiler can later reduce its latency without changing this protocol.
+
 ## Validation and delivery
 
 Compile the complete PDE project, checking unresolved references and unsupported output diagnostics. Compare paged output before/after adapter changes. Browser verification covers 320, 390, 430, and 768 CSS-pixel viewports, larger fonts, light/dark themes, navigation, selection, updates, and offline reload where supported. Verify the original live service and new Tailnet reader endpoint independently before changing mobile entry behavior.

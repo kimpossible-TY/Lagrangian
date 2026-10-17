@@ -23,6 +23,11 @@
     <div id="reader-status" role="status">문서를 불러오는 중…</div>
     <nav id="reader-outline" aria-label="문서 목차" hidden></nav>
     <main id="reader-document" tabindex="-1" aria-busy="true"></main>
+    <nav id="reader-section-navigation" aria-label="절 이동" hidden>
+      <p id="reader-section-name"></p>
+      <button id="reader-previous">이전 절</button>
+      <button id="reader-next">다음 절</button>
+    </nav>
     <dialog id="reader-note">
       <button id="reader-note-close" autofocus>닫기</button>
       <div id="reader-note-body"></div>
