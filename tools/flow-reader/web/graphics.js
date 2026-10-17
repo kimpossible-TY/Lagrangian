@@ -1,6 +1,7 @@
 // Relationships use the original equation nodes in the continuous body.
 // Original CeTZ programs are evaluated against the actual marked term geometry.
 import { visualFragments } from "./math-identity.js";
+import { mathInkNodes } from "./math-layout.js";
 import { routeConnections } from "./connector-routing.js";
 
 export function paintedPathPoint(path, distance, length, linecap = "butt") {
@@ -54,7 +55,9 @@ function textInk(record) {
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       return node.textContent.trim() &&
-        !node.parentElement.closest("svg,script,style,mjx-assistive-mml,.flow-math-stage")
+        !node.parentElement.closest(
+          "svg,script,style,mjx-assistive-mml,.flow-math-stage,mjx-c,mjx-utext,mjx-stretchy-v,mjx-stretchy-h",
+        )
         ? NodeFilter.FILTER_ACCEPT
         : NodeFilter.FILTER_REJECT;
     },
@@ -70,8 +73,12 @@ function textInk(record) {
       if (rect.width && rect.height) ink.push({ rect, target, tag });
     }
   }
-  for (const node of body.querySelectorAll("mjx-stretchy-v,mjx-stretchy-h,.flow-math-view svg")) {
-    if (node.closest("mjx-assistive-mml")) continue;
+  // A text Range spans the font's entire ascent/descent, including empty space
+  // above and below a CHTML glyph. Its own measured surface follows the actual
+  // mathematical paint and leaves real channels between derivation rows.
+  for (const node of mathInkNodes(body)) {
+    if (node.closest(".flow-math-stage")) continue;
+    if (node.localName === "svg" && !node.closest(".flow-math-view")) continue;
     const target = record.nodes.some((mark) =>
       visualFragments(mark).some((fragment) => fragment.contains(node)),
     );

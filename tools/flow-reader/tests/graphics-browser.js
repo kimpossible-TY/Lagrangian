@@ -146,7 +146,7 @@ try {
         )
         .click();
     for (const target of targets) {
-      if (query.get("only") && query.get("only") !== target.id) continue;
+      if (query.get("only") && !query.get("only").split(",").includes(target.id)) continue;
       if (!document.getElementById(target.anchor)) location.hash = target.anchor;
       await until(() => document.getElementById(target.anchor), `${target.id} section`);
       document.getElementById(target.anchor).scrollIntoView({ block: "start" });

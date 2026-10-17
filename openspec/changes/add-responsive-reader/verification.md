@@ -929,3 +929,67 @@ regressions. The unchanged Python/Typst modules retain their 59-test passing run
 An actual iPhone Mirroring connection was attempted but timed out before device
 content became available. Mobile Safari and VoiceOver remain unverified; these
 software checks do not claim physical-device acceptance.
+
+### Managed painted-stroke update
+
+Clean runtime commit `9680ef15a601a17295f3796f079195b682e0b904` is installed on
+the independent Reader endpoint, PID 73655. Its live-source compile exits zero
+and passes the content gate in 25.741 seconds; accepted revision:
+`fdad60f7d56bf5c5c6343f94c312e9e29c7bbc761f2cd016bab61b43d06ca28f`.
+All eight inspected assets match the commit. Delivery retains 66 native figures,
+685 labels and zero opaque SVG roots. The actual formal-adjoint table measures
+343/343px at 390px/18px; all 14 mathematical views inside the table are ready,
+the target is at 88.125px, and the page measures 375/375px. The original PDF is
+still HTTP 200 in unchanged PID 39357. Evidence is
+`managed-painted-strokes-delivery.json`, `managed-painted-table-390.json` and
+`managed-painted-table-390.png`. The temporary viewport override was reset.
+The development notice and existing mobile-default routing remain unchanged.
+
+### Mathematical ink surfaces and compiler reuse experiment
+
+The complete relationship sweep exposed a failure at 30px in relationships 6
+and 10 despite their isolated checks. A text `Range` includes the CHTML font's
+empty ascent/descent area; in relationship 6 that box covers a fixed north
+endpoint although the glyph's measured paint leaves a clear channel. The
+collision inventory now uses CHTML glyph and complete stretched-operator
+surfaces, preserves target identities, and excludes assistive/staging copies.
+The horizontal math-bound check shares the same glyph-surface selection policy.
+All 44 JavaScript tests pass, including a regression that reproduces the blocked
+endpoint with the old font box and keeps its exact clear path with glyph bounds.
+The original native canvas sampling and mathematical composition are unchanged.
+
+An isolated full-PDE `typst watch` experiment uses an owned symlink source view
+and a temporary package request file. It preserves the two actual relationship
+SVGs exactly against fresh compiler requests, preserves a return to the initial
+geometry, and leaves every source Typst file's size/mtime unchanged. All six
+checks pass. Cold watch output takes 38.6191 seconds; the two geometry updates
+take 17.8852 and 20.7666 seconds. Thus the earlier tiny-fixture watch result is
+not evidence of a fast PDE renderer. No persistent compiler worker was installed.
+All owned watch processes and their temporary source views were cleaned up.
+Evidence is `watch-pde-probe.json` and `watch-pde-*-graphic-*.svg` under the label
+evidence directory. Component evaluation/caching remains performance work.
+
+Splitting the same experiment's inputs into one file per relationship reduces
+the two warm updates to 5.909 and 6.3319 seconds, after a 41.5882-second cold
+compile. All four checks pass, retaining the previously verified fresh SVG
+identities and unchanged source files. `watch-pde-per-scene-probe.json` records
+this result. This experimental worker is also terminated and remains outside
+the installed service.
+
+The installed-service path instead gains per-component relationship caching.
+Its compiler integration test renders two relationships together, reuses either
+without recompilation, compiles only one changed layout in a mixed batch, and
+compares a cached component's geometry with a fresh standalone request. It also
+checks cached accepted output after a failed save, rejects new geometry against
+that changed source, and clears component entries on a newly accepted revision.
+All 60 Python tests pass in 33.873 seconds with compiler integration enabled;
+all 44 JavaScript tests pass. Logs are `python-tests-component-cache.log` and
+`node-tests-painted-ink.log`. The complete current-client relationship sweep
+continues separately.
+
+The actual problematic relationships 6 and 10 now pass all 15 focused browser
+checks together at 320px/30px: ready complete mathematics and relationships,
+original marked targets, zero ink collisions/unrouted connections, unchanged
+compiler path/arrowhead/transform signatures and bounded component/page width.
+`graphics-glyph-surfaces-critical-320-30.json` records the result and measured
+glyph obstacles. The temporary viewport was reset and the focused tab closed.
