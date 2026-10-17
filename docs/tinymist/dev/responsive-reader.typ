@@ -152,6 +152,39 @@ not covered. Explicit small label sizes still need a policy. Actual Jacobi formu
 geometry at 320px remains wider than the body and intersects other text. Inline
 delivery therefore does not establish responsive readability or permit promotion.
 
+== Semantic mathematical decorations
+
+The mannot adapter preserves a marked term as native MathML and gives its paint
+a separate decoration ID. The original underlay/overlay callback remains in
+Typst. `/api/decorations` accepts measured visual fragments, the inherited ink,
+and reading font size for an accepted revision; it returns only the original
+decoration layers. Each fragment has its own size and SVG namespace. Underlines,
+highlights, boxes, and stretched brackets therefore need not freeze the whole
+mathematical expression into one unbreakable image.
+
+The browser measures every client rectangle, paints layers around the original
+nodes, and requests nearby terms automatically. It removes obsolete paint while
+new geometry is pending, visibly reports pending/failed decoration rendering,
+and retries automatically. Cache reuse includes revision, all fragment sizes,
+ink, and font size. Position-only changes can reuse paint. The service rejects
+unknown IDs, invalid geometry, changed revisions, and missing or duplicate layers.
+An empty SVG is a valid present layer. Document equation numbering must not leak
+into stretched bracket decorations. SVG normalization preserves XML tag casing.
+
+The isolated MathJax probe also distinguishes authored derivation alignment from
+matrix/cases/vector structure. Its optional row composition moves original nodes
+into separately breakable mathematical rows, preserving anchors and nested tables.
+This candidate is not connected to the Reader. Ordinary MathML rendering still
+has wide equations; cancellation/overline SVG islands, logical selection identity,
+multi-fragment graphical anchors, and collision-free composition remain open.
+
+The full PDE compile retains 102 decoration IDs; a separate compiler audit renders
+two fragments for each one. The dedicated fixture verifies six decoration kinds,
+including a custom two-layer callback and the note's marked-term preview. The
+full original-package and overlay PDF comparison is byte-identical. Evidence is
+under `dist/reader-semantic-checks`; see the research guide for the paired equation
+corpus measurements and their limits.
+
 == Managed installation
 
 The Reader lifecycle module belongs to this repository and reads the installed

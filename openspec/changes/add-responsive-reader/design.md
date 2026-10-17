@@ -40,7 +40,7 @@ renderer. Matrices and indivisible structures need explicit faithful alternate
 compositions where generic line breaking is insufficient. Do not silently alter
 the mathematical expression or shrink it below the selected readable size.
 
-The isolated MathJax 4.1.3 corpus probe rejects a direct renderer swap as sufficient:
+The initial isolated MathJax 4.1.3 corpus probe rejects a direct renderer swap as sufficient:
 81 of 1,411 display equations overflow at 390px/18px, and 294 at 320px/30px.
 The first implementation must preserve mathematical content separately from
 decorations: the existing `core-mark` SVG fallback can freeze an entire long term
@@ -48,6 +48,24 @@ into one unbreakable image. Export the term's semantic children and its decorati
 intent independently, then lay out decorations against the final fragments.
 Likewise distinguish aligned derivation tables from mathematical matrices; page
 alignment columns and trailing footnote cells cannot dictate narrow-screen width.
+
+The semantic decoration adapter emits a marked MathML row and a separate decoration
+ID instead of flattening that row into an SVG. The compiler retains the original
+underlay/overlay functions. A revision-bound numeric request supplies each visual
+fragment's measured dimensions, reading font size, and inherited ink. It renders
+only the decoration at each fragment, returning layer order and anchor outsets.
+No mathematical glyphs are copied into that decoration image. The browser paints
+the layers around the original semantic nodes; cache keys include all fragments.
+This protocol must reject stale revisions, missing fragments, and unknown IDs.
+
+A subsequent paired probe uses frozen project dependencies and moves annotation
+prose into visible notes in both variants. Combining semantic mannot bodies with
+optional derivation-row composition reduces overflow from 26 to 12 at 390px/18px
+and from 240 to 96 at 320px/30px, across 1,412 display equations. These results are
+not directly comparable with the initial probe's source/preparation. The candidate
+does not draw its dynamic decorations in this experiment and is not installed as
+the Reader's math renderer. Its unresolved overflow and logical fragment identity
+still prevent promotion.
 
 Keep logical term IDs and quotation text independent of presentation DOM order.
 The probe found superscript/subscript DOM reordering and repeated marker attributes

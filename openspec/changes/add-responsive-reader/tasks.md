@@ -8,6 +8,8 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Compile the full PDE document with math, references, footnotes, and annotation adapters; verify graphical programs separately.
 - [x] Evaluate automatic math line breaking against all 1,411 PDE display equations; record remaining overflow and fragment-identity issues.
 - [ ] Separate mathematical content from mark/decoration SVGs and distinguish derivation alignment from matrix structure.
+- [x] Preserve mannot bodies as semantic MathML and render original decoration callbacks for each measured fragment; validate all PDE decoration IDs.
+- [x] Add an isolated, opt-in derivation-row composition probe and compare it with the prior adapter against a frozen source snapshot.
 - [ ] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [ ] Implement a shared width-aware CeTZ canvas adapter that preserves source coordinates, separates geometry scale from readable labels, and detects collisions before introducing necessary panel/legend layout rules.

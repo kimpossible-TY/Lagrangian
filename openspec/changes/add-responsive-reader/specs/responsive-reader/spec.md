@@ -15,6 +15,12 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **WHEN** a document contains mannot or scoped mathematical annotations
 - **THEN** marked terms remain associated with their annotation content after reflow
 
+#### Scenario: Decoration after a mathematical line break
+- **WHEN** a marked term occupies multiple visual fragments
+- **THEN** its semantic mathematical content remains available independently of its decoration
+- **AND** the original decoration is rendered against every fragment without painting the inter-line gap
+- **AND** obsolete geometry cannot paint the new document or retain a misleading decoration after a font change
+
 ### Requirement: Responsive readable content
 The reader SHALL lay out ordinary text, mathematical expressions, figures, and essential annotations at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this content MUST NOT require zooming, horizontal panning, a slide/carousel, opening a separate equation view, or clicking to reveal essential content. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
 

@@ -35,7 +35,7 @@ class MathHtmlEmbedding(HTMLParser):
         self.output = []
 
     def start(self, tag, self_closing):
-        parent, namespace, _ = self.stack[-1] if self.stack else (None, "html", False)
+        parent, namespace, _ = self.stack[-1][:3] if self.stack else (None, "html", False)
         in_math = namespace == "math" and parent not in self.TOKENS
         wrapped = in_math and tag not in self.MATH
         if wrapped and tag not in self.PHRASING:
@@ -50,7 +50,11 @@ class MathHtmlEmbedding(HTMLParser):
             if wrapped:
                 self.output.append("</mtext>")
         else:
-            self.stack.append((tag, child_namespace, wrapped))
+            # HTMLParser lowercases tag names, but a later SVG extraction is
+            # parsed as XML. Keep the source spelling for clipPath, gradients,
+            # filters, and other case-sensitive SVG closing tags.
+            spelling = re.match(r"<\s*([^\s/>]+)", self.get_starttag_text())[1]
+            self.stack.append((tag, child_namespace, wrapped, spelling))
 
     def handle_starttag(self, tag, attrs):
         self.start(tag, False)
@@ -59,11 +63,13 @@ class MathHtmlEmbedding(HTMLParser):
         self.start(tag, True)
 
     def handle_endtag(self, tag):
-        self.output.append(f"</{tag}>")
         if self.stack and self.stack[-1][0] == tag:
-            _, _, wrapped = self.stack.pop()
+            _, namespace, wrapped, spelling = self.stack.pop()
+            self.output.append(f"</{spelling if namespace == 'svg' else tag}>")
             if wrapped:
                 self.output.append("</mtext>")
+        else:
+            self.output.append(f"</{tag}>")
 
     def handle_data(self, data):
         self.output.append(data)
