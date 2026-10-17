@@ -101,6 +101,30 @@ test("a free endpoint cannot exempt unmarked mathematical ink from routing", () 
   assert.equal(pathHits(result.routes["connector-1"], [obstacle]), false);
 });
 
+test("a free endpoint reserves its complete arrowhead beyond the thin path", () => {
+  const connector = {
+    ...connection,
+    kind: "polyline",
+    end: { tag: null, anchor: "free", free: true },
+    points: [
+      { x: 10, y: 40 },
+      { x: 50, y: 50 },
+    ],
+  };
+  const result = routeConnection(connector, [obstacle], 100, 100, 18);
+  assert.equal(result.changed, true);
+  assert.equal(
+    segmentHits(result.points.at(-1), result.points.at(-1), {
+      left: 30,
+      top: 20,
+      right: 70,
+      bottom: 80,
+    }),
+    false,
+  );
+  assert.deepEqual(result.points[0], connector.points[0]);
+});
+
 test("a colliding closed loop cannot be collapsed into a zero-length connection", () => {
   const loop = {
     ...connection,

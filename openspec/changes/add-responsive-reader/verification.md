@@ -890,3 +890,42 @@ relationship audit continues separately.
 
 The final overlay PDF, including one-ended connector support, is still
 byte-identical: `complete-native-pdf/verification.json`.
+
+### Managed complete native figures
+
+Clean commit `c24d0f514d1d303d25a093591bb86130b7b2e5fd` is installed in the
+independent Reader on port 23627, PID 66830. Its accepted live-source revision is
+`56b26dce44537b7a4b731598fee2d7e6d836a1a7f3b5cd0dea369a1b14b2676b`.
+Compilation exits zero and the content gate passes. All eight inspected assets
+match that commit. The live saved source has 66 native figures and 685 labels,
+with zero opaque SVG roots; these counts differ from the frozen 67/699 audit
+snapshot. The formal-adjoint table measures 343/343px at a 390px viewport and
+18px text, with all 17 mathematical views ready. The page measures 375/375px.
+Screenshots and receipts are `managed-table-390.png`, `managed-surface-390.png`,
+`managed-complete-native-install.json` and `managed-complete-native-delivery.json`.
+The original PDF remains HTTP 200 in unchanged PID 39357. Mobile-default routing
+remains unchanged.
+
+### Relationship paint measurements
+
+The free-end arrowhead case now passes 17 browser checks across 18px and 30px
+at 320px. This includes hiding a colliding candidate while its replacement is
+pending, preserving original compiler paths, transforms and arrowheads, native
+targets, complete math and bounded width. Evidence is
+`graphics-arrowhead-publication-320.json`.
+
+Another apparent collision came from `getPointAtLength(0)` reporting an isolated
+unpainted `M 0 0` before the actual subpath. Shared painted-path sampling removes
+that phantom point for relationships and native label placement while retaining
+round/square zero-length stroke caps. The actual relationship passes all 15
+checks across both font sizes: `graphics-15-painted-origin-fixed-320.json`.
+The sixth relationship also passes all 15 checks at both font sizes:
+`graphics-6-painted-strokes-320.json`. A complete repeat of all 67 native figures
+with the shared sampler passes all 1,475 checks at 320px and 18px/30px, without
+compiler canvas requests: `all-native-painted-strokes-pde-320.json`.
+All 42 JavaScript tests pass, including the SVG sampling and free endpoint
+regressions. The unchanged Python/Typst modules retain their 59-test passing run.
+
+An actual iPhone Mirroring connection was attempted but timed out before device
+content became available. Mobile Safari and VoiceOver remain unverified; these
+software checks do not claim physical-device acceptance.
