@@ -217,19 +217,52 @@ unknown IDs, invalid geometry, changed revisions, and missing or duplicate layer
 An empty SVG is a valid present layer. Document equation numbering must not leak
 into stretched bracket decorations. SVG normalization preserves XML tag casing.
 
-The isolated MathJax probe also distinguishes authored derivation alignment from
-matrix/cases/vector structure. Its optional row composition moves original nodes
-into separately breakable mathematical rows, preserving anchors and nested tables.
-This candidate is not connected to the Reader. Ordinary MathML rendering still
-has wide equations; cancellation/overline SVG islands, renderer integration,
-and collision-free composition remain open.
+The mathematical renderer distinguishes authored derivation alignment from
+matrix/cases/vector structure. Its row composition moves original nodes into
+separately breakable mathematical rows, preserving anchors and nested tables.
+This adapter is integrated into the Reader. Wide fractions, brackets, matrices,
+and other indivisible structures still need responsive composition.
 
-The full PDE compile retains 102 decoration IDs; a separate compiler audit renders
+The initial PDE compile retained 102 mannot decoration IDs; its compiler audit rendered
 two fragments for each one. The dedicated fixture verifies six decoration kinds,
 including a custom two-layer callback and the note's marked-term preview. The
 full original-package and overlay PDF comparison is byte-identical. Evidence is
 under `dist/reader-semantic-checks`; see the research guide for the paired equation
 corpus measurements and their limits.
+
+=== Native cancellation and overline
+
+Native cancellation also retains semantic mathematical body text. The adapter
+captures resolved set-rule properties and passes the original stroke, length,
+angle function, inversion, and cross settings to Typst's cancellation renderer
+on an empty box for each measured fragment. Mathematical body glyphs never enter
+the paint SVG. The compiler tests check the returned angle, length, two-diagonal
+cross, inherited ink, explicit colors, thickness, and dashes.
+
+Typst's custom `mrow` boundary preserves nested mathematical show rules during
+HTML export. The HTML normalizer promotes a tagged cancellation row to semantic
+`menclose`; the visual renderer makes only these paint-backed enclosures breakable,
+then restores their notation in assistive MathML. Ordinary enclosures remain
+intact. An overline becomes an accented `mover` with a grouped body and explicitly
+stretchy spacing macron. A combining accent alone can remain a short glyph,
+so the browser checks that the visible bar spans its complete body.
+
+The frozen PDE snapshot contains 6,759 outer mathematical roots, including
+1,412 display equations. Its former 77 mathematical SVG islands are now semantic
+mathematics: 67 cancellations and ten overlines. The full compile passes the
+content gate without mathematical-loss warnings. All 169 decoration IDs produce
+two requested fragments in a separate compiler audit. This audit validates
+delivery, not real-page collision freedom. Sources and authored coordinates are
+unchanged, and the paired full-PDE PDF output remains byte-identical.
+
+Width validation measures complete stretched-operator surfaces, not the clipped
+glyph pieces used to construct them. It still checks real glyph extents and
+scroll width. A small display overhang can trigger at most two additional
+line-breaking passes at the same font size, reserving at most one em. Larger
+indivisible expressions remain explicit layout failures. The isolated corpus
+probe does not run dynamic paint, connector composition, or this runtime width
+correction, and cannot establish production acceptance. Evidence is under
+`dist/reader-math-overflow-checks`.
 
 == Logical mathematical selections
 

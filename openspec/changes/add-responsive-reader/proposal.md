@@ -11,5 +11,7 @@ renderer. Retain logical token identities across line breaks so selections,
 decorations, and original CeTZ relationships follow the new composition. Publish
 only validated results for the current document and geometry. Preserve authored
 drawing coordinates through shared adapters.
+Keep cancellation and overline bodies semantic as well. Original cancellation
+properties draw paint around measured fragments; overlines span their full bodies.
 
 Non-goals: replacing Typst's parser or evaluator, removing PDF export, changing mathematical meaning, or automatically inferring a responsive layout from every arbitrary drawing program.

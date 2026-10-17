@@ -41,8 +41,10 @@ exploration features are disabled **only in this layout probe**: speech-worker
 startup did not complete in the initial self-hosted configuration. Accessibility,
 speech, and production CSP support remain unverified.
 
-The report measures component scroll width and visible glyph/SVG bounds on both
-sides. It also records text-order changes, SVG counts, and the ordered list of
+The report measures component scroll width, visible glyph/SVG bounds, and complete
+stretched-operator surfaces on both sides. The clipped overlapping glyph pieces
+used to construct a stretched bar or fence are not separate visible ink. It also
+records text-order changes, SVG counts, and the ordered list of
 annotation marker occurrences. Text-order changes are not proof of mathematical
 corruption: for example, MathJax renders superscripts before subscripts in DOM
 order. They do show why saved quotations cannot blindly use presentation DOM text.
@@ -150,6 +152,24 @@ and subscripts while leaving the superscript unpainted. Reports and the screensh
 are under `dist/reader-identity-checks`. These helpers are wired into Reader
 selection and reading-position text. The later runtime fixture verifies the
 integrated renderer, local assets, and asynchronous update handling independently.
+
+## Native cancellation and overline comparison
+
+The native adapters remove all 77 mathematical SVG islands in the frozen PDE
+corpus while retaining its 6,759 outer math roots. This probe prepares tagged
+cancellation enclosures for visual line breaking; the actual Reader draws their
+original paint separately and preserves assistive enclosure notation. Overlines
+use explicitly stretchy spacing bars around semantic bodies.
+
+The paired reports under `dist/reader-math-overflow-checks` use `rows=1&identity=1&scope=all`
+for both adapters, with identical frozen input files and measurement code. Their
+overflow counts are 16 before / 14 after at 390px/18px and 164 before / 157 after
+at 320px/30px. All four runs have zero rendering, token-binding, logical-text,
+and SVG-count errors. The newer measurement includes complete stretched surfaces;
+do not compare these counts directly with the earlier probe's glyph-only counts.
+This remains an isolated probe without dynamic paint, relationships, or the
+Reader runtime's bounded small-overhang correction. Full layout, assistive-device
+checks, and mobile rollout remain pending.
 
 Useful primary references:
 

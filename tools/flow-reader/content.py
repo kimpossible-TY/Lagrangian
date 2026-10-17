@@ -34,7 +34,7 @@ class MathHtmlEmbedding(HTMLParser):
         self.stack = []
         self.output = []
 
-    def start(self, tag, self_closing):
+    def start(self, tag, self_closing, attrs):
         parent, namespace, _ = self.stack[-1][:3] if self.stack else (None, "html", False)
         in_math = namespace == "math" and parent not in self.TOKENS
         wrapped = in_math and tag not in self.MATH
@@ -45,7 +45,28 @@ class MathHtmlEmbedding(HTMLParser):
             child_namespace = "svg"
         if wrapped:
             self.output.append("<mtext>")
-        self.output.append(self.get_starttag_text())
+        source = self.get_starttag_text()
+        attributes = dict(attrs)
+        # Unknown custom math tags can make Typst export their nested show-rule
+        # content in text mode. Its mrow integration preserves that content;
+        # promote only the Reader's explicitly tagged cancellation afterward.
+        cancellation = (in_math and tag == "mrow" and attributes.get("data-flow-cancel") in {
+            "updiagonalstrike", "downdiagonalstrike", "updiagonalstrike downdiagonalstrike"
+        } and attributes.get("notation") == attributes.get("data-flow-cancel"))
+        if cancellation:
+            source = re.sub(r"^<mrow\b", "<menclose", source, count=1, flags=re.I)
+        overline = in_math and tag == "mrow" and attributes.get("data-flow-overline") == "true"
+        if overline:
+            # Use an explicitly stretchy spacing macron. A combining accent
+            # can remain a short, zero-advance glyph in MathJax instead of
+            # spanning the complete mathematical body.
+            source = re.sub(r"^<mrow\b", "<mover", source, count=1, flags=re.I)
+            if self_closing:
+                source = re.sub(r"/\s*>$", ">", source)
+                source += '<mrow></mrow><mo stretchy="true">¯</mo></mover>'
+            else:
+                source += "<mrow>"
+        self.output.append(source)
         if self_closing or tag in self.VOID:
             if wrapped:
                 self.output.append("</mtext>")
@@ -53,19 +74,22 @@ class MathHtmlEmbedding(HTMLParser):
             # HTMLParser lowercases tag names, but a later SVG extraction is
             # parsed as XML. Keep the source spelling for clipPath, gradients,
             # filters, and other case-sensitive SVG closing tags.
-            spelling = re.match(r"<\s*([^\s/>]+)", self.get_starttag_text())[1]
-            self.stack.append((tag, child_namespace, wrapped, spelling))
+            spelling = (re.match(r"<\s*([^\s/>]+)", source)[1] if child_namespace == "svg"
+                        else "menclose" if cancellation else "mover" if overline else tag)
+            self.stack.append((tag, child_namespace, wrapped, spelling, overline))
 
     def handle_starttag(self, tag, attrs):
-        self.start(tag, False)
+        self.start(tag, False, attrs)
 
     def handle_startendtag(self, tag, attrs):
-        self.start(tag, True)
+        self.start(tag, True, attrs)
 
     def handle_endtag(self, tag):
         if self.stack and self.stack[-1][0] == tag:
-            _, namespace, wrapped, spelling = self.stack.pop()
-            self.output.append(f"</{spelling if namespace == 'svg' else tag}>")
+            _, namespace, wrapped, spelling, overline = self.stack.pop()
+            if overline:
+                self.output.append('</mrow><mo stretchy="true">¯</mo>')
+            self.output.append(f"</{spelling}>")
             if wrapped:
                 self.output.append("</mtext>")
         else:

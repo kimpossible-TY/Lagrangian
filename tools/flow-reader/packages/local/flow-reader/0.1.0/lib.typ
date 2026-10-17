@@ -1,6 +1,8 @@
 // Rules are target-aware because html.frame invokes the paged layout engine.
 // Keep mathematical text native except for decorations not yet handled by
 // Typst's MathML exporter. Never rasterize an entire paragraph or page.
+#import "@preview/mannot:0.4.0" as reader-marks
+
 #let apply-reader(body) = {
   // These tables encode mathematical structure, unlike equation alignment.
   // Keep that distinction before the HTML backend turns both into mtable.
@@ -39,10 +41,31 @@
     } else { it }
   }
   show math.cancel: it => context {
-    if target() == "html" { box(html.frame(math.equation(it, numbering: none))) } else { it }
+    if target() == "html" {
+      // fields() includes resolved set-rule properties in this show context.
+      // Reuse the original Typst renderer for paint, never for the body text.
+      let properties = it.fields()
+      let body = properties.remove("body")
+      let notation = if it.cross { "updiagonalstrike downdiagonalstrike" }
+        else if it.inverted { "downdiagonalstrike" } else { "updiagonalstrike" }
+      reader-marks.core-mark(
+        // Typst recognizes mrow as a math integration boundary. The HTML
+        // normalizer promotes this tagged row to semantic menclose afterward.
+        html.elem("mrow", attrs: (notation: notation, "data-flow-cancel": notation), body),
+        overlay: (width, height, color) => {
+          set text(fill: color)
+          // Block math aligns the empty box with the fragment origin; an
+          // inline paragraph would shift the paint by its leading/baseline.
+          math.equation(math.cancel(box(width: width, height: height), ..properties),
+            block: true, numbering: none)
+        },
+      )
+    } else { it }
   }
   show math.overline: it => context {
-    if target() == "html" { box(html.frame(math.equation(it, numbering: none))) } else { it }
+    if target() == "html" {
+      html.elem("mrow", attrs: (accent: "true", "data-flow-overline": "true"), it.body)
+    } else { it }
   }
   show math.equation: it => context {
     if target() == "html" and it.block {
