@@ -1456,3 +1456,13 @@ UI language remains Korean, and the saved-document status is normal.
 The temporary viewport override is reset. Disposable fixture servers are stopped;
 some older detached test tabs cannot be closed through the browser APIs and their
 cleanup is not asserted. The delivered Reader tab remains available.
+
+### Published responsive Reader as Flow 0.1.25 — 2026-10-18
+
+- Pushed the completed feature and packaging fixes to `main`; clean release source is commit `73152cf60dc77fd34385822c7bf6e2da2ccd8569`. Built and signed the Apple Silicon app from that revision with `sourceDirty=false`. The bundle and extracted ZIP pass `scripts/flow-app.py verify`; signing certificate SHA-256 remains `1de2d9bd2a9497ff7fd686977fd969ba5b245cef295555af147c4b6eec35ddf5`.
+- The first install attempt rolled back after the PDE preview could not read its project fonts folder. After the user approved the macOS document-access permission, retry installed Flow 0.1.25 successfully and the menu app was reopened from Applications. The managed PDE profile is ready; original project files and authored CeTZ coordinates were not changed.
+- Verified the original PDF preview and separately managed Reader through local/Tailnet HTTP: both return 200. The PDF route delivered its HTML document; the Reader endpoint remained available on port 23627. The user's iPhone checks confirm 13px mobile display, pinch behavior, reference navigation and back navigation. VoiceOver remains explicitly deferred.
+- Pushed annotated tag `flow-v0.1.25`, resolving to the exact clean build commit above. Published [tinymist-flow 0.1.25](https://github.com/kimpossible-TY/tinymist-flow/releases/tag/flow-v0.1.25). GitHub reports `draft=false`, `prerelease=false`, and three uploaded assets whose SHA-256 digests match local files: app ZIP `2075ca760646a6aaaeb157469dd011a103d287f0b63e72a357ab31b90705497e`, release manifest `49e22937b1d45d278cf85e0cdfad3a3492298f0e1fe2b474eca571685dc2df74`, and checksum file `a2a6c63851f61065c6bd7eeffd7dfb96d46d4a5ff53d7fd2afc309404029425d`.
+- Flow app CI passed at [run 39086388869](https://github.com/kimpossible-TY/tinymist-flow/actions/runs/39086388869). The general Rust/editor CI run 39086388924 was still in progress at publication; the prior Flow release process gates publication on the Flow app workflow.
+
+The responsive Reader service is managed separately from the macOS app ZIP. Its implementation ships in the repository under `tools/flow-reader` and its deployed endpoint remains a distinct Tail Hosting service.
