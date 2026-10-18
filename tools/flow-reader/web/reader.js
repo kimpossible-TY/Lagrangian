@@ -745,7 +745,7 @@ async function refresh() {
       : state.exitCode
         ? "컴파일 오류가 있어 마지막으로 읽을 수 있었던 문서를 표시합니다."
         : state.contentGatePassed && !state.development
-          ? "저장된 문서 · 화면에 맞춰 읽기"
+          ? ""
           : "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다.";
     if (state.revision && state.revision !== revision && state.revision !== pending?.revision) {
       const manifestResponse = await fetch(

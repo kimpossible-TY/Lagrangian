@@ -31,6 +31,8 @@ highlights live in reading settings. Keep semantic button/radio alternatives to
 all gestures, and keep names available to assistive input. The outline is a native
 modal dialog with an independently scrolling nav, close control, outside dismissal,
 Escape and native focus return; navigating a heading focuses the article.
+Hide the normal accepted-document status line and its spacing. Loading, compiling,
+connection and publication diagnostics retain their existing status region.
 
 The user's 2026-10-18 instruction replaces optional browser pinch magnification
 inside the article with text reflow. Two article touches track a 13–30px candidate

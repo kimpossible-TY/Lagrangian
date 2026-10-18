@@ -517,6 +517,9 @@ button:disabled {
   margin: 0.8rem auto;
   padding: 0 1rem;
 }
+#reader-status[data-state="ready"] {
+  display: none;
+}
 #reader-status[data-state="error"],
 #reader-status[data-state="incomplete"] {
   color: var(--warning);
