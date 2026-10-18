@@ -26,7 +26,9 @@ already observed token. Without a valid edit, existing reading restoration appli
 ### Minimal navigation and direct reading gestures
 
 The toolbar has two 44px icon buttons: outline and reading settings, with Flow
-centered between them. Font steppers, the existing appearance previews, and saved
+centered between them. Both use plain 21px icons without a persistent background,
+border or shadow; retain their 44px targets and keyboard focus indicators.
+Font steppers, the existing appearance previews, and saved
 highlights live in reading settings. Keep semantic button/radio alternatives to
 all gestures, and keep names available to assistive input. The outline is a native
 modal dialog with an independently scrolling nav, close control, outside dismissal,

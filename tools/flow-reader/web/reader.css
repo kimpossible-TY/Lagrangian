@@ -134,16 +134,12 @@ button:disabled {
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--paper);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 75%, transparent);
+  border-radius: 50%;
   transition:
     background 140ms ease,
     transform 180ms ease;
 }
-#reader-appearance-open:hover,
-#reader-appearance-open[aria-expanded="true"] {
+#reader-appearance-open:hover {
   background: var(--wash);
 }
 #reader-appearance-open:active {
@@ -151,8 +147,8 @@ button:disabled {
   transition-duration: 65ms;
 }
 .reader-appearance-icon {
-  width: 19px;
-  height: 19px;
+  width: 21px;
+  height: 21px;
   flex: 0 0 auto;
 }
 #reader-appearance-panel {
