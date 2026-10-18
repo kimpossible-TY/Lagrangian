@@ -1591,3 +1591,18 @@ are retained under ignored `dist/reader-last-edit-install-20261018-122131/`.
 The prior immutable Reader release is retained for rollback. The macOS app bundle,
 engine, public address and authored source are unchanged. Physical iPhone
 acceptance of the new navigation remains outstanding.
+
+## Hierarchical outline installation — 2026-10-18
+
+Installed clean Reader runtime `3823005e0586d464263cc5f891215a1847ab4711` with
+the existing managed installer. The previous installed runtime predated the
+outline change. The actual PDE outline now contains 109 entries instead of 96,
+including its 13 previously omitted h5 headings. Document HTML bytes, configuration
+and last-edit history are unchanged; the original PDF service retains PID 65035.
+All 23 shell assets match the installed commit on both loopback and HTTPS.
+
+Actual HTTPS WebKit checks at 320px, 390px and 768px confirm 16px additional
+indentation per level, no outline horizontal overflow, and navigation to a deep
+heading. No application errors occurred, and the 390px screenshot was inspected.
+Section and installer tests passed before installation. Receipts, test output and
+screenshots are under `dist/reader-outline-install-20261018-130116/`.
