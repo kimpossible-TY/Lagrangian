@@ -1743,3 +1743,22 @@ in `dist/reader-icon-only-install-20261018/`. All 385 release files pass integri
 checks and all 23 public assets match over loopback and HTTPS. Accepted document
 HTML and configuration bytes are unchanged; the original PDF retains PID 65035
 and HTTP 200. Physical device and speech acceptance were not repeated.
+
+
+## Remove the toolbar page-view link — 2026-10-18
+
+Installed clean runtime `e9e7c9ad82afc42da7a11c15e7239000720350ef`. The page-view
+anchor, poll-time link update and obsolete positioning rule are removed. Text
+size and appearance controls align at the toolbar's inline end. Existing paged
+addresses and Dashboard choices remain available.
+
+All 63 JavaScript tests, syntax/formatting checks and strict OpenSpec validation
+pass. The 385-file release manifest is intact, and all 23 public assets match
+over loopback and HTTPS. Actual HTTPS checks at 320px, 390px and 768px find zero
+toolbar links, no original-link element, no width overflow and a 56.1875px toolbar.
+Reading controls end 8px inside the client edge at each width. Appearance radio
+keys and Escape/focus return work; Automatic and the saved highlight are retained.
+The 390px installed screenshot was inspected. Receipts and the image are in
+`dist/reader-remove-page-link-install-20261018/`. Accepted document HTML and
+configuration bytes remain unchanged; the original PDF retains PID 65035 and
+HTTP 200. Physical device and speech validation were not repeated.

@@ -6,7 +6,7 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `9ef8a1e0` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `e9e7c9ad` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
