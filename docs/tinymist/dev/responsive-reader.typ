@@ -6,13 +6,13 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `0b6549dc` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `9ef8a1e0` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
 original PDF service and its address remain available. All 23 public Reader assets
 match the committed bytes, and HTTPS document delivery matches the managed HTML.
-This release includes the appearance preview panel and centered equation numbers.
+This release includes the icon-only appearance preview panel and centered equation numbers.
 Its compact appearance button keeps the toolbar on one line at 320px even with
 saved highlights. Actual HTTPS checks cover all three choices, reload persistence,
 keyboard dismissal and retained saved highlights. Physical iPhone acceptance of
@@ -44,10 +44,10 @@ the control still works for the current visit.
 
 The icon-only appearance button opens an anchored panel with three reading
 previews. The selected preview has a checkmark and a moving selection surface;
-the panel stays open while comparing modes. Arrow keys change the radio choice,
-and assistive names and the live description are retained without visible mode
-labels in the enhanced controls.
-Escape returns focus to the button, and outside interaction dismisses the panel.
+the panel stays open while comparing modes. Assistive names and the live
+description are retained without visible mode labels in the enhanced controls.
+Arrow keys change the radio choice, Escape returns focus to the button, and
+outside interaction dismisses the panel.
 Browsers without native popovers retain the standard select. Reduced motion
 removes spatial transitions; reduced transparency and increased contrast use a
 solid panel. This is a locally tuned web material, not native optical rendering.

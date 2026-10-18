@@ -1726,3 +1726,20 @@ Reader runs as PID 43119. Configuration bytes are unchanged, and the original
 PDF service retains PID 65035 and HTTP 200. The previous immutable release and
 launcher/configuration backups remain available. Receipts and the actual HTTPS
 screenshot are under `dist/reader-appearance-install-20261018-134857/`.
+
+
+## Icon-only appearance controls — 2026-10-18
+
+Installed clean runtime `9ef8a1e0eaf7b95cddce039d0947b86023f7c96a`. The trigger
+is a 44px icon-only button; mode names and the live description are visually
+hidden while native radio and button accessible names remain intact. Previews
+and the selected checkmark remain visible. All 63 JavaScript tests pass.
+
+Actual HTTPS checks cover all three choices at 320px with one saved highlight: no
+visible trigger text, 1px clipped choice names/status, a 56.1875px toolbar and no
+width overflow. Keyboard selection and Escape/focus return work; the original
+automatic choice was restored. The inspected 390px screenshot and receipts are
+in `dist/reader-icon-only-install-20261018/`. All 385 release files pass integrity
+checks and all 23 public assets match over loopback and HTTPS. Accepted document
+HTML and configuration bytes are unchanged; the original PDF retains PID 65035
+and HTTP 200. Physical device and speech acceptance were not repeated.
