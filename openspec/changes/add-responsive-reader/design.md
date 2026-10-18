@@ -1,5 +1,30 @@
 # Design
 
+## Selection review actions
+
+Keep saved quotations separate from persistent source highlighting and temporary
+red strikes. Highlight submits revision-bound canonical fragments and complete
+math segments. Only accepted workspace dependencies may supply edit candidates.
+Locate every fragment uniquely in the accepted body; compile each bounded source
+candidate in an isolated project shadow with an opaque marker around the proposed
+highlight. Require exactly one marker, unchanged complete body text and exact
+marked character intervals in the selected passages. This rejects repeated macro
+output, code/string lookalikes, partial formulas and unrelated duplicate text.
+Prefer the source's callable `highlighted` helper; ordinary literal text can use
+standard `highlight`. Compile the unmarked final candidate for HTML and with the
+original paged packages before writing, recheck
+all accepted inputs and the full original file, and replace it atomically while
+preserving permissions. The normal watcher publishes the saved change.
+
+Retain the submitted selection while awaiting a response and disable duplicate
+submissions. Clear only the submitted range on success or staleness; rejected
+selections remain available to save. A newer selection survives an older response.
+Red strikes store canonical quotations and complete block text, scoped to the
+document. Repaint noninteractive lines from logical ranges after composition,
+font/width changes and section remounting. Changed or ambiguous block text must
+not inherit a strike. Undo and clear never call the compiler; unavailable storage
+retains in-memory marks. Keep all selection controls within narrow safe areas.
+
 ## Last visual edit navigation
 
 Reuse the paged preview's server-owned visual history and render-before-jump

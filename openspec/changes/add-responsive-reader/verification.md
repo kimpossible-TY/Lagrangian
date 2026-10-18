@@ -1999,3 +1999,42 @@ Actual HTTPS WebKit checks repeat both continuation sections and manual-outline
 reopening, confirming the current link's focus, visibility and centering without
 moving the article on opening. Deployment receipts, browser results and the
 installed screenshot are in `dist/reader-outline-location-checks/`.
+
+## Source highlights and red review strikes — 2026-10-18
+
+The HTML selection toolbar now retains saved quotations and adds persistent
+source Highlight, temporary Red strike, Undo and Clear marks. Source highlighting
+is revision-bound and compiler-verified: compile a marked candidate in a project
+shadow, require the exact selected body intervals with one marker and unchanged
+complete body text, compile the final unmarked helper call for HTML and with the
+original PDF packages, then atomically save
+only a still-current writable workspace file. Ordinary text supports standard
+`highlight`; complete mathematics uses the document's `highlighted` helper.
+Context and mathematical hints only rank candidates; compilation authorizes the
+edit. Repeated macro output, code strings, partial formulas, stale revisions and
+concurrent saves are rejected without changing source. A rejected native toolbar
+tap retains its quotation, and older responses preserve newer selections.
+
+Red strikes use canonical block text and disjoint logical ranges, survive font
+and viewport reflow, section remounting and reload, and remain scoped to this
+document. Changed block text invalidates a mark; unavailable storage retains
+in-memory undo and clear. Their noninteractive lines never enter the compiler.
+The wrapping selection toolbar and messages follow the visual viewport and
+safe-area bounds.
+
+All 96 Python tests pass, including 15 source-edit tests with real compilation,
+HTTP origin/revision checks, Unicode smart quotes, imported files, repeated source
+text and macro output, common-word context, complete/partial mathematics, source
+permissions, concurrent saves and a failing PDF candidate. Complete numbered
+equations do not require selecting their generated number. All 72 JavaScript
+unit tests pass. WebKit and Chrome pass 86 browser checks at 320×740, 390×844 and 768×600, covering native
+selection collapse, pending/newer selections, source persistence, saved quotations,
+red strike reflow/reload and undo/clear without source changes. Prettier, syntax,
+strict OpenSpec validation and the canonical Typst development guide compile pass.
+
+An isolated copy of the actual PDE project successfully saves a real source
+highlight and republishes all 7,515 math roots with no compiler-loss warning.
+All 45 original project source files retain their pre-test hashes. Reports,
+test logs, the compiled development guide and an inspected 390px screenshot are
+in `dist/reader-selection-actions-checks/`. Physical iPhone native callout and
+hardware-touch arbitration were not repeated in this pass.

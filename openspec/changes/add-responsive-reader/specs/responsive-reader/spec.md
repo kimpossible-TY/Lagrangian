@@ -386,6 +386,31 @@ The reader SHALL save explicitly selected quotations in browser-local storage sc
 - **AND** highlighting a base and its subscript does not also highlight an unselected superscript
 - **AND** repeated visual occurrences retain their association with the same logical token
 
+### Requirement: Source highlights and temporary review strikes
+The Reader SHALL provide Highlight and Red strike alongside the existing saved
+quotation action, with keyboard-accessible controls that preserve native text
+selection and fit the visible safe area.
+
+#### Scenario: Save a source highlight
+- **WHEN** a current selection resolves to one compiler-verified source slice in a writable accepted workspace dependency
+- **THEN** Highlight saves the real Typst `highlighted` helper, or standard `highlight` for ordinary text, and the watcher publishes it
+- **AND** the complete body text and exact selected occurrence are verified in an isolated compilation before any source write
+- **AND** the final source compiles for HTML and with the original PDF packages before it is saved
+- **AND** complete mathematics uses the math-aware helper; partial formulas, reused macro output, code/string lookalikes, ambiguous and stale selections do not change source
+- **AND** a concurrent source save is never overwritten and file permissions are preserved
+
+#### Scenario: Pending source action and native selection collapse
+- **WHEN** a source highlight is pending or its toolbar tap collapses native selection
+- **THEN** duplicate submissions are disabled and the submitted quotation remains available if rejected
+- **AND** success or staleness releases only that submitted selection so document updates can resume
+- **AND** a newer selection survives an older response
+
+#### Scenario: Temporary red strikes
+- **WHEN** the reader applies Red strike to selected prose or mathematical fragments
+- **THEN** noninteractive red lines paint those fragments without changing source or compiling
+- **AND** document-scoped browser persistence survives reload, reflow and transport-section remounting
+- **AND** changed block text is never given an old mark, unavailable storage retains in-memory review, and undo/clear remove marks without compiling
+
 ### Requirement: Independent serving boundary
 Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expose and monitor the reader endpoint without taking ownership of document rendering or duplicating the service lifecycle.
 

@@ -384,6 +384,21 @@ returns to the passage. Records belong to this document in the current browser's
 local storage. They do not synchronize devices and are removed with site data.
 Updates wait for an active selection or any reader dialog to close.
 
+The selection toolbar also offers Highlight and Red strike. Highlight saves a
+real `#highlighted[...]` call in the original source when the document provides
+that math-aware helper, or standard `#highlight[...]` for ordinary literal text.
+The service compiles a marked candidate in a separate project shadow and verifies
+the exact selected occurrence and unchanged complete body text before saving.
+The final source must also compile with the original PDF packages.
+Complete mathematics is supported through the helper; ambiguous/reused output,
+partial formulas and stale sources remain unchanged. Rejected selections retain
+the existing save action. A newer selection is preserved during an older request.
+
+Red strikes are temporary browser-local review marks. They follow the selected
+logical text through reflow and reload, expose undo and clear, and never modify
+source or request compilation. Changed block text does not receive an old mark.
+Unavailable local storage retains in-memory review controls.
+
 A highlight stores exact text and surrounding context for each selected block.
 `/api/locate` resolves it against the accepted snapshot, including when edits move
 it to another section or change an automatically generated label. Ambiguous or
