@@ -445,6 +445,11 @@ button:disabled {
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+#reader-document .flow-highlight .flow-math-view {
+  /* Paint the complete expression, including tall fractions and reflowed rows. */
+  background: var(--highlight);
+  border-radius: 0.12em;
+}
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -524,7 +529,8 @@ button:disabled {
   padding: 0.25rem 0.65rem 1rem;
   scroll-padding-block: 0.5rem;
 }
-#reader-navigation {
+#reader-navigation,
+.reader-navigation-visual {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -538,11 +544,12 @@ button:disabled {
   background: transparent;
   color: var(--ink);
   overflow: hidden;
-  transition:
-    display 400ms allow-discrete,
-    overlay 400ms allow-discrete;
 }
-#reader-navigation:not([open]) {
+.reader-navigation-visual {
+  z-index: 30;
+}
+#reader-navigation:not([open]),
+.reader-navigation-visual {
   pointer-events: none;
 }
 #reader-navigation::backdrop {

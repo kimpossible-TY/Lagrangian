@@ -300,7 +300,7 @@ in reading settings through semantic keyboard-accessible controls.
 - **AND** ordinary one-finger vertical scrolling and reference taps remain available
 
 #### Scenario: Swipe the outline
-- **WHEN** a horizontal rightward swipe starts 24–96px inside the reading viewport
+- **WHEN** a horizontal rightward swipe starts in the article outside the outer 24px browser edges
 - **THEN** the outline drawer follows it and settles based on distance and recent velocity
 - **AND** vertical intent, browser-edge gestures, active selections and interactive starts do not open it
 - **AND** reverse swipes close it, cancellation restores its prior state, and stale velocity after a pause cannot cause a fling
@@ -331,6 +331,12 @@ content, quotations, mathematical structure and reading position.
 - **THEN** each uses the matching muted highlight palette with readable foreground ink
 - **AND** original drawing frames and native canvas labels use the surrounding theme's ink, paper, selection and highlight colors
 - **AND** the toolbar controls fit a 320px viewport with their labels on one line
+
+#### Scenario: Export the existing highlighted helper
+- **WHEN** an authored `highlighted` call contains plain text, a string, nested formatting, links or mathematical expressions
+- **THEN** HTML retains one semantic highlight around that original content and keeps its mathematics native and selectable
+- **AND** tall and reflowed mathematical expressions retain the highlight across font, width and appearance changes
+- **AND** the existing paged output and authored calls remain unchanged
 
 #### Scenario: Choose appearance from the preview panel
 - **WHEN** a reader opens the toolbar's appearance button
@@ -387,4 +393,5 @@ Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expos
 #### Scenario: Playful outside dismissal
 - **WHEN** the resting outline capsule is dismissed by tapping outside
 - **THEN** it briefly anticipates before sliding left, while focus and dismissal commit immediately
-- **AND** reopening continues from its current motion and reduced motion omits the flourish
+- **AND** the exit remains visible without closed-dialog display/overlay transition support
+- **AND** reopening continues from its current motion and reduced motion omits the flourish while retaining swipe-to-open

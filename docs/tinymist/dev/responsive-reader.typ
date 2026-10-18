@@ -70,6 +70,10 @@ solid panel. This is a locally tuned web material, not native optical rendering.
 Light appearance pairs warm paper with charcoal text and a muted amber highlight.
 Dark appearance uses charcoal paper, soft light ink and a deep gold highlight.
 Authored highlights and browser-saved quotations share the matching palette;
+the `highlighted` text helper exports its original text, links and native math
+inside a semantic mark. Its complete mathematical views share that background,
+so tall fractions and wrapped equations stay highlighted after font or width
+changes. The Reader-only package adapter retains the helper's paged implementation.
 native text selection uses a separate sage tone. CeTZ and mannot SVGs and their
 frames are transparent; native label backplates match the enclosing paper or
 callout wash. Neutral ink follows the theme, while colored labels, marked terms
@@ -100,8 +104,8 @@ finger or a selected passage prevents an accidental change. Article gestures
 own text sizing rather than browser magnification; normal vertical scrolling
 remains available. Settings buttons provide the same adjustment without a gesture.
 
-A rightward swipe starting 24–96px inside the article opens the outline capsule,
-leaving the outer browser-back edge alone. Reverse swipes close it. The drawer
+A rightward swipe from the article opens the outline capsule, reserving the
+outer 24px browser edges. Reverse swipes close it. The drawer
 tracks horizontal intent, rejects vertical motion and interactive starts, and
 returns to its initial state on cancellation. Its committed state uses a native
 modal dialog with keyboard dismissal and focus restoration. The outline scrolls
@@ -975,3 +979,11 @@ original paged endpoint. Compilation success alone is not a release gate.
 Outside taps on the resting outline add a small 8px, 80ms anticipation before
 the 320ms exit. Reopening inherits its current position and velocity. Reduced
 motion omits the flourish; semantic dismissal and focus return are immediate.
+
+
+Outline drag previews and exits use an inert, assistive-hidden visual layer.
+The existing panel moves back into the native modal on committed opening; no
+preview autofocus can disturb the touch stream. Closing commits immediately,
+while the layer preserves its exit without display/overlay transition support.
+Height-only mobile viewport changes retain swipe tracking. Reduced motion
+skips travel while keeping swipe opening and closing available.

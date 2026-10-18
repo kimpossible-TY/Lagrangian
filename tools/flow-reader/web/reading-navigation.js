@@ -46,7 +46,7 @@ export class SwipeTracker {
   move(x, y, time) {
     this.delta = x - this.x;
     const vertical = Math.abs(y - this.y);
-    if (this.intent === "pending" && Math.max(Math.abs(this.delta), vertical) >= 10) {
+    if (this.intent === "pending" && Math.max(Math.abs(this.delta), vertical) >= 6) {
       this.intent =
         vertical > Math.abs(this.delta) * 0.65 || (this.open ? this.delta > 0 : this.delta < 0)
           ? "rejected"
@@ -83,6 +83,14 @@ export class OutlineDrawer {
     this.trigger = trigger;
     this.panel = dialog.querySelector(".reader-drawer-panel");
     this.scrim = dialog.querySelector(".reader-drawer-scrim");
+    // Keep presentation alive without relying on a closed dialog's display/overlay
+    // transitions. This also previews a swipe without native dialog autofocus.
+    this.visual = document.createElement("div");
+    this.visual.className = "reader-navigation-visual";
+    this.visual.hidden = true;
+    this.visual.inert = true;
+    this.visual.setAttribute("aria-hidden", "true");
+    document.body.append(this.visual);
     this.reduced = reducedMotion;
     this.beforeOpen = beforeOpen;
     this.travel = Math.min(352, document.documentElement.clientWidth - 32) + 40;
@@ -104,12 +112,18 @@ export class OutlineDrawer {
     this.reduced.addEventListener("change", () => {
       this.stop();
       this.paint(this.target ? 0 : -this.travel);
+      if (!this.target) this.hideVisual();
     });
+    let viewportWidth = document.documentElement.clientWidth;
     window.addEventListener("resize", () => {
-      if (!dialog.open) return;
+      const nextWidth = document.documentElement.clientWidth;
+      const widthChanged = nextWidth !== viewportWidth;
+      viewportWidth = nextWidth;
+      if (!widthChanged || (!dialog.open && this.visual.hidden)) return;
       this.stop();
       this.travel = this.measureTravel();
       this.paint(this.target ? 0 : -this.travel);
+      if (!this.target) this.hideVisual();
     });
   }
 
@@ -141,22 +155,27 @@ export class OutlineDrawer {
     return velocity;
   }
 
+  hideVisual() {
+    this.visual.hidden = true;
+    this.dialog.append(this.scrim, this.panel);
+  }
+
   prepare(modal) {
     const readingX = window.scrollX;
     const readingY = window.scrollY;
-    const wasClosed = !this.dialog.open;
-    if (modal && this.dialog.open && !this.dialog.hasAttribute("data-modal")) this.dialog.close();
-    if (!this.dialog.open) {
-      if (modal) this.dialog.showModal();
-      else this.dialog.show();
+    const wasHidden = !this.dialog.open && this.visual.hidden;
+    if (modal) {
+      this.hideVisual();
+      if (!this.dialog.open) this.dialog.showModal();
+    } else {
+      this.visual.append(this.scrim, this.panel);
+      this.visual.hidden = false;
     }
     this.dialog.toggleAttribute("data-modal", modal);
     const oldTravel = this.travel;
     this.travel = this.measureTravel();
-    if (wasClosed && !this.motion && this.position <= -oldTravel) this.paint(-this.travel);
+    if (wasHidden && !this.motion && this.position <= -oldTravel) this.paint(-this.travel);
     this.trigger.setAttribute("aria-expanded", String(modal));
-    // Native autofocus can scroll toward the initially offscreen close button.
-    // Restore the article before resolving its current outline heading.
     if (window.scrollX !== readingX || window.scrollY !== readingY)
       window.scrollTo(readingX, readingY);
     if (modal) this.beforeOpen();
@@ -168,12 +187,15 @@ export class OutlineDrawer {
     if (open) this.prepare(true);
     else {
       this.dialog.close();
+      this.visual.append(this.scrim, this.panel);
+      this.visual.hidden = false;
       this.dialog.removeAttribute("data-modal");
       this.trigger.setAttribute("aria-expanded", "false");
     }
     const to = open ? 0 : -this.travel;
     if (this.reduced.matches || !this.panel.animate) {
       this.paint(to);
+      if (!open) this.hideVisual();
       return;
     }
     const from = this.position;
@@ -204,6 +226,7 @@ export class OutlineDrawer {
       this.animation.cancel();
       this.scrimAnimation.cancel();
       this.motion = null;
+      if (!this.target) this.hideVisual();
     };
   }
 
@@ -314,7 +337,12 @@ export class ReaderGestures {
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) this.cancel();
     });
-    window.addEventListener("resize", () => this.cancel());
+    let viewportWidth = document.documentElement.clientWidth;
+    window.addEventListener("resize", () => {
+      const nextWidth = document.documentElement.clientWidth;
+      if (nextWidth !== viewportWidth) this.cancel();
+      viewportWidth = nextWidth;
+    });
   }
 
   get active() {
@@ -374,7 +402,9 @@ export class ReaderGestures {
     if (event.target.closest(open ? "button,input,select,textarea,[contenteditable]" : interactive))
       return;
     const touch = touches[0];
-    if (onArticle && (touch.clientX < 24 || touch.clientX > 96)) return;
+    // Swiping from the middle of the passage is discoverable too; reserve only
+    // the outer browser-navigation edges and normal interactive targets.
+    if (onArticle && (touch.clientX < 24 || touch.clientX > innerWidth - 24)) return;
     if (!onArticle && (!open || !this.drawer.panel.contains(event.target))) return;
     if (onArticle && this.overlayOpen()) return;
     const start = point(touch);
