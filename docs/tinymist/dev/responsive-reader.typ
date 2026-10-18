@@ -70,11 +70,12 @@ solid panel. This is a locally tuned web material, not native optical rendering.
 Light appearance pairs warm paper with charcoal text and a muted amber highlight.
 Dark appearance uses charcoal paper, soft light ink and a deep gold highlight.
 Authored highlights and browser-saved quotations share the matching palette;
-the `highlighted` text helper exports its original text, links and native math
+native text selection uses a separate sage tone.
+The `highlighted` text helper exports its original text, links and native math
 inside a semantic mark. Its complete mathematical views share that background,
 so tall fractions and wrapped equations stay highlighted after font or width
 changes. The Reader-only package adapter retains the helper's paged implementation.
-native text selection uses a separate sage tone. CeTZ and mannot SVGs and their
+CeTZ and mannot SVGs and their
 frames are transparent; native label backplates match the enclosing paper or
 callout wash. Neutral ink follows the theme, while colored labels, marked terms
 and vector paint retain their color family at readable contrast. Original paint

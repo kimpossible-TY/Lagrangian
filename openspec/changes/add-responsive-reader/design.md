@@ -106,8 +106,10 @@ replace mathematical nodes or recompile the document. Compact controls must fit
 a 320px viewport without wrapping their text or increasing toolbar height.
 
 The isolated `text-utils` adapter retains the installed `highlighted` helper's
-paged implementation and exports one semantic `mark.flow-highlight` around its
-original HTML body before any PDF measurement or box splitting. This preserves
+paged implementation and exports semantic `mark.flow-highlight` around inline
+HTML content before any PDF measurement or box splitting. Paragraph breaks keep
+their flow; display equations use a block wrapper with the same class and mark
+role so HTML parsing cannot detach them from their highlight. This preserves
 plain content, strings, nested formatting, links and native MathML together.
 The full mathematical view receives the same theme background, including tall
 fractions and rows promoted to block layout. Theme changes recolor that surface

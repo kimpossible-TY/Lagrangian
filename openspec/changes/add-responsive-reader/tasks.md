@@ -58,8 +58,8 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Verify existing paged service and reader delivery, document operation and rollback.
 - [x] Add persistent Automatic / Light / Dark choices before first paint, with live device changes and storage-failure recovery.
 - [x] Coordinate reading/control palettes and authored/saved highlight colors while retaining local drawing contrast.
-- [ ] Adapt the existing `highlighted` helper for HTML text and native mathematics while retaining its paged implementation and recording package provenance.
-- [ ] Verify plain/string/mixed/nested/tall/reflowed highlights, canonical copy, theme changes and unchanged paged output; compile the actual PDE document.
+- [x] Adapt the existing `highlighted` helper for HTML text and native mathematics while retaining its paged implementation and recording package provenance.
+- [x] Verify plain/string/mixed/nested/tall/reflowed highlights, canonical copy, theme changes and unchanged paged output; compile the actual PDE document.
 - [ ] Install the verified highlight fix from a clean commit and check the managed PDE Reader's HTTPS delivery.
 - [x] Verify appearance persistence, contrast and compact controls against actual PDE content at phone and tablet widths.
 - [x] Replace the basic appearance select with a compact icon/label trigger and an anchored, accessible three-choice preview panel; preserve persistence and verify keyboard, interruption and narrow layouts.

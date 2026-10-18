@@ -147,6 +147,43 @@ class TypstIntegrationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
 
+    def test_highlighted_preserves_text_and_native_math_in_html(self):
+        from xml.etree import ElementTree as ET
+
+        with tempfile.TemporaryDirectory() as temp:
+            project = build.Project(ROOT / "tests/fixtures", Path("highlighted.typ"),
+                                    self.packages, compiler=self.compiler)
+            report = build.compile_project(project, Path(temp))
+            self.assertEqual(report["exitCode"], 0, (Path(temp) / "compile.log").read_text())
+            self.assertTrue(report["contentGatePassed"], report)
+            source = (Path(temp) / "document.html").read_text()
+            body = source.split("<body>", 1)[1].split("</body>", 1)[0]
+            document = ET.fromstring("<body>" + body + "</body>")
+            marks = document.findall('.//*[@class="flow-highlight"]')
+            self.assertEqual(len(marks), 9)
+            self.assertEqual(''.join(marks[0].itertext()), "Plain highlighted text.")
+            self.assertEqual(''.join(marks[1].itertext()), "A highlighted string.")
+            self.assertEqual(''.join(marks[2].itertext()), "One text child.")
+            self.assertEqual(sum(len(mark.findall('.//{*}math')) for mark in marks), 5)
+            self.assertEqual(len(marks[3].findall('.//{*}mfrac')), 1)
+            self.assertEqual(len(marks[4].findall('.//{*}msqrt')), 1)
+            self.assertEqual(len(marks[4].findall('.//{*}a')), 1)
+            self.assertEqual(''.join(marks[7].itertext()).strip(), "First highlighted paragraph.")
+            self.assertEqual(''.join(marks[8].itertext()).strip(), "Second highlighted paragraph.")
+            self.assertEqual(report["elements"].get("svg", 0), 0)
+
+    def test_highlighted_paged_output_matches_the_installed_helper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            build.prepare_packages(self.packages, work / "overlay")
+            for name, packages in [("original", self.packages), ("reader", work / "overlay")]:
+                command = [self.compiler, "compile", "--creation-timestamp", "1760000000",
+                           "--package-path", str(packages), str(ROOT / "tests/fixtures/highlighted.typ"),
+                           str(work / f"{name}.pdf")]
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()

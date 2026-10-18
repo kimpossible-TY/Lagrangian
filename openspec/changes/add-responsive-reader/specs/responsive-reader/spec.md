@@ -334,7 +334,7 @@ content, quotations, mathematical structure and reading position.
 
 #### Scenario: Export the existing highlighted helper
 - **WHEN** an authored `highlighted` call contains plain text, a string, nested formatting, links or mathematical expressions
-- **THEN** HTML retains one semantic highlight around that original content and keeps its mathematics native and selectable
+- **THEN** HTML retains semantic highlights around that original content, respects paragraph/display boundaries and keeps its mathematics native and selectable
 - **AND** tall and reflowed mathematical expressions retain the highlight across font, width and appearance changes
 - **AND** the existing paged output and authored calls remain unchanged
 
