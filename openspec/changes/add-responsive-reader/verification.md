@@ -1924,6 +1924,15 @@ formatting and guide compilation checks pass.
 Evidence: `dist/reader-paragraph-tab-checks/`. Physical iPhone behavior was not
 retested in this pass.
 
+Installed clean runtime `1c60c9a3f8e165ccc3a776f5e4c99bef3a51fee9`. All 395
+immutable files and HTTPS CSS bytes match; configuration bytes are unchanged
+and the original PDF endpoint remains HTTP 200. The accepted HTTPS document
+retains all 589 spacers, 7,515 math roots and 101 helper highlight wrappers,
+with zero private markers or compiler-loss warnings. At 390px, the actual
+Notation paragraph has a 19.5px spacer at 13px font size, ready mathematics and
+equal page/client widths. Delivery receipts, browser measurements and the
+inspected screenshot are in `dist/reader-paragraph-tab-checks/deployment/`.
+
 ## Authored highlighted mathematics — 2026-10-18
 
 The installed `text-utils:0.1.2` helper splits text into `highlight` elements and
