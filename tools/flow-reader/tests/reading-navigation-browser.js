@@ -80,6 +80,10 @@ async function run() {
   await pause();
   const original = font();
   const canonical = logicalTextIndex(article).text;
+  const scrollSpace = document.createElement("div");
+  scrollSpace.style.height = "150vh";
+  scrollSpace.setAttribute("aria-hidden", "true");
+  document.body.append(scrollSpace);
   check(
     "Toolbar exposes exactly two action icons",
     document.querySelectorAll(".reader-toolbar button").length > 2 &&
@@ -149,6 +153,7 @@ async function run() {
   await pause();
   const a = touch(3, 48, 300),
     b = touch(3, 260, 302);
+  window.scrollTo(0, 240);
   const beforeOutlineScroll = scrollY;
   send("touchstart", [a]);
   send("touchmove", [b]);
@@ -162,13 +167,17 @@ async function run() {
   check("A completed opening swipe becomes a native modal", drawer.matches(":modal"));
   check(
     "Opening the capsule preserves the article position",
-    Math.abs(scrollY - beforeOutlineScroll) < 1,
+    beforeOutlineScroll > 0 && Math.abs(scrollY - beforeOutlineScroll) < 1,
   );
   check(
     "The outline marks the current reading location",
     drawer.querySelectorAll('[aria-current="location"]').length === 1,
   );
   await pause();
+  check(
+    "The settled capsule retains the scrolled passage",
+    Math.abs(scrollY - beforeOutlineScroll) < 1,
+  );
   swipe([240, 300], [25, 302], panel, true);
   check("A canceled closing swipe keeps the outline open", drawer.open);
   await pause();
@@ -279,6 +288,7 @@ async function run() {
     logicalTextIndex(article).text === canonical,
   );
   report.font = font();
+  scrollSpace.remove();
 }
 run()
   .catch((error) => report.errors.push(String(error)))
