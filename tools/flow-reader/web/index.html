@@ -8,6 +8,7 @@
     />
     <meta name="color-scheme" content="light dark" />
     <title>Flow Reader</title>
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="reader.css" />
     <script type="module" src="reader.js"></script>
   </head>
@@ -22,6 +23,11 @@
         <output id="reader-size">13</output>
         <button id="reader-larger" aria-label="글자 크게">A+</button>
       </div>
+      <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
+        <option value="system">자동</option>
+        <option value="light">라이트</option>
+        <option value="dark">다크</option>
+      </select>
       <a id="reader-original" hidden>페이지 보기</a>
     </header>
     <div id="reader-status" role="status">문서를 불러오는 중…</div>

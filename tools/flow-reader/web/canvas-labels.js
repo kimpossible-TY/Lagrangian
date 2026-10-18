@@ -1,33 +1,7 @@
 import { paintedPathPoint } from "./graphics.js";
+export { inkContrast, readableInk } from "./drawing-theme.js";
 
 const gap = 4;
-const paper = [252, 250, 246];
-
-function luminance(rgb) {
-  const linear = rgb.map((value) => {
-    const channel = value / 255;
-    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
-  });
-  return linear.reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
-}
-
-export function inkContrast(rgb) {
-  const background = luminance(paper),
-    foreground = luminance(rgb);
-  return (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05);
-}
-
-export function readableInk(rgb) {
-  if (inkContrast(rgb) >= 4.5) return rgb;
-  let low = 0,
-    high = 1;
-  for (let pass = 0; pass < 20; pass++) {
-    const factor = (low + high) / 2;
-    if (inkContrast(rgb.map((value) => value * factor)) >= 4.5) low = factor;
-    else high = factor;
-  }
-  return rgb.map((value) => Math.floor(value * low));
-}
 
 export function overlaps(a, b, padding = gap) {
   return (
@@ -234,19 +208,6 @@ export class NativeCanvasLabels {
         const style = getComputedStyle(element);
         if (!element.closest(".flow-math-view") && parseFloat(style.fontSize) < fontSize - 0.1)
           element.style.fontSize = "1em";
-        const match = style.color.match(/^rgba?\(([^)]+)\)$/);
-        if (match) {
-          const channels = match[1].split(/[, /]+/).map(Number);
-          const alpha = channels[3] ?? 1;
-          const rgb = channels
-            .slice(0, 3)
-            .map((value, i) => value * alpha + paper[i] * (1 - alpha));
-          const ink = readableInk(rgb);
-          if (ink.some((value, i) => value !== rgb[i])) {
-            element.dataset.canvasSourceColor ??= style.color;
-            element.style.color = `rgb(${ink.join(",")})`;
-          }
-        }
       }
     }
   }

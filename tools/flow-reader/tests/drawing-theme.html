@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drawing appearance fixture</title>
+    <script src="../web/theme.js"></script>
+    <link rel="stylesheet" href="../web/reader.css" />
+  </head>
+  <body>
+    <header class="reader-toolbar">
+      <label for="reader-theme">그림 테마</label>
+      <select id="reader-theme">
+        <option value="system">자동</option>
+        <option value="light">라이트</option>
+        <option value="dark">다크</option>
+      </select>
+      <button id="late">늦게 도착한 그림</button>
+    </header>
+    <main id="reader-document">
+      <h1>CeTZ · mannot</h1>
+      <div class="flow-callout">
+        <div class="flow-canvas" data-flow-canvas-model="{}">
+          <svg id="drawing" viewBox="0 0 240 110" width="240" height="110">
+            <defs>
+              <mask id="coverage">
+                <rect id="mask-paper" width="240" height="110" fill="#ffffff" />
+                <circle id="mask-hole" cx="200" cy="70" r="5" fill="#000000" />
+              </mask>
+              <linearGradient id="gradient">
+                <stop offset="0" stop-color="#3157c8" />
+                <stop offset="1" stop-color="#2f8f6b" />
+              </linearGradient>
+              <symbol id="glyph"><path d="M0 10L5 0L10 10Z" /></symbol>
+            </defs>
+            <rect id="paper" x="0" y="0" width="240" height="110" fill="#ffffff" stroke="#000000" />
+            <path
+              id="axis"
+              d="M20 80H100L95 75M100 80L95 85M20 80V15"
+              stroke="#000000"
+              fill="none"
+            />
+            <path id="blue" d="M20 80L80 25" stroke="#3157c8" fill="none" />
+            <use id="colored-glyph" href="#glyph" x="75" y="20" fill="#3157c8" />
+            <rect
+              id="gradient-box"
+              x="130"
+              y="20"
+              width="90"
+              height="60"
+              fill="url(#gradient)"
+              mask="url(#coverage)"
+            />
+          </svg>
+          <div class="flow-canvas-label-body">
+            <span id="native-label" style="color: #000000">Native label</span>
+            <span id="colored-label" style="color: #3157c8">x² + y²</span>
+          </div>
+        </div>
+      </div>
+      <div class="flow-graphic-frame">
+        <div class="flow-decoration-surface" style="font-size: 24px; margin-block: 24px">
+          <math
+            ><mrow id="marked-math" data-flow-decoration="colored-term" style="color: #b10dc9"
+              ><mi>x</mi><mo>+</mo><mi>y</mi></mrow
+            ></math
+          >
+          <svg
+            class="flow-decoration-paint"
+            data-layer="under"
+            data-reader-decoration-id="colored-term"
+            width="125"
+            height="32"
+            style="left: 0; top: 0"
+          >
+            <rect id="underlay" width="125" height="32" fill="#ffff80" />
+          </svg>
+        </div>
+      </div>
+      <div id="late-drawing"></div>
+    </main>
+    <pre id="report" style="white-space: pre-wrap; margin: 16px; font: 12px monospace"></pre>
+    <script type="module" src="drawing-theme-browser.js"></script>
+  </body>
+</html>

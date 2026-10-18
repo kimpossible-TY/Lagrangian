@@ -225,10 +225,10 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **AND** every visible mathematical surface retains its original marked-term identity
 - **AND** assistive and staging copies cannot introduce duplicate obstacles
 
-#### Scenario: A dark reader includes a light relationship panel
-- **WHEN** original mathematical drawing paint requires light paper
-- **THEN** its mathematical text, equation numbers and references use a readable local light palette
-- **AND** the surrounding reader retains its selected appearance
+#### Scenario: Relationship paint follows the surrounding appearance
+- **WHEN** a mathematical relationship is displayed in light or dark reading mode
+- **THEN** its frame and SVG background remain transparent
+- **AND** mathematical text, equation numbers, references and vector ink retain readable contrast against the actual surrounding surface
 
 #### Scenario: Visible relationships are requested in a different batch
 - **WHEN** an already rendered relationship is requested with the same accepted revision and geometry
@@ -240,6 +240,31 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **WHEN** a saved edit fails to compile
 - **THEN** the last valid document remains usable with an explicit stale/error status
 - **AND** a successful subsequent compilation updates the reader without losing its logical reading position
+
+### Requirement: Explicit reading appearance
+The Reader SHALL expose Automatic, Light and Dark appearances and persist the
+choice in browser-local storage. Automatic SHALL follow device appearance changes.
+Explicit choices SHALL override the device before the first styled paint and
+remain usable if storage is unavailable. Theme changes SHALL preserve document
+content, quotations, mathematical structure and reading position.
+
+#### Scenario: Choose an appearance and reload
+- **WHEN** a reader selects Light or Dark and reloads or opens another document on the same origin
+- **THEN** the saved appearance is applied before the document is styled
+- **AND** choosing Automatic follows the current device appearance and subsequent changes
+
+#### Scenario: Read highlighted mathematics in either appearance
+- **WHEN** authored or saved highlights appear in light or dark reading mode
+- **THEN** each uses the matching muted highlight palette with readable foreground ink
+- **AND** original drawing frames and native canvas labels use the surrounding theme's ink, paper, selection and highlight colors
+- **AND** the toolbar controls fit a 320px viewport with their labels on one line
+
+#### Scenario: Transparent drawings update or change appearance
+- **WHEN** CeTZ or mannot paint is mounted, cloned, or changes between reading appearances
+- **THEN** SVGs remain transparent and label backplates match their enclosing paper or callout surface
+- **AND** opaque colored text has at least 4.5:1 contrast, opaque solid vector ink at least 3:1, and filled underlays preserve at least 4.5:1 contrast with their marked term
+- **AND** original source colors, vector geometry, SVG resource references, masks, clipping and raster pixel payloads remain intact
+- **AND** repeated theme changes restore the same presentation colors without replacing semantic mathematics
 
 ### Requirement: Persistent local highlights
 The reader SHALL save explicitly selected quotations in browser-local storage scoped to the current document, including context for relocation after edits. It SHALL preserve the original quotation when relocation is uncertain or impossible.

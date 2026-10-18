@@ -24,4 +24,10 @@ Preserve exported source-language metadata separately from localized controls,
 including moved mathematical annotations. Managed release switches wait for the
 previous Reader job to finish stopping before activating another release.
 
+Provide explicit automatic, light and dark appearances with browser-local persistence.
+Use coordinated reading and control palettes, and restrained theme-specific colors
+for authored and saved highlights instead of browser-default yellow. Original
+drawings and mannot annotations blend into their surrounding reading background,
+with readable theme-aware vector paint and label colors.
+
 Non-goals: replacing Typst's parser or evaluator, removing PDF export, changing mathematical meaning, or automatically inferring a responsive layout from every arbitrary drawing program.

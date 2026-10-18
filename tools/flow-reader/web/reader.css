@@ -1,21 +1,58 @@
 :root {
-  color-scheme: light dark;
   --reader-font-size: 13px;
   /* Keep the chosen text size when Safari changes orientation. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  --paper: #fcfaf6;
-  --ink: #242c34;
-  --muted: #667279;
-  --line: #d9dedc;
-  --accent: #21685f;
-  --wash: #edf3ef;
   background: var(--paper);
   color: var(--ink);
   font-family: system-ui, sans-serif;
   /* A target must cross the 90px reading line during asynchronous reflow. */
   scroll-padding-top: 88px;
   overflow-anchor: none;
+}
+:root {
+  color-scheme: light;
+  --paper: #faf9f6;
+  --ink: #292824;
+  --muted: #6b6962;
+  --line: #dfddd5;
+  --accent: #35675d;
+  --wash: #eef1ec;
+  --surface: #fffefa;
+  --highlight: #f3e4b3;
+  --highlight-edge: #a88032;
+  --selection: #c9dfd7;
+  --warning: #995020;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #1b1c1e;
+  --ink: #e6e4df;
+  --muted: #a9aaa5;
+  --line: #3b3d3f;
+  --accent: #9cc7b8;
+  --wash: #252d2a;
+  --surface: #242628;
+  --highlight: #51452b;
+  --highlight-edge: #d3b774;
+  --selection: #36594e;
+  --warning: #e3b184;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #1b1c1e;
+    --ink: #e6e4df;
+    --muted: #a9aaa5;
+    --line: #3b3d3f;
+    --accent: #9cc7b8;
+    --wash: #252d2a;
+    --surface: #242628;
+    --highlight: #51452b;
+    --highlight-edge: #d3b774;
+    --selection: #36594e;
+    --warning: #e3b184;
+  }
 }
 * {
   box-sizing: border-box;
@@ -51,6 +88,31 @@ a {
 button:hover {
   background: var(--wash);
 }
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#reader-theme {
+  min-height: 44px;
+  max-width: 5.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.2rem;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+::selection {
+  background: var(--selection);
+  color: var(--ink);
+}
+#reader-document mark {
+  background: var(--highlight);
+  color: inherit;
+  border-radius: 0.12em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -73,7 +135,7 @@ button:hover {
   gap: 0.5rem;
   padding: 0.35rem max(0.5rem, env(safe-area-inset-right)) 0.35rem
     max(0.5rem, env(safe-area-inset-left));
-  background: var(--paper);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 14px;
 }
@@ -89,6 +151,7 @@ button:hover {
 .reader-type-controls {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 #reader-size {
   font-size: 12px;
@@ -105,7 +168,7 @@ button:hover {
 }
 #reader-status[data-state="error"],
 #reader-status[data-state="incomplete"] {
-  color: #a14e22;
+  color: var(--warning);
 }
 #reader-outline {
   position: fixed;
@@ -300,8 +363,7 @@ mjx-container mjx-stretchy-v {
 }
 .flow-canvas[data-flow-canvas-model] {
   position: relative;
-  color: #242c34;
-  background: #fcfaf6;
+  color: var(--ink);
   isolation: isolate;
 }
 .flow-canvas-stage {
@@ -325,13 +387,13 @@ mjx-container mjx-stretchy-v {
   background: transparent !important;
 }
 .flow-canvas-leaders path {
-  stroke: #21685f;
+  stroke: var(--accent);
   stroke-width: 1;
   stroke-dasharray: 3 3;
   fill: none;
 }
 .flow-canvas-leaders circle {
-  fill: #21685f;
+  fill: var(--accent);
 }
 .flow-canvas-labels {
   position: static;
@@ -356,7 +418,7 @@ mjx-container mjx-stretchy-v {
   max-width: 100%;
   overflow-wrap: anywhere;
   font-size: var(--reader-font-size);
-  background: #fcfaf6;
+  background: var(--drawing-surface, var(--paper));
 }
 .flow-canvas-label-body :where(p, div, span, table, img) {
   max-width: 100%;
@@ -378,10 +440,10 @@ mjx-container mjx-stretchy-v {
   min-width: 1.5em;
   min-height: 1.6em;
   padding: 0 0.15em;
-  border: 1px solid #21685f;
+  border: 1px solid var(--accent);
   border-radius: 0.25em;
-  color: #163f39;
-  background: #fcfaf6;
+  color: var(--accent);
+  background: var(--drawing-surface, var(--paper));
   font: inherit;
   line-height: 1.3;
   justify-self: start;
@@ -435,7 +497,7 @@ math svg {
   display: block;
   font-family: system-ui, sans-serif;
   font-size: 0.8em;
-  color: #a14e22;
+  color: var(--warning);
 }
 #reader-document table {
   display: block;
@@ -484,7 +546,7 @@ math svg {
   font: inherit;
 }
 #reader-highlights {
-  background: var(--paper);
+  background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 0.8rem;
@@ -500,11 +562,11 @@ math svg {
   margin-inline-start: auto;
 }
 ::highlight(reader-saved) {
-  background: #f2d46b99;
+  background: var(--highlight);
   color: inherit;
 }
 .reader-saved-block {
-  box-shadow: -3px 0 #d5ae36;
+  box-shadow: -3px 0 var(--highlight-edge);
 }
 #reader-selection {
   position: fixed;
@@ -515,7 +577,7 @@ math svg {
   width: max-content;
   max-width: calc(100vw - 1rem);
   padding: 0.4rem;
-  background: var(--paper);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 0.6rem;
   box-shadow: 0 3px 20px #0003;
@@ -598,6 +660,17 @@ math svg {
   .reader-toolbar {
     gap: 0;
   }
+  .reader-toolbar button,
+  .reader-toolbar a {
+    padding-inline: 0.25rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  #reader-theme {
+    width: 4.3rem;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
   #reader-original {
     margin-inline-start: auto;
   }
@@ -663,21 +736,6 @@ math svg {
 #reader-document .flow-graphic-inline > svg {
   display: block;
 }
-@media (prefers-color-scheme: dark) {
-  .flow-graphic-frame {
-    /* The original drawing keeps light paper, including its equation numbers
-       and links. Give every descendant the matching local palette. */
-    color-scheme: light;
-    --paper: #fcfaf6;
-    --ink: #242c34;
-    --muted: #667279;
-    --line: #d9dedc;
-    --accent: #21685f;
-    --wash: #edf3ef;
-    color: var(--ink);
-    background: var(--paper);
-  }
-}
 @media (max-width: 580px) {
   .flow-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -691,19 +749,8 @@ math svg {
     gap: 0;
   }
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #151c21;
-    --ink: #e1e6e8;
-    --muted: #a0b1b8;
-    --line: #36434a;
-    --accent: #86c9b6;
-    --wash: #1e2c30;
-  }
-  #reader-document svg {
-    background: #fcfaf6;
-    border-radius: 2px;
-  }
+#reader-document svg {
+  background: transparent;
 }
 
 /* Decoration layers contain paint only; selection and glyphs stay in MathML. */

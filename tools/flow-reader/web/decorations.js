@@ -191,6 +191,7 @@ export class MathDecorations {
       }
       svg.classList.add("flow-decoration-paint");
       svg.dataset.layer = drawing.layer;
+      svg.dataset.readerDecorationId = record.id;
       svg.setAttribute("aria-hidden", "true");
       svg.style.left = `${fragment.x + drawing.layout.left}px`;
       svg.style.top = `${fragment.y + drawing.layout.top}px`;

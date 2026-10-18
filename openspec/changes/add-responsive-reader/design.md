@@ -1,5 +1,39 @@
 # Design
 
+## Reader appearance
+
+The toolbar exposes Automatic / Light / Dark. A small classic script applies the
+browser-local `flow-reader:theme:v1` choice before CSS paints, independently of
+document compilation and the font/quotation/position keys. Automatic follows live
+device appearance changes; explicit choices override the device and persist across
+reloads and documents on the same origin. Storage failures retain a working choice
+for the current visit. Other tabs follow preference changes and resets.
+
+Warm neutral paper and charcoal palettes define ink, secondary text, links,
+controls, status colors and selection paint together. Authored HTML `mark` and
+saved CSS Highlights share opaque, muted amber in light mode and deep gold in
+dark mode. The saved-highlight fallback uses the matching edge color. Drawing
+frames and SVGs are transparent; native label backplates match their enclosing
+paper or callout wash. Theme changes only recolor existing content and do not
+replace mathematical nodes or recompile the document. Compact controls must fit
+a 320px viewport without wrapping their text or increasing toolbar height.
+
+The shared drawing adapter retains original SVG paint attributes and remembers
+original inline colors independently of its presentation overrides. It adapts
+neutral ink to the surrounding palette and mixes colored ink toward a contrast
+endpoint only when necessary: 4.5:1 for labels/marked mathematics and 3:1 for
+vector strokes. Near-white vector backplates use the actual enclosing surface.
+Filled decoration underlays retain at least 4.5:1 contrast against their own
+marked term's ink. Coverage masks, clipping, gradient resources, path geometry,
+references and embedded raster pixels are unchanged. The source surface rasters
+already have transparent backgrounds. No whole-image inversion filter is used.
+
+Live appearance changes and asynchronously mounted/cloned drawings use the same
+adapter. Original paint metadata survives clones so repeated theme changes and
+moving a drawing between differently colored containers cannot accumulate color
+drift. Background composition includes transparent CSS color-mix layers. These
+paint changes do not alter logical text, label measurements or reading anchors.
+
 ## Output and ownership
 
 Use Typst's HTML target for semantic text and mathematical output. Add target-aware compatibility adapters for the PDE common packages. Preserve the source documents and existing package installation; build reader adapters into an isolated package overlay with recorded provenance. Any compiler modifications must be explicit, pinned, and tested independently.
@@ -200,9 +234,9 @@ same renderer, identities, decorations and references as ordinary body math.
 Stack and fixed-box label containers become native flow containers. Explicit
 text size, weight and color are materialized where experimental Typst HTML
 would otherwise discard them. The browser applies the reading-size floor,
-retains larger typography, and lowers low-contrast ink lightness without changing
-its channel proportions; exported source colors and the geometry palette remain
-available and unchanged. Label bodies have a stable paper background.
+retains larger typography, and adapts low-contrast ink to the current reading
+surface while preserving its color family. Exported source colors and geometry
+remain available and unchanged. Label backplates match the enclosing surface.
 
 The geometry keeps the original coordinate system and uniform aspect ratio.
 Physical strokes keep their CSS thickness independently of its scale. Short
@@ -494,9 +528,9 @@ surface, and carried SVG math. Exclude assistive and staging copies. Keep prose
 range bounds and each mathematical surface's original marked-term identity.
 Share the glyph/stretched-surface policy with horizontal mathematical bounds.
 
-A relationship's original light drawing paper uses a complete local light
-palette in dark appearance, including equation numbers, references and nested
-content. Surrounding page colors must not make those labels pale on light paper.
+Relationship frames inherit the selected reading palette and remain transparent.
+Their vector paint and marked term colors adapt to that actual surface, including
+equation numbers, references, nested content and decoration underlays.
 
 Dynamic response reuse is per component as well as per request batch. Key each
 graphic, canvas and decoration by kind, accepted revision, ID and complete

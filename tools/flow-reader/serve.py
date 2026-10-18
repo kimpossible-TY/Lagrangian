@@ -350,6 +350,8 @@ def handler_for(state):
                     return self.respond(payload, "text/html; charset=utf-8", compressed=compressed)
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
+                      "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
+                      "/drawing-theme.js": ("drawing-theme.js", "text/javascript; charset=utf-8"),
                       "/graphics.js": ("graphics.js", "text/javascript; charset=utf-8"),
                       "/connector-routing.js": ("connector-routing.js", "text/javascript; charset=utf-8"),
                       "/decorations.js": ("decorations.js", "text/javascript; charset=utf-8"),
