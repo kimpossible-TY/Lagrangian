@@ -73,6 +73,7 @@ async function until(condition, name, timeout = 90000) {
 const text = (node) => logicalTextIndex(node, { includeNested: true }).text;
 try {
   const query = new URL(location.href).searchParams;
+  report.dynamicPaint = !query.has("math-only");
   if (query.has("audit")) {
     const { attachReport } = await import("/test-report.js");
     attachReport({ kind: "body-math", id: "body-math-report", stateKey: "bodyMathState" });
@@ -145,6 +146,7 @@ try {
       );
       const stats = {
         font,
+        viewport: innerWidth,
         section: section.id,
         expressions: records.length,
         widths: [],
@@ -207,7 +209,7 @@ try {
           [...record.view.querySelectorAll("[data-flow-decoration]")].filter(
             (node) => !node.closest("mjx-assistive-mml"),
           );
-        if (decorations().length) {
+        if (report.dynamicPaint && decorations().length) {
           stats.decoratedExpressions++;
           // The decoration margin is narrower than the math prefetch margin.
           // Read the marked passage itself before requiring its original paint.
@@ -235,6 +237,10 @@ try {
       }
       stats.widths = [...widths].sort((a, b) => a - b);
       stats.fontSizes = [...sizes].sort((a, b) => a - b);
+      check(
+        `${font}px ${section.id} retains its requested viewport`,
+        !query.has("width") || innerWidth === Number(query.get("width")),
+      );
       check(
         `${font}px ${section.id} keeps the whole reading page bounded`,
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,

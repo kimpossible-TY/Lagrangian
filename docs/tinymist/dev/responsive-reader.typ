@@ -35,13 +35,19 @@ On 2026-10-18 the user refreshed the installed 13px Reader on a physical iPhone,
 pinched to reduce it and released: “여백 없이 정상입니다”. This confirms the
 reported margin behavior for that device; its browser version was not supplied.
 
+After runtime `a4dc981d` is installed, the user also confirms on the refreshed
+iPhone Reader that text, mathematics and figures are readable without zoom or
+horizontal movement, and that reference navigation and back both work:
+“표시와 참조 이동 모두 정상”. This is a physical-device reading/navigation
+check, without a supplied browser version. VoiceOver remains explicitly deferred.
+
 The legacy drawing path still has unresolved widths and small labels. The native
 label option below remains under figure and device validation. Notes and
 relationships are now shown inline automatically.
 A document-wide overflow check is insufficient; audit each component and every
 required reading action before promotion.
 
-== Adaptive CeTZ canvas
+== Legacy adaptive CeTZ canvas
 
 The reader's common CeTZ adapter preserves drawing programs and logical
 coordinates. For a requested reading width, it repeatedly measures the original
@@ -65,7 +71,7 @@ Evidence is under `dist/reader-canvas-checks`.
 
 == Native figure labels
 
-`--semantic-canvases` enables an independent figure path for development builds
+`--semantic-canvases` enables an independent figure path for builds
 and services. It exports the original CeTZ label bodies as canonical HTML/MathML
 before SVG flattening, together with their original anchor bounds and a
 geometry-only SVG. Physical and numeric source coordinates are retained. The
@@ -698,6 +704,10 @@ server. Completed evidence survives a browser-control disconnection. Body sweeps
 retain per-section counts, visit every actual mathematical occurrence, check
 canonical text and ink, and require original decoration paint on marked passages.
 An incomplete range is never counted as completed coverage.
+The explicit `math-only=1` mode separates complete width/token coverage from
+dynamic-paint coverage and records that choice in the report. Every completed
+section also records and checks its requested viewport; an interrupted browser
+session cannot silently substitute a different width.
 
 == Managed installation
 

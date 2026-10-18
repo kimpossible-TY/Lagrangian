@@ -24,7 +24,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Resolve actual-line accent overhang at the selected font size without leaving a notice-induced false overflow warning.
 - [x] Compose wide fraction/radical children, spanning decorations, scripted bases and current PDE matrices with measured internal budgets while preserving canonical text, readable entry fonts, and full operator paint.
 - [x] Verify local asset integrity, canonical copy, font changes, obsolete results, and automatic failure recovery in the actual Reader browser fixture.
-- [ ] Complete mobile Safari verification of the integrated mathematical renderer; physical iPhone pinch is confirmed.
+- [x] Verify the refreshed physical iPhone Reader's text, mathematics and figures without zoom/horizontal movement, reference navigation/back and pinch behavior; browser version was not supplied.
 - [ ] Follow up actual VoiceOver speech validation (explicitly deferred by the user on 2026-10-18; not a gate for this rollout).
 - [x] Add coordinate-unit fitting, an automatic viewport/font request path, and per-canvas caching without editing authored CeTZ coordinates.
 - [x] Bound pending canvas delivery, preserve reading anchors through drawing/font/viewport changes, and verify actual PDE page width and position in both viewport directions.
