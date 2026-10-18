@@ -1886,3 +1886,10 @@ files and 48 asset checks pass. Document/configuration bytes and original PDF
 delivery remain unchanged; the Reader runs as PID 95037. Delivery receipts,
 browser measurements and the inspected screenshot are under
 `dist/reader-remove-instructions-install-20261018/`.
+
+
+## Playful outline dismissal — 2026-10-18
+
+Installed `d2e25325180756f5fb2354afa9aa9410810acdd0` after an initial compile timeout and automatic rollback. The old runtime subsequently completed its document compile; the successful retry verified all 388 release files and 48 local/HTTPS asset deliveries, unchanged configuration and original PDF delivery. Receipt: `dist/reader-playful-dismiss-install-20261018-verified/`.
+
+All 69 JavaScript tests and strict OpenSpec validation passed. Actual HTTPS browser checks confirmed outside dismissal, focus return, reopen with 109 outline links and Escape/Return keyboard operation. Motion continuity is covered by the pure trajectory test; physical iPhone motion and OS reduced-motion switching were not repeated in this pass.
