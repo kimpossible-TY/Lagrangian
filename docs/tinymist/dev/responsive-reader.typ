@@ -6,7 +6,7 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `0c3d0980` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `cbf6032c` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
@@ -45,6 +45,8 @@ them: outline at the start and reading settings at the end.
 Both use plain 21px icons without persistent backgrounds, borders or shadows.
 Font controls, appearance previews and saved highlights live in the
 reading-settings panel.
+Reading panels use concise action labels and empty-state messages, without
+gesture instructions or explanatory helper paragraphs.
 The original paged view is available through the Dashboard and its
 existing address; the Reader toolbar has no page-view link.
 
