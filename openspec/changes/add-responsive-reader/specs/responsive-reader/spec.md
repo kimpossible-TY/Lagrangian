@@ -391,6 +391,13 @@ The Reader SHALL provide Highlight and Red strike alongside the existing saved
 quotation action, with keyboard-accessible controls that preserve native text
 selection and fit the visible safe area.
 
+#### Scenario: Floating selection actions
+- **WHEN** a passage is selected on a narrow reading screen
+- **THEN** Highlight, Save quotation and Red strike appear with visible icons and labels in a floating capsule with at least 44px action targets and a named close control
+- **AND** undo and clear occupy a separate review capsule while red strikes exist, including after selection ends
+- **AND** controls remain inside the visual viewport with safe-area spacing after wrapping or resizing
+- **AND** dark appearance, reduced motion/transparency, increased contrast and forced colors retain readable controls and keyboard focus
+
 #### Scenario: Save a source highlight
 - **WHEN** a current selection resolves to one compiler-verified source slice in a writable accepted workspace dependency
 - **THEN** Highlight saves the real Typst `highlighted` helper, or standard `highlight` for ordinary text, and the watcher publishes it

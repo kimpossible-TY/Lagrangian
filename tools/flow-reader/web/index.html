@@ -180,14 +180,112 @@
     </div>
     <p id="reader-gesture-message" class="reader-visually-hidden" role="status"></p>
     <button id="reader-change-jump" hidden>변경 위치로</button>
-    <aside id="reader-selection" role="toolbar" aria-label="선택한 구절" hidden>
-      <span id="reader-selection-hint">선택한 구절</span>
-      <button id="reader-source-highlight" type="button">하이라이트</button>
-      <button id="reader-highlight-save">표시 저장</button>
-      <button id="reader-strike" type="button">빨간 취소선</button>
-      <button id="reader-strike-undo" type="button" hidden>되돌리기</button>
-      <button id="reader-strike-clear" type="button" hidden>표시 지우기</button>
-      <button id="reader-selection-cancel">취소</button>
+    <aside
+      id="reader-selection"
+      role="toolbar"
+      aria-label="선택한 구절"
+      aria-describedby="reader-selection-hint"
+      hidden
+    >
+      <span id="reader-selection-hint" class="reader-visually-hidden">선택한 구절</span>
+      <div
+        id="reader-review-actions"
+        class="reader-selection-capsule"
+        role="group"
+        aria-label="빨간 취소선 관리"
+        hidden
+      >
+        <button id="reader-strike-undo" type="button" hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12h-3" />
+          </svg>
+          <span>되돌리기</span>
+        </button>
+        <button id="reader-strike-clear" type="button" hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5" />
+          </svg>
+          <span>모두 지우기</span>
+        </button>
+      </div>
+      <div
+        id="reader-selection-actions"
+        class="reader-selection-capsule"
+        role="group"
+        aria-label="선택한 구절 동작"
+        hidden
+      >
+        <button id="reader-source-highlight" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m5 14 9-10 6 6-10 9H6l-3 2 2-4zm7-8 6 6M4 22h16" />
+          </svg>
+          <span>하이라이트</span>
+        </button>
+        <button id="reader-highlight-save" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 4h12v17l-6-4-6 4zM9 8h6" />
+          </svg>
+          <span>표시 저장</span>
+        </button>
+        <button id="reader-strike" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M17 6c-1-2-9-3-10 1-.6 2 1 3 5 4M7 17c1 3 10 3 10-1 0-1.2-1-2-3-2.5M3 12h18" />
+          </svg>
+          <span>빨간 취소선</span>
+        </button>
+        <button id="reader-selection-cancel" type="button" aria-label="선택 취소" title="선택 취소">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="m7 7 10 10M17 7 7 17" />
+          </svg>
+        </button>
+      </div>
     </aside>
     <p id="reader-highlight-message" role="status" aria-live="polite"></p>
     <dialog id="reader-highlights" aria-labelledby="reader-highlights-title">

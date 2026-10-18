@@ -384,7 +384,11 @@ returns to the passage. Records belong to this document in the current browser's
 local storage. They do not synchronize devices and are removed with site data.
 Updates wait for an active selection or any reader dialog to close.
 
-The selection toolbar also offers Highlight and Red strike. Highlight saves a
+Selected passages expose Highlight, Save quotation and Red strike in a floating
+capsule with labeled icons and a close control. Undo and clear appear in a
+separate review capsule while strikes exist. The controls follow the visible
+viewport above its bottom safe area, with solid accessibility fallbacks.
+Highlight saves a
 real `#highlighted[...]` call in the original source when the document provides
 that math-aware helper, or standard `#highlight[...]` for ordinary literal text.
 The service compiles a marked candidate in a separate project shadow and verifies
