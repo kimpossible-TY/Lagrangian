@@ -18,6 +18,25 @@ def body(source):
 
 
 class SectionTests(unittest.TestCase):
+    def test_outline_keeps_every_heading_level_and_cross_section_anchor(self):
+        headings = ''.join(f'<h{level}>Level <em>{level}</em></h{level}>'
+                           for level in range(1, 7))
+        headings += ('<div role="heading" aria-level="7">Level <div>7</div></div>'
+                     '<div role="heading" aria-level="9">Level 9</div>')
+        source = ('<html><body><nav><h2 id="navigation">Navigation only</h2></nav>'
+                  + headings + '</body></html>')
+        bundle = split_document(source, "heading-depths", max_blocks=1)
+        outline = bundle.manifest["outline"]
+        levels = [1, 2, 3, 4, 5, 6, 7, 9]
+        self.assertEqual([heading["level"] for heading in outline], levels)
+        self.assertEqual([heading["title"] for heading in outline],
+                         [f"Level {level}" for level in levels])
+        self.assertEqual(len({heading["section"] for heading in outline}), len(levels))
+        for heading in outline:
+            self.assertEqual(bundle.manifest["anchors"][heading["id"]], heading["section"])
+            self.assertIn(f'id="{heading["id"]}"'.encode(), bundle.documents[heading["section"]])
+        self.assertEqual(len(bundle.manifest["blocks"]), len(levels))
+
     def test_source_language_survives_section_transport(self):
         for root_language, body_language, expected in (
             (' lang="en"', '', "en"),

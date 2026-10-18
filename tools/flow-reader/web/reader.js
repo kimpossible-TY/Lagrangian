@@ -10,6 +10,7 @@ import { DrawingTheme } from "./drawing-theme.js";
 import { ChangeLocationQueue } from "./change-location.js";
 
 const article = document.querySelector("#reader-document");
+const headingSelector = 'h1,h2,h3,h4,h5,h6,[role="heading"][aria-level]';
 new DrawingTheme(article);
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
@@ -383,20 +384,19 @@ function prepareNotes(root, section) {
 function indexDocument() {
   let heading = "document";
   const counts = new Map();
-  blocks = [
-    ...article.querySelectorAll("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id],td,th"),
-  ].filter(
+  const blockSelector = `${headingSelector},p,.flow-equation,figcaption,div[id],td,th`;
+  blocks = [...article.querySelectorAll(blockSelector)].filter(
     (node) =>
       !node.closest("svg,math,.flow-math-view,.flow-math-stage,.flow-notes,nav") &&
       !(node.matches("td,th") && node.querySelector("[data-reader-key]")) &&
       !(
         node.tagName === "DIV" &&
         !node.classList.contains("flow-equation") &&
-        node.querySelector("h1,h2,h3,h4,h5,p,.flow-equation,figcaption,div[id],td,th")
+        node.querySelector(blockSelector)
       ),
   );
   for (const node of blocks) {
-    if (/^H[1-5]$/.test(node.tagName)) heading = node.id || fingerprint(textOf(node));
+    if (node.matches(headingSelector)) heading = node.id || fingerprint(textOf(node));
     if (node.dataset.readerKey) continue;
     const base = node.id || `${heading}-${fingerprint(textOf(node))}`;
     const count = (counts.get(base) ?? 0) + 1;
@@ -408,11 +408,16 @@ function indexDocument() {
 
 function indexOutline(nextManifest) {
   outline.replaceChildren();
+  const rootLevel = nextManifest.outline.reduce(
+    (level, node) => Math.min(level, node.level),
+    Infinity,
+  );
   for (const node of nextManifest.outline) {
     const link = document.createElement("a");
     link.href = `#${encodeURIComponent(node.id)}`;
     link.textContent = node.title;
     link.dataset.level = node.level;
+    link.style.setProperty("--outline-depth", node.level - rootLevel);
     setLanguage(link, nextManifest.language ?? "");
     outline.append(link);
   }

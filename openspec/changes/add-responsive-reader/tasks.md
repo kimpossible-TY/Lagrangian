@@ -61,6 +61,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Verify appearance persistence, contrast and compact controls against actual PDE content at phone and tablet widths.
 - [x] Remove fixed light drawing backgrounds and adapt CeTZ/mannot paint, label backplates and marked term ink to the actual surrounding surface.
 - [x] Verify drawing transparency, contrast, source geometry/resources and repeat/late/cloned paint through theme changes and actual PDE reading.
+- [x] Include all exported heading levels in the outline with consistent depth-based indentation, wrapping titles and cross-section navigation.
 
 ## Last visual edit navigation
 
