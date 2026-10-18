@@ -1016,7 +1016,7 @@ math svg {
     flex-shrink: 0;
   }
   #reader-appearance-open:not([hidden]) {
-    min-width: 4.8rem;
+    min-width: 4.4rem;
     padding-inline: 0.4rem;
     font-size: 12px;
   }
