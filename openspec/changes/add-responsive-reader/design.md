@@ -23,6 +23,34 @@ already observed token. Without a valid edit, existing reading restoration appli
 
 ## Reader appearance
 
+### Minimal navigation and direct reading gestures
+
+The toolbar has two 44px icon buttons: outline and reading settings, with Flow
+centered between them. Font steppers, the existing appearance previews, and saved
+highlights live in reading settings. Keep semantic button/radio alternatives to
+all gestures, and keep names available to assistive input. The outline is a native
+modal dialog with an independently scrolling nav, close control, outside dismissal,
+Escape and native focus return; navigating a heading focuses the article.
+
+The user's 2026-10-18 instruction replaces optional browser pinch magnification
+inside the article with text reflow. Two article touches track a 13–30px candidate
+using their distance ratio. Show a compact size preview and commit once when the
+first finger lifts, through the existing anchor-preserving font path. Cancellation,
+an extra finger, an active selection, or an open dialog does not commit. Remaining
+fingers cannot begin another gesture until all lift. Keep normal one-finger
+vertical scrolling; use article-scoped `touch-action: pan-y` and cancel only owned
+touch sequences and WebKit's native gesture events. No viewport maximum-scale cap.
+
+An opening swipe starts 24–96px from the left viewport edge, away from interactive
+targets and existing selections. Resolve horizontal intent after 10px and reject
+vertical/diagonal scrolls. Preview the drawer nonmodally under the finger, then
+promote it to a modal dialog only if distance/recent release velocity commits.
+The modal drawer supports the reverse swipe. Retarget native Web Animations from
+current transform and analytic velocity using a locally tuned critically damped
+spring; native semantics close immediately while a noninteractive exit finishes.
+Cancellation restores the initial state, pauses retire old velocity, and reduced
+motion settles directly with active animations canceled on preference changes.
+
 The toolbar exposes Automatic / Light / Dark. A small classic script applies the
 browser-local `flow-reader:theme:v1` choice before CSS paints, independently of
 document compilation and the font/quotation/position keys. Automatic follows live
@@ -124,7 +152,8 @@ font sizes. Do not introduce slides/carousels, horizontal scrolling, zoom, or
 click-to-expand equation views to compensate for a layout that does not fit.
 TOC navigation and saved-highlight management remain optional controls; they are
 not required to read any part of the text. Original-page access uses the Dashboard
-and existing addresses. The Reader toolbar keeps reading controls aligned right.
+and existing addresses. The Reader toolbar keeps outline and settings icons at
+opposite ends, with the Flow identity centered.
 
 Structured mathematical composition measures fraction children, radicands,
 spanning brace/bar bodies and labels, scripted bases, and table cells in the
@@ -161,8 +190,9 @@ existing keys. HTML and CSS use the same default before JavaScript starts.
 
 The viewport uses device width, initial/minimum scale 1 and `shrink-to-fit=no`.
 The browser must not shrink the entire document to compensate for wide content;
-component layout continues to use its actual available CSS width. User zoom-in
-remains available without a maximum-scale cap or gesture interception. Safari
+component layout continues to use its actual available CSS width. The viewport
+has no maximum-scale cap; article pinches use the explicit text-reflow gesture
+described above. Safari
 text inflation is held at 100% so rotation respects the selected text size.
 Reading-anchor restoration compares the root's layout `clientWidth`, because
 WebKit can change `innerWidth` during pinch without changing text layout. A

@@ -115,6 +115,7 @@ def handler_for(state):
                           "graphics": "graphics-browser.js",
                           "viewport": "viewport-browser.js",
                           "navigation": "navigation-browser.js",
+                          "reading-navigation": "reading-navigation-browser.js",
                           "language": "language-browser.js",
                           "body-math": "body-math-browser.js",
                           "decoration-copy": "decoration-copy-browser.js",
@@ -137,6 +138,9 @@ def handler_for(state):
                                     "text/javascript; charset=utf-8")
             if path == "/navigation-browser.js":
                 return self.respond((ROOT / "tests/navigation-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/reading-navigation-browser.js":
+                return self.respond((ROOT / "tests/reading-navigation-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             if path == "/test-report.js":
                 return self.respond((ROOT / "tests/test-report.js").read_bytes(),

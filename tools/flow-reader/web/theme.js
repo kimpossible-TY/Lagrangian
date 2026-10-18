@@ -48,14 +48,13 @@
     const names = { system: "자동", light: "라이트", dark: "다크" };
     updateAppearance = () => {
       trigger.dataset.appearance = preference;
-      trigger.setAttribute("aria-label", `화면 모드: ${names[preference]}`);
+      trigger.setAttribute("aria-label", `읽기 설정, 화면 모드: ${names[preference]}`);
       panel.style.setProperty(
         "--appearance-index",
         radios.findIndex((radio) => radio.value === preference),
       );
       for (const radio of radios) {
         radio.checked = radio.value === preference;
-        radio.autofocus = radio.checked;
       }
       status.textContent =
         preference === "system"
