@@ -2038,3 +2038,13 @@ All 45 original project source files retain their pre-test hashes. Reports,
 test logs, the compiled development guide and an inspected 390px screenshot are
 in `dist/reader-selection-actions-checks/`. Physical iPhone native callout and
 hardware-touch arbitration were not repeated in this pass.
+
+Installed clean runtime `fe1d498fb4999155d8d3830eb3ba6756bac0a422`.
+All 401 immutable files and 50 loopback/HTTPS asset deliveries match. Accepted
+document/configuration bytes and the original PDF service match the pre-install
+checks. Actual HTTPS WebKit checks confirm enabled source/review controls, stale
+revision rejection, immediate red strikes, persistence after reload and clearing,
+with no browser error. Source success is verified in the isolated full PDE copy;
+no test highlight is inserted into the original document. The existing outline
+suite also passes all 132 checks. Delivery receipts, the inspected installed PDE
+screenshot and browser results are under `dist/reader-selection-actions-checks/`.
