@@ -2048,3 +2048,25 @@ with no browser error. Source success is verified in the isolated full PDE copy;
 no test highlight is inserted into the original document. The existing outline
 suite also passes all 132 checks. Delivery receipts, the inspected installed PDE
 screenshot and browser results are under `dist/reader-selection-actions-checks/`.
+
+## Floating selection capsules — 2026-10-18
+
+Replaced the rectangular selection card with a content-sized floating capsule.
+Highlight, Save quotation and Red strike retain visible Korean labels, distinct
+icons and 58px primary targets; the named close icon keeps its 44px target.
+Undo and Clear all use a separate capsule while review marks exist. No action is
+painted as selected. The accessible description remains available without a
+visible heading; oversized selections retain visible guidance and a dismissed
+pending request retains a disabled source action. Width is applied before
+measuring wrapped height to keep the capsules above the visual viewport bottom.
+
+All 72 JavaScript unit tests and 86 real-compiler selection browser checks pass.
+Additional WebKit/Chrome checks cover 25 capsule states: light/dark at 320, 390 and
+768px; selected, review-only and both capsules; 200% text; keyboard save/undo;
+dismissed pending requests; increased contrast/reduced motion; Chrome reduced
+transparency and forced colors; and a short viewport with a simulated 34px safe
+bottom inset. Every visible action remains at least 44px and inside the viewport.
+Inspected phone screenshots on light/dark and enlarged text. Prettier, JavaScript
+syntax, strict OpenSpec validation, diff checks and the canonical Typst guide
+compile pass. Evidence is in `dist/reader-selection-capsule-checks/`. Physical
+iPhone callouts and hardware touch were not repeated in this pass.

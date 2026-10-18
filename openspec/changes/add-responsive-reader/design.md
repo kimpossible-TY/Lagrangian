@@ -25,6 +25,20 @@ font/width changes and section remounting. Changed or ambiguous block text must
 not inherit a strike. Undo and clear never call the compiler; unavailable storage
 retains in-memory marks. Keep all selection controls within narrow safe areas.
 
+Replace the selection card and its visible heading with a content-sized floating
+capsule above the bottom safe area. Each primary action keeps an icon, its visible
+Korean label and a minimum 44px target; dismissal uses a named close icon. Give
+the source highlight, saved quotation and red strike equal visual weight instead
+of showing Save as selected. Undo and clear form a separate compact capsule
+above it, also available when no passage is selected. Hide empty capsules; retain
+a visible disabled source action while a dismissed request is pending. Keep the
+selection description available to assistive input and show oversized-selection
+feedback separately. Wrap controls only when additional text scaling requires it.
+Share the outline's restrained frosted material, solid high-contrast/transparency
+fallbacks and system forced colors. Press feedback uses native activation and
+does not deform under reduced motion. Measure after applying the visual
+viewport's width so wrapping never pushes controls below its safe bottom edge.
+
 ## Last visual edit navigation
 
 Reuse the paged preview's server-owned visual history and render-before-jump

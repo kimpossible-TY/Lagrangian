@@ -3,6 +3,8 @@
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local
 with undo and clear. Preserve the existing saved-quotation action.
+Present these selection actions in a compact floating capsule with visible
+icons and labels; keep undo and clear in a separate review capsule.
 
 The current saved-document preview fixes content to printed page geometry. A phone reader must zoom or rotate to read ordinary paragraphs, equations, and figure labels. Add a distinct HTML reading output and frontend to tinymist-flow, sharing the original Typst sources with the existing paged output.
 

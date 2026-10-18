@@ -24,6 +24,7 @@
   --highlight-edge: #a88032;
   --selection: #c9dfd7;
   --warning: #995020;
+  --review-ink: #b72d2d;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -38,6 +39,7 @@
   --highlight-edge: #d3b774;
   --selection: #36594e;
   --warning: #e3b184;
+  --review-ink: #ff9393;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -53,6 +55,7 @@
     --highlight-edge: #d3b774;
     --selection: #36594e;
     --warning: #e3b184;
+    --review-ink: #ff9393;
   }
 }
 * {
@@ -1117,47 +1120,146 @@ math svg {
 }
 #reader-selection {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   position: fixed;
   z-index: 6;
-  bottom: max(0.7rem, env(safe-area-inset-bottom));
+  bottom: calc(12px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: max-content;
-  max-width: calc(100vw - 1rem);
-  padding: 0.4rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 0.6rem;
-  box-shadow: 0 3px 20px #0003;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
   font:
-    0.85rem/1.4 system-ui,
+    0.75rem/1.4 system-ui,
     sans-serif;
 }
-#reader-selection-hint {
-  display: block;
-  flex-basis: 100%;
-  padding-inline: 0.7rem;
+.reader-selection-capsule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 2.25rem;
+  box-shadow:
+    0 6px 24px #0002,
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 90%, transparent);
+  pointer-events: auto;
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .reader-selection-capsule {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(115%);
+    backdrop-filter: blur(20px) saturate(115%);
+  }
+}
+#reader-selection-hint:not(.reader-visually-hidden) {
+  max-width: 100%;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: var(--surface);
   color: var(--muted);
 }
-#reader-highlight-save {
-  background: var(--accent);
-  color: var(--paper);
-}
 #reader-selection[hidden],
-#reader-selection button[hidden] {
+#reader-selection [hidden] {
   display: none;
 }
 #reader-selection button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
   min-height: 44px;
+  padding: 8px 6px;
+  border-radius: 1.75rem;
+  font-weight: 500;
   white-space: nowrap;
   touch-action: manipulation;
+  transition: transform 160ms ease;
+}
+#reader-selection button:active:not(:disabled) {
+  background: var(--wash);
+  transform: scale(0.96);
+  transition-duration: 65ms;
+}
+#reader-selection button:focus-visible {
+  outline-offset: -2px;
+}
+#reader-selection svg {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+}
+#reader-selection-actions > button:not(#reader-selection-cancel) {
+  flex-direction: column;
+  min-width: 72px;
+  min-height: 58px;
+}
+#reader-source-highlight svg {
+  color: var(--accent);
+}
+#reader-selection #reader-selection-cancel {
+  width: 44px;
+  height: 44px;
+  margin-inline-start: 2px;
+  background: var(--wash);
+  color: var(--muted);
+}
+#reader-review-actions {
+  padding-block: 4px;
+  font-size: 0.8125rem;
+}
+#reader-review-actions button {
+  gap: 6px;
+  padding-inline: 12px;
+}
+#reader-review-actions svg {
+  width: 18px;
+  height: 18px;
 }
 #reader-strike {
-  color: #d52d2d;
-  text-decoration: line-through;
+  color: var(--review-ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  #reader-selection button,
+  #reader-selection button:active:not(:disabled) {
+    transform: none;
+    transition: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .reader-selection-capsule {
+    background: var(--surface);
+    border-color: var(--ink);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (forced-colors: active) {
+  .reader-selection-capsule {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  #reader-strike,
+  #reader-source-highlight svg,
+  #reader-selection #reader-selection-cancel {
+    color: ButtonText;
+  }
+  #reader-selection #reader-selection-cancel {
+    background: ButtonFace;
+  }
 }
 .reader-review-host {
   position: relative;

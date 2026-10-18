@@ -224,12 +224,19 @@ export class ReaderHighlights {
       button.hidden = !selected;
     this.saveButton.disabled = this.sourceButton.disabled = Boolean(tooLarge || this.pendingSource);
     this.strikeButton.disabled = Boolean(tooLarge);
-    this.sourceButton.textContent = this.pendingSource ? "적용 중…" : "하이라이트";
+    this.sourceButton.hidden = !selected && !this.pendingSource;
+    this.sourceButton.querySelector("span").textContent = this.pendingSource
+      ? "적용 중…"
+      : "하이라이트";
     this.undoButton.hidden = this.clearButton.hidden = !this.review.store.marks.length;
+    document.querySelector("#reader-review-actions").hidden = !this.review.store.marks.length;
+    document.querySelector("#reader-selection-actions").hidden = !selected && !this.pendingSource;
     document.querySelector("#reader-selection-cancel").hidden = !selected;
     this.action.hidden = !selected && !this.review.store.marks.length && !this.pendingSource;
     this.action.setAttribute("aria-busy", String(Boolean(this.pendingSource)));
-    document.querySelector("#reader-selection-hint").textContent = tooLarge
+    const hint = document.querySelector("#reader-selection-hint");
+    hint.classList.toggle("reader-visually-hidden", !tooLarge);
+    hint.textContent = tooLarge
       ? "구절을 조금 짧게 선택해 주세요."
       : selected
         ? "선택한 구절"
@@ -245,13 +252,16 @@ export class ReaderHighlights {
         getComputedStyle(document.documentElement).getPropertyValue("--reader-safe-bottom"),
       ) || 0;
     const bottom = viewport.offsetTop + viewport.height - safe - 12;
-    const top = bottom - this.action.getBoundingClientRect().height;
     Object.assign(this.action.style, {
       left: `${viewport.offsetLeft + viewport.width / 2}px`,
-      top: `${Math.max(viewport.offsetTop + 8, top)}px`,
       bottom: "auto",
-      maxWidth: `${Math.max(0, viewport.width - 16)}px`,
+      maxWidth: `${Math.max(0, viewport.width - 32)}px`,
     });
+    const top = Math.max(
+      viewport.offsetTop + 8,
+      bottom - this.action.getBoundingClientRect().height,
+    );
+    this.action.style.top = `${top}px`;
     Object.assign(this.message.style, {
       top: `${Math.max(viewport.offsetTop + 8, (this.action.hidden ? bottom : top - 8) - this.message.getBoundingClientRect().height)}px`,
       bottom: "auto",

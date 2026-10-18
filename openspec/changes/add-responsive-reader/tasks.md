@@ -120,3 +120,5 @@ other services, and the mobile default are preserved.
 - [x] Add compiler-verified, revision-bound source highlights for selected prose and complete mathematics without changing ambiguous or stale sources.
 - [x] Add red strike, undo and clear controls with document-scoped persistence and layout-aware repainting; preserve saved quotations and pending selections.
 - [x] Verify source edit rejection/success and browser selection, reflow, reload and review controls; install and verify actual Reader delivery.
+- [x] Replace the selection card with compact floating action/review capsules, retaining labels, native selection, pending feedback and accessible material fallbacks.
+- [ ] Verify capsule layout and actions in narrow light/dark browsers, install the clean Reader commit, and verify actual HTTPS delivery.
