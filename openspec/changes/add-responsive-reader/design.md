@@ -122,8 +122,9 @@ The user's clarification on 2026-10-17 is the acceptance boundary: ordinary
 vertical reading must expose all mathematical and explanatory content at readable
 font sizes. Do not introduce slides/carousels, horizontal scrolling, zoom, or
 click-to-expand equation views to compensate for a layout that does not fit.
-TOC navigation, saved-highlight management, and an explicit original-page link
-remain optional controls; they are not required to read any part of the text.
+TOC navigation and saved-highlight management remain optional controls; they are
+not required to read any part of the text. Original-page access uses the Dashboard
+and existing addresses. The Reader toolbar keeps reading controls aligned right.
 
 Structured mathematical composition measures fraction children, radicands,
 spanning brace/bar bodies and labels, scripted bases, and table cells in the
@@ -336,7 +337,7 @@ Known input parent directories use entry-name fingerprints to detect import
 creation. Their timestamps and Finder metadata are not compiler inputs; changing
 those alone must not reject dynamic rendering or force a source recompilation.
 
-Use content and asset requests on the reader's own origin. The original paged view remains reachable from the reader. Initial mobile routing must honor an explicit choice and offer both views.
+Use content and asset requests on the reader's own origin. The original paged view remains reachable through the Dashboard and existing addresses. Initial mobile routing must honor an explicit choice and offer both views.
 
 The configured document entry belongs to the existing Tail Dashboard Hosting
 card. A direct document link and an automatic/Reader/original-page preference

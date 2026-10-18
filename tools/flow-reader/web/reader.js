@@ -717,11 +717,6 @@ async function refresh() {
       storageKey = documentStorageKey;
       setFont(Number(readStored(fontSizeSetting, defaultFontSize)) || defaultFontSize);
     }
-    const original = document.querySelector("#reader-original");
-    if (state.originalURL) {
-      original.href = state.originalURL;
-      original.hidden = false;
-    }
     status.dataset.state = state.compiling
       ? "compiling"
       : state.exitCode

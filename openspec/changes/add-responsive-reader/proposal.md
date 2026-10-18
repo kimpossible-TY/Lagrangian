@@ -8,6 +8,8 @@ Implement the reader as independent modules within this repository. Flow owns co
 
 Use the existing Tail Dashboard Hosting card as the configured document entry.
 Keep a direct open action and browser-local automatic/Reader/original preference.
+Keep original-page access in the Dashboard and existing addresses; the Reader
+toolbar contains only outline/highlight actions and reading controls.
 Only a fresh, healthy, strictly published native Reader qualifies for automatic
 touch-device selection; development and unknown runtime flags keep the original
 entry. Existing paged bookmarks and both document lifecycles remain unchanged.

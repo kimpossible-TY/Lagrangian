@@ -36,6 +36,10 @@ Regenerate these assets from `assets/branding/tinymist-flow.png` using
 
 == Reading appearance
 
+The toolbar keeps outline/highlight actions at the start and reading controls at
+the end. The original paged view is available through the Dashboard and its
+existing address; the Reader toolbar has no page-view link.
+
 The toolbar's 화면 모드 control offers 자동, 라이트 and 다크. 자동 follows the
 device's current appearance and reacts when it changes. Explicit choices persist
 in the current browser across reloads and documents on the same origin. The
