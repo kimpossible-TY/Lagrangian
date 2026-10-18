@@ -1960,3 +1960,12 @@ asynchronous mathematical layout can still adjust the body after opening.
 Reports and the inspected screenshot are under
 `dist/reader-outline-location-checks/`. Physical iPhone interaction was not
 repeated for this correction.
+
+Installed clean runtime `6d8552c2e78e86ebda46e1acd02432b79faeafc3`.
+All 393 immutable release files and 48 loopback/HTTPS asset deliveries match.
+The accepted document, configuration and original PDF service match the
+pre-install checks. The Reader passes its content gate with exit code zero.
+Actual HTTPS WebKit checks repeat both continuation sections and manual-outline
+reopening, confirming the current link's focus, visibility and centering without
+moving the article on opening. Deployment receipts, browser results and the
+installed screenshot are in `dist/reader-outline-location-checks/`.
