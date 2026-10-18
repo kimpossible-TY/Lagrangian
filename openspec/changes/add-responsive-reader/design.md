@@ -49,6 +49,9 @@ autofocus, which may otherwise scroll toward the offscreen close button. Restore
 them before resolving the current heading; verify from a nonzero reading offset.
 Hide the normal accepted-document status line and its spacing. Loading, compiling,
 connection and publication diagnostics retain their existing status region.
+Keep the reading panels free of instructional prose: no gesture hints, outline
+footer instructions, highlight storage explainer or step-by-step empty-state
+guidance. Retain control names, concise empty states and operational diagnostics.
 
 The user's 2026-10-18 instruction replaces optional browser pinch magnification
 inside the article with text reflow. Two article touches track a 13–30px candidate
