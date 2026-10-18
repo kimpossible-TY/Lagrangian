@@ -1799,3 +1799,18 @@ retains SHA-256 `876b8a52a28cac7d3f5123be7b17eaf94f6eecb638f767909d5e56a623eb74a
 configuration bytes are unchanged, and strict/native delivery remains enabled.
 The managed Reader runs as PID 65514; the original PDF retains PID 65035, HTTP 200
 and its prior response hash. Rollback launcher/configuration backups are retained.
+
+
+## Remove the normal document caption — 2026-10-18
+
+Installed clean runtime `74d52424c96d30b8447039267d10cb2aacf1e0e5`. The normal
+accepted-document status has empty text and `display: none`, removing its margin
+and height. Loading, compilation, development and error messages retain their
+existing states and remain visible when applicable.
+
+All 68 JavaScript tests, formatting and strict OpenSpec validation pass. Actual
+HTTPS inspection verifies a ready document, empty status text, zero status
+height and no horizontal overflow at 390px. All 388 immutable release files and
+48 loopback/HTTPS asset checks pass. Document/configuration bytes and the original
+PDF service remain unchanged. The managed Reader runs as PID 69222. Receipts and
+the inspected screenshot are in `dist/reader-remove-ready-status-install-20261018/`.
