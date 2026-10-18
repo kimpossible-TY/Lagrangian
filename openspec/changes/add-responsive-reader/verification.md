@@ -1933,3 +1933,30 @@ highlight wrappers. At 390px, the actual Connections passage's two expressions
 are ready, share their surrounding text's background and leave page width equal
 to client width. Delivery receipts and the inspected screenshot are in
 `dist/reader-highlight-checks/deployment/`.
+
+## Current outline location across transport sections — 2026-10-18
+
+The previous location resolver inspected only mounted headings. A heading-free
+continuation whose title was outside the mounted window therefore had no current
+entry, or incorrectly adopted the next mounted heading. Resolve the section at
+the 120px reading line and use the complete ordered manifest for preceding
+headings. Each opening centers the selected link in the outline and gives it
+keyboard focus with `preventScroll`, including after manual outline scrolling.
+
+The disposable API/browser regression fails on the previous implementation with
+zero current links. The correction passes 132 checks across WebKit and Chrome at
+390×844, 320×740 and 768×360, with both ordinary and reduced motion. Coverage
+includes button/swipe opening, repeated manual list scrolling, unmounted earlier
+headings, future headings, multiple headings in one section, deep ARIA headings,
+Escape focus return, Enter navigation and unchanged article scroll coordinates.
+All 69 JavaScript unit tests, JavaScript syntax, Prettier and strict OpenSpec
+validation pass.
+
+The actual PDE Reader at 390px has 109 outline links. Source-intercepted WebKit
+checks cover sections 46 and 47, repeated opening and a genuinely unmounted
+`loc-577` heading. Its current link is focused and centered within 0.12px;
+opening itself preserves the article's exact scroll coordinate. Independent
+asynchronous mathematical layout can still adjust the body after opening.
+Reports and the inspected screenshot are under
+`dist/reader-outline-location-checks/`. Physical iPhone interaction was not
+repeated for this correction.

@@ -314,6 +314,13 @@ in reading settings through semantic keyboard-accessible controls.
 - **AND** the current reading heading is marked and revealed within the outline without moving the article
 - **AND** solid material fallbacks retain contrast, and dismissal clears the capsule and its shadow from the viewport
 
+#### Scenario: Reopen the outline from a long section
+- **GIVEN** the reader is in body content whose preceding heading is in an earlier unmounted transport section
+- **WHEN** the reader opens or reopens the outline using the button or swipe
+- **THEN** that preceding heading is marked as the current location, centered within the outline's scrollport where its edges permit, and receives keyboard focus
+- **AND** a following heading below the reading threshold does not become current early
+- **AND** previous manual outline scrolling is replaced by the current location without moving the article, including with reduced motion
+
 ### Requirement: Explicit reading appearance
 The Reader SHALL expose Automatic, Light and Dark appearances and persist the
 choice in browser-local storage. Automatic SHALL follow device appearance changes.

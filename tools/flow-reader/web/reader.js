@@ -438,12 +438,27 @@ function indexOutline(nextManifest) {
 function updateOutlineLocation() {
   let current = null;
   let selected = null;
-  for (const heading of article.querySelectorAll(headingSelector)) {
-    const rect = heading.getBoundingClientRect();
-    if (!heading.id || !rect.height) continue;
-    current ??= heading.id;
-    if (rect.top <= 120) current = heading.id;
+  let readingSection = null;
+  const readingLine = 120;
+  for (const section of article.querySelectorAll("[data-reader-section]")) {
+    const rect = section.getBoundingClientRect();
+    if (!rect.height) continue;
+    readingSection ??= section.dataset.readerSection;
+    if (rect.top <= readingLine) readingSection = section.dataset.readerSection;
     else break;
+  }
+  // A long passage can outlive its heading in the mounted reading window.
+  // Use the complete outline for earlier sections, and geometry only within
+  // the current section so a following heading cannot claim its preceding text.
+  const sectionOrder = new Map(manifest?.sections.map((section, index) => [section.id, index]));
+  const readingIndex = sectionOrder.get(readingSection);
+  for (const heading of manifest?.outline ?? []) {
+    const index = sectionOrder.get(heading.section);
+    if (index < readingIndex) current = heading.id;
+    else if (index === readingIndex) {
+      const rect = article.querySelector(`#${CSS.escape(heading.id)}`)?.getBoundingClientRect();
+      if (rect?.height && rect.top <= readingLine) current = heading.id;
+    } else break;
   }
   for (const link of outline.querySelectorAll("a")) {
     if (decodeURIComponent(link.hash.slice(1)) === current) {
@@ -452,10 +467,10 @@ function updateOutlineLocation() {
     } else link.removeAttribute("aria-current");
   }
   if (selected) {
+    selected.focus({ preventScroll: true });
     const list = outline.getBoundingClientRect();
     const item = selected.getBoundingClientRect();
-    if (item.top < list.top) outline.scrollTop += item.top - list.top;
-    else if (item.bottom > list.bottom) outline.scrollTop += item.bottom - list.bottom;
+    outline.scrollTop += item.top - list.top - (list.height - item.height) / 2;
   }
 }
 
