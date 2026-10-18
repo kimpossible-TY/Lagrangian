@@ -65,7 +65,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Remove the toolbar's page-view link and its polling/style code, keep reading controls aligned right, and verify the installed Reader.
 - [x] Reduce navigation to two icons, consolidate reading settings, and add a semantic, interruptible outline drawer.
 - [x] Implement article pinch-to-font reflow and directional outline swipes with cancellation, selection/scroll guards and reduced-motion handling.
-- [ ] Verify gesture classification, real browser wiring, keyboard/focus and narrow layouts; install and verify managed HTTPS delivery.
+- [x] Verify gesture classification, real browser wiring, keyboard/focus and narrow layouts; install and verify managed HTTPS delivery.
 - [x] Remove fixed light drawing backgrounds and adapt CeTZ/mannot paint, label backplates and marked term ink to the actual surrounding surface.
 - [x] Verify drawing transparency, contrast, source geometry/resources and repeat/late/cloned paint through theme changes and actual PDE reading.
 - [x] Include all exported heading levels in the outline with consistent depth-based indentation, wrapping titles and cross-section navigation.
