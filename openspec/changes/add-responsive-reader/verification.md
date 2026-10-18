@@ -1867,3 +1867,22 @@ light/dark screenshots, measurements and delivery receipts are in
 establish physical iPhone gesture feel, frame timing or screen-reader speech;
 those were not repeated for this update. Solid contrast/transparency fallbacks
 are implemented; operating-system preference emulation was unavailable.
+
+
+## Remove reading-panel instructions — 2026-10-18
+
+Installed clean runtime `cbf6032c575f42b539e75cfbea0852f2e2076e94`. The outline's
+swipe footer and settings' pinch/swipe paragraph are removed with their unused
+styles. The saved-highlight storage explainer and how-to empty-state instruction
+are removed; a concise empty-state message remains. Outline bottom padding and
+settings action spacing keep the compact panels balanced.
+
+All 68 JavaScript tests, formatting and strict OpenSpec validation pass. Actual
+HTTPS inspection at 390px confirms zero gesture/helper blocks, zero outline
+paragraphs and a single neutral empty-state paragraph in saved highlights.
+Outline/settings/highlights open and close correctly; saved-highlight dismissal
+returns focus to settings. No horizontal overflow is present. All 388 release
+files and 48 asset checks pass. Document/configuration bytes and original PDF
+delivery remain unchanged; the Reader runs as PID 95037. Delivery receipts,
+browser measurements and the inspected screenshot are under
+`dist/reader-remove-instructions-install-20261018/`.
