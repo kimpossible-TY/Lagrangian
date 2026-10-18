@@ -199,8 +199,10 @@ try {
       const nearbyDecorations = () =>
         [...scene.querySelectorAll("[data-flow-decoration]")].filter((node) => {
           if (node.closest("mjx-assistive-mml,.flow-math-stage")) return false;
-          const rect = node.getBoundingClientRect();
-          return rect.bottom > -1000 && rect.top < innerHeight + 1000;
+          return [...node.getClientRects()].some(
+            (rect) =>
+              rect.width && rect.height && rect.bottom > -1000 && rect.top < innerHeight + 1000,
+          );
         });
       await until(
         () =>

@@ -1,4 +1,17 @@
-# Development checkpoint — 2026-10-17
+# Current delivery — 2026-10-18
+
+The PDE Reader is deployed in strict/native mode with a 13px default. The live
+Tail Hosting status and deployed Dashboard model select Reader for mobile
+automatic entry, while desktop automatic entry and an explicit original-page
+choice retain the original PDF address. All original project inputs and authored
+CeTZ coordinates are preserved. Physical iPhone fit, display and reference/back
+navigation are confirmed; VoiceOver speech is explicitly deferred.
+
+The completed coverage and delivery receipts appear at the end of this report.
+The earlier checkpoints below describe their historical implementations and
+failures; they are not unresolved failures of the current deployment.
+
+# Historical development checkpoint — 2026-10-17
 
 This is an implementation checkpoint, not a completed mobile rollout.
 
@@ -1372,3 +1385,48 @@ now reject a changed viewport during a case. Tables are repeated in one active
 tab with that guard and per-case viewport metadata. All eight figure sets and
 all four guarded table sets pass. Incomplete earlier paint sweeps remain partial;
 they are not relabelled as complete runs.
+
+### Strict mobile entry delivery
+
+All 15 actual relationships at 320px/13px complete 121 checks with original
+nearby paint required before geometry acceptance. Fourteen marked decoration
+occurrences are painted alongside their complete mathematical bodies and original
+vector paths. There are no collisions, unrouted connections, clipped scenes or
+missing compiler paths. `graphics-pde-320-13-paint.json` records the complete
+default-font range separately from the subsequent large-font run. The earlier
+current-source 390px sweep covers all 15 relationships at 13px/18px/30px with
+316 checks. `release-readiness.json` enumerates the acceptance receipts.
+
+Clean runtime `75192e735942626b3ed2ab0bc80c29fcd70a1ae3` is installed with
+development disabled and native figures enabled. Reader PID 32201 publishes
+revision `fa118df47dce627e63b8768a24515a9e6fd936677211d43351e2e1b357113e1a`,
+exit 0 and content gate true. All 17 public HTML/CSS/JavaScript assets match the
+committed bytes, and the served document matches the audited HTML digest above.
+The original PDF keeps PID 39357; all 46 samples through this real release switch
+are HTTP 200. Three consecutive strict accepted-state samples confirm completed
+startup. See `strict-install.json`, `strict-delivery.json` and
+`strict-delivery-monitor.json`.
+
+The Reader display name loses its development suffix without changing another
+registry field or service. The live Hosting API and deployed Dashboard model
+now report `acceptedReader: true`: mobile automatic entry opens port 23627,
+desktop automatic entry opens port 23625, and explicit Reader/original choices
+retain their respective addresses. Health and compilation observations are fresh.
+The original PDF endpoint and lifecycle are not redirected or restarted.
+`mobile-default-entry.json` records these real delivery decisions. The previous
+registry bytes are retained in the local audit directory for review/rollback.
+VoiceOver remains the user's explicit follow-up; no speech pass is asserted.
+
+### Empty mark carrier regression
+
+The extra 320px/30px paint lane finds zero-width, empty MathJax wrappers for
+decorations 98 and 99 in relationship 9. Every real fragment and the relationship
+are already ready, with zero collisions, but the wrappers retain a misleading
+loading notice. `empty-mark-notice-before.json` records that actual state.
+The status renderer now ignores only composed zero-area carriers; real unpainted
+rectangles and native/pending views keep their notices. The paint audit uses the
+same nonempty client-rectangle definition. All 51 Node tests pass, including
+the regression that distinguishes these three states. The actual large-font
+fixture advances past relationship 9 with all eight real decoration fragments
+painted and its mathematical/vector checks passing. This correction does not
+change source content, coordinates, font size, or drawing callbacks.
