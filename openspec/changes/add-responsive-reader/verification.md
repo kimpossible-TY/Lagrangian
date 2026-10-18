@@ -1530,3 +1530,34 @@ their original pixels and intrinsic backgrounds; they are not CeTZ/mannot export
 Prettier, strict OpenSpec validation and patch whitespace checks pass. The existing
 `typlite` limitation remains. This is a local preview, without a new installed
 release or physical iPhone/VoiceOver acceptance.
+
+## HTML last visual edit — 2026-10-18
+
+The HTML Reader and paged preview now import the same `ChangeLocationQueue`.
+HTML history uses project-scoped canonical body fingerprints and current section
+targets, with atomic mode-0600 persistence independent of viewers. New entries
+and reloads restore the last visual edit; direct named links and history retain
+their destination. Recent gestures defer navigation, including during target
+fetches. Selections/dialogs continue to postpone publication.
+
+Validation:
+
+- All 77 Reader Python tests passed with the local Typst package root, including
+  nine history tests for restart, disconnected changes, deletions, mathematical
+  paint, native geometry, generated IDs, invalid records and rejected saves.
+- All 61 Reader JavaScript tests and 80 paged frontend tests passed. The preview
+  TypeScript check and preview asset build passed after extracting the shared queue.
+- A disposable real-Typst fixture passed 13 WebKit checks at 390px/320px: live
+  edits, reload, explicit links, history, gesture deferral, button bounds/click,
+  polling failure/recovery, theme/font changes, gestures during destination
+  loading, selection release, nonvisual comments and failed compilation. No
+  browser application errors occurred in the completed run.
+- A read-only audit of an installed 8,756,496-byte HTML snapshot produced 4,862
+  tracked blocks across 59 sections. An in-memory late edit resolved to section
+  40. Its history record was 1,286,780 bytes, within the 4MiB bound; the two splits
+  and observations took 8.36 seconds. The source and installed history were not edited.
+- Scoped Prettier, Python compilation, strict OpenSpec validation, generated-doc
+  consistency and compilation of the updated Typst development guide passed.
+
+The installed Reader, native app and PDF service were not updated. Physical
+iPhone acceptance of this new navigation behavior remains unverified.

@@ -21,6 +21,7 @@ from canvases import extract_canvases, validate_canvases
 from decorations import extract_decorations, validate_decorations
 from sections import split_document
 from passages import locate_passages
+from changes import ChangeTracker, input_fingerprint
 
 
 class ReaderState:
@@ -31,6 +32,7 @@ class ReaderState:
         self.allow_incomplete = allow_incomplete
         self.document_id = hashlib.sha256(
             json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
+        self.changes = ChangeTracker(output / "last-change.json", self.document_id)
         self.lock = threading.RLock()
         self.report = {}
         self.document = None
@@ -69,6 +71,10 @@ class ReaderState:
             document = (self.output / "document.html").read_bytes()
             bundle = split_document(document.decode(), report["revision"])
             bundle.manifest["documentID"] = self.document_id
+            inputs = input_fingerprint(self.project, self.dependencies)
+            if source_stamp != source_signature(self.project, self.dependencies):
+                raise ValueError("Sources changed before Reader publication")
+            bundle.manifest["lastChange"] = self.changes.observe(bundle, inputs)
             compressed = gzip.compress(document)
             section_compressed = {key: gzip.compress(value) for key, value in bundle.documents.items()}
             manifest_json = json.dumps(bundle.manifest, ensure_ascii=False).encode()
@@ -350,6 +356,7 @@ def handler_for(state):
                     return self.respond(payload, "text/html; charset=utf-8", compressed=compressed)
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
+                      "/change-location.js": ("change-location.js", "text/javascript; charset=utf-8"),
                       "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
                       "/drawing-theme.js": ("drawing-theme.js", "text/javascript; charset=utf-8"),
                       "/graphics.js": ("graphics.js", "text/javascript; charset=utf-8"),

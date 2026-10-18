@@ -60,6 +60,16 @@
 body {
   margin: 0;
 }
+#reader-change-jump {
+  position: fixed;
+  z-index: 30;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 12px #0002;
+}
 button,
 select,
 output {

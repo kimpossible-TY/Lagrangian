@@ -2,7 +2,7 @@
 
 The current saved-document preview fixes content to printed page geometry. A phone reader must zoom or rotate to read ordinary paragraphs, equations, and figure labels. Add a distinct HTML reading output and frontend to tinymist-flow, sharing the original Typst sources with the existing paged output.
 
-The reader preserves headings, mathematical notation, numbering, references, footnotes, and annotations. Paragraphs reflow at the selected font size. Equations and figures are composed to the available reading width at readable text sizes. Essential content is readable in the continuous body without zoom, horizontal panning, slide navigation, or an extra click to expand it. Reader updates preserve the selected passage and reading position.
+The reader preserves headings, mathematical notation, numbering, references, footnotes, and annotations. Paragraphs reflow at the selected font size. Equations and figures are composed to the available reading width at readable text sizes. Essential content is readable in the continuous body without zoom, horizontal panning, slide navigation, or an extra click to expand it. Reader updates preserve an active selection and follow accepted visual edits after it ends; recent reading gestures defer that navigation while retaining the reading position.
 
 Implement the reader as independent modules within this repository. Flow owns compilation and project settings; Tail Hosting exposes the new endpoint. Keep the installed paged service and address available throughout development and rollout. Validate the full PDE document, not only a simplified demo, before making the mobile reader the default mobile entry.
 
@@ -31,3 +31,9 @@ drawings and mannot annotations blend into their surrounding reading background,
 with readable theme-aware vector paint and label colors.
 
 Non-goals: replacing Typst's parser or evaluator, removing PDF export, changing mathematical meaning, or automatically inferring a responsive layout from every arbitrary drawing program.
+
+Bring the paged reader's last-edit behavior to HTML: persist a project-scoped
+visual change independently of viewers, restore it on entry/reload, and follow
+accepted live changes after rendering. Recent reading gestures defer the jump
+behind a compact change-location button. Explicit links and history navigation
+retain their destination.
