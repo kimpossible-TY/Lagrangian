@@ -3,6 +3,7 @@ on:
   push:
     tags:
       - "*"
+      - "!flow-*"
   workflow_dispatch:
 
 env:
@@ -69,4 +70,3 @@ jobs:
           cargo publish --dry-run -p crityp
           # needs patched typst
           # cargo publish --dry-run -p tinymist-analysis
-          
