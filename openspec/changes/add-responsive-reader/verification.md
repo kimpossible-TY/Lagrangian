@@ -1561,3 +1561,33 @@ Validation:
 
 The installed Reader, native app and PDF service were not updated. Physical
 iPhone acceptance of this new navigation behavior remains unverified.
+
+## Last-edit Reader installation — 2026-10-18
+
+Installed clean runtime `eede70488f90bb7413f3e036b0ed23e9d81208a5` using the
+existing independent Reader installer. The clean detached checkout passed all
+76 Python tests, 61 Reader JavaScript tests and 13 real-Typst WebKit scenarios.
+The separate outline changes were excluded from this commit and
+installation, and their working files were preserved.
+
+The managed `typst-pde-reader` restarted successfully as PID 96124 and accepted
+its full document with strict publication and native figures enabled. All 20
+public assets match the installed commit. Registered certificate-validated HTTPS
+delivery returns the exact managed 8,756,496-byte HTML, with 56 sections. Its new
+history baseline contains 4,862 blocks in 1,286,398 bytes with mode 0600. No prior
+HTML edit target existed, so the next accepted visual save creates the first one.
+
+On the actual registered Reader origin, a fresh 390px touch WebKit context loaded
+the new module without application errors. A browser-only controlled last-edit
+hint navigated into actual section 41 and survived reload ahead of a different
+saved reading position. The resulting screenshot was inspected. The server's
+history stayed at its initial null target throughout this read-only check.
+This verifies installed frontend delivery/restoration without editing the book.
+
+Reader configuration bytes and all Flow profile settings are unchanged. The PDF
+service remains at PID 65035 and serves the same HTTPS HTML hash; Ewald remains
+stopped. Backups, installation/test logs, hashes, browser receipt and screenshot
+are retained under ignored `dist/reader-last-edit-install-20261018-122131/`.
+The prior immutable Reader release is retained for rollback. The macOS app bundle,
+engine, public address and authored source are unchanged. Physical iPhone
+acceptance of the new navigation remains outstanding.
