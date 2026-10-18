@@ -8,6 +8,7 @@ import { prepareResponsiveTables } from "./tables.js";
 import { languageOf, setLanguage, uiLanguage } from "./language.js";
 import { DrawingTheme } from "./drawing-theme.js";
 import { ChangeLocationQueue } from "./change-location.js";
+import { OutlineDrawer, ReaderGestures, readingSettings } from "./reading-navigation.js";
 
 const article = document.querySelector("#reader-document");
 const headingSelector = 'h1,h2,h3,h4,h5,h6,[role="heading"][aria-level]';
@@ -15,6 +16,12 @@ new DrawingTheme(article);
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
+const drawer = new OutlineDrawer(document.querySelector("#reader-navigation"), menu);
+const settings = readingSettings(
+  document.querySelector("#reader-appearance-panel"),
+  document.querySelector("#reader-appearance-open"),
+);
+let gestures = null;
 const defaultFontSize = 13;
 // Start existing readers at the new requested default once. Subsequent explicit
 // choices persist; the old setting and saved quotations/positions stay intact.
@@ -98,7 +105,10 @@ const mathematics = new ResponsiveMath(article, {
 let highlights;
 import("./highlights.js")
   .then(({ ReaderHighlights }) => {
-    highlights = new ReaderHighlights(article, navigateAnchor);
+    highlights = new ReaderHighlights(article, navigateAnchor, {
+      beforeOpen: settings.close,
+      returnFocus: settings.trigger,
+    });
     if (manifest && currentSection) highlights.onDocument(manifest, currentSection);
   })
   .catch(() => {
@@ -434,7 +444,11 @@ function containWideMathematics(root) {
 }
 
 function selectionActive() {
-  return !window.getSelection()?.isCollapsed || Boolean(document.querySelector("dialog[open]"));
+  return (
+    Boolean(gestures?.active) ||
+    !window.getSelection()?.isCollapsed ||
+    Boolean(document.querySelector("dialog[open]"))
+  );
 }
 
 function prepareSection(html, section) {
@@ -671,18 +685,20 @@ article.addEventListener("click", (event) => {
 });
 document.querySelector("#reader-smaller").addEventListener("click", () => setFont(fontSize - 1));
 document.querySelector("#reader-larger").addEventListener("click", () => setFont(fontSize + 1));
-menu.addEventListener("click", () => {
-  outline.hidden = !outline.hidden;
-  menu.setAttribute("aria-expanded", !outline.hidden);
-});
-outline.addEventListener("click", (event) => {
+outline.addEventListener("click", async (event) => {
   const link = event.target.closest("a");
   if (link) {
     event.preventDefault();
-    outline.hidden = true;
-    menu.setAttribute("aria-expanded", "false");
-    navigateAnchor(decodeURIComponent(link.hash.slice(1)));
+    drawer.close();
+    await navigateAnchor(decodeURIComponent(link.hash.slice(1)));
+    article.focus({ preventScroll: true });
   }
+});
+gestures = new ReaderGestures(article, drawer, {
+  getFont: () => fontSize,
+  setFont,
+  preview: document.querySelector("#reader-font-preview"),
+  announce: document.querySelector("#reader-gesture-message"),
 });
 let saveTimer;
 history.scrollRestoration = "manual";

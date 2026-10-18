@@ -287,6 +287,26 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 - **THEN** the last valid document remains usable with an explicit stale/error status
 - **AND** a successful subsequent compilation updates the reader without losing its logical reading position
 
+### Requirement: Minimal reading navigation and touch reflow
+The Reader SHALL show only outline and reading-settings action icons in its
+toolbar. Font controls, appearance and saved highlights SHALL remain available
+in reading settings through semantic keyboard-accessible controls.
+
+#### Scenario: Pinch changes text size
+- **WHEN** two fingers pinch on article content without an active selection or dialog
+- **THEN** a candidate size between 13px and 30px is previewed without browser magnification
+- **AND** lifting one finger commits one persisted font change through the anchor-preserving reflow path
+- **AND** cancellation or a third finger discards the candidate, and remaining touches cannot restart the gesture
+- **AND** ordinary one-finger vertical scrolling and reference taps remain available
+
+#### Scenario: Swipe the outline
+- **WHEN** a horizontal rightward swipe starts 24–96px inside the reading viewport
+- **THEN** the outline drawer follows it and settles based on distance and recent velocity
+- **AND** vertical intent, browser-edge gestures, active selections and interactive starts do not open it
+- **AND** reverse swipes close it, cancellation restores its prior state, and stale velocity after a pause cannot cause a fling
+- **AND** native dialog focus, Escape, outside dismissal and button alternatives remain available
+- **AND** rapid reversals and reduced-motion changes cannot leave stale motion or block input
+
 ### Requirement: Explicit reading appearance
 The Reader SHALL expose Automatic, Light and Dark appearances and persist the
 choice in browser-local storage. Automatic SHALL follow device appearance changes.

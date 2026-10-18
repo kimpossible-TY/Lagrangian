@@ -1,0 +1,265 @@
+// Synthetic touch wiring checks; native device gesture arbitration is a separate check.
+import { OutlineDrawer, readingSettings } from "/reading-navigation.js";
+import { logicalTextIndex } from "/math-identity.js";
+
+const report = { checks: [], errors: [] };
+const output = document.createElement("script");
+output.type = "application/json";
+output.id = "reading-navigation-report";
+document.body.append(output);
+function check(name, condition) {
+  report.checks.push(name);
+  if (!condition) report.errors.push(name);
+  output.textContent = JSON.stringify(report);
+}
+async function until(condition, name) {
+  const deadline = performance.now() + 20000;
+  while (!condition()) {
+    if (performance.now() > deadline) throw new Error(name);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+const pause = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
+const article = document.querySelector("#reader-document");
+const drawer = document.querySelector("#reader-navigation");
+const panel = drawer.querySelector(".reader-drawer-panel");
+const font = () => Number(document.querySelector("#reader-size").value);
+const target = () => article.querySelector("p") ?? article;
+let clock = 0;
+function touch(id, x, y, node = target()) {
+  return new Touch({ identifier: id, target: node, clientX: x, clientY: y, pageX: x, pageY: y });
+}
+function send(
+  name,
+  touches,
+  changed = touches,
+  node = changed[0]?.target ?? target(),
+  elapsed = 30,
+) {
+  clock += elapsed;
+  const event = new TouchEvent(name, {
+    touches,
+    changedTouches: changed,
+    targetTouches: touches,
+    bubbles: true,
+    cancelable: true,
+  });
+  Object.defineProperty(event, "timeStamp", { value: clock });
+  node.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+function pinch(ratio) {
+  const a = touch(1, 80, 250),
+    b = touch(2, 180, 250),
+    c = touch(2, 80 + ratio * 100, 250);
+  send("touchstart", [a, b]);
+  send("touchmove", [a, c]);
+  return { a, b: c };
+}
+function finish({ a, b }, canceled = false) {
+  send(canceled ? "touchcancel" : "touchend", [a], [b]);
+  send("touchend", [], [a]);
+}
+function swipe(start, end, node = target(), canceled = false) {
+  const a = touch(3, start[0], start[1], node),
+    b = touch(3, end[0], end[1], node);
+  send("touchstart", [a]);
+  const owned = send("touchmove", [b]);
+  send(canceled ? "touchcancel" : "touchend", [], [b]);
+  return owned;
+}
+
+async function run() {
+  await until(
+    () =>
+      article.querySelector("[data-reader-key]") &&
+      !article.getAttribute("aria-busy").includes("true"),
+    "Reader ready",
+  );
+  await document.fonts.ready;
+  await pause();
+  const original = font();
+  const canonical = logicalTextIndex(article).text;
+  check(
+    "Toolbar exposes exactly two action icons",
+    document.querySelectorAll(".reader-toolbar button").length > 2 &&
+      [...document.querySelectorAll(".reader-toolbar button")].filter(
+        (n) => n.getBoundingClientRect().height > 1,
+      ).length === 2,
+  );
+  check(
+    "Article owns pinch while retaining vertical pan",
+    getComputedStyle(article).touchAction === "pan-y",
+  );
+
+  const growth = pinch(1.4);
+  check(
+    "Pinch previews a candidate without reflowing during movement",
+    font() === original && !document.querySelector("#reader-font-preview").hidden,
+  );
+  finish(growth);
+  const larger = Math.min(30, Math.round(original * 1.4));
+  check(
+    "Release commits the chosen text size",
+    font() === larger && getComputedStyle(article).fontSize === `${larger}px`,
+  );
+  const restore = pinch(original / font());
+  finish(restore);
+  check("Reverse pinch restores the selected text size", font() === original);
+
+  const canceled = pinch(1.8);
+  finish(canceled, true);
+  check(
+    "Touch cancellation discards font changes and hides feedback",
+    font() === original && document.querySelector("#reader-font-preview").hidden,
+  );
+  const extra = pinch(1.8),
+    third = touch(4, 120, 300);
+  send("touchstart", [extra.a, extra.b, third], [third]);
+  send("touchend", [extra.a, extra.b], [third]);
+  send("touchmove", [extra.a, extra.b]);
+  finish(extra);
+  check("A third finger cancels without restarting on remaining contacts", font() === original);
+
+  const text = target().firstChild;
+  if (text?.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    finish(pinch(1.8));
+    swipe([48, 300], [260, 302]);
+    check(
+      "A selected passage blocks font and drawer gestures",
+      font() === original && !drawer.open && !getSelection().isCollapsed,
+    );
+    getSelection().removeAllRanges();
+  }
+  const vertical = swipe([48, 300], [52, 390]);
+  check("Vertical reading motion is not canceled", !vertical && !drawer.open);
+  swipe([5, 300], [250, 301]);
+  check("The outer browser edge does not trigger the drawer", !drawer.open);
+  const link = article.querySelector("a");
+  if (link) {
+    swipe([48, 300], [260, 301], link);
+    check("Reference/link starts retain their normal action", !drawer.open);
+  }
+  swipe([48, 300], [260, 302], target(), true);
+  check("A canceled opening swipe remains closed", !drawer.open);
+  await pause();
+  const a = touch(3, 48, 300),
+    b = touch(3, 260, 302);
+  send("touchstart", [a]);
+  send("touchmove", [b]);
+  check(
+    "The drawer follows an owned swipe before committing modality",
+    drawer.open &&
+      !drawer.matches(":modal") &&
+      panel.getBoundingClientRect().left > -panel.getBoundingClientRect().width,
+  );
+  send("touchend", [], [b]);
+  check("A completed opening swipe becomes a native modal", drawer.matches(":modal"));
+  await pause();
+  swipe([240, 300], [25, 302], panel, true);
+  check("A canceled closing swipe keeps the outline open", drawer.open);
+  await pause();
+  swipe([240, 300], [25, 302], panel);
+  check("Reverse swipe closes the modal immediately", !drawer.open);
+  document.querySelector("#reader-menu").click();
+  await pause();
+  check(
+    "Rapid reopening survives the previous exit animation",
+    drawer.matches(":modal") && Math.abs(panel.getBoundingClientRect().left) < 1,
+  );
+  document.querySelector("#reader-navigation-close").click();
+
+  document.querySelector("#reader-appearance-open").click();
+  // Measure the resting target after its opening scale transition.
+  await pause(200);
+  check(
+    "Settings contains the font controls",
+    document.querySelector("#reader-appearance-panel").matches(":popover-open") &&
+      document.querySelector("#reader-larger").getBoundingClientRect().width >= 44,
+  );
+  const plus = document.querySelector("#reader-larger");
+  if (!plus.disabled) {
+    plus.click();
+    document.querySelector("#reader-smaller").click();
+  }
+  check("Semantic font buttons remain an alternative", font() === original);
+  document.querySelector("#reader-highlights-open").click();
+  check(
+    "Saved highlights open from reading settings",
+    document.querySelector("#reader-highlights").open &&
+      !document.querySelector("#reader-appearance-panel").matches(":popover-open"),
+  );
+  document.querySelector("#reader-highlights-close").click();
+  await pause(20);
+  check(
+    "Highlight close returns focus to the settings icon",
+    document.activeElement.id === "reader-appearance-open",
+  );
+
+  const fallbackPanel = document.querySelector("#reader-appearance-panel").cloneNode(true);
+  const fallbackTrigger = document.createElement("button");
+  fallbackPanel.id = "fallback-settings-fixture";
+  fallbackPanel.hidden = true;
+  fallbackPanel.hidePopover = undefined;
+  fallbackPanel.querySelector("select").hidden = false;
+  for (const radio of fallbackPanel.querySelectorAll("input[name]")) radio.removeAttribute("name");
+  fallbackPanel.querySelector(".reader-appearance-close").removeAttribute("popovertarget");
+  for (const node of fallbackPanel.querySelectorAll("[id]")) node.removeAttribute("id");
+  document.body.append(fallbackPanel, fallbackTrigger);
+  readingSettings(fallbackPanel, fallbackTrigger);
+  fallbackTrigger.click();
+  check(
+    "Unsupported popovers retain dismissible settings and font actions",
+    !fallbackPanel.hidden &&
+      fallbackPanel.dataset.fallback === "true" &&
+      !fallbackPanel.hasAttribute("popover") &&
+      fallbackPanel.querySelectorAll(".reader-type-controls button").length === 2 &&
+      fallbackPanel.contains(document.activeElement) &&
+      fallbackPanel.style.maxHeight !== "",
+  );
+  fallbackPanel.querySelector(".reader-appearance-close").click();
+  check(
+    "Fallback dismissal restores its trigger",
+    fallbackPanel.hidden && document.activeElement === fallbackTrigger,
+  );
+  fallbackPanel.remove();
+  fallbackTrigger.remove();
+
+  const fixture = drawer.cloneNode(true),
+    trigger = document.createElement("button");
+  fixture.id = "motion-fixture";
+  fixture.style.cssText =
+    "position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;opacity:0;pointer-events:none";
+  fixture.querySelector(".reader-drawer-panel").style.transform = "translateX(-352px)";
+  document.body.append(fixture, trigger);
+  const preference = new EventTarget();
+  preference.matches = false;
+  const motion = new OutlineDrawer(fixture, trigger, { reducedMotion: preference });
+  motion.open();
+  preference.matches = true;
+  preference.dispatchEvent(new Event("change"));
+  check(
+    "Changing reduced motion cancels the active spring",
+    !motion.motion && motion.position === 0,
+  );
+  motion.close();
+  check("Reduced motion closes without a remaining animation", !fixture.open && !motion.motion);
+  fixture.remove();
+  trigger.remove();
+  await pause();
+  check(
+    "Text and mathematics retain their canonical order",
+    logicalTextIndex(article).text === canonical,
+  );
+  report.font = font();
+}
+run()
+  .catch((error) => report.errors.push(String(error)))
+  .finally(() => {
+    output.textContent = JSON.stringify(report);
+    document.body.dataset.readingNavigationState = report.errors.length ? "error" : "ready";
+  });

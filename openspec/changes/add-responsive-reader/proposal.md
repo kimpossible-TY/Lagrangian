@@ -9,7 +9,11 @@ Implement the reader as independent modules within this repository. Flow owns co
 Use the existing Tail Dashboard Hosting card as the configured document entry.
 Keep a direct open action and browser-local automatic/Reader/original preference.
 Keep original-page access in the Dashboard and existing addresses; the Reader
-toolbar contains only outline/highlight actions and reading controls.
+toolbar contains only an outline icon, a centered Flow identity, and a reading-settings icon.
+Move font sizing, appearance and saved highlights into reading settings. A
+two-finger pinch changes the persisted text size and recomposes on release;
+the user explicitly chooses this over browser magnification. A horizontal swipe
+from the inner left reading margin opens a reversible outline drawer.
 Only a fresh, healthy, strictly published native Reader qualifies for automatic
 touch-device selection; development and unknown runtime flags keep the original
 entry. Existing paged bookmarks and both document lifecycles remain unchanged.

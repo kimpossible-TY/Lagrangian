@@ -34,7 +34,7 @@ function validRecord(record) {
 }
 
 export class ReaderHighlights {
-  constructor(article, navigate) {
+  constructor(article, navigate, { beforeOpen = () => {}, returnFocus } = {}) {
     this.article = article;
     this.navigate = navigate;
     this.records = [];
@@ -49,7 +49,12 @@ export class ReaderHighlights {
     this.supportsPaint = typeof Highlight === "function" && Boolean(globalThis.CSS?.highlights);
     this.button.addEventListener("click", () => {
       this.updateList();
+      beforeOpen();
       this.dialog.showModal();
+    });
+    this.dialog.addEventListener("close", () => {
+      if (!this.article.contains(document.activeElement))
+        returnFocus?.focus({ preventScroll: true });
     });
     document
       .querySelector("#reader-highlights-close")
@@ -253,7 +258,7 @@ export class ReaderHighlights {
   }
 
   updateList() {
-    this.button.textContent = this.records.length ? `표시 ${this.records.length}` : "표시";
+    this.button.textContent = `저장한 표시 ${this.records.length}개`;
     this.button.setAttribute("aria-label", `저장한 표시 ${this.records.length}개 보기`);
     this.list.replaceChildren();
     document.querySelector("#reader-highlights-empty").hidden = this.records.length > 0;

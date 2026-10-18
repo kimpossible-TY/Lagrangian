@@ -36,23 +36,26 @@ Regenerate these assets from `assets/branding/tinymist-flow.png` using
 
 == Reading appearance
 
-The toolbar keeps outline/highlight actions at the start and reading controls at
-the end. The original paged view is available through the Dashboard and its
+The toolbar has two 44px icon buttons, with the Flow identity centered between
+them: outline at the start and reading settings at the end. Font controls,
+appearance previews and saved highlights live in the reading-settings panel.
+The original paged view is available through the Dashboard and its
 existing address; the Reader toolbar has no page-view link.
 
-The toolbar's 화면 모드 control offers 자동, 라이트 and 다크. 자동 follows the
+Reading settings offer 자동, 라이트 and 다크. 자동 follows the
 device's current appearance and reacts when it changes. Explicit choices persist
 in the current browser across reloads and documents on the same origin. The
 choice applies before the stylesheet paints. With unavailable browser storage,
 the control still works for the current visit.
 
-The icon-only appearance button opens an anchored panel with three reading
+The icon-only settings button opens an anchored panel with three reading
 previews. The selected preview has a checkmark and a moving selection surface;
 the panel stays open while comparing modes. Assistive names and the live
 description are retained without visible mode labels in the enhanced controls.
 Arrow keys change the radio choice, Escape returns focus to the button, and
 outside interaction dismisses the panel.
-Browsers without native popovers retain the standard select. Reduced motion
+Browsers without native popovers retain the standard select within a dismissible
+settings panel, alongside font controls and saved highlights. Reduced motion
 removes spatial transitions; reduced transparency and increased contrast use a
 solid panel. This is a locally tuned web material, not native optical rendering.
 
@@ -82,12 +85,29 @@ subsequent explicit choices persist, with 1px controls up to 30px. Existing
 quotations and saved reading positions are retained. Canvas and relationship
 requests accept the new 13px lower boundary.
 
+Two-finger pinches on the article choose a body size from 13–30px. A small
+preview shows the candidate during movement; releasing a finger commits once
+through the existing anchor-preserving reflow path. Cancellation, an extra
+finger or a selected passage prevents an accidental change. Article gestures
+own text sizing rather than browser magnification; normal vertical scrolling
+remains available. Settings buttons provide the same adjustment without a gesture.
+
+A rightward swipe starting 24–96px inside the article opens the outline drawer,
+leaving the outer browser-back edge alone. Reverse swipes close it. The drawer
+tracks horizontal intent, rejects vertical motion and interactive starts, and
+returns to its initial state on cancellation. Its committed state uses a native
+modal dialog with keyboard dismissal and focus restoration. The outline scrolls
+independently. Reduced motion removes spatial travel and cancels active motion
+when the preference changes.
+
 The viewport uses device width with initial/minimum scale 1 and
-`shrink-to-fit=no`; it does not cap user enlargement or intercept gestures.
+`shrink-to-fit=no`; it has no maximum-scale cap. The article alone intercepts
+pinch and horizontal drawer gestures for the explicit text-reflow interaction.
 Safari text-size adjustment is 100% so rotation keeps the selected text size.
 Reading anchors compare the root layout width (`clientWidth`) rather than
 `innerWidth`, which WebKit can change during a pinch without a new text layout.
-No page transform, CSS zoom, or root overflow clipping is used to obtain a fit.
+No page transform or CSS zoom is used to obtain a fit. A committed modal outline
+temporarily locks background scrolling.
 Before a debounce or compiler busy check, decoration and relationship schedulers
 remove obsolete SVG paint, including while their mathematical terms are pending.
 The previous wider drawing cannot enlarge the page while its replacement loads.
