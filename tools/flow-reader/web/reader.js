@@ -6,8 +6,10 @@ import { logicalTextIndex } from "./math-identity.js";
 import { ResponsiveMath } from "./math-renderer.js";
 import { prepareResponsiveTables } from "./tables.js";
 import { languageOf, setLanguage, uiLanguage } from "./language.js";
+import { DrawingTheme } from "./drawing-theme.js";
 
 const article = document.querySelector("#reader-document");
+new DrawingTheme(article);
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");

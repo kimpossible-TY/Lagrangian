@@ -21,6 +21,26 @@ The completed receipts and exact coverage boundaries are in
 `openspec/changes/add-responsive-reader/verification.md`. VoiceOver speech is
 explicitly deferred by the user. Offline reload is not implemented.
 
+== Reading appearance
+
+The toolbar's 화면 테마 control offers 자동, 라이트 and 다크. 자동 follows the
+device's current appearance and reacts when it changes. Explicit choices persist
+in the current browser across reloads and documents on the same origin. The
+choice applies before the stylesheet paints. With unavailable browser storage,
+the control still works for the current visit.
+
+Light appearance pairs warm paper with charcoal text and a muted amber highlight.
+Dark appearance uses charcoal paper, soft light ink and a deep gold highlight.
+Authored highlights and browser-saved quotations share the matching palette;
+native text selection uses a separate sage tone. CeTZ and mannot SVGs and their
+frames are transparent; native label backplates match the enclosing paper or
+callout wash. Neutral ink follows the theme, while colored labels, marked terms
+and vector paint retain their color family at readable contrast. Original paint
+attributes, geometry, SVG masks/gradients and raster pixels remain intact.
+The source surface plots already have transparent raster backgrounds.
+Appearance changes recolor the current content without document
+compilation or changing saved quotations and reading positions.
+
 == Required reading behavior
 
 All essential text, equations, figures, and annotations must be readable in the
@@ -107,10 +127,10 @@ width already budgeted for mathematical composition.
 
 Label text keeps the chosen reading size and deliberately larger source sizes.
 The HTML adapter explicitly retains source size, weight and color, and converts
-stack/fixed-box label containers to native flow. The browser lowers the lightness
-of low-contrast label ink while preserving its RGB channel proportions; original
-colors remain in the exported source and the geometry palette is unchanged.
-Native labels have a paper background. The current actual source contains
+stack/fixed-box label containers to native flow. The browser adapts low-contrast
+label ink to its actual light or dark background while retaining its color family;
+original colors remain in the exported source and vector geometry is unchanged.
+Native label backplates match the enclosing surface. The actual source contains
 gray, mint and orange label colors with less than 3:1 contrast on that background,
 so font size alone is not a sufficient readability check.
 Text show rules are suppressed inside an exported mathematical equation. Its
@@ -408,9 +428,10 @@ range's empty font ascent/descent would falsely cover a fixed endpoint. Assistiv
 and staging copies are excluded; prose retains its measured range bounds and
 every mathematical surface retains its marked-term identity.
 
-In dark appearance, a relationship frame retains its original light drawing
-paper with a complete local light palette. Equation numbers and links inherit
-the matching readable ink for that light background.
+Relationship frames and SVG backgrounds remain transparent in both appearances.
+Equation numbers and links inherit the reading palette. Original vector paint
+and marked mathematical term colors adapt to that surface; filled decoration
+underlays retain readable contrast against their own marked term's ink.
 
 The server caches each relationship by its accepted revision and complete
 geometry independently of request batching. A mixed batch compiles only missing

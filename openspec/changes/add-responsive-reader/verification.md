@@ -1466,3 +1466,67 @@ cleanup is not asserted. The delivered Reader tab remains available.
 - Flow app CI passed at [run 39086388869](https://github.com/kimpossible-TY/tinymist-flow/actions/runs/39086388869). The general Rust/editor CI run 39086388924 was still in progress at publication; the prior Flow release process gates publication on the Flow app workflow.
 
 The responsive Reader service is managed separately from the macOS app ZIP. Its implementation ships in the repository under `tools/flow-reader` and its deployed endpoint remains a distinct Tail Hosting service.
+
+## Reader appearance refinement — 2026-10-18
+
+The `fix/reader-colors` branch adds Automatic / Light / Dark, applies the saved
+origin-local choice before CSS, follows live device changes in Automatic, and
+keeps explicit choices usable without storage. Four Node tests cover initial
+application, device overrides, reloads, invalid/blocked storage, cross-tab changes
+and resets. They pass. The serving suite passes three checks, including delivery
+of `theme.js`; four compiler integration tests skip without `FLOW_READER_PACKAGES`.
+Prettier, strict OpenSpec validation and patch whitespace checks pass.
+
+An isolated loopback preview uses the working frontend with the currently
+accepted PDE output from the managed Reader. Its 281 unstyled HTML marks formerly
+used browser-default yellow. Authored and saved marks now share muted amber on
+warm paper and deep gold on charcoal. Browser measurements at 320, 390, 430 and
+768 CSS pixels pass in both appearances: controls fit on one line in a 56.19px
+toolbar, and the observed page has no horizontal overflow. Reload retains Dark.
+Native canvases and relationship frames retain light paper, dark ink and local
+light highlight tokens. No browser warnings/errors were observed.
+
+Measured text/background contrast is 14.01:1 (light) and 13.42:1 (dark); highlight
+contrast is 11.63:1 and 7.39:1. Secondary text and links also exceed 4.5:1 in both.
+Measurements and 390px screenshots are under `dist/reader-color-checks/`.
+These are desktop browser checks, not a new physical iPhone/VoiceOver acceptance.
+The installed Reader has not been changed by this preview. Generated-doc checking
+could not run because `typlite` is unavailable; the edited developer Typst source
+is not one of the generator's three Markdown mappings.
+
+## Transparent CeTZ and mannot appearance — 2026-10-18
+
+The user's follow-up supersedes the fixed light drawing palette described in the
+previous checkpoint. The white blocks came from CSS on SVG roots, native canvases,
+label backplates and relationship frames. Those drawing surfaces now blend into
+their actual enclosing paper or callout wash. Original neutral paint follows the
+reading ink; solid colored vectors, native labels and marked MathML/CHTML terms
+receive contrast adjustments from retained source colors. Decoration underlays
+use their own marked term's ink when checking readability. No vector coordinates,
+SVG coverage masks/gradient resources, reference targets or raster payloads change.
+
+The shared color, native label, decoration and theme Node suites pass all 22 tests.
+The serving suite passes three checks including both appearance modules; four
+compiler-dependent checks remain skipped without `FLOW_READER_PACKAGES`.
+`tests/drawing-theme.html`, served directly from `tools/flow-reader`, passes five
+appearance/late-paint phases with 13–16 checks each and zero failures. Coverage
+includes callout backplates, semantic colored mathematics, vector/text contrast,
+colored symbol use, unchanged masks/gradients/geometry, repeated theme restoration
+and an adapted SVG clone arriving on a different background. The observer adapts
+new paint independently of compiler response order. Source-color metadata survives
+clones without accumulating presentation changes.
+
+The working Reader was checked against actual PDE CeTZ and Jacobi/mannot content
+at 390px in both appearances. Canvas/relationship/SVG backgrounds are transparent,
+native label paper matches the selected reading background, and observed layout
+and scroll widths agree at 375px. The dark marked terms retain purple, red and
+blue with readable lighter ink. No browser warnings/errors were observed.
+Screenshots and reports are under `dist/reader-color-checks/`, including
+`cetz-dark.jpg`, `mannot-dark.jpg`, `mannot-light.jpg`, `drawing-fixture.json` and
+`live-drawings.json`. All four original surface-plot raster layers have transparent
+background pixels; their sizes, alpha extrema and payload hashes are recorded in
+`source-rasters.json`. Two separately authored opaque PNG illustrations retain
+their original pixels and intrinsic backgrounds; they are not CeTZ/mannot exports.
+Prettier, strict OpenSpec validation and patch whitespace checks pass. The existing
+`typlite` limitation remains. This is a local preview, without a new installed
+release or physical iPhone/VoiceOver acceptance.

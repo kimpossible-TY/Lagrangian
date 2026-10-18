@@ -56,6 +56,11 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Publish and verify the companion status/Dashboard integration against the actual managed Reader and original service.
 - [x] Promote automatic mobile reading after the remaining fidelity and device acceptance gates.
 - [x] Verify existing paged service and reader delivery, document operation and rollback.
+- [x] Add persistent Automatic / Light / Dark choices before first paint, with live device changes and storage-failure recovery.
+- [x] Coordinate reading/control palettes and authored/saved highlight colors while retaining local drawing contrast.
+- [x] Verify appearance persistence, contrast and compact controls against actual PDE content at phone and tablet widths.
+- [x] Remove fixed light drawing backgrounds and adapt CeTZ/mannot paint, label backplates and marked term ink to the actual surrounding surface.
+- [x] Verify drawing transparency, contrast, source geometry/resources and repeat/late/cloned paint through theme changes and actual PDE reading.
 
 Historical implementation checkpoint: the complete PDE document compiles to HTML with no
 missing anchor targets, duplicate SVG IDs, unresolved annotation targets, or
