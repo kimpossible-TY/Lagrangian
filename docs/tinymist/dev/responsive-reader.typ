@@ -6,12 +6,14 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `cef42231` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `74d52424` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
 original PDF service and its address remain available. All 24 public Reader assets
 match the committed bytes, and HTTPS document delivery matches the managed HTML.
+The normal accepted-document caption below the toolbar is hidden without spacing;
+loading, compilation and error diagnostics retain their status region.
 This release reduces the toolbar to outline/settings icons, moves text size,
 appearance and saved highlights into settings, and adds article pinch-to-text
 reflow and an outline swipe drawer. Actual HTTPS checks cover 320/390/768px
