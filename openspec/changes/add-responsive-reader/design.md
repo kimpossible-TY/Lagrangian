@@ -33,6 +33,17 @@ highlights live in reading settings. Keep semantic button/radio alternatives to
 all gestures, and keep names available to assistive input. The outline is a native
 modal dialog with an independently scrolling nav, close control, outside dismissal,
 Escape and native focus return; navigating a heading focuses the article.
+Present the outline as a floating capsule below the toolbar, inset at least 16px
+at the sides, with a 32px radius and a content-sized scrolling
+list bounded to 60% of the viewport height and 34rem.
+Its shared surface uses a restrained frosted fill, soft edge and shadow;
+reduce the scrim so the reading context remains visible. Solid contrast and
+transparency fallbacks retain legibility. Hierarchy uses indentation and type
+weight, with 44px link targets and softly rounded interaction fills. Opening
+marks the nearest reading heading with an accessible location pill, scrolling
+only the outline to reveal it. Dismissal travel includes the leading gap and
+shadow, preserving the existing spring,
+swipe cancellation, Escape and focus behavior.
 Hide the normal accepted-document status line and its spacing. Loading, compiling,
 connection and publication diagnostics retain their existing status region.
 

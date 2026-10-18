@@ -16,7 +16,9 @@ new DrawingTheme(article);
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
-const drawer = new OutlineDrawer(document.querySelector("#reader-navigation"), menu);
+const drawer = new OutlineDrawer(document.querySelector("#reader-navigation"), menu, {
+  beforeOpen: updateOutlineLocation,
+});
 const settings = readingSettings(
   document.querySelector("#reader-appearance-panel"),
   document.querySelector("#reader-appearance-open"),
@@ -430,6 +432,30 @@ function indexOutline(nextManifest) {
     link.style.setProperty("--outline-depth", node.level - rootLevel);
     setLanguage(link, nextManifest.language ?? "");
     outline.append(link);
+  }
+}
+
+function updateOutlineLocation() {
+  let current = null;
+  let selected = null;
+  for (const heading of article.querySelectorAll(headingSelector)) {
+    const rect = heading.getBoundingClientRect();
+    if (!heading.id || !rect.height) continue;
+    current ??= heading.id;
+    if (rect.top <= 120) current = heading.id;
+    else break;
+  }
+  for (const link of outline.querySelectorAll("a")) {
+    if (decodeURIComponent(link.hash.slice(1)) === current) {
+      link.setAttribute("aria-current", "location");
+      selected = link;
+    } else link.removeAttribute("aria-current");
+  }
+  if (selected) {
+    const list = outline.getBoundingClientRect();
+    const item = selected.getBoundingClientRect();
+    if (item.top < list.top) outline.scrollTop += item.top - list.top;
+    else if (item.bottom > list.bottom) outline.scrollTop += item.bottom - list.bottom;
   }
 }
 

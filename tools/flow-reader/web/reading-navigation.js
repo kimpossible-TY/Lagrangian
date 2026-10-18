@@ -62,15 +62,16 @@ export class OutlineDrawer {
   constructor(
     dialog,
     trigger,
-    { reducedMotion = matchMedia("(prefers-reduced-motion: reduce)") } = {},
+    { reducedMotion = matchMedia("(prefers-reduced-motion: reduce)"), beforeOpen = () => {} } = {},
   ) {
     this.dialog = dialog;
     this.trigger = trigger;
     this.panel = dialog.querySelector(".reader-drawer-panel");
     this.scrim = dialog.querySelector(".reader-drawer-scrim");
     this.reduced = reducedMotion;
-    this.width = Math.min(352, document.documentElement.clientWidth - 52);
-    this.position = -this.width;
+    this.beforeOpen = beforeOpen;
+    this.travel = Math.min(352, document.documentElement.clientWidth - 32) + 40;
+    this.position = -this.travel;
     this.target = false;
     this.sequence = 0;
     trigger.addEventListener("click", () => (this.target ? this.close() : this.open()));
@@ -87,20 +88,25 @@ export class OutlineDrawer {
     });
     this.reduced.addEventListener("change", () => {
       this.stop();
-      this.paint(this.target ? 0 : -this.width);
+      this.paint(this.target ? 0 : -this.travel);
     });
     window.addEventListener("resize", () => {
       if (!dialog.open) return;
       this.stop();
-      this.width = this.panel.getBoundingClientRect().width;
-      this.paint(this.target ? 0 : -this.width);
+      this.travel = this.measureTravel();
+      this.paint(this.target ? 0 : -this.travel);
     });
   }
 
+  measureTravel() {
+    // Clear the floating inset and shadow as well as the capsule itself.
+    return this.panel.offsetWidth + Math.max(0, this.panel.offsetLeft) + 24;
+  }
+
   paint(position) {
-    this.position = clamp(position, -this.width, 0);
+    this.position = clamp(position, -this.travel, 0);
     this.panel.style.transform = `translateX(${this.position}px)`;
-    this.scrim.style.opacity = clamp(1 + this.position / this.width, 0, 1);
+    this.scrim.style.opacity = clamp(1 + this.position / this.travel, 0, 1);
   }
 
   stop() {
@@ -130,10 +136,11 @@ export class OutlineDrawer {
       else this.dialog.show();
     }
     this.dialog.toggleAttribute("data-modal", modal);
-    const oldWidth = this.width;
-    this.width = this.panel.getBoundingClientRect().width;
-    if (wasClosed && !this.motion && this.position <= -oldWidth) this.paint(-this.width);
+    const oldTravel = this.travel;
+    this.travel = this.measureTravel();
+    if (wasClosed && !this.motion && this.position <= -oldTravel) this.paint(-this.travel);
     this.trigger.setAttribute("aria-expanded", String(modal));
+    if (modal) this.beforeOpen();
   }
 
   settle(open, velocity) {
@@ -145,7 +152,7 @@ export class OutlineDrawer {
       this.dialog.removeAttribute("data-modal");
       this.trigger.setAttribute("aria-expanded", "false");
     }
-    const to = open ? 0 : -this.width;
+    const to = open ? 0 : -this.travel;
     if (this.reduced.matches || !this.panel.animate) {
       this.paint(to);
       return;
@@ -159,9 +166,9 @@ export class OutlineDrawer {
       const position =
         frame === 20
           ? to
-          : clamp(springState(from, to, speed, offset * 0.32).position, -this.width, 0);
+          : clamp(springState(from, to, speed, offset * 0.32).position, -this.travel, 0);
       frames.push({ transform: `translateX(${position}px)`, offset });
-      scrim.push({ opacity: clamp(1 + position / this.width, 0, 1), offset });
+      scrim.push({ opacity: clamp(1 + position / this.travel, 0, 1), offset });
     }
     const sequence = this.sequence;
     this.motion = { from, to, velocity: speed };
@@ -188,7 +195,7 @@ export class OutlineDrawer {
     this.stop();
     if (!this.dialog.open) this.prepare(false);
     this.grab = this.position;
-    return { width: this.width, offset: this.grab };
+    return { width: this.travel, offset: this.grab };
   }
 
   drag(delta) {
@@ -356,7 +363,7 @@ export class ReaderGestures {
         ...start,
         time: event.timeStamp,
         open,
-        width: this.drawer.width,
+        width: this.drawer.travel,
       }),
     };
   }
