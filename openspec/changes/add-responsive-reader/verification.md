@@ -2070,3 +2070,13 @@ Inspected phone screenshots on light/dark and enlarged text. Prettier, JavaScrip
 syntax, strict OpenSpec validation, diff checks and the canonical Typst guide
 compile pass. Evidence is in `dist/reader-selection-capsule-checks/`. Physical
 iPhone callouts and hardware touch were not repeated in this pass.
+
+Installed clean runtime `fc45c43632e05ca62d112bbdd168463dd81060d2`.
+All 401 immutable files and 50 loopback/HTTPS asset checks match, with unchanged
+accepted-document/configuration bytes and original PDF service. Actual HTTPS
+WebKit confirms the 282×72px selection capsule at 390px, both review capsules,
+enabled source controls, stale-revision rejection, strike persistence after reload
+and revisiting its section, undo and clearing, with no browser errors. Reload
+continues to follow the last accepted edit, so review checks explicitly revisit
+the marked section. Inspected installed light/dark PDE screenshots and deployment
+receipts are in `dist/reader-selection-capsule-checks/`.
