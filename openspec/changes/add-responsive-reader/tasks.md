@@ -110,4 +110,4 @@ other services, and the mobile default are preserved.
 
 - [x] Resolve the current outline heading across heading-free transport sections and reveal/focus it whenever the drawer opens, preserving article position.
 - [x] Verify long-outline reopening, nested headings, cross-section reading, keyboard navigation and reduced motion in real browsers.
-- [ ] Install the verified Reader from a clean commit and verify managed document and asset delivery.
+- [x] Install the verified Reader from a clean commit and verify managed document and asset delivery.
