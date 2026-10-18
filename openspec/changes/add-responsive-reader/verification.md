@@ -1430,3 +1430,29 @@ the regression that distinguishes these three states. The actual large-font
 fixture advances past relationship 9 with all eight real decoration fragments
 painted and its mathematical/vector checks passing. This correction does not
 change source content, coordinates, font size, or drawing callbacks.
+
+The completed 320px/13px+30px relationship result now contains all 30 exact
+width/font cases, 241 checks and 36 painted decoration occurrences. The retained
+prefix and corrected seven-case large-font range are disjoint and use identical
+canonical HTML; interrupted case 9 is replaced, not counted as a pass.
+`graphics-pde-320-13-30-paint.json` records the complete joined result. An isolated
+repeat of relationship 9 is ready with the same two empty carriers present, all
+eight real fragments painted, and no loading text (`empty-mark-notice-after.json`).
+
+Clean runtime `92fa4a5b274a54e3ec8a2277c935d70bcb6ec2fc` is installed in
+strict/native mode, Reader PID 35741. All 36 PDF samples in this additional
+Reader-only switch are HTTP 200; original PID 39357 remains unchanged. The live
+source watcher subsequently accepts further shared-package edits while preserving
+the identical audited HTML. The final recorded accepted revision is
+`11646cb232bb8c856eda9c211bb7616a5423f10c86d8c143190d6888b0daee4b`,
+with exit 0 and content gate true. A later saved edit may normally advance it.
+All 17 public assets match this runtime. `final-delivery.json` and
+`final-mobile-entry.json` confirm both delivery and mobile automatic selection.
+
+The actual public Reader at 390px shows 13px text and 17 visible ready mathematical
+views at 13px; layout and scroll widths are both 375px. Article language is English,
+UI language remains Korean, and the saved-document status is normal.
+`managed-final-observation.json` and `managed-final-13px-390.png` record that view.
+The temporary viewport override is reset. Disposable fixture servers are stopped;
+some older detached test tabs cannot be closed through the browser APIs and their
+cleanup is not asserted. The delivered Reader tab remains available.
