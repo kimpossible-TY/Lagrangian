@@ -20,6 +20,21 @@ export function springState(from, to, velocity, seconds) {
   };
 }
 
+// A small anticipation before outside-tap dismissal; gestures keep their momentum.
+export function drawerMotionState(motion, seconds) {
+  const { from, to, velocity, playful } = motion;
+  if (!playful) return springState(from, to, velocity, seconds);
+  const anticipation = 0.08;
+  if (seconds < anticipation) {
+    const phase = (Math.PI * seconds) / anticipation;
+    return {
+      position: from + 4 * (1 - Math.cos(phase)),
+      velocity: ((4 * Math.PI) / anticipation) * Math.sin(phase),
+    };
+  }
+  return springState(from + 8, to, 0, seconds - anticipation);
+}
+
 export class SwipeTracker {
   constructor({ x, y, time, open, width, offset = open ? 0 : -width }) {
     Object.assign(this, { x, y, open, width, offset });
@@ -81,7 +96,7 @@ export class OutlineDrawer {
       this.close();
     });
     dialog.addEventListener("click", (event) => {
-      if (event.target === dialog) this.close();
+      if (event.target === dialog) this.settle(false, undefined, true);
     });
     dialog.addEventListener("close", () => {
       if (!dialog.open) trigger.setAttribute("aria-expanded", "false");
@@ -104,7 +119,7 @@ export class OutlineDrawer {
   }
 
   paint(position) {
-    this.position = clamp(position, -this.travel, 0);
+    this.position = clamp(position, -this.travel, 8);
     this.panel.style.transform = `translateX(${this.position}px)`;
     this.scrim.style.opacity = clamp(1 + this.position / this.travel, 0, 1);
   }
@@ -112,10 +127,8 @@ export class OutlineDrawer {
   stop() {
     let velocity = 0;
     if (this.motion) {
-      const state = springState(
-        this.motion.from,
-        this.motion.to,
-        this.motion.velocity,
+      const state = drawerMotionState(
+        this.motion,
         Math.max(0, Number(this.animation.currentTime) || 0) / 1000,
       );
       this.paint(state.position);
@@ -149,7 +162,7 @@ export class OutlineDrawer {
     if (modal) this.beforeOpen();
   }
 
-  settle(open, velocity) {
+  settle(open, velocity, playful = false) {
     const inherited = this.stop();
     this.target = open;
     if (open) this.prepare(true);
@@ -165,20 +178,24 @@ export class OutlineDrawer {
     }
     const from = this.position;
     const speed = velocity ?? inherited;
+    // Anticipate only from rest; interrupting an entry preserves its velocity.
+    playful = playful && Math.abs(from) < 0.5 && Math.abs(speed) < 10;
+    const duration = playful ? 400 : 320;
+    const motion = { from, to, velocity: speed, playful };
     const frames = [],
       scrim = [];
-    for (let frame = 0; frame <= 20; frame++) {
-      const offset = frame / 20;
+    for (let frame = 0; frame <= 40; frame++) {
+      const offset = frame / 40;
       const position =
-        frame === 20
+        frame === 40
           ? to
-          : clamp(springState(from, to, speed, offset * 0.32).position, -this.travel, 0);
+          : clamp(drawerMotionState(motion, (offset * duration) / 1000).position, -this.travel, 8);
       frames.push({ transform: `translateX(${position}px)`, offset });
       scrim.push({ opacity: clamp(1 + position / this.travel, 0, 1), offset });
     }
     const sequence = this.sequence;
-    this.motion = { from, to, velocity: speed };
-    const timing = { duration: 320, easing: "linear", fill: "forwards" };
+    this.motion = motion;
+    const timing = { duration, easing: "linear", fill: "forwards" };
     this.animation = this.panel.animate(frames, timing);
     this.scrimAnimation = this.scrim.animate(scrim, timing);
     this.animation.onfinish = () => {

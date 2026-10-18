@@ -539,8 +539,8 @@ button:disabled {
   color: var(--ink);
   overflow: hidden;
   transition:
-    display 320ms allow-discrete,
-    overlay 320ms allow-discrete;
+    display 400ms allow-discrete,
+    overlay 400ms allow-discrete;
 }
 #reader-navigation:not([open]) {
   pointer-events: none;

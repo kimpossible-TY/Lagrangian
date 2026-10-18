@@ -382,3 +382,9 @@ Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expos
 - **AND** serving the last accepted revision after a failed save is reported as a compile failure
 - **AND** the time of observing the running Reader is distinct from the time of its last compilation
 - **AND** the report preserves the actual development/native-figure settings, service kind and entrypoint for view selection
+
+
+#### Scenario: Playful outside dismissal
+- **WHEN** the resting outline capsule is dismissed by tapping outside
+- **THEN** it briefly anticipates before sliding left, while focus and dismissal commit immediately
+- **AND** reopening continues from its current motion and reduced motion omits the flourish

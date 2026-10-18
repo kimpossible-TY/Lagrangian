@@ -639,3 +639,6 @@ validated geometry. A differently grouped request reuses unchanged components
 and compiles only the missing layouts. A failed source save retains already
 rendered accepted output; uncached geometry against changed sources is rejected.
 Clear both cache levels when a new revision is accepted.
+
+
+Outside-tap dismissal from rest adds an 80ms, 8px anticipation before the 320ms spring exit. Interruptions carry current position and velocity; moving entries and swipes keep the direct spring. Native dismissal and focus return remain immediate; reduced motion skips the effect.
