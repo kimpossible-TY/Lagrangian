@@ -6,17 +6,18 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `e9e7c9ad` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `cef42231` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
-original PDF service and its address remain available. All 23 public Reader assets
+original PDF service and its address remain available. All 24 public Reader assets
 match the committed bytes, and HTTPS document delivery matches the managed HTML.
-This release includes the icon-only appearance preview panel and centered equation numbers.
-Its compact appearance button keeps the toolbar on one line at 320px even with
-saved highlights. Actual HTTPS checks cover all three choices, reload persistence,
-keyboard dismissal and retained saved highlights. Physical iPhone acceptance of
-the refreshed control remains outstanding.
+This release reduces the toolbar to outline/settings icons, moves text size,
+appearance and saved highlights into settings, and adds article pinch-to-text
+reflow and an outline swipe drawer. Actual HTTPS checks cover 320/390/768px
+layouts, font buttons, outline navigation and keyboard/focus behavior. Synthetic
+touch checks cover cancellation, scroll/selection guards and reduced motion.
+Physical iPhone acceptance of the new gestures remains outstanding.
 
 The default is 13 CSS pixels. Current acceptance covers every body passage at
 320, 390, 430 and 768px, large body text at 320/430px, all 66 native figures and

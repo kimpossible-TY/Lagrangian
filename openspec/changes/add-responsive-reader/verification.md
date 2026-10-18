@@ -1762,3 +1762,40 @@ The 390px installed screenshot was inspected. Receipts and the image are in
 `dist/reader-remove-page-link-install-20261018/`. Accepted document HTML and
 configuration bytes remain unchanged; the original PDF retains PID 65035 and
 HTTP 200. Physical device and speech validation were not repeated.
+
+
+## Minimal navigation and reading gestures — 2026-10-18
+
+Installed clean runtime `cef42231292938223a58b6e405508daba43c23c6`. The toolbar
+contains two 44px icon buttons and centered Flow branding. Reading settings
+contain text-size controls, the existing unlabeled appearance previews and saved
+highlights. The outline is an independently scrolling native modal drawer.
+Article pinch gestures preview a 13–30px text size and commit reflow once on
+release; inner-left rightward swipes open the outline, and reverse swipes close it.
+
+All 68 JavaScript tests, seven compiler-enabled serving tests, the clean-install
+test, source formatting/syntax checks and strict OpenSpec validation pass. The
+real Reader fixture passes 26 synthetic-touch/interaction checks at each of
+320px, 390px and 768px. Coverage includes pinch preview/commit/reverse, cancellation,
+third-finger exclusion, selection and vertical-scroll guards, browser-edge and
+link exclusion, drawer modality and cancellation, rapid reopening, settings/font
+and saved-highlight alternatives, focus return, unsupported-popover fallback and
+live reduced-motion cancellation. Canonical text/math order is retained.
+
+Actual registered HTTPS checks in Chrome verify two 44px toolbar actions, a
+56.1875px toolbar, no horizontal overflow and contained settings panels at all
+three widths. Font buttons reflow 13px to 14px and back; outline navigation closes
+the drawer and focuses the article. Escape returns focus to each trigger. The
+original Automatic/13px preferences are restored and no browser errors occur.
+The inspected installed/settings/outline screenshots and measurements are in
+`dist/reader-navigation-install-20261018-retry/`; synthetic reports are under
+`dist/reader-navigation-checks/`. Synthetic events and desktop viewport checks do
+not establish physical iPhone touch arbitration or perceived gesture quality.
+Physical-device gesture and screen-reader speech validation were not performed.
+
+All 388 immutable release files pass integrity verification. All 24 public assets
+match the release over loopback and HTTPS (48 checks). Accepted document HTML
+retains SHA-256 `876b8a52a28cac7d3f5123be7b17eaf94f6eecb638f767909d5e56a623eb74a3`,
+configuration bytes are unchanged, and strict/native delivery remains enabled.
+The managed Reader runs as PID 65514; the original PDF retains PID 65035, HTTP 200
+and its prior response hash. Rollback launcher/configuration backups are retained.
