@@ -355,6 +355,9 @@ def handler_for(state):
                     payload = state.compressed if compressed else state.document
                     return self.respond(payload, "text/html; charset=utf-8", compressed=compressed)
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
+                      "/favicon.ico": ("favicon.ico", "image/vnd.microsoft.icon"),
+                      "/favicon.png": ("favicon.png", "image/png"),
+                      "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
                       "/change-location.js": ("change-location.js", "text/javascript; charset=utf-8"),
                       "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
