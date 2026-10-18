@@ -139,10 +139,6 @@
           <p id="reader-appearance-status" class="reader-visually-hidden" role="status">
             기기 설정에 맞춰 자동으로 전환합니다.
           </p>
-          <p class="reader-gesture-hint">
-            본문에서 두 손가락으로 글자 크기를 조절하세요.<br />왼쪽 안쪽에서 오른쪽으로 쓸면 목차가
-            열립니다.
-          </p>
           <button id="reader-highlights-open" type="button" aria-haspopup="dialog" disabled>
             저장한 표시
           </button>
@@ -176,7 +172,6 @@
           </button>
         </div>
         <nav id="reader-outline" aria-label="문서 목차"></nav>
-        <p class="reader-drawer-hint">왼쪽으로 쓸어 닫기</p>
       </div>
     </dialog>
     <main id="reader-document" tabindex="-1" aria-busy="true"></main>
@@ -194,8 +189,7 @@
     <dialog id="reader-highlights" aria-labelledby="reader-highlights-title">
       <button id="reader-highlights-close" autofocus>닫기</button>
       <h2 id="reader-highlights-title">저장한 표시</h2>
-      <p>이 기기의 현재 브라우저에 저장됩니다. 브라우저 데이터를 지우면 함께 삭제됩니다.</p>
-      <p id="reader-highlights-empty">본문의 구절을 선택한 뒤 ‘표시 저장’을 눌러 주세요.</p>
+      <p id="reader-highlights-empty">저장한 표시가 없습니다.</p>
       <ul id="reader-highlights-list"></ul>
     </dialog>
     <div id="reader-document-styles"></div>
