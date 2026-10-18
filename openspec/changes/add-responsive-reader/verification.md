@@ -1321,3 +1321,54 @@ and 13px/30px. Their pending results and mobile device verification still gate
 automatic-entry promotion at this checkpoint. Evidence is under
 `dist/reader-rollout-checks`, with raw durable reports in
 `runtime-durable/browser-audits` and `runtime-decoration-copy/browser-audits`.
+
+### Completed reading and component coverage
+
+The physical iPhone response after installing `a4dc981d` is
+“표시와 참조 이동 모두 정상”: ordinary text, mathematics and figures can be
+read without zoom or horizontal movement, and reference navigation/back work.
+`iphone-reading-confirmation.json` records that scope. Together with the earlier
+pinch confirmation this completes the requested physical-device check; no browser
+version or spoken VoiceOver result is inferred.
+
+The accepted HTML remains 8,756,496 bytes with SHA-256
+`3577cab937601fc63eca8381a85196cc132d750343987784380f0eed9fc533e5`.
+During the audit an external edit changes the shared `text-utils/0.1.2/lib.typ`.
+The production watcher accepts it automatically, while uncached requests against
+the older non-watching fixture correctly return HTTP 409. The edited package is
+preserved. Nine required external package versions (51 files) are copied into an
+owned fixture, with before/after source hashes. Its newly accepted revision is
+`e047bc8d468b51fe7a05e13e17a4d489eea8f9a8e11bd871e657b67b8c743405`.
+Its normalized HTML is byte-identical, so the mathematical/figure HTML evidence
+can be joined across the recorded dependency snapshots. Dynamic program delivery
+is rerun on the new frozen inputs: all 171 IDs at 13px and 30px return both
+requested fragments (342 callback cases, 684 fragments). This is compiler delivery
+coverage, not a substitute for real-page paint or collision checks. The earlier
+interrupted callback receipt remains explicitly incomplete. Production continues
+to watch its configured shared packages; only the disposable audit is frozen.
+
+| Component | Viewports | Font sizes | Complete scope |
+| --- | --- | --- | --- |
+| Body mathematics | 320, 390, 430, 768px | 13px | All 56 sections and 7,049 occurrences at each width |
+| Body mathematics stress | 320, 430px | 30px | All 56 sections and 7,049 occurrences at each width |
+| Native figures | 320, 390, 430, 768px | 13px, 30px | All 66 figures, 728 checks per width/font set |
+| Native tables | 320, 390, 430, 768px | 13px, 30px | All six tables and 94 cells, 629 checks per width |
+
+`body-validation-summary.json`, `native-validation-summary.json` and
+`tables-validation-summary.json` enumerate the receipts. Complete current
+390/768px body sweeps at 30px are not claimed. The 320px/13px body receipt is the
+earlier successful identical-HTML baseline; current corrections retain its
+already-fitting publication path. The stronger 430px run passes 42,631 checks
+across both fonts; the completed 390px/13px, 768px/13px and 320px/30px runs each
+pass 21,316 checks, including an explicit per-section viewport check.
+
+A browser-control reset removes its viewport override during three figure cases.
+Their recorded page widths expose the problem: canvas 6 at 390px/30px, canvas 46
+at 768px/30px and canvas 66 at 768px/13px. These cases are excluded and rerun at
+the requested dimensions. Combined receipts retain interrupted reports and every
+replacement's provenance, and verify all 66 exact IDs and valid page widths.
+They do not count the out-of-viewport results as passes. Figure/table harnesses
+now reject a changed viewport during a case. Tables are repeated in one active
+tab with that guard and per-case viewport metadata. All eight figure sets and
+all four guarded table sets pass. Incomplete earlier paint sweeps remain partial;
+they are not relabelled as complete runs.

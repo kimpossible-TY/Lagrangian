@@ -92,6 +92,8 @@ try {
     for (const before of original.slice(start)) {
       const id = before.dataset.flowCanvas;
       if (query.get("only") && query.get("only") !== id) continue;
+      if (query.has("width") && innerWidth !== Number(query.get("width")))
+        throw new Error(`Requested viewport changed before ${id}`);
       if (query.get("package") && query.get("package") !== before.dataset.flowCanvasPackage)
         continue;
       report.active = { font, id };
@@ -271,6 +273,8 @@ try {
         `${font}px ${id} bounds the whole page`,
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
       );
+      if (query.has("width") && innerWidth !== Number(query.get("width")))
+        throw new Error(`Requested viewport changed while composing ${id}`);
       report.measurements.push({
         font,
         id,

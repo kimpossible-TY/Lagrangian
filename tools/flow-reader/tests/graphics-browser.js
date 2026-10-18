@@ -196,6 +196,19 @@ try {
       );
       report.active.phase = "geometry";
       publish();
+      const nearbyDecorations = () =>
+        [...scene.querySelectorAll("[data-flow-decoration]")].filter((node) => {
+          if (node.closest("mjx-assistive-mml,.flow-math-stage")) return false;
+          const rect = node.getBoundingClientRect();
+          return rect.bottom > -1000 && rect.top < innerHeight + 1000;
+        });
+      await until(
+        () =>
+          nearbyDecorations().every(
+            (node) => node.dataset.decorationState === "ready" && node.dataset.flowAnchor,
+          ),
+        `${target.id} original decoration paint`,
+      );
       await until(
         () => ["ready", "collision", "overflow"].includes(note().dataset.graphicState),
         `${target.id} automatic geometry`,
@@ -204,6 +217,12 @@ try {
       const collisions = JSON.parse(note().dataset.graphicCollisions || "{}");
       const unrouted = JSON.parse(note().dataset.graphicUnrouted || "[]");
       const prefix = `${font}px ${target.id}`;
+      check(
+        `${prefix} publishes every nearby original decoration`,
+        nearbyDecorations().every(
+          (node) => node.dataset.decorationState === "ready" && node.dataset.flowAnchor,
+        ),
+      );
       check(
         `${prefix} composes its complete source mathematics at the reading width`,
         [...scene.querySelectorAll(".flow-math-view")].every(
@@ -259,6 +278,7 @@ try {
       );
       report.measurements.push({
         font,
+        paintedDecorations: nearbyDecorations().length,
         id: target.id,
         targets: target.tags.length,
         state: note().dataset.graphicState,
