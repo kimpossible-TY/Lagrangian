@@ -62,13 +62,18 @@ fingers cannot begin another gesture until all lift. Keep normal one-finger
 vertical scrolling; use article-scoped `touch-action: pan-y` and cancel only owned
 touch sequences and WebKit's native gesture events. No viewport maximum-scale cap.
 
-An opening swipe starts 24–96px from the left viewport edge, away from interactive
-targets and existing selections. Resolve horizontal intent after 10px and reject
-vertical/diagonal scrolls. Preview the drawer nonmodally under the finger, then
-promote it to a modal dialog only if distance/recent release velocity commits.
+An opening swipe can start anywhere in the article except the outer 24px browser
+edges, interactive targets and existing selections. Resolve horizontal intent
+after 6px and reject vertical/diagonal scrolls. Preview the capsule in an inert
+visual layer under the finger, without calling native dialog show/autofocus;
+move its existing nodes into a modal dialog only when release commits.
 The modal drawer supports the reverse swipe. Retarget native Web Animations from
 current transform and analytic velocity using a locally tuned critically damped
-spring; native semantics close immediately while a noninteractive exit finishes.
+spring; native semantics close immediately while an inert, aria-hidden fixed
+visual layer retains the same panel for the exit. Do not depend on display or
+overlay transitions keeping a closed dialog visible. Restore the nodes to the
+closed dialog on completion and cancel obsolete cleanup on reopening. Height-only
+viewport changes must not cancel a mobile swipe; width changes still cancel.
 Cancellation restores the initial state, pauses retire old velocity, and reduced
 motion settles directly with active animations canceled on preference changes.
 
@@ -99,6 +104,14 @@ frames and SVGs are transparent; native label backplates match their enclosing
 paper or callout wash. Theme changes only recolor existing content and do not
 replace mathematical nodes or recompile the document. Compact controls must fit
 a 320px viewport without wrapping their text or increasing toolbar height.
+
+The isolated `text-utils` adapter retains the installed `highlighted` helper's
+paged implementation and exports one semantic `mark.flow-highlight` around its
+original HTML body before any PDF measurement or box splitting. This preserves
+plain content, strings, nested formatting, links and native MathML together.
+The full mathematical view receives the same theme background, including tall
+fractions and rows promoted to block layout. Theme changes recolor that surface
+without replacing mathematical identities or changing authored calls.
 
 The shared drawing adapter retains original SVG paint attributes and remembers
 original inline colors independently of its presentation overrides. It adapts

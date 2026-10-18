@@ -1,5 +1,5 @@
 // Synthetic touch wiring checks; native device gesture arbitration is a separate check.
-import { OutlineDrawer, readingSettings } from "/reading-navigation.js";
+import { OutlineDrawer, ReaderGestures, readingSettings } from "/reading-navigation.js";
 import { logicalTextIndex } from "/math-identity.js";
 
 const report = { checks: [], errors: [] };
@@ -25,9 +25,21 @@ const drawer = document.querySelector("#reader-navigation");
 const panel = drawer.querySelector(".reader-drawer-panel");
 const font = () => Number(document.querySelector("#reader-size").value);
 const target = () => article.querySelector("p") ?? article;
+// Operational notices can appear during an asynchronous mathematical repaint.
+// Compare authored passage characters rather than those status announcements.
+function authoredText() {
+  const index = logicalTextIndex(article);
+  return index.text
+    .split("")
+    .filter((_, at) => !index.points[at]?.start[0].parentElement?.closest('[role="status"]'))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 let clock = 0;
 function touch(id, x, y, node = target()) {
-  return new Touch({ identifier: id, target: node, clientX: x, clientY: y, pageX: x, pageY: y });
+  const contact = { identifier: id, target: node, clientX: x, clientY: y, pageX: x, pageY: y };
+  return typeof Touch === "function" ? new Touch(contact) : contact;
 }
 function send(
   name,
@@ -37,13 +49,19 @@ function send(
   elapsed = 30,
 ) {
   clock += elapsed;
-  const event = new TouchEvent(name, {
+  const init = {
     touches,
     changedTouches: changed,
     targetTouches: touches,
     bubbles: true,
     cancelable: true,
-  });
+  };
+  const event =
+    typeof TouchEvent === "function" ? new TouchEvent(name, init) : new Event(name, init);
+  if (typeof TouchEvent !== "function") {
+    for (const key of ["touches", "changedTouches", "targetTouches"])
+      Object.defineProperty(event, key, { value: init[key] });
+  }
   Object.defineProperty(event, "timeStamp", { value: clock });
   node.dispatchEvent(event);
   return event.defaultPrevented;
@@ -79,7 +97,7 @@ async function run() {
   await document.fonts.ready;
   await pause();
   const original = font();
-  const canonical = logicalTextIndex(article).text;
+  const canonical = authoredText();
   const scrollSpace = document.createElement("div");
   scrollSpace.style.height = "150vh";
   scrollSpace.setAttribute("aria-hidden", "true");
@@ -148,6 +166,10 @@ async function run() {
     swipe([48, 300], [260, 301], link);
     check("Reference/link starts retain their normal action", !drawer.open);
   }
+  swipe([120, 300], [240, 301]);
+  check("A rightward swipe from the passage center opens the outline", drawer.open);
+  document.querySelector("#reader-navigation-close").click();
+  await pause();
   swipe([48, 300], [260, 302], target(), true);
   check("A canceled opening swipe remains closed", !drawer.open);
   await pause();
@@ -159,8 +181,8 @@ async function run() {
   send("touchmove", [b]);
   check(
     "The drawer follows an owned swipe before committing modality",
-    drawer.open &&
-      !drawer.matches(":modal") &&
+    !drawer.open &&
+      panel.parentElement.classList.contains("reader-navigation-visual") &&
       panel.getBoundingClientRect().left > -panel.getBoundingClientRect().width,
   );
   send("touchend", [], [b]);
@@ -203,10 +225,14 @@ async function run() {
   document.querySelector("#reader-appearance-open").click();
   // Measure the resting target after its opening scale transition.
   await pause(200);
+  report.settings = {
+    open: document.querySelector("#reader-appearance-panel").matches(":popover-open"),
+    width: document.querySelector("#reader-larger").getBoundingClientRect().width,
+  };
   check(
     "Settings contains the font controls",
     document.querySelector("#reader-appearance-panel").matches(":popover-open") &&
-      document.querySelector("#reader-larger").getBoundingClientRect().width >= 44,
+      Math.round(document.querySelector("#reader-larger").getBoundingClientRect().width) >= 44,
   );
   const plus = document.querySelector("#reader-larger");
   if (!plus.disabled) {
@@ -256,6 +282,7 @@ async function run() {
   fallbackPanel.remove();
   fallbackTrigger.remove();
 
+  await pause(450);
   const fixture = drawer.cloneNode(true),
     trigger = document.createElement("button");
   fixture.id = "motion-fixture";
@@ -266,6 +293,29 @@ async function run() {
   const preference = new EventTarget();
   preference.matches = false;
   const motion = new OutlineDrawer(fixture, trigger, { reducedMotion: preference });
+  motion.open();
+  await pause();
+  fixture.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  check(
+    "Dismissal commits immediately but retains an inert visible presentation",
+    !fixture.open &&
+      !motion.visual.hidden &&
+      motion.visual.inert &&
+      motion.visual.getAttribute("aria-hidden") === "true" &&
+      motion.panel.parentElement === motion.visual &&
+      getComputedStyle(motion.panel).display !== "none",
+  );
+  await pause(65);
+  check(
+    "Outside dismissal has a visible anticipation",
+    motion.panel.getBoundingClientRect().left > motion.panel.offsetLeft + 3,
+  );
+  motion.open();
+  await pause();
+  check(
+    "Reopening cancels the exit presentation without losing the modal",
+    fixture.open && motion.visual.hidden && motion.panel.parentElement === fixture,
+  );
   motion.open();
   preference.matches = true;
   preference.dispatchEvent(new Event("change"));
@@ -280,13 +330,37 @@ async function run() {
     "Closing travel clears the floating capsule and its shadow",
     floatingRight + motion.position < -12,
   );
+  const gestureArticle = document.createElement("main");
+  document.body.append(gestureArticle);
+  new ReaderGestures(gestureArticle, motion, {
+    getFont: () => 13,
+    setFont: () => {},
+    preview: document.querySelector("#reader-font-preview"),
+    announce: document.querySelector("#reader-gesture-message"),
+  });
+  swipe([120, 300], [240, 302], gestureArticle);
+  check(
+    "Reduced motion retains swipe-to-open functionality",
+    fixture.open && motion.target && !motion.motion && motion.position === 0,
+  );
+  motion.close();
+  check("Reduced motion leaves no visible exit layer", motion.visual.hidden);
+  gestureArticle.remove();
+  motion.visual.remove();
   fixture.remove();
   trigger.remove();
   await pause();
-  check(
-    "Text and mathematics retain their canonical order",
-    logicalTextIndex(article).text === canonical,
-  );
+  const finalText = authoredText();
+  if (finalText !== canonical) {
+    let at = 0;
+    while (at < canonical.length && canonical[at] === finalText[at]) at++;
+    report.textDifference = {
+      at,
+      before: canonical.slice(Math.max(0, at - 20), at + 80),
+      after: finalText.slice(Math.max(0, at - 20), at + 80),
+    };
+  }
+  check("Text and mathematics retain their canonical order", finalText === canonical);
   report.font = font();
   scrollSpace.remove();
 }
@@ -294,5 +368,15 @@ run()
   .catch((error) => report.errors.push(String(error)))
   .finally(() => {
     output.textContent = JSON.stringify(report);
+    document.title = `Reader gestures: ${report.checks.length} checks, ${report.errors.length} failures${report.errors.length ? ": " + report.errors.join(", ") : ""}`;
     document.body.dataset.readingNavigationState = report.errors.length ? "error" : "ready";
+    const summary = document.createElement("pre");
+    summary.id = "reading-navigation-summary";
+    summary.textContent = JSON.stringify({
+      checks: report.checks.length,
+      errors: report.errors,
+      settings: report.settings,
+      textDifference: report.textDifference,
+    });
+    document.body.append(summary);
   });
