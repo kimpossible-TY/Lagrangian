@@ -104,4 +104,4 @@ other services, and the mobile default are preserved.
 - [x] Add a restrained playful anticipation to outside-tap capsule dismissal, with continuous interruption and reduced-motion fallback.
 
 - [x] Keep exit motion visible independently of closed-dialog display support and support passage-center swipes without preview autofocus.
-- [ ] Verify reduced-motion swipe functionality, visible anticipation, rapid reopening and actual managed delivery after the gesture repair.
+- [x] Verify reduced-motion swipe functionality, visible anticipation, rapid reopening and actual managed delivery after the gesture repair.
