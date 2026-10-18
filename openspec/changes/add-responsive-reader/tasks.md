@@ -96,3 +96,6 @@ Tailnet HTTPS route is available. An intentional Reader-only exit recovered in
 14.65 seconds while all original PDF checks stayed HTTP 200. Figure layouts,
 offline delivery, and deployment validation remain unfinished. The Reader has its own HTTPS endpoint on port 23627. The original PDF route,
 other services, and the mobile default are preserved.
+
+
+- [x] Add a restrained playful anticipation to outside-tap capsule dismissal, with continuous interruption and reduced-motion fallback.

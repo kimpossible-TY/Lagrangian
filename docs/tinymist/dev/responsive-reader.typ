@@ -970,3 +970,8 @@ Before mobile rollout, verify the complete actual document at 320, 390, 430, and
 768 CSS pixels, large font sizes, reference navigation, annotations, saved edits,
 and recovery after compilation errors. Preserve and separately verify the
 original paged endpoint. Compilation success alone is not a release gate.
+
+
+Outside taps on the resting outline add a small 8px, 80ms anticipation before
+the 320ms exit. Reopening inherits its current position and velocity. Reduced
+motion omits the flourish; semantic dismissal and focus return are immediate.

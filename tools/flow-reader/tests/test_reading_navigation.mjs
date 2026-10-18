@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pinchFont, SwipeTracker, springState } from "../web/reading-navigation.js";
+import {
+  pinchFont,
+  SwipeTracker,
+  springState,
+  drawerMotionState,
+} from "../web/reading-navigation.js";
 
 test("pinch text reflow respects readable bounds, noise and invalid contacts", () => {
   assert.equal(pinchFont(13, 160, 100), 21);
@@ -54,4 +59,17 @@ test("retargeting a drawer preserves its current position and velocity", () => {
   const settled = springState(current.position, -300, current.velocity, 1);
   assert.ok(Math.abs(settled.position + 300) < 0.001);
   assert.ok(Math.abs(settled.velocity) < 0.001);
+});
+
+test("outside dismissal anticipates gently then exits with continuous velocity", () => {
+  const motion = { from: 0, to: -390, velocity: 0, playful: true };
+  assert.deepEqual(drawerMotionState(motion, 0), { position: 0, velocity: 0 });
+  assert.equal(drawerMotionState(motion, 0.08).position, 8);
+  assert.equal(drawerMotionState(motion, 0.08).velocity, 0);
+  assert.ok(Math.abs(drawerMotionState(motion, 0.079999).velocity) < 0.01);
+  assert.ok(drawerMotionState(motion, 0.2).position < -300);
+  assert.ok(Math.abs(drawerMotionState(motion, 0.4).position + 390) < 0.3);
+  const interrupted = drawerMotionState(motion, 0.04);
+  const resumed = springState(interrupted.position, 0, interrupted.velocity, 0);
+  assert.deepEqual(resumed, interrupted);
 });
