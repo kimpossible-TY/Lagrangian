@@ -60,7 +60,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Coordinate reading/control palettes and authored/saved highlight colors while retaining local drawing contrast.
 - [x] Verify appearance persistence, contrast and compact controls against actual PDE content at phone and tablet widths.
 - [x] Replace the basic appearance select with a compact icon/label trigger and an anchored, accessible three-choice preview panel; preserve persistence and verify keyboard, interruption and narrow layouts.
-- [ ] Install the appearance controls from a clean commit and verify registered HTTPS delivery, saved-highlight toolbar fit, preference persistence and the original paged service.
+- [x] Install the appearance controls from a clean commit and verify registered HTTPS delivery, saved-highlight toolbar fit, preference persistence and the original paged service.
 - [x] Remove fixed light drawing backgrounds and adapt CeTZ/mannot paint, label backplates and marked term ink to the actual surrounding surface.
 - [x] Verify drawing transparency, contrast, source geometry/resources and repeat/late/cloned paint through theme changes and actual PDE reading.
 - [x] Include all exported heading levels in the outline with consistent depth-based indentation, wrapping titles and cross-section navigation.
