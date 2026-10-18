@@ -319,6 +319,30 @@ ranges preserve MathML structure; unsupported browsers show a block marker and
 the saved quotation. Source selection sharing, offline reload, and the remaining
 mobile rollout work are tracked in the responsive-reader OpenSpec change.
 
+== Last visual edit
+
+The HTML Reader and paged preview share the same render-before-jump queue and
+2500ms recent-gesture policy. Successful saved changes to body text, mathematical
+markup and native figures produce a revision-bound HTML target. The Reader
+service stores that target and its canonical body baseline atomically in
+`last-change.json` inside its managed document output, with mode 0600. History
+belongs to the project and entrypoint, survives service restarts, and is recorded
+even when no browser is connected. It does not write the PDF service's history.
+
+A fresh entry or reload restores the last visual edit ahead of an older saved
+reading position. A newly opened named link and browser-history return retain
+their explicit destination. Without valid edit history, the existing reading
+position rules apply. The first accepted document establishes a baseline;
+subsequent accepted edits create navigation history.
+
+Recent scrolling defers an automatic jump and exposes the floating 변경 위치로
+button. A gesture during destination loading also defers it. Selections and open
+Reader dialogs still postpone document publication. Connection recovery, theme
+and font changes do not replay an already observed edit. Failed compilations,
+metadata changes and source comments cannot replace the last visual target.
+Navigation copies are excluded; authored body changes take priority over updated
+reference copies. A removed block uses a surviving adjacent target.
+
 == Sections and graphical annotations
 
 The service publishes a revision-specific `/api/manifest` and HTML sections at

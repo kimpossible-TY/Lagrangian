@@ -7,6 +7,7 @@ import { ResponsiveMath } from "./math-renderer.js";
 import { prepareResponsiveTables } from "./tables.js";
 import { languageOf, setLanguage, uiLanguage } from "./language.js";
 import { DrawingTheme } from "./drawing-theme.js";
+import { ChangeLocationQueue } from "./change-location.js";
 
 const article = document.querySelector("#reader-document");
 new DrawingTheme(article);
@@ -29,6 +30,18 @@ let manifest = null;
 let currentSection = null;
 let loadSequence = 0;
 let shellRevision = null;
+const changedLocations = new ChangeLocationQueue(false);
+const changeButton = document.querySelector("#reader-change-jump");
+let lastChangeToken = null;
+let lastUserGesture = -Infinity;
+const recentGesture = () => performance.now() - lastUserGesture < 2500;
+const markUserGesture = () => {
+  lastUserGesture = performance.now();
+};
+for (const event of ["pointerdown", "touchmove", "wheel", "keydown"]) {
+  document.addEventListener(event, markUserGesture, { passive: true });
+}
+changeButton.addEventListener("click", () => jumpToChange(changedLocations.lastLocation));
 const sectionCache = new Map();
 const graphics = new GraphicalAnnotations(
   article,
@@ -462,6 +475,7 @@ function mountedSectionsChanged() {
 }
 
 function renderDocument(html, nextManifest, section, options) {
+  const sequence = loadSequence;
   mathematics.clear();
   graphics.clear();
   decorations.clear();
@@ -479,11 +493,61 @@ function renderDocument(html, nextManifest, section, options) {
   indexOutline(manifest);
   pending = null;
   requestAnimationFrame(() => {
+    if (revision !== nextManifest.revision || sequence !== loadSequence) return;
     if (options.target) document.getElementById(options.target)?.scrollIntoView();
     else if (options.anchor) restoreAnchor(options.anchor);
     else window.scrollTo(0, 0);
     sections.schedule();
+    const change = changedLocations.afterRender(performance.now(), lastUserGesture);
+    if (change) {
+      if (change.deferred) changeButton.hidden = false;
+      else jumpToChange(change.location, true);
+    }
   });
+}
+
+async function jumpToChange(change, automatic = false) {
+  if (!change || !manifest || change.revision !== revision) return;
+  if (automatic && (recentGesture() || selectionActive())) {
+    changeButton.hidden = false;
+    return;
+  }
+  const local = document.getElementById(change.target);
+  if (local && article.contains(local)) {
+    loadSequence++;
+    local.scrollIntoView({ behavior: "instant" });
+    stableAnchor = readingAnchor();
+    stableScrollY = scrollY;
+    sections.schedule();
+    changeButton.hidden = true;
+  } else {
+    await loadSection(manifest, change.section, {
+      target: change.target,
+      changeToken: change.token,
+      automaticChange: automatic,
+    });
+  }
+}
+
+function queueChange(nextManifest, explicit) {
+  const change = nextManifest.lastChange;
+  if (
+    !change ||
+    change.revision !== nextManifest.revision ||
+    nextManifest.anchors[change.target] !== change.section
+  ) {
+    changedLocations.clear();
+    changeButton.hidden = true;
+    return;
+  }
+  if (changedLocations.lastLocation?.token === change.token) {
+    changedLocations.lastLocation = change;
+  }
+  if (lastChangeToken === change.token) return;
+  lastChangeToken = change.token;
+  changedLocations.clear();
+  changeButton.hidden = true;
+  if (!explicit) changedLocations.queue(change, !revision);
 }
 
 function fragment() {
@@ -525,6 +589,14 @@ async function loadSection(nextManifest, section, options = {}) {
   try {
     const html = await fetchSection(nextManifest, section);
     if (sequence !== loadSequence) return;
+    if (options.changeToken) {
+      if (nextManifest.revision !== revision || options.changeToken !== lastChangeToken) return;
+      if (options.automaticChange && (recentGesture() || selectionActive())) {
+        changeButton.hidden = false;
+        return;
+      }
+      changeButton.hidden = true;
+    }
     // A source update must not dismiss a note or disturb a selection made while
     // its network request was in flight. Explicit navigation is the user's choice.
     if (options.update && selectionActive()) {
@@ -539,6 +611,7 @@ async function loadSection(nextManifest, section, options = {}) {
     if (options.history) navigationHistory(section, options.target);
     renderDocument(html, nextManifest, section, options);
   } catch {
+    if (options.changeToken) changeButton.hidden = false;
     status.dataset.state = "error";
     status.textContent = "이 절을 불러오지 못했습니다. 현재 내용은 계속 읽을 수 있습니다.";
   } finally {
@@ -678,6 +751,10 @@ async function refresh() {
       // Reload/history navigation restores its entry; section queries are entry hints.
       const sectionHint =
         !revision && !resuming && new URL(location.href).searchParams.get("section");
+      queueChange(
+        pending,
+        !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward"),
+      );
       const section =
         sectionHint && pending.sections.some((item) => item.id === sectionHint)
           ? (pending.anchors[target] ?? sectionHint)

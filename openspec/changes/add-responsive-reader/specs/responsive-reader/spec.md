@@ -1,5 +1,35 @@
 ## ADDED Requirements
 
+### Requirement: Last visual edit navigation
+The HTML Reader SHALL use the paged preview's persistent visual-change and render-before-jump behavior with reflowable body targets. The server SHALL retain the last accepted visual edit per document independently of connected viewers. A new entry or reload SHALL restore that edit; a live viewer SHALL follow each newly accepted edit once. A direct named link and browser history navigation SHALL retain their destination.
+
+#### Scenario: Distant saved edit and reload
+- **WHEN** a saved edit changes a distant body passage, mathematical expression or native figure
+- **THEN** the Reader navigates directly to its matching accepted target after mounting the destination section
+- **AND** a refreshed or newly opened Reader restores that edit even when another reading position was saved
+- **AND** an edit accepted with no connected viewer is available on the next entry
+
+#### Scenario: Reading gesture or selected passage
+- **WHEN** an edit arrives during a recent direct reading gesture
+- **THEN** the visible reading position is retained and a change-location button offers the latest edit
+- **AND** a gesture during destination loading also defers navigation
+- **WHEN** a selection or Reader dialog is active
+- **THEN** publication waits until it ends
+
+#### Scenario: Stable history and explicit navigation
+- **WHEN** the Reader reconnects, changes appearance or recomposes at a different font size
+- **THEN** an already observed edit does not replay or create a stale change button
+- **WHEN** a named link opens or browser history restores an entry
+- **THEN** that explicit destination takes priority over last-edit restoration
+
+#### Scenario: Restart, failed save and nonvisual inputs
+- **WHEN** the service restarts with matching inputs or an unchanged visible output
+- **THEN** its valid last-edit target is retained and relocated in the current document
+- **AND** metadata-only changes or runtime-only rendering changes do not replace it
+- **WHEN** a compilation fails or a saved record is corrupt or belongs to another document
+- **THEN** no false visual edit is published from that result
+- **AND** a deleted target uses a surviving adjacent body location when available
+
 ### Requirement: Parallel reading outputs
 The system SHALL produce a reflowable HTML reading view from the same saved Typst source as the existing paged view. Existing PDF export and the running paged endpoint SHALL remain available.
 
@@ -173,7 +203,7 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** a failed width fit retains its complete drawing and explicit diagnostic
 
 ### Requirement: Revision-aware updates
-The reader SHALL expose the compiled revision and compilation state, retain the last successful output on compilation failure, and preserve reading anchors and selections across updates.
+The reader SHALL expose the compiled revision and compilation state, retain the last successful output on compilation failure, and preserve active selections across updates. Reading anchors SHALL be preserved during composition and while visual-edit navigation is deferred; an accepted change target SHALL otherwise take priority.
 
 #### Scenario: A preceding figure changes generated numbering
 - **WHEN** a saved edit inserts a figure before the native figure being read

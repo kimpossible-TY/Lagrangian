@@ -1,5 +1,26 @@
 # Design
 
+## Last visual edit navigation
+
+Reuse the paged preview's server-owned visual history and render-before-jump
+policy. HTML coordinates reflow, so the independent Reader stores canonical
+body-block fingerprints and a revision-bound target instead of PDF page points.
+Exclude generated navigation and prefer original body content over changed
+reference copies. Detect text, mathematical markup and native figure changes;
+deletions use a surviving adjacent target. Persist the baseline and last target
+atomically with mode 0600 in the managed document output, scoped by document ID.
+Compare content fingerprints of compiler inputs, not timestamps, so metadata and
+runtime-only recompilations do not invent edits. Invalid records establish a
+baseline. Failed compilations never replace accepted navigation history.
+
+The browser follows each new change token once, after its matching section is
+mounted. Like the PDF queue, a gesture within 2500ms defers navigation and exposes
+“변경 위치로”. Recheck gestures after section fetches; selections/dialogs continue
+to postpone publication. Fresh entry and reload prioritize the last edit over
+stored reading position, while an explicit named link or browser history return
+retains its destination. Poll recovery and theme/font changes cannot replay an
+already observed token. Without a valid edit, existing reading restoration applies.
+
 ## Reader appearance
 
 The toolbar exposes Automatic / Light / Dark. A small classic script applies the
@@ -130,7 +151,8 @@ target instead of the tail of the preceding paragraph.
 An initial navigation also distinguishes a new named link from reload/history
 restoration. It uses the current history entry and navigation type, rather than
 URL equality alone: a new tab can open the exact URL stored by an older reading
-session. Source updates continue to preserve the visible reading anchor.
+session. Source updates preserve the visible reading anchor while a change jump
+is deferred; otherwise the accepted visual-edit target takes priority.
 
 Introduce a width-aware layout stage between semantic content and final DOM/SVG.
 For mathematics, retain operators, grouping, numbering, labels and term identities
