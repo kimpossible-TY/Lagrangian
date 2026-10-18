@@ -173,9 +173,6 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     guide = ROOT / 'docs/tinymist/flow-app.typ'
     if guide.exists():
         run([engine, 'compile', guide, resources / 'UserGuide.pdf', '--root', ROOT])
-    # Files copied from Finder or synced folders can carry provenance metadata
-    # that macOS refuses to sign. Strip it from the staged bundle first.
-    run(['/usr/bin/xattr', '-cr', app])
     run(['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', APP_ID + '.engine', mac / 'flow-engine'])
     manifest = {'version': version, 'sourceRevision': capture(['git', '-C', ROOT, 'rev-parse', 'HEAD']),
                 'sourceDirty': bool(capture(['git', '-C', ROOT, 'status', '--porcelain'])),
@@ -190,6 +187,9 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     if engine_build is not None:
         manifest['engineBuild'] = engine_build
     write_json(resources / 'release.json', manifest)
+    # Files created by Finder, sync providers, or this build may carry
+    # provenance metadata that macOS refuses to sign.
+    run(['/usr/bin/xattr', '-cr', app])
     run(['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', APP_ID, app])
     validate(app)
     return manifest
