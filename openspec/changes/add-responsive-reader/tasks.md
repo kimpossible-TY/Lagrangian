@@ -105,3 +105,9 @@ other services, and the mobile default are preserved.
 
 - [x] Keep exit motion visible independently of closed-dialog display support and support passage-center swipes without preview autofocus.
 - [x] Verify reduced-motion swipe functionality, visible anticipation, rapid reopening and actual managed delivery after the gesture repair.
+
+## Outline reading location
+
+- [x] Resolve the current outline heading across heading-free transport sections and reveal/focus it whenever the drawer opens, preserving article position.
+- [x] Verify long-outline reopening, nested headings, cross-section reading, keyboard navigation and reduced motion in real browsers.
+- [ ] Install the verified Reader from a clean commit and verify managed document and asset delivery.

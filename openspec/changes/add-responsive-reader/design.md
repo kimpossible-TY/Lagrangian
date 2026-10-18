@@ -47,6 +47,13 @@ swipe cancellation, Escape and focus behavior.
 Preserve the article's scroll coordinates through native `show`/`showModal`
 autofocus, which may otherwise scroll toward the offscreen close button. Restore
 them before resolving the current heading; verify from a nonzero reading offset.
+Resolve the reading section from article geometry at the same heading threshold,
+then walk the manifest's ordered outline. Earlier transport sections supply the
+preceding heading even when it is unmounted; headings in the reading section
+replace it only after crossing that threshold. A future mounted heading must not
+claim preceding body content. On each opening, center the current link within
+the outline's own scrollport and focus it with `preventScroll` so keyboard
+navigation starts there without moving the article.
 Hide the normal accepted-document status line and its spacing. Loading, compiling,
 connection and publication diagnostics retain their existing status region.
 Keep the reading panels free of instructional prose: no gesture hints, outline
