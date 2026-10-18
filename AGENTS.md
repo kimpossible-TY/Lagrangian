@@ -33,7 +33,8 @@ This is the tinymist language service, integrated with editor frontends and othe
 - Native app: `apps/macos/`; branding: `assets/branding/`; packaging: `scripts/flow-app.py`.
 - App guide source: `docs/tinymist/flow-app.typ`. Build with `yarn flow:build`, then validate with `yarn flow:test`.
 - Build releases from a clean commit, install the bundled app, verify document delivery, and tag confirmed versions `flow-vX.Y.Z`. Keep installed engines separate from `target/`.
-- Use short feature branches and Conventional Commits per work item; preserve upstream license notices and record intentionally imported upstream commits.
+- Continue work on the current branch. Create a new branch only when the user explicitly requests it; this rule takes precedence over feature-branch guidance in other repository docs.
+- Use Conventional Commits per work item; preserve upstream license notices and record intentionally imported upstream commits.
 
 ## Repo Map
 
