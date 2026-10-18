@@ -35,8 +35,9 @@ The system SHALL produce a reflowable HTML reading view from the same saved Typs
 
 #### Scenario: Mobile entry
 - **WHEN** a phone opens the configured reading entry after rollout
-- **THEN** it receives the responsive reader and can explicitly open the original paged view
+- **THEN** it receives the responsive reader and the original paged view remains available through the Dashboard and existing URLs
 - **AND** the user's explicit view preference is respected
+- **AND** the Reader toolbar does not expose a page-view link
 
 #### Scenario: Guarded Dashboard document entry
 - **WHEN** the Hosting card contains exactly one original/Reader pair with the same project and entrypoint and the exact derived service ID

@@ -452,6 +452,7 @@ button:disabled {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  margin-inline-start: auto;
 }
 #reader-size {
   font-size: 12px;
@@ -992,9 +993,6 @@ math svg {
     width: 4.3rem;
     font-size: 12px;
     flex-shrink: 0;
-  }
-  #reader-original {
-    margin-inline-start: auto;
   }
 }
 .reader-section {
