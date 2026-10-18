@@ -32,6 +32,8 @@ previous Reader job to finish stopping before activating another release.
 
 Include every exported HTML heading level in the outline and indent each deeper
 level consistently, so sections and their subsections remain visually distinct.
+Present it in a floating frosted capsule with a bounded scrolling list and a
+current-location pill, retaining swipe, keyboard and solid-material alternatives.
 
 Keep display equation numbers at the inline end and vertically centered beside
 the complete expression. Reserve their width when composing mathematical lines.

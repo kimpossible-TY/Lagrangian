@@ -521,12 +521,12 @@ button:disabled {
   color: var(--warning);
 }
 #reader-outline {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  padding: 0.5rem 0.85rem;
+  padding: 0.25rem 0.65rem;
   scroll-padding-block: 0.5rem;
 }
 #reader-navigation {
@@ -560,29 +560,52 @@ button:disabled {
 .reader-drawer-scrim {
   position: absolute;
   inset: 0;
-  background: #0005;
+  background: #0002;
   opacity: 0;
   pointer-events: none;
 }
 .reader-drawer-panel {
   position: absolute;
-  inset: 0 auto 0 0;
+  top: max(4.25rem, calc(env(safe-area-inset-top) + 12px));
+  left: max(16px, env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
-  width: min(22rem, calc(100vw - 52px));
-  background: var(--paper);
-  border-inline-end: 1px solid var(--line);
-  box-shadow: 8px 0 32px #0002;
-  transform: translateX(-100%);
+  width: min(
+    22rem,
+    calc(100% - max(16px, env(safe-area-inset-left)) - max(16px, env(safe-area-inset-right)))
+  );
+  max-height: min(
+    60%,
+    34rem,
+    calc(
+      100% - max(4.25rem, calc(env(safe-area-inset-top) + 12px)) -
+        max(12px, env(safe-area-inset-bottom))
+    )
+  );
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 2rem;
+  background: var(--surface);
+  box-shadow:
+    0 12px 36px #0002,
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 90%, transparent);
+  transform: translateX(calc(-100% - 48px));
   touch-action: pan-y;
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .reader-drawer-panel {
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(115%);
+    backdrop-filter: blur(20px) saturate(115%);
+  }
 }
 .reader-drawer-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: max(0.6rem, env(safe-area-inset-top)) 0.75rem 0.6rem 1.25rem;
-  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+  padding: 0.75rem 0.85rem 0.25rem 1.5rem;
 }
 .reader-drawer-heading h2 {
   margin: 0;
@@ -591,12 +614,14 @@ button:disabled {
     sans-serif;
 }
 .reader-drawer-hint {
+  flex: 0 0 auto;
   margin: 0;
-  padding: 0.85rem 1.25rem max(0.85rem, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--line);
-  color: var(--muted);
+  padding: 0.65rem 1.25rem 1rem;
+  color: var(--ink);
+  color: color-mix(in srgb, var(--ink) 85%, var(--muted));
+  text-align: center;
   font:
-    0.75rem/1.4 system-ui,
+    0.6875rem/1.4 system-ui,
     sans-serif;
 }
 #reader-font-preview:not([hidden]) {
@@ -634,9 +659,12 @@ button:disabled {
     transform: none;
   }
 }
-@media (prefers-contrast: more) {
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .reader-drawer-panel {
+    background: var(--surface);
     border-color: var(--ink);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 @media (forced-colors: active) {
@@ -646,18 +674,45 @@ button:disabled {
     color: CanvasText;
     border-color: CanvasText;
     box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 #reader-outline a {
   display: block;
-  padding: 0.55rem;
-  padding-inline-start: calc(0.55rem + var(--outline-depth, 0) * 1rem);
+  min-height: 44px;
+  margin-block: 2px;
+  padding: 0.7rem 0.85rem;
+  padding-inline-start: calc(0.85rem + var(--outline-depth, 0) * 1rem);
+  border-radius: 1rem;
   overflow-wrap: anywhere;
   text-decoration: none;
+  color: var(--ink);
   font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+  transition: background 140ms ease;
 }
 #reader-outline a:not([data-level="1"]):not([data-level="2"]) {
+  color: var(--ink);
+  color: color-mix(in srgb, var(--ink) 85%, var(--muted));
   font-size: 13px;
+  font-weight: 400;
+}
+#reader-outline a:hover,
+#reader-outline a:focus-visible,
+#reader-outline a:active,
+#reader-outline a[aria-current="location"] {
+  color: var(--accent);
+  background: var(--wash);
+}
+#reader-outline a[aria-current="location"] {
+  font-weight: 650;
+}
+@media (prefers-reduced-motion: reduce) {
+  #reader-outline a {
+    transition: none;
+  }
 }
 #reader-document {
   width: 100%;

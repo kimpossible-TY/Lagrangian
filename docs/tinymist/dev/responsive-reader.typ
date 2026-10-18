@@ -97,12 +97,19 @@ finger or a selected passage prevents an accidental change. Article gestures
 own text sizing rather than browser magnification; normal vertical scrolling
 remains available. Settings buttons provide the same adjustment without a gesture.
 
-A rightward swipe starting 24–96px inside the article opens the outline drawer,
+A rightward swipe starting 24–96px inside the article opens the outline capsule,
 leaving the outer browser-back edge alone. Reverse swipes close it. The drawer
 tracks horizontal intent, rejects vertical motion and interactive starts, and
 returns to its initial state on cancellation. Its committed state uses a native
 modal dialog with keyboard dismissal and focus restoration. The outline scrolls
-independently. Reduced motion removes spatial travel and cancels active motion
+independently within a floating 32px-radius surface below the toolbar. Side gaps
+are at least 16px; the list fits short outlines and caps long ones at 60% of the
+viewport height or 34rem. A restrained frosted fill and shadow separate it from
+the article, with solid transparency/contrast fallbacks. Heading depth uses type
+weight and indentation, and each link retains a 44px target. Opening marks and
+reveals the current heading inside the list without scrolling the article.
+Dismissal travel clears the floating inset and shadow. Reduced motion removes
+spatial travel and cancels active motion
 when the preference changes.
 
 The viewport uses device width with initial/minimum scale 1 and

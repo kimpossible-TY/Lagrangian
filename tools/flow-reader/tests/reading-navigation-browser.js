@@ -149,6 +149,7 @@ async function run() {
   await pause();
   const a = touch(3, 48, 300),
     b = touch(3, 260, 302);
+  const beforeOutlineScroll = scrollY;
   send("touchstart", [a]);
   send("touchmove", [b]);
   check(
@@ -159,6 +160,14 @@ async function run() {
   );
   send("touchend", [], [b]);
   check("A completed opening swipe becomes a native modal", drawer.matches(":modal"));
+  check(
+    "Opening the capsule preserves the article position",
+    Math.abs(scrollY - beforeOutlineScroll) < 1,
+  );
+  check(
+    "The outline marks the current reading location",
+    drawer.querySelectorAll('[aria-current="location"]').length === 1,
+  );
   await pause();
   swipe([240, 300], [25, 302], panel, true);
   check("A canceled closing swipe keeps the outline open", drawer.open);
@@ -169,7 +178,16 @@ async function run() {
   await pause();
   check(
     "Rapid reopening survives the previous exit animation",
-    drawer.matches(":modal") && Math.abs(panel.getBoundingClientRect().left) < 1,
+    drawer.matches(":modal") && Math.abs(panel.getBoundingClientRect().left - panel.offsetLeft) < 1,
+  );
+  const capsule = panel.getBoundingClientRect();
+  check(
+    "The outline floats inside every viewport edge with a rounded surface",
+    capsule.left >= 12 &&
+      capsule.top >= 12 &&
+      capsule.right <= document.documentElement.clientWidth - 11 &&
+      capsule.bottom <= innerHeight - 12 &&
+      parseFloat(getComputedStyle(panel).borderRadius) >= 24,
   );
   document.querySelector("#reader-navigation-close").click();
 
@@ -246,8 +264,13 @@ async function run() {
     "Changing reduced motion cancels the active spring",
     !motion.motion && motion.position === 0,
   );
+  const floatingRight = fixture.querySelector(".reader-drawer-panel").getBoundingClientRect().right;
   motion.close();
   check("Reduced motion closes without a remaining animation", !fixture.open && !motion.motion);
+  check(
+    "Closing travel clears the floating capsule and its shadow",
+    floatingRight + motion.position < -12,
+  );
   fixture.remove();
   trigger.remove();
   await pause();

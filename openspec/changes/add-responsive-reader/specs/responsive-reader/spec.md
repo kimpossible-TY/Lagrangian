@@ -307,6 +307,13 @@ in reading settings through semantic keyboard-accessible controls.
 - **AND** native dialog focus, Escape, outside dismissal and button alternatives remain available
 - **AND** rapid reversals and reduced-motion changes cannot leave stale motion or block input
 
+#### Scenario: Floating outline capsule
+- **WHEN** the outline opens on a phone or larger viewport
+- **THEN** it appears as a rounded floating surface with visible space around its edges and a bounded scrolling list
+- **AND** all heading levels remain navigable with readable wrapping and 44px targets
+- **AND** the current reading heading is marked and revealed within the outline without moving the article
+- **AND** solid material fallbacks retain contrast, and dismissal clears the capsule and its shadow from the viewport
+
 ### Requirement: Explicit reading appearance
 The Reader SHALL expose Automatic, Light and Dark appearances and persist the
 choice in browser-local storage. Automatic SHALL follow device appearance changes.
