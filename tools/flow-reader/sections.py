@@ -113,6 +113,15 @@ def separate_data_images(source, assets):
     return "".join(pieces)
 
 
+def heading_level(tag, attributes):
+    """Read native headings and Typst's deeper ARIA heading exports."""
+    if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+        return int(tag[1])
+    if attributes.get("role") == "heading" and re.fullmatch(r"[1-9][0-9]*", attributes.get("aria-level", "")):
+        return int(attributes["aria-level"])
+    return None
+
+
 class BlockIdentifiers(SvgRanges):
     """Assign reading keys before partitioning, independent of section numbers."""
 
@@ -128,16 +137,18 @@ class BlockIdentifiers(SvgRanges):
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         classes = attributes.get("class", "").split()
+        level = heading_level(tag, attributes)
         if "data-flow-canvas-identity" in attributes:
             self.canvas_scopes.append((len(self.stack), attributes["data-flow-canvas-identity"]))
         if "body" in self.stack and not {"math", "svg", "nav"}.intersection(self.stack) and (
-            tag in {"h1", "h2", "h3", "h4", "h5", "p", "figcaption", "td", "th"}
+            level or tag in {"p", "figcaption", "td", "th"}
             or (tag == "div" and {"flow-equation", "flow-canvas-label-body"}.intersection(classes))
         ):
             for parent in self.active:
                 if parent.get("native_label") or parent.get("table_cell"):
                     parent["child_block"] = True
             self.active.append({"depth": len(self.stack), "tag": tag, "text": [],
+                                "heading_level": level,
                                 "id": attributes.get("id"), "heading": self.heading,
                                 "canvas_scope": self.canvas_scopes[-1][1] if self.canvas_scopes else "",
                                 "native_label": "flow-canvas-label-body" in classes,
@@ -176,7 +187,7 @@ class BlockIdentifiers(SvgRanges):
             if not label:
                 attributes += f' id="{key}"'
             self.insertions.append((node["position"], attributes))
-            if tag.startswith("h") and len(tag) == 2:
+            if node["heading_level"]:
                 self.heading = text
 
     def handle_data(self, data):
@@ -236,8 +247,9 @@ class BodyIndex(SvgRanges):
                         raise ValueError(f"Annotation precedes its marked term: {target}")
                     # A section cut cannot separate a note from a preceding term.
                     self.unsplittable.update(range(self.marks[target] + 1, index + 1))
-            if tag in {"h1", "h2", "h3", "h4"} and not {"nav", "svg", "math"}.intersection(self.stack):
-                self.heading = {"id": attributes.get("id"), "level": int(tag[1]),
+            level = heading_level(tag, attributes)
+            if level and not {"nav", "svg", "math"}.intersection(self.stack):
+                self.heading = {"id": attributes.get("id"), "level": level, "tag": tag, "depth": len(self.stack),
                                 "text": "", "block": index}
         if tag not in MathHtmlEmbedding.VOID:
             self.stack.append(tag)
@@ -250,7 +262,7 @@ class BodyIndex(SvgRanges):
     def handle_endtag(self, tag):
         if tag == "body":
             self.body_end = self.source_offset()
-        if self.heading and tag == f"h{self.heading['level']}":
+        if self.heading and tag == self.heading["tag"] and len(self.stack) == self.heading["depth"] + 1:
             self.heading["text"] = " ".join(self.heading["text"].split())
             self.headings.append(self.heading)
             self.heading = None

@@ -91,6 +91,13 @@ Replace decorative blocks with semantic HTML containers so nested equation label
 
 ## Required reading interaction
 
+The outline includes HTML headings h1 through h6 and deeper `role="heading"`
+exports with `aria-level` in source order. Its shallowest exported level starts
+at the normal link inset; each additional heading level adds 1rem of inline-start
+padding, including skipped levels. Long titles wrap
+within the remaining panel width. All heading levels retain reading keys and
+anchor destinations across transport-section boundaries.
+
 The user's clarification on 2026-10-17 is the acceptance boundary: ordinary
 vertical reading must expose all mathematical and explanatory content at readable
 font sizes. Do not introduce slides/carousels, horizontal scrolling, zoom, or

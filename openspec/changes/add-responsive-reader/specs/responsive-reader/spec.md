@@ -50,6 +50,15 @@ The system SHALL produce a reflowable HTML reading view from the same saved Typs
 - **THEN** fresh healthy delivery can retain the automatic Reader entry
 - **AND** the failed compilation remains visible as a separate status
 
+### Requirement: Hierarchical heading outline
+The Reader SHALL include exported h1 through h6 headings and deeper ARIA headings in its outline and indent each additional heading level consistently relative to the shallowest exported level.
+
+#### Scenario: Nested headings in a narrow outline
+- **WHEN** a document contains sections and deeper headings, including skipped levels
+- **THEN** every heading appears in source order with a distinct inset for its depth
+- **AND** long titles wrap within the outline panel
+- **AND** each entry navigates to its heading even across transport-section boundaries
+
 ### Requirement: Mathematical fidelity
 The reader MUST retain mathematical symbols and decorations, equation and theorem numbers, cross references, footnotes, and annotation meaning. Unsupported constructs MUST use faithful alternative rendering or produce a visible diagnostic, never silently disappear.
 
