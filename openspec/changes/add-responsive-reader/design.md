@@ -44,6 +44,9 @@ marks the nearest reading heading with an accessible location pill, scrolling
 only the outline to reveal it. Dismissal travel includes the leading gap and
 shadow, preserving the existing spring,
 swipe cancellation, Escape and focus behavior.
+Preserve the article's scroll coordinates through native `show`/`showModal`
+autofocus, which may otherwise scroll toward the offscreen close button. Restore
+them before resolving the current heading; verify from a nonzero reading offset.
 Hide the normal accepted-document status line and its spacing. Loading, compiling,
 connection and publication diagnostics retain their existing status region.
 

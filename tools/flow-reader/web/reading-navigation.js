@@ -129,6 +129,8 @@ export class OutlineDrawer {
   }
 
   prepare(modal) {
+    const readingX = window.scrollX;
+    const readingY = window.scrollY;
     const wasClosed = !this.dialog.open;
     if (modal && this.dialog.open && !this.dialog.hasAttribute("data-modal")) this.dialog.close();
     if (!this.dialog.open) {
@@ -140,6 +142,10 @@ export class OutlineDrawer {
     this.travel = this.measureTravel();
     if (wasClosed && !this.motion && this.position <= -oldTravel) this.paint(-this.travel);
     this.trigger.setAttribute("aria-expanded", String(modal));
+    // Native autofocus can scroll toward the initially offscreen close button.
+    // Restore the article before resolving its current outline heading.
+    if (window.scrollX !== readingX || window.scrollY !== readingY)
+      window.scrollTo(readingX, readingY);
     if (modal) this.beforeOpen();
   }
 
