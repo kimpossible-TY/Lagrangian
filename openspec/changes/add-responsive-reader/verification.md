@@ -1665,3 +1665,34 @@ composition rejection. All 11 build/adapter tests pass using the installed Typst
 package directory, including byte-identical paged output. Prettier and
 `git diff --check` pass. These are local Chromium checks; the managed Reader and
 physical iPhone were not updated or exercised in this change.
+
+## Combined appearance and equation-number installation — 2026-10-18
+
+Installed clean Reader runtime `c70654cf8982b225a295cd199f57a59d1fbf0972`,
+including the appearance preview panel and equation-number alignment. The main
+branch retains both source changes in one commit. Installation used a clean,
+detached managed worktree, preserving unrelated local skills and engine icon
+files. The temporary worktree was archived after the immutable release was saved.
+
+All 63 Reader JavaScript tests and 20 build/installer/manager tests pass, as do
+Prettier, strict OpenSpec validation and patch whitespace checks. The managed
+Reader restarted as PID 40506 and accepted its full native-figure document with
+exit code 0, no compiler-loss warnings and no unsupported constructs. Its 1,413
+equation numbers export directly beside their expressions. All 23 public shell
+assets match the installed commit over both loopback and certificate-validated
+HTTPS. Both origins deliver identical 8,743,779-byte document HTML across 58
+transport sections. The last visual-edit target remains null.
+
+Actual HTTPS mobile WebKit checks at 320px, 390px and 768px verify eight equation
+layouts per width (four original equations at 13px and 30px), with at most
+0.0078125px vertical center difference and no expression/number overlap or
+horizontal scrolling in those components. The appearance panel stays inside each
+viewport, light/dark choices apply, and Escape closes it. No application errors
+occurred. The actual 390px/30px screenshot was inspected. Physical iPhone and
+screen-reader speech validation were not repeated for this update.
+
+Configuration bytes and all Flow profiles are unchanged. The original PDF
+service retains PID 65035 and its prior HTTPS response hash. The previous Reader
+release and rollback launcher/configuration backups are retained. Receipts,
+asset hashes, browser measurements and screenshots are under
+`dist/reader-session-install-20261018/`.
