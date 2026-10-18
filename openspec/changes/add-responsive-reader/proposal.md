@@ -27,7 +27,12 @@ previous Reader job to finish stopping before activating another release.
 Include every exported HTML heading level in the outline and indent each deeper
 level consistently, so sections and their subsections remain visually distinct.
 
+Keep display equation numbers at the inline end and vertically centered beside
+the complete expression. Reserve their width when composing mathematical lines.
+
 Provide explicit automatic, light and dark appearances with browser-local persistence.
+Present them in an anchored preview panel from a compact icon-and-label button,
+with native radio keyboard behavior, clear selection and restrained material/motion.
 Use coordinated reading and control palettes, and restrained theme-specific colors
 for authored and saved highlights instead of browser-default yellow. Original
 drawings and mannot annotations blend into their surrounding reading background,

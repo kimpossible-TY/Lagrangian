@@ -11,6 +11,40 @@ The completed coverage and delivery receipts appear at the end of this report.
 The earlier checkpoints below describe their historical implementations and
 failures; they are not unresolved failures of the current deployment.
 
+# Appearance control refresh — local source, 2026-10-18
+
+The toolbar select is progressively enhanced into an icon/label button and native
+auto popover with three labeled radio previews. A persistent selection surface
+moves behind stationary labels; the current choice also has a checkmark. This is
+a locally tuned frosted web material, not native optical rendering. The original
+preference key, before-paint application, device synchronization and storage-error
+behavior are retained. Unsupported browsers retain the native select.
+
+- `node --test tools/flow-reader/tests/test_*.mjs`: all 63 tests pass, including
+  six appearance tests covering the enhanced/fallback controls, persistence,
+  unavailable storage, automatic device changes and cross-tab synchronization.
+- Prettier checks pass for `index.html`, `theme.js`, `reader.css` and
+  `test_theme.mjs`; `git diff --check` and strict OpenSpec validation pass.
+- In-app browser checks use working-tree frontend assets through a separate
+  loopback development proxy and the actual managed PDE document. At widths
+  320, 390, 430, 580, 640, 641 and 768px, toolbar scroll width equals client width,
+  toolbar height remains 56.1875px, and the panel stays inside the viewport.
+- Native radio arrow keys change appearance immediately while keeping the panel
+  open, keyboard focus is visible, Escape returns focus to the trigger, Enter
+  reopens it on the selected radio, outside clicks dismiss it, and seven rapid
+  trigger activations leave open/expanded state consistent. Light and dark
+  previews and their surrounding actual document were inspected.
+- Isolated fixtures exercise the stylesheet's accessibility branches explicitly;
+  these are not OS preference emulation. Reduced motion computes zero transition
+  duration, solid/transparency fallbacks remove backdrop filtering, and the
+  forced-colors branch retains a 2px selected boundary. A 200% root-text fixture
+  fits at 320px and 390px, including complete labels and decorative samples.
+
+Evidence: `dist/reader-appearance-checks/viewports.json`,
+`accessibility-fixtures.json`, `light-390.png`, `dark-390.png` and `zoom-320.png`.
+These are local-source checks, not installed-release or physical-device
+acceptance. Screen-reader speech remains deferred as above.
+
 # Historical development checkpoint — 2026-10-17
 
 This is an implementation checkpoint, not a completed mobile rollout.
@@ -1606,3 +1640,28 @@ indentation per level, no outline horizontal overflow, and navigation to a deep
 heading. No application errors occurred, and the 390px screenshot was inspected.
 Section and installer tests passed before installation. Receipts, test output and
 screenshots are under `dist/reader-outline-install-20261018-130116/`.
+
+## Equation number alignment, 2026-10-18
+
+The HTML exporter wrapped the inline equation number in a paragraph after the
+expression. Export a block number directly beside the math instead. A grid now
+centers the number vertically at the inline end, reserving its own column and
+measuring only the remaining mathematical cell for responsive composition.
+Unnumbered equations keep their full width; composition notices occupy another
+row.
+
+The `equation-numbers.typ` fixture and `?check=equation-numbers` browser module
+pass 627 checks across 320px, 390px and 768px viewports. Each viewport covers
+native MathML, 13px/18px/30px CHTML, narrower/wider containers, short expressions,
+a tall matrix, a multiline derivation, a long sum with a three-digit number,
+unnumbered math, reference retention, and notice placement. No checked expression
+or equation block requires horizontal scrolling after composition. Screenshots
+were inspected at 390px. Reports and images are in
+`dist/reader-equation-number-checks`.
+
+The existing runtime fixture retains all 25 checks at both 320px and 390px,
+including selection, canonical copy, decoration fragments, references and stale
+composition rejection. All 11 build/adapter tests pass using the installed Typst
+package directory, including byte-identical paged output. Prettier and
+`git diff --check` pass. These are local Chromium checks; the managed Reader and
+physical iPhone were not updated or exercised in this change.

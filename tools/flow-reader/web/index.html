@@ -26,11 +26,126 @@
         <output id="reader-size">13</output>
         <button id="reader-larger" aria-label="글자 크게">A+</button>
       </div>
-      <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
-        <option value="system">자동</option>
-        <option value="light">라이트</option>
-        <option value="dark">다크</option>
-      </select>
+      <div class="reader-appearance">
+        <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
+          <option value="system">자동</option>
+          <option value="light">라이트</option>
+          <option value="dark">다크</option>
+        </select>
+        <button
+          id="reader-appearance-open"
+          type="button"
+          popovertarget="reader-appearance-panel"
+          aria-label="화면 모드: 자동"
+          aria-expanded="false"
+          aria-controls="reader-appearance-panel"
+          data-appearance="system"
+          hidden
+        >
+          <svg
+            class="reader-appearance-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <g data-appearance-icon="system">
+              <rect x="3" y="4.5" width="18" height="12" rx="2.5" />
+              <path d="M9 20h6m-3-3.5V20" />
+              <path d="M12 5v11.5" />
+              <path
+                d="M12 5h6.5A2.5 2.5 0 0 1 21 7.5V14a2.5 2.5 0 0 1-2.5 2.5H12Z"
+                fill="currentColor"
+                stroke="none"
+              />
+            </g>
+            <g data-appearance-icon="light">
+              <circle cx="12" cy="12" r="3.75" />
+              <path
+                d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4"
+              />
+            </g>
+            <g data-appearance-icon="dark">
+              <path d="M20.5 13.2A8.7 8.7 0 0 1 10.8 3.5a8.7 8.7 0 1 0 9.7 9.7Z" />
+            </g>
+          </svg>
+          <span id="reader-appearance-label">자동</span>
+          <svg
+            class="reader-appearance-chevron"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m3 4.5 3 3 3-3" />
+          </svg>
+        </button>
+        <div
+          id="reader-appearance-panel"
+          popover="auto"
+          role="dialog"
+          aria-labelledby="reader-appearance-title"
+          aria-describedby="reader-appearance-status"
+          hidden
+        >
+          <div class="reader-appearance-heading">
+            <h2 id="reader-appearance-title">화면 모드</h2>
+            <button
+              class="reader-appearance-close"
+              type="button"
+              popovertarget="reader-appearance-panel"
+              popovertargetaction="hide"
+              aria-label="화면 모드 닫기"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <path d="m5 5 6 6m0-6-6 6" />
+              </svg>
+            </button>
+          </div>
+          <fieldset class="reader-appearance-options">
+            <legend class="reader-visually-hidden">화면 모드 선택</legend>
+            <span class="reader-appearance-indicator" aria-hidden="true"></span>
+            <label class="reader-appearance-option">
+              <input type="radio" name="reader-appearance" value="system" checked />
+              <span class="reader-appearance-sample" data-preview="system" aria-hidden="true"
+                ><span>Aa</span><i></i><i></i
+              ></span>
+              <span class="reader-appearance-name">자동</span>
+              <span class="reader-appearance-check" aria-hidden="true">✓</span>
+            </label>
+            <label class="reader-appearance-option">
+              <input type="radio" name="reader-appearance" value="light" />
+              <span class="reader-appearance-sample" data-preview="light" aria-hidden="true"
+                ><span>Aa</span><i></i><i></i
+              ></span>
+              <span class="reader-appearance-name">라이트</span>
+              <span class="reader-appearance-check" aria-hidden="true">✓</span>
+            </label>
+            <label class="reader-appearance-option">
+              <input type="radio" name="reader-appearance" value="dark" />
+              <span class="reader-appearance-sample" data-preview="dark" aria-hidden="true"
+                ><span>Aa</span><i></i><i></i
+              ></span>
+              <span class="reader-appearance-name">다크</span>
+              <span class="reader-appearance-check" aria-hidden="true">✓</span>
+            </label>
+          </fieldset>
+          <p id="reader-appearance-status" role="status">기기 설정에 맞춰 자동으로 전환합니다.</p>
+        </div>
+      </div>
       <a id="reader-original" hidden>페이지 보기</a>
     </header>
     <div id="reader-status" role="status">문서를 불러오는 중…</div>

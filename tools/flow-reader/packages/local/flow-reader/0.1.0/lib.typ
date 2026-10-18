@@ -72,7 +72,9 @@
       html.elem("div", attrs: (class: "flow-equation"), [
         #it
         #if it.numbering != none {
-          html.elem("span", attrs: (class: "flow-equation-number"),
+          // A block element stays beside the math; an inline span would
+          // acquire a paragraph wrapper in the HTML exporter.
+          html.elem("div", attrs: (class: "flow-equation-number"),
             counter(math.equation).display(it.numbering))
         }
       ])

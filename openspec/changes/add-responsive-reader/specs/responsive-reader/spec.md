@@ -211,6 +211,12 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** replacing the placeholder or a previous fitted drawing preserves the reading anchor
 - **AND** a failed width fit retains its complete drawing and explicit diagnostic
 
+#### Scenario: Numbered display equations reflow
+- **WHEN** a numbered display equation is composed at a different viewport width or reading font size
+- **THEN** its number stays at the inline end, vertically centered beside the complete expression
+- **AND** the expression fits the remaining width without overlapping its number
+- **AND** unnumbered equations retain the full available width
+
 ### Requirement: Revision-aware updates
 The reader SHALL expose the compiled revision and compilation state, retain the last successful output on compilation failure, and preserve active selections across updates. Reading anchors SHALL be preserved during composition and while visual-edit navigation is deferred; an accepted change target SHALL otherwise take priority.
 
@@ -297,6 +303,14 @@ content, quotations, mathematical structure and reading position.
 - **THEN** each uses the matching muted highlight palette with readable foreground ink
 - **AND** original drawing frames and native canvas labels use the surrounding theme's ink, paper, selection and highlight colors
 - **AND** the toolbar controls fit a 320px viewport with their labels on one line
+
+#### Scenario: Choose appearance from the preview panel
+- **WHEN** a reader opens the toolbar's appearance button
+- **THEN** an anchored panel shows labeled Automatic, Light and Dark previews and the current choice
+- **AND** native radio keyboard input changes the appearance immediately without closing the panel
+- **AND** Escape or outside interaction dismisses it, with keyboard dismissal returning focus to the trigger
+- **AND** rapid reopen/selection remains usable, reduced motion removes spatial transitions, and solid high-contrast treatments remain readable
+- **AND** the panel fits the viewport and browsers without popover support retain the native select
 
 #### Scenario: Transparent drawings update or change appearance
 - **WHEN** CeTZ or mannot paint is mounted, cloned, or changes between reading appearances
