@@ -13,6 +13,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Preserve mannot bodies as semantic MathML and render original decoration callbacks for each measured fragment; validate all PDE decoration IDs.
 - [x] Preserve native cancellation and overline bodies as semantic mathematics, with original per-fragment cancellation paint and assistive enclosure notation.
 - [x] Paint visible original terms independently from uncomposed offscreen explanatory copies, and verify both occurrences through ordinary scrolling.
+- [x] Keep empty composed line-break carriers from retaining a false loading notice while preserving pending notices for real content.
 - [x] Add an isolated, opt-in derivation-row composition probe and compare it with the prior adapter against a frozen source snapshot.
 - [x] Implement width-aware mathematical line breaking/alignment at the selected font size, preserving every term and reference.
 - [x] Bind canonical mathematical text to all rendered token occurrences and preserve selected quotations/highlights when script DOM order changes.
