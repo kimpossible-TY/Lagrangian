@@ -6,7 +6,7 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `74d52424` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `5d249412` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
@@ -40,8 +40,10 @@ Regenerate these assets from `assets/branding/tinymist-flow.png` using
 == Reading appearance
 
 The toolbar has two 44px icon buttons, with the Flow identity centered between
-them: outline at the start and reading settings at the end. Font controls,
-appearance previews and saved highlights live in the reading-settings panel.
+them: outline at the start and reading settings at the end.
+Both use plain 21px icons without persistent backgrounds, borders or shadows.
+Font controls, appearance previews and saved highlights live in the
+reading-settings panel.
 The original paged view is available through the Dashboard and its
 existing address; the Reader toolbar has no page-view link.
 

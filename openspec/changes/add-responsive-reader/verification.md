@@ -1814,3 +1814,15 @@ height and no horizontal overflow at 390px. All 388 immutable release files and
 48 loopback/HTTPS asset checks pass. Document/configuration bytes and the original
 PDF service remain unchanged. The managed Reader runs as PID 69222. Receipts and
 the inspected screenshot are in `dist/reader-remove-ready-status-install-20261018/`.
+
+
+## Plain toolbar icons — 2026-10-18
+
+Installed clean runtime `5d24941230eeb464b2162f2a1e3e853ca632b9b8`. Reading settings
+now match the outline's plain icon treatment. Actual HTTPS inspection at 390px
+confirms transparent backgrounds, zero borders and no shadows on both controls,
+21px icons and retained 44px targets. Settings still open, focus the font action
+and close normally; the page has no horizontal overflow. Formatting and strict
+OpenSpec validation pass. All 388 release files and 48 asset delivery checks pass,
+with unchanged document/configuration bytes and original PDF delivery. Receipts
+and the inspected screenshot are in `dist/reader-plain-toolbar-icons-install-20261018/`.
