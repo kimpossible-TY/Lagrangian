@@ -1,5 +1,7 @@
-// Quotations are stored locally. DOM ranges paint them without wrapping MathML.
+// Saved quotations stay local. Source highlights and review strikes are separate
+// explicit actions; DOM ranges paint quotations without wrapping MathML.
 import { logicalTextIndex, rangesFor, selectedIntervals } from "./math-identity.js";
+import { ReaderReviewMarks, sourceSegments } from "./review-marks.js";
 const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets]";
 
 export const textIndex = logicalTextIndex;
@@ -47,6 +49,12 @@ export class ReaderHighlights {
     this.button = document.querySelector("#reader-highlights-open");
     this.button.disabled = false;
     this.supportsPaint = typeof Highlight === "function" && Boolean(globalThis.CSS?.highlights);
+    this.sourceButton = document.querySelector("#reader-source-highlight");
+    this.saveButton = document.querySelector("#reader-highlight-save");
+    this.strikeButton = document.querySelector("#reader-strike");
+    this.undoButton = document.querySelector("#reader-strike-undo");
+    this.clearButton = document.querySelector("#reader-strike-clear");
+    this.review = new ReaderReviewMarks(article, () => this.updateActions());
     this.button.addEventListener("click", () => {
       this.updateList();
       beforeOpen();
@@ -59,14 +67,49 @@ export class ReaderHighlights {
     document
       .querySelector("#reader-highlights-close")
       .addEventListener("click", () => this.dialog.close());
-    document
-      .querySelector("#reader-highlight-save")
-      .addEventListener("pointerdown", (event) => event.preventDefault());
-    document.querySelector("#reader-highlight-save").addEventListener("click", () => this.save());
-    document.querySelector("#reader-selection-cancel").addEventListener("click", () => {
-      window.getSelection()?.removeAllRanges();
-      this.action.hidden = true;
+    const action = (button, perform) => {
+      button.addEventListener("pointerdown", (event) => {
+        this.pressing = true;
+        this.pressedSelection = this.selection;
+        event.preventDefault();
+      });
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      for (const type of ["pointerup", "pointercancel"])
+        button.addEventListener(type, () => {
+          clearTimeout(this.pressTimer);
+          this.pressTimer = setTimeout(() => {
+            this.pressing = false;
+            this.pressedSelection = null;
+          }, 0);
+        });
+      button.addEventListener("click", () => {
+        const selected = this.pressedSelection ?? this.selection;
+        this.pressing = false;
+        this.pressedSelection = null;
+        perform(selected);
+        this.updateActions();
+      });
+    };
+    action(this.saveButton, (selected) => this.save(selected));
+    action(this.sourceButton, (selected) => this.highlightSource(selected));
+    action(this.strikeButton, (selected) => {
+      if (!selected || !this.review.add(selected)) return;
+      this.collapse();
     });
+    action(this.undoButton, () => {
+      this.review.store.undo();
+      this.review.repaint();
+    });
+    action(this.clearButton, () => {
+      this.review.store.clear();
+      this.review.repaint();
+    });
+    document.querySelector("#reader-selection-cancel").addEventListener("click", () => {
+      this.collapse();
+    });
+    window.addEventListener("resize", () => this.position());
+    window.visualViewport?.addEventListener("resize", () => this.position());
+    window.visualViewport?.addEventListener("scroll", () => this.position());
     document.addEventListener("selectionchange", () => {
       clearTimeout(this.selectionTimer);
       this.selectionTimer = setTimeout(() => this.capture(), 80);
@@ -82,6 +125,7 @@ export class ReaderHighlights {
   announce(text) {
     clearTimeout(this.messageTimer);
     this.message.textContent = text;
+    this.position();
     this.messageTimer = setTimeout(() => {
       this.message.textContent = "";
     }, 7000);
@@ -91,7 +135,9 @@ export class ReaderHighlights {
     this.manifest = manifest;
     this.section = section;
     this.selection = null;
-    this.action.hidden = true;
+    this.retainedSelection = null;
+    this.review.onDocument(manifest.documentID);
+    this.updateActions();
     const storageKey = `flow-reader:${manifest.documentID}:highlights:v1`;
     if (storageKey !== this.storageKey) {
       this.storageKey = storageKey;
@@ -123,6 +169,7 @@ export class ReaderHighlights {
   }
 
   capture() {
+    if (this.pressing) return;
     const selection = window.getSelection();
     if (
       !this.manifest ||
@@ -133,10 +180,14 @@ export class ReaderHighlights {
       !this.article.contains(selection.anchorNode) ||
       !this.article.contains(selection.focusNode)
     ) {
-      if (!this.action.contains(document.activeElement)) {
+      if (
+        !this.action.contains(document.activeElement) &&
+        !this.pendingSource &&
+        !this.retainedSelection
+      ) {
         this.selection = null;
-        this.action.hidden = true;
       }
+      this.updateActions();
       return;
     }
     const range = selection.getRangeAt(0);
@@ -150,22 +201,129 @@ export class ReaderHighlights {
           exact: index.text.slice(start, end),
           prefix: index.text.slice(Math.max(0, start - 64), start).trim(),
           suffix: index.text.slice(end, end + 64).trim(),
+          start,
+          end,
+          revision: this.manifest.revision,
+          segments: sourceSegments(index, start, end),
         });
       }
     }
     this.selection = fragments.length ? fragments : null;
-    this.action.hidden = !this.selection;
-    const tooLarge =
-      fragments.length > 32 ||
-      fragments.reduce((size, part) => size + part.exact.length, 0) > 20000;
-    document.querySelector("#reader-highlight-save").disabled = tooLarge;
-    document.querySelector("#reader-selection-hint").textContent = tooLarge
-      ? "구절을 조금 짧게 선택해 주세요."
-      : "선택한 구절";
+    this.retainedSelection = null;
+    this.updateActions();
   }
 
-  save() {
-    if (!this.selection || !this.storageKey) return;
+  updateActions() {
+    const fragments = this.selection;
+    const tooLarge =
+      fragments &&
+      (fragments.length > 32 ||
+        fragments.reduce((size, part) => size + part.exact.length, 0) > 20000);
+    const selected = Boolean(fragments);
+    for (const button of [this.saveButton, this.sourceButton, this.strikeButton])
+      button.hidden = !selected;
+    this.saveButton.disabled = this.sourceButton.disabled = Boolean(tooLarge || this.pendingSource);
+    this.strikeButton.disabled = Boolean(tooLarge);
+    this.sourceButton.textContent = this.pendingSource ? "적용 중…" : "하이라이트";
+    this.undoButton.hidden = this.clearButton.hidden = !this.review.store.marks.length;
+    document.querySelector("#reader-selection-cancel").hidden = !selected;
+    this.action.hidden = !selected && !this.review.store.marks.length && !this.pendingSource;
+    this.action.setAttribute("aria-busy", String(Boolean(this.pendingSource)));
+    document.querySelector("#reader-selection-hint").textContent = tooLarge
+      ? "구절을 조금 짧게 선택해 주세요."
+      : selected
+        ? "선택한 구절"
+        : "빨간 취소선";
+    this.position();
+  }
+
+  position() {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const safe =
+      parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue("--reader-safe-bottom"),
+      ) || 0;
+    const bottom = viewport.offsetTop + viewport.height - safe - 12;
+    const top = bottom - this.action.getBoundingClientRect().height;
+    Object.assign(this.action.style, {
+      left: `${viewport.offsetLeft + viewport.width / 2}px`,
+      top: `${Math.max(viewport.offsetTop + 8, top)}px`,
+      bottom: "auto",
+      maxWidth: `${Math.max(0, viewport.width - 16)}px`,
+    });
+    Object.assign(this.message.style, {
+      top: `${Math.max(viewport.offsetTop + 8, (this.action.hidden ? bottom : top - 8) - this.message.getBoundingClientRect().height)}px`,
+      bottom: "auto",
+    });
+  }
+
+  collapse() {
+    if (this.pendingSource) this.pendingDismissed = true;
+    this.selection = this.retainedSelection = null;
+    window.getSelection()?.removeAllRanges();
+    this.updateActions();
+  }
+
+  async highlightSource(selected) {
+    if (!selected || !this.manifest || this.pendingSource || this.sourceButton.disabled) return;
+    const revision = this.manifest.revision;
+    if (selected.some((part) => part.revision !== revision)) {
+      if (this.selection === selected) this.collapse();
+      this.announce("문서가 변경되었습니다. 다시 선택해 주세요.");
+      return;
+    }
+    this.pendingSource = selected;
+    this.pendingDismissed = false;
+    this.updateActions();
+    this.announce("하이라이트를 소스에 적용하는 중…");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 120000);
+    try {
+      const response = await fetch("api/highlight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision, fragments: selected }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Highlight HTTP ${response.status}`);
+      const result = await response.json();
+      const same =
+        this.manifest.revision === revision &&
+        !this.pendingDismissed &&
+        (!this.selection || JSON.stringify(this.selection) === JSON.stringify(selected));
+      if (["highlighted", "stale"].includes(result.status)) {
+        if (same) this.collapse();
+        this.announce(
+          result.status === "highlighted"
+            ? "소스에 하이라이트를 저장했습니다. 문서를 갱신하는 중…"
+            : "문서가 변경되었습니다. 다시 선택해 주세요.",
+        );
+      } else {
+        if (same) this.selection = this.retainedSelection = selected;
+        this.announce(
+          ["unmapped", "unsupported"].includes(result.status)
+            ? "소스 범위를 정확히 연결할 수 없습니다. 표시 저장을 사용할 수 있습니다."
+            : "하이라이트를 저장하지 못했습니다. 다시 시도해 주세요.",
+        );
+      }
+    } catch {
+      if (
+        this.manifest.revision === revision &&
+        !this.pendingDismissed &&
+        (!this.selection || JSON.stringify(this.selection) === JSON.stringify(selected))
+      )
+        this.selection = this.retainedSelection = selected;
+      this.announce("하이라이트를 저장하지 못했습니다. 연결 후 다시 시도해 주세요.");
+    } finally {
+      clearTimeout(timer);
+      this.pendingSource = null;
+      this.updateActions();
+    }
+  }
+
+  save(selected = this.selection) {
+    if (!selected || !this.storageKey || this.pendingSource) return;
     if (this.records.length >= 200) {
       this.announce("표시는 200개까지 저장할 수 있습니다. 이전 표시를 지운 뒤 다시 시도해 주세요.");
       return;
@@ -173,12 +331,10 @@ export class ReaderHighlights {
     const record = {
       id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
       createdAt: Date.now(),
-      fragments: this.selection,
+      fragments: selected,
     };
     if (!validRecord(record) || !this.persist([...this.records, record])) return;
-    this.selection = null;
-    this.action.hidden = true;
-    window.getSelection()?.removeAllRanges();
+    this.collapse();
     this.announce("표시를 이 브라우저에 저장했습니다.");
     this.resolve();
   }
@@ -255,6 +411,7 @@ export class ReaderHighlights {
       });
     }
     if (this.supportsPaint) CSS.highlights.set("reader-saved", new Highlight(...ranges));
+    this.review.schedule();
   }
 
   updateList() {

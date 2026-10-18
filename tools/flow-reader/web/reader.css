@@ -1,5 +1,6 @@
 :root {
   --reader-font-size: 13px;
+  --reader-safe-bottom: env(safe-area-inset-bottom, 0px);
   /* Keep the chosen text size when Safari changes orientation. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -1115,6 +1116,10 @@ math svg {
   box-shadow: -3px 0 var(--highlight-edge);
 }
 #reader-selection {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
   position: fixed;
   z-index: 6;
   bottom: max(0.7rem, env(safe-area-inset-bottom));
@@ -1133,12 +1138,41 @@ math svg {
 }
 #reader-selection-hint {
   display: block;
+  flex-basis: 100%;
   padding-inline: 0.7rem;
   color: var(--muted);
 }
 #reader-highlight-save {
   background: var(--accent);
   color: var(--paper);
+}
+#reader-selection[hidden],
+#reader-selection button[hidden] {
+  display: none;
+}
+#reader-selection button {
+  min-height: 44px;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+#reader-strike {
+  color: #d52d2d;
+  text-decoration: line-through;
+}
+.reader-review-host {
+  position: relative;
+}
+.reader-review-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+}
+.reader-review-marks span {
+  position: absolute;
+  border-top: 1.3px solid #e43737;
+  transform: translateY(-50%);
 }
 #reader-highlight-message {
   position: fixed;

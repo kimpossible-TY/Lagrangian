@@ -114,3 +114,9 @@ other services, and the mobile default are preserved.
 - [x] Resolve the current outline heading across heading-free transport sections and reveal/focus it whenever the drawer opens, preserving article position.
 - [x] Verify long-outline reopening, nested headings, cross-section reading, keyboard navigation and reduced motion in real browsers.
 - [x] Install the verified Reader from a clean commit and verify managed document and asset delivery.
+
+## Selection review actions
+
+- [x] Add compiler-verified, revision-bound source highlights for selected prose and complete mathematics without changing ambiguous or stale sources.
+- [x] Add red strike, undo and clear controls with document-scoped persistence and layout-aware repainting; preserve saved quotations and pending selections.
+- [ ] Verify source edit rejection/success and browser selection, reflow, reload and review controls; install and verify actual Reader delivery.

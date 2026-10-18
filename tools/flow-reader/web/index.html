@@ -180,9 +180,13 @@
     </div>
     <p id="reader-gesture-message" class="reader-visually-hidden" role="status"></p>
     <button id="reader-change-jump" hidden>변경 위치로</button>
-    <aside id="reader-selection" aria-label="선택한 구절" hidden>
+    <aside id="reader-selection" role="toolbar" aria-label="선택한 구절" hidden>
       <span id="reader-selection-hint">선택한 구절</span>
+      <button id="reader-source-highlight" type="button">하이라이트</button>
       <button id="reader-highlight-save">표시 저장</button>
+      <button id="reader-strike" type="button">빨간 취소선</button>
+      <button id="reader-strike-undo" type="button" hidden>되돌리기</button>
+      <button id="reader-strike-clear" type="button" hidden>표시 지우기</button>
       <button id="reader-selection-cancel">취소</button>
     </aside>
     <p id="reader-highlight-message" role="status" aria-live="polite"></p>

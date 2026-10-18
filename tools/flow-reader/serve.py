@@ -22,6 +22,7 @@ from decorations import extract_decorations, validate_decorations
 from sections import split_document
 from passages import locate_passages
 from changes import ChangeTracker, input_fingerprint
+from source_edits import StaleSelection, apply_highlight
 
 
 class ReaderState:
@@ -34,6 +35,8 @@ class ReaderState:
             json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
         self.changes = ChangeTracker(output / "last-change.json", self.document_id)
         self.lock = threading.RLock()
+        self.edit_lock = threading.Lock()
+        self.accepted_inputs = None
         self.report = {}
         self.document = None
         self.compressed = None
@@ -94,6 +97,7 @@ class ReaderState:
                 self.revision = report["revision"]
                 self.source_stamp = source_stamp
                 self.accepted_dependencies = set(self.dependencies)
+                self.accepted_inputs = inputs
                 self.graphics = report.get("graphics", {})
                 self.canvases = report.get("canvases", [])
                 self.decorations = report.get("decorations", {})
@@ -152,6 +156,29 @@ class ReaderState:
             if revision != self.revision:
                 raise RevisionChanged("The document revision has changed")
         return {"revision": revision, "locations": results}
+
+    def highlight(self, revision, fragments):
+        with self.edit_lock:
+            with self.lock:
+                if not self.bundle or revision != self.revision or self.compiling:
+                    return {"status": "stale", "revision": self.revision}
+                bundle = self.bundle
+                dependencies = set(self.accepted_dependencies)
+                stamp, inputs = self.source_stamp, self.accepted_inputs
+            def fresh():
+                if (revision != self.revision or self.compiling
+                        or stamp != source_signature(self.project, dependencies)
+                        or inputs != input_fingerprint(self.project, dependencies)):
+                    raise StaleSelection("The selected document or its sources have changed")
+            try:
+                fresh()
+                result = apply_highlight(self.project, self.output, bundle, dependencies,
+                                         fragments, fresh)
+            except StaleSelection:
+                result = "stale"
+            except OSError:
+                result = "error"
+            return {"status": result, "revision": revision}
 
     def render_graphics(self, revision, graphs):
         return self.render_dynamic(revision, graphs, "graphics")
@@ -280,7 +307,7 @@ def handler_for(state):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations"}:
+            if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations", "/api/highlight"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -295,7 +322,9 @@ def handler_for(state):
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                if path == "/api/locate":
+                if path == "/api/highlight":
+                    result = state.highlight(request.get("revision"), request.get("fragments"))
+                elif path == "/api/locate":
                     result = state.locate(request.get("revision"), request.get("fragments"))
                 elif path == "/api/decorations":
                     result = state.render_dynamic(request.get("revision"), request.get("decorations"), "decorations")
@@ -371,6 +400,7 @@ def handler_for(state):
                       "/tables.js": ("tables.js", "text/javascript; charset=utf-8"),
                       "/sections.js": ("sections.js", "text/javascript; charset=utf-8"),
                       "/highlights.js": ("highlights.js", "text/javascript; charset=utf-8"),
+                      "/review-marks.js": ("review-marks.js", "text/javascript; charset=utf-8"),
                       "/math-identity.js": ("math-identity.js", "text/javascript; charset=utf-8"),
                       "/math-renderer.js": ("math-renderer.js", "text/javascript; charset=utf-8"),
                       "/language.js": ("language.js", "text/javascript; charset=utf-8"),
