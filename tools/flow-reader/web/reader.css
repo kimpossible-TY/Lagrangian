@@ -438,7 +438,8 @@ button:disabled {
   background: var(--selection);
   color: var(--ink);
 }
-#reader-document mark {
+#reader-document mark,
+#reader-document .flow-highlight {
   background: var(--highlight);
   color: inherit;
   border-radius: 0.12em;
@@ -449,6 +450,11 @@ button:disabled {
   /* Paint the complete expression, including tall fractions and reflowed rows. */
   background: var(--highlight);
   border-radius: 0.12em;
+}
+#reader-document
+  .flow-highlight
+  .flow-math-view:not([data-math-display="block"]):not([data-math-layout="block"]) {
+  display: inline-block;
 }
 :focus-visible {
   outline: 2px solid var(--accent);

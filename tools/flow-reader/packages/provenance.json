@@ -30,6 +30,14 @@
       }
     },
     {
+      "package": "local/text-utils/0.1.2",
+      "upstream": {},
+      "files": {
+        "lib.typ": "7e151150dac47b01ebf7706457906133d74a52abee1b5c43ce824ff89279bd71",
+        "typst.toml": "e1d27052412a39d4f839dede28406159c1c9a5394592a73c2ed5666dcbc60df2"
+      }
+    },
+    {
       "package": "preview/mannot/0.4.0",
       "upstream": {
         "repository": "https://github.com/ryuryu-ymj/mannot",

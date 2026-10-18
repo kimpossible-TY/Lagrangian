@@ -1902,3 +1902,24 @@ The supplied iPhone recording shows animated entry but abrupt dismissal. Closed-
 All 69 JavaScript tests, formatting and strict OpenSpec validation passed. The synthetic touch browser suite passed 37 checks in Chrome at 390×844, 320×740 and 768×360; desktop Safari also passed all 37 using Event-based synthetic contacts because desktop WebKit does not expose Touch construction. The suite explicitly observes visible anticipation with the native dialog already closed, rapid reopening, and swipe-to-open under injected reduced motion. Safari's subpixel button width and transient mathematical status text were corrected in the harness measurements rather than production settings or text rendering.
 
 Installed `0ea814c84cf0417da411de1892bb6abc9e9f02e7`; all 388 immutable files and 48 local/HTTPS asset deliveries match. Accepted document SHA256 `da746265b8f0f084c51ab9a89afc182a8be8f89361f0eed95da07b136bb87951`, configuration and original PDF delivery match the pre-install state. Actual HTTPS native click confirmed 109 outline links, immediate semantic dismissal/focus return with the exit layer still visible, its eventual cleanup, and Return reopening. Receipts: `dist/reader-gesture-repair-install-20261018/`; browser reports: `dist/reader-gesture-repair-20261018/`. The user's iPhone setting and physical touch arbitration cannot be read from this Mac; physical iPhone retesting remains with the device.
+
+## Authored highlighted mathematics — 2026-10-18
+
+The installed `text-utils:0.1.2` helper splits text into `highlight` elements and
+mathematics into filled boxes. HTML exports the former but drops the latter's
+background. A Reader-only fork now exports semantic inline marks and marked
+display blocks, preserving paragraph boundaries, native MathML and the original
+paged implementation. The complete composed math view receives the theme paint.
+The PDE source retains its existing 93 `highlighted` and 40 `highlight` calls
+in the committed sources; no authored calls were rewritten for this fix.
+
+All 13 build/content/Typst integration checks pass, including byte-identical
+PDFs against the installed helper. The actual PDE compile passes its content
+gate with 7,515 math roots, 140 marks and no compiler-loss warnings. The isolated
+browser fixture passes 137 checks at both 320px and 768px with 13px/30px fonts
+and light/dark/light transitions, covering strings, single text children, nested
+formatting/links, tall fractions, display equations, paragraph boundaries,
+canonical copying, complete background geometry and horizontal bounds. Strict
+OpenSpec validation and the development guide's Typst compilation pass.
+Evidence: `dist/reader-highlight-checks/`. Physical iPhone rendering was not
+retested in this pass.

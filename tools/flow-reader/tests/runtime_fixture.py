@@ -105,6 +105,7 @@ def handler_for(state):
             if path == "/":
                 check = parse_qs(urlsplit(self.path).query).get("check", [""])[0]
                 module = {"routing": "routing-browser.js", "native": "native-browser.js",
+                          "highlighted": "highlighted-browser.js",
                           "equation-numbers": "equation-numbers-browser.js",
                           "inline": "inline-browser.js", "structure": "structure-browser.js",
                           "canvas-loading": "canvas-loading-browser.js",
@@ -183,6 +184,9 @@ def handler_for(state):
                                     "text/javascript; charset=utf-8")
             if path == "/runtime-browser.js":
                 return self.respond((ROOT / "tests/runtime-browser.js").read_bytes(),
+                                    "text/javascript; charset=utf-8")
+            if path == "/highlighted-browser.js":
+                return self.respond((ROOT / "tests/highlighted-browser.js").read_bytes(),
                                     "text/javascript; charset=utf-8")
             if path == "/equation-numbers-browser.js":
                 return self.respond((ROOT / "tests/equation-numbers-browser.js").read_bytes(),

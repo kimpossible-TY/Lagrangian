@@ -46,6 +46,10 @@ for authored and saved highlights instead of browser-default yellow. Original
 drawings and mannot annotations blend into their surrounding reading background,
 with readable theme-aware vector paint and label colors.
 
+Preserve the existing `highlighted` helper for plain text and mixed mathematical
+passages. Its HTML adapter must retain native math and paint the complete
+expression through reflow without replacing authored calls with `highlight`.
+
 Non-goals: replacing Typst's parser or evaluator, removing PDF export, changing mathematical meaning, or automatically inferring a responsive layout from every arbitrary drawing program.
 
 Bring the paged reader's last-edit behavior to HTML: persist a project-scoped
