@@ -43,13 +43,11 @@
     const panel = document.querySelector("#reader-appearance-panel");
     // Preserve a working native control on older browsers and standalone fixtures.
     if (!trigger || !panel || typeof panel.showPopover !== "function") return;
-    const label = document.querySelector("#reader-appearance-label");
     const status = document.querySelector("#reader-appearance-status");
     const radios = [...panel.querySelectorAll('input[name="reader-appearance"]')];
     const names = { system: "자동", light: "라이트", dark: "다크" };
     updateAppearance = () => {
       trigger.dataset.appearance = preference;
-      label.textContent = names[preference];
       trigger.setAttribute("aria-label", `화면 모드: ${names[preference]}`);
       panel.style.setProperty(
         "--appearance-index",

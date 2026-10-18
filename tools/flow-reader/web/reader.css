@@ -131,15 +131,13 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  min-width: 5.6rem;
-  padding-inline: 0.65rem;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--paper);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 75%, transparent);
-  font-weight: 550;
-  white-space: nowrap;
   transition:
     background 140ms ease,
     transform 180ms ease;
@@ -164,15 +162,6 @@ button:disabled {
 [data-appearance="light"] [data-appearance-icon="light"],
 [data-appearance="dark"] [data-appearance-icon="dark"] {
   display: inline;
-}
-.reader-appearance-chevron {
-  width: 10px;
-  height: 10px;
-  color: var(--muted);
-  transition: transform 180ms ease;
-}
-[aria-expanded="true"] > .reader-appearance-chevron {
-  transform: rotate(180deg);
 }
 #reader-appearance-panel {
   position: fixed;
@@ -273,7 +262,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
   min-width: 0;
   padding: 0.7rem 0.3rem 0.55rem;
   border-radius: 0.7rem;
@@ -365,15 +353,6 @@ button:disabled {
   transform: scale(0.94);
   transition-duration: 65ms;
 }
-.reader-appearance-name {
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-#reader-appearance-status {
-  margin: 0.75rem 0.25rem 0;
-  color: var(--muted);
-  font-size: 0.75rem;
-}
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   #reader-appearance-panel {
     background: var(--surface);
@@ -388,7 +367,6 @@ button:disabled {
 @media (prefers-reduced-motion: reduce) {
   #reader-appearance-open,
   #reader-appearance-panel,
-  .reader-appearance-chevron,
   .reader-appearance-indicator,
   .reader-appearance-sample {
     transition: none;
@@ -1014,14 +992,6 @@ math svg {
     width: 4.3rem;
     font-size: 12px;
     flex-shrink: 0;
-  }
-  #reader-appearance-open:not([hidden]) {
-    min-width: 4.4rem;
-    padding-inline: 0.4rem;
-    font-size: 12px;
-  }
-  .reader-appearance-chevron {
-    display: none;
   }
   #reader-original {
     margin-inline-start: auto;
