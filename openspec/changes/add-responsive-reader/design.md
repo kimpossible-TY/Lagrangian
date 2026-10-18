@@ -30,10 +30,12 @@ device appearance changes; explicit choices override the device and persist acro
 reloads and documents on the same origin. Storage failures retain a working choice
 for the current visit. Other tabs follow preference changes and resets.
 
-Enhance the native select into a compact icon-and-label button opening a native
+Enhance the native select into a 44px icon-only button opening a native
 auto popover. Three equal radio choices show automatic split, light and dark
 reading samples, with one persistent selection surface moving behind their
-stationary labels. Keep the panel open for immediate comparisons. Native radio
+stationary samples. Keep choice names and the live appearance description
+visually hidden for assistive access; show no Automatic/Light/Dark text in the
+enhanced controls. Keep the panel open for immediate comparisons. Native radio
 keyboard behavior, Escape, outside dismissal and focus return remain available;
 unsupported popover browsers retain the select. Clamp the panel to the viewport
 and keep the toolbar on one line at phone widths. Use a restrained frosted panel,

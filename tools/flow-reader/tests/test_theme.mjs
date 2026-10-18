@@ -30,8 +30,7 @@ function reader({
       this.attributes[name] = value;
     },
   };
-  const label = {},
-    status = {},
+  const status = {},
     properties = {};
   const radios = ["system", "light", "dark"].map((value) => ({
     value,
@@ -57,7 +56,6 @@ function reader({
       ? [
           ["#reader-appearance-open", trigger],
           ["#reader-appearance-panel", panel],
-          ["#reader-appearance-label", label],
           ["#reader-appearance-status", status],
         ]
       : []),
@@ -93,7 +91,6 @@ function reader({
     storage,
     trigger,
     panel,
-    label,
     status,
     radios,
     properties,
@@ -195,7 +192,6 @@ test("preview choices use the existing preference and keep the native fallback a
   assert.equal(page.control.hidden, true);
   assert.equal(page.trigger.hidden, false);
   assert.equal(page.panel.hidden, false);
-  assert.equal(page.label.textContent, "다크");
   assert.equal(page.trigger.attributes["aria-label"], "화면 모드: 다크");
   assert.deepEqual(
     page.radios.filter((radio) => radio.checked).map((radio) => radio.value),
@@ -204,7 +200,7 @@ test("preview choices use the existing preference and keep the native fallback a
   page.choosePreview("light");
   assert.equal(page.root.dataset.theme, "light");
   assert.equal(page.control.value, "light");
-  assert.equal(page.label.textContent, "라이트");
+  assert.equal(page.trigger.attributes["aria-label"], "화면 모드: 라이트");
   assert.equal(page.storage.get(key), "light");
   assert.equal(page.properties["--appearance-index"], 1);
 });
@@ -219,7 +215,7 @@ test("preview state follows automatic device changes and other tabs even without
   assert.equal(page.root.dataset.theme, "dark");
   assert.equal(page.trigger.dataset.appearance, "dark");
   page.otherTab(key, "light");
-  assert.equal(page.label.textContent, "라이트");
+  assert.equal(page.trigger.attributes["aria-label"], "화면 모드: 라이트");
   assert.deepEqual(
     page.radios.filter((radio) => radio.checked).map((radio) => radio.value),
     ["light"],

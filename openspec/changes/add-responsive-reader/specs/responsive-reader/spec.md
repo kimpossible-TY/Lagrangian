@@ -306,7 +306,8 @@ content, quotations, mathematical structure and reading position.
 
 #### Scenario: Choose appearance from the preview panel
 - **WHEN** a reader opens the toolbar's appearance button
-- **THEN** an anchored panel shows labeled Automatic, Light and Dark previews and the current choice
+- **THEN** an icon-only trigger opens an anchored panel showing Automatic, Light and Dark previews and the current choice
+- **AND** choice names and the live appearance description remain accessible to assistive technology without visible mode text in the enhanced controls
 - **AND** native radio keyboard input changes the appearance immediately without closing the panel
 - **AND** Escape or outside interaction dismisses it, with keyboard dismissal returning focus to the trigger
 - **AND** rapid reopen/selection remains usable, reduced motion removes spatial transitions, and solid high-contrast treatments remain readable

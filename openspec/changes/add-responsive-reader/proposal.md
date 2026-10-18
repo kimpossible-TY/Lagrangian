@@ -31,7 +31,7 @@ Keep display equation numbers at the inline end and vertically centered beside
 the complete expression. Reserve their width when composing mathematical lines.
 
 Provide explicit automatic, light and dark appearances with browser-local persistence.
-Present them in an anchored preview panel from a compact icon-and-label button,
+Present them in an anchored preview panel from a compact icon-only button,
 with native radio keyboard behavior, clear selection and restrained material/motion.
 Use coordinated reading and control palettes, and restrained theme-specific colors
 for authored and saved highlights instead of browser-default yellow. Original

@@ -42,9 +42,11 @@ in the current browser across reloads and documents on the same origin. The
 choice applies before the stylesheet paints. With unavailable browser storage,
 the control still works for the current visit.
 
-The icon-and-label appearance button opens an anchored panel with three reading
+The icon-only appearance button opens an anchored panel with three reading
 previews. The selected preview has a checkmark and a moving selection surface;
 the panel stays open while comparing modes. Arrow keys change the radio choice,
+and assistive names and the live description are retained without visible mode
+labels in the enhanced controls.
 Escape returns focus to the button, and outside interaction dismisses the panel.
 Browsers without native popovers retain the standard select. Reduced motion
 removes spatial transitions; reduced transparency and increased contrast use a
