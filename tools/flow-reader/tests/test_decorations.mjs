@@ -45,6 +45,34 @@ test("temporary native math waits for composition before requesting decoration",
     assert.equal(value.measure({ nodes: [{ closest: () => ({ dataset: { mathState } }) }] }), null);
 });
 
+test("empty composed line-break carriers cannot retain a false loading notice", () => {
+  const value = Object.create(MathDecorations.prototype);
+  const surface = { isConnected: true };
+  const notice = { textContent: "old loading message" };
+  let mathState = "ready",
+    width = 0;
+  const node = {
+    dataset: { decorationState: "pending" },
+    closest: () => ({ dataset: { mathState } }),
+    getClientRects: () => [{ width, height: 30 }],
+  };
+  Object.assign(value, {
+    preserve: (change) => change(),
+    surface: () => surface,
+    notices: new Map([[surface, notice]]),
+    records: new Map([["d", { nodes: [node] }]]),
+  });
+  value.status();
+  assert.equal(notice.textContent, "", "No missing paint exists on the empty carrier");
+  width = 20;
+  value.status();
+  assert.match(notice.textContent, /준비하는 중/, "Real unpainted content keeps its notice");
+  width = 0;
+  mathState = "native";
+  value.status();
+  assert.match(notice.textContent, /준비하는 중/, "Native placeholders still await composition");
+});
+
 test("a visible cancellation does not wait for its uncomposed explanatory copy", () => {
   const original = [globalThis.getComputedStyle, globalThis.innerHeight];
   globalThis.getComputedStyle = () => ({ fontSize: "13px", color: "rgb(36, 44, 52)" });

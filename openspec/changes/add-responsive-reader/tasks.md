@@ -1,7 +1,9 @@
 User clarification, 2026-10-17: the mobile solution must make all essential content
 readable directly in the body. Slides, horizontal movement, zoom, and extra clicks
 to enlarge equations are not acceptable substitutes for responsive composition.
-The development prototype still needs mathematical and drawing layout work to meet this contract.
+The strict native Reader now supplies the configured mobile document entry for
+the PDE project. Current acceptance and older experimental failures are separated
+in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 
 - [x] Inspect current engine, preview, Flow profiles, Tail Hosting ownership, and PDE HTML failures.
 - [x] Add isolated target-aware package adapters and a reproducible reader build command.
@@ -18,7 +20,7 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Expose named CeTZ connector endpoints and reroute supported colliding connections around measured text while preserving their original styling and arrowheads.
 - [x] Reuse accepted relationship components across differently grouped requests and compile only changed layouts, retaining source/revision checks.
 - [x] Verify all 15 frozen PDE relationships at 320px with 18px/30px fonts, original vector paint, complete math and zero collision/overflow failures.
-- [ ] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
+- [x] Connect the width-aware math renderer to the Reader with logical fragment geometry, local assets, update handling, and accessibility checks.
 - [x] Integrate local MathJax/CHTML composition, validated publication, selection-aware updates, and per-fragment decoration/relationship refresh in the Reader.
 - [x] Automatically recompose wide inline expressions in the body while retaining their original math style, text order, fragment paint, and narrower/wider container behavior.
 - [x] Resolve actual-line accent overhang at the selected font size without leaving a notice-induced false overflow warning.
@@ -39,22 +41,22 @@ The development prototype still needs mathematical and drawing layout work to me
 - [x] Traverse every actual Reader body section at 320px/30px, checking all 7,006 body-math occurrences against their real nested container budgets.
 - [x] Repeat all 56 actual body sections at 390px/18px with complete expression coverage, canonical text and horizontal-ink checks.
 - [x] Set the 13px default, migrate legacy font choices once, and verify viewport-width handling without automatic whole-page shrinking.
-- [ ] Complete native figure checks for geometry, arrowheads, leaders, palette readability, source updates and device behavior before default rollout.
+- [x] Complete native figure checks for geometry, arrowheads, leaders, palette readability, source updates and device behavior before default rollout.
 - [x] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
-- [ ] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
+- [x] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
 - [x] Add saved quotations with context-based relocation, cross-section navigation, and explicit ambiguous/missing states.
 - [x] Complete broader reading-position and selection update checks on actual PDE content.
 - [x] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.
-- [ ] Verify reader at mobile widths and large font sizes against actual PDE content.
+- [x] Verify reader at mobile widths and large font sizes against actual PDE content.
 - [x] Expose an independent development Reader through Tail Hosting and Tailnet HTTPS.
-- [ ] Connect the mobile entry and explicit view preference after fidelity validation, retaining the original view.
+- [x] Connect the mobile entry and explicit view preference after fidelity validation, retaining the original view.
 - [x] Implement and test a guarded Dashboard document entry, exact profile pairing, explicit browser preference and independently observed Reader mode flags.
 - [x] Publish and verify the companion status/Dashboard integration against the actual managed Reader and original service.
-- [ ] Promote automatic mobile reading after the remaining fidelity and device acceptance gates.
+- [x] Promote automatic mobile reading after the remaining fidelity and device acceptance gates.
 - [x] Verify existing paged service and reader delivery, document operation and rollback.
 
-Implementation checkpoint: the complete PDE document compiles to HTML with no
+Historical implementation checkpoint: the complete PDE document compiles to HTML with no
 missing anchor targets, duplicate SVG IDs, unresolved annotation targets, or
 unhandled compiler-loss warnings. All 15 graphical annotation programs render
 against supplied term geometry; the browser verifies an actual PDE relationship

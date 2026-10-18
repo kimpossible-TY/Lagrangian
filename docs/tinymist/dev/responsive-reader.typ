@@ -4,6 +4,23 @@ The independent reader modules are in `tools/flow-reader`. They generate HTML
 from the saved Typst entrypoint, using a temporary package overlay. The installed
 packages, paged service, and source documents are not rewritten by a reader build.
 
+== Current delivery
+
+On 2026-10-18 the PDE Reader is installed from clean runtime `75192e73` with
+strict publication and native figures enabled. The Tail Dashboard document entry
+automatically opens this Reader on touch devices; explicit Reader/original-page
+choices persist, and desktop automatic selection retains the paged view. The
+original PDF service and its address remain available. All 17 public Reader assets
+match the committed bytes, and its accepted HTML matches the audited snapshot.
+
+The default is 13 CSS pixels. Current acceptance covers every body passage at
+320, 390, 430 and 768px, large body text at 320/430px, all 66 native figures and
+six tables at both 13px/30px across those four widths, original decoration
+callbacks, real graphical relationships, and physical iPhone reading/navigation.
+The completed receipts and exact coverage boundaries are in
+`openspec/changes/add-responsive-reader/verification.md`. VoiceOver speech is
+explicitly deferred by the user. Offline reload is not implemented.
+
 == Required reading behavior
 
 All essential text, equations, figures, and annotations must be readable in the
@@ -42,10 +59,9 @@ horizontal movement, and that reference navigation and back both work:
 check, without a supplied browser version. VoiceOver remains explicitly deferred.
 
 The legacy drawing path still has unresolved widths and small labels. The native
-label option below remains under figure and device validation. Notes and
-relationships are now shown inline automatically.
-A document-wide overflow check is insufficient; audit each component and every
-required reading action before promotion.
+label path below is the deployed mobile path. Notes and relationships appear
+inline automatically. A document-wide overflow check is insufficient; future
+changes still require checks of their affected components and reading actions.
 
 == Legacy adaptive CeTZ canvas
 
@@ -131,8 +147,9 @@ All 1,914 reference display strings outside canvases are unchanged. The extracte
 outside-canvas prose differs only by one whitespace boundary; its non-whitespace
 text is identical. These checks do not establish complete arrow/leader geometry
 or physical-device accessibility. The remaining older diagrams and surface plots
-are covered by the adapters described below. Device and visual-fidelity acceptance
-remain required before mobile-default rollout. On 2026-10-18 the user explicitly
+are covered by the adapters described below. Current figure, visual-fidelity and
+physical-device acceptance is recorded above and in the verification report.
+On 2026-10-18 the user explicitly
 deferred actual VoiceOver speech validation to follow-up work; it is not a gate
 for this rollout and must not be reported as completed. Disabling the option keeps
 the established coordinate-unit delivery path.
@@ -436,6 +453,12 @@ match. The same callback paint can still be reused. A tall-equation fixture
 verifies the original cancellation while its explanation remains uncomposed,
 then verifies that copy through ordinary scrolling at 13px and 30px.
 
+Line breaking can retain an empty mark carrier before its actual painted
+fragments. Once its mathematical view is composed, a zero-area carrier does not
+represent missing paint and cannot retain a loading notice. Native/pending views
+and real unpainted rectangles still report their pending state. Paint audits
+likewise inspect nonempty client rectangles, not empty line-break scaffolding.
+
 The mathematical renderer distinguishes authored derivation alignment from
 matrix/cases/vector structure. Its row composition moves original nodes into
 separately breakable mathematical rows, preserving anchors and nested tables.
@@ -729,6 +752,7 @@ python3 tools/flow-reader/install.py \
   --profile existing-flow-profile \
   --port 23627 \
   --public-url https://your-host.ts.net:23627/ \
+  --semantic-canvases \
   --start
 ```
 
@@ -740,7 +764,7 @@ directory. A stable launcher in `reader/bin/flow-reader` exposes `--profiles`,
 append `-reader` to the parent ID. Port validation includes every saved Flow
 profile, including projects that are currently stopped.
 
-The installer also accepts `--semantic-canvases` for native figure evaluation.
+The installer accepts `--semantic-canvases` for native figure composition.
 Omitting this option preserves its installed setting; `--no-semantic-canvases`
 returns to coordinate-unit delivery. This setting belongs only to the Reader;
 the parent Flow/PDF profile is unchanged.

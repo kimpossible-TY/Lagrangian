@@ -94,6 +94,13 @@ export class MathDecorations {
       for (const record of this.records.values())
         for (const node of record.nodes) {
           if (node.dataset.decorationState === "ready") continue;
+          // Line breaking can leave an empty mark wrapper before its painted
+          // fragments. A composed zero-area carrier has no missing decoration.
+          const temporary = ["native", "pending"].includes(
+            node.closest(".flow-math-view")?.dataset.mathState,
+          );
+          if (!temporary && ![...node.getClientRects()].some((rect) => rect.width && rect.height))
+            continue;
           const surface = this.surface(node);
           if (!surface?.isConnected) continue;
           if (!this.notices.has(surface)) {

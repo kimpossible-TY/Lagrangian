@@ -47,6 +47,12 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **AND** the copied occurrence receives its own current paint during ordinary scrolling
 - **AND** equal geometry cannot cause paint for one occurrence to be mistaken for another
 
+#### Scenario: A mathematical line break leaves an empty mark carrier
+- **WHEN** a composed marked expression retains a zero-area wrapper before its real fragments
+- **THEN** its nonempty fragments keep their original paint
+- **AND** the empty carrier cannot retain a false loading notice
+- **AND** native or pending mathematical placeholders still report pending composition
+
 #### Scenario: A graphical relationship targets a wrapped term
 - **WHEN** one logical marked term occupies several visual fragments
 - **THEN** the relationship request retains every fragment rectangle and the original logical target identity
