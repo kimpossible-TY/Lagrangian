@@ -158,6 +158,11 @@ export class ResponsiveMath {
       container.clientWidth -
       parseFloat(parentStyle.paddingLeft) -
       parseFloat(parentStyle.paddingRight);
+    if (record.display && container.matches(".flow-equation")) {
+      // The equation grid reserves a separate column for its number. Compose
+      // within the mathematical cell, rather than underneath that number.
+      width = record.view.clientWidth;
+    }
     const label = record.view.closest(".flow-canvas-label-body");
     const canvas = label?.closest("[data-flow-canvas-model]");
     if (canvas) {

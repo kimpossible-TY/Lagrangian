@@ -35,11 +35,19 @@ Regenerate these assets from `assets/branding/tinymist-flow.png` using
 
 == Reading appearance
 
-The toolbar's 화면 테마 control offers 자동, 라이트 and 다크. 자동 follows the
+The toolbar's 화면 모드 control offers 자동, 라이트 and 다크. 자동 follows the
 device's current appearance and reacts when it changes. Explicit choices persist
 in the current browser across reloads and documents on the same origin. The
 choice applies before the stylesheet paints. With unavailable browser storage,
 the control still works for the current visit.
+
+The icon-and-label appearance button opens an anchored panel with three reading
+previews. The selected preview has a checkmark and a moving selection surface;
+the panel stays open while comparing modes. Arrow keys change the radio choice,
+Escape returns focus to the button, and outside interaction dismisses the panel.
+Browsers without native popovers retain the standard select. Reduced motion
+removes spatial transitions; reduced transparency and increased contrast use a
+solid panel. This is a locally tuned web material, not native optical rendering.
 
 Light appearance pairs warm paper with charcoal text and a muted amber highlight.
 Dark appearance uses charcoal paper, soft light ink and a deep gold highlight.
@@ -724,6 +732,14 @@ Evidence is under `dist/reader-identity-checks`. This corpus result establishes
 logical binding, not complete mathematical visual fidelity or accessibility.
 
 == Mathematical renderer lifecycle
+
+Display equation numbers occupy their own column at the inline end, vertically
+centered beside the complete expression, including matrices and multiline
+derivations. The renderer measures the remaining mathematical cell for line
+breaking so long equations cannot extend underneath their numbers. Unnumbered
+equations retain the full width. Loading/error notices occupy a separate row.
+The exporter emits a block number directly beside the mathematical element;
+an inline number would acquire an unwanted paragraph wrapper in Typst HTML.
 
 The development Reader composes nearby expressions with a locally bundled
 MathJax 4.1.3 MathML-to-CHTML renderer. The common derivation-row adapter permits

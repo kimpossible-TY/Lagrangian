@@ -30,6 +30,16 @@ device appearance changes; explicit choices override the device and persist acro
 reloads and documents on the same origin. Storage failures retain a working choice
 for the current visit. Other tabs follow preference changes and resets.
 
+Enhance the native select into a compact icon-and-label button opening a native
+auto popover. Three equal radio choices show automatic split, light and dark
+reading samples, with one persistent selection surface moving behind their
+stationary labels. Keep the panel open for immediate comparisons. Native radio
+keyboard behavior, Escape, outside dismissal and focus return remain available;
+unsupported popover browsers retain the select. Clamp the panel to the viewport
+and keep the toolbar on one line at phone widths. Use a restrained frosted panel,
+immediate press feedback and reversible CSS transitions, with solid contrast/
+transparency fallbacks and no spatial motion under reduced-motion preferences.
+
 Warm neutral paper and charcoal palettes define ink, secondary text, links,
 controls, status colors and selection paint together. Authored HTML `mark` and
 saved CSS Highlights share opaque, muted amber in light mode and deep gold in
@@ -84,6 +94,14 @@ the export; do not infer missing language from text. DOM checks do not establish
 spoken screen-reader behavior.
 
 ## Fidelity
+
+Display equations use a grid with a flexible mathematical cell and an optional
+intrinsic-width number cell at the inline end. Center both cells vertically so
+fractions, matrices and multiline derivations retain a centered number. Measure
+the mathematical cell for composition; the enclosing block also contains the
+number and gap and must not supply the expression's line-breaking budget.
+Unnumbered equations use one full-width cell. Loading/error notices span a
+separate row and cannot move the number away from its expression's center.
 
 Page-relative annotation packages cannot run unchanged in HTML. Represent marked mathematical terms and annotation text as linked semantic content. Preserve custom graphical relationships through faithful rendering or explicit adapters. Never silently discard an annotation or mathematical decoration to obtain a successful compile.
 
