@@ -1696,3 +1696,33 @@ service retains PID 65035 and its prior HTTPS response hash. The previous Reader
 release and rollback launcher/configuration backups are retained. Receipts,
 asset hashes, browser measurements and screenshots are under
 `dist/reader-session-install-20261018/`.
+
+
+## Installed appearance controls with saved highlights — 2026-10-18
+
+The final installed Reader runtime is `0b6549dce4cc52bde49e8503b66e3db5a4c49489`.
+It retains the combined appearance/equation changes above and reduces only the
+compact appearance button's minimum width from 4.8rem to 4.4rem. Actual saved
+highlights add a count to the toolbar: the earlier width could put the original
+page link on a second row at a 320px desktop viewport with a scrollbar.
+
+Installation used the existing installer from a clean, isolated sparse checkout
+of the committed revision, preserving unrelated working-tree files. Its 385
+immutable release files pass manifest integrity checks. All 23 public assets
+match the installed bytes over both loopback and registered HTTPS (46 checks).
+The accepted full document passes its content gate, and both origins deliver
+identical HTML. Strict publication and native figures remain enabled.
+
+Actual HTTPS browser checks retain the user's one saved highlight. Automatic,
+Light and Dark each keep toolbar height at 56.1875px and scroll width at the
+305px client width in a 320px viewport; the panel stays inside that viewport.
+Dark survives reload, arrow keys change the native radio choice, and Escape
+closes the panel with focus returned to the trigger. The original Automatic
+preference was restored after testing. The 390px installed-control screenshot
+was inspected; this does not constitute physical iPhone or speech acceptance.
+
+The appearance tests and real clean-commit installer test pass. The managed
+Reader runs as PID 43119. Configuration bytes are unchanged, and the original
+PDF service retains PID 65035 and HTTP 200. The previous immutable release and
+launcher/configuration backups remain available. Receipts and the actual HTTPS
+screenshot are under `dist/reader-appearance-install-20261018-134857/`.
