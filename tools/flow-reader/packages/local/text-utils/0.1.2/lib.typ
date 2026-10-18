@@ -9,14 +9,22 @@
 // capitalizes that letter and adds an indent of 1.5em.
 // Otherwise, it simply replaces the tab with a 1.5em horizontal spacing.
 #let apply-paragraph-tabs(body) = {
+  // The Reader intentionally removes generic paged h() spacing. Preserve this
+  // authored tab as an empty HTML spacer, keeping it out of copied quotations.
+  let tab = context {
+    if target() == "html" {
+      html.elem("span", attrs: (class: "flow-paragraph-tab", "aria-hidden": "true"))
+    } else { h(1.5em) }
+  }
+
   // Pattern: tab followed by optional whitespace and a lowercase letter
   show regex("\u{F000}\s*(\p{Ll})"): it => {
     let char = it.text.match(regex("\u{F000}\s*(\p{Ll})")).captures.first()
-    h(1.5em) + upper(char)
+    tab + upper(char)
   }
 
   // Pattern: standalone tab
-  show regex("\u{F000}"): h(1.5em)
+  show regex("\u{F000}"): tab
 
   body
 }

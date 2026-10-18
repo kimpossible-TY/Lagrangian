@@ -120,6 +120,12 @@ Dismissal travel clears the floating inset and shadow. Reduced motion removes
 spatial travel and cancels active motion
 when the preference changes.
 
+The `paragraph_tab` and `paragraph-tab` helpers retain their authored 1.5em
+spacing through empty HTML spacers. Their width follows the selected reading
+font, including inside highlighted text or beside mathematics; wrapped lines
+return to the ordinary paragraph edge. The spacers add no characters to copied
+quotations. Paged output retains the original horizontal spacing.
+
 The viewport uses device width with initial/minimum scale 1 and
 `shrink-to-fit=no`; it has no maximum-scale cap. The article alone intercepts
 pinch and horizontal drawer gestures for the explicit text-reflow interaction.

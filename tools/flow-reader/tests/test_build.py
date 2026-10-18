@@ -184,6 +184,44 @@ class TypstIntegrationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
 
+    def test_paragraph_tabs_keep_authored_spacing_without_copy_text(self):
+        from xml.etree import ElementTree as ET
+
+        with tempfile.TemporaryDirectory() as temp:
+            project = build.Project(ROOT / "tests/fixtures", Path("paragraph-tabs.typ"),
+                                    self.packages, compiler=self.compiler)
+            report = build.compile_project(project, Path(temp))
+            self.assertEqual(report["exitCode"], 0, (Path(temp) / "compile.log").read_text())
+            self.assertTrue(report["contentGatePassed"], report)
+            source = (Path(temp) / "document.html").read_text()
+            body = source.split("<body>", 1)[1].split("</body>", 1)[0]
+            document = ET.fromstring("<body>" + body + "</body>")
+            tabs = document.findall('.//span[@class="flow-paragraph-tab"]')
+            self.assertEqual(len(tabs), 6)
+            self.assertTrue(all(tab.get("aria-hidden") == "true" for tab in tabs))
+            self.assertTrue(all(not ''.join(tab.itertext()) for tab in tabs))
+            self.assertNotIn("\uf000", ''.join(document.itertext()))
+            paragraphs = document.findall('p')
+            self.assertEqual(len(paragraphs), 7)
+            self.assertIn("lowercase paragraph", ''.join(paragraphs[0].itertext()))
+            self.assertIn("Uppercase paragraph", ''.join(paragraphs[1].itertext()))
+            self.assertIn("Before middle text", ''.join(paragraphs[5].itertext()))
+            self.assertEqual(len(paragraphs[4].findall('.//mark/span[@class="flow-paragraph-tab"]')), 1)
+            self.assertEqual(len(paragraphs[-1].findall('.//span[@class="flow-paragraph-tab"]')), 0)
+            self.assertEqual(report["elements"]["math"], 2)
+
+    def test_paragraph_tab_paged_output_matches_the_installed_helper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            build.prepare_packages(self.packages, work / "overlay")
+            for name, packages in [("original", self.packages), ("reader", work / "overlay")]:
+                command = [self.compiler, "compile", "--creation-timestamp", "1760000000",
+                           "--package-path", str(packages), str(ROOT / "tests/fixtures/paragraph-tabs.typ"),
+                           str(work / f"{name}.pdf")]
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()
