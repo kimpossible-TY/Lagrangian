@@ -1903,6 +1903,27 @@ All 69 JavaScript tests, formatting and strict OpenSpec validation passed. The s
 
 Installed `0ea814c84cf0417da411de1892bb6abc9e9f02e7`; all 388 immutable files and 48 local/HTTPS asset deliveries match. Accepted document SHA256 `da746265b8f0f084c51ab9a89afc182a8be8f89361f0eed95da07b136bb87951`, configuration and original PDF delivery match the pre-install state. Actual HTTPS native click confirmed 109 outline links, immediate semantic dismissal/focus return with the exit layer still visible, its eventual cleanup, and Return reopening. Receipts: `dist/reader-gesture-repair-install-20261018/`; browser reports: `dist/reader-gesture-repair-20261018/`. The user's iPhone setting and physical touch arbitration cannot be read from this Mac; physical iPhone retesting remains with the device.
 
+## Authored paragraph tabs — 2026-10-18
+
+The shared HTML `show h` rule reduced the paragraph helper's `h(1.5em)` to
+ordinary whitespace. The `text-utils` adapter now exports an empty,
+assistive-hidden inline spacer for that helper alone; CSS preserves 1.5em at
+the inherited font. Both aliases, existing text handling and the paged spacing
+remain intact, and no private marker or spacer characters enter quotations.
+
+All 15 build/content/Typst checks pass, including byte-identical paragraph-tab
+PDFs against the installed helper. The browser fixture passes 45 checks at both
+320px and 768px with 13px/30px fonts: exact spacer widths, first-line indentation,
+unindented continuation lines, inline/math/highlight placement, canonical
+quotations/native text copy, ordinary paragraphs and horizontal bounds. Native
+plain-text copy retains the browser path, so its existing whitespace is
+normalized when comparing it with canonical quotation text. The actual PDE
+compile passes with 589 tab spacers, 7,515 math roots, 101 helper highlight
+wrappers, zero private markers and no compiler-loss warnings. Strict OpenSpec,
+formatting and guide compilation checks pass.
+Evidence: `dist/reader-paragraph-tab-checks/`. Physical iPhone behavior was not
+retested in this pass.
+
 ## Authored highlighted mathematics — 2026-10-18
 
 The installed `text-utils:0.1.2` helper splits text into `highlight` elements and

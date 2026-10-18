@@ -727,6 +727,10 @@ button:disabled {
 #reader-document p {
   margin: 0.8em 0;
 }
+#reader-document .flow-paragraph-tab {
+  display: inline-block;
+  inline-size: 1.5em;
+}
 #reader-document h1,
 #reader-document h2,
 #reader-document h3,

@@ -51,6 +51,12 @@ The system SHALL produce a reflowable HTML reading view from the same saved Typs
 - **THEN** fresh healthy delivery can retain the automatic Reader entry
 - **AND** the failed compilation remains visible as a separate status
 
+#### Scenario: Authored paragraph tabs
+- **WHEN** a source uses `paragraph_tab` or `paragraph-tab` in a paragraph, beside math or inside a highlight
+- **THEN** HTML retains the authored 1.5em gap at the current reading font without indenting wrapped continuation lines
+- **AND** the spacer adds no private marker or synthetic characters to copied quotations
+- **AND** the existing paged output and ordinary paragraphs remain unchanged
+
 ### Requirement: Hierarchical heading outline
 The Reader SHALL include exported h1 through h6 headings and deeper ARIA headings in its outline and indent each additional heading level consistently relative to the shallowest exported level.
 

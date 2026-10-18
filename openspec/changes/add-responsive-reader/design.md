@@ -140,6 +140,13 @@ paint changes do not alter logical text, label measurements or reading anchors.
 
 ## Output and ownership
 
+The `text-utils` paragraph-tab show rules export an empty, assistive-hidden
+`span.flow-paragraph-tab` for HTML. Its inline size is 1.5em at the inherited
+reading font, so the authored first-line or inline gap survives reflow. An empty
+span contributes no characters to canonical quotations or mathematical identity.
+Both public aliases keep using the original show rules and paged `h(1.5em)`;
+the Reader's generic removal of unrelated paged horizontal spacing is unchanged.
+
 Use Typst's HTML target for semantic text and mathematical output. Add target-aware compatibility adapters for the PDE common packages. Preserve the source documents and existing package installation; build reader adapters into an isolated package overlay with recorded provenance. Any compiler modifications must be explicit, pinned, and tested independently.
 
 The reader frontend and its asset/compile service live under `tools/flow-reader`. Existing engine compilation is the initial integration boundary. Flow supplies project root, entrypoint, fonts, and packages; Tail Hosting supplies HTTPS ingress. A separate reader process may be used during rollout so reader failures cannot interrupt the paged service.
