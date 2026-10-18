@@ -1923,3 +1923,13 @@ canonical copying, complete background geometry and horizontal bounds. Strict
 OpenSpec validation and the development guide's Typst compilation pass.
 Evidence: `dist/reader-highlight-checks/`. Physical iPhone rendering was not
 retested in this pass.
+
+Installed clean runtime `517ecba983cd8a18541cd54d955a21acc5a6dd2d` through the
+managed installer. All 392 immutable files match their recorded hashes;
+HTTPS CSS/theme/renderer bytes match the release. Configuration bytes are
+unchanged and the original PDF endpoint remains HTTP 200. The accepted PDE
+document passes its content gate with all 7,515 math roots and 101 helper-owned
+highlight wrappers. At 390px, the actual Connections passage's two expressions
+are ready, share their surrounding text's background and leave page width equal
+to client width. Delivery receipts and the inspected screenshot are in
+`dist/reader-highlight-checks/deployment/`.
