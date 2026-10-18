@@ -67,7 +67,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Persist accepted HTML visual changes per project, including disconnected edits, restart restoration, deletion targets and invalid-record recovery.
 - [x] Follow each revision-bound change after rendering, defer during recent gestures, and retain explicit-link/history and selection behavior.
 - [x] Verify server history and actual browser update/reload/button/reconnect flows; document the feature.
-- [ ] Install the verified last-edit Reader commit and check its managed lifecycle and registered HTTPS document delivery.
+- [x] Install the verified last-edit Reader commit and check its managed lifecycle and registered HTTPS document delivery.
 
 Historical implementation checkpoint: the complete PDE document compiles to HTML with no
 missing anchor targets, duplicate SVG IDs, unresolved annotation targets, or

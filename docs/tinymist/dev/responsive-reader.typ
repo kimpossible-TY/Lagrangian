@@ -6,12 +6,16 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `92fa4a5b` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `eede7048` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
-original PDF service and its address remain available. All 17 public Reader assets
-match the committed bytes, and its accepted HTML matches the audited snapshot.
+original PDF service and its address remain available. All 20 public Reader assets
+match the committed bytes, and HTTPS document delivery matches the managed HTML.
+This release adds last-visual-edit restoration. Its first accepted document
+establishes the history baseline; the next accepted visual edit creates the first
+restoration target. The new navigation behavior has desktop WebKit verification;
+physical iPhone acceptance of that behavior remains outstanding.
 
 The default is 13 CSS pixels. Current acceptance covers every body passage at
 320, 390, 430 and 768px, large body text at 320/430px, all 66 native figures and
