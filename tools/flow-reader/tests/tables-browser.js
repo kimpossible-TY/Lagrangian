@@ -116,6 +116,8 @@ try {
         )
         .click();
     for (const [index, target] of targets.entries()) {
+      if (query.has("width") && innerWidth !== Number(query.get("width")))
+        throw new Error(`Requested viewport changed before table ${index + 1}`);
       report.active = { font, table: index + 1 };
       publish();
       if (!document.getElementById(target.anchor)) {
@@ -183,8 +185,11 @@ try {
         table.scrollWidth <= table.clientWidth + 1 &&
           document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
       );
+      if (query.has("width") && innerWidth !== Number(query.get("width")))
+        throw new Error(`Requested viewport changed while reading table ${index + 1}`);
       report.measurements.push({
         font,
+        viewport: innerWidth,
         index: index + 1,
         cells: cells.length,
         math: target.math,
