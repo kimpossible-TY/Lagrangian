@@ -1826,3 +1826,44 @@ and close normally; the page has no horizontal overflow. Formatting and strict
 OpenSpec validation pass. All 388 release files and 48 asset delivery checks pass,
 with unchanged document/configuration bytes and original PDF delivery. Receipts
 and the inspected screenshot are in `dist/reader-plain-toolbar-icons-install-20261018/`.
+
+
+## Floating outline capsule — 2026-10-18
+
+Installed clean runtime `0c3d09807b858e2e2c1ae0dfc695acca65f6a231`. The outline
+floats below the toolbar with 16px side gaps, a 32px radius, a restrained frosted
+surface and a softer scrim. It fits short outlines and limits long ones to 60%
+of viewport height or 34rem. All heading levels retain wrapping, indentation and
+44px targets. Opening marks the current heading with an accessible location pill
+and reveals it inside the independently scrolling list. A close icon, outside
+dismissal, Escape, swipe cancellation and interruptible spring motion remain.
+Travel includes the floating inset and shadow; the controller also preserves
+scroll coordinates through native dialog focus before resolving the current row.
+
+All 68 JavaScript tests, syntax/formatting checks and strict OpenSpec validation
+pass. The browser fixture passes 31 interaction checks at 320×844, 390×844,
+768×1024 and 768×360, including nonzero reading-position preservation after both
+opening and settling, current-row semantics, floating bounds, reversal,
+cancellation, reduced-motion changes, fallbacks and canonical text/math order.
+The reports are in `dist/reader-floating-outline-checks/`.
+
+Actual registered HTTPS checks in Chrome cover the long PDE outline at those
+widths and a short landscape viewport. The 390px capsule measures 343×506.39px
+at (16, 68), and the 768×360 capsule remains within (16, 68)–(368, 284), including
+its 44px close control. Light and dark surfaces were inspected. Native pointer
+activation keeps the reading offset at 343px and marks Notation; outside dismissal
+also retains 343px. Escape returns focus to the outline icon, navigation focuses
+the article, and wheel input scrolls the outline. The current row is revealed
+again on reopen. Automatic appearance is restored and no browser errors occur.
+Screen pointer input was used for the sticky toolbar: locator-based automation
+scrolls that trigger's original layout position before dispatch, which initially
+looked like an application scroll regression.
+
+All 388 release files pass integrity checks; all 24 public assets match over
+loopback and HTTPS (48 checks). Accepted document/configuration bytes and the
+original PDF service remain unchanged. The Reader runs as PID 90581. Installed
+light/dark screenshots, measurements and delivery receipts are in
+`dist/reader-floating-outline-install-20261018-final/`. These checks do not
+establish physical iPhone gesture feel, frame timing or screen-reader speech;
+those were not repeated for this update. Solid contrast/transparency fallbacks
+are implemented; operating-system preference emulation was unavailable.

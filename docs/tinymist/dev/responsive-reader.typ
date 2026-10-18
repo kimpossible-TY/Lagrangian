@@ -6,7 +6,7 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
-On 2026-10-18 the PDE Reader is installed from clean runtime `5d249412` with
+On 2026-10-18 the PDE Reader is installed from clean runtime `0c3d0980` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
 choices persist, and desktop automatic selection retains the paged view. The
@@ -16,7 +16,8 @@ The normal accepted-document caption below the toolbar is hidden without spacing
 loading, compilation and error diagnostics retain their status region.
 This release reduces the toolbar to outline/settings icons, moves text size,
 appearance and saved highlights into settings, and adds article pinch-to-text
-reflow and an outline swipe drawer. Actual HTTPS checks cover 320/390/768px
+reflow and a floating outline capsule with current-location emphasis.
+Actual HTTPS checks cover 320/390/768px
 layouts, font buttons, outline navigation and keyboard/focus behavior. Synthetic
 touch checks cover cancellation, scroll/selection guards and reduced motion.
 Physical iPhone acceptance of the new gestures remains outstanding.
