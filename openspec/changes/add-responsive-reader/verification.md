@@ -2234,3 +2234,14 @@ fully indexed delta labels at 13/18/24px; close-control and focus geometry at
 320/390/393px with 13/18/30px fonts, light/dark appearance, touch dismissal,
 viewport bounds and no browser exceptions. Inspected the actual WebKit delta
 and close-control screenshots in `dist/reader-compact-math/pde-fixed/`.
+
+Installed immutable runtime `5c11c19998d779a4616ff524801759e084130876` from a
+clean detached checkout. The complete PDE preflight retains all 262 annotations
+and passes the strict content gate without compiler-loss warnings. The running
+app-managed Reader is verified at PID 11055. All 405 immutable files and 52
+local/registered-HTTPS asset checks pass; the document hash, configuration and
+original PDF listener/content remain unchanged. Chromium and WebKit each pass
+12 existing installation checks plus 24 delta/close-control checks against the
+actual HTTPS service. Receipts and inspected screenshots are in
+`dist/reader-compact-math/deploy/`. Both isolated validation servers were stopped.
+Physical iPhone/VoiceOver execution was not performed.
