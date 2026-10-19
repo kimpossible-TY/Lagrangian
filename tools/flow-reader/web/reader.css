@@ -220,15 +220,7 @@ button:disabled {
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
-#reader-highlights-open {
-  width: 100%;
-  margin-top: 0.75rem;
-  padding: 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 0.7rem;
-  text-align: start;
-  font-size: 0.8125rem;
-}
+
 @starting-style {
   #reader-appearance-panel:popover-open {
     opacity: 0;
@@ -1233,29 +1225,6 @@ math svg {
   color: var(--muted);
   font: inherit;
 }
-#reader-highlights {
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 0.8rem;
-  max-width: min(90vw, 40rem);
-  max-height: 80vh;
-  padding: 1.3rem;
-}
-#reader-highlights::backdrop {
-  background: #0005;
-}
-#reader-highlights-close {
-  display: block;
-  margin-inline-start: auto;
-}
-::highlight(reader-saved) {
-  background: var(--highlight);
-  color: inherit;
-}
-.reader-saved-block {
-  box-shadow: -3px 0 var(--highlight-edge);
-}
 #reader-selection {
   display: flex;
   flex-direction: column;
@@ -1432,46 +1401,6 @@ math svg {
 }
 #reader-highlight-message:empty {
   display: none;
-}
-#reader-highlights {
-  width: 36rem;
-}
-#reader-highlights > p {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-#reader-highlights-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-#reader-highlights-list li {
-  display: flex;
-  align-items: start;
-  gap: 0.3rem;
-  border-top: 1px solid var(--line);
-  padding-block: 0.6rem;
-}
-.reader-highlight-jump {
-  flex: 1;
-  min-width: 0;
-  text-align: start;
-}
-.reader-highlight-quote {
-  display: block;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 10em;
-  overflow: auto;
-  font:
-    1rem/1.5 Georgia,
-    serif;
-}
-.reader-highlight-location {
-  display: block;
-  margin-top: 0.5rem;
-  color: var(--muted);
-  font-size: 0.75rem;
 }
 .reader-section {
   display: flow-root;

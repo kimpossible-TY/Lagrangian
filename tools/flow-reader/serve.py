@@ -25,16 +25,19 @@ from sections import split_document
 from passages import locate_passages
 from changes import ChangeTracker, input_fingerprint
 from source_edits import StaleSelection, apply_highlight
+from source_mapping import source_location
+from focus import FocusStore, selected_text, source_context
 
 
 class ReaderState:
-    def __init__(self, project, output, original_url, allow_incomplete):
+    def __init__(self, project, output, original_url, allow_incomplete, focus_file=None):
         self.project = project
         self.output = output
         self.original_url = original_url
         self.allow_incomplete = allow_incomplete
         self.document_id = hashlib.sha256(
             json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
+        self.focus = FocusStore(focus_file or output / "focus.json", project, self.document_id)
         self.changes = ChangeTracker(output / "last-change.json", self.document_id)
         self.lock = threading.RLock()
         self.edit_lock = threading.Lock()
@@ -80,6 +83,7 @@ class ReaderState:
             document = (self.output / "document.html").read_bytes()
             bundle = split_document(document.decode(), report["revision"])
             bundle.manifest["documentID"] = self.document_id
+            bundle.manifest["service"] = self.focus.service
             inputs = input_fingerprint(self.project, self.dependencies)
             if source_stamp != source_signature(self.project, self.dependencies):
                 raise ValueError("Sources changed before Reader publication")
@@ -183,6 +187,7 @@ class ReaderState:
                 "elapsedSeconds", "compiledAt",
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
+                  "service": self.focus.service,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "semanticCanvases": self.project.semantic_canvases,
                   "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
@@ -220,6 +225,43 @@ class ReaderState:
             except OSError:
                 result = "error"
             return {"status": result, "revision": revision}
+
+    def inputs_current(self):
+        return (bool(self.bundle) and not self.compiling
+                and self.source_stamp == source_signature(self.project, self.accepted_dependencies)
+                and self.accepted_inputs == input_fingerprint(self.project, self.accepted_dependencies))
+
+    def save_focus(self, revision, fragments, service, viewer_id):
+        """Save explicit context without editing source or requesting compilation."""
+        if (not isinstance(revision, str) or not 1 <= len(revision) <= 64
+                or type(viewer_id) is not int or not 0 < viewer_id < 2 ** 53):
+            raise ValueError("Expected a rendered revision and viewer identity")
+        with self.lock:
+            if service != self.focus.service or revision != self.revision or not self.inputs_current():
+                return self.focus.record("stale", revision, self.revision, viewer_id=viewer_id)
+            text, locations = selected_text(self.bundle, fragments)
+            location = source_location(self.project, self.accepted_dependencies, self.bundle, fragments)
+            try:
+                source = source_context(location)
+            except (OSError, ValueError):
+                if not self.inputs_current():
+                    return self.focus.record("stale", revision, self.revision, viewer_id=viewer_id)
+                raise
+            if not self.inputs_current():
+                return self.focus.record("stale", revision, self.revision, viewer_id=viewer_id)
+            start, end = locations[0], locations[-1]
+            return self.focus.record(
+                "selected" if source else "unmapped", revision, self.revision,
+                selection={"text": text, "fragments": [
+                    {name: part.get(name, "") for name in ("key", "exact", "prefix", "suffix")}
+                    for part in fragments]}, source=source,
+                position={"start": {"key": start["key"], "section": start["section"], "offset": start["start"]},
+                          "end": {"key": end["key"], "section": end["section"], "offset": end["end"]},
+                          "offset_unit": "normalized_unicode"}, viewer_id=viewer_id)
+
+    def read_focus(self):
+        with self.lock:
+            return self.focus.read(self.revision, self.inputs_current())
 
     def render_graphics(self, revision, graphs):
         return self.render_dynamic(revision, graphs, "graphics")
@@ -355,7 +397,8 @@ def handler_for(state):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations", "/api/highlight"}:
+            if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
+                            "/api/highlight", "/api/focus"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -370,7 +413,13 @@ def handler_for(state):
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                if path == "/api/highlight":
+                if path == "/api/focus":
+                    try:
+                        result = state.save_focus(request.get("revision"), request.get("fragments"),
+                                                  request.get("service"), request.get("viewerID"))
+                    except OSError:
+                        return self.respond(b"Could not save Codex context", "text/plain", 503)
+                elif path == "/api/highlight":
                     result = state.highlight(request.get("revision"), request.get("fragments"))
                 elif path == "/api/locate":
                     result = state.locate(request.get("revision"), request.get("fragments"))
@@ -391,6 +440,12 @@ def handler_for(state):
             path = url.path.rstrip("/") or "/"
             if path == "/api/state":
                 return self.respond(json.dumps(state.public()).encode(), "application/json")
+            if path == "/api/focus":
+                try:
+                    return self.respond(json.dumps(state.read_focus(), ensure_ascii=False).encode(),
+                                        "application/json")
+                except (OSError, ValueError):
+                    return self.respond(b"Focus record unavailable", "text/plain", 503)
             if path == "/health":
                 return self.respond(json.dumps({"ready": state.revision is not None}).encode(),
                                     "application/json", 200 if state.revision else 503)
@@ -502,13 +557,15 @@ def main():
     parser.add_argument("--original-url", required=True)
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--watch", action="store_true")
+    parser.add_argument("--focus-file", type=Path, help="Absolute Codex context file (default OUTPUT/focus.json)")
     parser.add_argument("--allow-incomplete", action="store_true",
                         help="Local development only: show explicit fidelity diagnostics")
     args = parser.parse_args()
     project = Project(args.root.resolve(), args.entry, args.package_path.resolve(),
                       tuple(args.font_path), args.compiler, args.semantic_canvases)
     project.relative_entry()
-    state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete)
+    state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete,
+                        focus_file=args.focus_file)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))
     state.prewarm = True
     stopped = threading.Event()

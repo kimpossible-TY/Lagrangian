@@ -15,7 +15,7 @@ match the committed bytes, and HTTPS document delivery matches the managed HTML.
 The normal accepted-document caption below the toolbar is hidden without spacing;
 loading, compilation and error diagnostics retain their status region.
 This release reduces the toolbar to outline/settings icons, moves text size,
-appearance and saved highlights into settings, and adds article pinch-to-text
+appearance into settings, and adds article pinch-to-text
 reflow and a floating outline capsule with current-location emphasis.
 Actual HTTPS checks cover 320/390/768px
 layouts, font buttons, outline navigation and keyboard/focus behavior. Synthetic
@@ -43,7 +43,7 @@ Regenerate these assets from `assets/branding/tinymist-flow.png` using
 The toolbar has two 44px icon buttons, with the Flow identity centered between
 them: outline at the start and reading settings at the end.
 Both use plain 21px icons without persistent backgrounds, borders or shadows.
-Font controls, appearance previews and saved highlights live in the
+Font controls and appearance previews live in the
 reading-settings panel.
 Reading panels use concise action labels and empty-state messages, without
 gesture instructions or explanatory helper paragraphs.
@@ -63,13 +63,13 @@ description are retained without visible mode labels in the enhanced controls.
 Arrow keys change the radio choice, Escape returns focus to the button, and
 outside interaction dismisses the panel.
 Browsers without native popovers retain the standard select within a dismissible
-settings panel, alongside font controls and saved highlights. Reduced motion
+settings panel, alongside font controls. Reduced motion
 removes spatial transitions; reduced transparency and increased contrast use a
 solid panel. This is a locally tuned web material, not native optical rendering.
 
 Light appearance pairs warm paper with charcoal text and a muted amber highlight.
 Dark appearance uses charcoal paper, soft light ink and a deep gold highlight.
-Authored highlights and browser-saved quotations share the matching palette;
+Authored highlights use the matching palette;
 native text selection uses a separate sage tone.
 The `highlighted` text helper exports its original text, links and native math
 inside a semantic mark. Its complete mathematical views share that background,
@@ -82,7 +82,7 @@ and vector paint retain their color family at readable contrast. Original paint
 attributes, geometry, SVG masks/gradients and raster pixels remain intact.
 The source surface plots already have transparent raster backgrounds.
 Appearance changes recolor the current content without document
-compilation or changing saved quotations and reading positions.
+compilation or changing source highlights and reading positions.
 
 == Required reading behavior
 
@@ -379,38 +379,69 @@ publication. The served revision includes that snapshot, so changes to a dynamic
 drawing invalidate the revision even when its placeholder HTML is unchanged.
 
 The reader supports native text selection, a heading outline, font size changes,
-width-aware equations, visible inline annotations, reading anchors, and saved
-highlights. Select a passage and choose the save action; the toolbar's saved list
-returns to the passage. Records belong to this document in the current browser's
-local storage. They do not synchronize devices and are removed with site data.
+width-aware equations, visible inline annotations and reading anchors.
 Updates wait for an active selection or any reader dialog to close.
 
-Selected passages expose Highlight, Save quotation and Red strike in a floating
+Selected passages expose Highlight, Save for Codex and Red strike in a floating
 capsule with labeled icons and a close control. Undo and clear appear in a
 separate review capsule while strikes exist. The controls follow the visible
 viewport above its bottom safe area, with solid accessibility fallbacks.
-Highlight saves a
-real `#highlighted[...]` call in the original source when the document provides
-that math-aware helper, or standard `#highlight[...]` for ordinary literal text.
-The service compiles a marked candidate in a separate project shadow and verifies
-the exact selected occurrence and unchanged complete body text before saving.
-The final source must also compile with the original PDF packages.
-Complete mathematics is supported through the helper; ambiguous/reused output,
-partial formulas and stale sources remain unchanged. Rejected selections retain
-the existing save action. A newer selection is preserved during an older request.
+Highlight saves a real `#highlighted[...]` call in the original source when the
+document provides that math-aware helper, or standard `#highlight[...]` for
+ordinary literal text. The service verifies an isolated marked candidate and
+unchanged complete body before saving; the final source must also compile with
+the original PDF packages. Uncertain selections remain available for Codex save.
 
-Red strikes are temporary browser-local review marks. They follow the selected
-logical text through reflow and reload, expose undo and clear, and never modify
-source or request compilation. Changed block text does not receive an old mark.
-Unavailable local storage retains in-memory review controls.
+*Save for Codex* (Codex 저장) explicitly sends the selected logical text, up to
+8000 characters, to the Reader service on the Mac. It replaces that service's
+last context record and confirms only after acknowledgment. It never edits
+source, requests compilation, sends a Codex message or starts a conversation.
+The record includes document identity, accepted/rendered revisions, process/start
+identity, selection time, logical block endpoints and a verified source excerpt
+when a unique supported location is available. Mathematics, generated content
+and multi-block selections can save their text with an explicit unmapped source;
+HTML blocks are not represented as PDF pages. Failed requests retain selection
+for retry, while old responses cannot clear a newer selection.
 
-A highlight stores exact text and surrounding context for each selected block.
-`/api/locate` resolves it against the accepted snapshot, including when edits move
-it to another section or change an automatically generated label. Ambiguous or
-removed text remains in the list with an explicit status. CSS Custom Highlight
-ranges preserve MathML structure; unsupported browsers show a block marker and
-the saved quotation. Source selection sharing, offline reload, and the remaining
-mobile rollout work are tracked in the responsive-reader OpenSpec change.
+Managed profiles expose a separate absolute `focusFile` for every Reader,
+distinct from the parent paged preview. Read the configured Reader explicitly:
+
+```sh
+python3 tools/flow-reader/manage.py --profiles
+python3 tools/flow-reader/manage.py --focus typst-pde-reader
+```
+
+For a standalone or terminal-owned Reader, use its explicit loopback URL:
+
+```sh
+python3 tools/flow-reader/focus.py --url http://127.0.0.1:24002/
+```
+
+The local reader freshly verifies live service identity, accepted revision,
+source inputs/hash/excerpt and a five-minute selection age. `selection_usable`
+permits discussion of fresh unmapped text; exact source-dependent work also
+requires `needs_reselection: false`. Changed documents, restarted/unavailable
+services and old records require selecting again. The default record path is
+`OUTPUT/focus.json`; standalone `serve.py --focus-file /absolute/context.json`
+can choose a separate absolute path.
+
+`apps/macos/tail-hosting-reader-focus.patch` prepares the existing local
+`tail-hosting focus` command to list/filter both paged previews and HTML Readers
+and delegate HTML reads to the configured Reader manager. After installing that
+adapter and the updated Reader manager, the existing selection-reader workflow
+can use `tail-hosting focus --preview typst-pde-reader` or the Reader's exact URL.
+Project/document filters shared by both views require an explicit Reader ID.
+The companion patch is tested in an isolated copy; implementation alone does not
+install it or modify an existing global Codex skill or running service.
+
+The former browser quotation library, saved-list entry, stored-quotation paint
+and relocation UI have been removed. Existing
+`flow-reader:<documentID>:highlights:v1` data is left untouched: it is neither
+read nor deleted nor automatically converted into Codex context.
+
+Red strikes remain browser-local review marks with undo and clear. They follow
+logical text through reflow and reload, never edit source, and do not paint
+changed block text. Unavailable storage retains in-memory review controls.
 
 == Last visual edit
 
@@ -958,7 +989,7 @@ checks. Evidence is `alignment-corpus-273-18.json`, `alignment-corpus-273-30.jso
 `web/math-renderer.js` retains the original semantic template and builds each
 candidate in a hidden, inert stage. It publishes only after fonts settle and all
 source tokens and marks bind successfully. Publication refreshes fragment paint,
-relationship geometry, and saved highlights while preserving the reading anchor.
+relationship geometry, and source highlights while preserving the reading anchor.
 The renderer checks revision generation, mounted records, current width/font,
 and active selections after asynchronous work. Font changes wait for selection
 to end; source updates continue to use the Reader's existing selection/dialog
@@ -1112,7 +1143,7 @@ python3 tools/flow-reader/tests/continuous_fixture.py \
 ```
 
 The fixture generator refuses to overwrite an existing source. Verify automatic
-forward/backward loading, distant-section parking, native selection, saved quote
+forward/backward loading, distant-section parking, native selection, Codex context
 return, reload, browser history, and source changes that move a block across a
 transport boundary. Interrupt only the test server to verify automatic recovery.
 The current browser evidence is under `dist/reader-continuous-checks`.

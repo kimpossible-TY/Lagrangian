@@ -1,4 +1,4 @@
-"""Locate saved quotations in an accepted document without guessing ambiguous matches."""
+"""Index accepted document passages for explicit selections and source navigation."""
 
 from html.parser import HTMLParser
 

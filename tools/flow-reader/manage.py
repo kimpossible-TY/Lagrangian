@@ -67,6 +67,7 @@ class ReaderManager:
         parents = json.loads(run([config["flowManager"], "--profiles"]))["profiles"]
         by_id = {profile["id"]: profile for profile in parents}
         ids, ports, result = set(by_id), {profile["port"] for profile in parents}, []
+        focus_files = {str(Path(p["focusFile"]).resolve()) for p in parents if p.get("focusFile")}
         for service in config["services"]:
             identifier, parent_id = service.get("id"), service.get("parentID")
             if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", identifier) or identifier in ids:
@@ -83,11 +84,16 @@ class ReaderManager:
                         or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
                     raise ValueError("Reader public URL must be an HTTPS origin")
             parent = by_id[parent_id]
+            focus_file = Path(service.get("focusFile", str(self.data / "documents" / identifier / "focus.json")))
+            if not focus_file.is_absolute() or str(focus_file.resolve()) in focus_files:
+                raise ValueError("Reader focusFile must be absolute and separate from other services")
+            focus_files.add(str(focus_file.resolve()))
             semantic_canvases = service.get("semanticCanvases", False)
             if type(semantic_canvases) is not bool:
                 raise ValueError("Reader semanticCanvases must be a boolean")
             profile = {**parent, "id": identifier, "parentID": parent_id,
                        "name": parent["name"] + " · Reader", "port": port,
+                       "focusFile": str(focus_file.resolve()),
                        "label": LABEL_PREFIX + identifier, "publicURL": url,
                        "originalURL": parent.get("publicURL") or f"http://127.0.0.1:{parent['port']}/",
                        "development": bool(service.get("development", False)),
@@ -111,6 +117,7 @@ class ReaderManager:
         arguments = [config["python"], str(HERE / "serve.py"), "--root", str(root),
                      "--entry", profile["entry"], "--package-path", profile["packages"],
                      "--compiler", config["compiler"], "--output", str(self.data / "documents" / profile["id"]),
+                     "--focus-file", profile["focusFile"],
                      "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
         for font in profile["fonts"]:
             if not (root / font).exists():
@@ -195,14 +202,24 @@ def main(argv=None):
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))
         return
     if not arguments or len(arguments) not in {2, 3}:
-        raise ValueError("Commands: --profiles, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart ID")
+        raise ValueError("Commands: --profiles, --focus ID, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart ID")
     profile = manager.profile(arguments[-1])
     if profile is None:
         raise ValueError("Unknown reader profile")
     action = arguments[0]
     if len(arguments) != (3 if action == "--control" else 2):
         raise ValueError("Unexpected reader command arguments")
-    if action == "--launch-plan":
+    if action == "--focus":
+        from focus import read_reader
+        pid = manager.job_pid(profile)
+        if pid is None:
+            print(json.dumps({"status": "not_ready", "service_matches": False,
+                              "selection_usable": False, "needs_reselection": True}))
+        else:
+            print(json.dumps(read_reader(f"http://127.0.0.1:{profile['port']}/", expected_pid=pid,
+                                        project=profile["root"],
+                                        document=Path(profile["root"]) / profile["entry"]), ensure_ascii=False))
+    elif action == "--launch-plan":
         print(json.dumps({"arguments": manager.arguments(profile), "agent": manager.agent(profile)}))
     elif action == "--agent-plist":
         sys.stdout.buffer.write(plistlib.dumps(manager.agent(profile)))

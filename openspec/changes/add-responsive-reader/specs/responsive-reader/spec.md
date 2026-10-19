@@ -201,7 +201,7 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and g
 - **AND** content fits the device layout width without whole-page scaling
 - **AND** automatic shrink-to-fit is disabled while user enlargement remains available
 - **AND** a pinch-related visual resize does not restore an obsolete reading anchor when the layout width has not changed
-- **AND** saved quotations and reading positions are preserved
+- **AND** active selections and reading positions are preserved
 - **AND** obsolete decoration and relationship SVGs cannot widen the page while mathematical layout or compilation is pending
 
 #### Scenario: Direct target navigation during initial composition
@@ -390,7 +390,7 @@ The reader SHALL expose the compiled revision and compilation state, retain the 
 
 ### Requirement: Minimal reading navigation and touch reflow
 The Reader SHALL show only outline and reading-settings action icons in its
-toolbar. Font controls, appearance and saved highlights SHALL remain available
+toolbar. Font controls and appearance SHALL remain available
 in reading settings through semantic keyboard-accessible controls.
 
 #### Scenario: Pinch changes text size
@@ -435,7 +435,7 @@ content, quotations, mathematical structure and reading position.
 - **AND** choosing Automatic follows the current device appearance and subsequent changes
 
 #### Scenario: Read highlighted mathematics in either appearance
-- **WHEN** authored or saved highlights appear in light or dark reading mode
+- **WHEN** authored highlights appear in light or dark reading mode
 - **THEN** each uses the matching muted highlight palette with readable foreground ink
 - **AND** original drawing frames and native canvas labels use the surrounding theme's ink, paper, selection and highlight colors
 - **AND** the toolbar controls fit a 320px viewport with their labels on one line
@@ -462,33 +462,44 @@ content, quotations, mathematical structure and reading position.
 - **AND** original source colors, vector geometry, SVG resource references, masks, clipping and raster pixel payloads remain intact
 - **AND** repeated theme changes restore the same presentation colors without replacing semantic mathematics
 
-### Requirement: Persistent local highlights
-The reader SHALL save explicitly selected quotations in browser-local storage scoped to the current document, including context for relocation after edits. It SHALL preserve the original quotation when relocation is uncertain or impossible.
+### Requirement: Explicit Save for Codex context
+The HTML Reader SHALL replace the former local quotation library with Save for Codex. An explicit action SHALL atomically save the service's latest bounded selection on the preview host, with document identity, rendered and accepted revisions, viewer and process identity, logical HTML endpoints, exact text and verified source context where available. Saving SHALL neither compile nor edit source nor send a Codex message.
 
-#### Scenario: Paragraph or section moves
-- **WHEN** a saved quotation remains present after surrounding text or section boundaries change
-- **THEN** the reader locates it in the accepted revision and can navigate to its current section
-- **AND** rendering the highlight does not insert HTML elements into MathML
+#### Scenario: Save a supported passage
+- **WHEN** a reader chooses Save for Codex for at most 8000 characters in the accepted snapshot
+- **THEN** the service records that exact text and its uniquely verified source excerpt in a private project-specific focusFile
+- **AND** the Reader confirms success only after the service acknowledges the write
+- **AND** the latest explicit selection replaces the previous record rather than adding a quotation library entry
 
-#### Scenario: Ambiguous or removed quotation
-- **WHEN** no unique current location can be established
-- **THEN** the saved quotation remains visible with its missing or ambiguous status
-- **AND** the reader does not guess a location or silently remove the saved record
+#### Scenario: Mathematics or generated content has no unique source
+- **WHEN** the selected accepted text has no supported unique source mapping
+- **THEN** its text and logical block endpoints are still saved with an explicit unmapped status and no invented source position or PDF page coordinates
 
-#### Scenario: Mathematical presentation order changes
-- **WHEN** line breaking or script layout changes the presentation DOM order
-- **THEN** saved quotations retain the source's logical character order
-- **AND** highlighting a base and its subscript does not also highlight an unselected superscript
-- **AND** repeated visual occurrences retain their association with the same logical token
+#### Scenario: Stale document or service
+- **WHEN** the rendered revision, source inputs or service identity changed before saving
+- **THEN** the record is marked stale without retaining a usable selection and the Reader requests a fresh selection
+- **WHEN** a local selection reader reads a record
+- **THEN** it freshly checks the live service, current accepted revision, source hash/excerpt and selection age
+- **AND** a restarted or unavailable service cannot make an old record current
+
+#### Scenario: Preserve selections while awaiting acknowledgment
+- **WHEN** a save fails
+- **THEN** its submitted selection remains available for retry unless it was dismissed or replaced
+- **AND** an older response cannot clear a newer selection
+
+#### Scenario: Retire the former browser quotation library
+- **WHEN** a browser with legacy saved quotations opens the updated Reader
+- **THEN** no quotation library, stored-quotation paint or relocation UI is exposed
+- **AND** existing localStorage quotations remain untouched and are never automatically sent to Codex
+- **AND** source Highlight and browser-local Red strike remain separate explicit actions
 
 ### Requirement: Source highlights and temporary review strikes
-The Reader SHALL provide Highlight and Red strike alongside the existing saved
-quotation action, with keyboard-accessible controls that preserve native text
+The Reader SHALL provide Highlight and Red strike alongside Save for Codex, with keyboard-accessible controls that preserve native text
 selection and fit the visible safe area.
 
 #### Scenario: Floating selection actions
 - **WHEN** a passage is selected on a narrow reading screen
-- **THEN** Highlight, Save quotation and Red strike appear with visible icons and labels in a floating capsule with at least 44px action targets and a named close control
+- **THEN** Highlight, Save for Codex and Red strike appear with visible icons and labels in a floating capsule with at least 44px action targets and a named close control
 - **AND** undo and clear occupy a separate review capsule while red strikes exist, including after selection ends
 - **AND** controls remain inside the visual viewport with safe-area spacing after wrapping or resizing
 - **AND** dark appearance, reduced motion/transparency, increased contrast and forced colors retain readable controls and keyboard focus

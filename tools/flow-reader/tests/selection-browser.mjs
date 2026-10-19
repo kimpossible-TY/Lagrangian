@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const { webkit, chromium } = await import(
@@ -15,7 +15,7 @@ const fixture = spawn(
   { stdio: ["ignore", "pipe", "inherit"] },
 );
 const lines = createInterface({ input: fixture.stdout });
-const { url, entry } = await new Promise((resolve, reject) => {
+const { url, entry, focusFile } = await new Promise((resolve, reject) => {
   lines.once("line", (line) => resolve(JSON.parse(line)));
   fixture.once("exit", (code) => reject(new Error(`Fixture exited: ${code}`)));
 });
@@ -29,9 +29,11 @@ async function verify(browser, viewport) {
   const page = await browser.newPage({ viewport, locale: "ko-KR" });
   const errors = [];
   let highlights = 0;
+  let codexSaves = 0;
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("request", (request) => {
     if (request.url().endsWith("/api/highlight")) highlights++;
+    if (request.method() === "POST" && request.url().endsWith("/api/focus")) codexSaves++;
   });
   const ready = () =>
     page.waitForFunction(
@@ -88,7 +90,7 @@ async function verify(browser, viewport) {
     await accepted();
     await page.waitForFunction(() => document.querySelector(".flow-math-view"));
     const original = await readFile(entry, "utf8");
-    await select("selected ordinary passage");
+    await select("Trailing paragraph 7");
     const toolbar = await page.locator("#reader-selection").boundingBox();
     check(
       "Selection controls stay inside a narrow visible viewport",
@@ -123,7 +125,7 @@ async function verify(browser, viewport) {
       "Undo removes the most recent strike without compiling",
       (await strikeCount()) === 0 && highlights === 0,
     );
-    await select("selected ordinary passage");
+    await select("Trailing paragraph 7");
     await click("#reader-strike");
     await select("Another independent selection");
     await click("#reader-strike");
@@ -134,12 +136,125 @@ async function verify(browser, viewport) {
     );
     await page.setViewportSize(viewport);
 
-    await select("selected ordinary passage");
-    await click("#reader-highlight-save");
-    await page.waitForFunction(() =>
-      document.querySelector("#reader-highlights-open").textContent.includes("1개"),
+    const state = await (await page.request.get(url + "api/state")).json();
+    const legacyKey = `flow-reader:${state.documentID}:highlights:v1`;
+    const legacyValue = JSON.stringify([
+      {
+        id: "legacy",
+        fragments: [{ key: "old", exact: "Old local quotation", prefix: "", suffix: "" }],
+      },
+    ]);
+    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
+      key: legacyKey,
+      value: legacyValue,
+    });
+    await page.reload();
+    await ready();
+    check("Old local quotations are not automatically sent to Codex", codexSaves === 0);
+    check(
+      "The quotation library UI is removed",
+      (await page.locator("#reader-highlights-open, #reader-highlights").count()) === 0,
     );
-    check("The original saved-quotation action remains available", highlights === 0);
+    await select("Trailing paragraph 7");
+    const savedResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    );
+    await click("#reader-codex-save");
+    const saved = await (await savedResponse).json();
+    check(
+      `Save for Codex records the exact selection and source context: ${JSON.stringify(saved)}`,
+      saved.status === "selected" &&
+        saved.selection.text === "Trailing paragraph 7" &&
+        saved.source.filepath === (await realpath(entry)),
+    );
+    check(
+      "Saving context does not edit source or highlight it",
+      highlights === 0 && (await readFile(entry, "utf8")) === original,
+    );
+    check(
+      "The server writes the private focus record",
+      JSON.parse(await readFile(focusFile, "utf8")).selection.text === saved.selection.text,
+    );
+    const readContext = await (await page.request.get(url + "api/focus")).json();
+    check(
+      "The selection reader validates the saved context",
+      readContext.selection_usable &&
+        readContext.service_matches &&
+        readContext.source_excerpt_matches_disk,
+    );
+    check(
+      "Legacy local quotation data remains untouched",
+      (await page.evaluate((key) => localStorage.getItem(key), legacyKey)) === legacyValue,
+    );
+
+    await page.route("**/api/focus", (route) =>
+      route.fulfill({ status: 503, body: "Unavailable" }),
+    );
+    await select("Trailing paragraph 8");
+    const failedSave = page.waitForResponse(
+      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    );
+    await page.locator("#reader-codex-save").evaluate((button) => {
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+      getSelection().removeAllRanges();
+      button.click();
+    });
+    await failedSave;
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#reader-highlight-message")
+        .textContent.includes("저장하지 못했습니다"),
+    );
+    check(
+      "A failed Codex save retains the range after native collapse",
+      await page.locator("#reader-codex-save").isVisible(),
+    );
+    await page.unroute("**/api/focus");
+    const retriedSave = page.waitForResponse(
+      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    );
+    await click("#reader-codex-save");
+    check(
+      "The retained range can be retried without reselecting",
+      (await (await retriedSave).json()).selection.text === "Trailing paragraph 8",
+    );
+
+    let releaseCodex;
+    let notifyCodex;
+    const codexRequested = new Promise((resolve) => {
+      notifyCodex = resolve;
+    });
+    await page.route("**/api/focus", async (route) => {
+      notifyCodex();
+      await new Promise((resolve) => {
+        releaseCodex = resolve;
+      });
+      await route.fulfill({ response: await route.fetch() });
+    });
+    await select("Trailing paragraph 8");
+    await click("#reader-codex-save");
+    await codexRequested;
+    check(
+      "A pending Codex save blocks duplicate submission",
+      await page.locator("#reader-codex-save").isDisabled(),
+    );
+    await select("Trailing paragraph 9");
+    const delayedSave = page.waitForResponse(
+      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    );
+    releaseCodex();
+    await delayedSave;
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#reader-highlight-message")
+        .textContent.includes("Codex용 텍스트 저장됨"),
+    );
+    check(
+      "An older Codex acknowledgment preserves a newer selection",
+      (await page.evaluate(() => getSelection().toString())) === "Trailing paragraph 9",
+    );
+    await page.unroute("**/api/focus");
+    await click("#reader-selection-cancel");
 
     // A native toolbar tap may collapse selection before its click arrives.
     await select("Shared macro words");
@@ -166,9 +281,20 @@ async function verify(browser, viewport) {
       document.querySelector("#reader-highlight-message").textContent.includes("정확히 연결"),
     );
     check(
-      "Rejected macro output keeps the quotation action after native collapse",
-      (await page.locator("#reader-highlight-save").isVisible()) &&
+      "Rejected macro output keeps Save for Codex after native collapse",
+      (await page.locator("#reader-codex-save").isVisible()) &&
         (await readFile(entry, "utf8")) === original,
+    );
+    const macroSavedResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    );
+    await click("#reader-codex-save");
+    const macroSaved = await (await macroSavedResponse).json();
+    check(
+      "Generated content saves its text with explicit unavailable source",
+      macroSaved.status === "unmapped" &&
+        macroSaved.selection.text === "Shared macro words" &&
+        macroSaved.source === null,
     );
     await click("#reader-selection-cancel");
 

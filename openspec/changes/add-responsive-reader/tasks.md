@@ -46,7 +46,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Show essential annotations and graphical relationships inline without reveal/expand actions.
 - [x] Load transport sections automatically in continuous vertical reading, without slide or next-section navigation.
 - [x] Enforce per-component layout checks: no required zoom, horizontal pan, expansion, clipping, or unreadable labels.
-- [x] Add saved quotations with context-based relocation, cross-section navigation, and explicit ambiguous/missing states.
+- [x] Replace the former browser quotation library with explicit server-owned Save for Codex context (see Codex context tasks below).
 - [x] Complete broader reading-position and selection update checks on actual PDE content.
 - [x] Integrate saved-source recompilation, revision diagnostics, and Flow lifecycle.
 - [x] Verify reader at mobile widths and large font sizes against actual PDE content.
@@ -130,8 +130,7 @@ missing anchor targets, duplicate SVG IDs, unresolved annotation targets, or
 unhandled compiler-loss warnings. All 15 graphical annotation programs render
 against supplied term geometry; the browser verifies an actual PDE relationship
 at normal and large font sizes. The reader now loads transport sections into a
-continuous flow, preserving cross-section references, reading keys, selections,
-and saved quotations while parking distant content. Saved highlights pass automated relocation tests and browser checks on a synthetic
+continuous flow, preserving cross-section references, reading keys and active selections while parking distant content. The former saved-quotation relocation checks used a synthetic
 fixture. Managed lifecycle and compiler-dependency watching are implemented and
 tested. The separate managed PDE Reader completed its first accepted compilation after
 the macOS Documents access wait resolved. The installed Reader update and Tail Hosting restart succeeded. Its separate
@@ -155,7 +154,20 @@ other services, and the mobile default are preserved.
 ## Selection review actions
 
 - [x] Add compiler-verified, revision-bound source highlights for selected prose and complete mathematics without changing ambiguous or stale sources.
-- [x] Add red strike, undo and clear controls with document-scoped persistence and layout-aware repainting; preserve saved quotations and pending selections.
+- [x] Add red strike, undo and clear controls with document-scoped persistence and layout-aware repainting; preserve Codex context and pending selections.
 - [x] Verify source edit rejection/success and browser selection, reflow, reload and review controls; install and verify actual Reader delivery.
 - [x] Replace the selection card with compact floating action/review capsules, retaining labels, native selection, pending feedback and accessible material fallbacks.
 - [x] Verify capsule layout and actions in narrow light/dark browsers, install the clean Reader commit, and verify actual HTTPS delivery.
+
+## Codex context instead of local quotations
+
+- [x] Remove the local quotation library, list entry, relocation and paint without deleting or migrating legacy browser data.
+- [x] Implement atomic per-service focus records, supported source excerpts and explicit unmapped text, with revision/service/input/age checks and no compilation or messages.
+- [x] Expose distinct profile focusFile paths, a validated local selection reader and a portable Tail Hosting selection adapter.
+- [x] Verify Python/Node, browser and terminal save, failed/pending selections and legacy-data behavior; align canonical docs and OpenSpec. Installation/deployment is excluded.
+
+## Codex context service rollout
+
+- [ ] Commit the validated Reader changes and stage a clean immutable release while preserving unrelated worktree files.
+- [ ] Back up runtime configuration, install/restart only the Reader and apply the tested local selection adapter.
+- [ ] Verify registered HTTPS delivery, explicit save/read freshness and source isolation; record the deployed revision and recovery paths.

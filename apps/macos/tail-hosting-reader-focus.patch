@@ -1,0 +1,27 @@
+--- a/bin/tail-hosting
++++ b/bin/tail-hosting
+@@ -54,2 +54,3 @@
+             s['backend']={'host':'127.0.0.1','port':p['port']}
++            if p.get('focusFile'): s['focusFile']=p['focusFile']
+     if data.get('schemaVersion') != 1 or not isinstance(data.get('services'), list): raise ValueError('unsupported registry schema')
+@@ -66,3 +67,3 @@
+             if s.get('launchAgentLabel'): raise ValueError(f'choose containerName or launchAgentLabel for {sid}')
+-        if s.get('kind') == 'typst-always-preview':
++        if s.get('kind') in {'typst-always-preview','typst-reader'}:
+             path=focus_path(s)
+@@ -383,2 +384,3 @@
+         'url':url, 'focus_file':str(focus_path(s)),
++        'reader_kind':'html' if s.get('kind')=='typst-reader' else 'paged',
+         'launch_agent_label':s.get('launchAgentLabel'), 'registration':s.get('registration')}
+@@ -391,3 +393,3 @@
+ def resolve_focus(registry, args):
+-    previews=[s for s in registry['services'] if s.get('kind')=='typst-always-preview']
++    previews=[s for s in registry['services'] if s.get('kind') in {'typst-always-preview','typst-reader'}]
+     if args.list and any((args.preview,args.project,args.document,args.url)):
+@@ -428,2 +430,6 @@
+     if preview is None: preview={'id':'typst-pde', 'launchAgentLabel':LABEL}
++    if preview.get('kind')=='typst-reader':
++        if not preview.get('managerBinary'):
++            raise ValueError('Reader selection requires its configured managerBinary')
++        return json.loads(require([preview['managerBinary'],'--focus',preview['id']]))
+     path=focus_path(preview)

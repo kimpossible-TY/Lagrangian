@@ -1,72 +1,22 @@
-// Saved quotations stay local. Source highlights and review strikes are separate
-// explicit actions; DOM ranges paint quotations without wrapping MathML.
-import { logicalTextIndex, rangesFor, selectedIntervals } from "./math-identity.js";
+// Explicit source highlights, Codex context and browser-local review strikes.
+import { logicalTextIndex, selectedIntervals } from "./math-identity.js";
 import { ReaderReviewMarks, sourceSegments } from "./review-marks.js";
 const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets]";
 
 export const textIndex = logicalTextIndex;
 
-export function occurrences(text, exact) {
-  const result = [];
-  for (let start = text.indexOf(exact); start >= 0; start = text.indexOf(exact, start + 1)) {
-    result.push(start);
-  }
-  return result;
-}
-
-function validRecord(record) {
-  return (
-    typeof record?.id === "string" &&
-    Array.isArray(record.fragments) &&
-    record.fragments.length > 0 &&
-    record.fragments.length <= 32 &&
-    record.fragments.every(
-      (part) =>
-        typeof part.key === "string" &&
-        part.key.length <= 128 &&
-        typeof part.exact === "string" &&
-        part.exact.length > 0 &&
-        part.exact.length <= 20000 &&
-        typeof part.prefix === "string" &&
-        part.prefix.length <= 120 &&
-        typeof part.suffix === "string" &&
-        part.suffix.length <= 120,
-    )
-  );
-}
-
 export class ReaderHighlights {
-  constructor(article, navigate, { beforeOpen = () => {}, returnFocus } = {}) {
+  constructor(article) {
     this.article = article;
-    this.navigate = navigate;
-    this.records = [];
-    this.locations = new Map();
-    this.sequence = 0;
-    this.dialog = document.querySelector("#reader-highlights");
-    this.list = document.querySelector("#reader-highlights-list");
+    this.viewerID = crypto.getRandomValues(new Uint32Array(1))[0] + 1;
     this.action = document.querySelector("#reader-selection");
     this.message = document.querySelector("#reader-highlight-message");
-    this.button = document.querySelector("#reader-highlights-open");
-    this.button.disabled = false;
-    this.supportsPaint = typeof Highlight === "function" && Boolean(globalThis.CSS?.highlights);
     this.sourceButton = document.querySelector("#reader-source-highlight");
-    this.saveButton = document.querySelector("#reader-highlight-save");
+    this.saveButton = document.querySelector("#reader-codex-save");
     this.strikeButton = document.querySelector("#reader-strike");
     this.undoButton = document.querySelector("#reader-strike-undo");
     this.clearButton = document.querySelector("#reader-strike-clear");
     this.review = new ReaderReviewMarks(article, () => this.updateActions());
-    this.button.addEventListener("click", () => {
-      this.updateList();
-      beforeOpen();
-      this.dialog.showModal();
-    });
-    this.dialog.addEventListener("close", () => {
-      if (!this.article.contains(document.activeElement))
-        returnFocus?.focus({ preventScroll: true });
-    });
-    document
-      .querySelector("#reader-highlights-close")
-      .addEventListener("click", () => this.dialog.close());
     const action = (button, perform) => {
       button.addEventListener("pointerdown", (event) => {
         this.pressing = true;
@@ -114,12 +64,6 @@ export class ReaderHighlights {
       clearTimeout(this.selectionTimer);
       this.selectionTimer = setTimeout(() => this.capture(), 80);
     });
-    window.addEventListener("storage", (event) => {
-      if (event.key === this.storageKey) {
-        this.read();
-        this.resolve();
-      }
-    });
   }
 
   announce(text) {
@@ -138,34 +82,11 @@ export class ReaderHighlights {
     this.retainedSelection = null;
     this.review.onDocument(manifest.documentID);
     this.updateActions();
-    const storageKey = `flow-reader:${manifest.documentID}:highlights:v1`;
-    if (storageKey !== this.storageKey) {
-      this.storageKey = storageKey;
-      this.read();
-    }
     this.repaint();
-    this.resolve();
   }
 
-  read() {
-    try {
-      const value = JSON.parse(localStorage.getItem(this.storageKey));
-      this.records = Array.isArray(value) ? value.filter(validRecord).slice(0, 200) : [];
-    } catch {
-      this.records = [];
-    }
-    this.locations.clear();
-  }
-
-  persist(records) {
-    try {
-      localStorage.setItem(this.storageKey, JSON.stringify(records));
-      this.records = records;
-      return true;
-    } catch {
-      this.announce("저장 공간을 사용할 수 없습니다. 표시를 저장하지 못했습니다.");
-      return false;
-    }
+  repaint() {
+    this.review.schedule();
   }
 
   capture() {
@@ -175,7 +96,6 @@ export class ReaderHighlights {
       !this.manifest ||
       !selection?.rangeCount ||
       selection.isCollapsed ||
-      this.dialog.open ||
       document.querySelector("dialog[open]") ||
       !this.article.contains(selection.anchorNode) ||
       !this.article.contains(selection.focusNode)
@@ -204,6 +124,7 @@ export class ReaderHighlights {
           start,
           end,
           revision: this.manifest.revision,
+          service: this.manifest.service,
           segments: sourceSegments(index, start, end),
         });
       }
@@ -222,7 +143,11 @@ export class ReaderHighlights {
     const selected = Boolean(fragments);
     for (const button of [this.saveButton, this.sourceButton, this.strikeButton])
       button.hidden = !selected;
-    this.saveButton.disabled = this.sourceButton.disabled = Boolean(tooLarge || this.pendingSource);
+    const pending = Boolean(this.pendingSource || this.pendingCodex);
+    const codexTooLarge =
+      fragments && [...fragments.map((part) => part.exact).join("\n")].length > 8000;
+    this.sourceButton.disabled = Boolean(tooLarge || pending);
+    this.saveButton.disabled = Boolean(tooLarge || codexTooLarge || pending);
     this.strikeButton.disabled = Boolean(tooLarge);
     this.sourceButton.hidden = !selected && !this.pendingSource;
     this.sourceButton.querySelector("span").textContent = this.pendingSource
@@ -233,14 +158,16 @@ export class ReaderHighlights {
     document.querySelector("#reader-selection-actions").hidden = !selected && !this.pendingSource;
     document.querySelector("#reader-selection-cancel").hidden = !selected;
     this.action.hidden = !selected && !this.review.store.marks.length && !this.pendingSource;
-    this.action.setAttribute("aria-busy", String(Boolean(this.pendingSource)));
+    this.action.setAttribute("aria-busy", String(pending));
     const hint = document.querySelector("#reader-selection-hint");
-    hint.classList.toggle("reader-visually-hidden", !tooLarge);
+    hint.classList.toggle("reader-visually-hidden", !tooLarge && !codexTooLarge);
     hint.textContent = tooLarge
       ? "구절을 조금 짧게 선택해 주세요."
-      : selected
-        ? "선택한 구절"
-        : "빨간 취소선";
+      : codexTooLarge
+        ? "Codex 저장은 8000자까지 가능합니다."
+        : selected
+          ? "선택한 구절"
+          : "빨간 취소선";
     this.position();
   }
 
@@ -270,6 +197,7 @@ export class ReaderHighlights {
 
   collapse() {
     if (this.pendingSource) this.pendingDismissed = true;
+    if (this.pendingCodex) this.pendingCodexDismissed = true;
     this.selection = this.retainedSelection = null;
     window.getSelection()?.removeAllRanges();
     this.updateActions();
@@ -293,7 +221,10 @@ export class ReaderHighlights {
       const response = await fetch("api/highlight", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revision, fragments: selected }),
+        body: JSON.stringify({
+          revision,
+          fragments: selected,
+        }),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`Highlight HTTP ${response.status}`);
@@ -313,7 +244,7 @@ export class ReaderHighlights {
         if (same) this.selection = this.retainedSelection = selected;
         this.announce(
           ["unmapped", "unsupported"].includes(result.status)
-            ? "소스 범위를 정확히 연결할 수 없습니다. 표시 저장을 사용할 수 있습니다."
+            ? "소스 범위를 정확히 연결할 수 없습니다. Codex 저장을 사용할 수 있습니다."
             : "하이라이트를 저장하지 못했습니다. 다시 시도해 주세요.",
         );
       }
@@ -332,141 +263,70 @@ export class ReaderHighlights {
     }
   }
 
-  save(selected = this.selection) {
-    if (!selected || !this.storageKey || this.pendingSource) return;
-    if (this.records.length >= 200) {
-      this.announce("표시는 200개까지 저장할 수 있습니다. 이전 표시를 지운 뒤 다시 시도해 주세요.");
+  async save(selected = this.selection) {
+    if (
+      !selected ||
+      !this.manifest ||
+      this.pendingSource ||
+      this.pendingCodex ||
+      this.saveButton.disabled
+    )
       return;
-    }
-    const record = {
-      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
-      createdAt: Date.now(),
-      fragments: selected,
-    };
-    if (!validRecord(record) || !this.persist([...this.records, record])) return;
-    this.collapse();
-    this.announce("표시를 이 브라우저에 저장했습니다.");
-    this.resolve();
-  }
-
-  async resolve() {
-    if (!this.manifest) return;
-    const sequence = ++this.sequence;
-    this.resolveError = false;
     const revision = this.manifest.revision;
-    const parts = this.records.flatMap((record) =>
-      record.fragments.map((fragment, index) => ({
-        key: `${record.id}:${index}`,
-        fragment,
-      })),
-    );
-    this.locations.clear();
-    this.repaint();
-    this.updateList();
+    this.pendingCodex = selected;
+    this.pendingCodexDismissed = false;
+    this.updateActions();
+    this.announce("Codex용 텍스트 저장 중…");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      for (let offset = 0; offset < parts.length; ) {
-        const batch = [];
-        let bytes = 0;
-        while (offset < parts.length && batch.length < 32) {
-          const size = new TextEncoder().encode(JSON.stringify(parts[offset].fragment)).length;
-          if (batch.length && bytes + size > 200000) break;
-          bytes += size;
-          batch.push(parts[offset++]);
-        }
-        const response = await fetch("api/locate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision, fragments: batch.map((part) => part.fragment) }),
-        });
-        if (!response.ok) throw new Error(`Passage HTTP ${response.status}`);
-        const result = await response.json();
-        if (sequence !== this.sequence || result.revision !== revision) return;
-        if (!Array.isArray(result.locations) || result.locations.length !== batch.length)
-          throw new Error("Invalid locations");
-        batch.forEach((part, index) => this.locations.set(part.key, result.locations[index]));
+      const response = await fetch("api/focus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          revision,
+          fragments: selected,
+          service: selected[0].service,
+          viewerID: this.viewerID,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Codex context HTTP ${response.status}`);
+      const result = await response.json();
+      const same =
+        !this.pendingCodexDismissed &&
+        this.manifest.revision === revision &&
+        this.selection &&
+        JSON.stringify(this.selection) === JSON.stringify(selected);
+      if (
+        ["selected", "unmapped"].includes(result.status) &&
+        result.rendered_revision === revision
+      ) {
+        if (same) this.collapse();
+        this.announce(
+          result.source
+            ? `Codex용 텍스트 저장됨 · ${result.source.filepath.split(/[\\/]/).pop()}:${result.source.line}`
+            : "Codex용 텍스트 저장됨 · 소스 연결 없음",
+        );
+      } else if (result.status === "stale") {
+        if (same) this.collapse();
+        this.announce("문서나 Reader 연결이 변경되었습니다. 갱신 후 다시 선택해 주세요.");
+      } else {
+        throw new Error("Invalid Codex context response");
       }
     } catch {
-      if (sequence !== this.sequence) return;
-      this.resolveError = true;
-      this.announce("저장한 구절은 보관 중입니다. 연결 후 현재 위치를 다시 확인할 수 있습니다.");
-    }
-    if (sequence === this.sequence) {
-      this.repaint();
-      this.updateList();
-    }
-  }
-
-  repaint() {
-    const ranges = [];
-    this.article
-      .querySelectorAll(".reader-saved-block")
-      .forEach((node) => node.classList.remove("reader-saved-block"));
-    const nodes = new Map(
-      [...this.article.querySelectorAll("[data-reader-key]")].map((node) => [
-        node.dataset.readerKey,
-        node,
-      ]),
-    );
-    for (const record of this.records) {
-      record.fragments.forEach((part, i) => {
-        const location = this.locations.get(`${record.id}:${i}`);
-        if (!location || location.state !== "located") return;
-        const block = nodes.get(location.key);
-        if (!block) return;
-        const index = textIndex(block);
-        const start = occurrences(index.text, part.exact)[location.occurrence];
-        if (start === undefined) return;
-        ranges.push(...rangesFor(index, start, start + part.exact.length));
-        if (!this.supportsPaint) block.classList.add("reader-saved-block");
-      });
-    }
-    if (this.supportsPaint) CSS.highlights.set("reader-saved", new Highlight(...ranges));
-    this.review.schedule();
-  }
-
-  updateList() {
-    this.button.textContent = `저장한 표시 ${this.records.length}개`;
-    this.button.setAttribute("aria-label", `저장한 표시 ${this.records.length}개 보기`);
-    this.list.replaceChildren();
-    document.querySelector("#reader-highlights-empty").hidden = this.records.length > 0;
-    for (const record of [...this.records].reverse()) {
-      const row = document.createElement("li");
-      const jump = document.createElement("button");
-      jump.className = "reader-highlight-jump";
-      const quote = document.createElement("span");
-      quote.className = "reader-highlight-quote";
-      quote.textContent = record.fragments.map((part) => part.exact).join("\n");
-      const label = document.createElement("span");
-      label.className = "reader-highlight-location";
-      const locations = record.fragments.map((_, i) => this.locations.get(`${record.id}:${i}`));
-      const location = locations.find((item) => item?.state === "located");
-      const uncertain = locations.some((item) => item?.state !== "located");
-      label.textContent = location
-        ? uncertain
-          ? "일부 구절의 위치를 찾았습니다 · 이동"
-          : "본문으로 이동"
-        : locations.some((item) => item?.state === "ambiguous")
-          ? "같은 구절이 여러 곳에 있어 위치를 확인해야 합니다"
-          : locations.some((item) => item?.state === "missing")
-            ? "수정된 문서에서 찾지 못했습니다 · 원문은 보관 중"
-            : this.resolveError
-              ? "연결 후 현재 위치를 확인할 수 있습니다"
-              : "현재 위치 확인 중";
-      jump.disabled = !location;
-      jump.append(quote, label);
-      jump.addEventListener("click", async () => {
-        this.dialog.close();
-        window.getSelection()?.removeAllRanges();
-        await this.navigate(location.id);
-      });
-      const remove = document.createElement("button");
-      remove.textContent = "삭제";
-      remove.setAttribute("aria-label", `${record.fragments[0].exact.slice(0, 30)} 표시 삭제`);
-      remove.addEventListener("click", () => {
-        if (this.persist(this.records.filter((item) => item.id !== record.id))) this.resolve();
-      });
-      row.append(jump, remove);
-      this.list.append(row);
+      if (
+        !this.pendingCodexDismissed &&
+        this.manifest.revision === revision &&
+        (!this.selection || JSON.stringify(this.selection) === JSON.stringify(selected))
+      ) {
+        this.selection = this.retainedSelection = selected;
+      }
+      this.announce("Codex용 텍스트를 저장하지 못했습니다. 연결 후 다시 시도해 주세요.");
+    } finally {
+      clearTimeout(timer);
+      this.pendingCodex = null;
+      this.updateActions();
     }
   }
 }

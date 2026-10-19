@@ -139,9 +139,6 @@
           <p id="reader-appearance-status" class="reader-visually-hidden" role="status">
             기기 설정에 맞춰 자동으로 전환합니다.
           </p>
-          <button id="reader-highlights-open" type="button" aria-haspopup="dialog" disabled>
-            저장한 표시
-          </button>
         </div>
       </div>
     </header>
@@ -245,7 +242,7 @@
           </svg>
           <span>하이라이트</span>
         </button>
-        <button id="reader-highlight-save" type="button">
+        <button id="reader-codex-save" aria-label="Save for Codex" type="button">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -257,7 +254,7 @@
           >
             <path d="M6 4h12v17l-6-4-6 4zM9 8h6" />
           </svg>
-          <span>표시 저장</span>
+          <span>Codex 저장</span>
         </button>
         <button id="reader-strike" type="button">
           <svg
@@ -288,12 +285,6 @@
       </div>
     </aside>
     <p id="reader-highlight-message" role="status" aria-live="polite"></p>
-    <dialog id="reader-highlights" aria-labelledby="reader-highlights-title">
-      <button id="reader-highlights-close" autofocus>닫기</button>
-      <h2 id="reader-highlights-title">저장한 표시</h2>
-      <p id="reader-highlights-empty">저장한 표시가 없습니다.</p>
-      <ul id="reader-highlights-list"></ul>
-    </dialog>
     <div id="reader-document-styles"></div>
   </body>
 </html>

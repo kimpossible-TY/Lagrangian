@@ -2,7 +2,7 @@
 
 ## Selection review actions
 
-Keep saved quotations separate from persistent source highlighting and temporary
+Keep saved Codex context separate from persistent source highlighting and temporary
 red strikes. Highlight submits revision-bound canonical fragments and complete
 math segments. Only accepted workspace dependencies may supply edit candidates.
 Locate every fragment uniquely in the accepted body; compile each bounded source
@@ -28,7 +28,7 @@ retains in-memory marks. Keep all selection controls within narrow safe areas.
 Replace the selection card and its visible heading with a content-sized floating
 capsule above the bottom safe area. Each primary action keeps an icon, its visible
 Korean label and a minimum 44px target; dismissal uses a named close icon. Give
-the source highlight, saved quotation and red strike equal visual weight instead
+the source highlight, Codex save and red strike equal visual weight instead
 of showing Save as selected. Undo and clear form a separate compact capsule
 above it, also available when no passage is selected. Hide empty capsules; retain
 a visible disabled source action while a dismissed request is pending. Keep the
@@ -125,7 +125,7 @@ motion settles directly with active animations canceled on preference changes.
 
 The toolbar exposes Automatic / Light / Dark. A small classic script applies the
 browser-local `flow-reader:theme:v1` choice before CSS paints, independently of
-document compilation and the font/quotation/position keys. Automatic follows live
+document compilation and the font/position keys. Automatic follows live
 device appearance changes; explicit choices override the device and persist across
 reloads and documents on the same origin. Storage failures retain a working choice
 for the current visit. Other tabs follow preference changes and resets.
@@ -450,7 +450,7 @@ promote the Reader to the mobile default.
 
 ## Reader protocol
 
-Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and persisted highlights. Do not replace the active document while the user has a selection or open reader dialog.
+Every published document snapshot carries a revision and diagnostic status. Failed compilation leaves the last successful snapshot visible with a stale/error indication. Stable labeled block identities, with deterministic fallback matching, anchor the reading position and active selections. Do not replace the active document while the user has a selection or open reader dialog.
 
 Known input parent directories use entry-name fingerprints to detect import
 creation. Their timestamps and Finder metadata are not compiler inputs; changing
@@ -482,17 +482,38 @@ compile timestamp. Its status monitor can be updated independently of both
 document services. Portable companion patches are maintained under `apps/macos`;
 they preserve each project's ownership and existing ingress.
 
-Store highlights in browser-local storage scoped to a document identity derived
-from the project root and entrypoint. A record contains one or more quotations,
-their reading keys, and surrounding text. A revision-specific `/api/locate`
-request resolves those quotations against the accepted snapshot across every
-section. Use an existing key first, then exact quotation and matching context;
-ties remain explicitly ambiguous. Removed quotations stay in the saved list.
-The passage index stays on the service rather than enlarging the manifest.
-Use CSS Custom Highlight ranges to paint text without inserting HTML into
-MathML. Browsers without that API retain the saved list and mark the associated
-block. This storage does not yet synchronize devices or survive clearing site
-data. Updates wait while any reader dialog or text selection is active.
+Save for Codex replaces the former browser quotation library. Keep the existing
+canonical logical text capture, but submit an explicit bounded selection to
+`POST /api/focus`. Never read, paint, relocate, delete or migrate the legacy
+`flow-reader:<documentID>:highlights:v1` data. Remove the saved-list dialog,
+reading-settings entry and quotation CSS. Review strikes retain their own local
+store; source highlights retain compiler verification.
+
+The Python Reader writes a single schema-version-1 focus snapshot atomically
+with mode 0600. Its common fields match the paged preview: process/start identity,
+sequence, selection timestamp, viewer ID, status, rendered/compiled revisions,
+source excerpt and selected text. An explicit `reader_kind: html` and logical
+start/end block keys replace PDF page coordinates. Bound text to 8000 Unicode
+characters and fragments to 32, verify them against the submitted accepted body
+blocks, and check input fingerprints before and after source resolution. Reuse
+the existing conservative literal mapper; unsupported math, multi-block or
+generated text saves as `unmapped`, retaining its exact logical text without
+inventing source context. A service restart writes `waiting`; stale saves clear
+the usable context. Save does not compile, edit source or send a message.
+
+Managed Reader profiles expose their own absolute focusFile, distinct from all
+paged/Reader records. `--focus ID` reads the live loopback `/api/focus`, checks
+its PID against launchd and verifies project/document identity. The Reader checks
+accepted revision, source hash/excerpt, input fingerprints and age on every read.
+`selection_usable` allows fresh unmapped text to be discussed while
+`needs_reselection` retains the paged contract for exact source-dependent work.
+A portable Tail Hosting patch extends explicit focus listing/filtering to
+`typst-reader` and delegates reading to that manager, keeping PDF handling intact.
+Standalone/terminal sessions use `focus.py --url <explicit loopback Reader>`.
+No installed service, registry or global skill is changed by implementation.
+
+Keep the range pending until acknowledgment; failed saves retain it for retry,
+and a response cannot dismiss a newer or explicitly dismissed selection.
 
 Partition the accepted HTML at top-level block boundaries for transport and cache
 management, then load sections automatically into a continuous vertical reading
