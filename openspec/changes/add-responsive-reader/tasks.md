@@ -195,5 +195,5 @@ other services, and the mobile default are preserved.
 
 ## Deploy shared reader activity
 
-- [ ] Commit the validated shared activity change and build clean immutable HTML and signed native app candidates with recovery snapshots.
-- [ ] Install both candidates, preserve the previous running/stopped profiles and saved context, and verify registered delivery plus actual document rendering.
+- [x] Commit the validated shared activity change and build clean immutable HTML and signed native app candidates with recovery snapshots.
+- [x] Install both candidates, preserve the previous running/stopped profiles and saved context, and verify registered delivery plus actual document rendering.

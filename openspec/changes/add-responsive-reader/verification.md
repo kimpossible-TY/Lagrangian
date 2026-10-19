@@ -2539,5 +2539,44 @@ Validation:
 - Generated documentation, Prettier, strict OpenSpec validation and diff whitespace
   checks passed.
 
-This change has not been deployed to either running reader or verified on a
-physical iPhone. No native app or engine rebuild was needed for these frontend assets.
+The implementation checks above preceded installation. Physical iPhone verification
+remains separate; the authorized deployment is recorded below.
+
+## Shared activity deployment (2026-10-19)
+
+Installed the HTML Reader and tinymist-flow 0.1.26 from clean implementation commit
+`8f8d2df333afa695a79b41bb9ce543c7222cff38`. Unrelated untracked checkout files were
+excluded and preserved. The native ARM engine was built with the locked
+`flow-release` ThinLTO profile, two workers and `RUSTFLAGS=-Dwarnings`; preview and
+localization assets were regenerated in a detached clean checkout. The configured
+signing certificate was retained and both candidate/installed bundle validation
+passed. Native engine SHA256:
+`16e370a9c982fa2234b841fb813072fc0d56b8a4b0aacf3acf78a5814a56a077`.
+
+Validation and runtime state:
+- Both new-engine 300-page Chromium/WebKit checks passed: updates, paused selection,
+  native touch and keyboard release, distant pages, zoom, theme and reconnect.
+- All 37 app tests passed with the new engine; one opt-in signing test was skipped.
+- The immutable HTML archive has 486 verified files. All 44 first-party assets
+  matched the installed source at both loopback and registered certificate-validated
+  HTTPS. The authored 8,814,670-byte document retained SHA256
+  `85541ed98d0cbd9a4088bc6a3a95ae26282d6d536e414a2c4f2a06e11d29c704`.
+- Fresh Chromium and WebKit contexts rendered the production HTTPS Reader, observed
+  connection loss/recovery and reported no browser errors.
+- Installed-engine WebKit rendered the actual 322-page PDE document on an isolated
+  loopback port with the app's partial-rendering setting. Activity transitioned
+  through connecting, waiting, compiling, rendering and ready without browser errors.
+  A first probe omitted the app's partial-rendering flag and timed out; the corrected
+  probe used the actual app configuration. It did not modify project sources.
+- The menu-bar app was relaunched into 0.1.26. Both paged profiles retain their
+  stopped state; `typst-pde-reader` retains its running state. Project profiles,
+  Reader configuration and saved focus files match their pre-deployment bytes.
+  The prior HTML selection was already stale against changed sources before this
+  deployment. Its original backup was restored exactly after service restart,
+  preserving stale evidence rather than inventing a fresh source mapping.
+
+Receipts and screenshots: `dist/shared-reader-activity-rollout/`. Reader recovery
+configuration/launcher/focus snapshots are under `backup-20261019-212206` there.
+The app installer retained the previous bundle under
+`~/Library/Application Support/tinymist-flow/releases/20261019-213531-545166/`.
+No remote release was published and no physical iPhone check was performed.
