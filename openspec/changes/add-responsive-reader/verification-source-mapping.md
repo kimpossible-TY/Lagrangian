@@ -16,8 +16,8 @@ cross-file selections, stale hashes and ambiguous reverse mappings are rejected.
 
 ## Evidence
 
-- Python Reader suite with actual Typst packages: 145 tests passed with one
-  optional test skipped. This includes installed-layout delivery and eight new
+- Python Reader suite with actual Typst packages: 145 tests run, 144 passed and
+  one optional test skipped. This includes installed-layout delivery and eight new
   mapping tests covering closure/proof bodies, complete math, CRLF, Korean,
   smart quotes, duplicate occurrence shifts, repeated includes, multiblock and
   cross-file selections, source hashes, path boundaries and compiler failure.
@@ -37,3 +37,22 @@ cross-file selections, stale hashes and ambiguous reverse mappings are rejected.
 The source-carrier pass adds one isolated verification compilation when building
 an accepted HTML document. Dynamic geometry and source-highlight candidate builds
 skip this extra pass. No physical-device interaction was repeated.
+
+## Installed delivery
+
+Installed runtime `3d59f262dfda4c20b7a48f7c00137bac4e6ebbee` from a clean
+detached snapshot of the current branch, preserving unrelated checkout files.
+Backed up configuration, launcher, LaunchAgent and current focus, then used the
+existing installer to update only the owned HTML Reader. Restored the identical
+saved selection through `/api/focus`; no workspace source was edited.
+
+The live record is now `selected`, with source `chapter 3/3.6.typ:152:1`, exclusive
+end `152:266`, matching excerpt/hash and `needs_reselection: false`. Source and
+cursor APIs agree on the same block. Unqualified `tail-hosting focus` in the PDE
+project returns that record as `latest_saved_text`. All 479 archived release
+files and 41 first-party HTTP assets matched their immutable bytes. Registered
+HTTPS matched the accepted loopback revision. The measured accepted full
+compilation took 30.8 seconds; the paged service was not restarted.
+
+Recovery files and machine-readable verification receipts remain at
+`.local/source-map-rollout-1792405337957108000/`.

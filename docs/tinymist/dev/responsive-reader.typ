@@ -1069,6 +1069,28 @@ document compilation.
 
 == Managed installation
 
+=== HTML source range rollout (2026-10-19)
+
+Runtime `3d59f262` preserves compiler-carried ranges for 3,439 corresponding PDE
+blocks. The original accepted HTML is still delivered unchanged. The clean
+immutable release was installed through the existing installer and the owned
+HTML Reader was restarted. The exact previously saved paragraph was restored
+through the focus API against the new accepted snapshot.
+
+That paragraph now has `status: selected`, a verified source excerpt and the
+exclusive Unicode range `chapter 3/3.6.typ:152:1–152:266`.
+Both source-navigation directions resolve the same block. Unqualified local
+`tail-hosting focus` returns `latest_saved_text`, `selection_usable: true` and
+`needs_reselection: false`. All 479 immutable release files and 41 first-party
+HTTP assets matched their recorded bytes; registered HTTPS and loopback served
+the same accepted revision. The paged service was not restarted.
+
+The measured accepted full compilation took 30.8 seconds, including the extra
+source-carrier compile and indexing. Save and editor navigation use the accepted
+map without compiling. Unsupported blocks retain conservative literal fallback.
+Recovery configuration, launcher, focus snapshots, install metadata and delivery
+checks are in `.local/source-map-rollout-1792405337957108000/`.
+
 === Unified context rollout (2026-10-19)
 
 Runtime `bf3de82b` removes HTML context expiry. The local Tail Hosting adapter
