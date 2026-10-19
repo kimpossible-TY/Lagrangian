@@ -2245,3 +2245,29 @@ original PDF listener/content remain unchanged. Chromium and WebKit each pass
 actual HTTPS service. Receipts and inspected screenshots are in
 `dist/reader-compact-math/deploy/`. Both isolated validation servers were stopped.
 Physical iPhone/VoiceOver execution was not performed.
+
+## Connected local side notes and ordinary footnotes — 2026-10-19
+
+Runtime c0e8d142 first delivered the wider tablet canvas and per-host annotation
+reservations. Its 410 immutable files, 52 local/HTTPS asset deliveries and
+63 tablet, 52 kernel, 24 delta/control and 12 baseline browser checks per engine
+passed. The original PDF profile was stopped before this deployment and remained
+stopped; its configuration and the accepted PDE HTML were unchanged.
+
+Concept 12 now includes a local divider, thin accent connector and target dot,
+with the actual equation reference and authored short title. Leaders reuse the
+existing ink-aware router and cache local geometry. Ordinary footnotes load from
+revision-bound endnote sections and share these local columns. A same-host
+repeated reference shares one projection; section requests are coalesced.
+Original numbered links/endnotes remain available in compact layouts and after
+failed loads. Projection IDs are scoped; obsolete responses cannot populate
+replacement records. Native math, language, emphasis and document links survive.
+
+Before installation, Chrome and WebKit each passed 78 compiled annotation
+checks, 18 distant-footnote checks (including repeated references, loading
+failure, history remounts and original backlinks), 63 actual PDE tablet checks
+and 13 actual PDE footnote checks. The glyph-collision check samples each
+leader against visible glyphs and equation numbers. Twenty-two JavaScript and
+18 compiler checks passed; the canonical Typst development guide compiled and
+OpenSpec strict validation passed. Evidence is under
+`dist/reader-side-footnotes/`. Final immutable installation verification follows.

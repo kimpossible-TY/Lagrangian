@@ -574,6 +574,24 @@ note placement is bounded by that host to avoid recursive height growth.
 Apply the host reservation and first note positions in the same layout pass so
 side presentation does not expose positions left over from compact mode.
 Ordinary passages and unannotated equations keep the complete reading width.
+Each local group has a visible vertical divider spanning its annotated row.
+An unobtrusive accent leader and endpoint dot connect each marked fragment to
+that divider; route the leader above intervening text/math ink instead of
+crossing it. Show the host's actual equation number as muted reference UI and
+style an authored short name as its title, without inventing explanatory prose.
+Remove generated leaders and reference UI from compact presentation and logical
+copy text. Their geometry must not increase the reserved row on every repaint.
+
+Footnote references participate in these same groups. Resolve their bodies from
+the revision-bound section containing the original endnote, even when it is not
+mounted. Load only for eligible side presentation, sanitize with the document
+parser, scope copied IDs, and compose native mathematics at the reading font.
+The side presentation is a generated projection; original footnote anchors,
+backlinks, numbering, body language and compact endnote navigation remain intact.
+Clicking a number in side mode reveals its local note. Repeated references may
+share a note in the same host; unrelated rows reserve no space. Failed or stale
+loads keep the ordinary endnote link usable. Section parking and revision
+replacement release projections and ignore obsolete asynchronous results.
 Remove reservations when the host disconnects or returns to compact mode.
 Viewport, font, section and mathematical changes update their geometry with
 reading-anchor preservation. Original note nodes move between presentations without losing

@@ -1052,8 +1052,9 @@ math svg {
   padding-inline-end: calc(var(--flow-side-width) + 20px);
   min-block-size: var(--flow-side-height);
 }
+.flow-annotation-side,
 .flow-annotation-side.flow-annotation-space {
-  padding-block-start: 0.6em;
+  padding-block-start: max(8px, 0.6em);
 }
 .flow-note[data-note-mode="label"],
 .flow-note[data-note-mode="side"] {
@@ -1073,9 +1074,46 @@ math svg {
   white-space: nowrap;
 }
 .flow-note[data-note-mode="side"] {
-  border-inline-start: 1px solid var(--line);
   padding-inline: 1em;
   line-height: 1.5;
+  text-indent: 0;
+}
+.flow-note-reference {
+  display: none;
+  user-select: none;
+}
+.flow-note[data-note-mode="side"] .flow-note-reference:not(:empty) {
+  display: block;
+  margin-block-end: 0.65em;
+  color: var(--muted);
+  font-size: 0.82em;
+}
+.flow-note[data-note-mode="side"][data-note-short="true"] .flow-note-body {
+  color: var(--accent);
+  font-weight: 650;
+}
+.flow-side-lines {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+  fill: none;
+}
+.flow-side-divider {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.flow-side-connector {
+  fill: none;
+  stroke: var(--accent);
+  stroke-opacity: 0.65;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.flow-side-dot {
+  fill: var(--accent);
 }
 .flow-note-close,
 .flow-note-next {

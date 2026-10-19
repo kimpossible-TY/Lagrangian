@@ -1,5 +1,6 @@
 import { logicalTextIndex, visualFragments } from "./math-identity.js";
 import { setLanguage, uiLanguage } from "./language.js";
+import { routeConnection } from "./connector-routing.js";
 
 export function shortAnnotation(text, rich = false) {
   const name = text.trim().replace(/\s+/gu, " ");
@@ -36,6 +37,30 @@ export function popoverPosition(target, size, viewport) {
 }
 
 const painted = (node) => !node.closest("mjx-assistive-mml,.flow-math-stage");
+
+function inkRectangles(host) {
+  const ink = [
+    ...host.querySelectorAll(
+      "mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,mi,mn,mo,mtext,.flow-equation-number",
+    ),
+  ]
+    .filter(painted)
+    .flatMap((node) => [...node.getClientRects()]);
+  const text = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+  for (let node = text.nextNode(); node; node = text.nextNode()) {
+    if (
+      !node.data.trim() ||
+      node.parentElement.closest(
+        "math,.flow-math-view,.flow-note,svg,.flow-math-status,.flow-decoration-notice",
+      )
+    )
+      continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    ink.push(...range.getClientRects());
+  }
+  return ink.filter((rect) => rect.width > 0 && rect.height > 0);
+}
 
 export function labelPosition(target, size, bounds, obstacles) {
   const gap = 6;
@@ -74,8 +99,8 @@ export function labelPosition(target, size, bounds, obstacles) {
 // Keep the authored note node once. Only its presentation changes; the original
 // mathematical nodes and their canonical text never acquire UI label children.
 export class TextAnnotations {
-  constructor(article, { preserve, changed }) {
-    Object.assign(this, { article, preserve, changed });
+  constructor(article, { preserve, changed, loadFootnote, prepareNote }) {
+    Object.assign(this, { article, preserve, changed, loadFootnote, prepareNote });
     this.records = new Map();
     this.reserved = new Map();
     this.sides = new Map();
@@ -118,7 +143,7 @@ export class TextAnnotations {
     });
   }
 
-  register(nodes, note) {
+  register(nodes, note, { kind = "text", number = "", load = null } = {}) {
     const body = document.createElement("div");
     body.className = "flow-note-body";
     body.append(...note.childNodes);
@@ -130,12 +155,24 @@ export class TextAnnotations {
       nodes: nodes.filter(Boolean),
       note,
       body,
-      short: shortAnnotation(
-        logicalTextIndex(body, { includeNotes: true, includeNested: true }).text,
-        rich,
-      ),
+      kind,
+      number,
+      load,
+      short:
+        kind === "text" &&
+        shortAnnotation(
+          logicalTextIndex(body, { includeNotes: true, includeNested: true }).text,
+          rich,
+        ),
     };
-    note.dataset.noteKind = "text";
+    note.dataset.noteKind = kind;
+    note.dataset.noteShort = String(record.short);
+    const reference = document.createElement("div");
+    reference.className = "flow-note-reference";
+    reference.setAttribute("aria-hidden", "true");
+    note.prepend(reference);
+    record.reference = reference;
+    if (load) note.hidden = true;
     const close = document.createElement("button");
     close.type = "button";
     close.className = "flow-note-close";
@@ -155,6 +192,97 @@ export class TextAnnotations {
     // The visible body is also the no-JavaScript/diagnostic fallback. Hide it
     // only after a connected record has successfully entered an adaptive mode.
     return record;
+  }
+
+  prepareFootnotes(root, section) {
+    const hosts = new Map();
+    let count = 0;
+    for (const reference of root.querySelectorAll('[role="doc-noteref"]')) {
+      if (reference.closest('a,nav,[role="doc-endnotes"],.flow-notes')) continue;
+      const link = reference.querySelector('a[href^="#"]');
+      const host = reference.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li");
+      if (!link || !host) continue;
+      let target;
+      try {
+        target = decodeURIComponent(link.hash.slice(1));
+      } catch {
+        continue;
+      }
+      if (!hosts.has(host)) {
+        const group = document.createElement("aside");
+        group.className = "flow-notes";
+        host.after(group);
+        hosts.set(host, { notes: new Map(), group });
+      }
+      const { notes, group } = hosts.get(host);
+      let record = notes.get(target);
+      const source = reference.closest("mtext") ?? reference;
+      // Let MathIdentity bind HTML footnote markers inside composed mathematics.
+      if (source.closest("math")) source.dataset.flowMark = `footnote-${section}-${++count}`;
+      if (!record) {
+        const note = document.createElement("div");
+        note.className = "flow-note";
+        note.id = `reader-footnote-${section}-${++count}`;
+        note.dataset.footnoteTarget = target;
+        group.append(note);
+        record = this.register([], note, {
+          kind: "footnote",
+          number: link.textContent.trim(),
+          load: () => this.loadFootnote(target),
+        });
+        notes.set(target, record);
+      }
+      record.nodes.push(source);
+      source.dataset.readerNote = [source.dataset.readerNote, record.note.id]
+        .filter(Boolean)
+        .join(" ");
+    }
+  }
+
+  async load(record) {
+    if (record.loading || record.retryAt > Date.now()) return;
+    record.loading = true;
+    try {
+      const body = await record.load();
+      if (this.records.get(record.note.id) !== record || !record.note.isConnected) return;
+      if (!body) throw new Error("Footnote unavailable");
+      setLanguage(record.note, body.closest("[lang]")?.getAttribute("lang") ?? "");
+      body.querySelectorAll('[role="doc-backlink"]').forEach((node) => node.remove());
+      const ids = new Map(
+        [...body.querySelectorAll("[id]")].map((node, index) => [
+          node.id,
+          `${record.note.id}-content-${index}`,
+        ]),
+      );
+      for (const node of body.querySelectorAll("*")) {
+        if (node.id) node.id = ids.get(node.id);
+        for (const attribute of [...node.attributes]) {
+          let value = attribute.value.replace(/url\(#([^)]*)\)/gu, (match, id) =>
+            ids.has(id) ? `url(#${ids.get(id)})` : match,
+          );
+          if (value.startsWith("#") && ids.has(value.slice(1)))
+            value = `#${ids.get(value.slice(1))}`;
+          if (value !== attribute.value) node.setAttribute(attribute.name, value);
+        }
+      }
+      record.body.append(...body.childNodes);
+      record.load = null;
+      this.prepareNote(record.note);
+      this.changed();
+      this.schedule();
+    } catch {
+      // The original endnote link remains usable; retry after reconnect/resize.
+      record.retryAt = Date.now() + 5000;
+    } finally {
+      record.loading = false;
+    }
+  }
+
+  footnote(target) {
+    return [...this.records.values()].find(
+      (record) =>
+        record.note.dataset.footnoteTarget === target && record.note.dataset.noteMode === "side",
+    )?.note;
   }
 
   clear() {
@@ -227,15 +355,23 @@ export class TextAnnotations {
     note.removeAttribute("role");
     note.style.cssText = "";
     note.dataset.noteMode = mode;
-    note.hidden = mode === "popover";
+    note.hidden = mode === "popover" || mode === "endnote";
     if (mode === "popover") {
       if (typeof note.showPopover === "function") note.setAttribute("popover", "auto");
       note.setAttribute("role", "dialog");
       note.setAttribute("aria-label", "주석");
-    } else note.removeAttribute("aria-label");
+    } else if (record.kind === "footnote" && mode === "side") {
+      note.setAttribute("role", "note");
+      note.setAttribute("aria-label", record.number);
+      note.setAttribute("tabindex", "-1");
+    } else {
+      note.removeAttribute("aria-label");
+      note.removeAttribute("tabindex");
+    }
   }
 
   clearSide(host) {
+    this.sides.get(host)?.lines?.remove();
     host.classList.remove("flow-annotation-side");
     host.style.removeProperty("--flow-side-width");
     host.style.removeProperty("--flow-side-height");
@@ -246,7 +382,7 @@ export class TextAnnotations {
     if (enabled) {
       for (const record of this.records.values()) {
         if (record.note.classList.contains("flow-unresolved")) continue;
-        const host = this.fragments(record)[0]?.closest(".flow-equation,p");
+        const host = this.fragments(record)[0]?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li");
         if (
           !host ||
           !sideAnnotations({
@@ -257,14 +393,27 @@ export class TextAnnotations {
           })
         )
           continue;
+        if (record.load) {
+          this.load(record);
+          continue;
+        }
         if (!groups.has(host)) groups.set(host, { records: [] });
         groups.get(host).records.push(record);
       }
     }
     for (const [host, group] of groups) {
+      group.lines = this.sides.get(host)?.lines;
       const width = Math.max(220, fontSize * 14);
       group.width = 0;
       for (const record of group.records) {
+        const reference =
+          record.kind === "footnote"
+            ? record.number
+            : (host.querySelector(".flow-equation-number")?.textContent.trim() ?? "");
+        if (record.reference.textContent !== reference) {
+          record.reference.textContent = reference;
+          delete record.sideSize;
+        }
         this.mode(record, "side");
         let natural = width;
         if (record.short) {
@@ -287,9 +436,7 @@ export class TextAnnotations {
         group.records.reduce((sum, record) => sum + record.note.getBoundingClientRect().height, 0) +
         (group.records.length - 1) * 16;
       const style = getComputedStyle(host);
-      group.top = host.classList.contains("flow-annotation-space")
-        ? parseFloat(style.fontSize) * 0.6
-        : parseFloat(style.paddingTop);
+      group.top = Math.max(8, parseFloat(style.fontSize) * 0.6);
       group.bottom = parseFloat(style.paddingBottom);
       group.minimum = Math.ceil(group.height + group.top + group.bottom);
     }
@@ -314,6 +461,99 @@ export class TextAnnotations {
     }
     // The caller places notes against the updated host bounds in this pass.
     return groups;
+  }
+
+  connect(host, group) {
+    const previous = this.sides.get(host);
+    let lines = previous?.lines;
+    if (!lines) {
+      lines = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      lines.classList.add("flow-side-lines");
+      lines.setAttribute("fill", "none");
+      lines.setAttribute("aria-hidden", "true");
+      lines.setAttribute("focusable", "false");
+      host.after(lines);
+    }
+    group.lines = lines;
+    if (previous) previous.lines = lines;
+    const bounds = host.getBoundingClientRect();
+    this.place(lines, bounds.left, bounds.top);
+    const width = bounds.width,
+      height = bounds.height,
+      divider = width - group.width;
+    lines.style.width = `${width}px`;
+    lines.style.height = `${height}px`;
+    const local = (rect) => ({
+      left: rect.left - bounds.left,
+      right: rect.right - bounds.left,
+      top: rect.top - bounds.top,
+      bottom: rect.bottom - bounds.top,
+    });
+    const ink = inkRectangles(host).map(local);
+    const targets = group.records.map((record) => ({
+      record,
+      target: this.rectangles(record).at(-1),
+      note: record.body.getBoundingClientRect(),
+    }));
+    const key = JSON.stringify(
+      [
+        width,
+        height,
+        divider,
+        ink,
+        targets.map(({ record, target, note }) => [
+          record.note.id,
+          target && local(target),
+          local(note),
+        ]),
+      ],
+      (_, value) => (typeof value === "number" ? Math.round(value * 4) / 4 : value),
+    );
+    if (lines.flowSideGeometry === key) return;
+    lines.flowSideGeometry = key;
+    let svg = `<path class="flow-side-divider" d="M${divider},0 V${height}"/>`;
+    for (const { record, target, note } of targets) {
+      if (!target) continue;
+      const end = { x: divider, y: Math.max(4, note.top - bounds.top - 4) };
+      const obstacles = ink.concat([
+        { left: 0, right: width, top: -1000, bottom: 0 },
+        { left: 0, right: width, top: height, bottom: height + 1000 },
+      ]);
+      let route, point;
+      for (const [x, y, anchor] of [
+        [target.right + 2, target.top - 4, "north"],
+        [(target.left + target.right) / 2, target.top - 4, "north"],
+        [target.right + 4, (target.top + target.bottom) / 2, "east"],
+        [(target.left + target.right) / 2, target.bottom + 4, "south"],
+      ]) {
+        point = {
+          x: Math.max(4, Math.min(divider - 8, x - bounds.left)),
+          y: Math.max(4, Math.min(height - 4, y - bounds.top)),
+        };
+        route = routeConnection(
+          {
+            kind: "line",
+            points: [point, { x: divider - 8, y: point.y }, { x: divider - 8, y: end.y }, end],
+            start: { anchor },
+            end: { anchor: "west" },
+          },
+          obstacles,
+          width,
+          height,
+          parseFloat(getComputedStyle(host).fontSize),
+        );
+        if (route) break;
+      }
+      if (!route) continue;
+      const path = route.points.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
+      svg +=
+        `<path class="flow-side-connector" data-note="${record.note.id}" d="${path}"/>` +
+        `<circle class="flow-side-dot" cx="${point.x}" cy="${point.y}" r="2.5"/>`;
+    }
+    if (lines.flowSidePaint !== svg) {
+      lines.innerHTML = svg;
+      lines.flowSidePaint = svg;
+    }
   }
 
   layout() {
@@ -365,6 +605,7 @@ export class TextAnnotations {
         this.place(record.note, bounds.right - group.width, top);
         top += record.note.getBoundingClientRect().height + 16;
       }
+      this.connect(host, group);
     }
     const labels = [];
     const spacing = new Map();
@@ -372,6 +613,10 @@ export class TextAnnotations {
       const { note } = record;
       if (note.classList.contains("flow-unresolved") || !record.nodes.length) continue;
       if (sideRecords.has(record)) continue;
+      if (record.kind === "footnote") {
+        this.mode(record, "endnote");
+        continue;
+      }
       const rects = this.rectangles(record);
       if (!rects.length) {
         if (this.active === record) this.close();
@@ -469,6 +714,7 @@ export class TextAnnotations {
       return;
     }
     for (const record of this.records.values()) {
+      if (record.kind === "footnote") continue;
       for (const node of this.fragments(record)) {
         const ids = (node.dataset.readerNote ?? "").split(" ").filter(Boolean);
         const interactive = ids.some(

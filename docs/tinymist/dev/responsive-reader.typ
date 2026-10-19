@@ -483,6 +483,16 @@ and popovers. Notes follow current mathematical fragments and stack without
 overlap. An open popover protects its section and defers source publication until
 it closes. Graphical annotation relationships remain automatically visible.
 
+Side columns include a local vertical divider and an accent connector with a dot
+at the annotated target. Connectors avoid intervening text and mathematical ink.
+The actual equation number is a muted reference; authored short names use a
+distinct title treatment. No explanatory text is invented. Ordinary footnotes
+use these same local columns, loading their revision-bound bodies even when the
+endnote section is not mounted. Their numbers reveal the adjacent note. Compact
+layouts retain the original numbered links and endnote list. Generated reference
+UI and footnote projections do not enter canonical body quotations; original
+numbering, links, language and mathematical content remain intact.
+
 On 2026-10-19 runtime `f1e6c575` was installed after the short-label free-space
 repair. The photographed PDE kernel remains a label across 320px, 393px and
 768px viewports at the tested 13–30px sizes. Chrome and WebKit each passed 66
