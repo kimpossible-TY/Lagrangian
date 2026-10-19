@@ -168,6 +168,6 @@ other services, and the mobile default are preserved.
 
 ## Codex context service rollout
 
-- [ ] Commit the validated Reader changes and stage a clean immutable release while preserving unrelated worktree files.
-- [ ] Back up runtime configuration, install/restart only the Reader and apply the tested local selection adapter.
-- [ ] Verify registered HTTPS delivery, explicit save/read freshness and source isolation; record the deployed revision and recovery paths.
+- [x] Commit the validated Reader changes and stage a clean immutable release while preserving unrelated worktree files.
+- [x] Back up runtime configuration, install/restart only the Reader and apply the tested local selection adapter.
+- [x] Verify registered HTTPS delivery, explicit save/read freshness and source isolation; record the deployed revision and recovery paths.

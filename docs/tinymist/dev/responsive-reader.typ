@@ -1036,6 +1036,22 @@ session cannot silently substitute a different width.
 
 == Managed installation
 
+=== Codex context rollout (2026-10-19)
+
+The managed PDE Reader delivers Save for Codex from clean runtime `644cef9a`.
+The existing HTTPS origin and settings are preserved. Refresh an already open
+Reader to load the new selection capsule. The local selection reader resolves
+`typst-pde-reader` separately from the paged preview and checks current context
+before using it. The live record starts waiting for an explicit selection.
+
+The read-only `tools/flow-reader/source_mapping.py` module provides conservative
+source context independently of the optional terminal editor adapter. Separate
+uncommitted terminal work is not part of this runtime. Registered HTTPS delivery
+and isolated save/read flows passed in Chrome and WebKit; the authored PDE HTML
+remained unchanged. Runtime receipts and recovery snapshots are retained under
+`dist/reader-codex-rollout/`.
+
+
 The Reader lifecycle module belongs to this repository and reads the installed
 Flow app's `--profiles` output on each start. Its configuration stores a parent
 profile ID and Reader runtime/port options; it does not copy the project root,
