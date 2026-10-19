@@ -36,3 +36,7 @@ No user app installation, real LaunchAgent mutation, manual AppKit clicking or p
 ## Main integration
 
 Verified implementation commit `d6df2694` was pushed on `refactor/reader-architecture` and fast-forward merged from origin/main `262d7554` into remote main. `git ls-remote --heads origin main refactor/reader-architecture` confirmed both remote refs at the implementation commit before this verification-only bookkeeping commit. The managed worktree is clean; hashes confirm all 28 original-checkout modified/untracked files remain unchanged. The original checkout's local main is deliberately left at its prior commit with its dirty work intact; remote main and the managed refactor branch contain the verified refactor.
+
+## Subsequent terminal integration
+
+The preserved terminal/Neovim work was subsequently ported through `add-terminal-reader`. See its `verification-integration.md` for current ownership and checks. That integration also advanced the original checkout's local main; only its seven local-only agent-configuration/icon items remain untracked, with raw functional originals archived privately.
