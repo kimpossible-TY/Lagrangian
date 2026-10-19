@@ -162,7 +162,7 @@ other services, and the mobile default are preserved.
 ## Codex context instead of local quotations
 
 - [x] Remove the local quotation library, list entry, relocation and paint without deleting or migrating legacy browser data.
-- [x] Implement atomic per-service focus records, supported source excerpts and explicit unmapped text, with revision/service/input/age checks and no compilation or messages.
+- [x] Implement atomic per-service focus records, supported source excerpts and explicit unmapped text, with revision/service/input checks, informational age and no compilation or messages.
 - [x] Expose distinct profile focusFile paths, a validated local selection reader and a portable Tail Hosting selection adapter.
 - [x] Verify Python/Node, browser and terminal save, failed/pending selections and legacy-data behavior; align canonical docs and OpenSpec. Installation/deployment is excluded.
 
@@ -177,4 +177,4 @@ other services, and the mobile default are preserved.
 - [x] Resolve same-project/document saved text across reader adapters, preserving exact filters, document isolation and stale/error evidence.
 - [x] Remove time-based expiry from HTML and paged context readers; cover old mapped/unmapped text, taps, changed source, service and revisions.
 - [x] Align canonical docs, the portable companion patch and local Codex instructions with unified lookup.
-- [ ] Run targeted and reader integration checks, install the clean immutable Reader release, and verify the local PDE lookup without a reader argument.
+- [x] Run targeted and reader integration checks, install the clean immutable Reader release, and verify the local PDE lookup without a reader argument.

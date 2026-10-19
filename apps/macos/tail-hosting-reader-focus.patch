@@ -68,3 +68,18 @@
 @@ -449 +501 @@
 -        or data['age_seconds'] is None or data['age_seconds']>300
 +        or data['age_seconds'] is None
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -9 +9 @@
+-The command resolves the registered Typst Preview from the current working directory and reads its per-service focus file after an explicit tap. Use `focus --list` to discover IDs and `focus --preview <id>` (or `--project`, `--document`, `--url`) when the user specifies a target. If `needs_preview_selection` is true, present the returned candidates and ask which Preview; never choose by most recent tap. The PDE service retains `.runtime/preview-focus.json`. It includes the selected page and coordinates, source path, one-based line/column, surrounding source excerpt, timestamp, and a per-service selection sequence. The latest tap across connected viewers wins. This records an explicit selection, not the current viewport after later scrolling.
++The command resolves the nearest registered project from the current working directory. For readers of the same project and entry document, it prefers the latest explicitly saved Codex text over tap-only positions and identifies the originating reader. Do not ask which internal reader when `needs_preview_selection` is false. Use `focus --list` to discover IDs and exact `--preview` or `--url` filters when the user specifies a reader. Project/document filters retain the same-document resolver. Different projects/documents and tied timestamps require clarification; never choose a project by global recency. Per-service records remain separate and are read through their validated adapters.
+@@ -13 +13 @@
+-- Check `status`, `age_seconds`, `service_matches`, `source_excerpt_matches_disk`, and `needs_reselection`. If stale or unmapped, do not pretend the previous selection is current. Ask for another tap when exact context is needed.
++- Check `status`, `service_matches`, `revision_matches`, `selection_usable`, `source_excerpt_matches_disk`, and `needs_reselection`. Age is informational: saved context has no time limit. Verified unmapped HTML text can be discussed without inventing a source location; exact edits require verified source. Report `context_read_errors` when a reader was unavailable.
+--- a/scripts/test-management.py
++++ b/scripts/test-management.py
+@@ -127 +127,3 @@
+-                    self.assertTrue(h.read_focus()['needs_reselection'])
++                    self.assertFalse(h.read_focus()['needs_reselection'])
++                with patch.object(h.time,'time',return_value=1000+86400*30):
++                    self.assertFalse(h.read_focus()['needs_reselection'])
