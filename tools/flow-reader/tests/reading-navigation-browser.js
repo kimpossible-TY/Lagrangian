@@ -40,7 +40,11 @@ function authoredText() {
 let clock = 0;
 function touch(id, x, y, node = target()) {
   const contact = { identifier: id, target: node, clientX: x, clientY: y, pageX: x, pageY: y };
-  return typeof Touch === "function" ? new Touch(contact) : contact;
+  try {
+    return new Touch(contact);
+  } catch {
+    return contact;
+  }
 }
 function send(
   name,
@@ -57,9 +61,11 @@ function send(
     bubbles: true,
     cancelable: true,
   };
-  const event =
-    typeof TouchEvent === "function" ? new TouchEvent(name, init) : new Event(name, init);
-  if (typeof TouchEvent !== "function") {
+  let event;
+  try {
+    event = new TouchEvent(name, init);
+  } catch {
+    event = new Event(name, init);
     for (const key of ["touches", "changedTouches", "targetTouches"])
       Object.defineProperty(event, key, { value: init[key] });
   }
@@ -116,21 +122,25 @@ async function run() {
   );
 
   const growth = pinch(1.4);
+  const larger = Math.min(30, Math.round(original * 1.4));
+  await until(() => font() === larger, "Live pinch growth");
   check(
-    "Pinch previews a candidate without reflowing during movement",
-    font() === original && !document.querySelector("#reader-font-preview").hidden,
+    "Pinch changes the actual body size while both fingers remain down",
+    getComputedStyle(article).fontSize === `${larger}px` &&
+      !document.querySelector("#reader-font-preview").hidden,
   );
   finish(growth);
-  const larger = Math.min(30, Math.round(original * 1.4));
   check(
-    "Release commits the chosen text size",
+    "Release retains the live text size",
     font() === larger && getComputedStyle(article).fontSize === `${larger}px`,
   );
   const restore = pinch(original / font());
+  await until(() => font() === original, "Live pinch shrink");
   finish(restore);
   check("Reverse pinch restores the selected text size", font() === original);
 
   const canceled = pinch(1.8);
+  await until(() => font() !== original, "Preview before touch cancellation");
   finish(canceled, true);
   check(
     "Touch cancellation discards font changes and hides feedback",
@@ -138,6 +148,7 @@ async function run() {
   );
   const extra = pinch(1.8),
     third = touch(4, 120, 300);
+  await until(() => font() !== original, "Preview before third contact");
   send("touchstart", [extra.a, extra.b, third], [third]);
   send("touchend", [extra.a, extra.b], [third]);
   send("touchmove", [extra.a, extra.b]);
@@ -325,7 +336,7 @@ async function run() {
   );
   const gestureArticle = document.createElement("main");
   document.body.append(gestureArticle);
-  new ReaderGestures(gestureArticle, motion, {
+  const fixtureGestures = new ReaderGestures(gestureArticle, motion, {
     getFont: () => 13,
     setFont: () => {},
     preview: document.querySelector("#reader-font-preview"),
@@ -338,6 +349,7 @@ async function run() {
   );
   motion.close();
   check("Reduced motion leaves no visible exit layer", motion.visual.hidden);
+  fixtureGestures.dispose();
   gestureArticle.remove();
   motion.visual.remove();
   fixture.remove();

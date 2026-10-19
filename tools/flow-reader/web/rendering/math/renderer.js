@@ -10,6 +10,7 @@ import { namespaceClone } from "../graphics/annotations.js";
 import { MathFrames } from "./frames.js";
 import { loadMathJax } from "./loader.js";
 import { languageOf, setLanguage, uiLanguage } from "../../ui/language.js";
+import { RenderScheduler } from "../../reader-common/rendering/scheduler.js";
 
 let serial = 0;
 
@@ -65,6 +66,12 @@ export class ResponsiveMath {
     Object.assign(this, { article, preserve, changed, selectionActive });
     this.records = new Set();
     this.generation = 0;
+    this.work = new RenderScheduler({
+      render: () => this.render(),
+      blocked: () => this.selectionActive(),
+    });
+    this.listeners = new AbortController();
+    const { signal } = this.listeners;
     // schedule() may retire paint or prepare native geometry. Keep those
     // writes out of ResizeObserver's current notification delivery cycle.
     this.resize = new ResizeObserver(() => {
@@ -72,11 +79,11 @@ export class ResponsiveMath {
       this.resizeFrame = requestAnimationFrame(() => this.schedule());
     });
     this.intersection = new IntersectionObserver(() => this.schedule(), { rootMargin: "1200px" });
-    window.addEventListener("resize", () => this.schedule());
-    document.addEventListener("selectionchange", () => this.schedule());
-    document.addEventListener("close", () => this.schedule(), true);
+    window.addEventListener("resize", () => this.schedule(), { signal });
+    document.addEventListener("selectionchange", () => this.schedule(), { signal });
+    document.addEventListener("close", () => this.schedule(), { capture: true, signal });
     document.fonts.ready.then(() => this.schedule());
-    article.addEventListener("copy", (event) => this.copy(event));
+    article.addEventListener("copy", (event) => this.copy(event), { signal });
   }
 
   prepare(root) {
@@ -102,10 +109,18 @@ export class ResponsiveMath {
 
   clear() {
     this.generation++;
-    clearTimeout(this.timer);
+    this.work.cancel();
+    if (this.resizeFrame !== undefined) cancelAnimationFrame(this.resizeFrame);
     this.resize.disconnect();
     this.intersection.disconnect();
     this.records.clear();
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.clear();
+    this.work.dispose();
+    this.listeners.abort();
   }
 
   sync() {
@@ -124,6 +139,7 @@ export class ResponsiveMath {
   }
 
   schedule(delay = 100) {
+    if (this.disposed) return;
     for (const record of this.records) {
       const measurement = this.measure(record);
       if (
@@ -133,8 +149,7 @@ export class ResponsiveMath {
       )
         record.view.dataset.mathState = "pending";
     }
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.render(), delay);
+    this.work.request(delay);
   }
 
   measure(record) {
@@ -337,6 +352,8 @@ export class ResponsiveMath {
   }
 
   async render() {
+    // Explicit composition probes also call render(); keep them out of a batch
+    // already running through the shared scheduler.
     if (this.busy) return;
     if (this.selectionActive()) return;
     const outdated = [...this.records].filter((record) => {

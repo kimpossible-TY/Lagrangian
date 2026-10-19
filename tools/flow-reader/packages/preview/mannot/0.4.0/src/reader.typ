@@ -1,6 +1,7 @@
 // Reader-only decoration output. The mathematical body stays in MathML.
 #import "util.typ": coerce-outset
 #import "@local/flow-inputs:0.1.0" as flow-inputs
+#import "reader-paint.typ": local-paint
 
 #let decoration-counter = counter("flow-reader-decoration")
 

@@ -44,7 +44,8 @@ Keep a direct open action and browser-local automatic/Reader/original preference
 Keep original-page access in the Dashboard and existing addresses; the Reader
 toolbar contains only an outline icon, a centered Flow identity, and a reading-settings icon.
 Move font sizing and appearance into reading settings. A
-two-finger pinch changes the persisted text size and recomposes on release;
+two-finger pinch updates the actual text size during movement, coalesced to
+animation frames, and persists the final size once on release;
 the user explicitly chooses this over browser magnification. A horizontal swipe
 from the inner left reading margin opens a reversible outline drawer.
 Only a fresh, healthy, strictly published native Reader qualifies for automatic
@@ -107,3 +108,7 @@ Reuse the paged reader's activity policy, notice controller and styles from
 compiling, loading accepted content, displaying it, paused reading interactions,
 and failures. Keep it visible while scrolled, preserve selections, and hide it
 after the current accepted content is displayed.
+
+## Local mathematical decoration rendering
+
+Export a versioned drawing description for supported solid highlights, rectangles, underlines and cancellations in the initial HTML compilation. Regenerate their per-fragment SVG in the HTML rendering owner after font/viewport changes, eliminating those dynamic decoration requests. Preserve unsupported styles and arbitrary callbacks through the existing validated Typst path. Relationships, canvas conversion, persistent cache and workers remain subsequent work.

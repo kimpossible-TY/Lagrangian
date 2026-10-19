@@ -91,6 +91,16 @@ compilation or changing source highlights and reading positions.
 
 == Required reading behavior
 
+The paged preview and HTML Reader share browser render scheduling through
+`tools/reader-common/rendering/scheduler.js`. It coalesces requests into animation
+frames, serializes asynchronous work, holds selected content and cancels obsolete
+completion. The adapters retain their own document and geometry checks. The paged
+renderer uses WASM; HTML composes mathematics with local MathJax and places native
+figure labels in the browser. HTML custom decoration/relationship SVG generation
+and Typst source compilation still run on the server. This shared scheduling
+does not make those compiler operations available offline or transfer them to
+the phone.
+
 All essential text, equations, figures, and graphical relationships must be readable
 in the continuous body at the chosen font size. Text annotations use the adaptive
 labels, popovers and side column described below. Do not require zoom, horizontal panning,
@@ -105,9 +115,13 @@ quotations and saved reading positions are retained. Canvas and relationship
 requests accept the new 13px lower boundary.
 
 Two-finger pinches on the article choose a body size from 13–30px. A small
-preview shows the candidate during movement; releasing a finger commits once
-through the existing anchor-preserving reflow path. Cancellation, an extra
-finger or a selected passage prevents an accidental change. Article gestures
+indicator accompanies live body-font changes, coalesced to animation frames.
+The appearance owner retains the starting reading anchor and writes no font
+preference during movement. Releasing a finger applies the latest size and saves
+once. Cancellation, an extra finger, selection, lost visibility or a layout-width
+change restores the starting size and retires queued frames. Costly mathematical
+composition and dynamic drawing requests wait until the gesture ends, then
+resume through their existing geometry and revision checks. Article gestures
 own text sizing rather than browser magnification; normal vertical scrolling
 remains available. Settings buttons provide the same adjustment without a gesture.
 
@@ -1276,3 +1290,44 @@ preview autofocus can disturb the touch stream. Closing commits immediately,
 while the layer preserves its exit without display/overlay transition support.
 Height-only mobile viewport changes retain swipe tracking. Reduced motion
 skips travel while keeping swipe opening and closing available.
+
+
+= Local mathematical decoration paint
+
+The initial HTML compile now carries `data-flow-decoration-paint` version 1 for
+solid highlights, square rectangles, straight underlines and cancellations with
+an automatic or fixed angle. The description retains source color and opacity,
+point/em length components, outset and annotation anchor inset. Each current
+visible mathematical fragment generates its own SVG in
+`web/rendering/math/decoration-paint.js`; the existing `MathDecorations` owner
+measures, invalidates and publishes that paint. Supported decorations send no
+`/api/decorations` request and require no dynamic Typst compilation after a
+font or viewport change. The initial document still requires compilation.
+
+Rounded/sided/dashed paint, gradients, wavy underlines, brackets, function angles,
+unknown descriptions and arbitrary callbacks retain the validated server path.
+A mixed batch sends only unsupported decorations. Local paint can complete while
+an unrelated callback request is in flight. Native selection and live pinch
+hold publication and requests; release uses the final geometry. Existing revision,
+occurrence and geometry checks, retry notices, canonical text and assistive MathML
+remain with their current owners. The primitive generator does not interpret
+callback source or introduce another scheduler. Relationships, remaining canvases,
+persistent caches and workers are subsequent work.
+
+`tests/local-decoration-browser.mjs` uses the real compiler and Reader in Chromium
+and WebKit. It compares local and original Typst SVG coordinates, colors, stroke
+width and annotation bounds for two fragment shapes at 13px and 30px. It also
+checks 320/768/390px reflow, font changes, dark appearance, canonical text and
+supported-request elimination alongside unsupported callback delivery. Run it
+with `FLOW_READER_PACKAGES` and `FLOW_READER_PLAYWRIGHT_MODULE`. These browser
+checks do not establish physical-device frame timing or the speed of the full PDE
+document. No service installation is needed for this fixture.
+
+
+The 2026-10-19 frozen PDE source probe in
+`dist/reader-selection-actions-checks/pde/source` passed the complete HTML content
+gate. Of 171 decoration IDs, 154 carried local descriptors: 67 cancellations,
+20 underlines and 67 highlight/rectangle primitives; 17 retained server fallback.
+This measures descriptor coverage of that snapshot, not interaction latency or
+dynamic compiler savings on an installed phone. The dedicated fixture's original
+and Reader-overlay paged PDFs are byte-identical.

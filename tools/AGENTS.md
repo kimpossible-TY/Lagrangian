@@ -5,6 +5,7 @@ Read `../docs/tinymist/dev/reader-architecture.typ` and matching OpenSpec contra
 ## Current ownership
 
 - `reader-common/`: shared selection submission state, bounded review persistence, change-location queue and session activity policy/notice/styles. It imports no concrete reader and uses native ESM with declaration files for TypeScript consumers.
+- `reader-common/rendering/`: browser render scheduling shared by paged WASM and HTML math adapters; document deltas, spatial bounds, mathematical identities and server rendering stay with their concrete owners.
 - `typst-preview-frontend/src/features/`: paged reader selection, review strikes, navigation, appearance, editor synchronization and connection/session behavior. Page geometry and engine transport remain local.
 - `flow-reader/web/features/`: semantic DOM selection, review paint, navigation, appearance and section/session behavior. `web/rendering/` owns HTML-specific math, figures and annotations.
 - `flow-reader/flow_reader/compiler/`: project inputs, package overlay, isolated/incremental compilation and one content audit/diagnostic policy.

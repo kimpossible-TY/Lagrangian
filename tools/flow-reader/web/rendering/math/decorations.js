@@ -1,10 +1,11 @@
 // Keep mathematical glyphs semantic. Original Typst callbacks draw only the paint
 // around their measured fragments, so line breaking never has to split an image.
 import { setLanguage, uiLanguage } from "../../ui/language.js";
+import { localDecorationPaint } from "./decoration-paint.js";
 
 export class MathDecorations {
-  constructor(article, getRevision, changed, preserve) {
-    Object.assign(this, { article, getRevision, changed, preserve });
+  constructor(article, getRevision, changed, preserve, selectionActive = () => false) {
+    Object.assign(this, { article, getRevision, changed, preserve, selectionActive });
     this.records = new Map();
     this.cache = new Map();
     this.notices = new Map();
@@ -227,17 +228,16 @@ export class MathDecorations {
   }
 
   async render() {
-    if (this.busy) {
-      this.again = true;
-      return;
-    }
+    if (this.selectionActive?.()) return;
     const revision = this.getRevision();
     if (!revision) return;
     const pending = [];
     for (const record of this.records.values()) {
       const measurement = this.measure(record);
       if (!measurement || record.key === measurement.key) continue;
-      if (this.cache.has(measurement.signature))
+      const local = localDecorationPaint(record, measurement.request);
+      if (local) this.apply(record, local, measurement);
+      else if (this.cache.has(measurement.signature))
         this.apply(record, this.cache.get(measurement.signature), measurement);
       else {
         // Do not leave an underline or cancellation over the wrong symbols
@@ -251,11 +251,19 @@ export class MathDecorations {
     }
     this.status();
     if (!pending.length) return;
+    if (this.busy) {
+      this.again = true;
+      return;
+    }
     this.busy = true;
     const sequence = this.sequence;
     this.controller = new AbortController();
     try {
       for (let start = 0; start < pending.length; start += 32) {
+        if (this.selectionActive?.()) {
+          this.again = true;
+          return;
+        }
         const batch = pending.slice(start, start + 32);
         const response = await fetch("api/decorations", {
           method: "POST",
@@ -276,7 +284,8 @@ export class MathDecorations {
           this.cache.set(measurement.signature, drawing);
           if (this.records.get(record.id) !== record) continue;
           const current = this.measure(record);
-          if (current?.key === measurement.key) this.apply(record, drawing, current);
+          if (!this.selectionActive?.() && current?.key === measurement.key)
+            this.apply(record, drawing, current);
           else this.again = true;
         }
         while (this.cache.size > 128) this.cache.delete(this.cache.keys().next().value);

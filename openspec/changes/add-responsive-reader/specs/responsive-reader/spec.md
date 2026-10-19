@@ -420,9 +420,12 @@ in reading settings through semantic keyboard-accessible controls.
 
 #### Scenario: Pinch changes text size
 - **WHEN** two fingers pinch on article content without an active selection or dialog
-- **THEN** a candidate size between 13px and 30px is previewed without browser magnification
-- **AND** lifting one finger commits one persisted font change through the anchor-preserving reflow path
-- **AND** cancellation or a third finger discards the candidate, and remaining touches cannot restart the gesture
+- **THEN** the actual body font changes between 13px and 30px during movement without browser magnification, using at most one update per animation frame
+- **AND** preview uses the original reading anchor without writing font preferences
+- **AND** lifting one finger applies the latest candidate even before its queued frame and persists the final font once
+- **AND** cancellation, a third finger, a selection, a width change or lost visibility restores the starting font without persisting preview values or applying stale frames
+- **AND** remaining touches cannot restart the gesture
+- **AND** costly math composition and dynamic drawing requests wait until completion or rollback, then resume for the final geometry
 - **AND** ordinary one-finger vertical scrolling and reference taps remain available
 
 #### Scenario: Swipe the outline
@@ -626,3 +629,17 @@ strict content validation, and accepted-source revision checks.
 - **THEN** the service closes it and attempts isolated compilation
 - **AND** changed sources and obsolete revisions remain ineligible for uncached paint
 - **AND** service shutdown terminates the worker and removes temporary files
+
+### Requirement: Local supported mathematical decoration paint
+The HTML Reader SHALL render explicitly supported decoration primitives locally from a versioned compiler-carried description and current fragment geometry. It SHALL preserve authored paint, length units and annotation anchors, semantic copy and assistive mathematics. Unsupported descriptions and callbacks SHALL retain the validated server path.
+
+#### Scenario: Font or viewport change
+- **WHEN** a supported highlight, rectangle, underline or cancellation changes size or splits across lines
+- **THEN** each visible fragment receives matching local SVG without a decoration API request or dynamic compilation
+- **AND** paint does not cross line gaps or retain obsolete geometry
+
+#### Scenario: Mixed capabilities and held interactions
+- **WHEN** supported and unsupported decorations coexist or the description is invalid
+- **THEN** only unsupported decorations request server paint and failures retain existing retry feedback
+- **AND** selection or a live pinch holds paint publication and server requests until release
+- **AND** an older asynchronous response cannot paint a newer revision or measured layout

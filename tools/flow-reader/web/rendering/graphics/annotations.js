@@ -192,8 +192,8 @@ function inlineGeometry(record, width) {
 }
 
 export class GraphicalAnnotations {
-  constructor(article, getRevision, preserve) {
-    Object.assign(this, { article, getRevision, preserve });
+  constructor(article, getRevision, preserve, selectionActive = () => false) {
+    Object.assign(this, { article, getRevision, preserve, selectionActive });
     this.records = new Map();
     this.scenes = new Set();
     this.cache = new Map();
@@ -525,6 +525,7 @@ export class GraphicalAnnotations {
   }
 
   async render() {
+    if (this.selectionActive?.()) return;
     if (this.busy) {
       this.again = true;
       return;

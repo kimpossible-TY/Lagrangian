@@ -10,6 +10,7 @@ const roots = {
   shared: resolve(tools, "reader-common"),
   html: resolve(tools, "flow-reader/web"),
   paged: resolve(tools, "typst-preview-frontend/src"),
+  dom: resolve(tools, "typst-dom/src"),
 };
 const within = (file, root) => file === root || file.startsWith(root + "/");
 const owner = (file) => Object.entries(roots).find(([, root]) => within(file, root))?.[0];
@@ -21,9 +22,10 @@ async function sourceFiles(directory) {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await sourceFiles(path)));
     else if (
-      [".js", ".ts"].includes(extname(path)) &&
+      [".js", ".ts", ".mts"].includes(extname(path)) &&
       !path.endsWith(".d.ts") &&
-      !path.endsWith(".test.ts")
+      !path.endsWith(".test.ts") &&
+      !path.endsWith(".test.mts")
     )
       files.push(path);
   }
@@ -61,7 +63,12 @@ async function dependencyGraph() {
       for (const specifier of imports(await readFile(file, "utf8"), file)) {
         if (!specifier.startsWith(".")) continue;
         const target = resolve(dirname(file), specifier);
-        for (const candidate of [target, target + ".ts", target + ".js"]) {
+        for (const candidate of [
+          target,
+          target + ".ts",
+          target + ".js",
+          ...(target.endsWith(".mjs") ? [target.slice(0, -4) + ".mts"] : []),
+        ]) {
           try {
             const actual = await realpath(candidate);
             if (owner(actual)) dependencies.push(actual);
@@ -89,7 +96,7 @@ test("shared policies and renderer adapters preserve reader dependency boundarie
         `shared policy imports concrete reader: ${relative(tools, file)}`,
       );
       assert.ok(
-        from === "shared" || to === "shared" || from === to,
+        from === "shared" || to === "shared" || from === to || (from === "paged" && to === "dom"),
         `cross-reader internal import: ${relative(tools, file)} -> ${relative(tools, dependency)}`,
       );
     }

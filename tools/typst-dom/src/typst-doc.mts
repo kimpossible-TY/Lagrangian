@@ -1,6 +1,7 @@
 import type { RenderSession } from "@myriaddreamin/typst.ts/dist/esm/renderer.mjs";
-import { TypstPreviewDocument } from "./index.preview.mjs";
+import type { TypstPreviewDocument } from "./index.preview.mjs";
 import { hasTouchSelection } from "./touch-selection.mjs";
+import { RenderScheduler } from "../../reader-common/rendering/scheduler.js";
 
 export interface ContainerDOMState {
   /// cached `hookedElem.offsetWidth` or `hookedElem.innerWidth`
@@ -98,7 +99,10 @@ export class TypstDocumentContext<O = any> {
   /// State fields
 
   /// whether svg is updating (in triggerSvgUpdate)
-  isRendering: boolean = false;
+  get isRendering(): boolean {
+    return this.renderWork.active;
+  }
+  private renderWork: RenderScheduler;
   /// whether kModule is initialized
   moduleInitialized: boolean = false;
   /// Invalidates derived page metadata and SVG windows after a merge or reset.
@@ -155,6 +159,20 @@ export class TypstDocumentContext<O = any> {
     this.hookedElem = opts.hookedElem;
     this.kModule = opts.kModule;
     this.opts = opts || {};
+    this.renderWork = new RenderScheduler({
+      render: () => this.renderChanges(),
+      blocked: () => hasTouchSelection(this.hookedElem),
+      onBlocked: () => {
+        this.selectionHeld = true;
+        if (this.patchQueue.length) this.onRenderActivity?.("selection-held");
+      },
+      onIdle: () => this.postprocessChanges(),
+      onError: (error) => {
+        console.error(error);
+        this.onRenderError?.(error);
+        this.postprocessChanges(false);
+      },
+    });
 
     /// Apply configuration
     {
@@ -208,6 +226,7 @@ export class TypstDocumentContext<O = any> {
 
   dispose() {
     this.disposed = true;
+    this.renderWork.dispose();
     if (this.vpTimeout !== undefined) clearTimeout(this.vpTimeout);
     this.patchQueue.length = 0;
     const disposeList = this.disposeList;
@@ -428,72 +447,29 @@ export class TypstDocumentContext<O = any> {
   }
 
   private triggerUpdate() {
-    if (this.disposed || this.isRendering) {
-      return;
+    this.renderWork.request();
+  }
+
+  private async renderChanges() {
+    this.cachedDOMState = this.retrieveDOMState();
+    if (this.patchQueue.length === 0) return;
+    this.onRenderActivity?.("rendering");
+    const t0 = performance.now();
+    let needRerender = false;
+    while (this.patchQueue.length > 0) {
+      needRerender = this.processQueue(this.patchQueue.shift()!) || needRerender;
     }
-
-    this.isRendering = true;
-    const doUpdate = async () => {
-      if (this.disposed) {
-        this.isRendering = false;
-        return;
-      }
-      // Keep the SVG and its selectable HTML on the same revision. Do not
-      // consume document deltas or replace selected nodes until selection ends.
-      if (hasTouchSelection(this.hookedElem)) {
-        this.selectionHeld = true;
-        this.isRendering = false;
-        if (this.patchQueue.length) this.onRenderActivity?.("selection-held");
-        return;
-      }
-      this.cachedDOMState = this.retrieveDOMState();
-
-      if (this.patchQueue.length === 0) {
-        this.isRendering = false;
-        this.postprocessChanges();
-        return;
-      }
-
-      try {
-        this.onRenderActivity?.("rendering");
-        let t0 = performance.now();
-
-        let needRerender = false;
-        // console.log('patchQueue', JSON.stringify(this.patchQueue.map(x => x[0])));
-        while (this.patchQueue.length > 0) {
-          needRerender = this.processQueue(this.patchQueue.shift()!) || needRerender;
-        }
-
-        // todo: trigger viewport change once
-        let t1 = performance.now();
-        if (needRerender) {
-          this.r.rescale();
-          await this.r.rerender();
-          if (this.disposed) return;
-          this.r.rescale();
-        }
-        let t2 = performance.now();
-
-        /// perf event
-        const d = (e: string, x: number, y: number) => `${e} ${(y - x).toFixed(2)} ms`;
-        this.sampledRenderTime = t2 - t0;
-        console.log([d("parse", t0, t1), d("rerender", t1, t2), d("total", t0, t2)].join(", "));
-
-        if (this.patchQueue.length) {
-          requestAnimationFrame(doUpdate);
-        } else {
-          // Completion may itself enqueue navigation or viewport work.
-          this.isRendering = false;
-          this.postprocessChanges();
-        }
-      } catch (e) {
-        console.error(e);
-        this.isRendering = false;
-        this.onRenderError?.(e);
-        this.postprocessChanges(false);
-      }
-    };
-    requestAnimationFrame(doUpdate);
+    const t1 = performance.now();
+    if (needRerender) {
+      this.r.rescale();
+      await this.r.rerender();
+      if (this.disposed) return;
+      this.r.rescale();
+    }
+    const t2 = performance.now();
+    this.sampledRenderTime = t2 - t0;
+    const d = (e: string, x: number, y: number) => `${e} ${(y - x).toFixed(2)} ms`;
+    console.log([d("parse", t0, t1), d("rerender", t1, t2), d("total", t0, t2)].join(", "));
   }
 
   private postprocessChanges(renderSucceeded = true) {

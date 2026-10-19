@@ -72,6 +72,7 @@ const graphics = new GraphicalAnnotations(
     change();
     restoreAnchor(anchor);
   },
+  textSelectionActive,
 );
 const canvases = new AdaptiveCanvases(
   article,
@@ -92,6 +93,7 @@ const decorations = new MathDecorations(
     change();
     restoreAnchor(anchor);
   },
+  textSelectionActive,
 );
 const sections = new ContinuousSections(article, {
   fetchSection,
@@ -524,20 +526,24 @@ outline.addEventListener("click", async (event) => {
     article.focus({ preventScroll: true });
   }
 });
+function scheduleFontLayout() {
+  if (disposed) return;
+  mathematics.schedule();
+  canvases.schedule();
+  decorations.schedule();
+  graphics.schedule();
+}
 const appearance = createFontSize({
   preferences,
   capture: readingAnchor,
   restore: restoreAnchor,
-  changed() {
-    mathematics.schedule();
-    canvases.schedule();
-    decorations.schedule();
-    graphics.schedule();
-  },
+  changed: scheduleFontLayout,
 });
 gestures = new ReaderGestures(article, drawer, {
   getFont: () => appearance.size,
   setFont: appearance.set,
+  previewFont: appearance.preview,
+  cancelFont: appearance.cancelPreview,
   preview: document.querySelector("#reader-font-preview"),
   announce: document.querySelector("#reader-gesture-message"),
 });
@@ -562,6 +568,7 @@ window.addEventListener("pagehide", (event) => {
   savePosition();
   if (!event.persisted) {
     disposed = true;
+    gestures.dispose();
     clearTimeout(refreshTimer);
     activity.dispose();
     disposeTerminalBridge();
@@ -569,6 +576,7 @@ window.addEventListener("pagehide", (event) => {
     readingPosition.dispose();
     appearance.dispose();
     changes.dispose();
+    mathematics.dispose();
   }
 });
 appearance.restore();
@@ -596,6 +604,7 @@ const activity = new ReaderActivity(document.querySelector("#reader-activity"), 
   },
   resume() {
     if (pending) requestRefresh();
+    if (!textSelectionActive()) scheduleFontLayout();
   },
 });
 

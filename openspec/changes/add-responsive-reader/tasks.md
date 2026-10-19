@@ -197,3 +197,34 @@ other services, and the mobile default are preserved.
 
 - [x] Commit the validated shared activity change and build clean immutable HTML and signed native app candidates with recovery snapshots.
 - [x] Install both candidates, preserve the previous running/stopped profiles and saved context, and verify registered delivery plus actual document rendering.
+
+## Live pinch text sizing
+
+- [x] Add anchor-preserving transient font previews, a once-only final preference write and cancellation rollback in the appearance owner.
+- [x] Apply pinch movement through a coalesced animation frame, flush the final size on release and cancel stale frames on interruption/disposal.
+- [x] Hold expensive mathematical/dynamic drawing work during live previews and resume the existing renderers for the final size.
+- [x] Verify live growth/shrink, persistence, cancellation/extra fingers, stale frames, reading position and existing gesture guards in Node and Chromium/WebKit; update canonical documentation.
+
+2026-10-19 live-pinch validation: 12 focused Node cases and the shared/HTML Node
+gate passed. The real Reader shell with local MathJax passed Chromium (installed
+Chrome) and WebKit: body and mathematical glyph sizes changed before touchend,
+the reading paragraph remained within 2px of its starting position, browser
+viewport scale stayed 1, preview wrote no font preference and release wrote once.
+Each engine also passed all 36 reading-navigation checks, including live shrink,
+touch cancellation, third-contact rollback, selection/scroll/swipe guards and
+settings controls. Scoped formatting, generated-doc consistency and strict
+OpenSpec validation passed. Touch sequences are synthetic; physical iPhone
+acceptance and installed-service delivery were not performed.
+
+## Local mathematical decoration rendering
+
+- [x] Export versioned, conservative primitive descriptors with point/em paint geometry while preserving callbacks and paged rendering.
+- [x] Generate fragment SVG locally in the HTML decoration owner, retaining server fallback, interaction holds and stale guards.
+- [x] Verify compiler parity, request elimination, mixed fallback, reflow/theme and installed asset delivery; update canonical ownership/docs.
+
+## Deploy shared rendering, live pinch and local decorations
+
+- [x] Finish the coordinated source work, run the combined Reader gate, snapshot installed configuration/context and commit the verified implementation on the current branch.
+- [ ] Build a clean signed 0.1.27 app with the shared scheduler in its native engine and stage the matching immutable HTML Reader release.
+- [ ] Install both candidates with recovery backups and preserve the exact running/stopped profile state and saved context.
+- [ ] Verify installed signatures/provenance, HTTPS asset/document delivery, live pinch/local decoration behavior and isolated paged document rendering; record the confirmed release tag and recovery evidence.

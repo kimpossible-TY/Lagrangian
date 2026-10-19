@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from flow_reader.compiler.build import Project, compile_project
+from flow_reader.compiler.build import Project, compile_project, prepare_packages
 from flow_reader.rendering.decorations import validate_decorations, extract_decorations
 
 
@@ -44,6 +45,53 @@ class DecorationValidationTests(unittest.TestCase):
 
 
 class DecorationCompilerTests(unittest.TestCase):
+    def test_explicit_local_descriptors_keep_units_and_unsupported_paint_on_server(self):
+        from html.parser import HTMLParser
+
+        class Primitives(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.specs = {}
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if value := attrs.get("data-flow-decoration-paint"):
+                    self.specs[attrs["data-flow-decoration"]] = json.loads(value)
+
+        compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
+        packages = os.environ.get("FLOW_READER_PACKAGES")
+        if not compiler or not packages:
+            self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
+        project = Project(ROOT / "tests/fixtures", Path("local-decoration-paint.typ"),
+                          Path(packages), compiler=compiler)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            report = compile_project(project, output)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            parser = Primitives()
+            parser.feed((output / "document.html").read_text())
+            self.assertEqual(len(report["decorations"]), 10)
+            self.assertEqual(list(parser.specs), [f"decoration-{i}" for i in range(1, 6)])
+            self.assertEqual([v["kind"] for v in parser.specs.values()],
+                             ["rect", "rect", "underline", "cancel", "cancel"])
+            self.assertEqual(parser.specs["decoration-2"]["outset"]["left"],
+                             {"px": 1 / .75, "em": .1})
+            cancel = parser.specs["decoration-5"]
+            self.assertTrue(cancel["cross"])
+            self.assertTrue(cancel["inverted"])
+            self.assertAlmostEqual(cancel["angle"], math.pi / 6)
+            self.assertEqual(cancel["length"], {"px": 2 / .75, "em": .2})
+            self.assertEqual(cancel["stroke"]["thickness"], {"px": 2, "em": 0})
+            prepare_packages(Path(packages), output / "overlay")
+            for name, package_path in (("original", Path(packages)), ("reader", output / "overlay")):
+                result = subprocess.run([compiler, "compile", "--root", str(project.root),
+                                         "--package-path", str(package_path),
+                                         str(project.root / project.entry), str(output / f"{name}.pdf")],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((output / "original.pdf").read_bytes(),
+                             (output / "reader.pdf").read_bytes(), "Paged paint must remain unchanged")
+
     def test_native_cancellation_retains_terms_and_resolved_paint_properties(self):
         from html.parser import HTMLParser
 

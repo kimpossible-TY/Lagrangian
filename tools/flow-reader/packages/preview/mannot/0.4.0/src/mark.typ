@@ -364,6 +364,8 @@
   /// Whether to render visual markers for debugging purposes.
   /// -> bool
   debug: false,
+  // Private Reader primitive; callbacks remain the source of server/paged paint.
+  reader-paint: none,
 ) = {
   return context {
     if target() == "html" {
@@ -382,6 +384,8 @@
           attrs.insert("data-flow-decoration-layers", json.encode(
             (if underlay != none { ("under",) } else { () }) +
             (if overlay != none { ("over",) } else { () })))
+          let paint = reader.local-paint(reader-paint, color, mark-outset, anchor-inset)
+          if paint != none { attrs.insert("data-flow-decoration-paint", json.encode(paint, pretty: false)) }
           html.elem("mrow", attrs: attrs, body)
           reader.decoration(id, underlay, overlay, color, mark-outset, anchor-inset)
         }
@@ -554,7 +558,8 @@
     }
   }
 
-  return core-mark(body, tag: tag, color: color, underlay: underlay, mark-outset: outset)
+  return core-mark(body, tag: tag, color: color, underlay: underlay, mark-outset: outset,
+    reader-paint: (kind: "rect", fill: fill, stroke: stroke, radius: radius))
 }
 
 
@@ -655,7 +660,8 @@
     }
   }
 
-  return core-mark(body, tag: tag, color: color, underlay: underlay, mark-outset: outset, anchor-inset: anchor-inset)
+  return core-mark(body, tag: tag, color: color, underlay: underlay, mark-outset: outset, anchor-inset: anchor-inset,
+    reader-paint: (kind: "rect", fill: fill, stroke: stroke, radius: radius))
 }
 
 
@@ -723,7 +729,8 @@
     }
   }
 
-  return core-mark(body, tag: tag, color: color, overlay: overlay, mark-outset: outset, anchor-inset: anchor-inset)
+  return core-mark(body, tag: tag, color: color, overlay: overlay, mark-outset: outset, anchor-inset: anchor-inset,
+    reader-paint: (kind: "underline", stroke: stroke))
 }
 
 
