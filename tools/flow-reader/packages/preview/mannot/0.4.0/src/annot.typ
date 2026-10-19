@@ -1,4 +1,5 @@
 #import "util.typ": coerce-outset, copy-stroke, default-stroke
+#import "@local/flow-inputs:0.1.0" as flow-inputs
 
 #import "@preview/tiptoe:0.4.0"
 
@@ -603,7 +604,7 @@
 #import "reader-anchors.typ": fragment-marker
 
 #let _reader-graphic(id, tags, cetz, drawable) = context {
-  let geometry = json(bytes(sys.inputs.at("flow-geometry", default: "{}"))).at(id, default: none)
+  let geometry = flow-inputs.geometry("geometry").at(id, default: none)
   set text(size: if geometry == none { 13.5pt } else { geometry.at("fontSize", default: 18) * 0.75pt })
   // Enter a fresh context so label measurement sees the requested text size.
   context {

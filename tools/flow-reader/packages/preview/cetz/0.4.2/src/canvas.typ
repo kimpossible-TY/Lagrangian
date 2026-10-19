@@ -1,4 +1,5 @@
 #import "@local/flow-canvas:0.1.0": native-canvas as _reader-native-canvas
+#import "@local/flow-inputs:0.1.0" as flow-inputs
 #import "version.typ"
 #import "drawable.typ"
 #import "vector.typ"
@@ -217,7 +218,7 @@
 #let _reader-canvas-counter = counter("flow-reader-canvas")
 
 #let _reader-canvas(id, render, original-length) = context {
-  let request = json(bytes(sys.inputs.at("flow-canvases", default: "{}"))).at(id, default: none)
+  let request = flow-inputs.geometry("canvases").at(id, default: none)
   let attrs = (class: "flow-drawing flow-canvas", "data-flow-canvas": id)
   if request == none {
     html.elem("span", attrs: attrs, html.frame(render(original-length)))

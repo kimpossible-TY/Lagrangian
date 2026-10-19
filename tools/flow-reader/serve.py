@@ -10,12 +10,14 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import threading
 import tempfile
 import time
 from urllib.parse import parse_qs, urlsplit
 
 from build import HERE, Project, compile_project
+from dynamic import DynamicCompiler
 from graphics import extract_graphics, validate_geometry
 from canvases import extract_canvases, validate_canvases
 from decorations import extract_decorations, validate_decorations
@@ -46,6 +48,10 @@ class ReaderState:
         self.graphic_cache = OrderedDict()
         self.component_cache = OrderedDict()
         self.graphic_lock = threading.Lock()
+        self.dynamic_compiler = None
+        self.dynamic_revision = None
+        self.closed = False
+        self.prewarm = False
         self.graphics = {}
         self.canvases = []
         self.decorations = {}
@@ -134,6 +140,41 @@ class ReaderState:
         finally:
             with self.lock:
                 self.compiling = False
+        if self.prewarm and self.revision and self.report.get("contentGatePassed") and not self.closed:
+            threading.Thread(target=self.warm_dynamic, daemon=True).start()
+
+    def warm_dynamic(self):
+        with self.graphic_lock:
+            if self.closed or self.dynamic_revision == self.revision:
+                return
+            try:
+                self.dynamic(self.revision).compile()
+            except (OSError, ValueError, TimeoutError):
+                self.reset_dynamic()
+
+    def reset_dynamic(self):
+        if self.dynamic_compiler is not None:
+            self.dynamic_compiler.close()
+            self.dynamic_compiler = None
+        self.dynamic_revision = None
+
+    def dynamic(self, revision):
+        if self.closed:
+            raise ValueError("Reader is stopping")
+        if (self.dynamic_revision != revision or
+                (self.dynamic_compiler is not None and self.dynamic_compiler.requests >= 256)):
+            self.reset_dynamic()
+            self.dynamic_compiler = DynamicCompiler(self.project, self.output)
+            self.dynamic_revision = revision
+        return self.dynamic_compiler
+
+    def close(self):
+        self.closed = True
+        worker = self.dynamic_compiler
+        if worker is not None and worker.process is not None and worker.process.poll() is None:
+            worker.process.terminate()
+        with self.graphic_lock:
+            self.reset_dynamic()
 
     def public(self):
         with self.lock:
@@ -221,12 +262,19 @@ class ReaderState:
             with tempfile.TemporaryDirectory(prefix=f"{kind}-", dir=self.output) as temporary:
                 work = Path(temporary)
                 arguments = {"geometry" if kind == "graphics" else kind: geometry}
-                report = compile_project(self.project, work, **arguments)
-                if not report["contentGatePassed"]:
-                    raise ValueError(f"{kind.capitalize()} compilation failed")
+                try:
+                    content = self.dynamic(revision).compile(**arguments)
+                except (OSError, ValueError, TimeoutError):
+                    self.reset_dynamic()
+                    if self.closed:
+                        raise ValueError("Reader is stopping")
+                    report = compile_project(self.project, work, **arguments)
+                    if not report["contentGatePassed"]:
+                        raise ValueError(f"{kind.capitalize()} compilation failed")
+                    content = (work / "document.html").read_text()
                 extract = {"graphics": extract_graphics, "canvases": extract_canvases,
                            "decorations": extract_decorations}[kind]
-                drawings = extract((work / "document.html").read_text(), geometry, key[:16])
+                drawings = extract(content, geometry, key[:16])
             if stamp != source_signature(self.project, dependencies):
                 raise RevisionChanged("Saved sources changed during graphical rendering")
             result = {"revision": revision, kind: cached | drawings}
@@ -462,6 +510,7 @@ def main():
     project.relative_entry()
     state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))
+    state.prewarm = True
     stopped = threading.Event()
     def compile_and_watch():
         state.compile()
@@ -470,6 +519,9 @@ def main():
     state.compiling = True
     threading.Thread(target=compile_and_watch, daemon=True).start()
     print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/", **state.public()}), flush=True)
+    def terminate(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, terminate)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -477,6 +529,7 @@ def main():
     finally:
         stopped.set()
         server.server_close()
+        state.close()
 
 
 if __name__ == "__main__":

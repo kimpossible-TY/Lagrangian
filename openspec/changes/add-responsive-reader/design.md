@@ -522,8 +522,17 @@ returns its drawing. Inline scenes replace the former modal/cloned-scene
 implementation. A source fingerprint belongs
 to the accepted snapshot, not the latest failed compile. Cache by revision and
 geometry, namespace SVG identifiers, and reject uncached requests after source
-changes. The first implementation uses an isolated full compile; a persistent
-compiler can later reduce its latency without changing this protocol.
+changes. Dynamic cache misses share one serialized Typst watch worker, warmed
+after accepted publication. Its isolated package overlay contains mutable
+geometry JSON; a temporary root mirrors source entries with read-only-by-convention
+symlinks, preserving absolute and relative project paths without source writes.
+The original callbacks and full content/warning gates remain authoritative.
+A fresh request nonce must appear in complete HTML after Typst writes its
+dependency completion record (after export and diagnostics). Retry a missed
+watch-registration event without accepting old output. Recreate the worker on
+revision changes or after 256 requests, terminate it on service shutdown, and
+fall back to an isolated cold compilation on worker failure. Source fingerprints
+before and after rendering still exclude changed or failed saves.
 
 Authored text annotations retain their original bodies and source language, with
 explicit associations to every rendered fragment of their shaded targets. On

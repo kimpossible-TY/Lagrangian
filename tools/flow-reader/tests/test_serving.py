@@ -201,7 +201,9 @@ class ReaderServingTests(unittest.TestCase):
                     reused = state.render_graphics(revision, {identifier: layout})
                     self.assertEqual(reused["graphics"], {identifier: rendered["graphics"][identifier]})
             changed = geometry(220) | {"graphic-2": other}
-            with patch("serve.compile_project", wraps=compile_project) as compile_spy:
+            self.addCleanup(state.close)
+            with patch.object(state.dynamic_compiler, "compile",
+                              wraps=state.dynamic_compiler.compile) as compile_spy:
                 updated = state.render_graphics(revision, changed)
             self.assertEqual(compile_spy.call_count, 1)
             self.assertEqual(compile_spy.call_args.kwargs["geometry"], {"graphic-1": changed["graphic-1"]})

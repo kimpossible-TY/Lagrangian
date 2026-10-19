@@ -1,10 +1,11 @@
 // Reader-only decoration output. The mathematical body stays in MathML.
 #import "util.typ": coerce-outset
+#import "@local/flow-inputs:0.1.0" as flow-inputs
 
 #let decoration-counter = counter("flow-reader-decoration")
 
 #let decoration(id, underlay, overlay, color, outset, inset) = context {
-  let request = json(bytes(sys.inputs.at("flow-decorations", default: "{}"))).at(id, default: none)
+  let request = flow-inputs.geometry("decorations").at(id, default: none)
   if request != none {
     let px = 0.75pt
     set text(size: request.fontSize * px)
