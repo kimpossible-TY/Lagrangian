@@ -220,7 +220,15 @@ export class TextAnnotations {
         const top = Math.max(target.top - area.top, railBottom);
         this.place(note, area.right + 20, area.top + top);
         railBottom = top + note.getBoundingClientRect().height + 16;
-      } else if (record.short && target.bottom > -500 && target.top < innerHeight + 500) {
+      } else if (
+        record.short &&
+        this.active !== record &&
+        target.bottom > -500 &&
+        target.top < innerHeight + 500
+      ) {
+        // Measuring a label temporarily changes its presentation. Keep an open
+        // fallback popover in place until dismissal instead of closing it just
+        // to discover the same collision again on the next layout pass.
         this.mode(record, "label");
         const size = note.getBoundingClientRect();
         const anchor = rects.at(-1);

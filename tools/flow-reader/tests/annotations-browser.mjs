@@ -3,14 +3,17 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+const engines = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+const engine = process.env.BROWSER_ENGINE || "chromium";
 
 const address = process.argv[2];
 if (!address) throw new Error("Provide the disposable annotation fixture URL");
 const output = process.argv[3] || "dist/reader-adaptive-annotations";
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({
-  ...(process.env.CHROME_BIN ? { executablePath: process.env.CHROME_BIN } : {}),
+const browser = await engines[engine].launch({
+  ...(engine === "chromium" && process.env.CHROME_BIN
+    ? { executablePath: process.env.CHROME_BIN }
+    : {}),
   headless: true,
 });
 const checks = [];
@@ -39,13 +42,15 @@ try {
   });
   const kernel = page.locator(`#${ids.find((note) => note.text === "kernel").id}`);
   const longID = ids.find((note) => note.text.startsWith("The two terms")).id;
+  const collisionID = ids.find((note) => note.text === "denominator").id;
+  const collision = page.locator(`#${collisionID}`);
   const long = page.locator(`#${longID}`);
   const target = page
     .locator(`[data-reader-note~="${longID}"][data-note-interactive="true"]`)
     .first();
   check(
-    "Compiled native braces, brackets and authored notes retain seven complete bodies",
-    ids.length === 7,
+    "Compiled native braces, brackets and authored notes retain eight complete bodies",
+    ids.length === 8,
   );
   check(
     "Short names appear as labels on a phone",
@@ -55,6 +60,42 @@ try {
   check(
     "No target equation is cloned into a note",
     (await page.locator(".flow-note-targets").count()) === 0,
+  );
+
+  const collisionTarget = page
+    .locator(`[data-reader-note~="${collisionID}"][data-note-interactive="true"]`)
+    .first();
+  await collisionTarget.waitFor();
+  check(
+    "A short name below fraction ink falls back to a closed popover",
+    (await collision.getAttribute("data-note-mode")) === "popover" &&
+      !(await collision.isVisible()),
+  );
+  await collisionTarget.focus();
+  await collisionTarget.press("Enter");
+  await collision.waitFor({ state: "visible" });
+  const layoutPasses = () =>
+    page.evaluate(
+      () =>
+        new Promise((done) => {
+          window.dispatchEvent(new Event("resize"));
+          document.dispatchEvent(new Event("selectionchange"));
+          requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(done)));
+        }),
+    );
+  await layoutPasses();
+  check(
+    "Remeasuring a colliding short name keeps its popover and focus open",
+    (await collision.isVisible()) &&
+      (await collision.getAttribute("data-open")) === "true" &&
+      (await collisionTarget.getAttribute("aria-expanded")) === "true" &&
+      (await collision.locator(".flow-note-close").evaluate((n) => n === document.activeElement)),
+  );
+  await page.keyboard.press("Escape");
+  await collision.waitFor({ state: "hidden" });
+  check(
+    "Dismissal returns focus to the short-name target",
+    await collisionTarget.evaluate((n) => n === document.activeElement),
   );
 
   await target.focus();
@@ -255,6 +296,15 @@ try {
   await page.keyboard.press("Escape");
   await long.waitFor({ state: "hidden" });
   check("The fallback also supports Escape dismissal", true);
+  await collisionTarget.click();
+  await collision.waitFor({ state: "visible" });
+  await layoutPasses();
+  check(
+    "A short-name popover also stays open without native popover support",
+    await collision.isVisible(),
+  );
+  await page.keyboard.press("Escape");
+  await collision.waitFor({ state: "hidden" });
   const touch = await browser.newPage({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -262,6 +312,24 @@ try {
   });
   touch.on("pageerror", (error) => errors.push(String(error)));
   await touch.goto(address);
+  const touchCollisionTarget = touch
+    .locator(`[data-reader-note~="${collisionID}"][data-note-interactive="true"]`)
+    .first();
+  const touchCollision = touch.locator(`#${collisionID}`);
+  await touchCollisionTarget.waitFor();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await touchCollisionTarget.tap();
+    await touchCollision.waitFor({ state: "visible" });
+    await touch.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    check(
+      `Touch attempt ${attempt + 1} keeps a colliding short note visible`,
+      await touchCollision.isVisible(),
+    );
+    await touchCollision.locator(".flow-note-close").tap();
+    await touchCollision.waitFor({ state: "hidden" });
+  }
   const touchTarget = touch
     .locator(`[data-reader-note~="${longID}"][data-note-interactive="true"]`)
     .first();

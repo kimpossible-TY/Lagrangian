@@ -234,6 +234,11 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **AND** a selection gesture does not open an explanation
 - **AND** the popover is bounded by the visible viewport and dismisses through its close button, Escape or outside activation, with predictable keyboard focus return
 
+#### Scenario: A short label collides with mathematical ink
+- **WHEN** a short name cannot fit above its target and the reader opens its fallback popover
+- **THEN** subsequent layout measurements keep that popover open and retain focus
+- **AND** repeated touch activation and explicit dismissal remain usable
+
 #### Scenario: Viewport and text-size changes
 - **WHEN** a viewport is at least 960px wide with aspect ratio at least 1.15 and at least 220px or 14 reading ems available to the right, plus a 20px gap
 - **THEN** annotations occupy a readable side column and stack without overlap
