@@ -21,7 +21,7 @@ class Profiles(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(prefix='flow-app-tests-'); cls.addClassCleanup(temp.cleanup)
         cls.app = Path(temp.name) / 'tinymist-flow'
         subprocess.run(['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
-                        ROOT / 'apps/macos/FlowCore.swift', ROOT / 'apps/macos/main.swift', '-o', cls.app], check=True)
+                        *package.swift_sources(), '-o', cls.app], check=True)
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

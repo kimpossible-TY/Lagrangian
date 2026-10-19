@@ -1,0 +1,16 @@
+{
+  "core": [
+    "AppEnvironment.swift",
+    "Profiles.swift",
+    "SettingsStore.swift",
+    "CommandRunner.swift",
+    "LaunchAgentService.swift",
+    "EngineLaunch.swift",
+    "ProjectService.swift",
+    "CLI.swift"
+  ],
+  "app": [
+    "FlowApp.swift",
+    "main.swift"
+  ]
+}

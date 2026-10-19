@@ -23,6 +23,13 @@ APP_ID = 'io.github.kimpossible-ty.tinymist-flow'
 DEFAULT_APP = Path.home() / 'Applications/tinymist-flow.app'
 DATA = Path.home() / 'Library/Application Support/tinymist-flow'
 
+def swift_sources(include_app=True):
+    """Use one explicit source manifest for app builds and isolated core tests."""
+    directory = ROOT / 'apps/macos'
+    manifest = json.loads((directory / 'sources.json').read_text())
+    sections = ('core', 'app') if include_app else ('core',)
+    return [directory / name for section in sections for name in manifest[section]]
+
 def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
 
@@ -148,7 +155,7 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     engine_input_hash = digest(engine)
     shutil.copy2(engine, mac / 'flow-engine')
     run(['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors', '-O',
-         ROOT / 'apps/macos/FlowCore.swift', ROOT / 'apps/macos/main.swift', '-o', mac / 'tinymist-flow'])
+         *swift_sources(), '-o', mac / 'tinymist-flow'])
     with tempfile.TemporaryDirectory() as tmp:
         iconset = Path(tmp) / 'Flow.iconset'; iconset.mkdir()
         for size in (16, 32, 128, 256, 512):
