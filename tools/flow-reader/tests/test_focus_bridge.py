@@ -25,8 +25,14 @@ class FocusBridgeTests(unittest.TestCase):
         target = root / "bin/tail-hosting"
         target.write_bytes((Path(source) / "bin/tail-hosting").read_bytes())
         adapter = Path(__file__).resolve().parents[3] / "apps/macos/tail-hosting-reader-focus.patch"
-        subprocess.run(["patch", "-p1", "--batch", "-i", str(adapter)], cwd=root,
-                       check=True, capture_output=True)
+        result = subprocess.run(["patch", "-p1", "--batch", "--forward", "-i", str(adapter)], cwd=root,
+                                capture_output=True)
+        if result.returncode:
+            # A deployed source already includes this adapter. Verify that exact
+            # reverse patch in the copy; never modify the installed source.
+            target.write_bytes((Path(source) / "bin/tail-hosting").read_bytes())
+            subprocess.run(["patch", "-p1", "--batch", "--reverse", "--dry-run", "-i", str(adapter)],
+                           cwd=root, check=True, capture_output=True)
         loader = importlib.machinery.SourceFileLoader("reader_hosting_fixture", str(target))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         cls.hosting = importlib.util.module_from_spec(spec)
