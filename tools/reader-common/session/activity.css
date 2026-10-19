@@ -1,0 +1,93 @@
+:root {
+  --reader-activity-safe-left: env(safe-area-inset-left, 0px);
+  --reader-activity-safe-right: env(safe-area-inset-right, 0px);
+  --reader-activity-safe-top: env(safe-area-inset-top, 0px);
+}
+.reader-activity {
+  position: fixed;
+  top: calc(max(12px, var(--reader-activity-safe-top)) + var(--reader-activity-top-offset, 40px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--reader-activity-z-index, 100);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid var(--reader-activity-border, #8884);
+  border-radius: 18px;
+  background: var(--reader-activity-background, #f4f6f8f5);
+  color: var(--reader-activity-ink, #17212f);
+  box-shadow: 0 2px 12px #0002;
+  font:
+    500 13px system-ui,
+    sans-serif;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.reader-activity[hidden],
+.reader-activity [hidden] {
+  display: none;
+}
+.reader-activity-release {
+  display: block;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.reader-activity-ring {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 2px solid var(--reader-activity-track, #578cbd40);
+  border-top-color: var(--reader-activity-accent, #2876bd);
+  border-radius: 50%;
+  animation: reader-activity-spin 1s linear infinite;
+}
+.reader-activity[data-busy="false"] .reader-activity-ring {
+  animation: none;
+}
+.reader-activity[data-phase$="held"] .reader-activity-ring {
+  display: none;
+}
+.reader-activity[data-phase$="error"] .reader-activity-ring {
+  border-color: var(--reader-activity-error, #d94a4a);
+}
+.reader-activity-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-activity-ring {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .reader-activity {
+    background: Canvas;
+    color: CanvasText;
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+}
+@keyframes reader-activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

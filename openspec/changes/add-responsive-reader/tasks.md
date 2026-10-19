@@ -185,3 +185,15 @@ other services, and the mobile default are preserved.
 - [x] Share accepted range resolution between Saved for Codex and bidirectional Sync Editor, preserving snapshot and ambiguity checks.
 - [x] Verify real compiler/browser flows, Unicode, repeated/cross-file/unsupported and stale sources; update ownership and canonical documentation.
 - [x] Install the clean immutable Reader release, restore the exact saved context and verify unified lookup, bidirectional navigation and registered HTTPS delivery.
+
+## Visible HTML document activity
+
+- [x] Add session-owned fixed activity for compilation, accepted-content loading/publication, held updates and failures, preserving native selection and stale-request guards.
+- [x] Verify status precedence, live updates, selection release, recovery and narrow light/dark layout; check static/installed delivery and document the behavior.
+- [x] Extract the existing paged activity policy, notice controller and styles into reader-common; replace the separate HTML notice with that implementation and retain concrete session signal adapters.
+- [x] Verify both readers, shared lifetime/selection behavior, bundled preview output and installed HTML asset delivery after extraction; update ownership documentation.
+
+## Deploy shared reader activity
+
+- [ ] Commit the validated shared activity change and build clean immutable HTML and signed native app candidates with recovery snapshots.
+- [ ] Install both candidates, preserve the previous running/stopped profiles and saved context, and verify registered delivery plus actual document rendering.

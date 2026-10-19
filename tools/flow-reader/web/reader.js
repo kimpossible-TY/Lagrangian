@@ -2,6 +2,7 @@ import { readingSettings } from "./features/appearance/reading-settings.js";
 import { createOutline } from "./features/navigation/outline.js";
 import { createFontSize } from "./features/appearance/font-size.js";
 import { DocumentStorage } from "./features/session/document-storage.js";
+import { ReaderActivity } from "./features/session/activity.js";
 import { createReadingPosition } from "./features/navigation/reading-position.js";
 import { MathDecorations } from "./rendering/math/decorations.js";
 import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
@@ -44,6 +45,10 @@ const terminalParameters = new URL(location.href).searchParams;
 const terminalEditor = new TerminalEditorConnection(terminalParameters.get("terminalEditorServer"));
 let loadSequence = 0;
 let shellRevision = null;
+let refreshTimer;
+let refreshing = false;
+let refreshRequested = false;
+let disposed = false;
 const outlineNavigation = createOutline(article, outline, () => manifest);
 const readingPosition = createReadingPosition(article, {
   readBlocks: () => blocks,
@@ -336,6 +341,8 @@ function mountedSectionsChanged() {
 
 function renderDocument(html, nextManifest, section, options) {
   const sequence = loadSequence;
+  activity.state.mounting(sequence);
+  activity.refresh();
   annotations.clear();
   mathematics.clear();
   graphics.clear();
@@ -354,11 +361,13 @@ function renderDocument(html, nextManifest, section, options) {
   outlineNavigation.index(manifest);
   pending = null;
   requestAnimationFrame(() => {
-    if (revision !== nextManifest.revision || sequence !== loadSequence) return;
+    if (disposed || revision !== nextManifest.revision || sequence !== loadSequence) return;
     if (options.target) document.getElementById(options.target)?.scrollIntoView();
     else if (options.anchor) restoreAnchor(options.anchor);
     else window.scrollTo(0, 0);
     sections.schedule();
+    activity.state.rendered(sequence);
+    activity.refresh();
     changes.afterRender();
   });
 }
@@ -366,7 +375,9 @@ function renderDocument(html, nextManifest, section, options) {
 async function jumpToChange(change, automatic = false) {
   const local = document.getElementById(change.target);
   if (local && article.contains(local)) {
+    activity.state.cancel(loadSequence);
     loadSequence++;
+    activity.refresh();
     local.scrollIntoView({ behavior: "instant" });
     readingPosition.remember();
     sections.schedule();
@@ -415,22 +426,30 @@ function navigationHistory(section, target) {
 
 async function loadSection(nextManifest, section, options = {}) {
   const sequence = ++loadSequence;
+  activity.state.begin(sequence, nextManifest.revision);
+  activity.refresh();
   article.setAttribute("aria-busy", "true");
   try {
     const html = await fetchSection(nextManifest, section);
-    if (sequence !== loadSequence) return;
-    if (options.changeToken && !changes.allowPublication(nextManifest, options)) return;
+    if (disposed || sequence !== loadSequence) return;
+    if (options.changeToken && !changes.allowPublication(nextManifest, options)) {
+      activity.state.cancel(sequence);
+      return;
+    }
     // A source update must not dismiss a note or disturb a selection made while
     // its network request was in flight. Explicit navigation is the user's choice.
     if (options.update && selectionActive()) {
       pending = nextManifest;
+      activity.state.cancel(sequence);
       return;
     }
     if (
       options.terminalFollow &&
       (nextManifest.revision !== revision || selectionActive() || changes.recentGesture())
-    )
+    ) {
+      activity.state.cancel(sequence);
       return;
+    }
     if (options.update && revision) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
@@ -439,11 +458,12 @@ async function loadSection(nextManifest, section, options = {}) {
     if (options.history) navigationHistory(section, options.target);
     renderDocument(html, nextManifest, section, options);
   } catch {
+    if (disposed || sequence !== loadSequence) return;
     if (options.changeToken) changes.show();
-    status.dataset.state = "error";
-    status.textContent = "이 절을 불러오지 못했습니다. 현재 내용은 계속 읽을 수 있습니다.";
+    activity.state.error(sequence);
   } finally {
     if (sequence === loadSequence) article.setAttribute("aria-busy", "false");
+    activity.refresh();
   }
 }
 
@@ -464,7 +484,9 @@ async function navigateAnchor(target, push = true) {
   const local = annotations.footnote(target) ?? document.getElementById(target);
   if (local && article.contains(local)) {
     // A newer local jump must supersede an earlier remote jump still fetching.
+    activity.state.cancel(loadSequence);
     loadSequence++;
+    activity.refresh();
     article.setAttribute("aria-busy", "false");
     if (push) navigationHistory(section ?? currentSection, target);
     local.scrollIntoView();
@@ -539,6 +561,9 @@ window.addEventListener(
 window.addEventListener("pagehide", (event) => {
   savePosition();
   if (!event.persisted) {
+    disposed = true;
+    clearTimeout(refreshTimer);
+    activity.dispose();
     disposeTerminalBridge();
     selectionActions?.dispose();
     readingPosition.dispose();
@@ -548,11 +573,53 @@ window.addEventListener("pagehide", (event) => {
 });
 appearance.restore();
 
+function articleSelection() {
+  const selection = window.getSelection();
+  return Boolean(
+    selection &&
+      !selection.isCollapsed &&
+      article.contains(selection.anchorNode) &&
+      article.contains(selection.focusNode),
+  );
+}
+
+const activity = new ReaderActivity(document.querySelector("#reader-activity"), {
+  held: () =>
+    !window.getSelection()?.isCollapsed
+      ? "selection-held"
+      : selectionActive()
+        ? "interaction-held"
+        : null,
+  hasSelection: articleSelection,
+  releaseSelection() {
+    if (articleSelection()) window.getSelection().removeAllRanges();
+  },
+  resume() {
+    if (pending) requestRefresh();
+  },
+});
+
+function requestRefresh() {
+  if (disposed) return;
+  if (refreshing) {
+    refreshRequested = true;
+    return;
+  }
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, 0);
+}
+
 async function refresh() {
+  if (disposed || refreshing) return;
+  refreshing = true;
+  refreshRequested = false;
   try {
     const response = await fetch("api/state", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const state = await response.json();
+    if (disposed) return;
+    activity.state.update(state);
+    activity.refresh();
     // An identical revision can survive a service restart. New selections use
     // its new identity; already captured selections retain the old identity.
     if (manifest && state.revision === manifest.revision) manifest.service = state.service;
@@ -565,26 +632,17 @@ async function refresh() {
       preferences.key = documentStorageKey;
       appearance.restore();
     }
-    status.dataset.state = state.compiling
-      ? "compiling"
-      : state.exitCode
-        ? "error"
-        : state.contentGatePassed && !state.development
-          ? "ready"
-          : "incomplete";
-    status.textContent = state.compiling
-      ? "저장된 변경 사항을 반영하는 중…"
-      : state.exitCode
-        ? "컴파일 오류가 있어 마지막으로 읽을 수 있었던 문서를 표시합니다."
-        : state.contentGatePassed && !state.development
-          ? ""
-          : "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다.";
+    status.dataset.state = state.development ? "incomplete" : "ready";
+    status.textContent = state.development
+      ? "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다."
+      : "";
     if (state.revision && state.revision !== revision && state.revision !== pending?.revision) {
       const manifestResponse = await fetch(
         `api/manifest?revision=${encodeURIComponent(state.revision)}`,
       );
       if (!manifestResponse.ok) throw new Error(`HTTP ${manifestResponse.status}`);
       pending = await manifestResponse.json();
+      if (disposed) return;
     }
     if (pending && !selectionActive()) {
       const entryAnchor = !revision ? history.state?.readerAnchor : null;
@@ -612,12 +670,11 @@ async function refresh() {
       await loadSection(pending, section, { anchor, target, update: true });
     }
   } catch {
-    status.dataset.state = "error";
-    status.textContent = revision
-      ? "연결이 끊겼습니다. 현재 문서는 계속 읽을 수 있습니다."
-      : "문서를 불러오지 못했습니다. 연결을 확인하고 다시 시도합니다.";
+    if (!disposed) activity.state.connected = false;
   } finally {
-    setTimeout(refresh, 3000);
+    refreshing = false;
+    activity.refresh();
+    if (!disposed) refreshTimer = setTimeout(refresh, refreshRequested ? 0 : 3000);
   }
 }
 const disposeTerminalBridge = installTerminalBridge({

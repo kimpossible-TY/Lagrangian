@@ -522,6 +522,16 @@ button:disabled {
 #reader-status[data-state="incomplete"] {
   color: var(--warning);
 }
+#reader-activity {
+  --reader-activity-top-offset: 52px;
+  --reader-activity-z-index: 8;
+  --reader-activity-background: var(--surface);
+  --reader-activity-ink: var(--ink);
+  --reader-activity-border: var(--line);
+  --reader-activity-track: var(--line);
+  --reader-activity-accent: var(--accent);
+  --reader-activity-error: var(--warning);
+}
 #reader-outline {
   flex: 0 1 auto;
   min-height: 0;

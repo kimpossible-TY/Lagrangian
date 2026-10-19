@@ -101,3 +101,9 @@ Preserve verified HTML block-to-source ranges for prose inside content wrappers
 and complete mathematics. Saved for Codex and bidirectional editor navigation
 share this accepted mapping, keeping source changes, unsupported output and
 ambiguous cursors explicit.
+
+Reuse the paged reader's activity policy, notice controller and styles from
+`reader-common/session` for a compact fixed notice in both readers:
+compiling, loading accepted content, displaying it, paused reading interactions,
+and failures. Keep it visible while scrolled, preserve selections, and hide it
+after the current accepted content is displayed.
