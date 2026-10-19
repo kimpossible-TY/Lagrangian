@@ -455,11 +455,13 @@ retry automatically. Transport HTML is cached separately from the bounded DOM.
 Large vector drawings and embedded images are delivered unchanged as separate,
 lazy-loaded assets. SVG drawings with interactive links remain inline.
 
-Text annotations keep the original marked expression once. A short plain name
+Text annotations keep the original marked expression once. A short plain or
+compact indexed mathematical name, such as an indexed delta,
 (at most 24 graphemes and three words) appears above its shaded target when it
 fits without covering mathematics. Longer, rich or colliding notes open in an
 anchored popover by tap, Enter or Space. Close, Escape and outside activation
-dismiss the popover; selection gestures retain their normal behavior. Notes
+dismiss the popover. Its 44px close target and focus indicator stay inset within
+the rounded card. Selection gestures retain their normal behavior. Notes
 retain their authored content and source language. Labeled native braces and
 brackets follow the same HTML presentation, while unlabeled grouping decorations
 and the paged output retain their original rendering.

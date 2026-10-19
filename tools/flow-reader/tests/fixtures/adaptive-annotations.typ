@@ -22,6 +22,8 @@ $ mark(x, tag: #<shared>) + y = 1 $
 $ frac(alpha + beta + gamma, mark(x, tag: #<denominator>)) = 1 $
 #annot(<denominator>)[denominator]
 
+$ underbrace(e^i(e_j), delta_j^i) = delta_j^i $
+
 An unlabeled grouping decoration stays intact: $underbrace(a+b)$.
 
 #for i in range(10) [

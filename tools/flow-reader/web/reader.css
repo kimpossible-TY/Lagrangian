@@ -1076,7 +1076,8 @@ math svg {
   position: fixed;
   inset: auto;
   margin: 0;
-  padding: 1.1em 2.8em 1.1em 1.1em;
+  min-block-size: 64px;
+  padding: 1.1em 64px 1.1em 1.1em;
   border: 1px solid var(--line);
   border-radius: 0.75rem;
   box-shadow: 0 6px 24px #0002;
@@ -1093,13 +1094,16 @@ math svg {
 .flow-note[data-open="true"] .flow-note-close {
   display: block;
   position: absolute;
-  inset-block-start: 0;
-  inset-inline-end: 0;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
   width: 44px;
   height: 44px;
   font:
     1.3rem/1 system-ui,
     sans-serif;
+}
+.flow-note-close:focus-visible {
+  outline-offset: -3px;
 }
 .flow-note[data-open="true"] .flow-note-next {
   display: block;
