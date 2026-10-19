@@ -13,6 +13,10 @@ import { ResponsiveMath } from "./rendering/math/renderer.js";
 import { prepareResponsiveTables } from "./rendering/tables.js";
 import { languageOf, setLanguage, uiLanguage } from "./ui/language.js";
 import { DrawingTheme } from "./features/appearance/drawing-theme.js";
+import {
+  TerminalEditorConnection,
+  installTerminalBridge,
+} from "./features/editor-sync/terminal-bridge.js";
 import { ReaderChangeNavigation } from "./features/navigation/change-navigation.js";
 import { OutlineDrawer, ReaderGestures } from "./features/navigation/reading-navigation.js";
 
@@ -36,6 +40,8 @@ let pending = null;
 let blocks = [];
 let manifest = null;
 let currentSection = null;
+const terminalParameters = new URL(location.href).searchParams;
+const terminalEditor = new TerminalEditorConnection(terminalParameters.get("terminalEditorServer"));
 let loadSequence = 0;
 let shellRevision = null;
 const outlineNavigation = createOutline(article, outline, () => manifest);
@@ -151,7 +157,10 @@ const annotations = new TextAnnotations(article, {
 let selectionActions;
 import("./features/selection/controller.js")
   .then(({ ReaderSelectionActions }) => {
-    selectionActions = new ReaderSelectionActions(article);
+    selectionActions = new ReaderSelectionActions(article, {
+      canHighlight: () => terminalEditor.canHighlight(),
+      editorServer: terminalEditor.expected,
+    });
     if (manifest && currentSection) selectionActions.onDocument(manifest, currentSection);
   })
   .catch(() => {
@@ -417,6 +426,11 @@ async function loadSection(nextManifest, section, options = {}) {
       pending = nextManifest;
       return;
     }
+    if (
+      options.terminalFollow &&
+      (nextManifest.revision !== revision || selectionActive() || changes.recentGesture())
+    )
+      return;
     if (options.update && revision) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
@@ -525,6 +539,7 @@ window.addEventListener(
 window.addEventListener("pagehide", (event) => {
   savePosition();
   if (!event.persisted) {
+    disposeTerminalBridge();
     selectionActions?.dispose();
     readingPosition.dispose();
     appearance.dispose();
@@ -541,6 +556,8 @@ async function refresh() {
     // An identical revision can survive a service restart. New selections use
     // its new identity; already captured selections retain the old identity.
     if (manifest && state.revision === manifest.revision) manifest.service = state.service;
+    terminalEditor.update(state.editorServer);
+    selectionActions?.updateActions();
     const documentStorageKey = state.documentID
       ? `flow-reader:${state.documentID}`
       : preferences.key;
@@ -603,4 +620,15 @@ async function refresh() {
     setTimeout(refresh, 3000);
   }
 }
+const disposeTerminalBridge = installTerminalBridge({
+  enabled: terminalParameters.get("terminal") === "1",
+  article,
+  revision: () => revision,
+  manifest: () => manifest,
+  actions: () => selectionActions,
+  selectionActive,
+  recentGesture: () => changes.recentGesture(),
+  textOf,
+  loadSection: (document, section) => loadSection(document, section, { terminalFollow: true }),
+});
 refresh();

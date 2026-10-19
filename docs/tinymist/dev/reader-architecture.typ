@@ -9,11 +9,13 @@ The repository maintains feature policy separately from renderer geometry, trans
 - Saved for Codex: HTML `features/codex-context/` submits explicit context to `flow_reader/services/codex_context.py`. Paged preview retains `crates/typst-preview/src/focus.rs` and its existing source-position protocol. Both preserve service, source and revision validation without inventing PDF coordinates for semantic HTML.
 - Review strikes: `tools/reader-common/review-strikes/bounded-store.js` owns persistence limits and storage failure handling. Each `features/review-strikes/` adapter owns its mark format, geometry, invalidation and paint. Existing browser storage keys remain compatible.
 - Navigation: `tools/reader-common/navigation/change-location.js` owns pending last-change policy. Concrete `features/navigation/` modules resolve native destinations, references and outline/reading positions.
-- Editor synchronization: the paged `features/editor-sync/` adapter retains its originating-editor channel and protocol. Shared source services remain in the existing Rust/editor boundaries. Only capabilities actually implemented by a reader are exposed.
+- Editor synchronization: the paged `features/editor-sync/` adapter retains its originating-editor channel and protocol. The HTML terminal bridge delegates existing selection actions and guarded section navigation; `flow_reader/services/navigation.py` validates accepted snapshots and uses the same source mapping as Codex. `services/editor_sync.py` delivers final verified edits to Neovim. Only capabilities actually implemented by a reader are exposed.
 - Appearance: each `features/appearance/` owns its actual theme mechanism. HTML CSS recoloring and engine-generated paged theme variants have different lifecycles.
 - Session: each `features/session/` owns document composition and connection lifecycle. HTML section mounting is distinct from the paged engine connection.
 
-The terminal/Neovim work that was uncommitted in the original checkout is outside this refactor branch. A terminal frontend should reuse HTML Reader reading actions and own only terminal input, browser process and editor connection. Port that work against these package/module paths before integration; do not restore duplicate reading actions.
+The terminal frontend reuses the HTML Reader's actions, review storage and rendering. Its supported command remains `tools/flow-reader/terminal.mjs`; implementation lives under `terminal/`: `options.mjs` owns argument validation and stable profile identity, `service.mjs` owns the started Reader process, `browser-session.mjs` owns dedicated Chromium state, `editor-bridge.mjs` connects saved-source navigation, `host.mjs` translates terminal input and image frames, `protocol.mjs` encodes the native graphics/input protocol, and `cli.mjs` composes their lifecycle. `editors/neovim/lua/tinymist/reader.lua` owns optional editor commands and native-pane launch. It delegates reading actions instead of implementing another reader.
+
+See #link("terminal-reader.typ")[the terminal Reader guide] for prerequisites, native terminal support and conservative source-navigation limits.
 
 = Dependency direction
 

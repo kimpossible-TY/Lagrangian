@@ -1,5 +1,6 @@
 """Conservative saved-source mapping for explicit HTML Codex context."""
 
+from bisect import bisect_left
 import hashlib
 from pathlib import Path
 import re
@@ -189,3 +190,49 @@ def source_location(project, dependencies, bundle, fragments):
     return {"status": "located", "path": str(block["path"]),
             "source_hash": hashlib.sha256(block["source"].encode("utf-8")).hexdigest(),
             **source_position(block["source"], offset)}
+
+
+def cursor_location(project, dependencies, bundle, path, line, column):
+    """Map a saved UTF-8 byte cursor to one exact accepted literal paragraph."""
+    if (not isinstance(path, str) or not Path(path).is_absolute()
+            or type(line) is not int or type(column) is not int
+            or line < 1 or column < 0):
+        raise ValueError("Expected an absolute source path, one-based line and UTF-8 byte column")
+    path = Path(path).resolve()
+    if path not in set(source_paths(project, dependencies)):
+        return {"status": "unmapped"}
+    blocks = [block for block in literal_index(project, dependencies) if block["path"] == path]
+    if not blocks:
+        return {"status": "unmapped"}
+    source = blocks[0]["source"]
+    lines = source.split("\n")
+    if line > len(lines):
+        raise ValueError("Source cursor line is outside the saved file")
+    content = lines[line - 1].rstrip("\r")
+    encoded = content.encode("utf-8")
+    if column > len(encoded):
+        raise ValueError("Source cursor column is outside the saved line")
+    try:
+        prefix = encoded[:column].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("Source cursor column splits a UTF-8 character") from error
+    offset = sum(len(part) + 1 for part in lines[:line - 1]) + len(prefix)
+    literal_offset = bisect_left(blocks[0]["origins"], offset)
+    block = next((block for block in blocks
+                  if block["start"] <= literal_offset <= block["end"]), None)
+    if not block:
+        # A cursor on the heading's leading '=' still identifies that heading.
+        literal = blocks[0]["literal"]
+        line_start = literal.rfind("\n", 0, literal_offset) + 1
+        block = next((block for block in blocks
+                      if line_start <= literal_offset < block["start"]
+                      and re.fullmatch(r"\s*=+\s+", literal[line_start:block["start"]])), None)
+    if not block:
+        return {"status": "unmapped"}
+    matches = [passage for passage in bundle.passages
+               if normalized_offsets(passage["text"], smart_quotes=True)[0] == block["text"]]
+    if len(matches) != 1:
+        return {"status": "ambiguous" if matches else "unmapped"}
+    passage = matches[0]
+    return {"status": "located", "key": passage["key"], "section": passage["section"],
+            "exact": passage["text"]}

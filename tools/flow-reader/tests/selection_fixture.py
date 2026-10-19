@@ -39,9 +39,10 @@ def main():
             '#repeated()\n\n#repeated()\n\n' +
             ''.join(f'Trailing paragraph {i} permits ordinary vertical reading.\n\n'
                     for i in range(15)))
-        project = Project(root, Path("main.typ"), Path(os.environ["FLOW_READER_PACKAGES"]),
+        project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
-        state = ReaderState(project, work / "output", "https://example.test/paged/", False)
+        state = ReaderState(project, work / "output", "https://example.test/paged/", False,
+                            editor_server=os.environ.get("FLOW_READER_EDITOR_SERVER"))
         state.compile()
         if not state.revision:
             raise RuntimeError(state.report)
@@ -56,6 +57,7 @@ def main():
         finally:
             stopped.set()
             server.server_close()
+            state.close()
 
 
 if __name__ == "__main__":

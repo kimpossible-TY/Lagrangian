@@ -5,6 +5,7 @@ import json
 from urllib.parse import parse_qs, urlsplit
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.errors import RevisionChanged
+from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.server.assets import reader_assets
 
 
@@ -19,7 +20,7 @@ def handler_for(state):
         def do_POST(self):
             path = urlsplit(self.path).path
             if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
-                            "/api/highlight", "/api/focus"}:
+                            "/api/highlight", "/api/source", "/api/cursor", "/api/focus"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -41,7 +42,13 @@ def handler_for(state):
                     except OSError:
                         return self.respond(b"Could not save Codex context", "text/plain", 503)
                 elif path == "/api/highlight":
-                    result = state.highlight(request.get("revision"), request.get("fragments"))
+                    result = state.highlight(request.get("revision"), request.get("fragments"),
+                                             expected_editor=request.get("editorServer", UNSPECIFIED_EDITOR))
+                elif path == "/api/source":
+                    result = state.source(request.get("revision"), request.get("fragments"))
+                elif path == "/api/cursor":
+                    result = state.cursor(request.get("revision"), request.get("path"),
+                                          request.get("line"), request.get("column"))
                 elif path == "/api/locate":
                     result = state.locate(request.get("revision"), request.get("fragments"))
                 elif path == "/api/decorations":

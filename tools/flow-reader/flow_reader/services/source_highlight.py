@@ -173,7 +173,7 @@ def paged_candidate_compiles(project, destination):
     return subprocess.run(command, cwd=project.root, capture_output=True).returncode == 0
 
 
-def apply_highlight(project, output, bundle, dependencies, fragments, fresh):
+def apply_highlight(project, output, bundle, dependencies, fragments, fresh, writer=None):
     clean = validate_fragments(fragments)
     locations = locate_passages(bundle.passages, clean)
     if any(location["state"] != "located" for location in locations):
@@ -232,7 +232,9 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh):
                 work = Path(temporary)
                 shadow = work / "project"
                 shadow_project(root, project.relative_entry(), path.relative_to(root), shadow, updated)
-                candidate_project = replace(project, root=shadow)
+                # An absolute entry must still point into the verified shadow project.
+                candidate_project = replace(project, root=shadow,
+                                            entry=Path(project.relative_entry()))
                 report = compile_project(candidate_project, work / "marked")
                 fresh()
                 if not report["contentGatePassed"]:
@@ -270,6 +272,8 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh):
     mode = stat.S_IMODE(path.stat().st_mode)
     if not mode & 0o222:
         return "unsupported"
+    if writer is not None:
+        return writer(path, original, updated.encode("utf-8"))
     descriptor, temporary = tempfile.mkstemp(prefix=".flow-highlight-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:

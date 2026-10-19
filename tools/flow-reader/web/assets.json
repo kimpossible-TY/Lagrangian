@@ -7,6 +7,7 @@
   "features/appearance/reading-settings.js": "features/appearance/reading-settings.js",
   "features/appearance/theme.js": "features/appearance/theme.js",
   "features/codex-context/controller.js": "features/codex-context/controller.js",
+  "features/editor-sync/terminal-bridge.js": "features/editor-sync/terminal-bridge.js",
   "features/navigation/change-navigation.js": "features/navigation/change-navigation.js",
   "features/navigation/outline.js": "features/navigation/outline.js",
   "features/navigation/reading-navigation.js": "features/navigation/reading-navigation.js",

@@ -1,0 +1,148 @@
+// Compose terminal-owned service, browser, input host and cleanup lifecycle.
+import { access, unlink } from "node:fs/promises";
+import path from "node:path";
+import { parseArguments, help } from "./options.mjs";
+import { graphicsProtocol, terminalSize } from "./protocol.mjs";
+import { loadPlaywright, browserOptions, openReader, waitForReader } from "./browser-session.mjs";
+import { startReader } from "./service.mjs";
+import { TerminalReader } from "./host.mjs";
+
+async function runMain(options) {
+  if (options.help) {
+    process.stdout.write(help);
+    return;
+  }
+  if (options.check) {
+    const report = {
+      node: process.version,
+      tty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+      protocol: options.protocol || graphicsProtocol(),
+      tmux: Boolean(process.env.TMUX),
+      nvimTerminal: Boolean(process.env.NVIM),
+    };
+    try {
+      const { chromium } = await loadPlaywright(options);
+      const browser = await chromium.launch({ ...(await browserOptions(options)), headless: true });
+      report.browser = browser.version();
+      await browser.close();
+      report.ready = Boolean(report.protocol && !report.tmux && !report.nvimTerminal);
+    } catch (error) {
+      report.error = error.message;
+      process.exitCode = 1;
+    }
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    return;
+  }
+  if (!options.snapshot) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY)
+      throw new Error(
+        "A native terminal pane is required; use --check or --snapshot for validation.",
+      );
+    if (process.env.TMUX || process.env.NVIM)
+      throw new Error(
+        "Open the Reader in a native terminal split outside tmux and Neovim :terminal.",
+      );
+    if (!(options.protocol || graphicsProtocol()))
+      throw new Error("A graphics terminal is required: use iTerm2 or a Kitty graphics terminal.");
+  }
+  let reader;
+  let browser;
+  let terminal;
+  let interrupted = false;
+  let readerFailure;
+  const onSignal = () => {
+    interrupted = true;
+    if (terminal) terminal.stop();
+    else {
+      browser?.context.close().catch(() => {});
+      reader?.close().catch(() => {});
+    }
+  };
+  const onReaderExit = (code, signal) => {
+    if (interrupted) return;
+    const detail = signal ? `signal ${signal}` : `code ${code}`;
+    readerFailure = new Error(
+      `Reader service exited unexpectedly (${detail}). Check the compiler/service output and restart the Reader. ${reader?.errors?.() || ""}`.trim(),
+    );
+    onSignal();
+  };
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+  for (const signal of signals) process.on(signal, onSignal);
+  let checkingOwner = false;
+  const ownerTimer =
+    options["parent-pid"] || options["control-file"]
+      ? setInterval(async () => {
+          if (checkingOwner || interrupted) return;
+          checkingOwner = true;
+          try {
+            if (options["parent-pid"]) process.kill(options["parent-pid"], 0);
+            if (options["control-file"]) await access(options["control-file"]);
+          } catch {
+            onSignal();
+          } finally {
+            checkingOwner = false;
+          }
+        }, 500)
+      : null;
+  try {
+    reader = await startReader(options);
+    if (reader.process) {
+      reader.process.once("exit", onReaderExit);
+      if (reader.process.exitCode !== null || reader.process.signalCode !== null)
+        onReaderExit(reader.process.exitCode, reader.process.signalCode);
+    }
+    if (interrupted) {
+      if (readerFailure) throw readerFailure;
+      return;
+    }
+    const size = terminalSize(
+      options.snapshot ? 100 : process.stdout.columns,
+      options.snapshot ? 40 : process.stdout.rows,
+      options["cell-width"] || 9,
+      options["cell-height"] || 18,
+    );
+    browser = await openReader(options, { width: size.width, height: size.height });
+    if (interrupted) {
+      if (readerFailure) throw readerFailure;
+      return;
+    }
+    await waitForReader(browser.page, reader.url, options);
+    if (options.snapshot) {
+      await browser.page.screenshot({ path: path.resolve(options.snapshot), type: "png" });
+      process.stdout.write(
+        JSON.stringify({
+          url: reader.url,
+          snapshot: path.resolve(options.snapshot),
+          viewport: { width: size.width, height: size.height },
+        }) + "\n",
+      );
+    } else {
+      terminal = new TerminalReader(options, browser.page);
+      await terminal.run();
+    }
+    if (readerFailure) throw readerFailure;
+  } catch (error) {
+    throw readerFailure || error;
+  } finally {
+    reader?.process?.off("exit", onReaderExit);
+    clearInterval(ownerTimer);
+    for (const signal of signals) process.off(signal, onSignal);
+    try {
+      await browser?.context.close();
+    } finally {
+      await reader?.close();
+    }
+  }
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  let options;
+  try {
+    options = parseArguments(argv);
+    await runMain(options);
+  } finally {
+    const index = argv.indexOf("--control-file");
+    const control = options?.["control-file"] || (index >= 0 ? argv[index + 1] : null);
+    if (control && !control.startsWith("--")) await unlink(control).catch(() => {});
+  }
+}

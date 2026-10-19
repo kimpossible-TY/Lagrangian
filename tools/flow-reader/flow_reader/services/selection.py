@@ -6,6 +6,7 @@ from flow_reader.errors import RevisionChanged
 from flow_reader.services.change_history import input_fingerprint
 from flow_reader.services.source_highlight import StaleSelection, apply_highlight
 from flow_reader.services.source_mapping import source_location
+from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.services.codex_context import selected_text, source_context
 
 
@@ -25,8 +26,14 @@ class SelectionActions:
                 raise RevisionChanged("The document revision has changed")
         return {"revision": revision, "locations": results}
 
-    def highlight(self, revision, fragments):
+    def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR):
         with self.edit_lock:
+            def editor_matches():
+                return (expected_editor is UNSPECIFIED_EDITOR
+                        or isinstance(expected_editor, str) and bool(expected_editor)
+                        and expected_editor == self.state.editor_server and self.state.editor is not None)
+            if not editor_matches():
+                return {"status": "editor-mismatch", "revision": self.state.revision}
             with self.state.lock:
                 if not self.state.bundle or revision != self.state.revision or self.state.compiling:
                     return {"status": "stale", "revision": self.state.revision}
@@ -38,10 +45,17 @@ class SelectionActions:
                         or stamp != source_signature(self.state.project, dependencies)
                         or inputs != input_fingerprint(self.state.project, dependencies)):
                     raise StaleSelection("The selected document or its sources have changed")
+            writer = None
+            if self.state.editor is not None or expected_editor is not UNSPECIFIED_EDITOR:
+                def writer(path, original, updated):
+                    if not editor_matches() or self.state.editor is None:
+                        return "editor-mismatch"
+                    return self.state.editor.write(path, original, updated)
             try:
                 fresh()
                 result = apply_highlight(self.state.project, self.state.output, bundle, dependencies,
-                                         fragments, fresh)
+                                         fragments, fresh,
+                                         writer=writer)
             except StaleSelection:
                 result = "stale"
             except OSError:

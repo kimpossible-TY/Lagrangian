@@ -113,6 +113,18 @@ finally:
         for entry in ("build.py", "serve.py", "focus.py"):
             subprocess.run([sys.executable, str(release / entry), "--help"],
                            cwd=release.parent.parent.parent, capture_output=True, check=True)
+        node = shutil.which("node")
+        if node:
+            result = subprocess.check_output([node, str(release / "terminal.mjs"), "--help"],
+                                             cwd=release.parent.parent.parent, text=True)
+            self.assertIn("native terminal", result)
+            # The split service adapter must resolve the archived Python launcher.
+            script = ("const {serverArguments}=await import(process.argv[1]);"
+                      "console.log(JSON.stringify(serverArguments({root:process.cwd()})));")
+            arguments = json.loads(subprocess.check_output(
+                [node, "--input-type=module", "-e", script,
+                 (release / "terminal/service.mjs").as_uri()], cwd=release, text=True))
+            self.assertEqual(Path(arguments[0]).resolve(), (release / "serve.py").resolve())
 
 
 if __name__ == "__main__":

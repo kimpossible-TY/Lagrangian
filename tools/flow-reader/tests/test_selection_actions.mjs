@@ -3,7 +3,7 @@ import test from "node:test";
 import { SourceHighlightController } from "../web/features/source-highlight/controller.js";
 import { CodexContextController } from "../web/features/codex-context/controller.js";
 
-function harness(kind) {
+function harness(kind, editorServer) {
   const selected = [{ key: "body", exact: "Selected", revision: "r1", service: { pid: 7 } }];
   const state = {
     document: { revision: "r1" },
@@ -18,6 +18,7 @@ function harness(kind) {
   let controller;
   const view = {
     document: () => state.document,
+    editorServer: () => editorServer,
     selection: () => state.selection,
     sameSelection: (left, right) => JSON.stringify(left) === JSON.stringify(right),
     enabled: () => !controller.pending,
@@ -109,4 +110,18 @@ test("source highlighting rejects a stale captured revision before writing", asy
   await h.controller.submit(h.selected);
   assert.equal(h.requests.length, 0);
   assert.equal(h.state.selection, null);
+});
+
+test("terminal highlights carry editor identity and ordinary highlights omit the optional field", async () => {
+  for (const expected of [undefined, "configured-editor"]) {
+    const h = harness("highlight", expected);
+    const pending = h.controller.submit(h.selected);
+    const body = h.requests[0][1];
+    assert.equal(body.editorServer, expected);
+    assert.equal(Object.hasOwn(body, "editorServer"), expected !== undefined);
+    h.resolve({ status: "modified" });
+    await pending;
+    assert.equal(h.state.selection, h.selected);
+    assert.ok(h.state.messages.at(-1).includes("저장하지 않은"));
+  }
 });
