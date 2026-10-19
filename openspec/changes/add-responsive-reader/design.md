@@ -577,6 +577,8 @@ an aspect ratio of at least 1.15 and an annotated host wide enough to retain
 at least 360px or 26 reading ems for its text/math, plus 220px or 14 reading ems
 for a note and a 20px gap. Portrait screens, narrow nested hosts and large reading
 fonts retain compact presentation. Side notes use the readable note width.
+Concept 12 note text and mathematics inherit 80% of the body reading size;
+changing presentation restores the existing label/popover sizes.
 A wide viewport does not override a
 short mannot name's label preference: keep concept 3 for those names and use
 concepts 1/12 for longer explanations. Footnotes always take concept 12 when
