@@ -10,7 +10,9 @@
     context {
       let tag = label("flow-native-annotation-" + str(annotation-counter.get().first()))
       reader-marks.mark(it.body, tag: tag)
-      reader-marks.annot(tag, it.annotation)
+      // Annotation bodies originate in math mode. The HTML annotation carrier
+      // is an ordinary span, so preserve that mode for scripts and fences.
+      reader-marks.annot(tag, math.equation(it.annotation, block: false, numbering: none))
     }
   } else { it }
 }

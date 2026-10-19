@@ -178,6 +178,18 @@ class TypstIntegrationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "original.svg").read_bytes(), (work / "reader.svg").read_bytes())
 
+    def test_native_annotation_retains_mathematical_scripts_and_fences(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            (work / "main.typ").write_text('$ underbracket(a+b, T_A(X comma Y)) $')
+            project = build.Project(work, Path("main.typ"), self.packages, compiler=self.compiler)
+            report = build.compile_project(project, work / "output")
+            self.assertEqual(report["exitCode"], 0, (work / "output/compile.log").read_text())
+            self.assertTrue(report["contentGatePassed"], report)
+            self.assertEqual(report["elements"].get("math"), 2)
+            self.assertEqual(report["elements"].get("msub"), 1)
+            self.assertEqual(report["annotations"], 1)
+
     def test_highlighted_preserves_text_and_native_math_in_html(self):
         from xml.etree import ElementTree as ET
 
