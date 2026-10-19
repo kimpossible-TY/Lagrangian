@@ -2455,3 +2455,42 @@ Validation:
 - Chromium/terminal/headless Neovim: 20 integration checks passed, including shared Codex context, persistent review marks, cursor navigation, dirty-buffer refusal and verified source highlighting. Inspected `dist/terminal-reader-check.png` with the Codex action visible.
 - Responsive and terminal Typst guides compiled to PDF and experimental HTML; required rendered text was inspected. Both OpenSpec changes, scoped Prettier, generated-doc checking and `git diff --check` passed. The experimental HTML compiler emits its standard development warning.
 - Installation, deployment, actual production delivery and a new physical-terminal graphics check were outside this task.
+
+## Codex context deployed from scoped commit 644cef9a (2026-10-19)
+
+The managed PDE Reader now runs clean immutable runtime `644cef9a` at its
+existing registered HTTPS origin. Codex source context uses the read-only
+`source_mapping.py` module, so the deployment does not require the separate,
+uncommitted Neovim/terminal integration. Those working-tree files were preserved
+byte-for-byte and excluded from this session's commits. The final runtime has
+416 verified immutable files and all 52 local/registered-HTTPS asset deliveries
+match the installed release. Reader configuration, Tail Hosting registry and
+paged focus record remain byte-identical; the original paged service retains
+its existing stopped state. Authored PDE HTML SHA256 is unchanged at
+`3f862504192dba2b2f342ec3f7ba9c2d8d286dc5389f3a270dea1e89ae38cd20`.
+
+Applied the tested Tail Hosting focus adapter and updated the existing local
+`read-preview-selection` skill for explicit HTML/terminal selection, distinct
+Reader IDs, logical endpoints and fresh unmapped text. Tail Hosting's 14 tests,
+registry validation and skill validation pass. The command
+`tail-hosting focus --preview typst-pde-reader` resolves the live Reader's own
+focusFile with a matching service identity. Production context remains `waiting`;
+no synthetic selection was written into the user's shared record.
+
+Chrome and WebKit both verified the actual HTTPS page at 320px, including the
+visible/enabled Codex save action, viewport fit and absence of the old quotation
+library. Each then exercised the installed release in a disposable service:
+source-linked text save and validated CLI read, usable unmapped mathematics,
+unchanged source and no extra compilation all passed. The scoped checkout's
+Python suite has 114 passing tests, Node has 77, and browser selection checks
+have 152. A preexisting dynamic-worker test cleanup race was fixed by closing
+its worker before its temporary directory; the complete suite then passed.
+OpenSpec, generated-doc checking, formatting and canonical documentation checks
+are recorded alongside this rollout.
+
+Recovery snapshots retain the previous launcher/configuration, Tail Hosting
+adapter and selection skill. Receipts and screenshots are under
+`dist/reader-codex-rollout/`, including `verified-rollout.json`; the initial
+pre-deployment snapshot is `backup-20261019-165909` and the final rollout recovery
+snapshot is `backup-scoped-20261019-171252`. No native app/engine release or
+physical iOS verification was performed.
