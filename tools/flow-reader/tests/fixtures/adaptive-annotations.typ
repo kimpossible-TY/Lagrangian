@@ -19,6 +19,9 @@ $ mark(x, tag: #<shared>) + y = 1 $
 #annot(<shared>)[first]
 #annot(<shared>)[Another explanation associated with the same original term.]
 
+$ frac(alpha + beta + gamma, mark(x, tag: #<denominator>)) = 1 $
+#annot(<denominator>)[denominator]
+
 An unlabeled grouping decoration stays intact: $underbrace(a+b)$.
 
 #for i in range(10) [

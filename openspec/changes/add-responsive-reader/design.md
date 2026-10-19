@@ -532,8 +532,11 @@ label above the term when it fits without obscuring mathematical ink. Longer,
 rich, or colliding labels open an anchored popover by tap or keyboard. Escape,
 outside activation and an explicit close button dismiss it; focus returns on
 keyboard dismissal. Selection gestures must not open notes. No target expression
-is cloned into an explanation. Labeled native under/over braces and brackets use
-the same semantic association in HTML; unlabeled grouping and paged output retain
+is cloned into an explanation. An open compact popover keeps its presentation during label measurement until
+it is dismissed; a collision recheck must not immediately close a short-name
+popover that the reader has just opened.
+Labeled native under/over braces and brackets use the same semantic association
+in HTML; unlabeled grouping and paged output retain
 their original presentation.
 
 An adjacent note column is enabled only at a viewport width of at least 960px,

@@ -2160,3 +2160,27 @@ Deployment plans, prior-launcher/configuration rollback copies, content reports,
 file-delivery receipts, and Chromium/WebKit screenshots are preserved in
 `dist/reader-annotation-deploy/`. Only the Reader runtime was updated; the native
 Flow application and its engine were not replaced.
+
+### Short-name popover tap correction — 2026-10-19
+
+The supplied phone recording shows the shaded `kernel` term receiving focus
+without a visible annotation. Reproduced against the installed PDE document at
+393px/18px, as well as at larger fonts, in Chromium and WebKit. A short name
+that collided with mathematical ink correctly fell back to a popover, but the
+next layout pass temporarily switched it to label mode to measure it, closing
+the active popover immediately.
+
+Compact layout now retains an open popover through short-label measurement.
+Explicit dismissal, loss of its target and a transition to the visible side
+column retain their existing behavior. Added a real compiled fraction fixture
+whose denominator label collides with its numerator. The new browser regression
+fails with the previous runtime at the open-state/focus assertion and passes
+with the correction in both Chromium and WebKit (40 checks per engine). Checks
+include keyboard focus return, repeated touch opening/dismissal and the fallback
+without native popover support.
+
+The actual PDE document additionally passes 38 checks per engine with the fixed
+module served through an isolated browser route: 393px viewport, 13/18/20/24/30px
+reading fonts, repeated taps, scroll/resize/selection-triggered layout, viewport
+bounds, canonical equation text and no JavaScript exceptions. Reports and the
+inspected WebKit 18px screenshot are in `dist/reader-annotation-video/`.
