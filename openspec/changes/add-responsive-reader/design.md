@@ -571,6 +571,8 @@ longer notes use the readable note width. Group notes by their original equation
 or paragraph and reserve only that group's width plus the gap at the host's
 inline end. A minimum block size accommodates its stacked note bodies locally;
 note placement is bounded by that host to avoid recursive height growth.
+Apply the host reservation and first note positions in the same layout pass so
+side presentation does not expose positions left over from compact mode.
 Ordinary passages and unannotated equations keep the complete reading width.
 Remove reservations when the host disconnects or returns to compact mode.
 Viewport, font, section and mathematical changes update their geometry with
