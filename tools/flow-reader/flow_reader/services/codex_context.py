@@ -41,7 +41,7 @@ def selected_text(bundle, fragments):
 
 
 def source_context(location):
-    """Read one verified literal source position using the paged focus fields."""
+    """Read a verified source position and optional exclusive range."""
     if location.get("status") != "located":
         return None
     path = Path(location["path"])
@@ -53,10 +53,17 @@ def source_context(location):
     start = max(1, line - 8)
     excerpt = "\n".join(lines[start - 1:start + 16])
     column = len(lines[line - 1].encode("utf-8")[:location["column"]].decode("utf-8")) + 1
-    return {"filepath": str(path), "line": line, "column": column,
+    result = {"filepath": str(path), "line": line, "column": column,
             "excerpt_start_line": start, "excerpt": excerpt[:8000],
             "excerpt_truncated": len(excerpt) > 8000 or len(lines) > start + 16,
             "sha256": location["source_hash"]}
+    if "end_line" in location:
+        end_line = location["end_line"]
+        end_column = len(lines[end_line - 1].encode("utf-8")[:location["end_column"]].decode("utf-8")) + 1
+        result["range"] = {"start": {"line": line, "column": column},
+                           "end": {"line": end_line, "column": end_column},
+                           "column_unit": "unicode", "end_exclusive": True}
+    return result
 
 
 class FocusStore:

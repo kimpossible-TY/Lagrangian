@@ -1048,6 +1048,25 @@ dynamic-paint coverage and records that choice in the report. Every completed
 section also records and checks its requested viewport; an interrupted browser
 session cannot silently substitute a different width.
 
+== HTML source range mapping
+
+HTML compilation preserves private source ranges alongside accepted block
+identities and canonical text. An isolated source-carrier compilation supplies
+the correspondence for prose in wrappers and closure bodies, formatted text and
+whole equations. The original HTML is delivered unchanged; carriers never edit
+workspace source or appear in served sections. Unmatched blocks keep the existing
+literal fallback. Repeated signatures require the complete block sequence to
+agree before their occurrence numbers can identify a source.
+
+Saved for Codex and bidirectional Sync Editor use this same accepted map. Saves
+retain their original source/excerpt fields and add an exclusive source range
+with Unicode columns; editor requests use UTF-8 byte columns. Selections spanning
+ordered blocks in one file can resolve together. Partial formulas, unsupported
+generated text, cross-file ranges and ambiguous reverse mappings remain
+unmapped. Service, revision and source fingerprint checks still reject stale
+work. Saving and navigating do not compile; the extra verification belongs to
+document compilation.
+
 == Managed installation
 
 === Unified context rollout (2026-10-19)

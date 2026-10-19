@@ -496,9 +496,10 @@ source excerpt and selected text. An explicit `reader_kind: html` and logical
 start/end block keys replace PDF page coordinates. Bound text to 8000 Unicode
 characters and fragments to 32, verify them against the submitted accepted body
 blocks, and check input fingerprints before and after source resolution. Reuse
-the existing conservative literal mapper; unsupported math, multi-block or
-generated text saves as `unmapped`, retaining its exact logical text without
-inventing source context. A service restart writes `waiting`; stale saves clear
+the accepted compiler-carried source ranges, with the conservative literal
+mapper retained for documents without them. Unsupported or cross-file selections
+save as `unmapped`, retaining their exact logical text without inventing source
+context. A service restart writes `waiting`; stale saves clear
 the usable context. Save does not compile, edit source or send a message.
 
 Managed Reader profiles expose their own absolute focusFile, distinct from all
@@ -847,3 +848,32 @@ Clear both cache levels when a new revision is accepted.
 
 
 Outside-tap dismissal from rest adds an 80ms, 8px anticipation before the 320ms spring exit. Interruptions carry current position and velocity; moving entries and swipes keep the direct spring. Native dismissal and focus return remain immediate; reduced motion skips the effect.
+
+## Verified HTML source ranges
+
+`compiler/inputs.py` owns bounded accepted workspace source enumeration and
+read-only shadow inputs shared with source Highlight. `compiler/source_map.py`
+owns compile-only source carriers. A conservative markup scanner recognizes literal
+prose, direct content-call bodies (including proof/highlight wrappers) and whole
+equations, including closure-returned content, while skipping definitions, raw
+text, strings and other code. Compile a
+read-only shadow of those inputs with private range carriers using the same
+compiler, package overlay, inputs and fonts. Accept a carried block only when its
+identity and full canonical text agree with the original accepted block. Empty
+carriers can change Typst paragraph/whitespace scaffolding: this candidate HTML
+is never served. If the complete ordered block sequence differs, reject repeated
+block signatures to prevent occurrence shifts. Mapping failure keeps the
+original accepted document and literal navigation fallback. Neither
+source files nor served HTML are modified by carriers.
+
+Translate carried intervals into normalized passage offsets and persist them in
+the compile report, including the original file, source hash and exclusive range.
+Publication binds these maps to the same accepted bundle and source fingerprint.
+`services/source_mapping.py` remains the one owner of mapping policy for Codex
+and editor navigation. It requires coverage of every selected non-space
+character, maps full math to its complete source expression, and combines ordered
+same-file ranges. Literal text retains precise Unicode-to-UTF-8 offsets. Reverse
+navigation returns ambiguity when a source range occurs in multiple blocks.
+Missing coverage, cross-file selections and changed hashes never produce a
+guessed location. Saved context preserves its existing start fields and adds an
+exclusive source range. Save and Sync Editor do not compile.

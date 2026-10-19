@@ -67,7 +67,7 @@ class ReaderState:
             report["revision"] = hashlib.sha256(
                 (report["revision"] + json.dumps(source_stamp)).encode()).hexdigest()
             document = (self.output / "document.html").read_bytes()
-            bundle = split_document(document.decode(), report["revision"])
+            bundle = split_document(document.decode(), report["revision"], source_map=report.get("sourceMap"))
             bundle.manifest["documentID"] = self.document_id
             bundle.manifest["service"] = self.focus.service
             inputs = input_fingerprint(self.project, self.dependencies)
