@@ -2116,3 +2116,47 @@ Browser reports and actual light/dark, phone/landscape and graphical compatibili
 screenshots are in `dist/reader-adaptive-annotations/`. No installed service,
 package pin or release metadata was changed. Physical iPhone/VoiceOver validation
 and release installation were not performed in this session.
+
+### Installed adaptive annotations — 2026-10-19
+
+Installed immutable Reader runtime
+`5428891aeb87f48def7599753732a4a59321b9e4` after the user's explicit deployment
+request. The release was prepared from a clean detached checkout of the current
+branch's annotation-only commits; the unrelated terminal/editor work remains
+uncommitted in the original checkout.
+
+The real configured PDE preflight exposed an annotation containing mathematical
+attachments and fences outside an equation context. Its HTML carrier now retains
+an explicit inline equation, with an additional regression test. A multiline PDE
+equation also required trying the target's left/center alignment before relegating
+its short name to a popover. The actual `kernel` annotation now appears above its
+shaded expression on a 390px phone. Browser assertions read canonical note text
+instead of MathJax's duplicated visual/assistive DOM text.
+
+The complete PDE compiles with 262 annotations, no missing annotation targets,
+duplicate IDs or compiler-loss warnings. Paged SVG equivalence and all 18 real
+build/adapter tests pass; the clean release also passes 16 JavaScript tests,
+seven serving tests, the immutable installer test, and 33 synthetic browser
+checks without the optional source-update phase.
+
+The official immutable installer stopped the old Reader and started the new
+app-managed Reader (verified PID 99224). All 405 release files match their
+manifest. All 52 loopback/registered-HTTPS web asset checks pass, including the new
+annotation module. Both origins deliver the preflight-verified document with
+SHA-256 `1600aed6d29adda15410eed83d27fc89a343c7fd0bb2a8d3614938b651a6cd6b`.
+The project configuration bytes and original PDF listener PID/content remain
+unchanged. The installed service reports a successful, healthy, nondevelopment
+native-canvas document with no compiler-loss warnings.
+
+Chromium and WebKit each pass 12 checks against the actual registered HTTPS PDE
+Reader: the photographed `kernel` short label, absence of cloned equations,
+bounded phone width, a long source annotation opened by touch, bounded popover,
+touch dismissal, canonical mathematical text, readable/nonoverlapping landscape
+side notes, automatic portrait fallback, and no browser exceptions. Inspected
+the actual WebKit phone and landscape screenshots. These are browser checks,
+not a physical iPhone or VoiceOver session.
+
+Deployment plans, prior-launcher/configuration rollback copies, content reports,
+file-delivery receipts, and Chromium/WebKit screenshots are preserved in
+`dist/reader-annotation-deploy/`. Only the Reader runtime was updated; the native
+Flow application and its engine were not replaced.
