@@ -35,6 +35,9 @@ preview build, scoped formatting, generated-doc consistency and strict OpenSpec
 validation passed. Since Yarn is unavailable on PATH, the reader gate's commands
 were run directly. Chromium (installed Chrome) and WebKit passed actual local
 MathJax reflow, selection hold/resume, stale-candidate rejection, direct-probe
-serialization and disposal with zero rendering API requests. No server-load or
-device latency benchmark, physical iPhone check, installation or deployment was
-performed; custom decoration/relationship generation still uses the server.
+serialization and disposal with zero rendering API requests. That checkpoint did
+not include deployment, server-load/device latency benchmarking or a physical
+iPhone check. The shared scheduler was subsequently installed in both readers in
+the confirmed `flow-v0.1.27` release; see the deployment evidence in
+`../add-responsive-reader/verification.md`. HTML now draws supported decoration
+primitives locally; unsupported callbacks and relationships retain server rendering.

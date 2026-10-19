@@ -214,7 +214,8 @@ Each engine also passed all 36 reading-navigation checks, including live shrink,
 touch cancellation, third-contact rollback, selection/scroll/swipe guards and
 settings controls. Scoped formatting, generated-doc consistency and strict
 OpenSpec validation passed. Touch sequences are synthetic; physical iPhone
-acceptance and installed-service delivery were not performed.
+acceptance and installed-service delivery were not performed at this implementation
+checkpoint. Installed-service validation is recorded in the deployment section below.
 
 ## Local mathematical decoration rendering
 
@@ -225,6 +226,6 @@ acceptance and installed-service delivery were not performed.
 ## Deploy shared rendering, live pinch and local decorations
 
 - [x] Finish the coordinated source work, run the combined Reader gate, snapshot installed configuration/context and commit the verified implementation on the current branch.
-- [ ] Build a clean signed 0.1.27 app with the shared scheduler in its native engine and stage the matching immutable HTML Reader release.
-- [ ] Install both candidates with recovery backups and preserve the exact running/stopped profile state and saved context.
-- [ ] Verify installed signatures/provenance, HTTPS asset/document delivery, live pinch/local decoration behavior and isolated paged document rendering; record the confirmed release tag and recovery evidence.
+- [x] Build a clean signed 0.1.27 app with the shared scheduler in its native engine and stage the matching immutable HTML Reader release.
+- [x] Install both candidates with recovery backups and preserve the exact running/stopped profile state and saved context.
+- [x] Verify installed signatures/provenance, HTTPS asset/document delivery, live pinch/local decoration behavior and isolated paged document rendering; record the confirmed release tag and recovery evidence.

@@ -2580,3 +2580,51 @@ configuration/launcher/focus snapshots are under `backup-20261019-212206` there.
 The app installer retained the previous bundle under
 `~/Library/Application Support/tinymist-flow/releases/20261019-213531-545166/`.
 No remote release was published and no physical iPhone check was performed.
+
+## Shared rendering, live pinch and local decoration deployment (2026-10-19)
+
+Installed tinymist-flow 0.1.27 and its matching immutable HTML Reader from clean
+commit `fe744971ff8da9b5682d6b3580de581b55662079`, confirmed by local tag
+`flow-v0.1.27`. The source checkout retains its unrelated untracked files. Preview
+and localization assets were regenerated in a separate clean checkout. The native
+ARM engine used the locked `flow-release` ThinLTO profile, two workers and
+`RUSTFLAGS=-Dwarnings`. Candidate and installed signatures/provenance passed with
+the existing certificate. Installed engine SHA256:
+`e31d723fa2c47dc2126de17f3fb79353277ec47cd9f79ce93d1224bb9b360db9`.
+
+Validation and runtime evidence:
+- All 37 app tests passed with the new engine, including persistent-certificate
+  integration. The new paged frontend passed 300-page Chromium/WebKit checks for
+  updates, selection holds/releases, distant pages, zoom, theme and reconnect
+  against the previous installed engine before the app replacement.
+- Installed-engine WebKit displayed all 322 actual PDE pages on an isolated
+  loopback port using the app's partial-rendering configuration. The reader reached
+  ready with 1,896 text lines and no browser errors. Managed PDF profiles were not
+  started for this check.
+- The immutable HTML archive has 498 verified files. All 46 first-party assets
+  matched their installed source over loopback and certificate-validated HTTPS,
+  including the shared scheduler and local decoration module.
+- The actual accepted PDE document retains the previous canonical text and all
+  172 logical decoration IDs. Of those, 154 carry local descriptors: 67 cancel,
+  20 underline and 67 rect; 18 retain fallback. This current production snapshot
+  differs from the earlier frozen 171-ID fixture. Descriptor coverage does not
+  establish phone latency or total server-load savings.
+- Fresh Chromium and WebKit contexts rendered the installed HTTPS document.
+  Synthetic pinch changed body size to 25px and grew mathematical glyphs before
+  touchend, with no preview preference writes and one final write. Reading-anchor
+  drift was 0.46875px and 0.59375px respectively; viewport scale stayed 1. Each
+  browser displayed nearby local decoration SVGs with zero decoration API batches
+  and recovered after intentional connection loss, with no browser errors.
+- The menu-bar app was relaunched into 0.1.27. Both paged profiles remain stopped;
+  `typst-pde-reader` remains running. Project profiles, signing configuration,
+  Reader configuration and all three focus files match their pre-install bytes.
+  The Reader's startup waiting record was replaced with the exact saved context
+  backup, preserving historical service/revision and stale evidence.
+
+Receipts and screenshots: `dist/client-rendering-rollout/`, including
+`verified-rollout.json`, `delivery.json`, `reader-browser.json`, `paged-browser.json`
+and `local-coverage.json`. The latest recovery snapshot index is `preinstall.json`
+and its files are under `preinstall-20261019-230800/`. The prior app is retained at
+`~/Library/Application Support/tinymist-flow/releases/20261019-230801-029442/tinymist-flow.app`;
+the prior immutable HTML release remains installed and its stable launcher/config
+are backed up. No remote release or physical iPhone verification was performed.

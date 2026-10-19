@@ -1331,3 +1331,29 @@ gate. Of 171 decoration IDs, 154 carried local descriptors: 67 cancellations,
 This measures descriptor coverage of that snapshot, not interaction latency or
 dynamic compiler savings on an installed phone. The dedicated fixture's original
 and Reader-overlay paged PDFs are byte-identical.
+
+= Shared rendering and live pinch deployment
+
+The confirmed `flow-v0.1.27` release installs the common rendering scheduler in
+the native paged engine and HTML math adapter, live pinch font previews and local
+mathematical decoration paint. Both the signed app and immutable HTML archive
+were built from clean commit `fe744971ff8da9b5682d6b3580de581b55662079`.
+The existing signing certificate, project settings, saved Codex context and
+running/stopped service choices were preserved.
+
+The installed HTTPS Reader passed Chromium and WebKit checks: body and math grew
+before touch release, the reading anchor stayed within one pixel, previews made
+no font preference writes and release wrote once. Nearby supported paint appeared
+without decoration API requests. The current production PDE document contains
+172 decoration IDs, of which 154 have local descriptors and 18 retain fallback;
+its canonical text and logical decoration IDs match the previous installed
+document. All 46 first-party assets matched the immutable release over loopback
+and HTTPS. The installed native engine displayed the actual 322-page PDE document
+in WebKit on an isolated port. All 37 app integration tests passed. The new paged
+frontend also passed the 300-page Chromium/WebKit regression with the previous
+installed engine before replacement. These checks use synthetic touch events;
+physical iPhone gesture acceptance and device timing remain separate.
+
+Deployment receipts, screenshots and pre-install configuration/context snapshots
+are under `dist/client-rendering-rollout/`. The app installer retains the previous
+bundle through its normal rollback record. No remote release was published.
