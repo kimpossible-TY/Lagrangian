@@ -37,7 +37,7 @@ def main():
             '#repeated()\n\n#repeated()\n\n' +
             ''.join(f'Trailing paragraph {i} permits ordinary vertical reading.\n\n'
                     for i in range(15)))
-        project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
+        project = Project(root, Path("main.typ"), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
         state = ReaderState(project, work / "output", "https://example.test/paged/", False)
         state.compile()
