@@ -240,6 +240,8 @@ The Reader SHALL shade annotated terms without cloning their equations. Short ma
 - **WHEN** a short annotation consists of a mathematical name with subscripts or superscripts, such as an indexed delta
 - **THEN** it appears as a label when it fits without obscuring mathematical ink
 - **AND** its complete mathematical notation and canonical text remain intact
+- **AND** its mathematical line budget comes from the host's available text width, so changing the reading font cannot collapse the intrinsic label or leave it uncomposed
+- **AND** movement during asynchronous typesetting uses the current cell origin for overflow checks instead of incorrectly promoting a fitting name to a block
 
 #### Scenario: A focused close control near the popover corner
 - **WHEN** a popover is open on a phone at a small or enlarged reading font

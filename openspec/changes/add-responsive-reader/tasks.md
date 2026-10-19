@@ -85,6 +85,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 
 - [x] Prefer concept 3 for fitting short mannot names at every viewport width; keep footnotes on concept 12 whenever the existing side-space checks pass, and longer mannot notes on concepts 1/12.
 - [x] Preserve label lanes, column bounds and clear connectors when short names share a host with longer notes or footnotes.
+- [x] Use the host's available text width and current origin as the short-note math budget so font changes or asynchronous movement cannot collapse a label or strand its typesetting.
 - [ ] Verify mixed note kinds, actual PDE wide/compact transitions and canonical content; install and verify the clean Reader release.
 
 - [x] Expand tablet reading width and reserve side-note width/height only on the annotated host, using the measured note size.

@@ -2316,3 +2316,17 @@ Chrome and WebKit each passed 82 compiled annotation/mixed-footnote checks and
 22 JavaScript checks passed. OpenSpec strict validation and the canonical
 Typst development guide compiled successfully. Evidence is under
 `dist/reader-note-policy/`; immutable deployment verification remains pending.
+
+
+The first policy installation reverted automatically to runtime 19a5eb0b after
+WebKit's phone font-change check found an indexed delta hidden in popover mode.
+A label's intrinsic output width had become its next composition budget, and
+asynchronous horizontal movement could compare glyphs with a stale origin.
+Short-note mathematics now uses the available host text width, excluding side
+gutters and label padding, and checks overflow against the current origin.
+A regression deliberately moves the delta while its asynchronous typesetting
+finishes, then verifies inline canonical notation through 18/13/24px changes.
+Chrome and WebKit each pass 86 compiled annotation checks, 63 actual PDE tablet
+checks and 24 actual PDE phone delta/control checks. All 22 targeted JavaScript
+checks and strict OpenSpec validation pass. The next immutable installation
+uses this correction; deployment verification remains pending.

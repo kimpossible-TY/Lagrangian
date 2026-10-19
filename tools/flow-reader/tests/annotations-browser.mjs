@@ -209,6 +209,60 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await setFont(13);
 
+  const deltaToken = await delta
+    .locator("[data-flow-token]")
+    .first()
+    .getAttribute("data-flow-token");
+  await page.evaluate((token) => {
+    window.originalMathTypeset = MathJax.mathml2chtmlPromise;
+    MathJax.mathml2chtmlPromise = async function (...args) {
+      const result = await window.originalMathTypeset.apply(this, args);
+      if (!window.deltaMovedDuringMath && args[0].includes(token)) {
+        document.querySelector("#reader-document").style.transform = "translateX(-24px)";
+        window.deltaMovedDuringMath = true;
+      }
+      return result;
+    };
+  }, deltaToken);
+  for (const font of [18, 13, 24]) {
+    await setFont(font);
+    await page.evaluate(
+      (id) =>
+        [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+          .find((node) => !node.closest("mjx-assistive-mml,.flow-math-stage"))
+          ?.scrollIntoView({ block: "center" }),
+      deltaID,
+    );
+    await page.waitForFunction(
+      (id) =>
+        document.getElementById(id)?.dataset.noteMode === "label" &&
+        document.querySelector(`#${id} .flow-math-view`)?.dataset.mathState === "ready",
+      deltaID,
+    );
+    check(
+      `${font}px delta stays composed inline after movement and font changes`,
+      await delta.evaluate(async (note) => {
+        const { logicalTextIndex } = await import("/math-identity.js");
+        return (
+          note.querySelector(".flow-math-view").dataset.mathLayout === "inline" &&
+          logicalTextIndex(note.querySelector(".flow-note-body"), {
+            includeNotes: true,
+            includeNested: true,
+          }).text.normalize("NFKC") === "δji"
+        );
+      }),
+    );
+  }
+  check(
+    "The delta moved during asynchronous mathematical composition",
+    await page.evaluate(() => window.deltaMovedDuringMath),
+  );
+  await page.evaluate(() => {
+    MathJax.mathml2chtmlPromise = window.originalMathTypeset;
+    document.querySelector("#reader-document").style.removeProperty("transform");
+  });
+  await setFont(13);
+
   await target.focus();
   await target.press("Enter");
   await long.waitFor({ state: "visible" });

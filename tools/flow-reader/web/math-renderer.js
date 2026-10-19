@@ -184,6 +184,17 @@ export class ResponsiveMath {
           parseFloat(style.borderRightWidth);
       }
     }
+    const annotation = record.view.closest('.flow-note[data-note-mode="label"]');
+    if (annotation) {
+      // A label's intrinsic width is the output of composition. Reusing that
+      // width as its next budget can promote a tiny indexed name to a block,
+      // collapse its max-content parent and strand it in a hidden popover.
+      const labelStyle = getComputedStyle(annotation);
+      const available = parseFloat(labelStyle.getPropertyValue("--flow-label-width"));
+      if (Number.isFinite(available))
+        width =
+          available - parseFloat(labelStyle.paddingLeft) - parseFloat(labelStyle.paddingRight);
+    }
     const fontSize = parseFloat(style.fontSize);
     if (width < 1 || fontSize < 1) return null;
     const key = JSON.stringify([
@@ -376,13 +387,20 @@ export class ResponsiveMath {
             this.notice(record, "");
             record.key = measurement.key;
             record.retryAt = 0;
-            let bounds = mathOverflow(record.view, measurement);
+            // Labels may move while asynchronous composition is running. Their
+            // width/font key stays valid; an old x coordinate is not overflow.
+            const overflowBounds = () =>
+              mathOverflow(record.view, {
+                ...measurement,
+                left: this.measure(record)?.left ?? measurement.left,
+              });
+            let bounds = overflowBounds();
             if (result.layout === "inline" && Math.max(bounds.left, bounds.right) > 1) {
               // An accent/italic overhang can cross the paragraph edge when a
               // short formula lands at a line end, despite fitting alone in its
               // staging area. Give it an ordinary body line at the same size.
               layout("block");
-              bounds = mathOverflow(record.view, measurement);
+              bounds = overflowBounds();
             }
             const overflow = Math.max(bounds.left, bounds.right) > 1;
             record.view.dataset.mathState = overflow ? "overflow" : "ready";

@@ -548,6 +548,13 @@ scrolling reuses the same geometry and disconnected hosts release their state.
 Defer extra spacing while the host mathematics is still pending. A short note's
 native mathematical bounds may reserve a bounded row before its own composition
 finishes, so hiding the note cannot prevent its width from ever being measured.
+Compose its mathematics against the available host text width, excluding the
+side gutter and label padding. The label's intrinsic width is an output, never
+the next line budget: that feedback can promote a tiny name to a block and
+collapse its max-content parent after a font-size change.
+When asynchronous composition finishes, compare glyph bounds with the current
+text-cell origin. A label can move horizontally without changing its width/font
+key; its former x coordinate must not produce a false overflow or block promotion.
 A name whose intrinsic
 width exceeds the host's readable width uses a popover. Longer and rich
 annotations also open an anchored popover by tap or keyboard. Escape,
