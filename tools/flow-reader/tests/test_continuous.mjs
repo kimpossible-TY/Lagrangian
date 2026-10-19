@@ -76,7 +76,7 @@ test("a failed boundary request preserves content and schedules an automatic ret
   assert.equal(calls, 1);
 });
 
-test("parking retains selected and focused sections while bounding distant content", () => {
+test("parking retains selected, focused and open-note sections while bounding distant content", () => {
   const value = Object.create(ContinuousSections.prototype);
   const entries = Array.from({ length: 9 }, (_, index) => ({
     index,
@@ -87,6 +87,7 @@ test("parking retains selected and focused sections while bounding distant conte
       style: {},
       getBoundingClientRect: () => ({ top: -10000 + index * 100, height: 100 }),
       contains: (node) => node?.index === index,
+      querySelector: () => (index === 2 ? {} : null),
       replaceChildren: () => {},
       setAttribute: () => {},
     },
@@ -117,6 +118,7 @@ test("parking retains selected and focused sections while bounding distant conte
     assert.equal(entries.filter((entry) => entry.ready).length, 6);
     assert.equal(entries[0].ready, true);
     assert.equal(entries[1].ready, true);
+    assert.equal(entries[2].ready, true);
     for (const entry of entries.filter((item) => !item.ready)) {
       assert.equal(entry.node.style.height, "100px");
       assert.equal(entry.node.dataset.sectionState, "parked");

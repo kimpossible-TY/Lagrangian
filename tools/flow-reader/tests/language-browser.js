@@ -50,12 +50,10 @@ try {
         (note) => languageOf(note) === "en" && languageOf(note.closest(".flow-notes")) === "ko",
       ),
   );
-  const target = article.querySelector(".flow-note-targets");
   check(
-    "The target region is Korean and its copied original term is English",
-    target &&
-      languageOf(target) === "ko" &&
-      languageOf(target.querySelector(".flow-math-view,math")) === "en",
+    "Adaptive notes retain source-language bodies without duplicating target expressions",
+    !article.querySelector(".flow-note-targets") &&
+      notes.every((note) => languageOf(note.querySelector(".flow-note-body")) === "en"),
   );
   check(
     "Rendered and assistive mathematical roots retain English",

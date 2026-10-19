@@ -388,6 +388,7 @@ def handler_for(state):
                       "/favicon.png": ("favicon.png", "image/png"),
                       "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
                       "/reader.js": ("reader.js", "text/javascript; charset=utf-8"),
+                      "/annotations.js": ("annotations.js", "text/javascript; charset=utf-8"),
                       "/reading-navigation.js": ("reading-navigation.js", "text/javascript; charset=utf-8"),
                       "/change-location.js": ("change-location.js", "text/javascript; charset=utf-8"),
                       "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),

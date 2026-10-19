@@ -716,6 +716,7 @@ button:disabled {
   }
 }
 #reader-document {
+  position: relative;
   width: 100%;
   max-width: 76ch;
   margin: 2rem auto 6rem;
@@ -1032,13 +1033,100 @@ math svg {
   margin-top: 0 !important;
 }
 .flow-notes {
-  margin: 0.6em 0 1em;
-  padding: 0.4em 0.7em;
-  border-inline-start: 2px solid var(--accent);
+  margin: 0;
+  padding: 0;
   font-size: 1em;
 }
 .flow-note {
   margin: 0.5em 0;
+}
+.flow-annotation-space {
+  padding-block-start: 2.2em;
+}
+[data-annotation-layout="side"] .flow-annotation-space {
+  padding-block-start: 0.6em;
+}
+.flow-note[data-note-mode="label"],
+.flow-note[data-note-mode="side"] {
+  position: absolute;
+  margin: 0;
+  z-index: 2;
+}
+.flow-note[data-note-mode="label"] {
+  width: max-content;
+  max-width: calc(100% - 8px);
+  padding: 0.12em 0.5em;
+  border-radius: 0.35em;
+  color: var(--accent);
+  background: var(--wash);
+  font-size: 0.85em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.flow-note[data-note-mode="side"] {
+  border-inline-start: 1px solid var(--line);
+  padding-inline: 1em;
+  line-height: 1.5;
+}
+.flow-note-close,
+.flow-note-next {
+  display: none;
+}
+.flow-note[data-note-mode="popover"] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 1.1em 2.8em 1.1em 1.1em;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  box-shadow: 0 6px 24px #0002;
+  background: var(--surface);
+  color: var(--ink);
+  overflow: auto;
+  overscroll-behavior: contain;
+  z-index: 60;
+  line-height: 1.55;
+}
+.flow-note[data-note-mode="popover"][hidden] {
+  display: none;
+}
+.flow-note[data-open="true"] .flow-note-close {
+  display: block;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  width: 44px;
+  height: 44px;
+  font:
+    1.3rem/1 system-ui,
+    sans-serif;
+}
+.flow-note[data-open="true"] .flow-note-next {
+  display: block;
+  margin-block-start: 0.5em;
+  color: var(--accent);
+  font-size: 0.85em;
+}
+.flow-note-body > :first-child {
+  margin-block-start: 0;
+}
+.flow-note-body > :last-child {
+  margin-block-end: 0;
+}
+.flow-note[data-note-mode="label"] .flow-note-body {
+  display: inline;
+}
+.flow-note[data-note-mode="label"] math {
+  margin: 0;
+}
+[data-note-interactive="true"] {
+  cursor: pointer;
+  text-decoration: underline dotted color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 0.22em;
+}
+[data-note-interactive="true"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .flow-mark[data-reader-note] {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -1349,10 +1437,6 @@ math svg {
 .reader-section[data-section-state="parked"] > .reader-continuation {
   position: sticky;
   top: 6rem;
-}
-.flow-note-targets {
-  margin-bottom: 0.35em;
-  color: var(--accent);
 }
 /* Preserve the reader's prose size; native MathML still sizes scripts. */
 .flow-note span {

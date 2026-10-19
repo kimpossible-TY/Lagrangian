@@ -86,8 +86,9 @@ compilation or changing saved quotations and reading positions.
 
 == Required reading behavior
 
-All essential text, equations, figures, and annotations must be readable in the
-continuous body at the chosen font size. Do not require zoom, horizontal panning,
+All essential text, equations, figures, and graphical relationships must be readable
+in the continuous body at the chosen font size. Text annotations use the adaptive
+labels, popovers and side column described below. Do not require zoom, horizontal panning,
 slides, a next-section click, or a separate enlarged-equation view. Compose long
 mathematics and figure layouts to the available width, preserving their meaning
 and readable labels. Optional navigation and saved-highlight controls are allowed.
@@ -454,10 +455,21 @@ retry automatically. Transport HTML is cached separately from the bounded DOM.
 Large vector drawings and embedded images are delivered unchanged as separate,
 lazy-loaded assets. SVG drawings with interactive links remain inline.
 
-Text annotations are visible beside the reading flow, with a preview of their
-marked expressions and an accessible association from the original terms. Authored
-small prose sizes inherit the chosen reading size. There are no note disclosure
-controls or relationship dialogs.
+Text annotations keep the original marked expression once. A short plain name
+(at most 24 graphemes and three words) appears above its shaded target when it
+fits without covering mathematics. Longer, rich or colliding notes open in an
+anchored popover by tap, Enter or Space. Close, Escape and outside activation
+dismiss the popover; selection gestures retain their normal behavior. Notes
+retain their authored content and source language. Labeled native braces and
+brackets follow the same HTML presentation, while unlabeled grouping decorations
+and the paged output retain their original rendering.
+
+A side column appears only at a viewport width of at least 960px, an aspect ratio
+of at least 1.15, and sufficient right-side space (the larger of 220px or 14
+reading ems, plus a 20px gap). Portrait orientation and large text restore compact
+labels and popovers. Notes follow current mathematical fragments and stack without
+overlap. An open popover protects its section and defers source publication until
+it closes. Graphical annotation relationships remain automatically visible.
 
 Graphical annotations retain their original CeTZ programs. The browser measures
 marked terms in the original body nodes and sends those rectangles and the chosen

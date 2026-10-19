@@ -81,6 +81,15 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Include all exported heading levels in the outline with consistent depth-based indentation, wrapping titles and cross-section navigation.
 - [x] Center equation numbers vertically beside their expressions and reserve their width during responsive composition; verify short, tall, multiline and unnumbered equations.
 
+## Adaptive text annotations (selected concepts 1, 3 and 12)
+
+- [x] Retain authored text bodies once, adapt native labeled braces/brackets, and remove cloned target previews.
+- [x] Present short names as collision-free labels and longer notes as accessible anchored popovers, preserving selection and update behavior.
+- [x] Switch to a nonoverlapping side column only when viewport ratio and available width permit it; refresh on font, section and math changes.
+- [x] Verify real compiled annotations, keyboard/touch activation, dismissal, viewport/font transitions, canonical copy and graphical annotation compatibility; update Reader documentation.
+- [ ] Prepare a clean annotation-only commit and verify its isolated runtime against the actual configured PDE document.
+- [ ] Install the immutable Reader release and verify registered HTTPS delivery, adaptive annotations and unchanged original PDF service.
+
 ## Last visual edit navigation
 
 - [x] Persist accepted HTML visual changes per project, including disconnected edits, restart restoration, deletion targets and invalid-record recovery.
