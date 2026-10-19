@@ -53,4 +53,4 @@
 - [x] Add the opt-in terminal browser adapter and editor capability checks to the existing feature controllers.
 - [x] Update imports, static assets, installed-layout checks, architecture documentation and agent guidance.
 - [x] Run reader/terminal/POSIX/Neovim and real browser integration checks; inspect the rendered snapshot.
-- [ ] Commit and integrate the verified result into remote/local main; preserve local-only agent settings/assets and archive superseded original source.
+- [x] Commit and integrate the verified result into remote/local main; preserve local-only agent settings/assets and archive superseded original source.

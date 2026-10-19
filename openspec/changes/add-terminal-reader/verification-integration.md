@@ -42,3 +42,9 @@ The copied browser fixture had one obsolete dynamic math-module import; it now u
 ## Limits
 
 Current validation used headless Chromium, POSIX PTYs and disposable Neovim sessions. The earlier native iTerm2 checks above are historical; native iTerm2 UI, Windows image delivery, physical iOS and live installed service changes were not repeated. This integration does not install or restart the user's Reader/app services.
+
+## Main and original checkout integration
+
+Verified feature commit `f4dc7587` was pushed on the existing refactor branch and fast-forward merged into remote main. Before updating the original checkout, all 21 source hashes were compared to the archive and the archive contents were checked against its manifest. Only the six superseded tracked modifications and fifteen superseded untracked functional files were replaced; local main then fast-forwarded from `262d7554` to the integrated feature commit. The supported CLI help and standalone Neovim smoke also passed in the original checkout. Its tracked worktree/index are clean. All seven local-only agent-configuration/icon hashes remain unchanged.
+
+The exact pre-port source remains in the original checkout's ignored `.local/terminal-reader-originals-1792400232206622000.tar.gz`. The managed refactor worktree is clean and both remote main/refactor refs were verified at the feature commit before this verification-only commit.
