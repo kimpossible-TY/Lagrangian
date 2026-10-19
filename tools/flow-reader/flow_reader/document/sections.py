@@ -282,7 +282,7 @@ class SectionBundle:
     passages: list[dict]
 
 
-def split_document(source, revision, max_chars=180000, max_blocks=140):
+def split_document(source, revision, max_chars=180000, max_blocks=140, *, source_map=None):
     source, assets = separate_assets(source)
     source = assign_block_ids(source)
     index = BodyIndex(source)
@@ -322,7 +322,12 @@ def split_document(source, revision, max_chars=180000, max_blocks=140):
                        for identity, entries in index.canvas_identities.items()}
     canvas_sections = {identity: next(iter(entries)) for identity, entries in canvas_sections.items()
                        if len(entries) == 1}
+    passages = PassageIndex(source, blocks).passages
+    for passage in passages:
+        mapping = (source_map or {}).get(passage["key"], {})
+        if mapping.get("text") == passage["text"]:
+            passage["source_ranges"] = mapping["ranges"]
     return SectionBundle({"revision": revision, "language": index.language,
                           "sections": sections, "anchors": anchors,
                           "blocks": blocks, "canvasIdentities": canvas_sections, "outline": outline}, documents, assets,
-                         PassageIndex(source, blocks).passages)
+                         passages)

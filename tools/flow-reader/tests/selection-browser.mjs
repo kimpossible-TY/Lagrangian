@@ -55,7 +55,7 @@ async function verify(browser, viewport) {
         const math =
           block.querySelector(".flow-math-view") ??
           block.querySelector(".flow-inline-equation,.flow-equation,math");
-        const index = logicalTextIndex(wholeMath ? math : block);
+        const index = logicalTextIndex(wholeMath && wholeMath !== "block" ? math : block);
         const start = wholeMath ? 0 : index.text.indexOf(exact);
         const ranges = rangesFor(
           index,
@@ -185,6 +185,32 @@ async function verify(browser, viewport) {
     check(
       "Legacy local quotation data remains untouched",
       (await page.evaluate((key) => localStorage.getItem(key), legacyKey)) === legacyValue,
+    );
+
+    await select("Wrapped proof 한글", "block");
+    const wrappedResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    );
+    await click("#reader-codex-save");
+    const wrapped = await (await wrappedResponse).json();
+    const navigation = await (await page.request.post(url + "api/source", {
+      data: { revision: state.revision, fragments: wrapped.selection.fragments },
+    })).json();
+    const cursor = await (await page.request.post(url + "api/cursor", {
+      data: { revision: state.revision, path: navigation.path,
+              line: navigation.line, column: navigation.column },
+    })).json();
+    check(
+      "A mixed math proof saves the same source range used by Sync Editor",
+      wrapped.status === "selected" && navigation.status === "located" &&
+        wrapped.source.filepath === navigation.path && wrapped.source.line === navigation.line &&
+        wrapped.source.range.end.line === navigation.end_line &&
+        cursor.status === "located" && cursor.key === wrapped.selection.fragments[0].key,
+    );
+    check(
+      "Range mapping leaves workspace source and delivered HTML free of carriers",
+      (await readFile(entry, "utf8")) === original &&
+        !(await page.content()).includes("data-flow-source-edge"),
     );
 
     await page.route("**/api/focus", (route) =>

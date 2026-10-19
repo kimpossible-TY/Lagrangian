@@ -11,6 +11,7 @@ import unicodedata
 import uuid
 
 from flow_reader.compiler.build import compile_project
+from flow_reader.compiler.inputs import shadow_sources, source_paths
 from flow_reader.document.passages import PassageIndex, locate_passages, normalized, normalized_offsets, occurrences, validate_fragments
 from flow_reader.document.sections import assign_block_ids, split_document
 
@@ -112,31 +113,12 @@ class MarkedPassages(PassageIndex):
 
 def shadow_project(root, entry, relative, destination, updated):
     """Copy only the changed path; all other inputs remain read-only links."""
-    destination.mkdir()
     files = {Path(entry): (root / entry).read_text(), relative: updated}
-    def populate(original, target, prefix=Path()):
-        for child in original.iterdir():
-            name = prefix / child.name
-            if name in files:
-                (target / child.name).write_text(files[name], encoding="utf-8")
-            elif any(name in path.parents for path in files):
-                (target / child.name).mkdir()
-                populate(child, target / child.name, name)
-            else:
-                (target / child.name).symlink_to(child, target_is_directory=child.is_dir())
-    populate(root, destination)
+    shadow_sources(root, destination, files)
 
 
 def source_candidates(project, dependencies, pattern):
-    root = project.root.resolve()
-    for name in sorted(set(dependencies) | {str(root / project.entry)}):
-        path = Path(name)
-        if path.suffix != ".typ" or not path.is_file():
-            continue
-        path = path.resolve()
-        if (not path.is_relative_to(root) or path.is_relative_to(project.packages.resolve())
-                or path.stat().st_size > 2 * 1024 * 1024):
-            continue
+    for path in source_paths(project, dependencies):
         original = path.read_bytes()
         try:
             source = original.decode("utf-8")
@@ -235,7 +217,7 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh, wri
                 # An absolute entry must still point into the verified shadow project.
                 candidate_project = replace(project, root=shadow,
                                             entry=Path(project.relative_entry()))
-                report = compile_project(candidate_project, work / "marked")
+                report = compile_project(candidate_project, work / "marked", map_sources=False)
                 fresh()
                 if not report["contentGatePassed"]:
                     continue
@@ -249,7 +231,7 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh, wri
                     continue
                 final = source[:start] + highlighted + source[end:]
                 (shadow / path.relative_to(root)).write_text(final, encoding="utf-8")
-                report = compile_project(candidate_project, work / "final")
+                report = compile_project(candidate_project, work / "final", map_sources=False)
                 fresh()
                 if not report["contentGatePassed"]:
                     continue

@@ -11,11 +11,13 @@ import time
 from flow_reader.compiler.audit import audit_content, normalize_content, unhandled_warnings
 from flow_reader.compiler.project import Project
 from flow_reader.compiler.packages import prepare_packages
+from flow_reader.compiler.source_map import compile_source_map
 from flow_reader.resources import READER_ROOT as HERE
 
 
 def compile_project(project: Project, output: Path, *, geometry: dict | None = None,
-                    canvases: dict | None = None, decorations: dict | None = None) -> dict:
+                    canvases: dict | None = None, decorations: dict | None = None,
+                    map_sources: bool = True) -> dict:
     root = project.root.resolve()
     entry = project.relative_entry()
     output.mkdir(parents=True, exist_ok=True)
@@ -85,10 +87,17 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
                 "warning: " + warning for warning in
                 unhandled_warnings(line.removeprefix("warning: ") for line in report["warnings"])]
             report["contentGatePassed"] &= not report["compilerLossWarnings"]
+            if map_sources and report["contentGatePassed"] and all(
+                    value is None for value in (geometry, canvases, decorations)):
+                try:
+                    report.update(compile_source_map(project, dependencies, command, wrapper, content, work))
+                except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
+                    report.update(sourceMap={}, sourceMapStatus="unavailable")
             report["revision"] = hashlib.sha256(content.encode()).hexdigest()
             (work / "document.html").replace(output / "document.html")
         else:
             report["contentGatePassed"] = False
+        report.update(elapsedSeconds=round(time.monotonic() - started, 3), compiledAt=time.time())
         (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         return report
 

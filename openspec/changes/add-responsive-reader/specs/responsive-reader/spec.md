@@ -471,9 +471,27 @@ The HTML Reader SHALL replace the former local quotation library with Save for C
 - **AND** the Reader confirms success only after the service acknowledges the write
 - **AND** the latest explicit selection replaces the previous record rather than adding a quotation library entry
 
-#### Scenario: Mathematics or generated content has no unique source
+#### Scenario: Wrapped prose and mathematics have compiler-verified source ranges
+- **WHEN** accepted HTML carries verified source ranges for a selection inside a content wrapper or containing complete mathematics
+- **THEN** Saved for Codex and Sync Editor resolve the same original file and range without compiling during the action
+- **AND** editor cursor navigation uses those accepted ranges in the reverse direction
+- **AND** source columns preserve UTF-8 byte boundaries while saved excerpts use their existing Unicode column convention
+
+#### Scenario: Preserve rendered output when building source correspondence
+- **WHEN** compile-only carriers cannot match an accepted block's identity and full canonical text, fail compilation, or have unhandled diagnostics
+- **THEN** their unsupported mappings are discarded and the original accepted HTML remains available
+- **AND** no carrier is written into workspace source or served document content
+- **AND** repeated block signatures require agreement of the full ordered block sequence before occurrence numbers authorize a mapping
+
+#### Scenario: Unsupported or generated content has no unique source
 - **WHEN** the selected accepted text has no supported unique source mapping
 - **THEN** its text and logical block endpoints are still saved with an explicit unmapped status and no invented source position or PDF page coordinates
+
+#### Scenario: Ambiguous reverse mapping and source boundaries
+- **WHEN** one saved source range maps to multiple accepted HTML blocks
+- **THEN** cursor navigation reports ambiguity rather than selecting a rendered occurrence
+- **WHEN** selected ranges cross files, include unsupported output or no longer match saved source hashes
+- **THEN** they do not produce a usable source range
 
 #### Scenario: Stale document or service
 - **WHEN** the rendered revision, source inputs or service identity changed before saving

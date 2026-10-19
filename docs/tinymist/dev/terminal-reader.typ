@@ -210,16 +210,18 @@ the quotation library and its paint/relocation UI are removed.
 
 == Saved-source synchronization and conflicts
 
-Cursor polling follows saved, uniquely matched literal paragraphs and headings.
-The same navigation works through plain-text `#highlight[...]` and
-`#highlighted[...]` wrappers. A selected subpassage can move back to its unique
-saved source location when the complete containing paragraph agrees with the
-accepted Reader document.
+Cursor polling and Save for Codex share the accepted HTML block-to-source map.
+It includes literal content inside wrappers and closure bodies, formatted prose
+and complete mathematics where compilation verifies the same block identity and
+canonical text. Selected subpassages retain exact UTF-8 source positions; whole
+equations resolve to their complete original expression. Ordered selections
+across blocks can resolve when they remain in one source file. Context saving
+and navigation read accepted mappings without starting another compilation.
 
-This is a conservative literal mapping, rather than a complete Typst source map.
-Mathematics, macro-generated text, emphasis or other unsupported markup, repeated
-ambiguous passages, and multi-block selections may be unavailable for code
-navigation. The Reader still renders that content and retains its ordinary
+This remains a conservative map. Partial formulas, unsupported generated text,
+cross-file selections and ambiguous repeated output can be unavailable for code
+navigation. Changed saved inputs invalidate the map. The Reader still renders
+that content and retains its ordinary
 selection and local review actions. Source highlights use the existing separate
 compiler-verification path and can also decline uncertain selections.
 

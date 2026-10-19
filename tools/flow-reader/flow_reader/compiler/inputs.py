@@ -5,6 +5,36 @@ import os
 from pathlib import Path
 import shutil
 
+MAX_SOURCE_BYTES = 2 * 1024 * 1024
+
+
+def source_paths(project, dependencies):
+    """Inspect only bounded, accepted Typst dependencies inside the workspace."""
+    root, packages = project.root.resolve(), project.packages.resolve()
+    names = {Path(name) for name in dependencies} | {root / project.entry}
+    for path in sorted({name.resolve() for name in names}):
+        if (path.suffix == ".typ" and path.is_relative_to(root)
+                and not path.is_relative_to(packages) and path.is_file()
+                and path.stat().st_size <= MAX_SOURCE_BYTES):
+            yield path
+
+
+def shadow_sources(root, destination, sources):
+    """Copy changed sources only; other project inputs remain read-only links."""
+    destination.mkdir()
+    def populate(original, target, prefix=Path()):
+        for child in original.iterdir():
+            name = prefix / child.name
+            if name in sources:
+                (target / child.name).write_text(sources[name], encoding="utf-8")
+            elif any(name in path.parents for path in sources):
+                (target / child.name).mkdir()
+                populate(child, target / child.name, name)
+            else:
+                (target / child.name).symlink_to(child, target_is_directory=child.is_dir())
+    populate(root, destination)
+
+
 def source_signature(project, dependencies=()):
     """Stat compiler inputs; never recursively enumerate the user's project."""
     result = []

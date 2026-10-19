@@ -1,4 +1,4 @@
-"""Conservative saved-source mapping for explicit HTML Codex context."""
+"""Accepted HTML source ranges shared by Codex context and editor navigation."""
 
 from bisect import bisect_left
 import hashlib
@@ -6,21 +6,7 @@ from pathlib import Path
 import re
 
 from flow_reader.document.passages import locate_passages, normalized_offsets, occurrences, validate_fragments
-
-MAX_SOURCE_BYTES = 2 * 1024 * 1024
-
-
-def source_paths(project, dependencies):
-    """Only inspect accepted, bounded Typst dependencies inside the workspace."""
-    root = project.root.resolve()
-    packages = project.packages.resolve()
-    names = {Path(name) for name in dependencies} | {root / project.entry}
-    for path in sorted({name.resolve() for name in names}):
-        if (path.suffix != ".typ" or not path.is_relative_to(root)
-                or path.is_relative_to(packages) or not path.is_file()
-                or path.stat().st_size > MAX_SOURCE_BYTES):
-            continue
-        yield path
+from flow_reader.compiler.inputs import source_paths
 
 
 def literal_blocks(source):
@@ -161,9 +147,71 @@ def source_position(source, offset):
             "column": len(source[line_start:offset].encode("utf-8"))}
 
 
+def mapped_source_location(project, dependencies, bundle, clean):
+    """Resolve fully covered, ordered selections using compiler-carried ranges."""
+    passages = {part["key"]: part for part in bundle.passages}
+    if not any(passages.get(part["key"], {}).get("source_ranges") for part in clean):
+        return None
+    locations = locate_passages(bundle.passages, clean)
+    paths = set(source_paths(project, dependencies))
+    sources, selected = {}, []
+    for fragment, location in zip(clean, locations):
+        if location["state"] != "located":
+            return {"status": "ambiguous" if location["state"] == "ambiguous" else "unmapped"}
+        if location["key"] != fragment["key"]:
+            return {"status": "unmapped"}
+        passage = passages[location["key"]]
+        start = list(occurrences(passage["text"], fragment["exact"]))[location["occurrence"]]
+        end = start + len(fragment["exact"])
+        covered = set()
+        for span in passage.get("source_ranges", []):
+            first, last = max(start, span["text_start"]), min(end, span["text_end"])
+            if first >= last or not passage["text"][first:last].strip():
+                continue
+            path = Path(span["path"]).resolve()
+            if path not in paths:
+                return {"status": "unmapped"}
+            if path not in sources:
+                raw = path.read_bytes()
+                sources[path] = (raw.decode("utf-8"), hashlib.sha256(raw).hexdigest())
+            source, digest = sources[path]
+            if digest != span["source_hash"]:
+                return {"status": "stale"}
+            if not 0 <= span["start"] < span["end"] <= len(source):
+                return {"status": "unmapped"}
+            source_start, source_end = span["start"], span["end"]
+            if span["kind"] == "text":
+                text, offsets = normalized_offsets(source[source_start:source_end], smart_quotes=True)
+                rendered, _ = normalized_offsets(
+                    passage["text"][span["text_start"]:span["text_end"]], smart_quotes=True)
+                if text != rendered:
+                    return {"status": "unmapped"}
+                source_end = source_start + offsets[last - span["text_start"] - 1] + 1
+                source_start += offsets[first - span["text_start"]]
+            elif (span["kind"] != "math" or first != span["text_start"] or last != span["text_end"]):
+                return {"status": "unmapped"}
+            selected.append((path, source_start, source_end))
+            covered.update(range(first, last))
+        if any(not passage["text"][i].isspace() and i not in covered for i in range(start, end)):
+            return {"status": "unmapped"}
+    if not selected or len({path for path, _, _ in selected}) != 1:
+        return {"status": "unmapped"}
+    if any(left[2] > right[1] for left, right in zip(selected, selected[1:])):
+        return {"status": "ambiguous"}
+    path = selected[0][0]
+    source, digest = sources[path]
+    end_position = source_position(source, selected[-1][2])
+    return {"status": "located", "path": str(path), "source_hash": digest,
+            **source_position(source, selected[0][1]),
+            "end_line": end_position["line"], "end_column": end_position["column"]}
+
+
 def source_location(project, dependencies, bundle, fragments):
-    """Map a unique selected literal paragraph to its saved source coordinates."""
+    """Prefer accepted source ranges, retaining the conservative literal fallback."""
     clean = validate_fragments(fragments)
+    mapped = mapped_source_location(project, dependencies, bundle, clean)
+    if mapped is not None:
+        return mapped
     if len(clean) != 1:
         return {"status": "unmapped"}
     segments = fragments[0].get("segments", [])
@@ -193,7 +241,7 @@ def source_location(project, dependencies, bundle, fragments):
 
 
 def cursor_location(project, dependencies, bundle, path, line, column):
-    """Map a saved UTF-8 byte cursor to one exact accepted literal paragraph."""
+    """Map a saved UTF-8 byte cursor to a unique accepted source-backed block."""
     if (not isinstance(path, str) or not Path(path).is_absolute()
             or type(line) is not int or type(column) is not int
             or line < 1 or column < 0):
@@ -201,22 +249,29 @@ def cursor_location(project, dependencies, bundle, path, line, column):
     path = Path(path).resolve()
     if path not in set(source_paths(project, dependencies)):
         return {"status": "unmapped"}
+    source = path.read_bytes().decode("utf-8")
+    offset = cursor_offset(source, line, column)
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    matches = []
+    # Carried paths were canonicalized at compilation; avoid a filesystem walk
+    # for every range during editor cursor polling.
+    canonical_path = str(path)
+    for passage in bundle.passages:
+        for span in passage.get("source_ranges", []):
+            if span["path"] == canonical_path and span["start"] <= offset < span["end"]:
+                if span["source_hash"] != digest:
+                    return {"status": "stale"}
+                matches.append(passage)
+                break
+    if len(matches) > 1:
+        return {"status": "ambiguous"}
+    if matches:
+        passage = matches[0]
+        return {"status": "located", "key": passage["key"], "section": passage["section"],
+                "exact": passage["text"]}
     blocks = [block for block in literal_index(project, dependencies) if block["path"] == path]
     if not blocks:
         return {"status": "unmapped"}
-    source = blocks[0]["source"]
-    lines = source.split("\n")
-    if line > len(lines):
-        raise ValueError("Source cursor line is outside the saved file")
-    content = lines[line - 1].rstrip("\r")
-    encoded = content.encode("utf-8")
-    if column > len(encoded):
-        raise ValueError("Source cursor column is outside the saved line")
-    try:
-        prefix = encoded[:column].decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise ValueError("Source cursor column splits a UTF-8 character") from error
-    offset = sum(len(part) + 1 for part in lines[:line - 1]) + len(prefix)
     literal_offset = bisect_left(blocks[0]["origins"], offset)
     block = next((block for block in blocks
                   if block["start"] <= literal_offset <= block["end"]), None)
@@ -236,3 +291,19 @@ def cursor_location(project, dependencies, bundle, path, line, column):
     passage = matches[0]
     return {"status": "located", "key": passage["key"], "section": passage["section"],
             "exact": passage["text"]}
+
+
+def cursor_offset(source, line, column):
+    """Validate and translate a one-based line and UTF-8 byte column."""
+    lines = source.split("\n")
+    if line > len(lines):
+        raise ValueError("Source cursor line is outside the saved file")
+    content = lines[line - 1].rstrip("\r")
+    encoded = content.encode("utf-8")
+    if column > len(encoded):
+        raise ValueError("Source cursor column is outside the saved line")
+    try:
+        prefix = encoded[:column].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("Source cursor column splits a UTF-8 character") from error
+    return sum(len(part) + 1 for part in lines[:line - 1]) + len(prefix)

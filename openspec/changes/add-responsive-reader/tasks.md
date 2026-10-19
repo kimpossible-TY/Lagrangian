@@ -178,3 +178,9 @@ other services, and the mobile default are preserved.
 - [x] Remove time-based expiry from HTML and paged context readers; cover old mapped/unmapped text, taps, changed source, service and revisions.
 - [x] Align canonical docs, the portable companion patch and local Codex instructions with unified lookup.
 - [x] Run targeted and reader integration checks, install the clean immutable Reader release, and verify the local PDE lookup without a reader argument.
+
+## HTML block-to-source range mapping
+
+- [x] Preserve compile-verified source ranges for wrapped prose and whole equations without changing delivered HTML or workspace sources.
+- [x] Share accepted range resolution between Saved for Codex and bidirectional Sync Editor, preserving snapshot and ambiguity checks.
+- [x] Verify real compiler/browser flows, Unicode, repeated/cross-file/unsupported and stale sources; update ownership and canonical documentation.

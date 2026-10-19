@@ -96,3 +96,8 @@ visual change independently of viewers, restore it on entry/reload, and follow
 accepted live changes after rendering. Recent reading gestures defer the jump
 behind a compact change-location button. Explicit links and history navigation
 retain their destination.
+
+Preserve verified HTML block-to-source ranges for prose inside content wrappers
+and complete mathematics. Saved for Codex and bidirectional editor navigation
+share this accepted mapping, keeping source changes, unsupported output and
+ambiguous cursors explicit.
