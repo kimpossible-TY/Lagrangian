@@ -539,7 +539,7 @@ explicit associations to every rendered fragment of their shaded targets. On
 compact screens, plain names and compact mathematical names with indices of at
 most 24 graphemes and three words use a small label above the term when it fits
 without obscuring mathematical ink. Both plain and mathematical names search
-horizontal gaps between measured glyphs and earlier labels, and rows above
+horizontal gaps between measured glyphs, surrounding prose line fragments and earlier labels, and rows above
 preceding mathematical lines within the same host. Rank available placements by
 vertical and horizontal distance from the target. If no row fits, reserve an
 additional label-height row with reading-anchor preservation, bounded by the

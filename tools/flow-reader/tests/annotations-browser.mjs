@@ -8,6 +8,8 @@ const engine = process.env.BROWSER_ENGINE || "chromium";
 
 const address = process.argv[2];
 if (!address) throw new Error("Provide the disposable annotation fixture URL");
+const entry = new URL(address);
+entry.searchParams.set("section", "section-0");
 const output = process.argv[3] || "dist/reader-adaptive-annotations";
 await mkdir(output, { recursive: true });
 const browser = await engines[engine].launch({
@@ -39,7 +41,7 @@ const containedClose = (button) => {
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.on("pageerror", (error) => errors.push(String(error)));
-  await page.goto(address);
+  await page.goto(entry.href);
   await page.waitForFunction(() => document.querySelector('.flow-note[data-note-mode="label"]'));
   await page.waitForFunction(() =>
     document.querySelector('.flow-equation .flow-math-view[data-math-state="ready"]'),
@@ -55,6 +57,10 @@ try {
     }));
   });
   const kernel = page.locator(`#${ids.find((note) => note.text === "kernel").id}`);
+  await page.waitForFunction(
+    (id) => document.getElementById(id)?.dataset.noteMode === "label",
+    ids.find((note) => note.text === "kernel").id,
+  );
   const longID = ids.find((note) => note.text.startsWith("The two terms")).id;
   const collisionID = ids.find((note) => note.text === "denominator").id;
   const deltaID = ids.find((note) => note.text.normalize("NFKC") === "δji").id;
@@ -65,8 +71,8 @@ try {
     .locator(`[data-reader-note~="${longID}"][data-note-interactive="true"]`)
     .first();
   check(
-    "Compiled native braces, brackets and authored notes retain thirteen complete bodies",
-    ids.length === 13,
+    "Compiled native braces, brackets and authored notes retain fourteen complete bodies",
+    ids.length === 14,
   );
   check(
     "Short names appear as labels on a phone",
@@ -368,6 +374,42 @@ try {
         );
       });
       check(`${width}px/${font}px labels never obscure mathematical ink`, clearLabels);
+      const proseID = ids.find((note) => note.text === "passage").id;
+      await page.evaluate(
+        (id) =>
+          [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+            .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+            ?.scrollIntoView({ block: "center" }),
+        proseID,
+      );
+      await page.waitForFunction(
+        (id) => document.getElementById(id)?.dataset.noteMode === "label",
+        proseID,
+      );
+      const clearProse = await page.evaluate((id) => {
+        const label = document.getElementById(id).getBoundingClientRect();
+        const target = [...document.querySelectorAll(`[data-reader-note~="${id}"]`)].find(
+          (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+        );
+        const text = document.createTreeWalker(target.closest("p"), NodeFilter.SHOW_TEXT);
+        for (let node = text.nextNode(); node; node = text.nextNode()) {
+          if (!node.data.trim()) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          if (
+            [...range.getClientRects()].some(
+              (r) =>
+                label.left < r.right &&
+                label.right > r.left &&
+                label.top < r.bottom &&
+                label.bottom > r.top,
+            )
+          )
+            return false;
+        }
+        return true;
+      }, proseID);
+      check(`${width}px/${font}px inline labels avoid surrounding prose`, clearProse);
       await target.click();
       await long.waitFor({ state: "visible" });
       check(
@@ -452,7 +494,7 @@ try {
     hasTouch: true,
   });
   touch.on("pageerror", (error) => errors.push(String(error)));
-  await touch.goto(address);
+  await touch.goto(entry.href);
   await touch.waitForFunction((id) => document.getElementById(id)?.dataset.noteMode, wideID);
   await touch.evaluate(() => {
     while (Number(document.querySelector("#reader-size").value) < 30)

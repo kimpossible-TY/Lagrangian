@@ -249,6 +249,7 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **WHEN** the position directly above a short name's target collides with an earlier mathematical line
 - **THEN** a name such as kernel or indexed delta uses a nearby free gap or a reserved row above the equation
 - **AND** all competing short names remain visible without overlapping each other or mathematical ink
+- **AND** inline names also avoid the surrounding prose line fragments
 - **AND** viewport/font changes and scrolling recompute stable, bounded placement
 
 #### Scenario: A short label is physically too wide
