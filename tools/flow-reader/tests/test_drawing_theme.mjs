@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { drawingPaint, inkContrast, parseColor, readableInk } from "../web/drawing-theme.js";
+import {
+  drawingPaint,
+  inkContrast,
+  parseColor,
+  readableInk,
+} from "../web/features/appearance/drawing-theme.js";
 
 const dark = [27, 28, 30],
   light = [250, 249, 246];

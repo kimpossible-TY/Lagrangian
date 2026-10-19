@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import serve
+from flow_reader.server import cli as serve
 
 normal_handler = serve.handler_for
 report_lock = threading.Lock()

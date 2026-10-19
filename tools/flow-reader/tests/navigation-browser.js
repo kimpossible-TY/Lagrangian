@@ -1,6 +1,6 @@
 // Exercise browser-native fragment navigation and history on the actual book.
 // A native hash navigation may inherit the previous entry's history.state.
-import { logicalTextIndex } from "/math-identity.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
 
 const testSearch = new URLSearchParams(location.search);
 testSearch.delete("section");

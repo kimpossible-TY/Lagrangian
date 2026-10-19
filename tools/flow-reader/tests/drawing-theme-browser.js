@@ -1,4 +1,9 @@
-import { DrawingTheme, drawingBackground, inkContrast, parseColor } from "../web/drawing-theme.js";
+import {
+  DrawingTheme,
+  drawingBackground,
+  inkContrast,
+  parseColor,
+} from "../web/features/appearance/drawing-theme.js";
 
 const article = document.querySelector("#reader-document");
 const original = () =>

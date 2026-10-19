@@ -11,8 +11,10 @@ import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from serve import ReaderState, handler_for, watch
+from flow_reader.compiler.build import Project
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
+from flow_reader.server.watch import watch
 
 
 def main():

@@ -12,15 +12,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-spec = importlib.util.spec_from_file_location("flow_reader_build", ROOT / "build.py")
-build = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = build
-spec.loader.exec_module(build)
+from flow_reader.compiler import build
+from flow_reader.compiler.audit import ContentAudit
+from flow_reader.document.content import namespace_svg_ids, normalize_math_html
+
 
 
 class ContentAuditTests(unittest.TestCase):
     def audit(self, text):
-        audit = build.ContentAudit()
+        audit = ContentAudit()
         audit.feed(text)
         return audit.report()
 
@@ -45,7 +45,7 @@ class ContentAuditTests(unittest.TestCase):
                '<use href="#glyph" clip-path="url(#glyph)"/>'
                '<a href="#equation">Reference</a></svg>')
         source = '<p id="equation">Equation</p>' + svg + svg
-        result = build.namespace_svg_ids(source)
+        result = namespace_svg_ids(source)
         report = self.audit(result)
         self.assertTrue(report["contentGatePassed"], report)
         self.assertIn('viewBox="0 0 20 20"', result)
@@ -55,37 +55,37 @@ class ContentAuditTests(unittest.TestCase):
     def test_footnotes_inside_math_use_a_token_integration_point(self):
         source = ('<math><mrow><mi>x</mi><sup><a href="#note">1</a></sup>'
                   '<mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></math>')
-        result = build.normalize_math_html(source)
+        result = normalize_math_html(source)
         self.assertIn('<mtext><sup><a href="#note">1</a></sup></mtext>', result)
         self.assertIn('<mfrac><mi>a</mi><mi>b</mi></mfrac>', result)
-        self.assertEqual(build.normalize_math_html(result), result)
+        self.assertEqual(normalize_math_html(result), result)
 
     def test_block_content_cannot_silently_escape_math_namespace(self):
         with self.assertRaisesRegex(ValueError, "Non-phrasing"):
-            build.normalize_math_html('<math><mrow><div>note</div></mrow></math>')
+            normalize_math_html('<math><mrow><div>note</div></mrow></math>')
 
     def test_only_tagged_math_cancellation_is_promoted_to_a_semantic_enclosure(self):
         row = ('<mrow data-flow-cancel="updiagonalstrike" notation="updiagonalstrike">'
                '<mrow><mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></mrow>')
-        result = build.normalize_math_html('<math>' + row + '</math>')
+        result = normalize_math_html('<math>' + row + '</math>')
         self.assertIn('<menclose data-flow-cancel="updiagonalstrike"', result)
         self.assertIn('<mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></menclose>', result)
-        self.assertEqual(build.normalize_math_html(result), result)
-        self.assertEqual(build.normalize_math_html(row), row)
+        self.assertEqual(normalize_math_html(result), result)
+        self.assertEqual(normalize_math_html(row), row)
         mismatch = row.replace('notation="updiagonalstrike"', 'notation="box"')
-        self.assertEqual(build.normalize_math_html('<math>' + mismatch + '</math>'), '<math>' + mismatch + '</math>')
+        self.assertEqual(normalize_math_html('<math>' + mismatch + '</math>'), '<math>' + mismatch + '</math>')
 
     def test_overline_spans_a_grouped_body_with_a_stretchy_spacing_bar(self):
         body = '<mi>a</mi><mo>+</mo><mi>b</mi>'
         row = '<mrow accent="true" data-flow-overline="true">' + body + '</mrow>'
-        result = build.normalize_math_html('<math>' + row + '</math>')
+        result = normalize_math_html('<math>' + row + '</math>')
         expected = ('<math><mover accent="true" data-flow-overline="true"><mrow>' + body
                     + '</mrow><mo stretchy="true">¯</mo></mover></math>')
         self.assertEqual(result, expected)
-        self.assertEqual(build.normalize_math_html(result), result)
-        empty = build.normalize_math_html('<math><mrow accent="true" data-flow-overline="true"/></math>')
+        self.assertEqual(normalize_math_html(result), result)
+        empty = normalize_math_html('<math><mrow accent="true" data-flow-overline="true"/></math>')
         self.assertIn('<mrow></mrow><mo stretchy="true">¯</mo></mover>', empty)
-        self.assertEqual(build.normalize_math_html(empty), empty)
+        self.assertEqual(normalize_math_html(empty), empty)
 
     def test_math_normalization_keeps_svg_case_for_later_xml_extraction(self):
         from xml.etree import ElementTree as ET
@@ -93,7 +93,7 @@ class ContentAuditTests(unittest.TestCase):
                '<clipPath id="clip"><path d="M0 0L2 2"/></clipPath>'
                '<linearGradient id="paint"><stop offset="0"/></linearGradient>'
                '</defs></svg>')
-        normalized = build.normalize_math_html(svg)
+        normalized = normalize_math_html(svg)
         self.assertEqual(ET.tostring(ET.fromstring(svg)), ET.tostring(ET.fromstring(normalized)))
 
 

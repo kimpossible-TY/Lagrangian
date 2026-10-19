@@ -10,10 +10,11 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project, compile_project
-from decorations import extract_decorations
-from dynamic import DynamicCompiler
-from serve import ReaderState, RevisionChanged
+from flow_reader.compiler.build import Project, compile_project
+from flow_reader.rendering.decorations import extract_decorations
+from flow_reader.compiler.dynamic import DynamicCompiler
+from flow_reader.server.state import ReaderState
+from flow_reader.errors import RevisionChanged
 
 
 class DynamicGateTests(unittest.TestCase):
@@ -76,16 +77,16 @@ class DynamicCompilerTests(unittest.TestCase):
         state.compile()
         revision = state.revision
         first = state.render_dynamic(revision, self.request(100), "decorations")
-        worker = state.dynamic_compiler
+        worker = state.renderer.dynamic_compiler
         worker.process.kill()
         worker.process.wait()
-        with patch("serve.compile_project", wraps=compile_project) as cold:
+        with patch("flow_reader.rendering.service.compile_project", wraps=compile_project) as cold:
             fallback = state.render_dynamic(revision, self.request(110), "decorations")
             self.assertEqual(cold.call_count, 1)
             self.assertEqual(fallback["revision"], revision)
-        self.assertIsNone(state.dynamic_compiler)
+        self.assertIsNone(state.renderer.dynamic_compiler)
         state.render_dynamic(revision, self.request(120), "decorations")
-        self.assertIsNotNone(state.dynamic_compiler)
+        self.assertIsNotNone(state.renderer.dynamic_compiler)
         self.entry.write_text("#not-a-function()")
         state.compile()
         self.assertEqual(state.render_dynamic(revision, self.request(100), "decorations"), first)
@@ -96,7 +97,7 @@ class DynamicCompilerTests(unittest.TestCase):
         state.compile()
         self.assertNotEqual(state.revision, revision)
         state.render_dynamic(state.revision, self.request(130), "decorations")
-        self.assertIsNot(state.dynamic_compiler, worker)
+        self.assertIsNot(state.renderer.dynamic_compiler, worker)
         with self.assertRaises(RevisionChanged):
             state.render_dynamic(revision, self.request(100), "decorations")
 

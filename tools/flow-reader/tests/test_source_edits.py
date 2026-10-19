@@ -15,9 +15,10 @@ import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from serve import ReaderState, handler_for
-from source_edits import selection_pattern
+from flow_reader.compiler.build import Project
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
+from flow_reader.services.source_highlight import selection_pattern
 
 
 class SourceHighlightTests(unittest.TestCase):
@@ -105,7 +106,7 @@ class SourceHighlightTests(unittest.TestCase):
     def test_a_highlight_that_breaks_paged_output_is_not_saved(self):
         state = self.compile("Before selected text after.")
         fragment = self.fragment(state, "selected text")
-        with patch("source_edits.paged_candidate_compiles", return_value=False):
+        with patch("flow_reader.services.source_highlight.paged_candidate_compiles", return_value=False):
             self.assertEqual(state.highlight(state.revision, [fragment])["status"], "unmapped")
         self.assertEqual(self.entry.read_text(), "Before selected text after.")
 
@@ -149,12 +150,12 @@ class SourceHighlightTests(unittest.TestCase):
     def test_a_save_during_candidate_compilation_is_not_overwritten(self):
         state = self.compile("Before selected text after.")
         fragment = self.fragment(state, "selected text")
-        from source_edits import compile_project
+        from flow_reader.services.source_highlight import compile_project
         def compile_and_edit(*args, **kwargs):
             result = compile_project(*args, **kwargs)
             self.entry.write_text("A concurrent editor save.")
             return result
-        with patch("source_edits.compile_project", side_effect=compile_and_edit):
+        with patch("flow_reader.services.source_highlight.compile_project", side_effect=compile_and_edit):
             self.assertEqual(state.highlight(state.revision, [fragment])["status"], "stale")
         self.assertEqual(self.entry.read_text(), "A concurrent editor save.")
 

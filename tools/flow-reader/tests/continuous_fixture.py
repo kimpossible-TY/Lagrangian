@@ -33,8 +33,9 @@ if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--write-fixture":
         write_fixture(Path(sys.argv[2]))
     else:
-        import serve
-        from sections import split_document
-        serve.split_document = lambda source, revision: split_document(
+        from flow_reader.server import cli as serve
+        from flow_reader.server import state as state_module
+        from flow_reader.document.sections import split_document
+        state_module.split_document = lambda source, revision: split_document(
             source, revision, max_chars=4000, max_blocks=14)
         serve.main()

@@ -1,7 +1,7 @@
-import { ResponsiveMath } from "./math-renderer.js";
-import { MathIdentity, logicalTextIndex } from "./math-identity.js";
-import { mathOverflow } from "./math-layout.js";
-import { loadMathJax } from "./mathjax-loader.js";
+import { ResponsiveMath } from "./rendering/math/renderer.js";
+import { MathIdentity, logicalTextIndex } from "./rendering/math/identity.js";
+import { mathOverflow } from "./rendering/math/layout.js";
+import { loadMathJax } from "./rendering/math/loader.js";
 
 const parameters = new URLSearchParams(location.search);
 const fontSize = Number(parameters.get("font") || 18);

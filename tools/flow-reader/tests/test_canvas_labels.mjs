@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composeCanvas, overlaps, inkContrast, readableInk } from "../web/canvas-labels.js";
+import {
+  composeCanvas,
+  overlaps,
+  inkContrast,
+  readableInk,
+} from "../web/rendering/graphics/canvas-labels.js";
 
 function label(id, x, y, width = 40, height = 28) {
   return {

@@ -939,7 +939,7 @@ checks.
 
 == Logical mathematical selections
 
-`web/math-identity.js` assigns source token IDs before mathematical typesetting.
+`web/rendering/math/identity.js` assigns source token IDs before mathematical typesetting.
 A logical token can bind to several visual occurrences, including operators
 repeated at a continuation. The model retains the original Unicode characters
 and text order, while each character points to its actual browser range.
@@ -986,7 +986,7 @@ or SVG change. The real annotated PDE derivation also passes its eight component
 checks. Evidence is `alignment-corpus-273-18.json`, `alignment-corpus-273-30.json` and
 `graphics-12-fixed-320.json`.
 
-`web/math-renderer.js` retains the original semantic template and builds each
+`web/rendering/math/renderer.js` retains the original semantic template and builds each
 candidate in a hidden, inert stage. It publishes only after fonts settle and all
 source tokens and marks bind successfully. Publication refreshes fragment paint,
 relationship geometry, and source highlights while preserving the reading anchor.
@@ -1044,7 +1044,7 @@ Reader to load the new selection capsule. The local selection reader resolves
 `typst-pde-reader` separately from the paged preview and checks current context
 before using it. The live record starts waiting for an explicit selection.
 
-The read-only `tools/flow-reader/source_mapping.py` module provides conservative
+The read-only `tools/flow-reader/flow_reader/services/source_mapping.py` module provides conservative
 source context independently of the optional terminal editor adapter. Separate
 uncommitted terminal work is not part of this runtime. Registered HTTPS delivery
 and isolated save/read flows passed in Chrome and WebKit; the authored PDE HTML

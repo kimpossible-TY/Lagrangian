@@ -12,8 +12,8 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project, compile_project
-from decorations import validate_decorations, extract_decorations
+from flow_reader.compiler.build import Project, compile_project
+from flow_reader.rendering.decorations import validate_decorations, extract_decorations
 
 
 class DecorationValidationTests(unittest.TestCase):
@@ -180,7 +180,8 @@ class DecorationCompilerTests(unittest.TestCase):
 
     def test_revision_cache_reuse_and_failed_save_do_not_mix_decorations(self):
         from unittest.mock import patch
-        from serve import ReaderState, RevisionChanged
+        from flow_reader.server.state import ReaderState
+        from flow_reader.errors import RevisionChanged
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")
         packages = os.environ.get("FLOW_READER_PACKAGES")
         if not compiler or not packages:
@@ -199,7 +200,7 @@ class DecorationCompilerTests(unittest.TestCase):
             layout = {"fontSize": 18, "ink": "#242c34", "fragments": [{"width": 100, "height": 25}]}
             request = {identifier: layout for identifier in ("decoration-1", "decoration-2")}
             result = state.render_dynamic(revision, request, "decorations")
-            with patch("serve.compile_project", side_effect=AssertionError("Unexpected recompile")):
+            with patch("flow_reader.rendering.service.compile_project", side_effect=AssertionError("Unexpected recompile")):
                 reused = state.render_dynamic(revision, {"decoration-2": layout}, "decorations")
                 self.assertEqual(reused["decorations"]["decoration-2"], result["decorations"]["decoration-2"])
             with self.assertRaises(RevisionChanged):

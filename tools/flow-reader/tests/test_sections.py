@@ -8,7 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from sections import BodyIndex, assign_block_ids, separate_assets, split_document
+from flow_reader.document.sections import BodyIndex, assign_block_ids, separate_assets, split_document
 
 
 def body(source):

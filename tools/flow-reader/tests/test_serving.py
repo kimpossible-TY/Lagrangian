@@ -18,8 +18,10 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from serve import ReaderState, handler_for, source_signature
+from flow_reader.compiler.build import Project
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
+from flow_reader.compiler.inputs import source_signature
 
 
 class ReaderServingTests(unittest.TestCase):
@@ -65,10 +67,20 @@ class ReaderServingTests(unittest.TestCase):
                 self.assertEqual(response.headers["Content-Encoding"], "gzip")
                 self.assertEqual(hashlib.sha256(gzip.decompress(response.read())).hexdigest(),
                                  manifest["files"]["mathjax/mml-chtml.js"])
-            for name in ("annotations.js", "reading-navigation.js", "drawing-theme.js", "theme.js", "language.js", "math-renderer.js", "math-frames.js", "mathjax-loader.js", "math-layout.js", "connector-routing.js", "canvas-labels.js", "tables.js"):
-                with urlopen(base + "/" + name) as response:
-                    self.assertIn("javascript", response.headers["Content-Type"])
+            manifest = json.loads((ROOT / "web/assets.json").read_text())
+            for name, filename in manifest.items():
+                route = "/" + name
+                with self.subTest(route=route), urlopen(base + route) as response:
+                    self.assertEqual(response.read(), (ROOT / "web" / filename).read_bytes())
                     self.assertEqual(response.headers["Cache-Control"], "no-store")
+                    if filename.endswith(".js"):
+                        self.assertIn("javascript", response.headers["Content-Type"])
+            for route in ("/assets.json", "/reader-common/AGENTS.md", "/../AGENTS.md",
+                          "/%2e%2e/AGENTS.md", "/features/selection/../../assets.json"):
+                with self.subTest(route=route), self.assertRaises(HTTPError) as missing:
+                    urlopen(base + route)
+                self.assertEqual(missing.exception.code, 404)
+                missing.exception.close()
             for path in ("missing.js", "../README.md", "%2e%2e/README.md"):
                 with self.assertRaises(HTTPError) as missing:
                     urlopen(base + vendor + path)
@@ -141,7 +153,7 @@ class ReaderServingTests(unittest.TestCase):
                 with urlopen(request(geometry())) as response:
                     rendered = json.load(response)
                 self.assertEqual(set(rendered["graphics"]), {"graphic-1"})
-                with patch("serve.compile_project", side_effect=AssertionError("Unexpected recompilation")):
+                with patch("flow_reader.rendering.service.compile_project", side_effect=AssertionError("Unexpected recompilation")):
                     with urlopen(request(geometry())) as response:
                         self.assertEqual(json.load(response), rendered)
                 previous_document = state.document
@@ -175,10 +187,10 @@ class ReaderServingTests(unittest.TestCase):
         packages = os.environ.get("FLOW_READER_PACKAGES")
         if not compiler or not packages:
             self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
-        from build import compile_project
-        from figures import geometry_identity
-        from graphics import extract_graphics
-        from serve import RevisionChanged
+        from flow_reader.compiler.build import compile_project
+        from flow_reader.document.figures import geometry_identity
+        from flow_reader.rendering.graphics import extract_graphics
+        from flow_reader.errors import RevisionChanged
         from test_graphics import geometry
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as resources:
             work = Path(temporary)
@@ -198,13 +210,13 @@ class ReaderServingTests(unittest.TestCase):
             other["markers"] = {key + "-two": value for key, value in other["markers"].items()}
             batch = geometry() | {"graphic-2": other}
             rendered = state.render_graphics(revision, batch)
-            with patch("serve.compile_project", side_effect=AssertionError("Unexpected recompilation")):
+            with patch("flow_reader.rendering.service.compile_project", side_effect=AssertionError("Unexpected recompilation")):
                 for identifier, layout in batch.items():
                     reused = state.render_graphics(revision, {identifier: layout})
                     self.assertEqual(reused["graphics"], {identifier: rendered["graphics"][identifier]})
             changed = geometry(220) | {"graphic-2": other}
-            with patch.object(state.dynamic_compiler, "compile",
-                              wraps=state.dynamic_compiler.compile) as compile_spy:
+            with patch.object(state.renderer.dynamic_compiler, "compile",
+                              wraps=state.renderer.dynamic_compiler.compile) as compile_spy:
                 updated = state.render_graphics(revision, changed)
             self.assertEqual(compile_spy.call_count, 1)
             self.assertEqual(compile_spy.call_args.kwargs["geometry"], {"graphic-1": changed["graphic-1"]})
@@ -218,7 +230,7 @@ class ReaderServingTests(unittest.TestCase):
             entry.write_text("#does-not-exist()")
             state.compile()
             self.assertEqual(state.revision, revision)
-            with patch("serve.compile_project", side_effect=AssertionError("Unexpected recompilation")):
+            with patch("flow_reader.rendering.service.compile_project", side_effect=AssertionError("Unexpected recompilation")):
                 self.assertEqual(state.render_graphics(revision, {"graphic-2": other})["graphics"],
                                  {"graphic-2": rendered["graphics"]["graphic-2"]})
             with self.assertRaises(RevisionChanged):
@@ -226,7 +238,7 @@ class ReaderServingTests(unittest.TestCase):
             entry.write_text(fixture + "\n" + second.replace("(0, -0.5)", "(0, -0.9)"))
             state.compile()
             self.assertNotEqual(state.revision, revision)
-            self.assertFalse(state.component_cache)
+            self.assertFalse(state.renderer.component_cache)
 
     def test_compile_failure_keeps_the_previous_document_available(self):
         compiler = os.environ.get("FLOW_READER_TYPST") or shutil.which("typst")

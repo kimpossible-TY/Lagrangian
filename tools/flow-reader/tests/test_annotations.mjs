@@ -5,7 +5,7 @@ import {
   sideAnnotations,
   popoverPosition,
   labelPosition,
-} from "../web/annotations.js";
+} from "../web/rendering/annotations.js";
 
 test("short labels find free space above preceding mathematical lines", () => {
   const target = { left: 100, right: 300, top: 140 };

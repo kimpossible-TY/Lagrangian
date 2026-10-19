@@ -6,8 +6,9 @@ This is the tinymist language service, integrated with editor frontends and othe
 
 1. Read the nearest relevant docs before editing. Start with `docs/dev-guide.md`, then inspect the affected crate or editor directory.
 2. For any non-trivial behavior change, check OpenSpec first: accepted specs live in `openspec/specs/` and active work lives in `openspec/changes/`.
-3. Keep changes scoped to the task, prefer source-of-truth files over generated outputs, and follow existing crate and feature boundaries.
-4. Before finishing, run the smallest meaningful validation for the area you touched and summarize what you verified.
+3. Read scoped `AGENTS.md` files and `docs/tinymist/dev/reader-architecture.typ` for reader changes. Identify the feature owner and existing reusable policy before implementing.
+4. Keep changes scoped to the task, prefer source-of-truth files over generated outputs, and follow existing crate and feature boundaries.
+5. Before finishing, run the smallest meaningful validation for the area you touched and summarize what you verified.
 
 ## Must-Follow Rules
 
@@ -38,6 +39,9 @@ This is the tinymist language service, integrated with editor frontends and othe
 
 ## Repo Map
 
+- `tools/reader-common/`: renderer-independent reader feature policy and state; concrete readers supply geometry and transport.
+- `tools/flow-reader/`: HTML Reader CLI entrypoints, `flow_reader/` Python implementation, semantic browser adapters and maintained Typst packages.
+- `apps/macos/sources.json`: the native app source list shared by packaging and tests.
 - `crates/tinymist-cli/`: the `tinymist` binary entrypoint and top-level CLI commands.
 - `crates/tinymist/`: shared runtime and service logic used by system and web builds.
 - `crates/tinymist-query/`: analyzer engine behind most language-intelligence features. Snapshot tests are especially important here.
@@ -50,6 +54,16 @@ This is the tinymist language service, integrated with editor frontends and othe
 - `tests/`: end-to-end coverage, command fixtures, and sample workspaces.
 - `docs/`: developer and user documentation. `docs/dev-guide.md` is the best high-level entry point.
 - `scripts/`: build, generation, validation, and release helpers.
+
+## Ownership and reuse
+
+- Extend the existing feature owner before adding another implementation. Keep one owner for matching policy and state, with renderer/platform-specific operations behind explicit adapters.
+- Shared reader code must not import concrete readers; one reader must not import another reader's internal files. Keep native DOM locations and page geometry distinct.
+- Extract code for a shared responsibility or an actual repeated policy, not merely similar syntax or file length. Avoid empty extension layers and vague `utils`/`manager` catch-all modules.
+- Keep initialization focused on composing feature controllers. Record supported adapters, effects, failure/stale handling and cleanup when changing a feature contract.
+- Preserve crate, CLI, browser-storage and protocol boundaries. Cross-language reuse should share contracts and fixtures rather than create unnecessary runtime dependencies.
+- When moving files, update importers, tests, builds, immutable release archives and static asset allow-lists. Verify installed-layout delivery as well as source imports.
+- Update the architecture source map when ownership changes. Keep scoped agent instructions concise and tied to the current code.
 
 ## Workflow
 
@@ -75,6 +89,7 @@ This is the tinymist language service, integrated with editor frontends and othe
 - Analyzer snapshots: `cargo insta test -p tinymist-query --accept`
 - CLI or end-to-end behavior: `./scripts/e2e.sh`
 - VS Code frontend: `yarn lint` and `yarn test:vsc`
+- Shared/HTML/paged reader integration: `yarn test:readers` (set `FLOW_READER_PACKAGES` for real-compiler fixtures)
 - Preview or localization assets: `yarn build:preview` and `yarn build:l10n`
 - Generated docs: `node scripts/link-docs.mjs --check`
 - Grammar changes: `yarn test:grammar`

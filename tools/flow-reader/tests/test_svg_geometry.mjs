@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { paintedPathPoint } from "../web/graphics.js";
+import { paintedPathPoint } from "../web/rendering/graphics/annotations.js";
 
 test("an isolated SVG move cannot create a phantom stroke before the painted subpath", () => {
   const path = {

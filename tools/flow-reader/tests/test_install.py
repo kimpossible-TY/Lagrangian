@@ -21,7 +21,9 @@ class ReaderInstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="reader install spaces ") as temporary:
             work = Path(temporary)
             source = work / "source"
-            shutil.copytree(ROOT, source / "tools/flow-reader", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT, source / "tools/flow-reader", ignore=shutil.ignore_patterns("__pycache__"), symlinks=True)
+            shutil.copytree(ROOT.parent / "reader-common", source / "tools/reader-common",
+                            ignore=shutil.ignore_patterns("__pycache__"))
             marker = source / "tools/flow-reader/source.txt"
             marker.write_text("immutable source")
             subprocess.run(["git", "init", "-q", str(source)], check=True)
@@ -49,6 +51,8 @@ class ReaderInstallTests(unittest.TestCase):
                 profiles = json.loads(subprocess.check_output([manager, "--profiles"], text=True))
                 self.assertEqual(profiles["profiles"][0]["root"], str(project))
                 self.assertTrue(profiles["profiles"][0]["semanticCanvases"])
+                release = args.data / "releases" / result["revision"] / "tools/flow-reader"
+                self.verify_installed_delivery(release)
                 args.semantic_canvases = None
                 installer.install(args)
                 self.assertTrue(json.loads((args.data / "config.json").read_text())["services"][0]["semanticCanvases"])
@@ -66,6 +70,49 @@ class ReaderInstallTests(unittest.TestCase):
                     installer.install(args)
                 self.assertEqual(manager.read_bytes(), launcher)
                 self.assertEqual((args.data / "config.json").read_bytes(), config)
+
+    def verify_installed_delivery(self, release):
+        """Exercise imports and HTTP from the archived layout, outside the checkout."""
+        script = r"""
+from http.server import ThreadingHTTPServer
+import json
+from pathlib import Path
+import re
+import threading
+from urllib.parse import urljoin
+from urllib.request import urlopen
+from flow_reader.server import state
+from flow_reader.server.http import handler_for
+from flow_reader.server.assets import reader_assets
+
+assert Path(state.__file__).resolve().is_relative_to(Path.cwd())
+assets = reader_assets()
+assert any(name.startswith('/reader-common/') for name in assets)
+server = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(None))
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+origin = f'http://127.0.0.1:{server.server_port}'
+try:
+    for route, (path, content_type) in assets.items():
+        with urlopen(origin + route) as response:
+            assert response.read() == path.read_bytes(), route
+            assert response.headers['Content-Type'] == content_type, route
+        if path.suffix == '.js':
+            for dependency in re.findall(r"(?:from\s*|import\s*\()['\"]([^'\"]+)['\"]", path.read_text()):
+                if dependency.startswith('.'):
+                    target = urljoin(route, dependency)
+                    assert target in assets, (route, target)
+    print(json.dumps({'assets': len(assets)}))
+finally:
+    server.shutdown()
+    server.server_close()
+    thread.join()
+"""
+        result = json.loads(subprocess.check_output([sys.executable, "-c", script], cwd=release, text=True))
+        self.assertGreater(result["assets"], 20)
+        for entry in ("build.py", "serve.py", "focus.py"):
+            subprocess.run([sys.executable, str(release / entry), "--help"],
+                           cwd=release.parent.parent.parent, capture_output=True, check=True)
 
 
 if __name__ == "__main__":

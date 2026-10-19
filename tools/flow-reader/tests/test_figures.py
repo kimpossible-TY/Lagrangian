@@ -6,10 +6,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from content import namespace_svg_ids
-from figures import geometry_identity, stamp_canvas_identities
-from passages import locate_passages
-from sections import split_document
+from flow_reader.document.content import namespace_svg_ids
+from flow_reader.document.figures import geometry_identity, stamp_canvas_identities
+from flow_reader.document.passages import locate_passages
+from flow_reader.document.sections import split_document
 
 
 def figure(number, height):

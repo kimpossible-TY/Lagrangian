@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { languageOf, setLanguage } from "../web/language.js";
+import { languageOf, setLanguage } from "../web/ui/language.js";
 
 const xml = "http://www.w3.org/XML/1998/namespace";
 const html = "http://www.w3.org/1999/xhtml";

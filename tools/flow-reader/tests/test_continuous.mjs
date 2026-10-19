@@ -2,7 +2,7 @@
 // Actual browser geometry is checked separately with the continuous fixture.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ContinuousSections } from "../web/sections.js";
+import { ContinuousSections } from "../web/features/session/continuous-sections.js";
 
 function stream(fetchSection) {
   const value = Object.create(ContinuousSections.prototype);

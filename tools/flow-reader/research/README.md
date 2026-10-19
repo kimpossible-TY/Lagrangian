@@ -140,8 +140,8 @@ local MathJax/font assets), then open `/math-identity.html` at 320px:
 ```sh
 cp tools/flow-reader/tests/fixtures/math-identity.html dist/reader-reflow-probe/
 cp tools/flow-reader/tests/identity-browser.js dist/reader-reflow-probe/
-cp tools/flow-reader/web/math-identity.js dist/reader-reflow-probe/
-cp tools/flow-reader/web/graphics.js dist/reader-reflow-probe/
+cp -R tools/flow-reader/web/rendering dist/reader-reflow-probe/
+cp -R tools/flow-reader/web/ui dist/reader-reflow-probe/
 ```
 
 It checks native prose exclusion, source order, actual script reordering,

@@ -67,7 +67,7 @@ try {
     document.querySelector('.flow-equation .flow-math-view[data-math-state="ready"]'),
   );
   const ids = await page.locator('.flow-note[data-note-kind="text"]').evaluateAll(async (nodes) => {
-    const { logicalTextIndex } = await import("/math-identity.js");
+    const { logicalTextIndex } = await import("/rendering/math/identity.js");
     return nodes.map((node) => ({
       id: node.id,
       text: logicalTextIndex(node.querySelector(".flow-note-body"), {
@@ -242,7 +242,7 @@ try {
     check(
       `${font}px delta stays composed inline after movement and font changes`,
       await delta.evaluate(async (note) => {
-        const { logicalTextIndex } = await import("/math-identity.js");
+        const { logicalTextIndex } = await import("/rendering/math/identity.js");
         return (
           note.querySelector(".flow-math-view").dataset.mathLayout === "inline" &&
           logicalTextIndex(note.querySelector(".flow-note-body"), {
@@ -651,7 +651,7 @@ try {
           document.querySelector(".flow-equation .flow-math-view").dataset.mathState === "ready",
       );
       const retained = await page.evaluate(async () => {
-        const { logicalTextIndex } = await import("/math-identity.js");
+        const { logicalTextIndex } = await import("/rendering/math/identity.js");
         const source = new DOMParser().parseFromString(
           await (await fetch("/document.html")).text(),
           "text/html",

@@ -68,8 +68,8 @@ function prepare(item) {
 
 async function run() {
   const { splitDerivations, prepareNativeDecorations, restoreNativeDecorations, mathOverflow } =
-    await import("./math-layout.js");
-  const { MathIdentity, logicalTextIndex } = await import("./math-identity.js");
+    await import("./rendering/math/layout.js");
+  const { MathIdentity, logicalTextIndex } = await import("./rendering/math/identity.js");
   await MathJax.startup.promise;
   const response = await fetch(
     parameters.get("source") === "baseline" ? "./baseline-corpus.json" : "./corpus.json",

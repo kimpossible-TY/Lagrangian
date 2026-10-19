@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GraphicalAnnotations } from "../web/graphics.js";
-import { routeConnection } from "../web/connector-routing.js";
+import { GraphicalAnnotations } from "../web/rendering/graphics/annotations.js";
+import { routeConnection } from "../web/rendering/graphics/connector-routing.js";
 
 const box = (left, top, right, bottom) => ({
   left,

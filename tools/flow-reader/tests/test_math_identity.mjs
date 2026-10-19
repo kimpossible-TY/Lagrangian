@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchToken, selectedIntervals } from "../web/math-identity.js";
+import { matchToken, selectedIntervals } from "../web/rendering/math/identity.js";
 
 function token(text, node = {}) {
   let offset = 0;

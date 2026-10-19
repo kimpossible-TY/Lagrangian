@@ -15,11 +15,13 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from changes import input_fingerprint
-from focus import read_reader, source_context
-from sections import split_document
-from serve import ReaderState, handler_for, source_signature
+from flow_reader.compiler.build import Project
+from flow_reader.services.change_history import input_fingerprint
+from flow_reader.services.codex_context import read_reader, source_context
+from flow_reader.document.sections import split_document
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
+from flow_reader.compiler.inputs import source_signature
 
 
 class ReaderFocusTests(unittest.TestCase):
@@ -64,7 +66,7 @@ class ReaderFocusTests(unittest.TestCase):
 
     def test_save_records_exact_text_source_identity_and_private_last_selection(self):
         before = self.entry.read_bytes()
-        with patch("serve.compile_project") as compile_document:
+        with patch("flow_reader.rendering.service.compile_project") as compile_document:
             result = self.save()
             compile_document.assert_not_called()
         self.assertEqual(result["selection"]["text"], "selected 한글")
@@ -120,7 +122,7 @@ class ReaderFocusTests(unittest.TestCase):
 
     def test_age_and_compiling_state_are_checked_on_every_read(self):
         self.save()
-        with patch("focus.time.time", return_value=time.time() + 301):
+        with patch("flow_reader.services.codex_context.time.time", return_value=time.time() + 301):
             self.assertFalse(self.state.read_focus()["selection_usable"])
         self.state.compiling = True
         self.assertEqual(self.save()["status"], "stale")
@@ -177,7 +179,7 @@ class ReaderFocusTests(unittest.TestCase):
         def race(location):
             self.entry.write_text("Source changed during context resolution.")
             return source_context(location)
-        with patch("serve.source_context", side_effect=race):
+        with patch("flow_reader.services.selection.source_context", side_effect=race):
             self.assertEqual(self.save()["status"], "stale")
         self.state = self.make_state("A selected 한글 passage.", "<p>A selected 한글 passage.</p>")
         original = self.state.focus.path.read_bytes()

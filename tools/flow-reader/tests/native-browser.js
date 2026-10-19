@@ -1,6 +1,6 @@
 // Run through runtime_fixture.py with fixtures/native-decorations.typ.
-import { logicalTextIndex } from "/math-identity.js";
-import { prepareNativeDecorations } from "/math-layout.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
+import { prepareNativeDecorations } from "/rendering/math/layout.js";
 
 const report = { checks: [], errors: [], measurements: [] };
 const output = document.createElement("pre");

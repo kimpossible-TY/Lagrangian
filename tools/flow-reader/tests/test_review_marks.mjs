@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ReviewMarkStore } from "../web/review-marks.js";
+import { ReviewMarkStore } from "../web/features/review-strikes/store.js";
 
 const fragment = { key: "paragraph", text: "Selected text.", start: 0, end: 8 };
 const memory = () => {

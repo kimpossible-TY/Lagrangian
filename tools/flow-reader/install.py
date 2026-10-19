@@ -12,7 +12,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from manage import DEFAULT_DATA, ReaderManager, atomic_write, run
+from flow_reader.services.manager import DEFAULT_DATA, ReaderManager, atomic_write, run
 
 
 def install(args):
@@ -55,7 +55,7 @@ def install(args):
         with tempfile.TemporaryDirectory(prefix=".install-", dir=releases) as temporary:
             staging = Path(temporary) / "release"
             staging.mkdir()
-            archive = subprocess.run(["git", "-C", str(source), "archive", revision, "tools/flow-reader"],
+            archive = subprocess.run(["git", "-C", str(source), "archive", revision, "tools/flow-reader", "tools/reader-common"],
                                      capture_output=True, check=True).stdout
             with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(staging, filter="data")

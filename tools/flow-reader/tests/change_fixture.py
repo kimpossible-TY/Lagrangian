@@ -11,9 +11,10 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import serve
-from build import Project
-from sections import split_document
+from flow_reader.server import cli as serve
+from flow_reader.server import state as state_module
+from flow_reader.compiler.build import Project
+from flow_reader.document.sections import split_document
 
 
 def document(step):
@@ -40,7 +41,7 @@ def main():
         entry.write_text(document(0))
         project = Project(work, Path("main.typ"), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
-        serve.split_document = lambda source, revision: split_document(source, revision, max_blocks=6)
+        state_module.split_document = lambda source, revision: split_document(source, revision, max_blocks=6)
         state = serve.ReaderState(project, work / "output", "https://example.test/paged/", False)
         state.compile()
         if state.revision is None:

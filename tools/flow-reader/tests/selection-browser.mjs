@@ -44,7 +44,7 @@ async function verify(browser, viewport) {
   const select = async (exact, wholeMath = false) => {
     await page.evaluate(
       async ({ exact, wholeMath }) => {
-        const { logicalTextIndex, rangesFor } = await import("/math-identity.js");
+        const { logicalTextIndex, rangesFor } = await import("/rendering/math/identity.js");
         const blocks = [...document.querySelectorAll("#reader-document [data-reader-key]")];
         const block =
           wholeMath === "display"

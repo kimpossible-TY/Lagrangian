@@ -1,3 +1,6 @@
+import { presentHighlightResult } from "./features/source-highlight/transport";
+import { presentCodexContextResult } from "./features/codex-context/transport";
+import { createSelectionTransport } from "./features/selection/transport";
 import { PreviewMode } from "typst-dom/typst-doc.mjs";
 import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
 import {
@@ -14,16 +17,19 @@ import renderModule from "@myriaddreamin/typst-ts-renderer/pkg/typst_ts_renderer
 // import { RenderSession as RenderSession2 } from "@myriaddreamin/typst-ts-renderer/pkg/wasm-pack-shim.mjs";
 import { RenderSession } from "@myriaddreamin/typst.ts/dist/esm/renderer.mjs";
 import { Subject, Subscription, buffer, debounceTime, auditTime, fromEvent, tap } from "rxjs";
-import { handleHtmlPreviewFrame } from "./html-preview";
-import type { ReadingContext, ReadingState } from "./document-theme";
-import { ChangeLocationQueue, parseChangeLocation, type ChangeLocation } from "./change-location";
-import { focusStatusPlacement } from "./mobile-viewport";
-import { SelectionActions } from "./selection-actions";
-import { PreviewActivity } from "./preview-activity";
-import { decodePreviewFrame } from "./preview-frame";
-import { ReferenceNavigation } from "./reference-navigation";
-import { EditorNavigation, type PanelScrollRequest } from "./editor-navigation";
-import { PreviewConnection } from "./preview-connection";
+import { handleHtmlPreviewFrame } from "./rendering/html-preview";
+import type { ReadingContext, ReadingState } from "./features/appearance/document-theme";
+import { parseChangeLocation, type ChangeLocation } from "./features/navigation/change-location";
+import { focusStatusPlacement } from "./features/selection/mobile-viewport";
+import { SelectionActions } from "./features/selection/actions";
+import { PreviewActivity } from "./features/session/preview-activity";
+import { decodePreviewFrame } from "./features/session/preview-frame";
+import { createChangeNavigation } from "./features/navigation/change-navigation";
+import {
+  EditorNavigation,
+  type PanelScrollRequest,
+} from "./features/editor-sync/editor-navigation";
+import { PreviewConnection } from "./features/session/preview-connection";
 export { PreviewMode } from "typst-dom/typst-doc.mjs";
 
 // for debug propose
@@ -146,92 +152,17 @@ export async function wsMain({
     }
 
     if (previewMode === PreviewMode.Doc && !isContentPreview) {
-      const changedLocations = new ChangeLocationQueue(Boolean(readingState));
-      let lastUserGesture = -Infinity;
-      const navigationActions = document.createElement("div");
-      navigationActions.className = "typst-navigation-actions";
-      document.body.appendChild(navigationActions);
-      const changeButton = document.createElement("button");
-      changeButton.type = "button";
-      changeButton.className = "typst-change-jump";
-      changeButton.textContent = navigator.language.startsWith("ko")
-        ? "변경 위치로"
-        : "Jump to change";
-      changeButton.hidden = true;
-      navigationActions.appendChild(changeButton);
-
-      const jumpToChange = ([page, , y]: [number, number, number]) => {
-        const rect = hookedElem.querySelector<SVGRectElement>(
-          `.typst-page-inner[data-page-number="${page - 1}"]`,
-        );
-        if (!rect) return;
-        const pageHeight = Number.parseFloat(rect.getAttribute("data-page-height") || "0");
-        const renderedRect = rect.getBoundingClientRect();
-        const pageTop =
-          renderedRect.top - resizeTarget.getBoundingClientRect().top + resizeTarget.scrollTop;
-        const innerY =
-          pageHeight > 0
-            ? (Math.min(Math.max(y, 0), pageHeight) * renderedRect.height) / pageHeight
-            : 0;
-        // An instant jump avoids animating through hundreds of virtual pages.
-        resizeTarget.scrollTo({
-          top: Math.max(0, pageTop + innerY - resizeTarget.clientHeight * 0.35),
-          behavior: "instant",
-        });
-        svgDoc.addViewportChange();
-      };
-
-      const showChangeButton = () => {
-        changeButton.hidden = false;
-      };
-      changeButton.addEventListener("click", () => {
-        if (changedLocations.lastLocation) jumpToChange(changedLocations.lastLocation);
-        changeButton.hidden = true;
-      });
-
-      const markUserGesture = () => {
-        lastUserGesture = performance.now();
-      };
-      const referenceNavigation = new ReferenceNavigation(
-        resizeTarget,
+      const navigation = createChangeNavigation({
         hookedElem,
-        navigationActions,
-        markUserGesture,
-        () => {
-          markUserGesture();
-          svgDoc.addViewportChange();
-        },
-      );
-      resizeTarget.addEventListener("pointerdown", markUserGesture, { passive: true });
-      resizeTarget.addEventListener("touchmove", markUserGesture, { passive: true });
-      resizeTarget.addEventListener("wheel", markUserGesture, { passive: true });
-      document.addEventListener("keydown", markUserGesture);
-
-      queueChangedLocation = (location, resume) => {
-        changedLocations.queue(location, resume);
-      };
-      clearChangedLocation = () => {
-        changedLocations.clear();
-        changeButton.hidden = true;
-      };
-      svgDoc.impl.onDidRender = () => {
-        referenceNavigation.afterRender();
-        const change = changedLocations.afterRender(performance.now(), lastUserGesture);
-        if (!change) return;
-        if (change.deferred) {
-          showChangeButton();
-        } else {
-          jumpToChange(change.location);
-          changeButton.hidden = true;
-        }
-      };
+        resizeTarget,
+        preserveReadingState: Boolean(readingState),
+        viewportChanged: () => svgDoc.addViewportChange(),
+      });
+      queueChangedLocation = navigation.queue;
+      clearChangedLocation = navigation.clear;
+      svgDoc.impl.onDidRender = navigation.afterRender;
       svgDoc.impl.disposeList.push(() => {
-        referenceNavigation.dispose();
-        navigationActions.remove();
-        resizeTarget.removeEventListener("pointerdown", markUserGesture);
-        resizeTarget.removeEventListener("touchmove", markUserGesture);
-        resizeTarget.removeEventListener("wheel", markUserGesture);
-        document.removeEventListener("keydown", markUserGesture);
+        navigation.dispose();
         queueChangedLocation = undefined;
         clearChangedLocation = undefined;
       });
@@ -256,33 +187,12 @@ export async function wsMain({
     if (previewMode === PreviewMode.Doc && !isContentPreview) {
       selectionActions = new SelectionActions(
         hookedElem,
-        (action, selection) => {
-          if (
-            !focusEnabled ||
-            !focusRevision ||
-            selection.revision !== focusRevision ||
-            !windowElem.typstWebsocket
-          ) {
-            showFocusStatus(
-              "문서 갱신 중 · 다시 선택해 주세요",
-              "Document updating · select text again",
-            );
-            return false;
-          }
-          const payload = {
-            ...selection.start,
-            revision: selection.revision,
-            selection: { text: selection.text, end: selection.end },
-          };
-          showFocusStatus(
-            action === "save" ? "선택한 텍스트 저장 중…" : "하이라이트 적용 중…",
-            action === "save" ? "Saving selected text…" : "Applying highlight…",
-          );
-          windowElem.typstWebsocket.send(
-            `${action === "save" ? "src-point" : "src-highlight"} ${JSON.stringify(payload)}`,
-          );
-          return true;
-        },
+        createSelectionTransport({
+          ready: () => focusEnabled && Boolean(windowElem.typstWebsocket),
+          revision: () => focusRevision,
+          send: (message) => windowElem.typstWebsocket!.send(message),
+          announce: showFocusStatus,
+        }),
         () => focusRevision,
       );
     }
@@ -688,27 +598,7 @@ export async function wsMain({
       if (message[0] === "highlight") {
         const result = JSON.parse(dec.decode(message[1] as Uint8Array));
         selectionActions?.highlightFinished(result.status);
-        if (result.status === "highlighted") {
-          showFocusStatus(
-            "소스에 하이라이트 저장됨 · 컴파일 중",
-            "Highlight saved in source · compiling",
-          );
-        } else if (result.status === "stale") {
-          showFocusStatus(
-            "문서가 갱신됐습니다 · 다시 선택해 주세요",
-            "Document changed · select text again",
-          );
-        } else if (result.status === "unmapped" || result.status === "unsupported") {
-          showFocusStatus(
-            "소스 범위를 정확히 연결할 수 없습니다 · Codex 저장을 사용하세요",
-            "Cannot safely map this source range · use Save for Codex",
-          );
-        } else {
-          showFocusStatus(
-            "하이라이트 저장 실패 · 다시 선택해 주세요",
-            "Could not save highlight · select text again",
-          );
-        }
+        presentHighlightResult(result.status, showFocusStatus);
         return;
       }
       if (message[0] === "editor") {
@@ -736,29 +626,7 @@ export async function wsMain({
       }
       if (message[0] === "focus") {
         const result = JSON.parse(dec.decode(message[1] as Uint8Array));
-        if (result.status === "selected") {
-          const name = result.filepath.split(/[\\/]/).pop();
-          showFocusStatus(
-            `Codex용 ${result.text_selected ? "텍스트" : "위치"} 저장됨 · ${result.page}쪽 · ${name}:${result.line}`,
-            `Saved ${result.text_selected ? "text " : ""}for Codex · p. ${result.page} · ${name}:${result.line}`,
-          );
-        } else if (result.status === "unmapped") {
-          showFocusStatus(
-            result.text_selected
-              ? `Codex용 텍스트 저장됨 · ${result.page}쪽 · 소스 연결 없음`
-              : `${result.page}쪽 위치만 저장됨 · 글자를 탭하면 소스도 연결됩니다`,
-            result.text_selected
-              ? `Text saved for Codex · p. ${result.page} · source unavailable`
-              : `Page ${result.page} location saved · tap text to link its source`,
-          );
-        } else if (result.status === "stale" || result.status === "not_ready") {
-          showFocusStatus("문서가 갱신됐습니다 · 다시 탭해 주세요", "Document changed · tap again");
-        } else {
-          showFocusStatus(
-            "위치 저장 실패 · 다시 탭해 주세요",
-            "Could not save location · tap again",
-          );
-        }
+        presentCodexContextResult(result, showFocusStatus);
         return;
       }
       // console.log(message[0], message[1].length);

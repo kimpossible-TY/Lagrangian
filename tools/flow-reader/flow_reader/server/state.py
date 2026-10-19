@@ -1,0 +1,164 @@
+"""Atomic publication and status of the last accepted saved document."""
+from collections import OrderedDict
+import gzip
+import hashlib
+import json
+import threading
+import time
+from flow_reader.compiler.build import compile_project
+from flow_reader.compiler.inputs import source_signature
+from flow_reader.document.sections import split_document
+from flow_reader.rendering.service import DynamicRenderer
+from flow_reader.services.change_history import ChangeTracker, input_fingerprint
+from flow_reader.services.codex_context import FocusStore
+from flow_reader.services.selection import SelectionActions
+
+
+class ReaderState:
+    def __init__(self, project, output, original_url, allow_incomplete, focus_file=None):
+        self.project = project
+        self.output = output
+        self.original_url = original_url
+        self.allow_incomplete = allow_incomplete
+        self.document_id = hashlib.sha256(
+            json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
+        self.focus = FocusStore(focus_file or output / "focus.json", project, self.document_id)
+        self.changes = ChangeTracker(output / "last-change.json", self.document_id)
+        self.lock = threading.RLock()
+        self.accepted_inputs = None
+        self.report = {}
+        self.document = None
+        self.compressed = None
+        self.revision = None
+        self.compiling = False
+        self.source_stamp = None
+        self.renderer = DynamicRenderer(self)
+        self.selection = SelectionActions(self)
+        self.prewarm = False
+        self.graphics = {}
+        self.canvases = []
+        self.decorations = {}
+        self.bundle = None
+        self.section_compressed = {}
+        self.asset_snapshots = OrderedDict()
+        self.manifest_json = None
+        self.manifest_compressed = None
+        self.dependencies = set()
+        self.accepted_dependencies = set()
+        self.watch_stamp = None
+        try:
+            self.dependencies.update(json.loads((output / "report.json").read_text()).get("dependencies", []))
+        except (OSError, ValueError):
+            pass
+
+    def load_result(self, source_stamp):
+        report = json.loads((self.output / "report.json").read_text())
+        accepted = report["exitCode"] == 0 and (report["contentGatePassed"] or self.allow_incomplete)
+        if accepted:
+            # Dynamic CeTZ programs can change without changing placeholder HTML.
+            # The served revision therefore includes the accepted input snapshot.
+            report["contentRevision"] = report["revision"]
+            report["revision"] = hashlib.sha256(
+                (report["revision"] + json.dumps(source_stamp)).encode()).hexdigest()
+            document = (self.output / "document.html").read_bytes()
+            bundle = split_document(document.decode(), report["revision"])
+            bundle.manifest["documentID"] = self.document_id
+            bundle.manifest["service"] = self.focus.service
+            inputs = input_fingerprint(self.project, self.dependencies)
+            if source_stamp != source_signature(self.project, self.dependencies):
+                raise ValueError("Sources changed before Reader publication")
+            bundle.manifest["lastChange"] = self.changes.observe(bundle, inputs)
+            compressed = gzip.compress(document)
+            section_compressed = {key: gzip.compress(value) for key, value in bundle.documents.items()}
+            manifest_json = json.dumps(bundle.manifest, ensure_ascii=False).encode()
+            manifest_compressed = gzip.compress(manifest_json)
+        with self.lock:
+            self.report = report
+            if accepted:
+                self.document = document
+                self.compressed = compressed
+                self.bundle = bundle
+                self.section_compressed = section_compressed
+                self.manifest_json = manifest_json
+                self.manifest_compressed = manifest_compressed
+                self.asset_snapshots[report["revision"]] = bundle.assets
+                while len(self.asset_snapshots) > 3:
+                    self.asset_snapshots.popitem(last=False)
+                self.revision = report["revision"]
+                self.source_stamp = source_stamp
+                self.accepted_dependencies = set(self.dependencies)
+                self.accepted_inputs = inputs
+                self.graphics = report.get("graphics", {})
+                self.canvases = report.get("canvases", [])
+                self.decorations = report.get("decorations", {})
+                self.renderer.invalidate()
+
+    def compile(self):
+        with self.lock:
+            self.compiling = True
+        try:
+            for attempt in range(3):
+                before = source_signature(self.project, self.dependencies)
+                report = compile_project(self.project, self.output)
+                discovered = set(report.get("dependencies", []))
+                new_dependencies = discovered - self.dependencies
+                self.dependencies.update(discovered)
+                if new_dependencies and report["exitCode"] == 0:
+                    # Discover the dependency graph once, then compile against a
+                    # measured before/after snapshot of every newly found input.
+                    continue
+                after = source_signature(self.project, self.dependencies)
+                self.watch_stamp = before
+                if before != after:
+                    raise ValueError("Sources changed during compilation; waiting for a stable save")
+                self.load_result(after)
+                self.watch_stamp = after
+                break
+            else:
+                raise ValueError("The source dependency graph did not stabilize")
+        except Exception as error:
+            with self.lock:
+                self.report = {"exitCode": 1, "contentGatePassed": False, "error": str(error),
+                               "compiledAt": time.time()}
+        finally:
+            with self.lock:
+                self.compiling = False
+        if self.prewarm and self.revision and self.report.get("contentGatePassed") and not self.renderer.closed:
+            threading.Thread(target=self.renderer.warm, daemon=True).start()
+
+    def public(self):
+        with self.lock:
+            return {key: self.report.get(key) for key in (
+                "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
+                "elapsedSeconds", "compiledAt",
+            )} | {"revision": self.revision, "compiling": self.compiling,
+                  "documentID": self.document_id,
+                  "service": self.focus.service,
+                  "originalURL": self.original_url, "development": self.allow_incomplete,
+                  "semanticCanvases": self.project.semantic_canvases,
+                  "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
+
+    def render_graphics(self, revision, graphs):
+        return self.renderer.render(revision, graphs, "graphics")
+
+    def render_canvases(self, revision, canvases):
+        return self.renderer.render(revision, canvases, "canvases")
+
+
+    def close(self):
+        self.renderer.close()
+
+    def locate(self, revision, fragments):
+        return self.selection.locate(revision, fragments)
+
+    def highlight(self, revision, fragments):
+        return self.selection.highlight(revision, fragments)
+
+    def save_focus(self, revision, fragments, service, viewer_id):
+        return self.selection.save_focus(revision, fragments, service, viewer_id)
+
+    def read_focus(self):
+        return self.selection.read_focus()
+
+    def render_dynamic(self, revision, requests, kind):
+        return self.renderer.render(revision, requests, kind)

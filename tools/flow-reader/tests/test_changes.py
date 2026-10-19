@@ -10,10 +10,11 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from changes import ChangeTracker, MAX_RECORD_BYTES, input_fingerprint
-from sections import split_document
-from serve import ReaderState, source_signature
+from flow_reader.compiler.build import Project
+from flow_reader.services.change_history import ChangeTracker, MAX_RECORD_BYTES, input_fingerprint
+from flow_reader.document.sections import split_document
+from flow_reader.server.state import ReaderState
+from flow_reader.compiler.inputs import source_signature
 
 
 def bundle(body, revision="r1", max_blocks=2):
@@ -111,7 +112,7 @@ class ChangeTests(unittest.TestCase):
     def test_failed_persistence_keeps_in_memory_navigation(self):
         self.tracker.observe(bundle('<p id="a">Initial</p>'), "a")
         with patch.object(self.tracker, "persist", side_effect=OSError("read only")):
-            with self.assertLogs("changes", level="WARNING"):
+            with self.assertLogs("flow_reader.services.change_history", level="WARNING"):
                 self.assertEqual(self.tracker.observe(bundle('<p id="a">Edit</p>'), "b")["target"], "a")
 
     def test_reader_publishes_history_only_from_successful_accepted_snapshots(self):

@@ -4,8 +4,8 @@ This repository owns the native tinymist-flow app, project profiles, preview lif
 
 = Layout
 
-- `apps/macos/FlowCore.swift`: configuration validation, LaunchAgents, CLI, and engine launch.
-- `apps/macos/main.swift`: AppKit menu bar and project window.
+- `apps/macos/sources.json`: one source list for native app packaging and tests.
+- `apps/macos/`: profile models, settings, project/service control, engine launch, CLI and AppKit composition in separate files.
 - `apps/macos/tail-hosting.patch`: optional lifecycle adapter for Tail Hosting.
 - `scripts/flow-app.py`: staged app builds, signing, installation, rollback, and migration.
 - `tests/flow-app/`: app and packaging tests.
@@ -13,8 +13,15 @@ This repository owns the native tinymist-flow app, project profiles, preview lif
 - `docs/tinymist/`: canonical Typst sources.
 - `openspec/changes/package-tinymist-flow-app/`: current app contracts and work items.
 - `crates/`: engine implementations and supporting libraries.
-- `tools/typst-preview-frontend/` and `tools/typst-dom/`: preview frontend and document rendering.
+- `tools/reader-common/`: renderer-independent feature policy and state.
+- `tools/typst-preview-frontend/` and `tools/typst-dom/`: paged reader adapters and document rendering.
+- `tools/flow-reader/flow_reader/`: HTML Reader compiler, document, rendering, services and HTTP packages.
+- `tools/flow-reader/web/features/` and `web/rendering/`: HTML Reader feature adapters and semantic rendering.
 - `editors/`: editor integrations and tooling.
+
+= Reader architecture
+
+Read #link("reader-architecture.typ")[the reader architecture source map] and scoped `AGENTS.md` files before adding reader features. Shared feature policy depends on explicit renderer operations; DOM positions, page coordinates and transport remain with their concrete adapters. The source map also describes compiler and native app ownership.
 
 = Engine input
 

@@ -1,15 +1,20 @@
-import { MathDecorations } from "./decorations.js";
-import { GraphicalAnnotations } from "./graphics.js";
-import { TextAnnotations } from "./annotations.js";
-import { AdaptiveCanvases } from "./canvases.js";
-import { ContinuousSections } from "./sections.js";
-import { logicalTextIndex } from "./math-identity.js";
-import { ResponsiveMath } from "./math-renderer.js";
-import { prepareResponsiveTables } from "./tables.js";
-import { languageOf, setLanguage, uiLanguage } from "./language.js";
-import { DrawingTheme } from "./drawing-theme.js";
-import { ChangeLocationQueue } from "./change-location.js";
-import { OutlineDrawer, ReaderGestures, readingSettings } from "./reading-navigation.js";
+import { readingSettings } from "./features/appearance/reading-settings.js";
+import { createOutline } from "./features/navigation/outline.js";
+import { createFontSize } from "./features/appearance/font-size.js";
+import { DocumentStorage } from "./features/session/document-storage.js";
+import { createReadingPosition } from "./features/navigation/reading-position.js";
+import { MathDecorations } from "./rendering/math/decorations.js";
+import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
+import { TextAnnotations } from "./rendering/annotations.js";
+import { AdaptiveCanvases } from "./rendering/graphics/canvases.js";
+import { ContinuousSections } from "./features/session/continuous-sections.js";
+import { logicalTextIndex } from "./rendering/math/identity.js";
+import { ResponsiveMath } from "./rendering/math/renderer.js";
+import { prepareResponsiveTables } from "./rendering/tables.js";
+import { languageOf, setLanguage, uiLanguage } from "./ui/language.js";
+import { DrawingTheme } from "./features/appearance/drawing-theme.js";
+import { ReaderChangeNavigation } from "./features/navigation/change-navigation.js";
+import { OutlineDrawer, ReaderGestures } from "./features/navigation/reading-navigation.js";
 
 const article = document.querySelector("#reader-document");
 const headingSelector = 'h1,h2,h3,h4,h5,h6,[role="heading"][aria-level]';
@@ -18,41 +23,34 @@ const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
 const drawer = new OutlineDrawer(document.querySelector("#reader-navigation"), menu, {
-  beforeOpen: updateOutlineLocation,
+  beforeOpen: () => outlineNavigation.updateLocation(),
 });
 const settings = readingSettings(
   document.querySelector("#reader-appearance-panel"),
   document.querySelector("#reader-appearance-open"),
 );
 let gestures = null;
-const defaultFontSize = 13;
-// Start existing readers at the new requested default once. Subsequent explicit
-// choices persist; the old setting and saved quotations/positions stay intact.
-const fontSizeSetting = "fontSizeV2";
-let storageKey = `flow-reader:${location.pathname}`;
+const preferences = new DocumentStorage(`flow-reader:${location.pathname}`);
 let revision = null;
 let pending = null;
 let blocks = [];
-let stableAnchor = null;
-let stableScrollY = scrollY;
-let anchorWidth = document.documentElement.clientWidth;
-let fontSize = defaultFontSize;
 let manifest = null;
 let currentSection = null;
 let loadSequence = 0;
 let shellRevision = null;
-const changedLocations = new ChangeLocationQueue(false);
-const changeButton = document.querySelector("#reader-change-jump");
-let lastChangeToken = null;
-let lastUserGesture = -Infinity;
-const recentGesture = () => performance.now() - lastUserGesture < 2500;
-const markUserGesture = () => {
-  lastUserGesture = performance.now();
-};
-for (const event of ["pointerdown", "touchmove", "wheel", "keydown"]) {
-  document.addEventListener(event, markUserGesture, { passive: true });
-}
-changeButton.addEventListener("click", () => jumpToChange(changedLocations.lastLocation));
+const outlineNavigation = createOutline(article, outline, () => manifest);
+const readingPosition = createReadingPosition(article, {
+  readBlocks: () => blocks,
+  readSection: () => currentSection,
+});
+const readingAnchor = () => readingPosition.capture();
+const restoreAnchor = (anchor) => readingPosition.restore(anchor);
+const changes = new ReaderChangeNavigation(document.querySelector("#reader-change-jump"), {
+  manifest: () => manifest,
+  revision: () => revision,
+  selectionActive,
+  navigate: jumpToChange,
+});
 const sectionCache = new Map();
 const footnoteSections = new Map();
 const graphics = new GraphicalAnnotations(
@@ -101,7 +99,7 @@ const mathematics = new ResponsiveMath(article, {
     decorations.sync();
     graphics.schedule();
     canvases.schedule();
-    highlights?.repaint();
+    selectionActions?.repaint();
     sections.schedule();
     annotations.schedule();
   },
@@ -150,31 +148,17 @@ const annotations = new TextAnnotations(article, {
     sections.schedule();
   },
 });
-let highlights;
-import("./highlights.js")
-  .then(({ ReaderHighlights }) => {
-    highlights = new ReaderHighlights(article);
-    if (manifest && currentSection) highlights.onDocument(manifest, currentSection);
+let selectionActions;
+import("./features/selection/controller.js")
+  .then(({ ReaderSelectionActions }) => {
+    selectionActions = new ReaderSelectionActions(article);
+    if (manifest && currentSection) selectionActions.onDocument(manifest, currentSection);
   })
   .catch(() => {
     // Keep reading available during a mixed-version development update.
     document.querySelector("#reader-selection").hidden = true;
   });
 
-function readStored(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(`${storageKey}:${key}`)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-function store(key, value) {
-  try {
-    localStorage.setItem(`${storageKey}:${key}`, JSON.stringify(value));
-  } catch {
-    /* Reading still works in private mode or when storage is full. */
-  }
-}
 function fingerprint(text) {
   let hash = 2166136261;
   for (const char of text) {
@@ -186,160 +170,6 @@ function fingerprint(text) {
 function textOf(node) {
   return logicalTextIndex(node).text;
 }
-
-function readingAnchor() {
-  const parked = [...article.querySelectorAll('[data-section-state="parked"]')].find((node) => {
-    const rect = node.getBoundingClientRect();
-    return rect.top <= 90 && rect.bottom > 90;
-  });
-  if (parked) {
-    const rect = parked.getBoundingClientRect();
-    return {
-      section: parked.dataset.readerSection,
-      fraction: (90 - rect.top) / rect.height,
-      url: location.href,
-    };
-  }
-  for (const canvas of article.querySelectorAll("[data-flow-canvas-model]")) {
-    const area = canvas.getBoundingClientRect();
-    if (area.top > 90 || area.bottom <= 90) continue;
-    const labels = blocks
-      .filter((node) => node.closest("[data-flow-canvas-model]") === canvas)
-      .map((node) => ({ node, rect: node.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.height > 0 && rect.top <= 90 && rect.bottom > 90)
-      .sort((a, b) => a.rect.left - b.rect.left);
-    if (labels.length) {
-      const { node, rect } = labels[0];
-      return {
-        key: node.dataset.readerKey,
-        canvasIdentity: canvas.dataset.flowCanvasIdentity,
-        text: textOf(node).slice(0, 180),
-        offset: Math.round(rect.top) - 90,
-        id: node.id,
-        url: location.href,
-        section: node.closest("[data-reader-section]")?.dataset.readerSection ?? currentSection,
-      };
-    }
-    const geometry = canvas.querySelector(
-      ":scope > .flow-canvas-stage > svg:not(.flow-canvas-leaders)",
-    );
-    const rect = geometry?.getBoundingClientRect();
-    const plane = canvas.querySelector(":scope > .flow-canvas-stage")?.getBoundingClientRect();
-    if (rect?.height > 0 && plane?.top <= 90 && plane.bottom > 90) {
-      return {
-        canvas: canvas.id,
-        canvasIdentity: canvas.dataset.flowCanvasIdentity,
-        canvasFraction: (90 - rect.top) / rect.height,
-        text: logicalTextIndex(canvas, { includeNested: true }).text.slice(0, 180),
-        section: canvas.closest("[data-reader-section]")?.dataset.readerSection ?? currentSection,
-        id: canvas.id,
-        url: location.href,
-      };
-    }
-  }
-  const block = blocks.find((node) => node.getBoundingClientRect().bottom > 90);
-  if (!block) return null;
-  return {
-    key: block.dataset.readerKey,
-    text: textOf(block).slice(0, 180),
-    // CSS scroll positions are rounded. Keep one pixel target so hundreds of
-    // automatic label publications cannot accumulate fractional scroll errors.
-    offset: Math.round(block.getBoundingClientRect().top) - 90,
-    section: block.closest("[data-reader-section]")?.dataset.readerSection ?? currentSection,
-    id: block.id,
-    url: location.href,
-  };
-}
-function restoreAnchor(anchor) {
-  if (!anchor) return;
-  if (anchor.canvas && Number.isFinite(anchor.canvasFraction)) {
-    const matchesText = (node) =>
-      node?.hasAttribute("data-flow-canvas-model") &&
-      logicalTextIndex(node, { includeNested: true }).text.startsWith(anchor.text);
-    const matches = (node) =>
-      matchesText(node) &&
-      (!anchor.canvasIdentity || node.dataset.flowCanvasIdentity === anchor.canvasIdentity);
-    let canvas = document.getElementById(anchor.canvas);
-    if (!matches(canvas)) {
-      const candidates = [...article.querySelectorAll("[data-flow-canvas-model]")].filter(matches);
-      canvas = candidates.length === 1 ? candidates[0] : null;
-    }
-    if (!canvas && anchor.canvasIdentity) {
-      const candidates = [...article.querySelectorAll("[data-flow-canvas-model]")].filter(
-        matchesText,
-      );
-      canvas = candidates.length === 1 ? candidates[0] : null;
-    }
-    const rect = canvas
-      ?.querySelector(":scope > .flow-canvas-stage > svg:not(.flow-canvas-leaders)")
-      ?.getBoundingClientRect();
-    if (rect?.height > 0) {
-      window.scrollBy(0, rect.top + rect.height * anchor.canvasFraction - 90);
-      if (document.documentElement.clientWidth === anchorWidth) {
-        stableAnchor = anchor;
-        stableScrollY = scrollY;
-      }
-    }
-    return;
-  }
-  if (Number.isFinite(anchor.fraction)) {
-    const section = article.querySelector(`[data-reader-section="${CSS.escape(anchor.section)}"]`);
-    if (section) {
-      const rect = section.getBoundingClientRect();
-      window.scrollBy(0, rect.top + rect.height * anchor.fraction - 90);
-      if (document.documentElement.clientWidth === anchorWidth) {
-        stableAnchor = anchor;
-        stableScrollY = scrollY;
-      }
-    }
-    return;
-  }
-  const candidates = blocks.filter(
-    (node) =>
-      textOf(node).startsWith(anchor.text) &&
-      (!anchor.canvasIdentity ||
-        node.closest("[data-flow-canvas-model]")?.dataset.flowCanvasIdentity ===
-          anchor.canvasIdentity),
-  );
-  const block =
-    blocks.find((node) => node.dataset.readerKey === anchor.key) ??
-    (candidates.length === 1 ? candidates[0] : null);
-  if (block) {
-    window.scrollBy(0, block.getBoundingClientRect().top - 90 - anchor.offset);
-    if (document.documentElement.clientWidth === anchorWidth) {
-      stableAnchor = anchor;
-      stableScrollY = scrollY;
-    }
-  }
-}
-function setFont(size) {
-  const anchor = readingAnchor();
-  fontSize = Math.max(defaultFontSize, Math.min(30, size));
-  document.documentElement.style.setProperty("--reader-font-size", `${fontSize}px`);
-  document.querySelector("#reader-size").value = fontSize;
-  document.querySelector("#reader-smaller").disabled = fontSize === defaultFontSize;
-  document.querySelector("#reader-larger").disabled = fontSize === 30;
-  store(fontSizeSetting, fontSize);
-  mathematics.schedule();
-  canvases.schedule();
-  decorations.schedule();
-  graphics.schedule();
-  restoreAnchor(anchor);
-}
-
-window.addEventListener("resize", () => {
-  // WebKit can change innerWidth during pinch zoom without changing layout.
-  // Restore only after an actual text-width change, not a visual zoom or bar.
-  const width = document.documentElement.clientWidth;
-  if (width === anchorWidth) return;
-  anchorWidth = width;
-  restoreAnchor(stableAnchor);
-});
-document.fonts.addEventListener("loadingdone", () => {
-  // A scroll can happen before its queued scroll event. A late font must not
-  // restore the preceding passage over that newer navigation.
-  if (Math.abs(scrollY - stableScrollY) < 1) restoreAnchor(stableAnchor);
-});
 
 function noteGroup(after) {
   let group = after.nextElementSibling;
@@ -424,62 +254,6 @@ function indexDocument() {
   }
 }
 
-function indexOutline(nextManifest) {
-  outline.replaceChildren();
-  const rootLevel = nextManifest.outline.reduce(
-    (level, node) => Math.min(level, node.level),
-    Infinity,
-  );
-  for (const node of nextManifest.outline) {
-    const link = document.createElement("a");
-    link.href = `#${encodeURIComponent(node.id)}`;
-    link.textContent = node.title;
-    link.dataset.level = node.level;
-    link.style.setProperty("--outline-depth", node.level - rootLevel);
-    setLanguage(link, nextManifest.language ?? "");
-    outline.append(link);
-  }
-}
-
-function updateOutlineLocation() {
-  let current = null;
-  let selected = null;
-  let readingSection = null;
-  const readingLine = 120;
-  for (const section of article.querySelectorAll("[data-reader-section]")) {
-    const rect = section.getBoundingClientRect();
-    if (!rect.height) continue;
-    readingSection ??= section.dataset.readerSection;
-    if (rect.top <= readingLine) readingSection = section.dataset.readerSection;
-    else break;
-  }
-  // A long passage can outlive its heading in the mounted reading window.
-  // Use the complete outline for earlier sections, and geometry only within
-  // the current section so a following heading cannot claim its preceding text.
-  const sectionOrder = new Map(manifest?.sections.map((section, index) => [section.id, index]));
-  const readingIndex = sectionOrder.get(readingSection);
-  for (const heading of manifest?.outline ?? []) {
-    const index = sectionOrder.get(heading.section);
-    if (index < readingIndex) current = heading.id;
-    else if (index === readingIndex) {
-      const rect = article.querySelector(`#${CSS.escape(heading.id)}`)?.getBoundingClientRect();
-      if (rect?.height && rect.top <= readingLine) current = heading.id;
-    } else break;
-  }
-  for (const link of outline.querySelectorAll("a")) {
-    if (decodeURIComponent(link.hash.slice(1)) === current) {
-      link.setAttribute("aria-current", "location");
-      selected = link;
-    } else link.removeAttribute("aria-current");
-  }
-  if (selected) {
-    selected.focus({ preventScroll: true });
-    const list = outline.getBoundingClientRect();
-    const item = selected.getBoundingClientRect();
-    outline.scrollTop += item.top - list.top - (list.height - item.height) / 2;
-  }
-}
-
 function containWideMathematics(root) {
   for (const math of root.querySelectorAll("math")) {
     if (math.closest("svg,.flow-equation") || math.parentElement.closest("math")) continue;
@@ -548,7 +322,7 @@ function mountedSectionsChanged() {
   canvases.sync();
   decorations.sync();
   annotations.sync();
-  highlights?.repaint();
+  selectionActions?.repaint();
 }
 
 function renderDocument(html, nextManifest, section, options) {
@@ -567,8 +341,8 @@ function renderDocument(html, nextManifest, section, options) {
   canvases.onDocument();
   decorations.sync();
   graphics.sync();
-  highlights?.onDocument(manifest, currentSection);
-  indexOutline(manifest);
+  selectionActions?.onDocument(manifest, currentSection);
+  outlineNavigation.index(manifest);
   pending = null;
   requestAnimationFrame(() => {
     if (revision !== nextManifest.revision || sequence !== loadSequence) return;
@@ -576,28 +350,18 @@ function renderDocument(html, nextManifest, section, options) {
     else if (options.anchor) restoreAnchor(options.anchor);
     else window.scrollTo(0, 0);
     sections.schedule();
-    const change = changedLocations.afterRender(performance.now(), lastUserGesture);
-    if (change) {
-      if (change.deferred) changeButton.hidden = false;
-      else jumpToChange(change.location, true);
-    }
+    changes.afterRender();
   });
 }
 
 async function jumpToChange(change, automatic = false) {
-  if (!change || !manifest || change.revision !== revision) return;
-  if (automatic && (recentGesture() || selectionActive())) {
-    changeButton.hidden = false;
-    return;
-  }
   const local = document.getElementById(change.target);
   if (local && article.contains(local)) {
     loadSequence++;
     local.scrollIntoView({ behavior: "instant" });
-    stableAnchor = readingAnchor();
-    stableScrollY = scrollY;
+    readingPosition.remember();
     sections.schedule();
-    changeButton.hidden = true;
+    changes.hide();
   } else {
     await loadSection(manifest, change.section, {
       target: change.target,
@@ -605,27 +369,6 @@ async function jumpToChange(change, automatic = false) {
       automaticChange: automatic,
     });
   }
-}
-
-function queueChange(nextManifest, explicit) {
-  const change = nextManifest.lastChange;
-  if (
-    !change ||
-    change.revision !== nextManifest.revision ||
-    nextManifest.anchors[change.target] !== change.section
-  ) {
-    changedLocations.clear();
-    changeButton.hidden = true;
-    return;
-  }
-  if (changedLocations.lastLocation?.token === change.token) {
-    changedLocations.lastLocation = change;
-  }
-  if (lastChangeToken === change.token) return;
-  lastChangeToken = change.token;
-  changedLocations.clear();
-  changeButton.hidden = true;
-  if (!explicit) changedLocations.queue(change, !revision);
 }
 
 function fragment() {
@@ -667,14 +410,7 @@ async function loadSection(nextManifest, section, options = {}) {
   try {
     const html = await fetchSection(nextManifest, section);
     if (sequence !== loadSequence) return;
-    if (options.changeToken) {
-      if (nextManifest.revision !== revision || options.changeToken !== lastChangeToken) return;
-      if (options.automaticChange && (recentGesture() || selectionActive())) {
-        changeButton.hidden = false;
-        return;
-      }
-      changeButton.hidden = true;
-    }
+    if (options.changeToken && !changes.allowPublication(nextManifest, options)) return;
     // A source update must not dismiss a note or disturb a selection made while
     // its network request was in flight. Explicit navigation is the user's choice.
     if (options.update && selectionActive()) {
@@ -689,7 +425,7 @@ async function loadSection(nextManifest, section, options = {}) {
     if (options.history) navigationHistory(section, options.target);
     renderDocument(html, nextManifest, section, options);
   } catch {
-    if (options.changeToken) changeButton.hidden = false;
+    if (options.changeToken) changes.show();
     status.dataset.state = "error";
     status.textContent = "이 절을 불러오지 못했습니다. 현재 내용은 계속 읽을 수 있습니다.";
   } finally {
@@ -743,8 +479,6 @@ article.addEventListener("click", (event) => {
     return;
   }
 });
-document.querySelector("#reader-smaller").addEventListener("click", () => setFont(fontSize - 1));
-document.querySelector("#reader-larger").addEventListener("click", () => setFont(fontSize + 1));
 outline.addEventListener("click", async (event) => {
   const link = event.target.closest("a");
   if (link) {
@@ -754,9 +488,20 @@ outline.addEventListener("click", async (event) => {
     article.focus({ preventScroll: true });
   }
 });
+const appearance = createFontSize({
+  preferences,
+  capture: readingAnchor,
+  restore: restoreAnchor,
+  changed() {
+    mathematics.schedule();
+    canvases.schedule();
+    decorations.schedule();
+    graphics.schedule();
+  },
+});
 gestures = new ReaderGestures(article, drawer, {
-  getFont: () => fontSize,
-  setFont,
+  getFont: () => appearance.size,
+  setFont: appearance.set,
   preview: document.querySelector("#reader-font-preview"),
   announce: document.querySelector("#reader-gesture-message"),
 });
@@ -765,23 +510,28 @@ history.scrollRestoration = "manual";
 function savePosition() {
   const anchor = readingAnchor();
   if (!anchor) return;
-  store("position", anchor);
+  preferences.write("position", anchor);
   history.replaceState({ readerAnchor: anchor }, "", location.href);
 }
 window.addEventListener(
   "scroll",
   () => {
-    if (document.documentElement.clientWidth === anchorWidth) {
-      stableAnchor = readingAnchor();
-      stableScrollY = scrollY;
-    }
+    readingPosition.remember();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(savePosition, 300);
   },
   { passive: true },
 );
-window.addEventListener("pagehide", savePosition);
-setFont(Number(readStored(fontSizeSetting, defaultFontSize)) || defaultFontSize);
+window.addEventListener("pagehide", (event) => {
+  savePosition();
+  if (!event.persisted) {
+    selectionActions?.dispose();
+    readingPosition.dispose();
+    appearance.dispose();
+    changes.dispose();
+  }
+});
+appearance.restore();
 
 async function refresh() {
   try {
@@ -791,10 +541,12 @@ async function refresh() {
     // An identical revision can survive a service restart. New selections use
     // its new identity; already captured selections retain the old identity.
     if (manifest && state.revision === manifest.revision) manifest.service = state.service;
-    const documentStorageKey = state.documentID ? `flow-reader:${state.documentID}` : storageKey;
-    if (documentStorageKey !== storageKey) {
-      storageKey = documentStorageKey;
-      setFont(Number(readStored(fontSizeSetting, defaultFontSize)) || defaultFontSize);
+    const documentStorageKey = state.documentID
+      ? `flow-reader:${state.documentID}`
+      : preferences.key;
+    if (documentStorageKey !== preferences.key) {
+      preferences.key = documentStorageKey;
+      appearance.restore();
     }
     status.dataset.state = state.compiling
       ? "compiling"
@@ -819,7 +571,9 @@ async function refresh() {
     }
     if (pending && !selectionActive()) {
       const entryAnchor = !revision ? history.state?.readerAnchor : null;
-      const anchor = revision ? readingAnchor() : (entryAnchor ?? readStored("position", null));
+      const anchor = revision
+        ? readingAnchor()
+        : (entryAnchor ?? preferences.read("position", null));
       const navigationType = performance.getEntriesByType("navigation")[0]?.type;
       const resuming =
         !revision &&
@@ -830,7 +584,7 @@ async function refresh() {
       // Reload/history navigation restores its entry; section queries are entry hints.
       const sectionHint =
         !revision && !resuming && new URL(location.href).searchParams.get("section");
-      queueChange(
+      changes.queue(
         pending,
         !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward"),
       );

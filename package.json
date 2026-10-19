@@ -60,7 +60,8 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "release": "node scripts/release.mjs",
     "draft-release": "node scripts/draft-release.mjs",
-    "docs:check": "node scripts/link-docs.mjs --check"
+    "docs:check": "node scripts/link-docs.mjs --check",
+    "test:readers": "node --test tools/reader-common/tests/*.mjs tools/flow-reader/tests/test_*.mjs && python3 -m unittest discover -s tools/flow-reader/tests && vitest run --root tools/typst-preview-frontend"
   },
   "dependencies": {},
   "devDependencies": {
