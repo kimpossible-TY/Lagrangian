@@ -2423,3 +2423,35 @@ stopped state, and the managed Reader is running at PID 42055. All owned fixture
 preflight and compiler workers were stopped. Screenshots and delivery, earlier
 rollback and cleanup receipts remain under `dist/reader-side-font/`.
 Physical iOS execution was not performed.
+
+## Explicit Save for Codex replaces the local quotation library (2026-10-19)
+
+Removed the former localStorage quotation list, its reading-settings entry,
+quotation paint and browser relocation flow. The selection capsule now provides
+Highlight, Save for Codex and Red strike. Legacy quotation data is neither read,
+deleted nor migrated; source highlighting and local review strikes retain their
+separate behavior. The terminal action bridge uses the same HTML save action.
+
+`POST /api/focus` verifies bounded accepted quotations, revision, process/start
+identity and input freshness, then atomically replaces a private focus record.
+Supported literal sources include their exact source hash and excerpt; generated,
+mathematical, ambiguous or multi-block text remains usable context without an
+invented source position. Logical endpoints use normalized Unicode offsets
+(null when an occurrence is ambiguous), never PDF pages. Saving performs no
+compilation, source write, message send or Codex turn. The browser waits for an
+acknowledgment, retains failures for retry and preserves newer selections.
+
+Each managed Reader exposes its own absolute focusFile and `--focus ID` reader.
+The live read validates PID/project/document identity, accepted revision, source
+inputs/hash/excerpt and selection age. Standalone and terminal-owned services
+support `focus.py --url <explicit loopback origin>`. A companion Tail Hosting
+patch lists and explicitly resolves both paged and HTML services, delegates HTML
+reads to its manager and retains existing paged reading. Tests apply it only in
+a disposable copy; no installed service, registry or global skill was changed.
+
+Validation:
+- Full Python Reader suite: 137 passed with the complete local Typst package catalogue; Node Reader suite: 91 passed.
+- Real WebKit/Chromium selection checks: 152 passed across 320×740, 390×844 and 768×600. Coverage includes exact source-linked context, unmapped generated text, server record freshness, untouched legacy data, no automatic migration, native selection collapse, failed-save retry, duplicate suppression and newer-selection preservation.
+- Chromium/terminal/headless Neovim: 20 integration checks passed, including shared Codex context, persistent review marks, cursor navigation, dirty-buffer refusal and verified source highlighting. Inspected `dist/terminal-reader-check.png` with the Codex action visible.
+- Responsive and terminal Typst guides compiled to PDF and experimental HTML; required rendered text was inspected. Both OpenSpec changes, scoped Prettier, generated-doc checking and `git diff --check` passed. The experimental HTML compiler emits its standard development warning.
+- Installation, deployment, actual production delivery and a new physical-terminal graphics check were outside this task.

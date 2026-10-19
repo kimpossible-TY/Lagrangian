@@ -240,17 +240,9 @@ async function run() {
     document.querySelector("#reader-smaller").click();
   }
   check("Semantic font buttons remain an alternative", font() === original);
-  document.querySelector("#reader-highlights-open").click();
   check(
-    "Saved highlights open from reading settings",
-    document.querySelector("#reader-highlights").open &&
-      !document.querySelector("#reader-appearance-panel").matches(":popover-open"),
-  );
-  document.querySelector("#reader-highlights-close").click();
-  await pause(20);
-  check(
-    "Highlight close returns focus to the settings icon",
-    document.activeElement.id === "reader-appearance-open",
+    "Reading settings no longer expose a local quotation library",
+    !document.querySelector("#reader-highlights-open, #reader-highlights"),
   );
 
   const fallbackPanel = document.querySelector("#reader-appearance-panel").cloneNode(true);

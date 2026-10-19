@@ -153,15 +153,12 @@ const annotations = new TextAnnotations(article, {
 let highlights;
 import("./highlights.js")
   .then(({ ReaderHighlights }) => {
-    highlights = new ReaderHighlights(article, navigateAnchor, {
-      beforeOpen: settings.close,
-      returnFocus: settings.trigger,
-    });
+    highlights = new ReaderHighlights(article);
     if (manifest && currentSection) highlights.onDocument(manifest, currentSection);
   })
   .catch(() => {
     // Keep reading available during a mixed-version development update.
-    document.querySelector("#reader-highlights-open").hidden = true;
+    document.querySelector("#reader-selection").hidden = true;
   });
 
 function readStored(key, fallback) {
@@ -684,6 +681,11 @@ async function loadSection(nextManifest, section, options = {}) {
       pending = nextManifest;
       return;
     }
+    if (
+      options.terminalFollow &&
+      (nextManifest.revision !== revision || selectionActive() || recentGesture())
+    )
+      return;
     if (options.update && revision) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
@@ -791,6 +793,9 @@ async function refresh() {
     const response = await fetch("api/state", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const state = await response.json();
+    // An identical revision can survive a service restart. New selections use
+    // its new identity; already captured selections retain the old identity.
+    if (manifest && state.revision === manifest.revision) manifest.service = state.service;
     const documentStorageKey = state.documentID ? `flow-reader:${state.documentID}` : storageKey;
     if (documentStorageKey !== storageKey) {
       storageKey = documentStorageKey;

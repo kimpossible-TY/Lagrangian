@@ -26,7 +26,7 @@ source and diagnostic fallbacks.
 
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local
-with undo and clear. Preserve the existing saved-quotation action.
+with undo and clear. Replace the mistaken browser quotation library with real Save for Codex context.
 Present these selection actions in a compact floating capsule with visible
 icons and labels; keep undo and clear in a separate review capsule.
 
@@ -40,7 +40,7 @@ Use the existing Tail Dashboard Hosting card as the configured document entry.
 Keep a direct open action and browser-local automatic/Reader/original preference.
 Keep original-page access in the Dashboard and existing addresses; the Reader
 toolbar contains only an outline icon, a centered Flow identity, and a reading-settings icon.
-Move font sizing, appearance and saved highlights into reading settings. A
+Move font sizing and appearance into reading settings. A
 two-finger pinch changes the persisted text size and recomposes on release;
 the user explicitly chooses this over browser magnification. A horizontal swipe
 from the inner left reading margin opens a reversible outline drawer.
@@ -74,7 +74,7 @@ Provide explicit automatic, light and dark appearances with browser-local persis
 Present them in an anchored preview panel from a compact icon-only button,
 with native radio keyboard behavior, clear selection and restrained material/motion.
 Use coordinated reading and control palettes, and restrained theme-specific colors
-for authored and saved highlights instead of browser-default yellow. Original
+for authored highlights instead of browser-default yellow. Original
 drawings and mannot annotations blend into their surrounding reading background,
 with readable theme-aware vector paint and label colors.
 

@@ -29,7 +29,7 @@ def main():
             '#set math.equation(numbering: "(1)")\n'
             '= Selection actions\n\n'
             'A selected ordinary passage wraps across narrow reading lines and remains '
-            'available for review, saved quotations and source highlighting.\n\n'
+            'available for review, Codex context and source highlighting.\n\n'
             'Complete mathematics $alpha^2 + beta$ remains selectable.\n\n'
             'Numbered example.\n\n$ alpha^2 + beta + 1 $\n\n'
             'Another independent selection remains available during a pending request.\n\n'
@@ -37,7 +37,7 @@ def main():
             '#repeated()\n\n#repeated()\n\n' +
             ''.join(f'Trailing paragraph {i} permits ordinary vertical reading.\n\n'
                     for i in range(15)))
-        project = Project(root, Path("main.typ"), Path(os.environ["FLOW_READER_PACKAGES"]),
+        project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
         state = ReaderState(project, work / "output", "https://example.test/paged/", False)
         state.compile()
@@ -47,7 +47,8 @@ def main():
         thread = threading.Thread(target=watch, args=(state, stopped), daemon=True)
         thread.start()
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(state))
-        print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/", "entry": str(entry)}), flush=True)
+        print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/", "entry": str(entry),
+                          "focusFile": str(state.focus.path)}), flush=True)
         try:
             server.serve_forever()
         finally:

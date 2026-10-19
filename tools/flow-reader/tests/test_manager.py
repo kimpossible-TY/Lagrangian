@@ -1,6 +1,8 @@
 """Reader lifecycle must reuse Flow inputs without taking over paged jobs."""
 
 import json
+import io
+from contextlib import redirect_stdout
 import os
 from pathlib import Path
 import plistlib
@@ -11,7 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from manage import ReaderManager
+from manage import ReaderManager, main
 
 
 class ReaderManagerTests(unittest.TestCase):
@@ -57,6 +59,31 @@ class ReaderManagerTests(unittest.TestCase):
         self.save()
         with self.assertRaisesRegex(ValueError, "port conflicts"):
             self.resolve()
+
+    def test_reader_focus_file_is_separate_from_parent_and_reaches_launch_plan(self):
+        self.parent["focusFile"] = str(self.root / "paged-focus.json")
+        profile = self.resolve()
+        self.assertNotEqual(profile["focusFile"], self.parent["focusFile"])
+        arguments = self.manager.arguments(profile)
+        self.assertEqual(arguments[arguments.index("--focus-file") + 1], profile["focusFile"])
+        for invalid in (self.parent["focusFile"], "relative.json"):
+            self.config["services"][0]["focusFile"] = invalid
+            self.save()
+            with self.assertRaisesRegex(ValueError, "focusFile"):
+                self.resolve()
+
+    def test_focus_command_uses_live_pid_and_configured_document(self):
+        profile = self.resolve()
+        with patch("manage.ReaderManager", return_value=self.manager), \
+                patch.object(self.manager, "profile", return_value=profile), \
+                patch.object(self.manager, "job_pid", return_value=123), \
+                patch("focus.read_reader", return_value={"selection_usable": True}) as read, \
+                redirect_stdout(io.StringIO()) as output:
+            main(["--focus", profile["id"]])
+        self.assertTrue(json.loads(output.getvalue())["selection_usable"])
+        read.assert_called_once_with("http://127.0.0.1:24002/", expected_pid=123,
+                                     project=profile["root"],
+                                     document=Path(profile["root"]) / profile["entry"])
 
     def test_launch_plan_has_reader_only_arguments_and_inherited_fonts(self):
         profile = self.resolve()

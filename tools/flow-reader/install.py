@@ -39,7 +39,8 @@ def install(args):
         services = [service for service in config["services"] if service["id"] != identifier]
         services.append({"id": identifier, "parentID": args.profile, "port": args.port,
                          "publicURL": args.public_url, "development": args.development,
-                         "semanticCanvases": semantic_canvases})
+                         "semanticCanvases": semantic_canvases,
+                         **({"focusFile": previous["focusFile"]} if "focusFile" in previous else {})})
         config["services"] = services
         # Resolve the live parent profile and validate its inputs before touching
         # either the existing Reader configuration or its stable launcher.
