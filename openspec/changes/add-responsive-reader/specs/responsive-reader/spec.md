@@ -230,7 +230,9 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 #### Scenario: Short and long annotations on a phone
 - **WHEN** a reader views an annotated equation in a compact viewport
 - **THEN** a plain name of at most 24 graphemes and three words appears above its target without covering mathematical ink
-- **AND** a longer or rich annotation, or a label that cannot fit, is reachable by tapping the shaded target or activating it with Enter or Space
+- **AND** both plain and mathematical names search nearby free space and the space above preceding equation lines before using a popover
+- **AND** competing names gain bounded extra label rows while preserving the reading anchor
+- **AND** a longer or rich annotation, or a label physically wider than the readable host, is reachable by tapping the shaded target or activating it with Enter or Space
 - **AND** a selection gesture does not open an explanation
 - **AND** the popover is bounded by the visible viewport and dismisses through its close button, Escape or outside activation, with predictable keyboard focus return
 
@@ -243,8 +245,14 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **WHEN** a popover is open on a phone at a small or enlarged reading font
 - **THEN** its complete 44px close target and visible focus indicator remain inside the rounded card
 
-#### Scenario: A short label collides with mathematical ink
-- **WHEN** a short name cannot fit above its target and the reader opens its fallback popover
+#### Scenario: A short label has room elsewhere in the equation
+- **WHEN** the position directly above a short name's target collides with an earlier mathematical line
+- **THEN** a name such as kernel or indexed delta uses a nearby free gap or a reserved row above the equation
+- **AND** all competing short names remain visible without overlapping each other or mathematical ink
+- **AND** viewport/font changes and scrolling recompute stable, bounded placement
+
+#### Scenario: A short label is physically too wide
+- **WHEN** a short name exceeds the readable host width and the reader opens its fallback popover
 - **THEN** subsequent layout measurements keep that popover open and retain focus
 - **AND** repeated touch activation and explicit dismissal remain usable
 

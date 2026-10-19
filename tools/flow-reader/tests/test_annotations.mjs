@@ -1,6 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shortAnnotation, sideAnnotations, popoverPosition } from "../web/annotations.js";
+import {
+  shortAnnotation,
+  sideAnnotations,
+  popoverPosition,
+  labelPosition,
+} from "../web/annotations.js";
+
+test("short labels find free space above preceding mathematical lines", () => {
+  const target = { left: 100, right: 300, top: 140 };
+  const size = { width: 50, height: 20 };
+  const bounds = { left: 16, right: 374, top: 30 };
+  const ink = [{ left: 16, right: 374, top: 100, bottom: 130 }];
+  const box = labelPosition(target, size, bounds, ink);
+  assert.deepEqual(box, { left: 175, right: 225, top: 74, bottom: 94 });
+  const occupied = [...ink, { left: 160, right: 240, top: 70, bottom: 95 }];
+  const next = labelPosition(target, size, bounds, occupied);
+  assert.ok(next.right <= 157 || next.left >= 243 || next.bottom <= 67);
+  assert.ok(next.top >= bounds.top);
+});
+
+test("short labels search horizontal gaps and reject insufficient physical space", () => {
+  const target = { left: 90, right: 290, top: 100 };
+  const size = { width: 50, height: 20 };
+  const bounds = { left: 16, right: 374, top: 60 };
+  const ink = [
+    { left: 16, right: 110, top: 65, bottom: 95 },
+    { left: 175, right: 374, top: 65, bottom: 95 },
+  ];
+  const box = labelPosition(target, size, bounds, ink);
+  assert.ok(box.left >= 113 && box.right <= 172);
+  assert.equal(labelPosition(target, { width: 400, height: 20 }, bounds, []), null);
+  assert.equal(
+    labelPosition(target, size, bounds, [{ left: 16, right: 374, top: 60, bottom: 100 }]),
+    null,
+  );
+});
 
 test("short names count graphemes and words, while rich and explanatory notes open", () => {
   for (const name of ["kernel", "heat kernel", "경계 조건", "e\u0301".repeat(24)])

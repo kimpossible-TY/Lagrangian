@@ -83,6 +83,9 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 
 ## Adaptive text annotations (selected concepts 1, 3 and 12)
 
+- [x] Search the nearby free space for all short plain and mathematical names before using a popover, and reserve collision-free label lanes when necessary.
+- [ ] Verify the photographed kernel, indexed delta, competing labels, viewport/font changes and long-note controls; install and verify the clean Reader release.
+
 - [x] Reuse a bounded persistent Typst compiler for dynamic paint, retaining source/revision/geometry gates and cold-compile fallback.
 - [x] Compare authored output and actual PDE latency across cold/warm requests, source changes and worker recovery; install and verify the Reader.
 

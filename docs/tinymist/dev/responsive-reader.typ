@@ -458,8 +458,12 @@ lazy-loaded assets. SVG drawings with interactive links remain inline.
 Text annotations keep the original marked expression once. A short plain or
 compact indexed mathematical name, such as an indexed delta,
 (at most 24 graphemes and three words) appears above its shaded target when it
-fits without covering mathematics. Longer, rich or colliding notes open in an
-anchored popover by tap, Enter or Space. Close, Escape and outside activation
+fits without covering mathematics. Plain names and indexed mathematical names
+both search nearby horizontal gaps and the space above preceding equation lines.
+Competing names gain bounded extra rows above the equation while preserving the
+reading anchor; font and viewport changes recalculate those rows. A local ink
+collision alone does not open a fitting short name. Longer, rich or physically
+oversized notes open in an anchored popover by tap, Enter or Space. Close, Escape and outside activation
 dismiss the popover. Its 44px close target and focus indicator stay inset within
 the rounded card. Selection gestures retain their normal behavior. Notes
 retain their authored content and source language. Labeled native braces and
