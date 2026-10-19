@@ -1,6 +1,7 @@
 """Exercise reader serving across an actual successful and failed compilation."""
 
 from http.server import ThreadingHTTPServer
+from contextlib import ExitStack
 import json
 import gzip
 import hashlib
@@ -179,7 +180,7 @@ class ReaderServingTests(unittest.TestCase):
         from graphics import extract_graphics
         from serve import RevisionChanged
         from test_graphics import geometry
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as resources:
             work = Path(temporary)
             source = work / "source"
             source.mkdir()
@@ -189,6 +190,7 @@ class ReaderServingTests(unittest.TestCase):
             entry.write_text(fixture + "\n" + second)
             state = ReaderState(Project(source, Path("main.typ"), Path(packages), compiler=compiler),
                                 work / "output", "https://example.test/paged/", False)
+            resources.callback(state.close)
             state.compile()
             revision = state.revision
             self.assertIsNotNone(revision, state.report)
@@ -201,7 +203,6 @@ class ReaderServingTests(unittest.TestCase):
                     reused = state.render_graphics(revision, {identifier: layout})
                     self.assertEqual(reused["graphics"], {identifier: rendered["graphics"][identifier]})
             changed = geometry(220) | {"graphic-2": other}
-            self.addCleanup(state.close)
             with patch.object(state.dynamic_compiler, "compile",
                               wraps=state.dynamic_compiler.compile) as compile_spy:
                 updated = state.render_graphics(revision, changed)
