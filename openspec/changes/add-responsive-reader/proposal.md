@@ -14,6 +14,10 @@ Use the tablet's wider reading canvas instead of limiting the entire document
 to a narrow book column. Side notes reserve their measured width and height only
 within the equation or paragraph they annotate; ordinary passages regain the
 full reading width immediately before and after that row.
+Match concept 12 with a dot and connector from the annotated term to a local
+column divider, with an equation reference and distinct authored short title.
+Use the same local columns for footnotes, preserving their numbered links and
+the original endnote list when the viewport returns to compact presentation.
 
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local

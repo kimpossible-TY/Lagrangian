@@ -276,6 +276,20 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **THEN** HTML exposes its body as the shaded target and its annotation through the same adaptive presentation
 - **AND** an unlabeled grouping decoration and the paged output remain intact
 
+#### Scenario: Connected local side columns
+- **WHEN** an authored annotation uses the wide-screen side presentation
+- **THEN** a visible local divider and accent leader with a target dot connect its marked term to the note column without covering intervening ink
+- **AND** the actual equation number and authored short title provide a clear hierarchy without invented explanation text
+- **AND** leaders and generated reference UI do not enter canonical copy text or persist in compact mode
+
+#### Scenario: Footnotes beside their references
+- **WHEN** a footnote reference is in a host eligible for side presentation
+- **THEN** its complete body appears in the same connected local column, including when its endnote section is not mounted
+- **AND** its number reveals the side note while original numbering, document links, language and canonical body content remain intact
+- **AND** narrow, portrait or large-text layouts retain ordinary footnote links and the original endnote list
+- **AND** stale or failed loads cannot publish a wrong-revision body or break the original link
+- **AND** repeated references, section parking and resize do not duplicate IDs or grow row reservations indefinitely
+
 #### Scenario: Updates while reading a popover
 - **WHEN** an annotation is open during a source update or nearby section parking
 - **THEN** the active note and target remain available until it closes

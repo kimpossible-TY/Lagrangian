@@ -37,6 +37,11 @@ A wrapping prose paragraph keeps its earlier lines visible while $mark(x, tag: #
 
 An unlabeled grouping decoration stays intact: $underbrace(a+b)$.
 
+A prose reference has its own footnote.#footnote[The original *footnote emphasis* and $alpha^2 + beta^2$ remain readable. See @kernel-equation.]
+
+$ a &= b #footnote[The first mathematical footnote retains its full explanation.] \
+    &= c #footnote[The second mathematical footnote keeps $frac(1, 2)$ and its own number.] $
+
 #for i in range(10) [
   Ordinary trailing paragraph #i preserves vertical reading and selection.
 

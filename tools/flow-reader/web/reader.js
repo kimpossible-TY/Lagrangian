@@ -54,6 +54,7 @@ for (const event of ["pointerdown", "touchmove", "wheel", "keydown"]) {
 }
 changeButton.addEventListener("click", () => jumpToChange(changedLocations.lastLocation));
 const sectionCache = new Map();
+const footnoteSections = new Map();
 const graphics = new GraphicalAnnotations(
   article,
   () => revision,
@@ -107,6 +108,37 @@ const mathematics = new ResponsiveMath(article, {
   selectionActive: textSelectionActive,
 });
 const annotations = new TextAnnotations(article, {
+  async loadFootnote(target) {
+    const document = manifest;
+    const section = document?.anchors[target];
+    if (!section) return null;
+    const key = `${document.revision}:${section}`;
+    if (!footnoteSections.has(key)) {
+      const request = fetchSection(document, section)
+        .then(parseDocument)
+        .catch((error) => {
+          footnoteSections.delete(key);
+          throw error;
+        });
+      footnoteSections.set(key, request);
+      while (footnoteSections.size > 6)
+        footnoteSections.delete(footnoteSections.keys().next().value);
+    }
+    const parsed = await footnoteSections.get(key);
+    if (manifest !== document) return null;
+    const note = parsed.getElementById(target);
+    if (!note?.closest('[role="doc-endnotes"]')) return null;
+    const copy = note.cloneNode(true);
+    setLanguage(copy, languageOf(note) ?? "");
+    return copy;
+  },
+  prepareNote(note) {
+    prepareNotes(note, note.id);
+    prepareResponsiveTables(note);
+    containWideMathematics(note);
+    mathematics.prepare(note);
+    mathematics.sync();
+  },
   preserve(change) {
     const anchor = readingAnchor();
     change();
@@ -473,7 +505,7 @@ function selectionActive() {
   return Boolean(annotations.active) || textSelectionActive();
 }
 
-function prepareSection(html, section) {
+function parseDocument(html) {
   const parsed = new DOMParser().parseFromString(html, "text/html");
   // Typst output is document content; it does not control the reader shell.
   parsed.querySelectorAll("script,iframe,object,embed,form,base").forEach((node) => node.remove());
@@ -488,6 +520,11 @@ function prepareSection(html, section) {
       }
     }
   }
+  return parsed;
+}
+
+function prepareSection(html, section) {
+  const parsed = parseDocument(html);
   if (shellRevision !== revision) {
     setLanguage(article, languageOf(parsed.body) ?? "");
     document
@@ -497,6 +534,7 @@ function prepareSection(html, section) {
     shellRevision = revision;
   }
   prepareNotes(parsed.body, section);
+  annotations.prepareFootnotes(parsed.body, section);
   prepareResponsiveTables(parsed.body);
   containWideMathematics(parsed.body);
   graphics.prepare(parsed.body);
@@ -676,13 +714,14 @@ function sectionFor(nextManifest, anchor, target) {
 async function navigateAnchor(target, push = true) {
   if (!manifest) return;
   const section = manifest.anchors[target];
-  const local = document.getElementById(target);
+  const local = annotations.footnote(target) ?? document.getElementById(target);
   if (local && article.contains(local)) {
     // A newer local jump must supersede an earlier remote jump still fetching.
     loadSequence++;
     article.setAttribute("aria-busy", "false");
     if (push) navigationHistory(section ?? currentSection, target);
     local.scrollIntoView();
+    if (local.dataset.noteKind === "footnote") local.focus({ preventScroll: true });
   } else if (section) {
     await loadSection(manifest, section, { target, history: push });
   }

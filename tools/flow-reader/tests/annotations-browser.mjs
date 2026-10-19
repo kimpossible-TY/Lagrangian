@@ -279,7 +279,17 @@ try {
     .evaluateAll((notes) => notes.map((n) => n.getBoundingClientRect().toJSON()));
   check(
     "Side notes stack without overlapping each other",
-    rail.every((r, i) => !i || r.top >= rail[i - 1].bottom),
+    rail.every((r, i) =>
+      rail
+        .slice(i + 1)
+        .every(
+          (s) =>
+            r.bottom <= s.top + 1 ||
+            s.bottom <= r.top + 1 ||
+            r.right <= s.left + 1 ||
+            s.right <= r.left + 1,
+        ),
+    ),
   );
   check(
     "Side notes do not introduce horizontal page movement",
@@ -334,6 +344,109 @@ try {
     localRails.contained,
   );
   check("Unannotated passages reserve no side-note space", localRails.untouched);
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.flow-note[data-note-kind="footnote"][data-note-mode="side"]')
+        .length === 3,
+  );
+  await layoutPasses();
+  const connected = await page.evaluate(() => {
+    const notes = [...document.querySelectorAll('.flow-note[data-note-mode="side"]')];
+    return notes.every((note) => {
+      const path = document.querySelector(`.flow-side-connector[data-note="${note.id}"]`);
+      if (
+        !path ||
+        getComputedStyle(path).fill !== "none" ||
+        parseFloat(getComputedStyle(path).strokeWidth) > 1.5
+      )
+        return false;
+      const divider = path.parentElement.querySelector(".flow-side-divider");
+      const end = path.getPointAtLength(path.getTotalLength());
+      const box = divider.getBBox();
+      return (
+        Math.abs(end.x - box.x) < 1 &&
+        end.y >= box.y &&
+        end.y <= box.y + box.height &&
+        path.parentElement.querySelectorAll(".flow-side-dot").length > 0
+      );
+    });
+  });
+  check(
+    "Every annotation and footnote has a thin unfilled connector, target dot and local divider",
+    connected,
+  );
+  check(
+    "Side connectors avoid visible mathematical glyphs and equation numbers",
+    await page.evaluate(() =>
+      [...document.querySelectorAll(".flow-side-connector")].every((path) => {
+        const note = document.getElementById(path.dataset.note);
+        const target = [...document.querySelectorAll(`[data-reader-note~="${note.id}"]`)].find(
+          (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+        );
+        const host = target.closest(".flow-equation,p");
+        const ink = [
+          ...host.querySelectorAll(
+            "mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,.flow-equation-number",
+          ),
+        ]
+          .filter((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+          .flatMap((n) => [...n.getClientRects()])
+          .filter((r) => r.width && r.height);
+        const matrix = path.getScreenCTM(),
+          length = path.getTotalLength();
+        for (let distance = 0; distance <= length; distance += 1) {
+          const point = path.getPointAtLength(distance).matrixTransform(matrix);
+          if (
+            ink.some(
+              (r) => point.x > r.left && point.x < r.right && point.y > r.top && point.y < r.bottom,
+            )
+          )
+            return false;
+        }
+        return true;
+      }),
+    ),
+  );
+  check(
+    "The kernel side title uses its actual equation reference and accent weight",
+    await kernel.evaluate(
+      (note) =>
+        note.querySelector(".flow-note-reference").textContent === "(1)" &&
+        Number(getComputedStyle(note.querySelector(".flow-note-body")).fontWeight) >= 600,
+    ),
+  );
+  const footnote = page.locator('[data-note-kind="footnote"]').first();
+  const footnoteTarget = await footnote.getAttribute("data-footnote-target");
+  check(
+    "Footnotes preserve author emphasis, math and cross references",
+    await footnote.evaluate(
+      (note) =>
+        note.querySelector("strong")?.textContent === "footnote emphasis" &&
+        note.querySelectorAll("math,.flow-math-view").length > 0 &&
+        note.querySelector('.flow-note-body a[href^="#"]')?.textContent.includes("Equation"),
+    ),
+  );
+  check(
+    "Side projections retain the original endnote list and introduce no duplicate IDs",
+    await page.evaluate(() => {
+      const ids = [...document.querySelectorAll("[id]")].map((node) => node.id);
+      return (
+        new Set(ids).size === ids.length &&
+        document.querySelectorAll('[role="doc-endnotes"] li').length === 3
+      );
+    }),
+  );
+  const reference = page.locator(`[role="doc-noteref"] a[href="#${footnoteTarget}"]`).first();
+  await reference.click();
+  check(
+    "A wide-screen footnote number reveals and focuses its adjacent body",
+    await footnote.evaluate(
+      (note) =>
+        note === document.activeElement &&
+        note.getBoundingClientRect().top >= 55 &&
+        note.getBoundingClientRect().top < innerHeight,
+    ),
+  );
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: `${output}/side-landscape.png` });
 
@@ -342,6 +455,24 @@ try {
     () => document.querySelector("#reader-document").dataset.annotationLayout === "compact",
   );
   check("Portrait proportions disable the side column even on a wide tablet", true);
+  check(
+    "Portrait removes connector layers and hides footnote projections",
+    await page.evaluate(
+      () =>
+        !document.querySelector(".flow-side-lines") &&
+        [...document.querySelectorAll('[data-note-kind="footnote"]')].every((note) => note.hidden),
+    ),
+  );
+  await reference.click();
+  check(
+    "Compact footnote links navigate to the original endnote",
+    await page.evaluate(
+      (target) =>
+        document.getElementById(target).getBoundingClientRect().top >= 55 &&
+        document.getElementById(target).getBoundingClientRect().top < innerHeight,
+      footnoteTarget,
+    ),
+  );
   check(
     "Portrait restoration releases every local side reservation",
     (await page.locator(".flow-annotation-side").count()) === 0,
