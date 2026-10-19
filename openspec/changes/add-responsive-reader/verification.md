@@ -2366,3 +2366,28 @@ checks and 39 actual PDE footnote checks across landscape, portrait, 390px and
 320px layouts with 18/30px reading fonts. The 22 targeted JavaScript checks pass.
 Evidence is under `dist/reader-compact-footnotes/`; immutable installation is
 pending.
+
+
+The first installation of a0ac8899 reverted automatically when the strict
+portrait reading-position assertion failed immediately after a font change.
+A repeat WebKit run also caught the test's scroll operation targeting a
+reference being replaced during mathematical composition. The actual PDE driver
+now waits for visible mathematics and the current reference's geometry to settle
+before measuring activation; its URL, history-length and scroll-position
+constraints are unchanged. Five isolated Chromium portrait repetitions passed,
+and the complete registered-HTTPS footnote checks passed 39 per engine using
+the same application code. Reinstallation and final delivery checks follow.
+
+
+Runtime a0ac8899 was successfully installed from a clean detached checkout.
+Chrome and WebKit each pass all installed HTTPS checks: 63 tablet layouts,
+52 kernel labels, 39 actual footnote/resize checks, 24 delta/close controls and
+12 baseline annotations. All 412 immutable files and 52 local/registered-HTTPS
+asset deliveries match. The accepted PDE HTML SHA256 remains
+`1600aed6d29adda15410eed83d27fc89a343c7fd0bb2a8d3614938b651a6cd6b`.
+Configuration is byte-identical; the original PDF profile retains its preexisting
+stopped state. The app-managed Reader is running at PID 11388. All owned fixture,
+preflight and compiler workers were stopped. Phone/portrait popover screenshots
+were inspected, including 320px with 30px reading text. Final delivery, the earlier
+rollback, screenshot and cleanup receipts are under
+`dist/reader-compact-footnotes/`. Physical iOS execution was not performed.
