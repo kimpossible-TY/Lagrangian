@@ -88,7 +88,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Match concept 12 with a target dot, connector, local column divider and authored title/equation reference hierarchy.
 - [x] Present ordinary footnotes in the same local side columns, retaining original numbered links and endnotes in compact layouts.
 - [x] Defer drawing/math resize observer writes to the next frame and verify side-column width changes produce no observer feedback warnings.
-- [ ] Verify both note types, remote footnote sections, orientation/font changes and canonical content; install the clean Reader release and verify HTTPS delivery.
+- [x] Verify both note types, remote footnote sections, orientation/font changes and canonical content; install the clean Reader release and verify HTTPS delivery.
 
 - [x] Search the nearby free space for all short plain and mathematical names before using a popover, and reserve collision-free label lanes when necessary.
 - [x] Verify the photographed kernel, indexed delta, competing labels, viewport/font changes and long-note controls; install and verify the clean Reader release.
