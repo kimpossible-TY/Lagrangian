@@ -525,8 +525,29 @@ geometry, namespace SVG identifiers, and reject uncached requests after source
 changes. The first implementation uses an isolated full compile; a persistent
 compiler can later reduce its latency without changing this protocol.
 
-Inline annotations use ordinary visible body content, with explicit associations
-to their marked terms rather than dialog buttons. Graphical annotations group
+Authored text annotations retain their original bodies and source language, with
+explicit associations to every rendered fragment of their shaded targets. On
+compact screens, plain names of at most 24 graphemes and three words use a small
+label above the term when it fits without obscuring mathematical ink. Longer,
+rich, or colliding labels open an anchored popover by tap or keyboard. Escape,
+outside activation and an explicit close button dismiss it; focus returns on
+keyboard dismissal. Selection gestures must not open notes. No target expression
+is cloned into an explanation. Labeled native under/over braces and brackets use
+the same semantic association in HTML; unlabeled grouping and paged output retain
+their original presentation.
+
+An adjacent note column is enabled only at a viewport width of at least 960px,
+an aspect ratio of at least 1.15 and enough actual right-side space for a readable
+column (at least 220px or 14 reading ems, plus a 20px gap). Thus portrait screens
+and large reading fonts retain compact presentation. Notes align to their targets
+and stack without overlap; viewport, font, section and mathematical changes update
+their geometry. Original note nodes move between presentations without losing
+rich content, language or IDs. Open notes protect their section and defer source
+publication. Unresolved notes retain visible diagnostics. This supersedes the
+earlier always-inline text-note requirement; graphical relationships remain
+visible automatically in the continuous reading body.
+
+Graphical annotations group
 overlapping target spans into a shared scene containing the original DOM nodes
 in their original order. Never clone equations into a separate reading view.
 Render nearby scenes automatically; resize/font changes invalidate their measured

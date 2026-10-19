@@ -112,7 +112,7 @@ The reader MUST retain mathematical symbols and decorations, equation and theore
 - **AND** an unsupported or unsuccessful route remains an explicit layout failure
 
 ### Requirement: Responsive readable content
-The reader SHALL lay out ordinary text, mathematical expressions, figures, and essential annotations at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this content MUST NOT require zooming, horizontal panning, a slide/carousel, opening a separate equation view, or clicking to reveal essential content. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
+The reader SHALL lay out ordinary text, mathematical expressions, figures, and graphical relationships at 320–768 CSS px and the user's selected font size in the continuous reading body. Reading this body content MUST NOT require zooming, horizontal panning, a slide/carousel or opening a separate equation view. Authored text annotations SHALL use the adaptive presentation below. Shrinking a complete equation or canvas until its labels become unreadable MUST NOT count as responsive layout.
 
 #### Scenario: Asynchronous mathematical composition
 - **WHEN** a mathematical expression is recomposed for a new width or reading font
@@ -186,7 +186,7 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **AND** a stretched operator remains completely visible, without scroll area from its masked stencil pieces
 
 #### Scenario: Continuous reading
-- **WHEN** a reader reaches a section boundary or a mathematical annotation
+- **WHEN** a reader reaches a section boundary or a graphical relationship
 - **THEN** the next content is available through ordinary vertical reading without a required next-section button or reveal action
 - **AND** storage or lazy loading boundaries are not presented as slides
 
@@ -223,6 +223,32 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and e
 - **THEN** its number stays at the inline end, vertically centered beside the complete expression
 - **AND** the expression fits the remaining width without overlapping its number
 - **AND** unnumbered equations retain the full available width
+
+### Requirement: Adaptive authored text annotations
+The Reader SHALL shade annotated terms without repeating their equations in a separate explanation block. Short plain names SHALL appear above the target when they fit; longer, rich or colliding annotations SHALL open in an anchored popover. A side column SHALL be used only when viewport aspect ratio and actual available width permit readable notes. Original note content, language, IDs and fragment associations MUST survive presentation changes.
+
+#### Scenario: Short and long annotations on a phone
+- **WHEN** a reader views an annotated equation in a compact viewport
+- **THEN** a plain name of at most 24 graphemes and three words appears above its target without covering mathematical ink
+- **AND** a longer or rich annotation, or a label that cannot fit, is reachable by tapping the shaded target or activating it with Enter or Space
+- **AND** a selection gesture does not open an explanation
+- **AND** the popover is bounded by the visible viewport and dismisses through its close button, Escape or outside activation, with predictable keyboard focus return
+
+#### Scenario: Viewport and text-size changes
+- **WHEN** a viewport is at least 960px wide with aspect ratio at least 1.15 and at least 220px or 14 reading ems available to the right, plus a 20px gap
+- **THEN** annotations occupy a readable side column and stack without overlap
+- **AND** a portrait viewport, narrower width or larger reading font restores labels and popovers automatically
+- **AND** the source equation and its copied/selected text remain unchanged by the presentation switch
+
+#### Scenario: Native labeled braces and brackets
+- **WHEN** a source uses an underbrace, overbrace, underbracket or overbracket with an annotation
+- **THEN** HTML exposes its body as the shaded target and its annotation through the same adaptive presentation
+- **AND** an unlabeled grouping decoration and the paged output remain intact
+
+#### Scenario: Updates while reading a popover
+- **WHEN** an annotation is open during a source update or nearby section parking
+- **THEN** the active note and target remain available until it closes
+- **AND** obsolete or disconnected targets cannot retain an open popover
 
 ### Requirement: Revision-aware updates
 The reader SHALL expose the compiled revision and compilation state, retain the last successful output on compilation failure, and preserve active selections across updates. Reading anchors SHALL be preserved during composition and while visual-edit navigation is deferred; an accepted change target SHALL otherwise take priority.

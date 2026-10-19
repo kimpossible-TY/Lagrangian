@@ -147,6 +147,37 @@ class TypstIntegrationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
 
+    def test_native_labeled_groups_use_semantic_annotations_without_losing_bodies(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = build.Project(ROOT / "tests/fixtures", Path("adaptive-annotations.typ"),
+                                    self.packages, compiler=self.compiler)
+            report = build.compile_project(project, Path(temp))
+            self.assertEqual(report["exitCode"], 0, (Path(temp) / "compile.log").read_text())
+            self.assertTrue(report["contentGatePassed"], report)
+            self.assertEqual(report["annotations"], 7)
+            self.assertEqual(report["elements"].get("munder"), 1,
+                             "Only the unlabeled grouping retains its original brace")
+            self.assertEqual(report["elements"].get("mover", 0), 0)
+            source = (Path(temp) / "document.html").read_text()
+            for name in ("kernel", "sum", "lower group", "upper group"):
+                self.assertEqual(source.count(">" + name + "<"), 1, name)
+
+    def test_native_annotation_adapter_keeps_paged_group_rendering(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            build.prepare_packages(self.packages, work / "overlay")
+            for name, prelude in [("original", ""), ("reader",
+                    '#import "@local/flow-reader:0.1.0": apply-reader\n#show: apply-reader\n')]:
+                command = [self.compiler, "compile", "--creation-timestamp", "1760000000",
+                           "--root", str(ROOT / "tests/fixtures"),
+                           "--package-path", str(work / "overlay"), "-", str(work / f"{name}.svg")]
+                result = subprocess.run(command,
+                    input=prelude + '$ underbrace(x+y, "kernel") + overbrace(a+b, "sum") '
+                          '+ underbracket(c+d, "lower") + overbracket(e+f, "upper") $',
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((work / "original.svg").read_bytes(), (work / "reader.svg").read_bytes())
+
     def test_highlighted_preserves_text_and_native_math_in_html(self):
         from xml.etree import ElementTree as ET
 

@@ -151,7 +151,11 @@ export class ContinuousSections {
   }
 
   protected(node) {
-    if (document.querySelector("dialog[open]") || node.contains(document.activeElement))
+    if (
+      document.querySelector("dialog[open]") ||
+      node.contains(document.activeElement) ||
+      node.querySelector('.flow-note[data-open="true"]')
+    )
       return true;
     const selection = window.getSelection();
     for (let index = 0; selection && index < selection.rangeCount; index++) {

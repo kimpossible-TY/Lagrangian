@@ -1,5 +1,6 @@
 import { MathDecorations } from "./decorations.js";
-import { GraphicalAnnotations, namespaceClone } from "./graphics.js";
+import { GraphicalAnnotations } from "./graphics.js";
+import { TextAnnotations } from "./annotations.js";
 import { AdaptiveCanvases } from "./canvases.js";
 import { ContinuousSections } from "./sections.js";
 import { logicalTextIndex } from "./math-identity.js";
@@ -101,8 +102,21 @@ const mathematics = new ResponsiveMath(article, {
     canvases.schedule();
     highlights?.repaint();
     sections.schedule();
+    annotations.schedule();
   },
-  selectionActive,
+  selectionActive: textSelectionActive,
+});
+const annotations = new TextAnnotations(article, {
+  preserve(change) {
+    const anchor = readingAnchor();
+    change();
+    restoreAnchor(anchor);
+  },
+  changed() {
+    mathematics.schedule();
+    decorations.schedule();
+    sections.schedule();
+  },
 });
 let highlights;
 import("./highlights.js")
@@ -310,43 +324,6 @@ function noteGroup(after) {
   return group;
 }
 
-function noteTargets(nodes, prefix) {
-  const heading = document.createElement("div");
-  heading.className = "flow-note-targets";
-  setLanguage(heading, uiLanguage());
-  heading.setAttribute("aria-label", "해설 대상");
-  nodes.forEach((node, index) => {
-    if (!node) return;
-    const language = languageOf(node) ?? "";
-    const copy = namespaceClone(node.cloneNode(true), `${prefix}-${index}-`);
-    for (const child of [copy, ...copy.querySelectorAll("*")]) {
-      for (const name of [
-        "data-reader-key",
-        "data-flow-mark",
-        "data-reader-note",
-        "aria-details",
-        "aria-describedby",
-        "tabindex",
-        "role",
-        "aria-haspopup",
-      ])
-        child.removeAttribute(name);
-    }
-    copy.querySelectorAll("[data-flow-targets]").forEach((child) => child.remove());
-    if (index) heading.append(document.createTextNode(" · "));
-    if (copy.namespaceURI === "http://www.w3.org/1998/Math/MathML" && copy.localName !== "math") {
-      const math = document.createElementNS("http://www.w3.org/1998/Math/MathML", "math");
-      setLanguage(math, language);
-      math.append(copy);
-      heading.append(math);
-    } else {
-      setLanguage(copy, language);
-      heading.append(copy);
-    }
-  });
-  return heading;
-}
-
 function prepareNotes(root, section) {
   const marks = new Map();
   let noteNumber = 0;
@@ -370,8 +347,8 @@ function prepareNotes(root, section) {
       const id = node.dataset.flowGraphic;
       graphics.register(id, targets, targetNodes, note);
     } else {
-      note.append(noteTargets(targetNodes, note.id));
       note.append(...node.childNodes);
+      annotations.register(targetNodes, note);
     }
     if (node.dataset.flowDiagnostic) {
       note.classList.add("flow-unresolved");
@@ -484,12 +461,16 @@ function containWideMathematics(root) {
   }
 }
 
-function selectionActive() {
+function textSelectionActive() {
   return (
     Boolean(gestures?.active) ||
     !window.getSelection()?.isCollapsed ||
     Boolean(document.querySelector("dialog[open]"))
   );
+}
+
+function selectionActive() {
+  return Boolean(annotations.active) || textSelectionActive();
 }
 
 function prepareSection(html, section) {
@@ -531,11 +512,13 @@ function mountedSectionsChanged() {
   graphics.sync();
   canvases.sync();
   decorations.sync();
+  annotations.sync();
   highlights?.repaint();
 }
 
 function renderDocument(html, nextManifest, section, options) {
   const sequence = loadSequence;
+  annotations.clear();
   mathematics.clear();
   graphics.clear();
   decorations.clear();

@@ -53,7 +53,7 @@ try {
   if (query.has("width"))
     await until(() => innerWidth === Number(query.get("width")), "requested viewport");
   report.width = innerWidth;
-  await until(() => targets().source && targets().copy, "original and explanatory cancellation");
+  await until(() => targets().source, "original cancellation");
   report.revision = (await (await fetch("/api/manifest")).json()).revision;
   const fonts = query.get("fonts")?.split(",").map(Number) ?? [13, 30];
   for (const font of fonts) {
@@ -70,19 +70,15 @@ try {
     report.active = { font, source: state(targets().source), copy: state(targets().copy) };
     publish();
     check(
-      `${font}px source is visible while its explanation is outside the math margin`,
-      state(targets().source).rect.top < innerHeight &&
-        state(targets().copy).rect.top > innerHeight + 1200,
+      `${font}px source is visible without an automatically cloned explanation`,
+      state(targets().source).rect.top < innerHeight && !targets().copy,
     );
     await until(
       () => state(targets().source).decoration === "ready",
       "visible original cancellation",
     );
     const original = state(targets().source);
-    check(
-      `${font}px cancellation is painted without visiting its copied target`,
-      original.paint > 0,
-    );
+    check(`${font}px cancellation is painted without opening its annotation`, original.paint > 0);
     check(`${font}px source retains assistive cancellation notation`, original.enclosure);
     report.measurements.push({
       font,
@@ -90,18 +86,20 @@ try {
       source: original,
       copy: state(targets().copy),
     });
-    targets().copy.scrollIntoView({ block: "start" });
-    await until(
-      () => state(targets().copy).math === "ready" && state(targets().copy).decoration === "ready",
-      "explanatory cancellation",
-    );
-    const copy = state(targets().copy);
-    check(`${font}px copied target also paints after ordinary scrolling`, copy.paint > 0);
+    const target = targets().source.closest("[data-reader-note]");
+    const note = document.getElementById(target.dataset.readerNote.split(" ")[0]);
+    await until(() => target.dataset.noteInteractive === "true", "annotation activation");
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await until(() => note.dataset.open === "true", "authored explanation");
     check(
-      `${font}px copied target retains its source text and assistive notation`,
-      copy.term === original.term && copy.term === "𝑥" && copy.enclosure,
+      `${font}px opening the explanation preserves the original cancellation and semantic term`,
+      state(targets().source).paint > 0 &&
+        state(targets().source).term === original.term &&
+        !note.querySelector(".flow-note-targets") &&
+        note.textContent.includes("The cancellation"),
     );
-    report.measurements.push({ font, phase: "copy", source: state(targets().source), copy });
+    note.querySelector(".flow-note-close").click();
+    report.measurements.push({ font, phase: "annotation", source: state(targets().source) });
     publish();
   }
   delete report.active;

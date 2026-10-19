@@ -2080,3 +2080,39 @@ and revisiting its section, undo and clearing, with no browser errors. Reload
 continues to follow the last accepted edit, so review checks explicitly revisit
 the marked section. Inspected installed light/dark PDE screenshots and deployment
 receipts are in `dist/reader-selection-capsule-checks/`.
+
+## Adaptive authored annotations — 2026-10-19
+
+Implemented the user's selected concepts 1, 3 and 12: short labels over shaded
+terms, anchored popovers for longer/rich/colliding notes, and an adjacent note
+column gated by viewport proportions and actual reading-font space. The original
+target equation is no longer copied into a separate explanation. Native labeled
+under/over braces and brackets use the same semantic association; unlabeled
+grouping remains intact. This is a local implementation, not an installed release.
+
+- `node --test` for annotations, continuous sections, language and decorations:
+  16 passing tests, including protection of sections containing an open note.
+- Real Typst adapter/build integration: 17 passing tests. All seven annotation
+  bodies survive in the compiled fixture, the unlabeled brace remains, and paged
+  brace/bracket SVG output matches the original renderer byte for byte.
+- Real serving and compiler-update checks: seven passing tests, including local
+  delivery of `annotations.js` and existing graphical-rendering cache behavior.
+- Chromium browser integration: 35 passing checks at 320/390/768px with 18/30px
+  reading fonts, 1280×800 landscape and 1024×1366 portrait. Checks cover canonical
+  math, collision-free labels, unchanged note body nodes, nonoverlapping side
+  notes, bounded popovers, keyboard/focus, native touch, dark appearance, native
+  popover fallback, reload and an actual saved-source update while a note is open.
+- A focused real CeTZ fixture retains both relationship drawings, a short label
+  and a longer popover on a phone, and both notes in the wide side column, with
+  no relationship diagnostics or browser exceptions. The full preexisting
+  across-block fixture still reports its existing routing diagnostic identically
+  with the HEAD Reader and this implementation; this change does not resolve it.
+- Prettier, `git diff --check`, strict OpenSpec validation and compilation of
+  `docs/tinymist/dev/responsive-reader.typ` to PDF pass. The global generated-doc
+  check cannot run because `typlite` is not installed; the edited development
+  document is not one of that generator's three mirrored sources.
+
+Browser reports and actual light/dark, phone/landscape and graphical compatibility
+screenshots are in `dist/reader-adaptive-annotations/`. No installed service,
+package pin or release metadata was changed. Physical iPhone/VoiceOver validation
+and release installation were not performed in this session.

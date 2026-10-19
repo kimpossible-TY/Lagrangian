@@ -3,7 +3,23 @@
 // Typst's MathML exporter. Never rasterize an entire paragraph or page.
 #import "@preview/mannot:0.4.0" as reader-marks
 
+#let annotation-counter = counter("flow-reader-native-annotation")
+#let annotated-group(it) = context {
+  if target() == "html" and it.annotation != none {
+    annotation-counter.step()
+    context {
+      let tag = label("flow-native-annotation-" + str(annotation-counter.get().first()))
+      reader-marks.mark(it.body, tag: tag)
+      reader-marks.annot(tag, it.annotation)
+    }
+  } else { it }
+}
+
 #let apply-reader(body) = {
+  show math.underbrace: annotated-group
+  show math.overbrace: annotated-group
+  show math.underbracket: annotated-group
+  show math.overbracket: annotated-group
   // These tables encode mathematical structure, unlike equation alignment.
   // Keep that distinction before the HTML backend turns both into mtable.
   show math.mat: it => context {
