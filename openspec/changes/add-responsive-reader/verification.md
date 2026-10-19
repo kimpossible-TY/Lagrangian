@@ -2203,3 +2203,34 @@ through repeated touch, scroll and relayout, with no JavaScript exceptions.
 Deployment receipts and inspected WebKit screenshots are in
 `dist/reader-annotation-video/deploy/`. The two isolated validation servers were
 stopped after verification. Physical iPhone/VoiceOver execution was not performed.
+
+### Compact indexed names and close-control clipping — 2026-10-19
+
+The next supplied phone screenshot shows an indexed delta in a full popover and
+the close button's focus outline clipped at the rounded corner. The previous
+classification treated every MathML identifier or script as rich content.
+Compact scalar mathematical names with indices now qualify for labels, using
+canonical text for the short-name check; fractions, roots, tables, large
+under/over constructs and linked/image content retain the popover path. When the
+preceding mathematical line occupies the local label position, a compact
+mathematical label can use the reserved upper equation space, aligned with its
+target. The mathematical body and its assistive MathML remain the original nodes.
+
+The popover now reserves a 64px minimum height and trailing content area for its
+44px close control, insets that control by 8px and draws keyboard focus inside
+the button. Both short and explanatory popovers retain the complete close target
+and focus ring within their clipped card at 320/390/768px and 18/30px fonts.
+
+Chromium and WebKit each pass 51 compiled-fixture browser checks, including the
+indexed delta, its native sub/superscript semantics, mathematical-ink clearance,
+short/long close geometry, repeated touch and keyboard dismissal, side/compact
+transitions and nonnative-popover fallback. All 18 real compiler/adapter tests,
+nine targeted JavaScript tests, Prettier, strict OpenSpec validation and the
+development Typst document's PDF compilation pass.
+
+The photographed PDE paragraph in section 3 additionally passes 24 checks per
+engine through isolated overrides of only the two changed web assets: visible,
+fully indexed delta labels at 13/18/24px; close-control and focus geometry at
+320/390/393px with 13/18/30px fonts, light/dark appearance, touch dismissal,
+viewport bounds and no browser exceptions. Inspected the actual WebKit delta
+and close-control screenshots in `dist/reader-compact-math/pde-fixed/`.

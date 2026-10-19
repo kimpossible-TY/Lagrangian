@@ -527,11 +527,16 @@ compiler can later reduce its latency without changing this protocol.
 
 Authored text annotations retain their original bodies and source language, with
 explicit associations to every rendered fragment of their shaded targets. On
-compact screens, plain names of at most 24 graphemes and three words use a small
-label above the term when it fits without obscuring mathematical ink. Longer,
+compact screens, plain names and compact mathematical names with indices of at
+most 24 graphemes and three words use a small label above the term when it fits
+without obscuring mathematical ink. If the preceding mathematical line occupies
+that space, indexed names can use the equation's reserved upper space while
+retaining their target's horizontal alignment. Longer,
 rich, or colliding labels open an anchored popover by tap or keyboard. Escape,
 outside activation and an explicit close button dismiss it; focus returns on
-keyboard dismissal. Selection gestures must not open notes. No target expression
+keyboard dismissal. The close control has a 44px target inset from the rounded
+card, with its complete focus ring inside the card's clipped surface. Selection
+gestures must not open notes. No target expression
 is cloned into an explanation. An open popover keeps its presentation while
 compact layout rechecks label placement; these measurements must not close a
 short-name popover that the reader has just opened.

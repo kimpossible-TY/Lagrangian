@@ -154,7 +154,7 @@ class TypstIntegrationTests(unittest.TestCase):
             report = build.compile_project(project, Path(temp))
             self.assertEqual(report["exitCode"], 0, (Path(temp) / "compile.log").read_text())
             self.assertTrue(report["contentGatePassed"], report)
-            self.assertEqual(report["annotations"], 8)
+            self.assertEqual(report["annotations"], 9)
             self.assertEqual(report["elements"].get("munder"), 1,
                              "Only the unlabeled grouping retains its original brace")
             self.assertEqual(report["elements"].get("mover", 0), 0)

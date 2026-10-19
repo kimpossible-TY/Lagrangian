@@ -225,7 +225,7 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and g
 - **AND** unnumbered equations retain the full available width
 
 ### Requirement: Adaptive authored text annotations
-The Reader SHALL shade annotated terms without repeating their equations in a separate explanation block. Short plain names SHALL appear above the target when they fit; longer, rich or colliding annotations SHALL open in an anchored popover. A side column SHALL be used only when viewport aspect ratio and actual available width permit readable notes. Original note content, language, IDs and fragment associations MUST survive presentation changes.
+The Reader SHALL shade annotated terms without repeating their equations in a separate explanation block. Short plain or compact indexed mathematical names SHALL appear above the target when they fit; longer, rich or colliding annotations SHALL open in an anchored popover. A side column SHALL be used only when viewport aspect ratio and actual available width permit readable notes. Original note content, language, IDs and fragment associations MUST survive presentation changes.
 
 #### Scenario: Short and long annotations on a phone
 - **WHEN** a reader views an annotated equation in a compact viewport
@@ -233,6 +233,15 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **AND** a longer or rich annotation, or a label that cannot fit, is reachable by tapping the shaded target or activating it with Enter or Space
 - **AND** a selection gesture does not open an explanation
 - **AND** the popover is bounded by the visible viewport and dismisses through its close button, Escape or outside activation, with predictable keyboard focus return
+
+#### Scenario: Compact indexed mathematical names
+- **WHEN** a short annotation consists of a mathematical name with subscripts or superscripts, such as an indexed delta
+- **THEN** it appears as a label when it fits without obscuring mathematical ink
+- **AND** its complete mathematical notation and canonical text remain intact
+
+#### Scenario: A focused close control near the popover corner
+- **WHEN** a popover is open on a phone at a small or enlarged reading font
+- **THEN** its complete 44px close target and visible focus indicator remain inside the rounded card
 
 #### Scenario: A short label collides with mathematical ink
 - **WHEN** a short name cannot fit above its target and the reader opens its fallback popover

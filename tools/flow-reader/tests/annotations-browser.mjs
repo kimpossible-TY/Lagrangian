@@ -22,6 +22,20 @@ const check = (name, condition) => {
   assert.ok(condition, name);
   checks.push(name);
 };
+const containedClose = (button) => {
+  const r = button.getBoundingClientRect();
+  const p = button.closest(".flow-note").getBoundingClientRect();
+  const style = getComputedStyle(button);
+  const outset = Math.max(0, parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth));
+  return (
+    r.width >= 44 &&
+    r.height >= 44 &&
+    r.left - outset >= p.left + 4 &&
+    r.right + outset <= p.right - 4 &&
+    r.top - outset >= p.top + 4 &&
+    r.bottom + outset <= p.bottom - 4
+  );
+};
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -43,20 +57,36 @@ try {
   const kernel = page.locator(`#${ids.find((note) => note.text === "kernel").id}`);
   const longID = ids.find((note) => note.text.startsWith("The two terms")).id;
   const collisionID = ids.find((note) => note.text === "denominator").id;
+  const deltaID = ids.find((note) => note.text.normalize("NFKC") === "δji").id;
+  const delta = page.locator(`#${deltaID}`);
   const collision = page.locator(`#${collisionID}`);
   const long = page.locator(`#${longID}`);
   const target = page
     .locator(`[data-reader-note~="${longID}"][data-note-interactive="true"]`)
     .first();
   check(
-    "Compiled native braces, brackets and authored notes retain eight complete bodies",
-    ids.length === 8,
+    "Compiled native braces, brackets and authored notes retain nine complete bodies",
+    ids.length === 9,
   );
   check(
     "Short names appear as labels on a phone",
     (await kernel.getAttribute("data-note-mode")) === "label",
   );
   check("Long annotations start closed", !(await long.isVisible()));
+  await page.waitForFunction(
+    (id) => document.getElementById(id)?.dataset.noteMode === "label",
+    deltaID,
+  );
+  await delta.scrollIntoViewIfNeeded();
+  await page.waitForFunction(
+    (id) => document.querySelector(`#${id} .flow-math-view`)?.dataset.mathState === "ready",
+    deltaID,
+  );
+  check("An indexed delta is a visible mathematical label", await delta.isVisible());
+  check(
+    "The delta label retains native subscript and superscript semantics",
+    (await delta.locator("mjx-assistive-mml msubsup").count()) === 1,
+  );
   check(
     "No target equation is cloned into a note",
     (await page.locator(".flow-note-targets").count()) === 0,
@@ -85,6 +115,10 @@ try {
     );
   await layoutPasses();
   check(
+    "A short popover reserves room for its complete close control",
+    await collision.locator(".flow-note-close").evaluate(containedClose),
+  );
+  check(
     "Remeasuring a colliding short name keeps its popover and focus open",
     (await collision.isVisible()) &&
       (await collision.getAttribute("data-open")) === "true" &&
@@ -108,6 +142,10 @@ try {
   await page.waitForFunction(
     (id) => document.querySelector(`#${id} .flow-math-view`)?.dataset.mathState === "ready",
     longID,
+  );
+  check(
+    "The entire close target and its focus ring fit inside the popover",
+    await long.locator(".flow-note-close").evaluate(containedClose),
   );
   await page.screenshot({ path: `${output}/popover-phone.png` });
   await page.keyboard.press("Escape");
@@ -235,6 +273,14 @@ try {
         );
       });
       check(`${width}px/${font}px labels never obscure mathematical ink`, clearLabels);
+      await target.click();
+      await long.waitFor({ state: "visible" });
+      check(
+        `${width}px/${font}px keeps the close target and focus ring inside the popover`,
+        await long.locator(".flow-note-close").evaluate(containedClose),
+      );
+      await long.locator(".flow-note-close").click();
+      await long.waitFor({ state: "hidden" });
     }
   }
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -337,6 +383,10 @@ try {
   await touchTarget.tap();
   await touch.locator(`#${longID}`).waitFor({ state: "visible" });
   check("A touch tap opens the longer note", true);
+  check(
+    "The touch close control also fits inside the popover",
+    await touch.locator(`#${longID} .flow-note-close`).evaluate(containedClose),
+  );
   await touch.evaluate(() => {
     document.documentElement.dataset.theme = "dark";
   });

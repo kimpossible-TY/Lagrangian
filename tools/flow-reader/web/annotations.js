@@ -1,5 +1,5 @@
-import { visualFragments } from "./math-identity.js";
-import { languageOf, setLanguage, uiLanguage } from "./language.js";
+import { logicalTextIndex, visualFragments } from "./math-identity.js";
+import { setLanguage, uiLanguage } from "./language.js";
 
 export function shortAnnotation(text, rich = false) {
   const name = text.trim().replace(/\s+/gu, " ");
@@ -90,13 +90,17 @@ export class TextAnnotations {
     body.append(...note.childNodes);
     note.append(body);
     const rich = Boolean(
-      body.querySelector("a,img,svg,table,mi,mn,mo,mfrac,msqrt,msup,msub,msubsup"),
+      body.querySelector("a,img,svg,table,mfrac,msqrt,mroot,mtable,munder,mover,munderover"),
     );
     const record = {
       nodes: nodes.filter(Boolean),
       note,
       body,
-      short: shortAnnotation(body.textContent, rich),
+      mathematical: Boolean(body.querySelector("math")),
+      short: shortAnnotation(
+        logicalTextIndex(body, { includeNotes: true, includeNested: true }).text,
+        rich,
+      ),
     };
     note.dataset.noteKind = "text";
     const close = document.createElement("button");
@@ -242,20 +246,31 @@ export class TextAnnotations {
           .flatMap((node) => [...node.getClientRects()]);
         // A preceding mathematical line can occupy the space above just one
         // end of a term. Try each local alignment before hiding a short name.
-        const box = [
+        const alignments = [
           anchor.right - size.width,
           anchor.left,
           (anchor.left + anchor.right - size.width) / 2,
-        ]
-          .map((position) => {
-            const left = Math.max(area.left + 4, Math.min(position, area.right - size.width - 4));
-            return {
-              left,
-              right: left + size.width,
-              top: anchor.top - size.height - 6,
-              bottom: anchor.top - 6,
-            };
-          })
+        ];
+        const tops = [anchor.top - size.height - 6];
+        // Indexed names can be taller than the gap between two mathematical
+        // lines. Use the reserved space above the equation before falling back
+        // to a popover; keep the name aligned with its shaded target.
+        if (record.mathematical && host?.matches(".flow-equation") && ink.length) {
+          const top = Math.min(...ink.map((rect) => rect.top)) - size.height - 6;
+          if (top >= host.getBoundingClientRect().top) tops.push(top);
+        }
+        const box = tops
+          .flatMap((top) =>
+            alignments.map((position) => {
+              const left = Math.max(area.left + 4, Math.min(position, area.right - size.width - 4));
+              return {
+                left,
+                right: left + size.width,
+                top,
+                bottom: top + size.height,
+              };
+            }),
+          )
           .find(
             (candidate) =>
               candidate.left >= area.left &&
