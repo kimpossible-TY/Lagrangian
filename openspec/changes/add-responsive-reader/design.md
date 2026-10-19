@@ -532,9 +532,9 @@ label above the term when it fits without obscuring mathematical ink. Longer,
 rich, or colliding labels open an anchored popover by tap or keyboard. Escape,
 outside activation and an explicit close button dismiss it; focus returns on
 keyboard dismissal. Selection gestures must not open notes. No target expression
-is cloned into an explanation. An open compact popover keeps its presentation during label measurement until
-it is dismissed; a collision recheck must not immediately close a short-name
-popover that the reader has just opened.
+is cloned into an explanation. An open popover keeps its presentation while
+compact layout rechecks label placement; these measurements must not close a
+short-name popover that the reader has just opened.
 Labeled native under/over braces and brackets use the same semantic association
 in HTML; unlabeled grouping and paged output retain
 their original presentation.

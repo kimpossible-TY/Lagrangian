@@ -2187,3 +2187,19 @@ inspected WebKit 18px screenshot are in `dist/reader-annotation-video/`.
 All 18 real build/adapter tests pass after updating the fixture's expected
 annotation count, along with nine targeted JavaScript tests, Prettier,
 `git diff --check` and strict OpenSpec validation.
+
+Installed the correction as immutable Reader runtime
+`3cd6344336b0d2bf6b576d73b8e5c27039e43ddb` from a clean detached checkout.
+The official installer reports a running app-managed Reader (verified PID 6790).
+All 405 immutable files and 52 local/registered-HTTPS asset checks pass; the
+accepted document SHA-256 remains
+`1600aed6d29adda15410eed83d27fc89a343c7fd0bb2a8d3614938b651a6cd6b`.
+The configuration and original PDF listener/content are unchanged.
+
+Against the actual registered HTTPS service, Chromium and WebKit each pass the
+12 existing installation checks and 38 additional checks covering the reported
+tap failure across the five reading fonts. The short-name popover remains open
+through repeated touch, scroll and relayout, with no JavaScript exceptions.
+Deployment receipts and inspected WebKit screenshots are in
+`dist/reader-annotation-video/deploy/`. The two isolated validation servers were
+stopped after verification. Physical iPhone/VoiceOver execution was not performed.
