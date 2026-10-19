@@ -2184,3 +2184,6 @@ module served through an isolated browser route: 393px viewport, 13/18/20/24/30p
 reading fonts, repeated taps, scroll/resize/selection-triggered layout, viewport
 bounds, canonical equation text and no JavaScript exceptions. Reports and the
 inspected WebKit 18px screenshot are in `dist/reader-annotation-video/`.
+All 18 real build/adapter tests pass after updating the fixture's expected
+annotation count, along with nine targeted JavaScript tests, Prettier,
+`git diff --check` and strict OpenSpec validation.
