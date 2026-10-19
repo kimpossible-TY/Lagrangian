@@ -1,7 +1,7 @@
 // Integration checks run against the actual Reader, local renderer, and Typst
 // endpoints. This module is exposed only by tests/runtime_fixture.py.
-import { MathIdentity, logicalTextIndex } from "/math-identity.js";
-import { ResponsiveMath } from "/math-renderer.js";
+import { MathIdentity, logicalTextIndex } from "/rendering/math/identity.js";
+import { ResponsiveMath } from "/rendering/math/renderer.js";
 
 const report = { checks: [], errors: [] };
 const output = document.createElement("pre");

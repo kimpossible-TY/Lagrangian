@@ -1,4 +1,4 @@
-import { AdaptiveCanvases } from "/canvases.js";
+import { AdaptiveCanvases } from "/rendering/graphics/canvases.js";
 
 const report = { checks: [], errors: [], measurements: [], requests: [] };
 const shrinking = new URLSearchParams(location.search).has("shrink");

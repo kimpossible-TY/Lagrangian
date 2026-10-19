@@ -1,6 +1,7 @@
+import { readingSettings } from "/features/appearance/reading-settings.js";
 // Synthetic touch wiring checks; native device gesture arbitration is a separate check.
-import { OutlineDrawer, ReaderGestures, readingSettings } from "/reading-navigation.js";
-import { logicalTextIndex } from "/math-identity.js";
+import { OutlineDrawer, ReaderGestures } from "/features/navigation/reading-navigation.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
 
 const report = { checks: [], errors: [] };
 const output = document.createElement("script");

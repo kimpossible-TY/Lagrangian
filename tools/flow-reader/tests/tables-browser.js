@@ -1,6 +1,6 @@
-import { logicalTextIndex } from "/math-identity.js";
-import { mathOverflow } from "/math-layout.js";
-import { prepareResponsiveTables } from "/tables.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
+import { mathOverflow } from "/rendering/math/layout.js";
+import { prepareResponsiveTables } from "/rendering/tables.js";
 
 const report = { width: innerWidth, checks: [], errors: [], measurements: [] };
 const output = document.createElement("script");

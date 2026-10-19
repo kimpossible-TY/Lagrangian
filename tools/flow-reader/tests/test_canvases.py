@@ -19,10 +19,11 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project, compile_project, prepare_packages
-from canvases import extract_canvases, validate_canvases
-from serve import ReaderState, handler_for
-from content import SvgRanges
+from flow_reader.compiler.build import Project, compile_project, prepare_packages
+from flow_reader.rendering.canvases import extract_canvases, validate_canvases
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
+from flow_reader.document.content import SvgRanges
 
 
 def request(width=280, font=18):
@@ -275,7 +276,7 @@ class CanvasCompilerTests(unittest.TestCase):
                 # A canvas rendered in a larger batch must also be cached when
                 # the viewport later requests it alone.
                 result["canvases"].pop("canvas-2")
-                with patch("serve.compile_project", side_effect=AssertionError("Cached canvas recompiled")):
+                with patch("flow_reader.rendering.service.compile_project", side_effect=AssertionError("Cached canvas recompiled")):
                     with urlopen(post()) as response:
                         self.assertEqual(json.load(response), result)
                 (source / "main.typ").write_text("#not-a-function()")

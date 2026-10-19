@@ -5,7 +5,7 @@ import {
   routeConnection,
   routeConnections,
   segmentHits,
-} from "../web/connector-routing.js";
+} from "../web/rendering/graphics/connector-routing.js";
 
 const connection = {
   id: "connector-1",

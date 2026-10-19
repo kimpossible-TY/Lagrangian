@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GraphicalAnnotations } from "../web/graphics.js";
+import { GraphicalAnnotations } from "../web/rendering/graphics/annotations.js";
 
 test("measuring a wrapped mark keeps every rectangle and no empty union", () => {
   const rectangle = (left, top, width, height) => ({

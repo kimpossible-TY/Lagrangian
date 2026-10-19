@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MathDecorations } from "../web/decorations.js";
+import { MathDecorations } from "../web/rendering/math/decorations.js";
 
 test("a split term retains every rectangle without painting the gap between lines", () => {
   const original = [globalThis.getComputedStyle, globalThis.innerHeight];

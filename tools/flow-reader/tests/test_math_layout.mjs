@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mathOverflow } from "../web/math-layout.js";
+import { mathOverflow } from "../web/rendering/math/layout.js";
 
 function rect(left, right) {
   return { left, right, width: right - left, height: 20 };

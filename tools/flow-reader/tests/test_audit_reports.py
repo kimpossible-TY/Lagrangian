@@ -12,8 +12,8 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from serve import ReaderState
+from flow_reader.compiler.build import Project
+from flow_reader.server.state import ReaderState
 from runtime_fixture import handler_for
 
 

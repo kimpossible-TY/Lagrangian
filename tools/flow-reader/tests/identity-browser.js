@@ -4,8 +4,8 @@ import {
   rangesFor,
   selectedIntervals,
   visualFragments,
-} from "./math-identity.js";
-import { GraphicalAnnotations } from "./graphics.js";
+} from "./rendering/math/identity.js";
+import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
 
 const report = { checks: [], errors: [] };
 function check(name, condition) {

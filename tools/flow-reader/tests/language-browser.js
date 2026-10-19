@@ -1,4 +1,4 @@
-import { languageOf } from "/language.js";
+import { languageOf } from "/ui/language.js";
 
 const report = { checks: [], errors: [] };
 const output = document.createElement("script");

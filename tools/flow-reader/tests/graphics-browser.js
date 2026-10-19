@@ -1,4 +1,4 @@
-import { GraphicalAnnotations, paintedPathPoint } from "/graphics.js";
+import { GraphicalAnnotations, paintedPathPoint } from "/rendering/graphics/annotations.js";
 
 const report = { width: innerWidth, checks: [], errors: [], measurements: [] };
 if (new URL(location.href).searchParams.has("debug")) {

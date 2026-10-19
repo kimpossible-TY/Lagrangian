@@ -5,7 +5,7 @@ import {
   SwipeTracker,
   springState,
   drawerMotionState,
-} from "../web/reading-navigation.js";
+} from "../web/features/navigation/reading-navigation.js";
 
 test("pinch text reflow respects readable bounds, noise and invalid contacts", () => {
   assert.equal(pinchFont(13, 160, 100), 21);

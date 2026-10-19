@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadMathJax } from "../web/mathjax-loader.js";
+import { loadMathJax } from "../web/rendering/math/loader.js";
 
 test("network and startup failures release the loader for an automatic retry", async () => {
   const previous = [globalThis.document, globalThis.MathJax];

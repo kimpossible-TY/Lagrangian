@@ -67,8 +67,9 @@ def main():
     (args.output / "corpus.json").write_text(json.dumps(report, ensure_ascii=False))
     for name in ("math-reflow.html", "math-reflow.js"):
         shutil.copyfile(Path(__file__).with_name(name), args.output / name)
-    shutil.copyfile(Path(__file__).resolve().parents[1] / "web/math-layout.js", args.output / "math-layout.js")
-    shutil.copyfile(Path(__file__).resolve().parents[1] / "web/math-identity.js", args.output / "math-identity.js")
+    web = Path(__file__).resolve().parents[1] / "web"
+    for directory in ("rendering", "ui"):
+        shutil.copytree(web / directory, args.output / directory, dirs_exist_ok=True)
     print(json.dumps({"outerMathRoots": len(corpus.roots),
                       "displayMathRoots": sum(x["display"] == "block" for x in corpus.roots),
                       "sourceSha256": report["sourceSha256"]}))

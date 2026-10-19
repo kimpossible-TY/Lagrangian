@@ -12,10 +12,11 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project
-from passages import locate_passages
-from sections import split_document
-from serve import ReaderState, handler_for
+from flow_reader.compiler.build import Project
+from flow_reader.document.passages import locate_passages
+from flow_reader.document.sections import split_document
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
 
 
 class PassageTests(unittest.TestCase):

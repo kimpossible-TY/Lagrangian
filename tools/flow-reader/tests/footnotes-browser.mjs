@@ -67,7 +67,7 @@ try {
     "Projected bodies match canonical source content and preserve language",
     await page.evaluate(
       async ({ source }) => {
-        const { logicalTextIndex } = await import("/math-identity.js");
+        const { logicalTextIndex } = await import("/rendering/math/identity.js");
         const parsed = new DOMParser().parseFromString(source, "text/html");
         return [...document.querySelectorAll('[data-note-kind="footnote"]')].every((note) => {
           const original = parsed.getElementById(note.dataset.footnoteTarget);

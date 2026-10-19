@@ -1,0 +1,192 @@
+import { focusStatusPlacement } from "./mobile-viewport";
+import { ReviewMarkRenderer } from "../review-strikes/renderer";
+import { SelectionSubmission } from "../../../../reader-common/selection/submission.js";
+import { selectedPreviewText, type SelectedText } from "./text-selection";
+
+export class SelectionActions {
+  private toolbar = document.createElement("div");
+  private selection?: SelectedText;
+  private pressedSelection?: SelectedText;
+  private highlight = new SelectionSubmission<SelectedText>(
+    (current, submitted) =>
+      current.revision === submitted.revision &&
+      current.text === submitted.text &&
+      current.start.page_no === submitted.start.page_no &&
+      current.start.x === submitted.start.x &&
+      current.start.y === submitted.start.y &&
+      current.end.page_no === submitted.end.page_no &&
+      current.end.x === submitted.end.x &&
+      current.end.y === submitted.end.y,
+  );
+  private pressing = false;
+  private releaseTimer?: ReturnType<typeof setTimeout>;
+  private review: ReviewMarkRenderer;
+  private saveButton: HTMLButtonElement;
+  private highlightButton: HTMLButtonElement;
+  private strikeButton: HTMLButtonElement;
+  private undoButton: HTMLButtonElement;
+  private clearButton: HTMLButtonElement;
+  private enabled = false;
+  private disposed = false;
+  private frame?: number;
+  private korean = navigator.language.startsWith("ko");
+
+  constructor(
+    private root: HTMLElement,
+    private onAction: (action: "save" | "highlight", selection: SelectedText) => boolean,
+    private readRevision: () => string | undefined,
+  ) {
+    this.review = new ReviewMarkRenderer(root);
+    this.toolbar.className = "typst-selection-actions";
+    this.toolbar.setAttribute("role", "toolbar");
+    this.toolbar.setAttribute("aria-label", this.korean ? "선택한 텍스트" : "Selected text");
+    this.toolbar.hidden = true;
+    document.body.appendChild(this.toolbar);
+    const button = (ko: string, en: string, action: (selected?: SelectedText) => void) => {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.textContent = this.korean ? ko : en;
+      element.addEventListener("pointerdown", (event) => {
+        this.pressing = true;
+        this.pressedSelection = this.selection;
+        event.preventDefault();
+      });
+      element.addEventListener("mousedown", (event) => event.preventDefault());
+      const release = () => {
+        if (this.releaseTimer !== undefined) clearTimeout(this.releaseTimer);
+        this.releaseTimer = setTimeout(() => {
+          this.pressing = false;
+          this.pressedSelection = undefined;
+          this.updateButtons();
+        }, 0);
+      };
+      element.addEventListener("pointerup", release);
+      element.addEventListener("pointercancel", release);
+      element.addEventListener("click", () => {
+        const selected = this.pressedSelection ?? this.selection;
+        this.pressing = false;
+        this.pressedSelection = undefined;
+        action(selected);
+        this.updateButtons();
+      });
+      this.toolbar.appendChild(element);
+      return element;
+    };
+    this.highlightButton = button("하이라이트", "Highlight", (selected) => {
+      if (selected && !this.highlight.pending && this.onAction("highlight", selected))
+        this.highlight.begin(selected, selected.revision);
+    });
+    this.saveButton = button("Codex 저장", "Save for Codex", (selected) => {
+      if (selected) this.onAction("save", selected);
+    });
+    this.strikeButton = button("빨간 취소선", "Red strike", (selected) => {
+      if (!selected) return;
+      this.review.store.add(selected);
+      this.collapse();
+      this.refresh();
+    });
+    this.strikeButton.className = "typst-strike-action";
+    this.undoButton = button("되돌리기", "Undo", () => {
+      this.review.store.undo();
+      this.refresh();
+    });
+    this.clearButton = button("표시 지우기", "Clear marks", () => {
+      this.review.store.clear();
+      this.refresh();
+    });
+    document.addEventListener("selectionchange", this.selectionChanged);
+    root.addEventListener("typst-text-layout", this.refresh);
+    window.addEventListener("resize", this.position);
+    window.visualViewport?.addEventListener("resize", this.position);
+    window.visualViewport?.addEventListener("scroll", this.position);
+    this.selectionChanged();
+  }
+
+  setEnabled(enabled: boolean) {
+    this.enabled = enabled;
+    this.updateButtons();
+  }
+
+  highlightFinished(status: string) {
+    const ticket = this.highlight.pending;
+    if (!ticket) return;
+    if (this.highlight.canApply(ticket, this.selection, this.readRevision())) {
+      if (status === "highlighted" || status === "stale") this.collapse();
+      else this.selection ??= ticket.selection;
+    }
+    this.highlight.finish(ticket);
+    this.updateButtons();
+  }
+  setDocument(id: string) {
+    this.review.store.setDocument(id);
+    this.afterRender();
+  }
+  afterRender() {
+    if (this.frame !== undefined) cancelAnimationFrame(this.frame);
+    this.frame = requestAnimationFrame(() => {
+      this.frame = undefined;
+      if (!this.disposed) this.refresh();
+    });
+  }
+
+  private selectionChanged = () => {
+    this.selection = selectedPreviewText(this.root);
+    if (this.selection) this.selection.revision = this.readRevision();
+    this.updateButtons();
+  };
+
+  private collapse() {
+    document.getSelection()?.removeAllRanges();
+    this.selection = undefined;
+    this.updateButtons();
+  }
+
+  private updateButtons() {
+    if (this.pressing) return;
+    const selected = !!this.selection;
+    this.highlightButton.hidden = this.saveButton.hidden = this.strikeButton.hidden = !selected;
+    const ready =
+      this.enabled && !!this.selection?.revision && this.selection.revision === this.readRevision();
+    this.saveButton.disabled = this.highlightButton.disabled = !ready || !!this.highlight.pending;
+    this.undoButton.hidden = this.clearButton.hidden = !this.review.store.marks.length;
+    this.toolbar.hidden = !selected && !this.review.store.marks.length;
+    this.position();
+  }
+
+  position = () => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const style = getComputedStyle(document.documentElement);
+    const inset = (edge: string) =>
+      Number.parseFloat(style.getPropertyValue(`--preview-safe-${edge}`)) || 0;
+    const placement = focusStatusPlacement(viewport, {
+      left: inset("left"),
+      right: inset("right"),
+      bottom: inset("bottom"),
+    });
+    // Leave room for status messages even when their text wraps onto more lines.
+    const statusHeight =
+      document.querySelector(".typst-focus-status")?.getBoundingClientRect().height || 0;
+    placement.top = `${Number.parseFloat(placement.top) - statusHeight - 8 / (viewport.scale || 1)}px`;
+    Object.assign(this.toolbar.style, placement);
+  };
+
+  private refresh = () => {
+    if (this.disposed) return;
+    this.review.repaint();
+    this.updateButtons();
+  };
+
+  dispose() {
+    this.disposed = true;
+    if (this.releaseTimer !== undefined) clearTimeout(this.releaseTimer);
+    if (this.frame !== undefined) cancelAnimationFrame(this.frame);
+    document.removeEventListener("selectionchange", this.selectionChanged);
+    this.root.removeEventListener("typst-text-layout", this.refresh);
+    window.removeEventListener("resize", this.position);
+    window.visualViewport?.removeEventListener("resize", this.position);
+    window.visualViewport?.removeEventListener("scroll", this.position);
+    this.toolbar.remove();
+    this.review.dispose();
+  }
+}

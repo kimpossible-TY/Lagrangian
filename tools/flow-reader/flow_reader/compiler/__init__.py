@@ -1,0 +1,1 @@
+"""Compilation and content acceptance."""

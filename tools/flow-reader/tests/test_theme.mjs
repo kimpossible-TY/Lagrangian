@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
-const source = readFileSync(new URL("../web/theme.js", import.meta.url), "utf8");
+const source = readFileSync(
+  new URL("../web/features/appearance/theme.js", import.meta.url),
+  "utf8",
+);
 const key = "flow-reader:theme:v1";
 
 function reader({

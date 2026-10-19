@@ -1,4 +1,4 @@
-import { logicalTextIndex } from "/math-identity.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
 
 const report = { checks: [], errors: [], measurements: [], target: "energy_flux_identity" };
 const output = document.createElement("pre");

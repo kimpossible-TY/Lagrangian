@@ -15,7 +15,7 @@ import {
   themeWebSocketUrl,
   ThemeReadingState,
   createConnectionQueue,
-} from "./document-theme";
+} from "./features/appearance/document-theme";
 
 const windowElem = document.getElementById("typst-container");
 windowElem.documents = [];

@@ -1,5 +1,5 @@
-import { ResponsiveMath } from "/math-renderer.js";
-import { logicalTextIndex } from "/math-identity.js";
+import { ResponsiveMath } from "/rendering/math/renderer.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
 
 const report = { checks: [], errors: [] };
 const output = document.createElement("pre");

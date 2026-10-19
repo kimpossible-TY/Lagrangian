@@ -1,6 +1,6 @@
-import { ResponsiveMath } from "/math-renderer.js";
-import { logicalTextIndex } from "/math-identity.js";
-import { mathOverflow } from "/math-layout.js";
+import { ResponsiveMath } from "/rendering/math/renderer.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
+import { mathOverflow } from "/rendering/math/layout.js";
 
 // Observe the real renderer without changing its viewport eligibility, budgets,
 // scheduling or publication. Scroll uncomposed passages into the normal margin;

@@ -1,5 +1,5 @@
-import { logicalTextIndex } from "/math-identity.js";
-import { mathOverflow } from "/math-layout.js";
+import { logicalTextIndex } from "/rendering/math/identity.js";
+import { mathOverflow } from "/rendering/math/layout.js";
 
 // This is not an iPhone pinch test. The synthetic resize below isolates WebKit's
 // innerWidth change without a layout-width change; CUA drives real width changes.

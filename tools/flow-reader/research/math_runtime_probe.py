@@ -31,8 +31,9 @@ def main():
         re.findall(r"<style\b[^>]*>(.*?)</style>", source, re.S)))
     corpus = {"sourceSha256": hashlib.sha256(source.encode()).hexdigest(),
               "rendererFiles": {name: hashlib.sha256((web / name).read_bytes()).hexdigest()
-                                for name in ("math-renderer.js", "math-layout.js", "math-frames.js",
-                                             "math-identity.js", "mathjax-loader.js", "reader.css")},
+                                for name in ("rendering/math/renderer.js", "rendering/math/layout.js",
+                                             "rendering/math/frames.js", "rendering/math/identity.js",
+                                             "rendering/math/loader.js", "reader.css")},
               "roots": roots.roots}
     (args.output / "corpus.json").write_text(json.dumps(corpus, ensure_ascii=False))
     print(json.dumps({"sourceSha256": corpus["sourceSha256"], "roots": len(roots.roots)}))

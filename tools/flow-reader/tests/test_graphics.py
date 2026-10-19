@@ -11,8 +11,8 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build import Project, compile_project
-from graphics import extract_graphics, validate_geometry
+from flow_reader.compiler.build import Project, compile_project
+from flow_reader.rendering.graphics import extract_graphics, validate_geometry
 
 
 def geometry(right_x=260):
