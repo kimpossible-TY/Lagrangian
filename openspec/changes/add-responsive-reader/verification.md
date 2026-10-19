@@ -2330,3 +2330,18 @@ Chrome and WebKit each pass 86 compiled annotation checks, 63 actual PDE tablet
 checks and 24 actual PDE phone delta/control checks. All 22 targeted JavaScript
 checks and strict OpenSpec validation pass. The next immutable installation
 uses this correction; deployment verification remains pending.
+
+
+Runtime 08f82cb3 was installed from a clean detached checkout after both browsers
+passed the clean PDE preflight (63 tablet and 24 phone checks each). All 412
+immutable release files and 52 local/registered-HTTPS asset deliveries match.
+Installed HTTPS checks pass in Chrome and WebKit: 63 tablet layouts, 52 kernel
+labels, 15 footnotes/observer-mutation checks, 24 delta/close controls and
+12 baseline annotations per engine, with no browser exceptions. The accepted
+PDE HTML hash remains
+`1600aed6d29adda15410eed83d27fc89a343c7fd0bb2a8d3614938b651a6cd6b`.
+Configuration is byte-identical and the original PDF profile retains its
+preexisting stopped state. The app-managed Reader is running at PID 78804.
+All owned fixture/preflight services and their compiler workers were stopped.
+Receipts, the earlier rollback and final screenshots remain under
+`dist/reader-note-policy/`. Physical iPad/iPhone execution was not performed.
