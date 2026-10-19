@@ -27,12 +27,16 @@ try {
   await page.waitForFunction(() =>
     document.querySelector('.flow-equation .flow-math-view[data-math-state="ready"]'),
   );
-  const ids = await page.locator('.flow-note[data-note-kind="text"]').evaluateAll((nodes) =>
-    nodes.map((node) => ({
+  const ids = await page.locator('.flow-note[data-note-kind="text"]').evaluateAll(async (nodes) => {
+    const { logicalTextIndex } = await import("/math-identity.js");
+    return nodes.map((node) => ({
       id: node.id,
-      text: node.querySelector(".flow-note-body").textContent,
-    })),
-  );
+      text: logicalTextIndex(node.querySelector(".flow-note-body"), {
+        includeNotes: true,
+        includeNested: true,
+      }).text,
+    }));
+  });
   const kernel = page.locator(`#${ids.find((note) => note.text === "kernel").id}`);
   const longID = ids.find((note) => note.text.startsWith("The two terms")).id;
   const long = page.locator(`#${longID}`);
