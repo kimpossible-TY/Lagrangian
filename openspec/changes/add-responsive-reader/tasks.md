@@ -171,3 +171,10 @@ other services, and the mobile default are preserved.
 - [x] Commit the validated Reader changes and stage a clean immutable release while preserving unrelated worktree files.
 - [x] Back up runtime configuration, install/restart only the Reader and apply the tested local selection adapter.
 - [x] Verify registered HTTPS delivery, explicit save/read freshness and source isolation; record the deployed revision and recovery paths.
+
+## Unified saved-context lookup without expiry
+
+- [x] Resolve same-project/document saved text across reader adapters, preserving exact filters, document isolation and stale/error evidence.
+- [x] Remove time-based expiry from HTML and paged context readers; cover old mapped/unmapped text, taps, changed source, service and revisions.
+- [x] Align canonical docs, the portable companion patch and local Codex instructions with unified lookup.
+- [ ] Run targeted and reader integration checks, install the clean immutable Reader release, and verify the local PDE lookup without a reader argument.

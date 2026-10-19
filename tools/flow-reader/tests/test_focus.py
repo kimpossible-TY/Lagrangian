@@ -120,12 +120,30 @@ class ReaderFocusTests(unittest.TestCase):
         self.assertEqual(restarted.read_focus()["status"], "waiting")
         self.assertIsNone(restarted.read_focus()["selection"])
 
-    def test_age_and_compiling_state_are_checked_on_every_read(self):
+    def test_saved_context_does_not_expire_but_snapshot_checks_still_apply(self):
         self.save()
-        with patch("flow_reader.services.codex_context.time.time", return_value=time.time() + 301):
-            self.assertFalse(self.state.read_focus()["selection_usable"])
+        for elapsed in (301, 86400 * 30):
+            with self.subTest(elapsed=elapsed), patch(
+                    "flow_reader.services.codex_context.time.time", return_value=time.time() + elapsed):
+                result = self.state.read_focus()
+                self.assertTrue(result["selection_usable"])
+                self.assertFalse(result["needs_reselection"])
+                self.assertGreaterEqual(result["age_seconds"], elapsed)
+        self.state.revision = "changed"
+        self.assertFalse(self.state.read_focus()["selection_usable"])
+        self.state.revision = "accepted"
         self.state.compiling = True
         self.assertEqual(self.save()["status"], "stale")
+
+    def test_unmapped_saved_text_remains_usable_after_five_minutes(self):
+        self.state = self.make_state('$ alpha $', '<p><math><mi>α</mi></math></p>')
+        self.save(fragments=[self.fragment("α") | {"segments": [{"math": True}]}])
+        with patch("flow_reader.services.codex_context.time.time", return_value=time.time() + 86400):
+            result = self.state.read_focus()
+        self.assertEqual(result["selection"]["text"], "α")
+        self.assertTrue(result["selection_usable"])
+        self.assertTrue(result["needs_reselection"])
+        self.assertIsNone(result["source"])
 
     def test_invalid_oversized_and_injected_quotations_do_not_replace_context(self):
         original = self.save()

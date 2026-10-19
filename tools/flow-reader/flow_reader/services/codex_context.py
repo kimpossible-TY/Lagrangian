@@ -102,7 +102,7 @@ class FocusStore:
             return snapshot
 
     def read(self, revision, inputs_current):
-        """Check service, accepted revision, age and source drift on every read."""
+        """Check service, accepted revision and source drift; age is informational."""
         with self.lock:
             data = json.loads(self.path.read_text())
         if data.get("schema_version") != 1 or data.get("reader_kind") != "html":
@@ -130,7 +130,7 @@ class FocusStore:
                                       and excerpt == source["excerpt"])
             except (OSError, UnicodeError, KeyError, TypeError):
                 source_matches = False
-        usable = bool(service_matches and revision_matches and age is not None and age <= 300
+        usable = bool(service_matches and revision_matches and age is not None
                       and data.get("status") in {"selected", "unmapped"}
                       and data.get("selection") and (not source or source_matches is True))
         return {**data, "age_seconds": round(age, 1) if age is not None else None,

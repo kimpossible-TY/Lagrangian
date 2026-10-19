@@ -418,10 +418,11 @@ python3 tools/flow-reader/focus.py --url http://127.0.0.1:24002/
 ```
 
 The local reader freshly verifies live service identity, accepted revision,
-source inputs/hash/excerpt and a five-minute selection age. `selection_usable`
-permits discussion of fresh unmapped text; exact source-dependent work also
+source inputs/hash/excerpt. Saved context has no time limit; selection age is
+informational. `selection_usable`
+permits discussion of verified unmapped text; exact source-dependent work also
 requires `needs_reselection: false`. Changed documents, restarted/unavailable
-services and old records require selecting again. The default record path is
+services require selecting again. The default record path is
 `OUTPUT/focus.json`; standalone `serve.py --focus-file /absolute/context.json`
 can choose a separate absolute path.
 
@@ -429,10 +430,18 @@ can choose a separate absolute path.
 `tail-hosting focus` command to list/filter both paged previews and HTML Readers
 and delegate HTML reads to the configured Reader manager. After installing that
 adapter and the updated Reader manager, the existing selection-reader workflow
-can use `tail-hosting focus --preview typst-pde-reader` or the Reader's exact URL.
-Project/document filters shared by both views require an explicit Reader ID.
-The companion patch is tested in an isolated copy; implementation alone does not
-install it or modify an existing global Codex skill or running service.
+can use `tail-hosting focus` from the registered project or supply its project or
+entry-document path. Readers of that same document are read through their existing
+adapters; the most recent saved text takes precedence over tap-only locations.
+The result identifies the original reader with `resolution: latest_saved_text`.
+The latest saved record retains source/revision failure evidence rather than
+silently substituting an older selection. Different documents and tied timestamps
+still require disambiguation; an unrelated working folder cannot choose a project
+by global recency. Exact `--preview` and URL filters continue selecting only that
+reader. Missing context requests a save; unavailable readers are reported in
+`context_read_errors`. Per-service files and native positions remain separate.
+The companion patch is tested in an isolated copy before an authorized rollout
+updates the local command and Codex skill together.
 
 The former browser quotation library, saved-list entry, stored-quotation paint
 and relocation UI have been removed. Existing

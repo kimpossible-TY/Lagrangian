@@ -479,8 +479,28 @@ The HTML Reader SHALL replace the former local quotation library with Save for C
 - **WHEN** the rendered revision, source inputs or service identity changed before saving
 - **THEN** the record is marked stale without retaining a usable selection and the Reader requests a fresh selection
 - **WHEN** a local selection reader reads a record
-- **THEN** it freshly checks the live service, current accepted revision, source hash/excerpt and selection age
+- **THEN** it freshly checks the live service, current accepted revision and source hash/excerpt
 - **AND** a restarted or unavailable service cannot make an old record current
+
+#### Scenario: Saved context has no time limit
+- **WHEN** a saved selection is read more than five minutes or days after saving
+- **THEN** elapsed time alone does not invalidate it
+- **AND** age remains informational while service, revision and source validation still apply
+
+#### Scenario: Resolve saved text across readers of one document
+- **WHEN** the requested project and entry document have both paged and HTML readers
+- **THEN** the local reader selects the latest explicit saved text from their validated records without asking the user to choose an internal service
+- **AND** a newer tap-only location does not hide saved text
+- **AND** the response identifies the originating reader and preserves source or revision failure flags without substituting older saved text
+
+#### Scenario: Keep documents and exact reader targets separate
+- **WHEN** resolution contains different projects or entry documents, or equally recent saved records
+- **THEN** the local reader reports ambiguity instead of choosing by global recency
+- **WHEN** the user provides an exact reader ID or URL
+- **THEN** only that reader is read, even if another has newer saved text
+- **WHEN** all readers of the resolved document have no saved context
+- **THEN** the response requests a save rather than an internal reader choice
+- **AND** unavailable readers are reported without concealing available saved context
 
 #### Scenario: Preserve selections while awaiting acknowledgment
 - **WHEN** a save fails
