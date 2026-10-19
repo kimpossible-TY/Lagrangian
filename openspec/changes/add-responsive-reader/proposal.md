@@ -27,6 +27,9 @@ source and diagnostic fallbacks.
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local
 with undo and clear. Replace the mistaken browser quotation library with real Save for Codex context.
+Resolve saved Codex text across readers of the same project and entry document,
+without asking users to identify an internal service. Remove time-based expiry;
+continue checking service identity, accepted revisions and source changes.
 Present these selection actions in a compact floating capsule with visible
 icons and labels; keep undo and clear in a separate review capsule.
 

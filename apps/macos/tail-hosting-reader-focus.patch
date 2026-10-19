@@ -1,27 +1,70 @@
 --- a/bin/tail-hosting
 +++ b/bin/tail-hosting
-@@ -54,2 +54,3 @@
-             s['backend']={'host':'127.0.0.1','port':p['port']}
+@@ -54,0 +55 @@
 +            if p.get('focusFile'): s['focusFile']=p['focusFile']
-     if data.get('schemaVersion') != 1 or not isinstance(data.get('services'), list): raise ValueError('unsupported registry schema')
-@@ -66,3 +67,3 @@
-             if s.get('launchAgentLabel'): raise ValueError(f'choose containerName or launchAgentLabel for {sid}')
+@@ -67 +68 @@
 -        if s.get('kind') == 'typst-always-preview':
 +        if s.get('kind') in {'typst-always-preview','typst-reader'}:
-             path=focus_path(s)
-@@ -383,2 +384,3 @@
-         'url':url, 'focus_file':str(focus_path(s)),
+@@ -383,0 +385 @@
 +        'reader_kind':'html' if s.get('kind')=='typst-reader' else 'paged',
-         'launch_agent_label':s.get('launchAgentLabel'), 'registration':s.get('registration')}
-@@ -391,3 +393,3 @@
- def resolve_focus(registry, args):
+@@ -392 +394 @@
 -    previews=[s for s in registry['services'] if s.get('kind')=='typst-always-preview']
 +    previews=[s for s in registry['services'] if s.get('kind') in {'typst-always-preview','typst-reader'}]
-     if args.list and any((args.preview,args.project,args.document,args.url)):
-@@ -428,2 +430,6 @@
-     if preview is None: preview={'id':'typst-pde', 'launchAgentLabel':LABEL}
+@@ -398,0 +401 @@
++    scoped=explicit
+@@ -412,0 +416 @@
++            scoped=True
+@@ -414,0 +419,4 @@
++    if scoped and len(candidates)>1:
++        documents={(preview_info(s)['project_root'],preview_info(s)['document']) for s in candidates}
++        if len(documents)==1:
++            return read_document_focus(candidates)
+@@ -424,0 +433,40 @@
++def read_document_focus(previews):
++    """Resolve saved text within one document, retaining each adapter's checks."""
++    records=[]; errors=[]
++    for preview in previews:
++        try:
++            record=read_focus(preview)
++            if not isinstance(record,dict): raise ValueError('Invalid focus response')
++            records.append((preview,record))
++        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as error:
++            errors.append({'id':preview['id'],'error':str(error)})
++    selected=[(preview,record) for preview,record in records
++        if record.get('service_matches') is True
++        and record.get('status') in {'selected','unmapped'}
++        and type(record.get('selected_at_unix_ms')) is int
++        and record['selected_at_unix_ms']>0]
++    saved=[(preview,record) for preview,record in selected
++        if isinstance(record.get('selection'),dict)
++        and isinstance(record['selection'].get('text'),str)
++        and record['selection']['text'].strip()]
++    choices=saved or selected
++    if choices:
++        latest=max(record['selected_at_unix_ms'] for _,record in choices)
++        winners=[(preview,record) for preview,record in choices
++            if record['selected_at_unix_ms']==latest]
++        if len(winners)==1:
++            preview,record=winners[0]
++            result={**record,'preview':preview_info(preview),'needs_preview_selection':False,
++                'resolution':'latest_saved_text' if saved else 'latest_location'}
++        else:
++            result={'status':'ambiguous','needs_reselection':False,'needs_preview_selection':True,
++                'message':'Saved contexts have identical timestamps; specify a Preview ID.',
++                'candidates':[preview_info(preview) for preview,_ in winners]}
++    else:
++        result={'status':'not_ready' if errors else 'waiting','needs_reselection':True,
++            'needs_preview_selection':False,'selection_usable':False,
++            'message':'이 문서의 Reader에서 Save for Codex로 텍스트를 저장해 주세요.',
++            'previews':[preview_info(preview) for preview in previews]}
++    if errors: result['context_read_errors']=errors
++    return result
++
+@@ -428,0 +477,4 @@
 +    if preview.get('kind')=='typst-reader':
 +        if not preview.get('managerBinary'):
 +            raise ValueError('Reader selection requires its configured managerBinary')
 +        return json.loads(require([preview['managerBinary'],'--focus',preview['id']]))
-     path=focus_path(preview)
+@@ -449 +501 @@
+-        or data['age_seconds'] is None or data['age_seconds']>300
++        or data['age_seconds'] is None

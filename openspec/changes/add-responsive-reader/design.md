@@ -504,13 +504,25 @@ the usable context. Save does not compile, edit source or send a message.
 Managed Reader profiles expose their own absolute focusFile, distinct from all
 paged/Reader records. `--focus ID` reads the live loopback `/api/focus`, checks
 its PID against launchd and verifies project/document identity. The Reader checks
-accepted revision, source hash/excerpt, input fingerprints and age on every read.
-`selection_usable` allows fresh unmapped text to be discussed while
+accepted revision, source hash/excerpt and input fingerprints on every read.
+Age remains informational and never expires a saved record.
+`selection_usable` allows verified unmapped text to be discussed while
 `needs_reselection` retains the paged contract for exact source-dependent work.
 A portable Tail Hosting patch extends explicit focus listing/filtering to
 `typst-reader` and delegates reading to that manager, keeping PDF handling intact.
+After exact filters or nearest-project resolution, multiple readers are considered
+together only when both their normalized project root and entry document match.
+Read each candidate through its existing validated adapter, prefer the latest
+explicit saved text over tap-only locations, and retain the selected record's
+revision/source failure flags instead of silently falling back to older text.
+Only when no text is saved may the latest same-document tap supply context.
+Tied timestamps and multiple documents remain ambiguous; no records means waiting
+for a save, rather than asking which internal reader to use. Unavailable readers
+are reported alongside any available result. Explicit service IDs and URLs keep
+their exact-target behavior. The result identifies the reader and resolution.
 Standalone/terminal sessions use `focus.py --url <explicit loopback Reader>`.
-No installed service, registry or global skill is changed by implementation.
+The authorized integration rollout updates the local Tail Hosting adapter and
+Codex selection skill together, with backups and an immutable Reader release.
 
 Keep the range pending until acknowledgment; failed saves retain it for retry,
 and a response cannot dismiss a newer or explicitly dismissed selection.

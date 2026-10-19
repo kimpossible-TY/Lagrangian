@@ -78,6 +78,12 @@ Use this to preserve a passage and its location before asking Codex to explain, 
 
 *Result:* Flow saves up to 8000 selected characters and the selection's page endpoints alongside its source context. This saves context; it does not send a message, start a Codex turn, or compile the document. A newer compiler revision requires selecting again. A brief tap saves a location instead of an exact text selection.
 
+Saved context has no time limit. The local reader still checks the service,
+document version and source before using its location. For a project registered
+with both paged and HTML readers, the integrated Tail Hosting reader finds the
+latest saved text within that same entry document and identifies its reader;
+a newer tap-only location in another reader does not hide the saved text.
+
 == Connect a local selection reader
 
 Flow writes selection records on the Mac running the preview. Codex needs a local skill or tool that reads the correct project's record and checks it against the current service and source. Flow does not install that reader automatically. List profile details, including each `focusFile`, with:
