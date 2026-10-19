@@ -224,16 +224,6 @@ export class TextAnnotations {
         this.mode(record, "label");
         const size = note.getBoundingClientRect();
         const anchor = rects.at(-1);
-        const left = Math.max(
-          area.left + 4,
-          Math.min(anchor.right - size.width, area.right - size.width - 4),
-        );
-        const box = {
-          left,
-          right: left + size.width,
-          top: anchor.top - size.height - 6,
-          bottom: anchor.top - 6,
-        };
         const host = this.fragments(record)[0]?.closest(".flow-equation,p");
         const ink = [
           ...(host?.querySelectorAll(
@@ -242,14 +232,31 @@ export class TextAnnotations {
         ]
           .filter(painted)
           .flatMap((node) => [...node.getClientRects()]);
-        if (
-          box.left < area.left ||
-          box.right > area.right ||
-          [...ink, ...labels].some((rect) => overlap(box, rect))
-        )
-          this.mode(record, "popover");
+        // A preceding mathematical line can occupy the space above just one
+        // end of a term. Try each local alignment before hiding a short name.
+        const box = [
+          anchor.right - size.width,
+          anchor.left,
+          (anchor.left + anchor.right - size.width) / 2,
+        ]
+          .map((position) => {
+            const left = Math.max(area.left + 4, Math.min(position, area.right - size.width - 4));
+            return {
+              left,
+              right: left + size.width,
+              top: anchor.top - size.height - 6,
+              bottom: anchor.top - 6,
+            };
+          })
+          .find(
+            (candidate) =>
+              candidate.left >= area.left &&
+              candidate.right <= area.right &&
+              ![...ink, ...labels].some((rect) => overlap(candidate, rect)),
+          );
+        if (!box) this.mode(record, "popover");
         else {
-          this.place(note, left, box.top);
+          this.place(note, box.left, box.top);
           labels.push(box);
         }
       } else this.mode(record, "popover");
