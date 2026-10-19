@@ -460,6 +460,7 @@ compact indexed mathematical name, such as an indexed delta,
 (at most 24 graphemes and three words) appears above its shaded target when it
 fits without covering mathematics. Plain names and indexed mathematical names
 both search nearby horizontal gaps and the space above preceding equation lines.
+Inline names include surrounding prose line fragments in their collision checks.
 Competing names gain bounded extra rows above the equation while preserving the
 reading anchor; font and viewport changes recalculate those rows. A local ink
 collision alone does not open a fitting short name. Longer, rich or physically

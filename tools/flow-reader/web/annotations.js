@@ -298,6 +298,21 @@ export class TextAnnotations {
           .filter(painted)
           .flatMap((node) => [...node.getClientRects()])
           .filter((rect) => rect.width > 0 && rect.height > 0);
+        if (host?.matches("p")) {
+          const text = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+          for (let node = text.nextNode(); node; node = text.nextNode()) {
+            if (
+              !node.data.trim() ||
+              node.parentElement.closest(
+                "math,.flow-math-view,.flow-note,svg,.flow-math-status,.flow-decoration-notice",
+              )
+            )
+              continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            ink.push(...range.getClientRects());
+          }
+        }
         const fits =
           host &&
           note.scrollWidth <= note.clientWidth + 1 &&

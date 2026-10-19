@@ -32,6 +32,9 @@ $ mark(lambda, tag: #<stacked>) = 1 $
 $ mark(zeta, tag: #<wide-name>) = 2 $
 #annot(<wide-name>)[WWWWWWWWWWWWWWWWWWWWWWWW]
 
+A wrapping prose paragraph keeps its earlier lines visible while $mark(x, tag: #<prose-term>)$ carries an inline annotation and the remaining sentence follows it.
+#annot(<prose-term>)[passage]
+
 An unlabeled grouping decoration stays intact: $underbrace(a+b)$.
 
 #for i in range(10) [
