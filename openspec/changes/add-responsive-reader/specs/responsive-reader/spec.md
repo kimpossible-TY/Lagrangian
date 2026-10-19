@@ -294,6 +294,7 @@ The Reader SHALL shade annotated terms without cloning their equations. Short ma
 #### Scenario: Connected local side columns
 - **WHEN** an authored annotation uses the wide-screen side presentation
 - **THEN** a visible local divider and accent leader with a target dot connect its marked term to the note column without covering intervening ink
+- **AND** both mannot and footnote side-column text, including mathematics, use 80% of the body reading font size
 - **AND** the actual equation number and retained authored formatting provide a clear hierarchy without invented explanation text
 - **AND** leaders and generated reference UI do not enter canonical copy text or persist in compact mode
 

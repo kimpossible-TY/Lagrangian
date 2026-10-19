@@ -1077,6 +1077,7 @@ math svg {
 }
 .flow-note[data-note-mode="side"] {
   padding-inline: 1em;
+  font-size: 0.8em;
   line-height: 1.5;
   text-indent: 0;
 }

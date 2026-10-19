@@ -485,7 +485,8 @@ including its responsive padding. A side column appears only at a viewport width
 of at least 960px, an aspect ratio of at least 1.15, and sufficient width inside
 the annotated host for readable body and note columns separated by 20px. Short
 names keep nearby labels and reserve no side gutter; longer side notes use at
-least 220px or 14 reading ems.
+least 220px or 14 reading ems. Side-column text and mathematics use 80% of the
+body reading font size for both mannot and footnotes.
 Only the annotated equation or paragraph reserves that width and the height of
 its own stacked notes. Ordinary passages retain the full reading width. Portrait
 orientation and large text release these reservations and restore compact labels

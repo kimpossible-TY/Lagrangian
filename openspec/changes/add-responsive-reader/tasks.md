@@ -83,6 +83,8 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 
 ## Adaptive text annotations (selected concepts 1, 3 and 12)
 
+- [ ] Set concept 12 mannot and footnote text/mathematics to 80% of the body reading size; verify layout/transitions and install the clean Reader release.
+
 - [x] Open compact footnotes in concept 1 popovers at their references, preserving reading position, history, mathematical markers and accessible dismissal.
 - [x] Load distant compact bodies on activation with in-dialog loading/retry and stale-response protection; verify phone, portrait and side-column transitions.
 - [x] Install the compact-footnote Reader from a clean commit and verify actual HTTPS document and asset delivery.

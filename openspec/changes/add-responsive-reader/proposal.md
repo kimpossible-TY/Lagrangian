@@ -19,6 +19,7 @@ within the equation or paragraph they annotate; ordinary passages regain the
 full reading width immediately before and after that row.
 Match concept 12 with a dot and connector from the annotated term to a local
 column divider, with an equation reference and retained authored formatting.
+Set concept 12 note text and mathematics to 80% of the body reading size.
 Use the same local columns for eligible footnotes and concept 1 popovers at their
 references in compact presentation. Original numbered links and endnotes remain
 source and diagnostic fallbacks.

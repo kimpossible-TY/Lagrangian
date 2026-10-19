@@ -2391,3 +2391,15 @@ preflight and compiler workers were stopped. Phone/portrait popover screenshots
 were inspected, including 320px with 30px reading text. Final delivery, the earlier
 rollback, screenshot and cleanup receipts are under
 `dist/reader-compact-footnotes/`. Physical iOS execution was not performed.
+
+
+## Side-note type at 80% — 2026-10-19
+
+Concept 12 mannot and footnote columns now inherit 0.8em. This single scoped CSS
+rule scales note prose and native mathematical composition while preserving the
+existing popover/label rules, side eligibility and column width. Chrome and
+WebKit each pass 86 annotation fixture checks. The mathematical/prose fixture
+also passes 20 font and transition probes per engine at 13/18/24px body sizes
+and 1024/1280px landscape widths. The development guide compiles and strict
+OpenSpec validation passes. Deployment verification follows under
+`dist/reader-side-font/`.
