@@ -2282,3 +2282,16 @@ each observer callback fails against a45cd866 and passes after the correction.
 Chrome and WebKit each passed 79 annotation checks and 15 actual PDE footnote
 checks with this guard; the 22 JavaScript checks and strict OpenSpec validation
 also passed. Successful immutable deployment remains the final pending step.
+
+Runtime 19a5eb0b was installed successfully from a clean detached checkout.
+All 412 immutable release files and 52 local/registered-HTTPS asset deliveries
+matched their manifest. Installed HTTPS checks per engine: 63 tablet layouts,
+52 kernel labels, 15 footnotes/observer-mutation checks, 24 delta/close controls
+and 12 baseline annotation checks; Chrome and WebKit reported no exceptions.
+The actual PDE HTML SHA256 remains
+`1600aed6d29adda15410eed83d27fc89a343c7fd0bb2a8d3614938b651a6cd6b`.
+Service configuration is byte-identical. The original PDF profile remains in
+its preexisting stopped state. The managed Reader is running; all owned
+fixture/preflight services and their compiler workers were stopped. Delivery,
+rollback-attempt and cleanup receipts remain under
+`dist/reader-side-footnotes/`.

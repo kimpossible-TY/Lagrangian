@@ -504,6 +504,17 @@ compiler checks and ten JavaScript checks passed. All 410 release files and
 configuration and original PDF stayed unchanged. Evidence is under
 `dist/reader-label-space/`; temporary validation services and workers were closed.
 
+On 2026-10-19 runtime `19a5eb0b` delivered connected local columns for authored
+annotations and ordinary footnotes. Both Chrome and WebKit passed 79 compiled
+annotation checks, 18 distant-footnote checks and the installed HTTPS checks:
+63 tablet layouts, 52 kernel labels, 15 footnotes/resize callbacks,
+24 delta/close controls and 12 baseline annotations per engine. Resize callbacks
+now defer paint and geometry writes to the next frame; an observer mutation
+guard rejects the earlier implementation and passes this runtime. All 412 release
+files and 52 asset deliveries match their manifest. The PDE HTML hash, service
+configuration and original PDF state remain unchanged. Evidence is under
+`dist/reader-side-footnotes/`; temporary validation services and workers were closed.
+
 Graphical annotations retain their original CeTZ programs. The browser measures
 marked terms in the original body nodes and sends those rectangles and the chosen
 font size to `/api/graphics` automatically. Overlapping relationships share a scene;
