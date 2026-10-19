@@ -625,12 +625,16 @@ export class TextAnnotations {
         // fallback popover in place until dismissal instead of closing it just
         // to discover the same collision again on the next layout pass.
         this.mode(record, "label");
-        const size = note.getBoundingClientRect();
         const anchor = rects.at(-1);
         const host = this.fragments(record)[0]?.closest(".flow-equation,p");
         const hostBounds = host?.getBoundingClientRect();
         const gutter = groups.has(host) ? groups.get(host).width + 20 : 0;
         const right = hostBounds?.right - gutter;
+        const available = host
+          ? Math.min(area.right, right) - Math.max(area.left, hostBounds.left) - 8
+          : 0;
+        note.style.setProperty("--flow-label-width", `${Math.max(0, available)}px`);
+        const size = note.getBoundingClientRect();
         const ink = [
           ...(host?.querySelectorAll(
             "mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,mi,mn,mo,mtext",
@@ -654,10 +658,7 @@ export class TextAnnotations {
             ink.push(...range.getClientRects());
           }
         }
-        const fits =
-          host &&
-          note.scrollWidth <= note.clientWidth + 1 &&
-          size.width <= Math.min(area.right, right) - Math.max(area.left, hostBounds.left) - 8;
+        const fits = host && note.scrollWidth <= note.clientWidth + 1 && size.width <= available;
         const box = fits
           ? labelPosition(
               anchor,
