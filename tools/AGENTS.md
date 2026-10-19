@@ -12,6 +12,8 @@ Read `../docs/tinymist/dev/reader-architecture.typ` and matching OpenSpec contra
 - `flow-reader/flow_reader/rendering/`: validated geometry, dynamic worker and bounded rendering caches.
 - `flow-reader/flow_reader/services/`: source highlight, source mapping, Codex context, change history and managed service lifecycle.
 - `flow-reader/flow_reader/server/`: accepted document publication, watcher, HTTP routes and static delivery.
+- `flow-reader/terminal/`: terminal-specific options, service ownership, persistent browser, editor bridge, native input/image host and protocol. `terminal.mjs` remains the supported launcher; reuse HTML Reader actions and storage.
+- `flow-reader/web/features/editor-sync/terminal-bridge.js`: opt-in selection/follow adapter and configured-editor capability; keep snapshot/source-write checks in Python services.
 - `flow-reader/{build,serve,manage,focus}.py`: supported executable launchers; keep implementation in the package.
 
 ## Add or extend a feature
@@ -48,4 +50,5 @@ Read `../docs/tinymist/dev/reader-architecture.typ` and matching OpenSpec contra
 - Real compilation: set `FLOW_READER_PACKAGES` and optionally `FLOW_READER_TYPST` for the same suite.
 - Paged frontend: `yarn workspace typst-preview-frontend test run` and `node scripts/build.mjs build:preview`.
 - Run shared tests plus each affected reader's integration tests when changing shared behavior. Moving assets also requires the installed-layout test.
+- Terminal integration: `nvim --headless -u NONE -i NONE -n -l tools/flow-reader/tests/neovim-reader.lua`; run `node tools/flow-reader/tests/terminal-browser.mjs` with `FLOW_READER_PLAYWRIGHT_MODULE` and `FLOW_READER_PACKAGES` for the real Chromium/Neovim check. Native iTerm2 and physical-device checks are distinct.
 - Report feature owner, reused implementation, renderer differences and validation. Do not claim skipped device/browser checks passed.

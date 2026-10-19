@@ -1,6 +1,8 @@
 """Real compiler proof for explicit HTML source highlights."""
 
 import os
+from dataclasses import replace
+from types import SimpleNamespace
 from pathlib import Path
 import shutil
 import sys
@@ -56,6 +58,50 @@ class SourceHighlightTests(unittest.TestCase):
         self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
         self.assertEqual(self.entry.read_text(), "Before #highlight[selected ordinary text] after.")
         self.assertEqual(self.entry.stat().st_mode & 0o777, 0o640)
+
+    def test_absolute_entry_and_absolute_font_directory_use_the_shadow_candidate(self):
+        fonts = self.work / "external-fonts"
+        fonts.mkdir()
+        marker = fonts / "preserve.txt"
+        marker.write_text("Original font directory contents")
+        self.project = replace(self.project, entry=self.entry.resolve(), fonts=(fonts.resolve(),))
+        state = self.compile("Before selected ordinary text after.")
+        fragment = self.fragment(state, "selected ordinary text")
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
+        self.assertEqual(self.entry.read_text(), "Before #highlight[selected ordinary text] after.")
+        self.assertEqual(marker.read_text(), "Original font directory contents")
+        state.compile()
+        self.assertTrue(state.report["contentGatePassed"], state.report)
+
+    def test_verified_highlight_refused_by_editor_never_falls_back_to_disk_write(self):
+        source = "Before selected ordinary text after."
+        state = self.compile(source)
+        fragment = self.fragment(state, "selected ordinary text")
+        edits = []
+        def reject_dirty(path, original, updated):
+            edits.append((path, original, updated))
+            return "modified"
+        state.editor = SimpleNamespace(write=reject_dirty)
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "modified")
+        self.assertEqual(self.entry.read_text(), source)
+        self.assertEqual(edits, [(self.entry.resolve(), source.encode(),
+                                 b"Before #highlight[selected ordinary text] after.")])
+
+    def test_navigation_survives_a_verified_partial_source_highlight(self):
+        state = self.compile("한글 before selected ordinary text after.")
+        fragment = self.fragment(state, "selected ordinary text")
+        before = state.source(state.revision, [fragment])
+        self.assertEqual(before["status"], "located")
+        self.assertEqual(before["column"], len("한글 before ".encode()))
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
+        state.compile()
+        fragment = self.fragment(state, "selected ordinary text")
+        after = state.source(state.revision, [fragment])
+        self.assertEqual(after["status"], "located")
+        self.assertEqual(after["column"], len("한글 before #highlight[".encode()))
+        cursor = state.cursor(state.revision, str(self.entry), after["line"], after["column"])
+        self.assertEqual(cursor["status"], "located")
+        self.assertEqual(cursor["exact"], "한글 before selected ordinary text after.")
 
     def test_imported_source_and_smart_quotes_are_verified(self):
         part = self.root / "part.typ"

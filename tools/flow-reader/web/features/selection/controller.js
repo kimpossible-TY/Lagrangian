@@ -7,8 +7,10 @@ import { ReaderTransport } from "../session/transport.js";
 export { textIndex } from "./dom-selection.js";
 
 export class ReaderSelectionActions {
-  constructor(article) {
+  constructor(article, { canHighlight = () => true, editorServer = null } = {}) {
     this.article = article;
+    this.canHighlight = canHighlight;
+    this.editorServer = editorServer;
     this.listeners = [];
     const listen = (target, type, listener) => {
       if (!target) return;
@@ -28,6 +30,7 @@ export class ReaderSelectionActions {
       document: () => this.manifest,
       selection: () => this.selection,
       sameSelection: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      editorServer: () => this.editorServer,
       enabled: (action) => !(action === "save" ? this.saveButton : this.sourceButton).disabled,
       collapse: () => this.collapse(),
       retain: (selected) => {
@@ -151,7 +154,7 @@ export class ReaderSelectionActions {
     const pending = Boolean(this.source.pending || this.codex.pending);
     const codexTooLarge =
       fragments && [...fragments.map((part) => part.exact).join("\n")].length > 8000;
-    this.sourceButton.disabled = Boolean(tooLarge || pending);
+    this.sourceButton.disabled = Boolean(tooLarge || pending || !this.canHighlight());
     this.saveButton.disabled = Boolean(tooLarge || codexTooLarge || pending);
     this.strikeButton.disabled = Boolean(tooLarge);
     this.sourceButton.hidden = !selected && !this.source.pending;

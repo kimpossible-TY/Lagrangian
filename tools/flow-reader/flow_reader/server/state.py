@@ -12,14 +12,19 @@ from flow_reader.rendering.service import DynamicRenderer
 from flow_reader.services.change_history import ChangeTracker, input_fingerprint
 from flow_reader.services.codex_context import FocusStore
 from flow_reader.services.selection import SelectionActions
+from flow_reader.services.editor_sync import NeovimEditor, UNSPECIFIED_EDITOR
+from flow_reader.services.navigation import SavedSourceNavigation
 
 
 class ReaderState:
-    def __init__(self, project, output, original_url, allow_incomplete, focus_file=None):
+    def __init__(self, project, output, original_url, allow_incomplete, focus_file=None,
+                 *, editor_server=None, nvim="nvim"):
         self.project = project
         self.output = output
         self.original_url = original_url
         self.allow_incomplete = allow_incomplete
+        self.editor_server = editor_server
+        self.editor = NeovimEditor(editor_server, executable=nvim) if editor_server else None
         self.document_id = hashlib.sha256(
             json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
         self.focus = FocusStore(focus_file or output / "focus.json", project, self.document_id)
@@ -34,6 +39,7 @@ class ReaderState:
         self.source_stamp = None
         self.renderer = DynamicRenderer(self)
         self.selection = SelectionActions(self)
+        self.navigation = SavedSourceNavigation(self)
         self.prewarm = False
         self.graphics = {}
         self.canvases = []
@@ -134,6 +140,7 @@ class ReaderState:
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
                   "service": self.focus.service,
+                  "editorServer": self.editor_server,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "semanticCanvases": self.project.semantic_canvases,
                   "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
@@ -151,8 +158,14 @@ class ReaderState:
     def locate(self, revision, fragments):
         return self.selection.locate(revision, fragments)
 
-    def highlight(self, revision, fragments):
-        return self.selection.highlight(revision, fragments)
+    def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR):
+        return self.selection.highlight(revision, fragments, expected_editor)
+
+    def source(self, revision, fragments):
+        return self.navigation.source(revision, fragments)
+
+    def cursor(self, revision, path, line, column):
+        return self.navigation.cursor(revision, path, line, column)
 
     def save_focus(self, revision, fragments, service, viewer_id):
         return self.selection.save_focus(revision, fragments, service, viewer_id)
