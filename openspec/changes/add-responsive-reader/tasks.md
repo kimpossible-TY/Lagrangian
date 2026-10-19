@@ -83,6 +83,9 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 
 ## Adaptive text annotations (selected concepts 1, 3 and 12)
 
+- [x] Expand tablet reading width and reserve side-note width/height only on the annotated host, using the measured note size.
+- [ ] Verify the photographed iPad passage, ordinary paragraph widths, local rails, orientation/font changes and phone annotations; install and verify the Reader.
+
 - [x] Search the nearby free space for all short plain and mathematical names before using a popover, and reserve collision-free label lanes when necessary.
 - [x] Verify the photographed kernel, indexed delta, competing labels, viewport/font changes and long-note controls; install and verify the clean Reader release.
 

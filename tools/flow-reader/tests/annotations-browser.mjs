@@ -248,6 +248,24 @@ try {
   await page.waitForFunction(() =>
     [...document.querySelectorAll(".flow-note")].every((n) => n.dataset.noteMode === "side"),
   );
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.flow-note[data-note-mode="side"]')].every((note) => {
+      const target = [...document.querySelectorAll(`[data-reader-note~="${note.id}"]`)].find(
+        (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+      );
+      const h = target.closest(".flow-equation,p").getBoundingClientRect();
+      const r = note.getBoundingClientRect();
+      return (
+        r.top >= h.top &&
+        r.bottom <= h.bottom + 1 &&
+        r.right <= h.right + 1 &&
+        r.left >=
+          h.right -
+            parseFloat(getComputedStyle(target.closest(".flow-equation,p")).paddingRight) +
+            19
+      );
+    }),
+  );
   check(
     "Wide landscape screens show every original note in the side column",
     await long.isVisible(),
@@ -267,6 +285,55 @@ try {
     "Side notes do not introduce horizontal page movement",
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
   );
+  const localRails = await page.evaluate(() => {
+    const article = document.querySelector("#reader-document");
+    const style = getComputedStyle(article);
+    const contentWidth =
+      article.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const ordinary = [...article.querySelectorAll("p")].find((n) =>
+      n.textContent.startsWith("The minus sign"),
+    );
+    const notes = [...article.querySelectorAll('.flow-note[data-note-mode="side"]')];
+    const groups = [...article.querySelectorAll(".flow-annotation-side")];
+    return {
+      contentWidth,
+      ordinaryWidth: ordinary.clientWidth - parseFloat(getComputedStyle(ordinary).paddingRight),
+      contained: notes.every((note) => {
+        const id = note.id;
+        const target = [...article.querySelectorAll(`[data-reader-note~="${id}"]`)].find(
+          (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+        );
+        const host = target.closest(".flow-equation,p");
+        const h = host.getBoundingClientRect(),
+          r = note.getBoundingClientRect();
+        const padding = parseFloat(getComputedStyle(host).paddingRight);
+        return (
+          host.classList.contains("flow-annotation-side") &&
+          r.left >= h.right - padding + 19 &&
+          r.right <= h.right + 1 &&
+          r.top >= h.top &&
+          r.bottom <= h.bottom + 1
+        );
+      }),
+      untouched: [...article.querySelectorAll(".flow-equation,p")]
+        .filter((n) => !groups.includes(n))
+        .every(
+          (n) =>
+            !n.style.getPropertyValue("--flow-side-width") &&
+            !n.style.getPropertyValue("--flow-side-height"),
+        ),
+    };
+  });
+  check(
+    "Tablet prose uses the wider reading canvas",
+    localRails.contentWidth >= 1000 &&
+      Math.abs(localRails.ordinaryWidth - localRails.contentWidth) < 1,
+  );
+  check(
+    "Side notes fit inside the width and height of their own annotated row",
+    localRails.contained,
+  );
+  check("Unannotated passages reserve no side-note space", localRails.untouched);
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: `${output}/side-landscape.png` });
 
@@ -275,6 +342,10 @@ try {
     () => document.querySelector("#reader-document").dataset.annotationLayout === "compact",
   );
   check("Portrait proportions disable the side column even on a wide tablet", true);
+  check(
+    "Portrait restoration releases every local side reservation",
+    (await page.locator(".flow-annotation-side").count()) === 0,
+  );
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 844 });
     for (const font of [18, 30]) {

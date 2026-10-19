@@ -471,10 +471,15 @@ retain their authored content and source language. Labeled native braces and
 brackets follow the same HTML presentation, while unlabeled grouping decorations
 and the paged output retain their original rendering.
 
-A side column appears only at a viewport width of at least 960px, an aspect ratio
-of at least 1.15, and sufficient right-side space (the larger of 220px or 14
-reading ems, plus a 20px gap). Portrait orientation and large text restore compact
-labels and popovers. Notes follow current mathematical fragments and stack without
+A tablet viewport of at least 768px uses a reading canvas up to 1200px wide,
+including its responsive padding. A side column appears only at a viewport width
+of at least 960px, an aspect ratio of at least 1.15, and sufficient width inside
+the annotated host for readable body and note columns separated by 20px. Short
+notes use their measured width; longer notes use at least 220px or 14 reading ems.
+Only the annotated equation or paragraph reserves that width and the height of
+its own stacked notes. Ordinary passages retain the full reading width. Portrait
+orientation and large text release these reservations and restore compact labels
+and popovers. Notes follow current mathematical fragments and stack without
 overlap. An open popover protects its section and defers source publication until
 it closes. Graphical annotation relationships remain automatically visible.
 

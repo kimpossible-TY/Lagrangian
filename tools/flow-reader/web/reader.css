@@ -729,6 +729,11 @@ button:disabled {
 #reader-document[data-reader-gestures] {
   touch-action: pan-y;
 }
+@media (min-width: 768px) {
+  #reader-document {
+    max-width: 1200px;
+  }
+}
 #reader-document p {
   margin: 0.8em 0;
 }
@@ -1043,7 +1048,11 @@ math svg {
 .flow-annotation-space {
   padding-block-start: var(--flow-annotation-padding, 2.2em);
 }
-[data-annotation-layout="side"] .flow-annotation-space {
+.flow-annotation-side {
+  padding-inline-end: calc(var(--flow-side-width) + 20px);
+  min-block-size: var(--flow-side-height);
+}
+.flow-annotation-side.flow-annotation-space {
   padding-block-start: 0.6em;
 }
 .flow-note[data-note-mode="label"],
