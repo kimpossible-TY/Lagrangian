@@ -681,11 +681,6 @@ async function loadSection(nextManifest, section, options = {}) {
       pending = nextManifest;
       return;
     }
-    if (
-      options.terminalFollow &&
-      (nextManifest.revision !== revision || selectionActive() || recentGesture())
-    )
-      return;
     if (options.update && revision) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
