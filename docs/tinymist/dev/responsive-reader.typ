@@ -569,6 +569,19 @@ layouts and retains unchanged results. Accepted revision changes clear both
 cache levels. After a failed save, cached accepted paint remains available while
 new uncached geometry against changed source is rejected.
 
+Uncached dynamic paint now reuses one Typst watch process, warmed after document
+publication. Geometry requests live in an isolated package overlay; a temporary
+root links the original project entries without modifying them. Completion requires
+the current request nonce, finished dependency output, and the original content
+and warning gates. Revision changes and 256 requests recycle the process; shutdown
+closes it. Worker failure falls back to the original isolated compiler.
+
+The actual PDE eight-decoration probe returned identical SVG and layout data for
+three widths. Cold compilation took 11.7–13.5 seconds; after its initial 11.5-second
+startup, the persistent compiler took 3.9–4.0 seconds. This is server rendering
+latency, excluding network transfer and browser math composition. Evidence lives
+under `dist/reader-decoration-speed/benchmark/`.
+
 The frozen PDE compiler audit identifies 23 supported connections across 12 of
 its 15 graphical annotation programs. This is protocol coverage, not a claim that
 every relationship is now collision-free. The browser fixture uses the original

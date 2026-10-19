@@ -1,5 +1,9 @@
 # Responsive mobile reader alongside the paged preview
 
+Reduce dynamic decoration latency by retaining Typst's incremental compilation
+cache across geometry requests, with unchanged authored output, revision gates,
+bounded worker lifetime, and cold compilation recovery.
+
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local
 with undo and clear. Preserve the existing saved-quotation action.

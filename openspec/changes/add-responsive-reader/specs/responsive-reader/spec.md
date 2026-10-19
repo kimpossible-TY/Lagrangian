@@ -480,3 +480,20 @@ Flow SHALL own reader compilation and project settings. Tail Hosting SHALL expos
 - **THEN** it briefly anticipates before sliding left, while focus and dismissal commit immediately
 - **AND** the exit remains visible without closed-dialog display/overlay transition support
 - **AND** reopening continues from its current motion and reduced motion omits the flourish while retaining swipe-to-open
+### Requirement: Incremental dynamic paint
+
+The Reader SHALL reuse a bounded incremental compiler for uncached dynamic
+decoration, canvas and relationship geometry while preserving authored paint,
+strict content validation, and accepted-source revision checks.
+
+#### Scenario: Consecutive geometry requests
+- **WHEN** reading width, font size, theme or fragment geometry changes
+- **THEN** the service reuses the compiler's evaluated source cache
+- **AND** only complete output carrying the current request identity is accepted
+- **AND** the returned paint matches isolated compilation of the same request
+
+#### Scenario: Worker failure or changed sources
+- **WHEN** the incremental compiler exits or cannot validate its output
+- **THEN** the service closes it and attempts isolated compilation
+- **AND** changed sources and obsolete revisions remain ineligible for uncached paint
+- **AND** service shutdown terminates the worker and removes temporary files
