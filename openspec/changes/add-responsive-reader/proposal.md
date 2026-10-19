@@ -19,8 +19,9 @@ within the equation or paragraph they annotate; ordinary passages regain the
 full reading width immediately before and after that row.
 Match concept 12 with a dot and connector from the annotated term to a local
 column divider, with an equation reference and retained authored formatting.
-Use the same local columns for footnotes, preserving their numbered links and
-the original endnote list when the viewport returns to compact presentation.
+Use the same local columns for eligible footnotes and concept 1 popovers at their
+references in compact presentation. Original numbered links and endnotes remain
+source and diagnostic fallbacks.
 
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local

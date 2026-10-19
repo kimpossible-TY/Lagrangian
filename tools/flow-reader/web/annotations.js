@@ -118,7 +118,12 @@ export class TextAnnotations {
     document.addEventListener("selectionchange", () => this.schedule());
     article.addEventListener("click", (event) => this.activate(event));
     article.addEventListener("keydown", (event) => {
-      if (!["Enter", " "].includes(event.key) || event.target.closest("button,a,input")) return;
+      if (
+        !["Enter", " "].includes(event.key) ||
+        event.target.closest("button,input") ||
+        (event.target.closest("a") && !event.target.closest('a[data-note-interactive="true"]'))
+      )
+        return;
       if (this.activate(event)) event.preventDefault();
     });
     document.addEventListener(
@@ -241,6 +246,8 @@ export class TextAnnotations {
   async load(record) {
     if (record.loading || record.retryAt > Date.now()) return;
     record.loading = true;
+    record.body.setAttribute("aria-busy", "true");
+    this.loadStatus(record, "주석을 불러오는 중…");
     try {
       const body = await record.load();
       if (this.records.get(record.note.id) !== record || !record.note.isConnected) return;
@@ -264,17 +271,50 @@ export class TextAnnotations {
           if (value !== attribute.value) node.setAttribute(attribute.name, value);
         }
       }
-      record.body.append(...body.childNodes);
-      record.load = null;
+      record.body.replaceChildren(...body.childNodes);
       this.prepareNote(record.note);
+      record.load = null;
       this.changed();
       this.schedule();
     } catch {
-      // The original endnote link remains usable; retry after reconnect/resize.
+      if (this.records.get(record.note.id) !== record || !record.note.isConnected) return;
       record.retryAt = Date.now() + 5000;
+      this.loadStatus(record, "주석을 불러오지 못했습니다.", true);
     } finally {
       record.loading = false;
+      record.body.removeAttribute("aria-busy");
+      this.schedule();
     }
+  }
+
+  loadStatus(record, text, retry = false) {
+    const status = document.createElement("div");
+    status.setAttribute("role", "status");
+    setLanguage(status, uiLanguage());
+    status.textContent = text;
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "다시 시도";
+      button.addEventListener("click", () => {
+        record.retryAt = 0;
+        this.load(record);
+      });
+      status.append(" ", button);
+    }
+    record.body.replaceChildren(status);
+  }
+
+  footnoteLinks(record) {
+    return this.fragments(record).flatMap((node) =>
+      [...node.querySelectorAll('a[href^="#"]')].filter((link) => {
+        try {
+          return decodeURIComponent(link.hash.slice(1)) === record.note.dataset.footnoteTarget;
+        } catch {
+          return false;
+        }
+      }),
+    );
   }
 
   footnote(target) {
@@ -349,12 +389,12 @@ export class TextAnnotations {
   mode(record, mode) {
     const { note } = record;
     if (note.dataset.noteMode === mode) return;
-    if (this.active === record) this.close();
+    if (this.active === record) this.close(true);
     note.removeAttribute("popover");
     note.removeAttribute("role");
     note.style.cssText = "";
     note.dataset.noteMode = mode;
-    note.hidden = mode === "popover" || mode === "endnote";
+    note.hidden = mode === "popover";
     if (mode === "popover") {
       if (typeof note.showPopover === "function") note.setAttribute("popover", "auto");
       note.setAttribute("role", "dialog");
@@ -605,7 +645,7 @@ export class TextAnnotations {
       if (note.classList.contains("flow-unresolved") || !record.nodes.length) continue;
       if (sideRecords.has(record)) continue;
       if (record.kind === "footnote") {
-        this.mode(record, "endnote");
+        this.mode(record, "popover");
         continue;
       }
       const rects = this.rectangles(record);
@@ -706,14 +746,16 @@ export class TextAnnotations {
       return;
     }
     for (const record of this.records.values()) {
-      if (record.kind === "footnote") continue;
-      for (const node of this.fragments(record)) {
-        const ids = (node.dataset.readerNote ?? "").split(" ").filter(Boolean);
+      const footnote = record.kind === "footnote";
+      for (const node of footnote ? this.footnoteLinks(record) : this.fragments(record)) {
+        const ids = footnote
+          ? [record.note.id]
+          : (node.dataset.readerNote ?? "").split(" ").filter(Boolean);
         const interactive = ids.some(
           (id) => this.records.get(id)?.note.dataset.noteMode === "popover",
         );
         if (interactive) {
-          node.setAttribute("role", "button");
+          if (!footnote) node.setAttribute("role", "button");
           node.setAttribute("tabindex", "0");
           node.setAttribute("aria-haspopup", "dialog");
           node.setAttribute("aria-controls", ids.join(" "));
@@ -727,7 +769,7 @@ export class TextAnnotations {
             "aria-controls",
             "aria-expanded",
           ])
-            node.removeAttribute(attribute);
+            if (!footnote || attribute !== "role") node.removeAttribute(attribute);
           delete node.dataset.noteInteractive;
         }
       }
@@ -736,7 +778,25 @@ export class TextAnnotations {
   }
 
   activate(event) {
-    if (!window.getSelection()?.isCollapsed || event.target.closest("a,button")) return false;
+    if (!window.getSelection()?.isCollapsed || event.target.closest("button")) return false;
+    const link = event.target.closest("a");
+    if (link) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+      const record = [...this.records.values()].find(
+        (record) =>
+          record.kind === "footnote" &&
+          record.note.dataset.noteMode === "popover" &&
+          this.footnoteLinks(record).includes(link),
+      );
+      if (!record) return false;
+      // Keep the numbered link as a fallback, but consume ordinary activation
+      // before the Reader's anchor navigation can jump to a distant endnote.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (this.active === record) this.close(true);
+      else this.open(record, link);
+      return true;
+    }
     const target = event.target.closest('[data-note-interactive="true"]');
     if (!target) return false;
     const choices = (target.dataset.readerNote ?? "")
@@ -754,6 +814,9 @@ export class TextAnnotations {
     const { note } = record;
     this.active = record;
     record.trigger = target;
+    record.triggerReference = target.closest('[role="doc-noteref"]')?.id;
+    target.setAttribute("aria-expanded", "true");
+    if (record.load) this.load(record);
     note.hidden = false;
     const previous = note.querySelector(".flow-note-next");
     previous?.remove();
@@ -807,6 +870,7 @@ export class TextAnnotations {
   closed(record) {
     delete record.note.dataset.open;
     record.note.hidden = true;
+    record.trigger?.setAttribute("aria-expanded", "false");
     if (this.active === record) this.active = null;
     this.changed();
     this.schedule();
@@ -818,7 +882,16 @@ export class TextAnnotations {
     if (typeof record.note.hidePopover === "function" && record.note.matches(":popover-open"))
       record.note.hidePopover();
     this.closed(record);
-    const target = record.trigger?.isConnected ? record.trigger : this.fragments(record)[0];
+    const links = record.kind === "footnote" ? this.footnoteLinks(record) : [];
+    const target = links.length
+      ? (links.find((link) => link === record.trigger) ??
+        links.find(
+          (link) => link.closest('[role="doc-noteref"]')?.id === record.triggerReference,
+        ) ??
+        links[0])
+      : record.trigger?.isConnected
+        ? record.trigger
+        : this.fragments(record)[0];
     if (focus) target?.focus({ preventScroll: true });
   }
 }

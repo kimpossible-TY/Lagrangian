@@ -301,9 +301,17 @@ The Reader SHALL shade annotated terms without cloning their equations. Short ma
 - **WHEN** a footnote reference is in a host eligible for side presentation
 - **THEN** its complete body appears in the same connected local column, including when its endnote section is not mounted
 - **AND** its number reveals the side note while original numbering, document links, language and canonical body content remain intact
-- **AND** narrow, portrait or large-text layouts retain ordinary footnote links and the original endnote list
+- **AND** narrow, portrait or large-text layouts use concept 1 popovers at their references instead of navigating to the endnote list
 - **AND** stale or failed loads cannot publish a wrong-revision body or break the original link
 - **AND** repeated references, section parking and resize do not duplicate IDs or grow row reservations indefinitely
+
+#### Scenario: Footnotes without side-column space
+- **WHEN** the aspect ratio, host width or reading font prevents concept 12
+- **THEN** activating the numbered reference opens a concept 1 dialog at that reference without changing the URL, history or reading position
+- **AND** native mathematical references and prose references support touch, Enter and Space; Escape and close return focus to the current trigger, while outside activation dismisses the dialog
+- **AND** distant bodies load on activation with visible loading and retryable failure states, without mounting or navigating to the endnote section
+- **AND** loaded notation, authored formatting, language and document links remain intact, and obsolete asynchronous results cannot populate replacement notes
+- **AND** returning to eligible side space closes the dialog and restores connected concept 12 presentation
 
 #### Scenario: Updates while reading a popover
 - **WHEN** an annotation is open during a source update or nearby section parking
