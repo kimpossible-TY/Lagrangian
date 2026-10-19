@@ -582,6 +582,16 @@ startup, the persistent compiler took 3.9–4.0 seconds. This is server renderin
 latency, excluding network transfer and browser math composition. Evidence lives
 under `dist/reader-decoration-speed/benchmark/`.
 
+On 2026-10-19 clean runtime `2905057f` was installed and verified over the
+registered HTTPS route. All 410 release files and 52 asset delivery checks passed;
+the accepted PDE HTML hash, service configuration and original PDF stayed unchanged.
+Fifty targeted compiler/server checks passed. Chrome and WebKit confirmed real
+paint after font changes and retained the 12 baseline and 24 compact-annotation
+checks per engine. HTTPS font-change paint took about 7–8 seconds including queued
+work and browser composition; startup warming still has a cold cost. Both isolated
+service shutdowns terminated their watch worker and removed its temporary root.
+Delivery evidence is under `dist/reader-decoration-speed/deploy/`.
+
 The frozen PDE compiler audit identifies 23 supported connections across 12 of
 its 15 graphical annotation programs. This is protocol coverage, not a claim that
 every relationship is now collision-free. The browser fixture uses the original
