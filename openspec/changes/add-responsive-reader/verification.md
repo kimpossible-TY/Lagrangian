@@ -2345,3 +2345,24 @@ preexisting stopped state. The app-managed Reader is running at PID 78804.
 All owned fixture/preflight services and their compiler workers were stopped.
 Receipts, the earlier rollback and final screenshots remain under
 `dist/reader-note-policy/`. Physical iPad/iPhone execution was not performed.
+
+
+## Compact footnotes use concept 1 — 2026-10-19
+
+Footnotes now use the existing anchored dialog whenever aspect ratio, host width
+or reading size prevents concept 12. Number activation is consumed before endnote
+anchor navigation, retaining the URL, history length and reading position.
+Compact remote bodies load on demand; the dialog exposes loading, retryable
+failure and busy state. Source hrefs and endnotes remain diagnostic fallbacks.
+The body preserves authored formatting, mathematics, language, IDs and links.
+Touch, Enter, Space, close, Escape and rotation transitions are covered.
+
+Actual PDE validation found that asynchronous mathematical composition can
+replace a reference after opening. Focus restoration now resolves the current
+painted numbered link by its original reference identity, including repeated
+references, rather than focusing a disconnected or non-focusable MathML node.
+Chrome and WebKit each pass 31 distant-footnote fixture checks, 86 annotation
+checks and 39 actual PDE footnote checks across landscape, portrait, 390px and
+320px layouts with 18/30px reading fonts. The 22 targeted JavaScript checks pass.
+Evidence is under `dist/reader-compact-footnotes/`; immutable installation is
+pending.

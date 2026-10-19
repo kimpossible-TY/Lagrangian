@@ -499,7 +499,12 @@ The actual equation number is a muted reference; authored formatting is retained
 No explanatory text is invented. Ordinary footnotes
 use these same local columns, loading their revision-bound bodies even when the
 endnote section is not mounted. Their numbers reveal the adjacent note. Compact
-layouts retain the original numbered links and endnote list. Generated reference
+layouts open a concept 1 popover when a numbered reference is activated, without
+jumping to the endnote list or changing history. Compact bodies load on demand;
+the dialog shows loading and retryable failures. Touch, Enter and Space open it;
+close, Escape and outside activation dismiss it, returning focus as appropriate.
+Numbered hrefs and original endnotes remain source/diagnostic fallbacks.
+Generated reference
 UI and footnote projections do not enter canonical body quotations; original
 numbering, links, language and mathematical content remain intact.
 

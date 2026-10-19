@@ -611,23 +611,23 @@ try {
   );
   check("Portrait proportions disable the side column even on a wide tablet", true);
   check(
-    "Portrait removes connector layers and hides footnote projections",
+    "Portrait removes connector layers and prepares closed footnote popovers",
     await page.evaluate(
       () =>
         !document.querySelector(".flow-side-lines") &&
         [...document.querySelectorAll('[data-note-kind="footnote"]')].every((note) => note.hidden),
     ),
   );
+  await reference.scrollIntoViewIfNeeded();
+  const compactURL = page.url();
   await reference.click();
+  await footnote.waitFor({ state: "visible" });
   check(
-    "Compact footnote links navigate to the original endnote",
-    await page.evaluate(
-      (target) =>
-        document.getElementById(target).getBoundingClientRect().top >= 55 &&
-        document.getElementById(target).getBoundingClientRect().top < innerHeight,
-      footnoteTarget,
-    ),
+    "Compact footnote numbers open a local popover without endnote navigation",
+    (await footnote.getAttribute("data-note-mode")) === "popover" && page.url() === compactURL,
   );
+  await footnote.locator(".flow-note-close").click();
+  await footnote.waitFor({ state: "hidden" });
   check(
     "Portrait restoration releases every local side reservation",
     (await page.locator(".flow-annotation-side").count()) === 0,

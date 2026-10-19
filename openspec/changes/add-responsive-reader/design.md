@@ -601,13 +601,20 @@ gutter for a host containing only short names.
 
 Footnote references participate in these same groups. Resolve their bodies from
 the revision-bound section containing the original endnote, even when it is not
-mounted. Load only for eligible side presentation, sanitize with the document
-parser, scope copied IDs, and compose native mathematics at the reading font.
-The side presentation is a generated projection; original footnote anchors,
-backlinks, numbering, body language and compact endnote navigation remain intact.
-Clicking a number in side mode reveals its local note. Repeated references may
-share a note in the same host; unrelated rows reserve no space. Failed or stale
-loads keep the ordinary endnote link usable. Section parking and revision
+mounted. Load for eligible side presentation or on compact reference activation,
+sanitize with the document parser, scope copied IDs, and compose native mathematics
+at the reading font. Original footnote anchors, backlinks, numbering and body
+language remain intact as source and diagnostic fallbacks.
+Clicking a number in side mode reveals its local note. Otherwise consume ordinary
+reference activation before anchor navigation and open the same concept 1 dialog
+used by mannot explanations. Preserve the reading position and URL/history; Enter,
+Space, touch, Escape, outside dismissal and close/focus return remain available.
+Keep the numbered link's href intact and expose its dialog/expanded association.
+Fetch compact bodies lazily, show loading or a retryable failure inside the dialog,
+and ignore modified link activation. Repeated references may share a note in the
+same host; unrelated rows reserve no space. A failed load must not navigate to a
+distant endnote. Rotation or font changes close an active dialog before restoring
+eligible concept 12 columns. Section parking and revision
 replacement release projections and ignore obsolete asynchronous results.
 Remove reservations when the host disconnects or returns to compact mode.
 Drawing and mathematical resize observers queue their scheduling work to the
