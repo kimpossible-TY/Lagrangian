@@ -65,7 +65,12 @@ export class ResponsiveMath {
     Object.assign(this, { article, preserve, changed, selectionActive });
     this.records = new Set();
     this.generation = 0;
-    this.resize = new ResizeObserver(() => this.schedule());
+    // schedule() may retire paint or prepare native geometry. Keep those
+    // writes out of ResizeObserver's current notification delivery cycle.
+    this.resize = new ResizeObserver(() => {
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = requestAnimationFrame(() => this.schedule());
+    });
     this.intersection = new IntersectionObserver(() => this.schedule(), { rootMargin: "1200px" });
     window.addEventListener("resize", () => this.schedule());
     document.addEventListener("selectionchange", () => this.schedule());

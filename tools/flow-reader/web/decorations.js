@@ -9,7 +9,12 @@ export class MathDecorations {
     this.cache = new Map();
     this.notices = new Map();
     this.sequence = 0;
-    this.resize = new ResizeObserver(() => this.schedule());
+    // schedule() may retire paint or prepare native geometry. Keep those
+    // writes out of ResizeObserver's current notification delivery cycle.
+    this.resize = new ResizeObserver(() => {
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = requestAnimationFrame(() => this.schedule());
+    });
     this.intersection = new IntersectionObserver(() => this.schedule(), { rootMargin: "1000px" });
     document.fonts.ready.then(() => this.schedule());
     document.fonts.addEventListener("loadingdone", () => this.schedule());

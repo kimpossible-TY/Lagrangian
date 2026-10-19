@@ -271,6 +271,11 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **AND** ordinary passages before and after that row use the full reading width
 - **AND** rotation, text-size changes and section replacement remove obsolete local reservations
 
+#### Scenario: Side-column width changes update drawings
+- **WHEN** a side-column reservation changes the available width of mathematics or drawings
+- **THEN** resize observer callbacks defer paint invalidation and geometry preparation to the next frame
+- **AND** the layout settles without observer feedback warnings or growing row reservations
+
 #### Scenario: Native labeled braces and brackets
 - **WHEN** a source uses an underbrace, overbrace, underbracket or overbracket with an annotation
 - **THEN** HTML exposes its body as the shaded target and its annotation through the same adaptive presentation

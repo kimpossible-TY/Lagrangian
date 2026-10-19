@@ -198,7 +198,12 @@ export class GraphicalAnnotations {
     this.scenes = new Set();
     this.cache = new Map();
     this.sequence = 0;
-    this.resize = new ResizeObserver(() => this.schedule());
+    // schedule() may retire paint or prepare native geometry. Keep those
+    // writes out of ResizeObserver's current notification delivery cycle.
+    this.resize = new ResizeObserver(() => {
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = requestAnimationFrame(() => this.schedule());
+    });
     this.intersection = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {

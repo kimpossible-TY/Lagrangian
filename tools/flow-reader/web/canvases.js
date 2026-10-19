@@ -17,7 +17,12 @@ export class AdaptiveCanvases {
     this.sequence = 0;
     this.records = [];
     this.cache = new Map();
-    this.resize = new ResizeObserver(() => this.schedule());
+    // schedule() may retire paint or prepare native geometry. Keep those
+    // writes out of ResizeObserver's current notification delivery cycle.
+    this.resize = new ResizeObserver(() => {
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = requestAnimationFrame(() => this.schedule());
+    });
     this.resize.observe(article);
     document.addEventListener("selectionchange", () => this.schedule());
   }
