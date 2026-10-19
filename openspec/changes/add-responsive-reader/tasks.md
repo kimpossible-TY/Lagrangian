@@ -85,7 +85,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 
 - [x] Open compact footnotes in concept 1 popovers at their references, preserving reading position, history, mathematical markers and accessible dismissal.
 - [x] Load distant compact bodies on activation with in-dialog loading/retry and stale-response protection; verify phone, portrait and side-column transitions.
-- [ ] Install the compact-footnote Reader from a clean commit and verify actual HTTPS document and asset delivery.
+- [x] Install the compact-footnote Reader from a clean commit and verify actual HTTPS document and asset delivery.
 
 - [x] Prefer concept 3 for fitting short mannot names at every viewport width; keep footnotes on concept 12 whenever the existing side-space checks pass, and longer mannot notes on concepts 1/12.
 - [x] Preserve label lanes, column bounds and clear connectors when short names share a host with longer notes or footnotes.

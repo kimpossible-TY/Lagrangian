@@ -541,6 +541,18 @@ checks per engine passed 63 tablet layouts, 52 kernel labels, 15 footnotes,
 are unchanged. Evidence is under `dist/reader-note-policy/`; temporary validation
 services and workers were closed.
 
+On 2026-10-19 runtime `a0ac8899` added concept 1 footnote popovers whenever
+concept 12 is unavailable. Number activation retains URL, history and reading
+position; remote loading and retry stay inside the dialog. Focus returns to the
+current mathematical reference even after composition replaces its DOM node.
+Chrome and WebKit each passed 31 distant-footnote and 86 annotation fixture
+checks. Installed HTTPS checks passed 63 tablet layouts, 52 kernel labels,
+39 actual footnotes/resize checks, 24 delta/close controls and 12 baseline
+annotations per engine. All 412 release files and 52 asset deliveries match;
+the PDE HTML, configuration and original PDF state are unchanged. Receipts and
+inspected phone/portrait screenshots are under `dist/reader-compact-footnotes/`;
+temporary validation services and workers were closed.
+
 Graphical annotations retain their original CeTZ programs. The browser measures
 marked terms in the original body nodes and sends those rectangles and the chosen
 font size to `/api/graphics` automatically. Overlapping relationships share a scene;
