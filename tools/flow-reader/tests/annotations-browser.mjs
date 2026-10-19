@@ -40,6 +40,26 @@ const containedClose = (button) => {
 };
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.addInitScript(() => {
+    window.resizeWrites = [];
+    const NativeResizeObserver = window.ResizeObserver;
+    window.ResizeObserver = class extends NativeResizeObserver {
+      constructor(callback) {
+        const writes = new MutationObserver(() => {});
+        super((entries, observer) => {
+          writes.observe(document.documentElement, {
+            subtree: true,
+            attributes: true,
+            childList: true,
+          });
+          writes.takeRecords();
+          callback(entries, observer);
+          window.resizeWrites.push(...writes.takeRecords().map((record) => record.attributeName));
+          writes.disconnect();
+        });
+      }
+    };
+  });
   page.on("pageerror", (error) => errors.push(String(error)));
   await page.goto(entry.href);
   await page.waitForFunction(() => document.querySelector('.flow-note[data-note-mode="label"]'));
@@ -755,6 +775,10 @@ try {
   await touch.locator(`#${longID}`).waitFor({ state: "hidden" });
   check("Touch dismissal also works in dark appearance", true);
   await touch.close();
+  check(
+    "Resize notifications defer all DOM writes until the next frame",
+    await page.evaluate(() => window.resizeWrites.length === 0),
+  );
   check("Browser reports no JavaScript failures", errors.length === 0);
   await writeFile(`${output}/browser-report.json`, JSON.stringify({ checks, errors }, null, 2));
   console.log(JSON.stringify({ checks: checks.length, errors }));

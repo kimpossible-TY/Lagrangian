@@ -2271,3 +2271,14 @@ leader against visible glyphs and equation numbers. Twenty-two JavaScript and
 18 compiler checks passed; the canonical Typst development guide compiled and
 OpenSpec strict validation passed. Evidence is under
 `dist/reader-side-footnotes/`. Final immutable installation verification follows.
+
+The first two installation attempts reverted automatically after WebKit's native
+ResizeObserver feedback warning. Separate pages removed canceled-polling noise,
+then detailed error capture identified `ResizeObserver loop completed with
+undelivered notifications`. Existing drawing/math scheduling methods can mutate
+layout synchronously inside their observer callbacks. Queueing those four
+callbacks to animation frames removes that feedback. A mutation guard around
+each observer callback fails against a45cd866 and passes after the correction.
+Chrome and WebKit each passed 79 annotation checks and 15 actual PDE footnote
+checks with this guard; the 22 JavaScript checks and strict OpenSpec validation
+also passed. Successful immutable deployment remains the final pending step.

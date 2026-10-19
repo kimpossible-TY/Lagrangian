@@ -593,6 +593,10 @@ share a note in the same host; unrelated rows reserve no space. Failed or stale
 loads keep the ordinary endnote link usable. Section parking and revision
 replacement release projections and ignore obsolete asynchronous results.
 Remove reservations when the host disconnects or returns to compact mode.
+Drawing and mathematical resize observers queue their scheduling work to the
+next animation frame: scheduling can retire obsolete SVG paint, mark mathematical
+views pending or prepare native geometry, and must not mutate observed layout
+inside the current ResizeObserver notification delivery cycle.
 Viewport, font, section and mathematical changes update their geometry with
 reading-anchor preservation. Original note nodes move between presentations without losing
 rich content, language or IDs. Open notes protect their section and defer source
