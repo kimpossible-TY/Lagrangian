@@ -464,6 +464,9 @@ choose a concept 1 popover or concept 12 side column according to the available
 space. Ordinary footnotes always use concept 12 when the side-space checks pass.
 Short names that share a host with side notes keep their label lanes inside the
 text/math cell; connecting lines avoid these labels.
+Indexed names compose against the available host width rather than their own
+intrinsic output width. Font changes and movement during asynchronous composition
+retain inline notation and use the current text-cell origin for overflow checks.
 Plain names and indexed mathematical names
 both search nearby horizontal gaps and the space above preceding equation lines.
 Inline names include surrounding prose line fragments in their collision checks.
@@ -521,6 +524,17 @@ guard rejects the earlier implementation and passes this runtime. All 412 releas
 files and 52 asset deliveries match their manifest. The PDE HTML hash, service
 configuration and original PDF state remain unchanged. Evidence is under
 `dist/reader-side-footnotes/`; temporary validation services and workers were closed.
+
+On 2026-10-19 runtime `08f82cb3` delivered the per-kind annotation policy:
+short mannot names prefer nearby labels even on wide screens; longer mannot
+notes use popovers or local columns, and eligible footnotes use local columns.
+Chrome and WebKit each passed 86 compiled annotation checks, including mixed
+note kinds and asynchronous delta movement during font changes. Installed HTTPS
+checks per engine passed 63 tablet layouts, 52 kernel labels, 15 footnotes,
+24 delta/close controls and 12 baseline annotations. All 412 release files and
+52 asset deliveries match; the PDE HTML, configuration and original PDF state
+are unchanged. Evidence is under `dist/reader-note-policy/`; temporary validation
+services and workers were closed.
 
 Graphical annotations retain their original CeTZ programs. The browser measures
 marked terms in the original body nodes and sends those rectangles and the chosen
