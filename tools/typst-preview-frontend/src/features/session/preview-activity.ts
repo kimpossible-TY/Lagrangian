@@ -1,16 +1,12 @@
 import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
+import {
+  ActivityNotice,
+  activityPhase,
+  type ActivityPhase,
+} from "../../../../reader-common/session/activity.js";
 
-export type ActivityPhase =
-  | "preparing"
-  | "connecting"
-  | "waiting"
-  | "compiling"
-  | "rendering"
-  | "selection-held"
-  | "reconnecting"
-  | "compile-error"
-  | "render-error"
-  | "ready";
+export { activityPlacement } from "../../../../reader-common/session/activity.js";
+export type { ActivityPhase } from "../../../../reader-common/session/activity.js";
 
 /** Transport and compiler completion must not masquerade as a rendered document. */
 export class PreviewActivityState {
@@ -22,13 +18,13 @@ export class PreviewActivityState {
   private failed = false;
 
   get phase(): ActivityPhase {
-    if (this.connection === "reconnecting") return "reconnecting";
-    if (this.failed) return "render-error";
-    if (this.connection !== "connected") return this.connection;
-    if (this.compiler === "error") return "compile-error";
-    if (this.pending) return this.held ? "selection-held" : "rendering";
-    if (this.compiler === "compiling") return "compiling";
-    return this.rendered ? "ready" : "waiting";
+    return activityPhase({
+      connection: this.connection,
+      error: this.failed ? "render-error" : null,
+      compiler: this.compiler,
+      pending: this.pending ? (this.held ? "selection-held" : "rendering") : null,
+      rendered: this.rendered,
+    });
   }
 
   connecting() {
@@ -73,127 +69,32 @@ export class PreviewActivityState {
   }
 }
 
-const labels: Record<ActivityPhase, [string, string]> = {
-  preparing: ["미리보기 준비 중…", "Preparing preview…"],
-  connecting: ["서버에 연결 중…", "Connecting to server…"],
-  waiting: ["문서를 기다리는 중…", "Waiting for document…"],
-  compiling: ["문서 컴파일 중…", "Compiling document…"],
-  rendering: ["화면에 그리는 중…", "Rendering document…"],
-  "selection-held": ["텍스트 선택 중 · 갱신 일시정지", "Update paused while text is selected"],
-  reconnecting: ["연결 끊김 · 다시 연결 중…", "Disconnected · reconnecting…"],
-  "compile-error": ["컴파일 오류 · 소스를 확인해 주세요", "Compilation failed · check source"],
-  "render-error": [
-    "미리보기를 표시하지 못했습니다 · 새로고침해 주세요",
-    "Preview failed · reload to retry",
-  ],
-  ready: ["", ""],
-};
-
-export function activityPlacement(
-  viewport: Pick<VisualViewport, "offsetLeft" | "offsetTop" | "width" | "scale">,
-  insets: { left: number; right: number; top: number },
-) {
-  const scale = viewport.scale || 1;
-  const left = Math.max(12, insets.left) / scale;
-  const right = Math.max(12, insets.right) / scale;
-  return {
-    left: `${viewport.offsetLeft + (viewport.width + left - right) / 2}px`,
-    top: `${viewport.offsetTop + (Math.max(12, insets.top) + 40) / scale}px`,
-    maxWidth: `${Math.max(1, (viewport.width - left - right) * scale)}px`,
-    transform: `translateX(-50%) scale(${1 / scale})`,
-    transformOrigin: "top center",
-  };
-}
-
-/** One indicator belongs to one connection lifetime, including its retries. */
+/** Paged engine events and native touch selection adapt the shared notice. */
 export class PreviewActivity {
   readonly state = new PreviewActivityState();
-  private element = document.getElementById("typst-preview-status")!;
-  private label = this.element.querySelector<HTMLElement>(".typst-preview-status-label")!;
-  private hint = this.element.querySelector<HTMLElement>(".typst-preview-status-hint")!;
-  private releaseButton = this.element.querySelector<HTMLButtonElement>(
-    ".typst-preview-status-release",
-  )!;
-  private phase?: ActivityPhase;
-  private delayed?: ReturnType<typeof setTimeout>;
-  private disposed = false;
-  private korean = navigator.language.startsWith("ko");
-  private preserveSelection = (event: Event) => event.preventDefault();
-  private releaseSelection = (event: Event) => {
-    event.stopPropagation();
-    if (this.disposed || this.state.phase !== "selection-held") return;
-    const root = document.getElementById("typst-app");
-    if (root && hasTouchSelection(root)) root.ownerDocument.getSelection()?.removeAllRanges();
-    // The renderer resumes on selectionchange and owns completion feedback.
-  };
-  private position = () => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const style = getComputedStyle(document.documentElement);
-    const inset = (edge: string) =>
-      Number.parseFloat(style.getPropertyValue(`--preview-safe-${edge}`)) || 0;
-    Object.assign(
-      this.element.style,
-      activityPlacement(viewport, {
-        left: inset("left"),
-        right: inset("right"),
-        top: inset("top"),
-      }),
-    );
-  };
+  private notice: ActivityNotice;
 
   constructor() {
-    this.releaseButton.textContent = this.korean
-      ? "선택 해제 후 갱신"
-      : "Clear selection and update";
-    // Cancelling pointerdown suppresses the subsequent tap click in WebKit.
-    this.releaseButton.addEventListener("mousedown", this.preserveSelection);
-    this.releaseButton.addEventListener("click", this.releaseSelection);
-    window.visualViewport?.addEventListener("resize", this.position);
-    window.visualViewport?.addEventListener("scroll", this.position);
-    this.refresh();
+    const element = document.getElementById("typst-preview-status")!;
+    const root = () => document.getElementById("typst-app");
+    this.notice = new ActivityNotice(element, {
+      phase: () => this.state.phase,
+      hasSelection: () => {
+        const app = root();
+        return Boolean(app && hasTouchSelection(app));
+      },
+      releaseSelection: () => {
+        const app = root();
+        if (app && hasTouchSelection(app)) app.ownerDocument.getSelection()?.removeAllRanges();
+      },
+    });
   }
 
   refresh() {
-    if (this.disposed) return;
-    const phase = this.state.phase;
-    if (phase !== this.phase) {
-      this.phase = phase;
-      clearTimeout(this.delayed);
-      this.hint.hidden = true;
-      this.releaseButton.hidden = phase !== "selection-held";
-      if (phase === "selection-held") {
-        this.hint.textContent = this.korean
-          ? "선택을 해제해야 새 내용이 표시됩니다."
-          : "Clear the selection to display pending changes.";
-        this.hint.hidden = false;
-      }
-      this.element.hidden = phase === "ready";
-      this.element.dataset.phase = phase;
-      const busy = !["ready", "selection-held", "compile-error", "render-error"].includes(phase);
-      this.element.dataset.busy = String(busy);
-      this.label.textContent = labels[phase][this.korean ? 0 : 1];
-      if (busy) {
-        this.delayed = setTimeout(() => {
-          if (this.disposed) return;
-          this.hint.textContent = this.korean
-            ? "평소보다 오래 걸리고 있습니다 · 서버 상태를 확인해 주세요"
-            : "Taking longer than usual · check the server";
-          this.hint.hidden = false;
-        }, 15000);
-      }
-    }
-    this.position();
+    this.notice.refresh();
   }
 
   dispose() {
-    this.disposed = true;
-    clearTimeout(this.delayed);
-    this.releaseButton.removeEventListener("mousedown", this.preserveSelection);
-    this.releaseButton.removeEventListener("click", this.releaseSelection);
-    this.releaseButton.hidden = true;
-    window.visualViewport?.removeEventListener("resize", this.position);
-    window.visualViewport?.removeEventListener("scroll", this.position);
-    this.element.hidden = true;
+    this.notice.dispose();
   }
 }

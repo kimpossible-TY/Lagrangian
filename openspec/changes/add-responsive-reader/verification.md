@@ -2494,3 +2494,50 @@ adapter and selection skill. Receipts and screenshots are under
 pre-deployment snapshot is `backup-20261019-165909` and the final rollout recovery
 snapshot is `backup-scoped-20261019-171252`. No native app/engine release or
 physical iOS verification was performed.
+
+## HTML document activity notice (2026-10-19)
+
+The paged reader's activity priority, localized notice controller, wait timer,
+selection-release interaction, visual-viewport placement and styles were extracted
+to `tools/reader-common/session/activity.js` and `activity.css`. Both reader adapters
+now consume this implementation; the separate HTML notice UI was removed.
+HTTP compiler state and sequenced section loading/publication stay with the HTML
+adapter, while WebSocket/DOM events and native touch-selection checks stay with
+the paged adapter. Theme colors and toolbar offsets remain local. The existing
+shared change-navigation policy is also reused.
+Healthy publication hides the notice without adding document spacing. Native
+math/figure composition retains its existing local feedback. Obsolete loads,
+connection errors and compiler/content-gate errors cannot report false success.
+
+Validation:
+- 119 shared/HTML Node tests passed, including six HTML signal-adapter tests and
+  three shared activity priority, placement and notice-lifetime tests.
+- The standard Python suite passed: 129 tests, with 41 compiler-dependent skips.
+  This includes first-party asset delivery and the immutable installed-layout test.
+- All seven serving tests then passed with the installed Flow project's package
+  directory, `/Users/taeyoung/Library/Application Support/typst/packages`, and
+  `/opt/homebrew/bin/typst`, including real compilation and failed-save retention.
+  A first attempt with the generic package cache lacked
+  `@local/project-references:0.1.0`; using the configured project packages resolved it.
+- All 82 paged frontend Vitest tests passed. The preview TypeScript check and
+  `node scripts/build.mjs build:preview` passed; the generated frontend embeds the
+  shared CSS and controller, preserving initial feedback before WASM initialization.
+  Yarn was unavailable, so the three
+  `test:readers` commands were executed directly with the local Node/Python/Vitest.
+- `activity-browser.mjs` passed in Chromium (installed Chrome) and WebKit with
+  deterministic API responses and the actual Reader shell: initial compilation,
+  loading, live updates, selections before/during fetch, touch and keyboard
+  release, modal waits, compile/load/connection failure and recovery, 320/390/768px
+  light/dark layouts and reduced motion. Screenshots were visually inspected.
+- The existing real-engine `tests/preview/performance-smoke.mjs` passed with the
+  rebuilt frontend and unchanged installed engine in both Chromium and WebKit:
+  300-page initial rendering, live edits, held updates, native touch and keyboard
+  selection release, distant pages, zoom, theme changes and reconnect. Receipts:
+  `/tmp/flow-shared-activity-pdf-chromium.json` and
+  `/tmp/flow-shared-activity-pdf-webkit.json`. These are isolated temporary services;
+  no installed frontend or running project was replaced.
+- Generated documentation, Prettier, strict OpenSpec validation and diff whitespace
+  checks passed.
+
+This change has not been deployed to either running reader or verified on a
+physical iPhone. No native app or engine rebuild was needed for these frontend assets.

@@ -93,8 +93,24 @@ replace it only after crossing that threshold. A future mounted heading must not
 claim preceding body content. On each opening, center the current link within
 the outline's own scrollport and focus it with `preventScroll` so keyboard
 navigation starts there without moving the article.
-Hide the normal accepted-document status line and its spacing. Loading, compiling,
-connection and publication diagnostics retain their existing status region.
+Hide the normal accepted-document status line and its spacing. Development
+diagnostics retain their existing inline region. `reader-common/session/activity.js`
+and `activity.css` own the paged reader's extracted activity priority, localized
+labels, notice controller, selection-release interaction, wait timer, visual-viewport
+placement and presentation. Both readers consume that implementation. Concrete
+session adapters retain WebSocket/renderer events or HTTP/revision/section signals,
+native selection operations, and theme/toolbar offsets. The HTML notice reports
+the actual HTTP state, accepted-content
+loading and DOM publication; compiler success alone cannot dismiss it. An older
+load completion or failure cannot replace newer activity, and connection and
+compiler failures take precedence over cached-document publication. Selection,
+open annotations/dialogs and reading gestures hold updates with a static paused
+notice; only a real article text selection offers an explicit clear-selection
+action. Releasing it resumes the normal refresh path without claiming completion.
+Use the Reader's existing theme palette, safe-area insets and reduced-motion
+preference; the notice is gesture-transparent except for its button. Dispose its
+listeners and refresh timer with the session. Mathematical/figure composition
+continues to expose its own existing local loading and failure notices.
 Keep the reading panels free of instructional prose: no gesture hints, outline
 footer instructions, highlight storage explainer or step-by-step empty-state
 guidance. Retain control names, concise empty states and operational diagnostics.

@@ -1,5 +1,30 @@
 ## ADDED Requirements
 
+### Requirement: Visible saved-document activity
+The HTML Reader SHALL reuse the paged reader's shared activity priority, localized notice controller and styles. Concrete adapters SHALL own transport and rendering signals. The notice SHALL show compilation, loading and publication, hide only after current accepted content is displayed, and preserve local mathematical and figure feedback.
+
+#### Scenario: Mobile reading during an update
+- **WHEN** the reader scrolls, changes theme or changes the visual viewport during an update
+- **THEN** the notice remains readable within the visible safe area
+- **AND** it respects reduced motion and allows document gestures except on its explicit selection-release button
+
+#### Scenario: Saved edit and successful publication
+- **WHEN** a saved edit is compiling or its accepted content is being fetched and mounted
+- **THEN** the notice identifies the known activity with a loading ring
+- **AND** it hides after that content is displayed, without adding healthy-document spacing
+
+#### Scenario: Reading interaction holds an update
+- **WHEN** accepted content is waiting for a native selection, annotation, dialog or reading gesture to end
+- **THEN** a static notice explains why the update is paused without a loading ring
+- **AND** an article text selection offers an explicit keyboard-accessible clear-selection action that preserves selection until activation
+- **AND** publication resumes through the normal refresh path after the interaction ends
+
+#### Scenario: Failed or stale work
+- **WHEN** connection, compilation or section loading fails
+- **THEN** its notice remains visible while the last accepted document stays readable
+- **AND** cached content and obsolete request completions cannot clear a newer failure or pending update
+- **AND** successful retry resumes normal activity and disposes no replacement session's state
+
 ### Requirement: Last visual edit navigation
 The HTML Reader SHALL use the paged preview's persistent visual-change and render-before-jump behavior with reflowable body targets. The server SHALL retain the last accepted visual edit per document independently of connected viewers. A new entry or reload SHALL restore that edit; a live viewer SHALL follow each newly accepted edit once. A direct named link and browser history navigation SHALL retain their destination.
 

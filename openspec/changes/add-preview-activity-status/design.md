@@ -10,7 +10,7 @@ The browser initializes a WASM renderer before opening its WebSocket. Managed th
 
 ## Decisions
 
-- Include the initial indicator in the HTML with inline base styles so bundle/WASM loading cannot leave an unexplained blank screen. A browser controller owns subsequent labels, safe-area placement and cleanup.
+- Include the initial indicator in the HTML with base styles inlined by Vite so bundle/WASM loading cannot leave an unexplained blank screen. `tools/reader-common/session/activity.js` and `activity.css` own the activity priority, localized notice controller, safe-area placement and cleanup reused by the paged and HTML readers. Concrete session adapters retain transport/rendering events, native selection operations, theme colors and toolbar offsets.
 - Retain the latest compiler status in a per-pipeline Tokio watch channel. Each webview sends its initial state and later changes as `compile-status,compiling|success|error`. This handles errors before connection and coalesces obsolete states without changing the editor protocol.
 - Separate transport, compiler and pending-render state. Compiler success means waiting for document delivery; only a completed document render clears activity. Viewport-only completion cannot dismiss compilation or errors. Reconnect clears pending render state; disconnected or errored states take precedence over old completion callbacks.
 - Add optional rendering/selection/error lifecycle hooks to the shared DOM context. They report real work and held updates without inspecting private state on a polling timer. The indicator does not steal gestures and respects reduced motion.

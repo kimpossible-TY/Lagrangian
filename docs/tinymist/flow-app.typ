@@ -46,6 +46,14 @@ Use remote reading when the preview runs on your Mac and you want to read on ano
 
 *Result:* The device reads the same live project through its configured HTTPS address. Flow binds the backend to loopback; `http://127.0.0.1:<port>/` refers to the device itself when opened on a phone and cannot reach the Mac. Entering an HTTPS address in Flow does not create a Tailscale route. When you change the local port, update the Tail Hosting route too.
 
+The HTML Reader shows a small notice below the toolbar while saved changes compile,
+load and appear on screen, including when you have scrolled down. It disappears
+after the accepted content is displayed. If text selection pauses an update,
+*Clear selection and update* (선택 해제 후 갱신) releases it explicitly. Open notes,
+the outline and reading gestures also delay updates until they end. Connection,
+compilation and loading errors remain visible while the previous document stays
+readable; mathematics and figures retain their own local composition feedback.
+
 = Select and copy text
 
 Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device's Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Highlight, Save for Codex, and Red strike.
