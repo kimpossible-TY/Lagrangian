@@ -559,12 +559,22 @@ Labeled native under/over braces and brackets use the same semantic association
 in HTML; unlabeled grouping and paged output retain
 their original presentation.
 
+At tablet widths of at least 768px, the reading canvas expands to a maximum
+1200px border box, retaining its responsive inner padding. The 76ch compact
+limit no longer narrows every tablet passage to leave a global annotation gutter.
 An adjacent note column is enabled only at a viewport width of at least 960px,
-an aspect ratio of at least 1.15 and enough actual right-side space for a readable
-column (at least 220px or 14 reading ems, plus a 20px gap). Thus portrait screens
-and large reading fonts retain compact presentation. Notes align to their targets
-and stack without overlap; viewport, font, section and mathematical changes update
-their geometry. Original note nodes move between presentations without losing
+an aspect ratio of at least 1.15 and an annotated host wide enough to retain
+at least 360px or 26 reading ems for its text/math, plus 220px or 14 reading ems
+for a note and a 20px gap. Portrait screens, narrow nested hosts and large reading
+fonts retain compact presentation. Measure short notes at their intrinsic width;
+longer notes use the readable note width. Group notes by their original equation
+or paragraph and reserve only that group's width plus the gap at the host's
+inline end. A minimum block size accommodates its stacked note bodies locally;
+note placement is bounded by that host to avoid recursive height growth.
+Ordinary passages and unannotated equations keep the complete reading width.
+Remove reservations when the host disconnects or returns to compact mode.
+Viewport, font, section and mathematical changes update their geometry with
+reading-anchor preservation. Original note nodes move between presentations without losing
 rich content, language or IDs. Open notes protect their section and defer source
 publication. Unresolved notes retain visible diagnostics. This supersedes the
 earlier always-inline text-note requirement; graphical relationships remain

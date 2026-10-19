@@ -46,11 +46,11 @@ test("short names count graphemes and words, while rich and explanatory notes op
 });
 
 test("side notes need both landscape proportions and real space at the reading font", () => {
-  const wide = { width: 1280, height: 800, articleRight: 900, fontSize: 18 };
+  const wide = { width: 1280, height: 800, articleWidth: 1128, fontSize: 18 };
   assert.equal(sideAnnotations(wide), true);
   assert.equal(sideAnnotations({ ...wide, height: 1400 }), false);
   assert.equal(sideAnnotations({ ...wide, width: 900 }), false);
-  assert.equal(sideAnnotations({ ...wide, articleRight: 1100 }), false);
+  assert.equal(sideAnnotations({ ...wide, articleWidth: 600 }), false);
   assert.equal(sideAnnotations({ ...wide, fontSize: 30 }), false);
 });
 

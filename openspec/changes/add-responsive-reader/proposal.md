@@ -10,6 +10,11 @@ names compete; a local collision alone must not turn a fitting short name into
 a popover. Keep longer explanations and physically oversized names accessible
 through the existing popover controls.
 
+Use the tablet's wider reading canvas instead of limiting the entire document
+to a narrow book column. Side notes reserve their measured width and height only
+within the equation or paragraph they annotate; ordinary passages regain the
+full reading width immediately before and after that row.
+
 Match the paged preview's explicit selection actions: persist Highlight in the
 Typst source after compiler verification, and keep red strikes browser-local
 with undo and clear. Preserve the existing saved-quotation action.

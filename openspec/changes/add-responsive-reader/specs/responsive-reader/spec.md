@@ -258,10 +258,18 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **AND** repeated touch activation and explicit dismissal remain usable
 
 #### Scenario: Viewport and text-size changes
-- **WHEN** a viewport is at least 960px wide with aspect ratio at least 1.15 and at least 220px or 14 reading ems available to the right, plus a 20px gap
-- **THEN** annotations occupy a readable side column and stack without overlap
+- **WHEN** a viewport is at least 960px wide with aspect ratio at least 1.15 and an annotated host can fit a readable body and side note separated by 20px
+- **THEN** annotations occupy a side column inside that host and stack without overlap
 - **AND** a portrait viewport, narrower width or larger reading font restores labels and popovers automatically
 - **AND** the source equation and its copied/selected text remain unchanged by the presentation switch
+
+#### Scenario: Tablet passages without annotations
+- **WHEN** a tablet reader uses a viewport of at least 768px
+- **THEN** the reading canvas expands up to 1200px instead of retaining a document-wide 76ch limit
+- **AND** side-note width and height are reserved only in the annotated equation or paragraph
+- **AND** a short indexed delta consumes its measured note width rather than a full fixed gutter
+- **AND** ordinary passages before and after that row use the full reading width
+- **AND** rotation, text-size changes and section replacement remove obsolete local reservations
 
 #### Scenario: Native labeled braces and brackets
 - **WHEN** a source uses an underbrace, overbrace, underbracket or overbracket with an annotation

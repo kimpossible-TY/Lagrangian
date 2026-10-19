@@ -10,11 +10,11 @@ export function shortAnnotation(text, rich = false) {
   return !rich && name.length > 0 && length <= 24 && name.split(" ").length <= 3;
 }
 
-export function sideAnnotations({ width, height, articleRight, fontSize }) {
+export function sideAnnotations({ width, height, articleWidth, fontSize }) {
   return (
     width >= 960 &&
     width / height >= 1.15 &&
-    width - articleRight >= Math.max(220, fontSize * 14) + 20
+    articleWidth >= Math.max(360, fontSize * 26) + Math.max(220, fontSize * 14) + 20
   );
 }
 
@@ -78,6 +78,7 @@ export class TextAnnotations {
     Object.assign(this, { article, preserve, changed });
     this.records = new Map();
     this.reserved = new Map();
+    this.sides = new Map();
     this.resize = new ResizeObserver(() => this.schedule());
     this.resize.observe(article);
     this.mutations = new MutationObserver(() => this.schedule());
@@ -86,7 +87,10 @@ export class TextAnnotations {
     window.addEventListener("scroll", () => this.schedule(), { passive: true });
     window.visualViewport?.addEventListener("resize", () => this.schedule());
     window.visualViewport?.addEventListener("scroll", () => this.schedule());
-    document.fonts.addEventListener("loadingdone", () => this.schedule());
+    document.fonts.addEventListener("loadingdone", () => {
+      for (const record of this.records.values()) delete record.sideSize;
+      this.schedule();
+    });
     document.addEventListener("selectionchange", () => this.schedule());
     article.addEventListener("click", (event) => this.activate(event));
     article.addEventListener("keydown", (event) => {
@@ -158,11 +162,19 @@ export class TextAnnotations {
     this.records.clear();
     for (const host of this.reserved.keys()) host.style.removeProperty("--flow-annotation-padding");
     this.reserved.clear();
+    for (const host of this.sides.keys()) this.clearSide(host);
+    this.sides.clear();
     cancelAnimationFrame(this.frame);
     this.frame = null;
   }
 
   sync() {
+    for (const host of this.sides.keys()) {
+      if (!host.isConnected) {
+        this.clearSide(host);
+        this.sides.delete(host);
+      }
+    }
     for (const host of this.reserved.keys()) {
       if (!host.isConnected) {
         host.style.removeProperty("--flow-annotation-padding");
@@ -223,6 +235,87 @@ export class TextAnnotations {
     } else note.removeAttribute("aria-label");
   }
 
+  clearSide(host) {
+    host.classList.remove("flow-annotation-side");
+    host.style.removeProperty("--flow-side-width");
+    host.style.removeProperty("--flow-side-height");
+  }
+
+  sideGroups(enabled, fontSize) {
+    const groups = new Map();
+    if (enabled) {
+      for (const record of this.records.values()) {
+        if (record.note.classList.contains("flow-unresolved")) continue;
+        const host = this.fragments(record)[0]?.closest(".flow-equation,p");
+        if (
+          !host ||
+          !sideAnnotations({
+            width: document.documentElement.clientWidth,
+            height: innerHeight,
+            articleWidth: host.getBoundingClientRect().width,
+            fontSize,
+          })
+        )
+          continue;
+        if (!groups.has(host)) groups.set(host, { records: [] });
+        groups.get(host).records.push(record);
+      }
+    }
+    for (const [host, group] of groups) {
+      const width = Math.max(220, fontSize * 14);
+      group.width = 0;
+      for (const record of group.records) {
+        this.mode(record, "side");
+        let natural = width;
+        if (record.short) {
+          const key = `${fontSize}:${[...record.body.querySelectorAll(".flow-math-view")]
+            .map((node) => node.dataset.mathState)
+            .join(",")}`;
+          if (record.sideSize?.key !== key) {
+            record.note.style.width = "max-content";
+            record.sideSize = { key, width: Math.ceil(record.note.getBoundingClientRect().width) };
+          }
+          natural = record.sideSize.width;
+        }
+        group.width = Math.max(group.width, Math.min(width, natural));
+      }
+      for (const record of group.records) {
+        const value = `${group.width}px`;
+        if (record.note.style.width !== value) record.note.style.width = value;
+      }
+      group.height =
+        group.records.reduce((sum, record) => sum + record.note.getBoundingClientRect().height, 0) +
+        (group.records.length - 1) * 16;
+      const style = getComputedStyle(host);
+      group.top = host.classList.contains("flow-annotation-space")
+        ? parseFloat(style.fontSize) * 0.6
+        : parseFloat(style.paddingTop);
+      group.bottom = parseFloat(style.paddingBottom);
+      group.minimum = Math.ceil(group.height + group.top + group.bottom);
+    }
+    const changed =
+      [...this.sides.keys()].some((host) => !groups.has(host)) ||
+      [...groups].some(([host, group]) => {
+        const previous = this.sides.get(host);
+        return !previous || previous.width !== group.width || previous.minimum !== group.minimum;
+      });
+    if (changed) {
+      this.preserve(() => {
+        for (const host of this.sides.keys()) if (!groups.has(host)) this.clearSide(host);
+        for (const [host, group] of groups) {
+          host.classList.add("flow-annotation-side");
+          host.style.setProperty("--flow-side-width", `${group.width}px`);
+          host.style.setProperty("--flow-side-height", `${group.minimum}px`);
+        }
+        this.sides = groups;
+      });
+      this.changed();
+      this.schedule();
+      return null;
+    }
+    return groups;
+  }
+
   layout() {
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
@@ -231,7 +324,10 @@ export class TextAnnotations {
     const side = sideAnnotations({
       width: document.documentElement.clientWidth,
       height: innerHeight,
-      articleRight: area.right,
+      articleWidth:
+        area.width -
+        parseFloat(getComputedStyle(this.article).paddingLeft) -
+        parseFloat(getComputedStyle(this.article).paddingRight),
       fontSize,
     });
     const layout = side ? "side" : "compact";
@@ -254,15 +350,29 @@ export class TextAnnotations {
         this.article.dataset.annotationLayout = layout;
       });
       this.changed();
-      this.schedule();
-      return;
+    }
+    const groups = this.sideGroups(side, fontSize);
+    if (!groups) return;
+    const sideRecords = new Set();
+    for (const [host, group] of groups) {
+      const bounds = host.getBoundingClientRect();
+      const target = this.rectangles(group.records[0])[0];
+      let top = Math.max(
+        bounds.top + group.top,
+        Math.min(target?.top ?? bounds.top, bounds.bottom - group.bottom - group.height),
+      );
+      for (const record of group.records) {
+        sideRecords.add(record);
+        this.place(record.note, bounds.right - group.width, top);
+        top += record.note.getBoundingClientRect().height + 16;
+      }
     }
     const labels = [];
     const spacing = new Map();
-    let railBottom = -Infinity;
     for (const record of this.records.values()) {
       const { note } = record;
       if (note.classList.contains("flow-unresolved") || !record.nodes.length) continue;
+      if (sideRecords.has(record)) continue;
       const rects = this.rectangles(record);
       if (!rects.length) {
         if (this.active === record) this.close();
@@ -270,13 +380,7 @@ export class TextAnnotations {
         continue;
       }
       const target = rects[0];
-      if (side) {
-        this.mode(record, "side");
-        note.style.width = `${Math.min(320, document.documentElement.clientWidth - area.right - 20)}px`;
-        const top = Math.max(target.top - area.top, railBottom);
-        this.place(note, area.right + 20, area.top + top);
-        railBottom = top + note.getBoundingClientRect().height + 16;
-      } else if (
+      if (
         record.short &&
         this.active !== record &&
         target.bottom > -500 &&
