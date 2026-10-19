@@ -25,3 +25,8 @@ Validation: 26 focused activity, selection and theme unit tests; frontend TypeSc
 
 - [x] 5.1 Build and verify a signed app from the clean selection-feedback commit, preserving the existing signing identity.
 - [x] 5.2 Install with recovery backup, restore the previously running profiles, and verify production HTML and both-theme document delivery.
+
+## 6. Shared activity installation
+
+- [x] 6.1 Install the shared activity implementation in the signed 0.1.26 native app and immutable HTML Reader release, preserving profile state and recovery backups.
+- [x] 6.2 Verify both new-engine browser suites, installed signatures and actual PDE rendering; record delivery in the responsive-reader verification log.
