@@ -554,6 +554,14 @@ the PDE HTML, configuration and original PDF state are unchanged. Receipts and
 inspected phone/portrait screenshots are under `dist/reader-compact-footnotes/`;
 temporary validation services and workers were closed.
 
+On 2026-10-19 runtime `7439a4c8` set concept 12 mannot and footnote typography
+to 80% of the body reading size, including native mathematics. Chrome and WebKit
+each passed 86 annotation fixture checks, 20 installed font/presentation checks
+and 39 actual PDE footnote checks. All 412 release files and 52 asset deliveries
+match; the PDE HTML, configuration and original PDF state are unchanged.
+Evidence is under `dist/reader-side-font/`; temporary validation services and
+workers were closed.
+
 Graphical annotations retain their original CeTZ programs. The browser measures
 marked terms in the original body nodes and sends those rectangles and the chosen
 font size to `/api/graphics` automatically. Overlapping relationships share a scene;

@@ -2403,3 +2403,23 @@ also passes 20 font and transition probes per engine at 13/18/24px body sizes
 and 1024/1280px landscape widths. The development guide compiles and strict
 OpenSpec validation passes. Deployment verification follows under
 `dist/reader-side-font/`.
+
+
+Earlier deployment attempts restored the prior release after browser-probe
+failures. Diagnostics separated closed nested-note mathematics from each note's
+own body, excluded inert mathematical staging IDs from published-ID checks,
+waited for composed reference nodes and centered the actual visible trigger
+before recording click movement. The popup font check now selects non-short
+explanations, since scrolling to a short name can correctly turn it into a
+concept 3 label. No production JavaScript change was needed.
+
+Runtime 7439a4c8 is installed from a clean detached checkout. Chrome and WebKit
+each pass 20 installed HTTPS font/presentation checks and 39 actual PDE footnote
+checks. All 412 immutable files and 52 local/registered-HTTPS asset deliveries
+match. PDE HTML SHA256 remains
+`1600aed6d29adda15410eed83d27fc89a343c7fd0bb2a8d3614938b651a6cd6b`.
+Configuration is byte-identical, the original PDF profile retains its preexisting
+stopped state, and the managed Reader is running at PID 42055. All owned fixture,
+preflight and compiler workers were stopped. Screenshots and delivery, earlier
+rollback and cleanup receipts remain under `dist/reader-side-font/`.
+Physical iOS execution was not performed.
