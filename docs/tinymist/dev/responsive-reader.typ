@@ -458,13 +458,19 @@ lazy-loaded assets. SVG drawings with interactive links remain inline.
 Text annotations keep the original marked expression once. A short plain or
 compact indexed mathematical name, such as an indexed delta,
 (at most 24 graphemes and three words) appears above its shaded target when it
-fits without covering mathematics. Plain names and indexed mathematical names
+fits without covering mathematics. These short names
+keep this concept 3 preference even on wide screens. Longer mannot explanations
+choose a concept 1 popover or concept 12 side column according to the available
+space. Ordinary footnotes always use concept 12 when the side-space checks pass.
+Short names that share a host with side notes keep their label lanes inside the
+text/math cell; connecting lines avoid these labels.
+Plain names and indexed mathematical names
 both search nearby horizontal gaps and the space above preceding equation lines.
 Inline names include surrounding prose line fragments in their collision checks.
 Competing names gain bounded extra rows above the equation while preserving the
 reading anchor; font and viewport changes recalculate those rows. A local ink
 collision alone does not open a fitting short name. Longer, rich or physically
-oversized notes open in an anchored popover by tap, Enter or Space. Close, Escape and outside activation
+oversized notes without sufficient side space open in an anchored popover by tap, Enter or Space. Close, Escape and outside activation
 dismiss the popover. Its 44px close target and focus indicator stay inset within
 the rounded card. Selection gestures retain their normal behavior. Notes
 retain their authored content and source language. Labeled native braces and
@@ -475,7 +481,8 @@ A tablet viewport of at least 768px uses a reading canvas up to 1200px wide,
 including its responsive padding. A side column appears only at a viewport width
 of at least 960px, an aspect ratio of at least 1.15, and sufficient width inside
 the annotated host for readable body and note columns separated by 20px. Short
-notes use their measured width; longer notes use at least 220px or 14 reading ems.
+names keep nearby labels and reserve no side gutter; longer side notes use at
+least 220px or 14 reading ems.
 Only the annotated equation or paragraph reserves that width and the height of
 its own stacked notes. Ordinary passages retain the full reading width. Portrait
 orientation and large text release these reservations and restore compact labels
@@ -485,8 +492,8 @@ it closes. Graphical annotation relationships remain automatically visible.
 
 Side columns include a local vertical divider and an accent connector with a dot
 at the annotated target. Connectors avoid intervening text and mathematical ink.
-The actual equation number is a muted reference; authored short names use a
-distinct title treatment. No explanatory text is invented. Ordinary footnotes
+The actual equation number is a muted reference; authored formatting is retained.
+No explanatory text is invented. Ordinary footnotes
 use these same local columns, loading their revision-bound bodies even when the
 endnote section is not mounted. Their numbers reveal the adjacent note. Compact
 layouts retain the original numbered links and endnote list. Generated reference

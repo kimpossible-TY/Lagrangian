@@ -536,7 +536,7 @@ before and after rendering still exclude changed or failed saves.
 
 Authored text annotations retain their original bodies and source language, with
 explicit associations to every rendered fragment of their shaded targets. On
-compact screens, plain names and compact mathematical names with indices of at
+all screens, plain names and compact mathematical names with indices of at
 most 24 graphemes and three words use a small label above the term when it fits
 without obscuring mathematical ink. Both plain and mathematical names search
 horizontal gaps between measured glyphs, surrounding prose line fragments and earlier labels, and rows above
@@ -545,7 +545,10 @@ vertical and horizontal distance from the target. If no row fits, reserve an
 additional label-height row with reading-anchor preservation, bounded by the
 host's short-note count. Reflow clears these extra rows before recomputing them;
 scrolling reuses the same geometry and disconnected hosts release their state.
-Defer extra spacing while mathematics is still pending. A name whose intrinsic
+Defer extra spacing while the host mathematics is still pending. A short note's
+native mathematical bounds may reserve a bounded row before its own composition
+finishes, so hiding the note cannot prevent its width from ever being measured.
+A name whose intrinsic
 width exceeds the host's readable width uses a popover. Longer and rich
 annotations also open an anchored popover by tap or keyboard. Escape,
 outside activation and an explicit close button dismiss it; focus returns on
@@ -566,8 +569,11 @@ An adjacent note column is enabled only at a viewport width of at least 960px,
 an aspect ratio of at least 1.15 and an annotated host wide enough to retain
 at least 360px or 26 reading ems for its text/math, plus 220px or 14 reading ems
 for a note and a 20px gap. Portrait screens, narrow nested hosts and large reading
-fonts retain compact presentation. Measure short notes at their intrinsic width;
-longer notes use the readable note width. Group notes by their original equation
+fonts retain compact presentation. Side notes use the readable note width.
+A wide viewport does not override a
+short mannot name's label preference: keep concept 3 for those names and use
+concepts 1/12 for longer explanations. Footnotes always take concept 12 when
+eligible. Group side notes by their original equation
 or paragraph and reserve only that group's width plus the gap at the host's
 inline end. A minimum block size accommodates its stacked note bodies locally;
 note placement is bounded by that host to avoid recursive height growth.
@@ -578,9 +584,13 @@ Each local group has a visible vertical divider spanning its annotated row.
 An unobtrusive accent leader and endpoint dot connect each marked fragment to
 that divider; route the leader above intervening text/math ink instead of
 crossing it. Show the host's actual equation number as muted reference UI and
-style an authored short name as its title, without inventing explanatory prose.
+retain the authored formatting without inventing explanatory prose.
 Remove generated leaders and reference UI from compact presentation and logical
 copy text. Their geometry must not increase the reserved row on every repaint.
+When a short label shares a host with a longer side note or footnote, preserve
+its label padding and limit its placement to the text/math cell before the
+gutter. Treat those visible labels as connector obstacles. Reserve no side
+gutter for a host containing only short names.
 
 Footnote references participate in these same groups. Resolve their bodies from
 the revision-bound section containing the original endnote, even when it is not

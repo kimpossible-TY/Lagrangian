@@ -5,6 +5,9 @@ cache across geometry requests, with unchanged authored output, revision gates,
 bounded worker lifetime, and cold compilation recovery.
 
 Place short plain and mathematical annotation names in nearby measured free space.
+Prefer concept 3 for fitting short mannot names even on wide screens. Ordinary
+footnotes use concept 12 whenever the side-space checks pass; longer mannot
+explanations choose concept 1 or 12 from the available width.
 Search around preceding equation lines and reserve additional label rows when
 names compete; a local collision alone must not turn a fitting short name into
 a popover. Keep longer explanations and physically oversized names accessible
@@ -15,7 +18,7 @@ to a narrow book column. Side notes reserve their measured width and height only
 within the equation or paragraph they annotate; ordinary passages regain the
 full reading width immediately before and after that row.
 Match concept 12 with a dot and connector from the annotated term to a local
-column divider, with an equation reference and distinct authored short title.
+column divider, with an equation reference and retained authored formatting.
 Use the same local columns for footnotes, preserving their numbered links and
 the original endnote list when the viewport returns to compact presentation.
 
@@ -27,7 +30,7 @@ icons and labels; keep undo and clear in a separate review capsule.
 
 The current saved-document preview fixes content to printed page geometry. A phone reader must zoom or rotate to read ordinary paragraphs, equations, and figure labels. Add a distinct HTML reading output and frontend to tinymist-flow, sharing the original Typst sources with the existing paged output.
 
-The reader preserves headings, mathematical notation, numbering, references, footnotes, and annotations. Paragraphs reflow at the selected font size. Equations and figures are composed to the available reading width at readable text sizes. Essential body content is readable continuously without zoom, horizontal panning or slide navigation. Authored text annotations use short labels above their shaded targets and tap-to-open anchored popovers for longer explanations. A sufficiently wide landscape viewport presents these notes in an adjacent column. Annotation bodies and source language remain intact without copying the target equation into a second block. Reader updates preserve an active selection or annotation popover and follow accepted visual edits after it ends; recent reading gestures defer that navigation while retaining the reading position.
+The reader preserves headings, mathematical notation, numbering, references, footnotes, and annotations. Paragraphs reflow at the selected font size. Equations and figures are composed to the available reading width at readable text sizes. Essential body content is readable continuously without zoom, horizontal panning or slide navigation. Authored text annotations use short labels above their shaded targets and tap-to-open anchored popovers for longer explanations. A sufficiently wide landscape viewport presents longer notes and footnotes in an adjacent column. Annotation bodies and source language remain intact without copying the target equation into a second block. Reader updates preserve an active selection or annotation popover and follow accepted visual edits after it ends; recent reading gestures defer that navigation while retaining the reading position.
 
 Implement the reader as independent modules within this repository. Flow owns compilation and project settings; Tail Hosting exposes the new endpoint. Keep the installed paged service and address available throughout development and rollout. Validate the full PDE document, not only a simplified demo, before making the mobile reader the default mobile entry.
 

@@ -113,7 +113,6 @@ export class TextAnnotations {
     window.visualViewport?.addEventListener("resize", () => this.schedule());
     window.visualViewport?.addEventListener("scroll", () => this.schedule());
     document.fonts.addEventListener("loadingdone", () => {
-      for (const record of this.records.values()) delete record.sideSize;
       this.schedule();
     });
     document.addEventListener("selectionchange", () => this.schedule());
@@ -382,6 +381,9 @@ export class TextAnnotations {
     if (enabled) {
       for (const record of this.records.values()) {
         if (record.note.classList.contains("flow-unresolved")) continue;
+        // Short mannot names keep their nearby labels even on a wide screen.
+        // Footnotes and longer explanations use the available side column.
+        if (record.kind === "text" && record.short) continue;
         const host = this.fragments(record)[0]?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li");
         if (
           !host ||
@@ -403,8 +405,7 @@ export class TextAnnotations {
     }
     for (const [host, group] of groups) {
       group.lines = this.sides.get(host)?.lines;
-      const width = Math.max(220, fontSize * 14);
-      group.width = 0;
+      group.width = Math.max(220, fontSize * 14);
       for (const record of group.records) {
         const reference =
           record.kind === "footnote"
@@ -412,21 +413,8 @@ export class TextAnnotations {
             : (host.querySelector(".flow-equation-number")?.textContent.trim() ?? "");
         if (record.reference.textContent !== reference) {
           record.reference.textContent = reference;
-          delete record.sideSize;
         }
         this.mode(record, "side");
-        let natural = width;
-        if (record.short) {
-          const key = `${fontSize}:${[...record.body.querySelectorAll(".flow-math-view")]
-            .map((node) => node.dataset.mathState)
-            .join(",")}`;
-          if (record.sideSize?.key !== key) {
-            record.note.style.width = "max-content";
-            record.sideSize = { key, width: Math.ceil(record.note.getBoundingClientRect().width) };
-          }
-          natural = record.sideSize.width;
-        }
-        group.width = Math.max(group.width, Math.min(width, natural));
       }
       for (const record of group.records) {
         const value = `${group.width}px`;
@@ -436,7 +424,9 @@ export class TextAnnotations {
         group.records.reduce((sum, record) => sum + record.note.getBoundingClientRect().height, 0) +
         (group.records.length - 1) * 16;
       const style = getComputedStyle(host);
-      group.top = Math.max(8, parseFloat(style.fontSize) * 0.6);
+      group.top = host.classList.contains("flow-annotation-space")
+        ? parseFloat(style.paddingTop)
+        : Math.max(8, parseFloat(style.fontSize) * 0.6);
       group.bottom = parseFloat(style.paddingBottom);
       group.minimum = Math.ceil(group.height + group.top + group.bottom);
     }
@@ -463,7 +453,7 @@ export class TextAnnotations {
     return groups;
   }
 
-  connect(host, group) {
+  connect(host, group, labels) {
     const previous = this.sides.get(host);
     let lines = previous?.lines;
     if (!lines) {
@@ -489,7 +479,9 @@ export class TextAnnotations {
       top: rect.top - bounds.top,
       bottom: rect.bottom - bounds.top,
     });
-    const ink = inkRectangles(host).map(local);
+    const ink = inkRectangles(host)
+      .concat(labels.filter((box) => box.top < bounds.bottom && box.bottom > bounds.top))
+      .map(local);
     const targets = group.records.map((record) => ({
       record,
       target: this.rectangles(record).at(-1),
@@ -605,7 +597,6 @@ export class TextAnnotations {
         this.place(record.note, bounds.right - group.width, top);
         top += record.note.getBoundingClientRect().height + 16;
       }
-      this.connect(host, group);
     }
     const labels = [];
     const spacing = new Map();
@@ -638,6 +629,8 @@ export class TextAnnotations {
         const anchor = rects.at(-1);
         const host = this.fragments(record)[0]?.closest(".flow-equation,p");
         const hostBounds = host?.getBoundingClientRect();
+        const gutter = groups.has(host) ? groups.get(host).width + 20 : 0;
+        const right = hostBounds?.right - gutter;
         const ink = [
           ...(host?.querySelectorAll(
             "mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,mi,mn,mo,mtext",
@@ -664,26 +657,23 @@ export class TextAnnotations {
         const fits =
           host &&
           note.scrollWidth <= note.clientWidth + 1 &&
-          size.width <=
-            Math.min(area.right, hostBounds.right) - Math.max(area.left, hostBounds.left) - 8;
+          size.width <= Math.min(area.right, right) - Math.max(area.left, hostBounds.left) - 8;
         const box = fits
           ? labelPosition(
               anchor,
               size,
               {
                 left: Math.max(area.left, hostBounds.left) + 4,
-                right: Math.min(area.right, hostBounds.right) - 4,
+                right: Math.min(area.right, right) - 4,
                 top: hostBounds.top + 3,
               },
               [...ink, ...labels],
             )
           : null;
-        if (
-          !box &&
-          fits &&
-          !host.querySelector('.flow-math-view[data-math-state="pending"]') &&
-          !note.querySelector('.flow-math-view[data-math-state="pending"]')
-        ) {
+        if (!box && fits && !host.querySelector('.flow-math-view[data-math-state="pending"]')) {
+          // A pending note still has measurable native math. Give it a bounded
+          // label row so it can stay visible long enough to finish composing;
+          // hiding it as a popover would leave its width unmeasurable forever.
           const count = [...this.records.values()].filter(
             (other) =>
               other.short && this.fragments(other)[0]?.closest(".flow-equation,p") === host,
@@ -702,6 +692,7 @@ export class TextAnnotations {
         }
       } else this.mode(record, "popover");
     }
+    for (const [host, group] of groups) this.connect(host, group, labels);
     if (spacing.size) {
       this.preserve(() => {
         for (const [host, { rows, padding }] of spacing) {

@@ -24,7 +24,7 @@ $ frac(alpha + beta + gamma, mark(x, tag: #<denominator>)) = 1 $
 
 $ underbrace(e^i(e_j), delta_j^i) = delta_j^i $
 
-$ mark(lambda, tag: #<stacked>) = 1 $
+$ mark(lambda, tag: #<stacked>) = 1 #footnote[This longer footnote shares its equation with three short annotation names.] $
 #annot(<stacked>)[first identifier]
 #annot(<stacked>)[second identifier]
 #annot(<stacked>)[third identifier]

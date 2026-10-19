@@ -2295,3 +2295,24 @@ its preexisting stopped state. The managed Reader is running; all owned
 fixture/preflight services and their compiler workers were stopped. Delivery,
 rollback-attempt and cleanup receipts remain under
 `dist/reader-side-footnotes/`.
+
+## Per-kind annotation priorities — 2026-10-19
+
+The user clarified that “2” meant the existing concept 3 label. Short mannot
+names now keep concept 3 at every width; longer explanations choose concepts
+1/12 using the existing side-space checks. Ordinary footnotes continue to take
+concept 12 whenever eligible. A short-only host reserves no side gutter. Mixed
+hosts retain label padding, bound labels to the math/text cell and route side
+leaders around those labels. Obsolete intrinsic short-side measurements were
+removed.
+
+Actual PDE WebKit validation exposed a pending-note measurement deadlock: hiding
+an indexed delta as a closed popover prevented its mathematical width from
+being measured. Once the host is ready, native note bounds can reserve one
+bounded label row while its own composition finishes. The actual tablet test
+now waits for the delta's composed mathematical view, as well as its label mode.
+Chrome and WebKit each passed 82 compiled annotation/mixed-footnote checks and
+63 actual PDE tablet checks. The 15 actual PDE footnote checks per engine and
+22 JavaScript checks passed. OpenSpec strict validation and the canonical
+Typst development guide compiled successfully. Evidence is under
+`dist/reader-note-policy/`; immutable deployment verification remains pending.
