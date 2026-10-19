@@ -266,7 +266,9 @@ try {
     () => document.querySelector("#reader-document").dataset.annotationLayout === "side",
   );
   await page.waitForFunction(() =>
-    [...document.querySelectorAll(".flow-note")].every((n) => n.dataset.noteMode === "side"),
+    [...document.querySelectorAll('.flow-note[data-note-short="false"]')].every(
+      (n) => n.dataset.noteMode === "side",
+    ),
   );
   await page.waitForFunction(() =>
     [...document.querySelectorAll('.flow-note[data-note-mode="side"]')].every((note) => {
@@ -287,7 +289,7 @@ try {
     }),
   );
   check(
-    "Wide landscape screens show every original note in the side column",
+    "Wide landscape screens show longer explanations in the side column",
     await long.isVisible(),
   );
   check(
@@ -367,7 +369,7 @@ try {
   await page.waitForFunction(
     () =>
       document.querySelectorAll('.flow-note[data-note-kind="footnote"][data-note-mode="side"]')
-        .length === 3,
+        .length === 4,
   );
   await layoutPasses();
   const connected = await page.evaluate(() => {
@@ -392,7 +394,7 @@ try {
     });
   });
   check(
-    "Every annotation and footnote has a thin unfilled connector, target dot and local divider",
+    "Every side note and footnote has a thin unfilled connector, target dot and local divider",
     connected,
   );
   check(
@@ -428,14 +430,93 @@ try {
     ),
   );
   check(
-    "The kernel side title uses its actual equation reference and accent weight",
-    await kernel.evaluate(
-      (note) =>
-        note.querySelector(".flow-note-reference").textContent === "(1)" &&
-        Number(getComputedStyle(note.querySelector(".flow-note-body")).fontWeight) >= 600,
-    ),
+    "Short names never reserve a side column of their own on wide screens",
+    await kernel.evaluate((note) => {
+      const target = [...document.querySelectorAll(`[data-reader-note~="${note.id}"]`)].find(
+        (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+      );
+      return !target.closest(".flow-equation").classList.contains("flow-annotation-side");
+    }),
   );
-  const footnote = page.locator('[data-note-kind="footnote"]').first();
+  for (const [id, name] of [
+    [ids.find((n) => n.text === "kernel").id, "kernel"],
+    [deltaID, "indexed delta"],
+  ]) {
+    await page.evaluate(
+      (id) =>
+        [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+          .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+          ?.scrollIntoView({ block: "center" }),
+      id,
+    );
+    await page.waitForFunction(
+      (id) => document.getElementById(id)?.dataset.noteMode === "label",
+      id,
+    );
+    check(
+      `Wide-screen ${name} still uses a nearby label`,
+      await page.locator(`#${id}`).isVisible(),
+    );
+  }
+  const mixed = ids.filter((n) => n.text.endsWith("identifier")).map((n) => n.id);
+  await page.evaluate(
+    (id) =>
+      [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+        .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+        ?.scrollIntoView({ block: "center" }),
+    mixed[0],
+  );
+  await page.waitForFunction(
+    (ids) => ids.every((id) => document.getElementById(id)?.dataset.noteMode === "label"),
+    mixed,
+  );
+  check(
+    "Short names share a host with a side footnote without entering its column",
+    await page.evaluate((ids) => {
+      const labels = ids.map((id) => document.getElementById(id));
+      const target = [...document.querySelectorAll(`[data-reader-note~="${ids[0]}"]`)].find(
+        (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+      );
+      const host = target.closest(".flow-equation"),
+        bounds = host.getBoundingClientRect();
+      const edge = bounds.right - parseFloat(getComputedStyle(host).paddingRight);
+      const footnoteID = [...host.querySelectorAll("[data-reader-note]")]
+        .flatMap((node) => node.dataset.readerNote.split(" "))
+        .find((id) => document.getElementById(id)?.dataset.noteKind === "footnote");
+      const footnote = document.getElementById(footnoteID);
+      const labelBoxes = labels.map((label) => label.getBoundingClientRect());
+      const paths = [...host.nextElementSibling.querySelectorAll(".flow-side-connector")];
+      const clear = paths.every((path) => {
+        const matrix = path.getScreenCTM(),
+          length = path.getTotalLength();
+        for (let distance = 0; distance <= length; distance++) {
+          const p = path.getPointAtLength(distance).matrixTransform(matrix);
+          if (
+            labelBoxes.some(
+              (box) => p.x > box.left && p.x < box.right && p.y > box.top && p.y < box.bottom,
+            )
+          )
+            return false;
+        }
+        return true;
+      });
+      return (
+        host.classList.contains("flow-annotation-side") &&
+        footnote?.dataset.noteMode === "side" &&
+        paths.length > 0 &&
+        clear &&
+        labels.every(
+          (label) =>
+            label.getBoundingClientRect().right <= edge + 1 &&
+            label.getBoundingClientRect().top >= bounds.top,
+        )
+      );
+    }, mixed),
+  );
+  const footnote = page
+    .locator('[data-note-kind="footnote"]')
+    .filter({ hasText: "The original footnote emphasis" })
+    .first();
   const footnoteTarget = await footnote.getAttribute("data-footnote-target");
   check(
     "Footnotes preserve author emphasis, math and cross references",
@@ -452,7 +533,7 @@ try {
       const ids = [...document.querySelectorAll("[id]")].map((node) => node.id);
       return (
         new Set(ids).size === ids.length &&
-        document.querySelectorAll('[role="doc-endnotes"] li').length === 3
+        document.querySelectorAll('[role="doc-endnotes"] li').length === 4
       );
     }),
   );

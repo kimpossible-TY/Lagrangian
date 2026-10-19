@@ -225,7 +225,7 @@ The reader SHALL lay out ordinary text, mathematical expressions, figures, and g
 - **AND** unnumbered equations retain the full available width
 
 ### Requirement: Adaptive authored text annotations
-The Reader SHALL shade annotated terms without repeating their equations in a separate explanation block. Short plain or compact indexed mathematical names SHALL appear above the target when they fit; longer, rich or colliding annotations SHALL open in an anchored popover. A side column SHALL be used only when viewport aspect ratio and actual available width permit readable notes. Original note content, language, IDs and fragment associations MUST survive presentation changes.
+The Reader SHALL shade annotated terms without cloning their equations. Short mannot names SHALL prefer nearby labels (concept 3), including on wide screens. Longer mannot explanations SHALL use popovers (concept 1) or eligible side columns (concept 12). Footnotes SHALL use eligible side columns. Eligibility SHALL retain the viewport and host-space checks. Original content, language, IDs and associations MUST survive presentation changes.
 
 #### Scenario: Short and long annotations on a phone
 - **WHEN** a reader views an annotated equation in a compact viewport
@@ -251,6 +251,7 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **AND** all competing short names remain visible without overlapping each other or mathematical ink
 - **AND** inline names also avoid the surrounding prose line fragments
 - **AND** viewport/font changes and scrolling recompute stable, bounded placement
+- **AND** a note whose mathematical typesetting is pending can reserve a bounded native label row once its host is ready, so it remains measurable
 
 #### Scenario: A short label is physically too wide
 - **WHEN** a short name exceeds the readable host width and the reader opens its fallback popover
@@ -259,7 +260,8 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 
 #### Scenario: Viewport and text-size changes
 - **WHEN** a viewport is at least 960px wide with aspect ratio at least 1.15 and an annotated host can fit a readable body and side note separated by 20px
-- **THEN** annotations occupy a side column inside that host and stack without overlap
+- **THEN** longer mannot explanations and ordinary footnotes occupy a side column inside that host and stack without overlap
+- **AND** fitting short names remain labels above their targets, without reserving a side gutter of their own
 - **AND** a portrait viewport, narrower width or larger reading font restores labels and popovers automatically
 - **AND** the source equation and its copied/selected text remain unchanged by the presentation switch
 
@@ -267,7 +269,7 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **WHEN** a tablet reader uses a viewport of at least 768px
 - **THEN** the reading canvas expands up to 1200px instead of retaining a document-wide 76ch limit
 - **AND** side-note width and height are reserved only in the annotated equation or paragraph
-- **AND** a short indexed delta consumes its measured note width rather than a full fixed gutter
+- **AND** a short indexed delta remains a nearby label without reserving a side gutter
 - **AND** ordinary passages before and after that row use the full reading width
 - **AND** rotation, text-size changes and section replacement remove obsolete local reservations
 
@@ -275,6 +277,12 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 - **WHEN** a side-column reservation changes the available width of mathematics or drawings
 - **THEN** resize observer callbacks defer paint invalidation and geometry preparation to the next frame
 - **AND** the layout settles without observer feedback warnings or growing row reservations
+
+#### Scenario: Mixed labels and side notes in the same host
+- **WHEN** short mannot names share an equation or paragraph with longer explanations or footnotes on a wide screen
+- **THEN** the short names keep concept 3 and the eligible longer notes and footnotes use concept 12
+- **AND** label rows remain available above the text/math cell and do not extend into the note column
+- **AND** connecting leaders avoid both mathematical ink and visible short labels
 
 #### Scenario: Native labeled braces and brackets
 - **WHEN** a source uses an underbrace, overbrace, underbracket or overbracket with an annotation
@@ -284,7 +292,7 @@ The Reader SHALL shade annotated terms without repeating their equations in a se
 #### Scenario: Connected local side columns
 - **WHEN** an authored annotation uses the wide-screen side presentation
 - **THEN** a visible local divider and accent leader with a target dot connect its marked term to the note column without covering intervening ink
-- **AND** the actual equation number and authored short title provide a clear hierarchy without invented explanation text
+- **AND** the actual equation number and retained authored formatting provide a clear hierarchy without invented explanation text
 - **AND** leaders and generated reference UI do not enter canonical copy text or persist in compact mode
 
 #### Scenario: Footnotes beside their references
