@@ -92,7 +92,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Keep colliding short-name popovers open through layout measurement, reproduce the reported phone tap failure, and verify keyboard/touch dismissal.
 - [x] Install the short-name popover correction from a clean commit and verify the reported PDE tap flow over registered HTTPS.
 - [x] Allow compact indexed mathematical names as short labels and inset the complete close control/focus ring within the popover; verify the photographed PDE delta and keyboard/touch controls.
-- [ ] Install the compact-math and close-control correction from a clean commit and verify registered HTTPS delivery.
+- [x] Install the compact-math and close-control correction from a clean commit and verify registered HTTPS delivery.
 
 ## Last visual edit navigation
 
