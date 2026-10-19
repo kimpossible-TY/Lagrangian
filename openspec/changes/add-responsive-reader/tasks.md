@@ -90,7 +90,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Prepare a clean annotation-only commit and verify its isolated runtime against the actual configured PDE document.
 - [x] Install the immutable Reader release and verify registered HTTPS delivery, adaptive annotations and unchanged original PDF service.
 - [x] Keep colliding short-name popovers open through layout measurement, reproduce the reported phone tap failure, and verify keyboard/touch dismissal.
-- [ ] Install the short-name popover correction from a clean commit and verify the reported PDE tap flow over registered HTTPS.
+- [x] Install the short-name popover correction from a clean commit and verify the reported PDE tap flow over registered HTTPS.
 
 ## Last visual edit navigation
 
