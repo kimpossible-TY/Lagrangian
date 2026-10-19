@@ -311,8 +311,8 @@ export class TextAnnotations {
       });
       this.changed();
       this.schedule();
-      return null;
     }
+    // The caller places notes against the updated host bounds in this pass.
     return groups;
   }
 
@@ -352,7 +352,6 @@ export class TextAnnotations {
       this.changed();
     }
     const groups = this.sideGroups(side, fontSize);
-    if (!groups) return;
     const sideRecords = new Set();
     for (const [host, group] of groups) {
       const bounds = host.getBoundingClientRect();
