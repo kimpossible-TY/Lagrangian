@@ -145,6 +145,7 @@ describe("mobile selection render lifetime", () => {
     selection.isCollapsed = true;
     const frames: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("document", { documentElement: {} });
     vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: () => "white" }));
     vi.spyOn(TypstDocumentContext.prototype as any, "installRescaleHandler").mockImplementation(
@@ -158,6 +159,49 @@ describe("mobile selection render lifetime", () => {
     await frames.shift()!(0);
     expect(render).not.toHaveBeenCalled();
     expect(ctx.isRendering).toBe(false);
+  });
+
+  it("serializes incoming document deltas while an asynchronous renderer is active", async () => {
+    const { root, selection } = fixture();
+    selection.isCollapsed = true;
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal("document", { documentElement: {} });
+    vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: () => "white" }));
+    vi.spyOn(TypstDocumentContext.prototype as any, "installRescaleHandler").mockImplementation(
+      () => {},
+    );
+    const ctx = new TypstDocumentContext({
+      hookedElem: root,
+      windowElem: {},
+      kModule: {},
+      retrieveDOMState: () => ({ width: 400, height: 800, boundingRect: { top: 0, left: 0 } }),
+    } as any);
+    const process = vi.spyOn(ctx as any, "processQueue").mockReturnValue(true);
+    let release!: () => void;
+    const render = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)));
+    ctx.r = { rescale: vi.fn(), rerender: render, postRender: vi.fn() };
+    ctx.onDidRender = vi.fn();
+    ctx.addChangement(["diff-v1", "first"]);
+    const running = frames.shift()!(0);
+    ctx.addChangement(["diff-v1", "second"]);
+    ctx.addChangement(["diff-v1", "third"]);
+    expect(frames).toHaveLength(0);
+    expect(process).toHaveBeenCalledOnce();
+    release();
+    await running;
+    expect(ctx.onDidRender).not.toHaveBeenCalled();
+    await frames.shift()!(0);
+    expect(process.mock.calls.map(([change]) => (change as [string, string])[1])).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(ctx.onDidRender).toHaveBeenCalledOnce();
+    ctx.dispose();
   });
 
   it("reports renderer rejection without claiming a successful render", async () => {

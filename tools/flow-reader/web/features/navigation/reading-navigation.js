@@ -255,16 +255,30 @@ const distance = (touches) =>
   Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
 
 export class ReaderGestures {
-  constructor(article, drawer, { getFont, setFont, preview, announce }) {
-    Object.assign(this, { article, drawer, getFont, setFont, preview, announce });
+  constructor(article, drawer, { getFont, setFont, previewFont, cancelFont, preview, announce }) {
+    Object.assign(this, {
+      article,
+      drawer,
+      getFont,
+      setFont,
+      previewFont,
+      cancelFont,
+      preview,
+      announce,
+    });
     this.state = null;
     this.waiting = false;
+    this.listeners = new AbortController();
+    const { signal } = this.listeners;
     article.dataset.readerGestures = "true";
     for (const root of [article, drawer.dialog]) {
-      root.addEventListener("touchstart", (event) => this.start(event), { passive: false });
-      root.addEventListener("touchmove", (event) => this.move(event), { passive: false });
-      root.addEventListener("touchend", (event) => this.end(event), { passive: false });
-      root.addEventListener("touchcancel", (event) => this.end(event, true), { passive: false });
+      root.addEventListener("touchstart", (event) => this.start(event), { passive: false, signal });
+      root.addEventListener("touchmove", (event) => this.move(event), { passive: false, signal });
+      root.addEventListener("touchend", (event) => this.end(event), { passive: false, signal });
+      root.addEventListener("touchcancel", (event) => this.end(event, true), {
+        passive: false,
+        signal,
+      });
     }
     for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
       article.addEventListener(
@@ -272,20 +286,28 @@ export class ReaderGestures {
         (event) => {
           if (event.cancelable) event.preventDefault();
         },
-        { passive: false },
+        { passive: false, signal },
       );
     }
-    window.addEventListener("blur", () => this.cancel());
-    window.addEventListener("pagehide", () => this.cancel());
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) this.cancel();
-    });
+    window.addEventListener("blur", () => this.cancel(), { signal });
+    window.addEventListener("pagehide", () => this.cancel(), { signal });
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        if (document.hidden) this.cancel();
+      },
+      { signal },
+    );
     let viewportWidth = document.documentElement.clientWidth;
-    window.addEventListener("resize", () => {
-      const nextWidth = document.documentElement.clientWidth;
-      if (nextWidth !== viewportWidth) this.cancel();
-      viewportWidth = nextWidth;
-    });
+    window.addEventListener(
+      "resize",
+      () => {
+        const nextWidth = document.documentElement.clientWidth;
+        if (nextWidth !== viewportWidth) this.cancel();
+        viewportWidth = nextWidth;
+      },
+      { signal },
+    );
   }
 
   get active() {
@@ -385,9 +407,23 @@ export class ReaderGestures {
       }
       if (event.cancelable) event.preventDefault();
       state.candidate = pinchFont(state.size, distance(touches), state.initial);
-      this.preview.querySelector("output").value = `${state.candidate}px`;
-      this.preview.style.setProperty("--pinch-size", `${state.candidate}px`);
-      this.preview.hidden = false;
+      if (this.pinchFrame === undefined) {
+        this.pinchFrame = requestAnimationFrame(() => {
+          if (this.state !== state) return;
+          this.pinchFrame = undefined;
+          if (this.selected() || this.overlayOpen()) {
+            this.cancel();
+            return;
+          }
+          if (state.candidate !== this.getFont()) {
+            this.previewFont?.(state.candidate);
+            state.previewed = true;
+          }
+          this.preview.querySelector("output").value = `${state.candidate}px`;
+          this.preview.style.setProperty("--pinch-size", `${state.candidate}px`);
+          this.preview.hidden = false;
+        });
+      }
       return;
     }
     if (touches.length !== 1) {
@@ -415,12 +451,18 @@ export class ReaderGestures {
     const state = this.state;
     if (state?.kind === "pinch" && event.touches.length < 2) {
       this.state = null;
+      this.cancelPinchFrame();
       this.preview.hidden = true;
       if (event.cancelable) event.preventDefault();
-      if (!canceled && !this.selected() && state.candidate !== state.size) {
+      if (
+        !canceled &&
+        !this.selected() &&
+        !this.overlayOpen() &&
+        (state.candidate !== state.size || state.previewed)
+      ) {
         this.setFont(state.candidate);
         this.announce.textContent = `글자 크기 ${state.candidate}픽셀`;
-      }
+      } else this.cancelFont?.();
       this.waiting = event.touches.length > 0;
     } else if (state?.kind === "swipe") {
       const touch = [...event.changedTouches].find((item) => item.identifier === state.id);
@@ -442,7 +484,23 @@ export class ReaderGestures {
 
   cancel() {
     if (this.state?.owned) this.drawer.settle(this.state.tracker.open, 0);
+    const pinching = this.state?.kind === "pinch";
     this.state = null;
+    this.cancelPinchFrame();
     this.preview.hidden = true;
+    if (pinching) {
+      this.waiting = true;
+      this.cancelFont?.();
+    }
+  }
+
+  cancelPinchFrame() {
+    if (this.pinchFrame !== undefined) cancelAnimationFrame(this.pinchFrame);
+    this.pinchFrame = undefined;
+  }
+
+  dispose() {
+    this.cancel();
+    this.listeners.abort();
   }
 }

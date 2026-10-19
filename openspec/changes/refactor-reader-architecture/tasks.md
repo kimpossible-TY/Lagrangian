@@ -22,3 +22,19 @@
 - [x] Run reader, frontend, Rust, Swift and packaging checks appropriate to all affected areas.
 - [x] Independently review final patch and resolve findings.
 - [x] Commit/push branch, merge verified branch into main and verify remote state while preserving unrelated work.
+
+## 6. Shared browser rendering follow-up
+- [x] Extract the matching browser render scheduling policy and adopt it in the paged WASM and HTML math adapters, preserving renderer-specific guards and ordered updates.
+- [x] Cover coalescing, asynchronous serialization, selection holds, cancellation, failures and completion reentrancy in shared and concrete-reader tests.
+- [x] Update ownership, asset delivery and architecture checks; validate both readers, types, frontend build and archived HTML installation on the current branch.
+
+2026-10-19 follow-up validation: 128 shared/HTML Node tests, 129 Python tests
+(41 compiler-dependent cases skipped; archived installation/delivery passed),
+82 paged frontend tests and 36 DOM tests passed. Both TypeScript projects,
+preview build, scoped formatting, generated-doc consistency and strict OpenSpec
+validation passed. Since Yarn is unavailable on PATH, the reader gate's commands
+were run directly. Chromium (installed Chrome) and WebKit passed actual local
+MathJax reflow, selection hold/resume, stale-candidate rejection, direct-probe
+serialization and disposal with zero rendering API requests. No server-load or
+device latency benchmark, physical iPhone check, installation or deployment was
+performed; custom decoration/relationship generation still uses the server.

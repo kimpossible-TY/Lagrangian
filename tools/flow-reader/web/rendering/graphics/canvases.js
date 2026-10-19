@@ -160,6 +160,7 @@ export class AdaptiveCanvases {
   }
 
   async render() {
+    if (this.selectionActive?.()) return;
     const fontSize = parseFloat(getComputedStyle(this.article).fontSize);
     for (const record of this.records) {
       if (!record.native || !record.visible || !record.node.isConnected) continue;

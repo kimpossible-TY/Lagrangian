@@ -115,14 +115,25 @@ Keep the reading panels free of instructional prose: no gesture hints, outline
 footer instructions, highlight storage explainer or step-by-step empty-state
 guidance. Retain control names, concise empty states and operational diagnostics.
 
-The user's 2026-10-18 instruction replaces optional browser pinch magnification
-inside the article with text reflow. Two article touches track a 13–30px candidate
-using their distance ratio. Show a compact size preview and commit once when the
-first finger lifts, through the existing anchor-preserving font path. Cancellation,
-an extra finger, an active selection, or an open dialog does not commit. Remaining
-fingers cannot begin another gesture until all lift. Keep normal one-finger
-vertical scrolling; use article-scoped `touch-action: pan-y` and cancel only owned
-touch sequences and WebKit's native gesture events. No viewport maximum-scale cap.
+The user's 2026-10-19 instruction changes pinch sizing to live text reflow.
+Two article touches track a 13–30px size using their distance ratio. Coalesce
+movement into one animation frame and apply the latest size to the actual body
+through the appearance owner's anchor-preserving preview path. Retain a compact
+size indicator. Preview changes do not write preferences; lifting the first finger
+flushes the last candidate and persists once. Cancellation, an extra finger,
+selection, viewport-width change, lost visibility or disposal cancels queued
+frames and restores the starting size without persisting it. The appearance owner
+retains the gesture's original reading anchor across preview and rollback.
+
+Existing mathematical nodes scale with the reading font while touching; do not
+replace selected/gesture-held mathematical DOM. Repeated previews invalidate
+obsolete geometry through the existing owners, but geometry requests and costly
+composition remain held by the gesture adapter. Completion or rollback schedules
+the existing mathematical/figure composition once against the final font. Native
+label placement, source/revision checks, 1px settings controls and normal
+one-finger scrolling remain. Remaining fingers cannot start a new gesture until
+all lift. Use article-scoped `touch-action: pan-y` and cancel only owned touch
+sequences and WebKit's native gesture events. No viewport maximum-scale cap.
 
 An opening swipe can start anywhere in the article except the outer 24px browser
 edges, interactive targets and existing selections. Resolve horizontal intent
@@ -893,3 +904,9 @@ navigation returns ambiguity when a source range occurs in multiple blocks.
 Missing coverage, cross-file selections and changed hashes never produce a
 guessed location. Saved context preserves its existing start fields and adds an
 exclusive source range. Save and Sync Editor do not compile.
+
+## Local mathematical decoration rendering
+
+The maintained mannot and flow-reader overlays export `data-flow-decoration-paint` only for an explicit supported primitive, preserving point/em length components, source colors, stroke, outset and annotation anchor inset. The versioned description is independent of DOM geometry. `web/rendering/math/decoration-paint.js` validates it and builds the existing drawing/layout contract from current fragment sizes. The existing MathDecorations controller measures, retires stale paint, applies SVG and owns notices; it chooses local drawing before its bounded server cache/request path. Unsupported versions, styles, callbacks or invalid metadata use that existing server path for the entire decoration. No callback source is interpreted.
+
+Local work follows the same selection/gesture hold as dynamic paint. Revision, occurrence and geometry keys remain authoritative; local decorations can finish even while an unrelated server request is in flight. Semantic/assistive math and paged output remain unchanged. Static asset allow-list and immutable installed layout include the new module. Validate generated geometry against real Typst output, request elimination, mixed fallback, fragment splitting, font/width changes, theme, stale responses and installed delivery.

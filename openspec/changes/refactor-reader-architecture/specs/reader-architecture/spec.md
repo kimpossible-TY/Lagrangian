@@ -8,6 +8,13 @@ Shared user-action policy and state SHALL have one owner independent of renderer
 - **THEN** matching state and policy live in the shared feature layer and renderer-specific operations are injected
 - **AND** source Highlight, Saved for Codex and browser review strikes retain their distinct effects and storage contracts
 
+#### Scenario: Schedule browser-local rendering
+- **WHEN** paged WASM rendering or HTML mathematical composition receives repeated work requests
+- **THEN** both use the shared frame scheduler to coalesce requests and serialize asynchronous rendering
+- **AND** adapter-reported selections hold work without completion or repeated polling
+- **AND** cancellation and disposal prevent obsolete completion callbacks while renderer-specific document, geometry and source validation remain local
+- **AND** completion may enqueue new work without losing or concurrently executing it
+
 ### Requirement: Responsibility-oriented implementation
 The HTML Reader server, project compiler and native app SHALL expose responsibility-oriented internal modules without changing supported entrypoints, public crate APIs or user behavior.
 

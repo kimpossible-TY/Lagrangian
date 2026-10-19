@@ -70,6 +70,7 @@
         // Typst recognizes mrow as a math integration boundary. The HTML
         // normalizer promotes this tagged row to semantic menclose afterward.
         html.elem("mrow", attrs: (notation: notation, "data-flow-cancel": notation), body),
+        reader-paint: (kind: "cancel", ..properties),
         overlay: (width, height, color) => {
           set text(fill: color)
           // Block math aligns the empty box with the fragment origin; an
