@@ -88,7 +88,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Switch to a nonoverlapping side column only when viewport ratio and available width permit it; refresh on font, section and math changes.
 - [x] Verify real compiled annotations, keyboard/touch activation, dismissal, viewport/font transitions, canonical copy and graphical annotation compatibility; update Reader documentation.
 - [x] Prepare a clean annotation-only commit and verify its isolated runtime against the actual configured PDE document.
-- [ ] Install the immutable Reader release and verify registered HTTPS delivery, adaptive annotations and unchanged original PDF service.
+- [x] Install the immutable Reader release and verify registered HTTPS delivery, adaptive annotations and unchanged original PDF service.
 
 ## Last visual edit navigation
 
