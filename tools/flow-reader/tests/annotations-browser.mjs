@@ -65,8 +65,8 @@ try {
     .locator(`[data-reader-note~="${longID}"][data-note-interactive="true"]`)
     .first();
   check(
-    "Compiled native braces, brackets and authored notes retain nine complete bodies",
-    ids.length === 9,
+    "Compiled native braces, brackets and authored notes retain thirteen complete bodies",
+    ids.length === 13,
   );
   check(
     "Short names appear as labels on a phone",
@@ -92,18 +92,67 @@ try {
     (await page.locator(".flow-note-targets").count()) === 0,
   );
 
-  const collisionTarget = page
-    .locator(`[data-reader-note~="${collisionID}"][data-note-interactive="true"]`)
-    .first();
-  await collisionTarget.waitFor();
-  check(
-    "A short name below fraction ink falls back to a closed popover",
-    (await collision.getAttribute("data-note-mode")) === "popover" &&
-      !(await collision.isVisible()),
+  await page.evaluate(
+    (id) =>
+      [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+        .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+        ?.scrollIntoView({ block: "center" }),
+    collisionID,
   );
-  await collisionTarget.focus();
-  await collisionTarget.press("Enter");
-  await collision.waitFor({ state: "visible" });
+  await page.waitForFunction(
+    (id) => document.getElementById(id)?.dataset.noteMode === "label",
+    collisionID,
+  );
+  check(
+    "A short denominator name uses the free space above its fraction",
+    await collision.isVisible(),
+  );
+
+  const wideID = ids.find((note) => note.text.startsWith("WWWW")).id;
+  await page.setViewportSize({ width: 320, height: 844 });
+  const setFont = (font) =>
+    page.evaluate((font) => {
+      while (Number(document.querySelector("#reader-size").value) !== font)
+        document
+          .querySelector(
+            Number(document.querySelector("#reader-size").value) < font
+              ? "#reader-larger"
+              : "#reader-smaller",
+          )
+          .click();
+    }, font);
+  await setFont(30);
+  await page.evaluate(
+    (id) =>
+      [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+        .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+        ?.scrollIntoView({ block: "center" }),
+    wideID,
+  );
+  const wide = page.locator(`#${wideID}`);
+  const wideTarget = page
+    .locator(`[data-reader-note~="${wideID}"][data-note-interactive="true"]`)
+    .first();
+  await wideTarget.waitFor();
+  await page.waitForFunction(
+    (id) =>
+      [...document.querySelectorAll(`[data-reader-note~="${id}"]`)].some(
+        (n) =>
+          !n.closest("mjx-assistive-mml,.flow-math-stage") &&
+          n.closest(".flow-math-view")?.dataset.mathState === "ready",
+      ),
+    wideID,
+  );
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  check(
+    "A short name physically wider than the phone retains an accessible fallback",
+    (await wide.getAttribute("data-note-mode")) === "popover" && !(await wide.isVisible()),
+  );
+  await wideTarget.focus();
+  await wideTarget.press("Enter");
+  await wide.waitFor({ state: "visible" });
   const layoutPasses = () =>
     page.evaluate(
       () =>
@@ -115,22 +164,24 @@ try {
     );
   await layoutPasses();
   check(
-    "A short popover reserves room for its complete close control",
-    await collision.locator(".flow-note-close").evaluate(containedClose),
+    "A short fallback reserves room for its complete close control",
+    await wide.locator(".flow-note-close").evaluate(containedClose),
   );
   check(
-    "Remeasuring a colliding short name keeps its popover and focus open",
-    (await collision.isVisible()) &&
-      (await collision.getAttribute("data-open")) === "true" &&
-      (await collisionTarget.getAttribute("aria-expanded")) === "true" &&
-      (await collision.locator(".flow-note-close").evaluate((n) => n === document.activeElement)),
+    "Remeasuring keeps the fallback open and retains focus",
+    (await wide.isVisible()) &&
+      (await wide.getAttribute("data-open")) === "true" &&
+      (await wideTarget.getAttribute("aria-expanded")) === "true" &&
+      (await wide.locator(".flow-note-close").evaluate((n) => n === document.activeElement)),
   );
   await page.keyboard.press("Escape");
-  await collision.waitFor({ state: "hidden" });
+  await wide.waitFor({ state: "hidden" });
   check(
     "Dismissal returns focus to the short-name target",
-    await collisionTarget.evaluate((n) => n === document.activeElement),
+    await wideTarget.evaluate((n) => n === document.activeElement),
   );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setFont(13);
 
   await target.focus();
   await target.press("Enter");
@@ -255,6 +306,50 @@ try {
       await page.evaluate(
         () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
       );
+      const stacked = ids.filter((note) => note.text.endsWith("identifier")).map((note) => note.id);
+      await page.evaluate(
+        (id) =>
+          [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+            .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+            ?.scrollIntoView({ block: "center" }),
+        stacked[0],
+      );
+      await page.waitForFunction(
+        (ids) => ids.every((id) => document.getElementById(id)?.dataset.noteMode === "label"),
+        stacked,
+      );
+      const separated = await page.evaluate((ids) => {
+        const boxes = ids.map((id) => document.getElementById(id).getBoundingClientRect());
+        return boxes.every((a, i) =>
+          boxes
+            .slice(i + 1)
+            .every(
+              (b) =>
+                a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom,
+            ),
+        );
+      }, stacked);
+      check(`${width}px/${font}px competing short names stay visible and separated`, separated);
+      if (width === 320 && font === 30) {
+        const padding = () =>
+          page.evaluate((id) => {
+            const target = [...document.querySelectorAll(`[data-reader-note~="${id}"]`)].find(
+              (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
+            );
+            return target
+              .closest(".flow-equation")
+              .style.getPropertyValue("--flow-annotation-padding");
+          }, stacked[0]);
+        const reserved = await padding();
+        check("Crowded names reserve additional label rows", parseFloat(reserved) > font * 2.2);
+        await page.evaluate(() => scrollBy(0, 20));
+        await layoutPasses();
+        check(
+          "Scrolling reuses label rows without growing the equation",
+          (await padding()) === reserved,
+        );
+        await page.screenshot({ path: `${output}/competing-labels.png` });
+      }
       const clearLabels = await page.evaluate(() => {
         const labels = [...document.querySelectorAll('.flow-note[data-note-mode="label"]')].map(
           (n) => n.getBoundingClientRect(),
@@ -342,26 +437,47 @@ try {
   await page.keyboard.press("Escape");
   await long.waitFor({ state: "hidden" });
   check("The fallback also supports Escape dismissal", true);
-  await collisionTarget.click();
-  await collision.waitFor({ state: "visible" });
+  await wideTarget.click();
+  await wide.waitFor({ state: "visible" });
   await layoutPasses();
   check(
     "A short-name popover also stays open without native popover support",
-    await collision.isVisible(),
+    await wide.isVisible(),
   );
   await page.keyboard.press("Escape");
-  await collision.waitFor({ state: "hidden" });
+  await wide.waitFor({ state: "hidden" });
   const touch = await browser.newPage({
-    viewport: { width: 390, height: 844 },
+    viewport: { width: 320, height: 844 },
     isMobile: true,
     hasTouch: true,
   });
   touch.on("pageerror", (error) => errors.push(String(error)));
   await touch.goto(address);
+  await touch.waitForFunction((id) => document.getElementById(id)?.dataset.noteMode, wideID);
+  await touch.evaluate(() => {
+    while (Number(document.querySelector("#reader-size").value) < 30)
+      document.querySelector("#reader-larger").click();
+  });
+  await touch.evaluate(
+    (id) =>
+      [...document.querySelectorAll(`[data-reader-note~="${id}"]`)]
+        .find((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
+        ?.scrollIntoView({ block: "center" }),
+    wideID,
+  );
+  await touch.waitForFunction(
+    (id) =>
+      [...document.querySelectorAll(`[data-reader-note~="${id}"]`)].some(
+        (n) =>
+          !n.closest("mjx-assistive-mml,.flow-math-stage") &&
+          n.closest(".flow-math-view")?.dataset.mathState === "ready",
+      ),
+    wideID,
+  );
   const touchCollisionTarget = touch
-    .locator(`[data-reader-note~="${collisionID}"][data-note-interactive="true"]`)
+    .locator(`[data-reader-note~="${wideID}"][data-note-interactive="true"]`)
     .first();
-  const touchCollision = touch.locator(`#${collisionID}`);
+  const touchCollision = touch.locator(`#${wideID}`);
   await touchCollisionTarget.waitFor();
   for (let attempt = 0; attempt < 3; attempt++) {
     await touchCollisionTarget.tap();
@@ -370,7 +486,7 @@ try {
       () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
     );
     check(
-      `Touch attempt ${attempt + 1} keeps a colliding short note visible`,
+      `Touch attempt ${attempt + 1} keeps an oversized short note visible`,
       await touchCollision.isVisible(),
     );
     await touchCollision.locator(".flow-note-close").tap();

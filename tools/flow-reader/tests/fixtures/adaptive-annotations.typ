@@ -24,6 +24,14 @@ $ frac(alpha + beta + gamma, mark(x, tag: #<denominator>)) = 1 $
 
 $ underbrace(e^i(e_j), delta_j^i) = delta_j^i $
 
+$ mark(lambda, tag: #<stacked>) = 1 $
+#annot(<stacked>)[first identifier]
+#annot(<stacked>)[second identifier]
+#annot(<stacked>)[third identifier]
+
+$ mark(zeta, tag: #<wide-name>) = 2 $
+#annot(<wide-name>)[WWWWWWWWWWWWWWWWWWWWWWWW]
+
 An unlabeled grouping decoration stays intact: $underbrace(a+b)$.
 
 #for i in range(10) [

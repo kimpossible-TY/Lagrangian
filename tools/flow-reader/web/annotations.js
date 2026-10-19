@@ -35,12 +35,41 @@ export function popoverPosition(target, size, viewport) {
   };
 }
 
-const overlap = (a, b, gap = 3) =>
-  a.left < b.right + gap &&
-  a.right > b.left - gap &&
-  a.top < b.bottom + gap &&
-  a.bottom > b.top - gap;
 const painted = (node) => !node.closest("mjx-assistive-mml,.flow-math-stage");
+
+export function labelPosition(target, size, bounds, obstacles) {
+  const gap = 6;
+  if (size.width > bounds.right - bounds.left) return null;
+  const idealTop = target.top - size.height - gap;
+  const idealLeft = (target.left + target.right - size.width) / 2;
+  const tops = [
+    ...new Set([idealTop, bounds.top, ...obstacles.map((rect) => rect.top - size.height - gap)]),
+  ].filter((top) => top >= bounds.top && top <= idealTop);
+  let best = null;
+  let distance = Infinity;
+  for (const top of tops) {
+    // Project only ink crossing this row onto the horizontal axis. The gaps
+    // between merged intervals are usable even when the full equation box is not.
+    const blocked = obstacles
+      .filter((rect) => top < rect.bottom + 3 && top + size.height > rect.top - 3)
+      .map((rect) => [Math.max(bounds.left, rect.left - 3), Math.min(bounds.right, rect.right + 3)])
+      .filter(([left, right]) => left < right)
+      .sort((a, b) => a[0] - b[0]);
+    let left = bounds.left;
+    for (const [start, end] of [...blocked, [bounds.right, bounds.right]]) {
+      if (start - left >= size.width) {
+        const x = Math.max(left, Math.min(idealLeft, start - size.width));
+        const score = (idealTop - top) * 2 + Math.abs(x - idealLeft);
+        if (score < distance) {
+          best = { left: x, right: x + size.width, top, bottom: top + size.height };
+          distance = score;
+        }
+      }
+      left = Math.max(left, end);
+    }
+  }
+  return best;
+}
 
 // Keep the authored note node once. Only its presentation changes; the original
 // mathematical nodes and their canonical text never acquire UI label children.
@@ -48,6 +77,7 @@ export class TextAnnotations {
   constructor(article, { preserve, changed }) {
     Object.assign(this, { article, preserve, changed });
     this.records = new Map();
+    this.reserved = new Map();
     this.resize = new ResizeObserver(() => this.schedule());
     this.resize.observe(article);
     this.mutations = new MutationObserver(() => this.schedule());
@@ -96,7 +126,6 @@ export class TextAnnotations {
       nodes: nodes.filter(Boolean),
       note,
       body,
-      mathematical: Boolean(body.querySelector("math")),
       short: shortAnnotation(
         logicalTextIndex(body, { includeNotes: true, includeNested: true }).text,
         rich,
@@ -127,11 +156,19 @@ export class TextAnnotations {
   clear() {
     this.close();
     this.records.clear();
+    for (const host of this.reserved.keys()) host.style.removeProperty("--flow-annotation-padding");
+    this.reserved.clear();
     cancelAnimationFrame(this.frame);
     this.frame = null;
   }
 
   sync() {
+    for (const host of this.reserved.keys()) {
+      if (!host.isConnected) {
+        host.style.removeProperty("--flow-annotation-padding");
+        this.reserved.delete(host);
+      }
+    }
     for (const [id, record] of this.records) {
       if (!record.note.isConnected) {
         if (this.active === record) this.close();
@@ -198,6 +235,20 @@ export class TextAnnotations {
       fontSize,
     });
     const layout = side ? "side" : "compact";
+    const geometry = `${area.width}:${fontSize}:${layout}`;
+    if (this.geometry !== geometry) {
+      this.geometry = geometry;
+      if (this.reserved.size) {
+        this.preserve(() => {
+          for (const host of this.reserved.keys())
+            host.style.removeProperty("--flow-annotation-padding");
+          this.reserved.clear();
+        });
+        this.changed();
+        this.schedule();
+        return;
+      }
+    }
     if (this.article.dataset.annotationLayout !== layout) {
       this.preserve(() => {
         this.article.dataset.annotationLayout = layout;
@@ -207,6 +258,7 @@ export class TextAnnotations {
       return;
     }
     const labels = [];
+    const spacing = new Map();
     let railBottom = -Infinity;
     for (const record of this.records.values()) {
       const { note } = record;
@@ -237,52 +289,66 @@ export class TextAnnotations {
         const size = note.getBoundingClientRect();
         const anchor = rects.at(-1);
         const host = this.fragments(record)[0]?.closest(".flow-equation,p");
+        const hostBounds = host?.getBoundingClientRect();
         const ink = [
           ...(host?.querySelectorAll(
             "mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,mi,mn,mo,mtext",
           ) ?? []),
         ]
           .filter(painted)
-          .flatMap((node) => [...node.getClientRects()]);
-        // A preceding mathematical line can occupy the space above just one
-        // end of a term. Try each local alignment before hiding a short name.
-        const alignments = [
-          anchor.right - size.width,
-          anchor.left,
-          (anchor.left + anchor.right - size.width) / 2,
-        ];
-        const tops = [anchor.top - size.height - 6];
-        // Indexed names can be taller than the gap between two mathematical
-        // lines. Use the reserved space above the equation before falling back
-        // to a popover; keep the name aligned with its shaded target.
-        if (record.mathematical && host?.matches(".flow-equation") && ink.length) {
-          const top = Math.min(...ink.map((rect) => rect.top)) - size.height - 6;
-          if (top >= host.getBoundingClientRect().top) tops.push(top);
+          .flatMap((node) => [...node.getClientRects()])
+          .filter((rect) => rect.width > 0 && rect.height > 0);
+        const fits =
+          host &&
+          note.scrollWidth <= note.clientWidth + 1 &&
+          size.width <=
+            Math.min(area.right, hostBounds.right) - Math.max(area.left, hostBounds.left) - 8;
+        const box = fits
+          ? labelPosition(
+              anchor,
+              size,
+              {
+                left: Math.max(area.left, hostBounds.left) + 4,
+                right: Math.min(area.right, hostBounds.right) - 4,
+                top: hostBounds.top + 3,
+              },
+              [...ink, ...labels],
+            )
+          : null;
+        if (
+          !box &&
+          fits &&
+          !host.querySelector('.flow-math-view[data-math-state="pending"]') &&
+          !note.querySelector('.flow-math-view[data-math-state="pending"]')
+        ) {
+          const count = [...this.records.values()].filter(
+            (other) =>
+              other.short && this.fragments(other)[0]?.closest(".flow-equation,p") === host,
+          ).length;
+          const rows = this.reserved.get(host) ?? 0;
+          if (rows < count)
+            spacing.set(host, {
+              rows: rows + 1,
+              padding: parseFloat(getComputedStyle(host).paddingTop) + size.height + 9,
+            });
         }
-        const box = tops
-          .flatMap((top) =>
-            alignments.map((position) => {
-              const left = Math.max(area.left + 4, Math.min(position, area.right - size.width - 4));
-              return {
-                left,
-                right: left + size.width,
-                top,
-                bottom: top + size.height,
-              };
-            }),
-          )
-          .find(
-            (candidate) =>
-              candidate.left >= area.left &&
-              candidate.right <= area.right &&
-              ![...ink, ...labels].some((rect) => overlap(candidate, rect)),
-          );
         if (!box) this.mode(record, "popover");
         else {
           this.place(note, box.left, box.top);
           labels.push(box);
         }
       } else this.mode(record, "popover");
+    }
+    if (spacing.size) {
+      this.preserve(() => {
+        for (const [host, { rows, padding }] of spacing) {
+          this.reserved.set(host, rows);
+          host.style.setProperty("--flow-annotation-padding", `${padding}px`);
+        }
+      });
+      this.changed();
+      this.schedule();
+      return;
     }
     for (const record of this.records.values()) {
       for (const node of this.fragments(record)) {

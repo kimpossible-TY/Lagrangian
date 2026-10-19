@@ -1041,7 +1041,7 @@ math svg {
   margin: 0.5em 0;
 }
 .flow-annotation-space {
-  padding-block-start: 2.2em;
+  padding-block-start: var(--flow-annotation-padding, 2.2em);
 }
 [data-annotation-layout="side"] .flow-annotation-space {
   padding-block-start: 0.6em;
