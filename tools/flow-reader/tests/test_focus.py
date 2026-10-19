@@ -138,7 +138,7 @@ class ReaderFocusTests(unittest.TestCase):
     def test_unmapped_saved_text_remains_usable_after_five_minutes(self):
         self.state = self.make_state('$ alpha $', '<p><math><mi>α</mi></math></p>')
         self.save(fragments=[self.fragment("α") | {"segments": [{"math": True}]}])
-        with patch("flow_reader.services.codex_context.time.time", return_value=time.time() + 86400):
+        with patch("flow_reader.services.codex_context.time.time", return_value=time.time() + 86400 * 30):
             result = self.state.read_focus()
         self.assertEqual(result["selection"]["text"], "α")
         self.assertTrue(result["selection_usable"])

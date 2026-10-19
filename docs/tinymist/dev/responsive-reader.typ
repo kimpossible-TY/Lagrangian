@@ -6,6 +6,11 @@ packages, paged service, and source documents are not rewritten by a reader buil
 
 == Current delivery
 
+The 2026-10-19 saved-context integration runs immutable Reader release `bf3de82b`.
+Same-document lookup now finds the last explicitly saved text across readers;
+selection age is informational and has no expiry. See *Unified context rollout*
+below for validation and recovery evidence.
+
 On 2026-10-18 the PDE Reader is installed from clean runtime `cbf6032c` with
 strict publication and native figures enabled. The Tail Dashboard document entry
 automatically opens this Reader on touch devices; explicit Reader/original-page
@@ -1044,6 +1049,41 @@ section also records and checks its requested viewport; an interrupted browser
 session cannot silently substitute a different width.
 
 == Managed installation
+
+=== Unified context rollout (2026-10-19)
+
+Runtime `bf3de82b` removes HTML context expiry. The local Tail Hosting adapter
+removes paged context expiry and resolves saved text across readers of one project
+and entry document. The global `read-preview-selection` skill and PDE/Tail Hosting
+agent instructions now consume that result without asking for an internal reader.
+Service, accepted-revision and source validation remain active.
+
+Validation passed: 110 shared/HTML/terminal Node tests, 149 Python Reader tests
+with actual Typst packages and the companion adapter enabled, 82 paged frontend
+tests and 14 Tail Hosting management tests. Native app tests passed 31 tests with
+six optional engine/packaging tests skipped. The focused context gate passed
+21 tests, including month-old mapped/unmapped text, changed sources and service
+identities, exact target filters, same-document lookup, timestamp ties and
+unavailable-reader reporting. Typst guide compilation, generated Markdown,
+strict OpenSpec validation and skill validation also passed. Yarn is absent, so
+the reader gate's Node, unittest and Vitest commands ran directly.
+
+The clean immutable release was installed through the existing installer; only
+the HTML Reader job was stopped and restarted. The previous 207-character saved
+passage was resubmitted through the supported focus API against the newly accepted
+snapshot, preserving the exact text and verifying it against current body blocks.
+Unqualified `tail-hosting focus` from PDE returned `latest_saved_text`, the HTML
+reader ID, usable text and matching service/revision evidence. It remains
+explicitly unmapped for source-dependent edits. All 41 first-party installed
+assets matched their immutable bytes, and Tailnet HTTPS state matched loopback.
+The paged port had no listener during verification; its job was not controlled
+by this rollout. No physical device interaction was repeated for this backend
+change.
+
+Recovery files and receipts are in
+`.local/codex-context-integration-1792402572359247000/`: original companion command,
+instructions and management tests, previous Reader launcher/configuration/agent,
+the original saved context, installation metadata and verification results.
 
 === Codex context rollout (2026-10-19)
 

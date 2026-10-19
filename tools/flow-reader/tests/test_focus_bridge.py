@@ -21,16 +21,21 @@ class FocusBridgeTests(unittest.TestCase):
         cls.temporary = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temporary.cleanup)
         root = Path(cls.temporary.name)
-        (root / "bin").mkdir()
+        originals = {}
+        for relative in ("bin/tail-hosting", "AGENTS.md", "scripts/test-management.py"):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            originals[relative] = (Path(source) / relative).read_bytes()
+            path.write_bytes(originals[relative])
         target = root / "bin/tail-hosting"
-        target.write_bytes((Path(source) / "bin/tail-hosting").read_bytes())
         adapter = Path(__file__).resolve().parents[3] / "apps/macos/tail-hosting-reader-focus.patch"
         result = subprocess.run(["patch", "-p1", "--batch", "--forward", "-i", str(adapter)], cwd=root,
                                 capture_output=True)
         if result.returncode:
             # A deployed source already includes this adapter. Reverse and
             # reapply it in the copy to verify both directions, never live.
-            target.write_bytes((Path(source) / "bin/tail-hosting").read_bytes())
+            for relative, content in originals.items():
+                (root / relative).write_bytes(content)
             subprocess.run(["patch", "-p1", "--batch", "--reverse", "-i", str(adapter)],
                            cwd=root, check=True, capture_output=True)
             subprocess.run(["patch", "-p1", "--batch", "--forward", "-i", str(adapter)],
