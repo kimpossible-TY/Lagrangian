@@ -84,7 +84,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 ## Adaptive text annotations (selected concepts 1, 3 and 12)
 
 - [x] Reuse a bounded persistent Typst compiler for dynamic paint, retaining source/revision/geometry gates and cold-compile fallback.
-- [ ] Compare authored output and actual PDE latency across cold/warm requests, source changes and worker recovery; install and verify the Reader.
+- [x] Compare authored output and actual PDE latency across cold/warm requests, source changes and worker recovery; install and verify the Reader.
 
 - [x] Retain authored text bodies once, adapt native labeled braces/brackets, and remove cloned target previews.
 - [x] Present short names as collision-free labels and longer notes as accessible anchored popovers, preserving selection and update behavior.
