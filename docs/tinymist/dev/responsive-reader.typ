@@ -478,6 +478,17 @@ labels and popovers. Notes follow current mathematical fragments and stack witho
 overlap. An open popover protects its section and defers source publication until
 it closes. Graphical annotation relationships remain automatically visible.
 
+On 2026-10-19 runtime `f1e6c575` was installed after the short-label free-space
+repair. The photographed PDE kernel remains a label across 320px, 393px and
+768px viewports at the tested 13–30px sizes. Chrome and WebKit each passed 66
+fixture checks, including competing label rows, scroll stability, inline prose
+and popover controls. Actual HTTPS checks per engine include 52 kernel layout,
+24 indexed-delta/close-control and 12 baseline annotation checks. Eighteen
+compiler checks and ten JavaScript checks passed. All 410 release files and
+52 asset deliveries match the release; the accepted PDE HTML hash, service
+configuration and original PDF stayed unchanged. Evidence is under
+`dist/reader-label-space/`; temporary validation services and workers were closed.
+
 Graphical annotations retain their original CeTZ programs. The browser measures
 marked terms in the original body nodes and sends those rectangles and the chosen
 font size to `/api/graphics` automatically. Overlapping relationships share a scene;
