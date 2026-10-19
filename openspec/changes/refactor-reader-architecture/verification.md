@@ -32,3 +32,7 @@ Two independent reviewers compared Python state/selection/dynamic-render bodies 
 ## Limits
 
 No user app installation, real LaunchAgent mutation, manual AppKit clicking or physical assistive-device testing was performed. The browser/engine checks use disposable projects and temporary bundles. Existing external Tail Hosting patches were not changed.
+
+## Main integration
+
+Verified implementation commit `d6df2694` was pushed on `refactor/reader-architecture` and fast-forward merged from origin/main `262d7554` into remote main. `git ls-remote --heads origin main refactor/reader-architecture` confirmed both remote refs at the implementation commit before this verification-only bookkeeping commit. The managed worktree is clean; hashes confirm all 28 original-checkout modified/untracked files remain unchanged. The original checkout's local main is deliberately left at its prior commit with its dirty work intact; remote main and the managed refactor branch contain the verified refactor.

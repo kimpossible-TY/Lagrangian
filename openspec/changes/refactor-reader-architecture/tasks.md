@@ -21,4 +21,4 @@
 - [x] Update root/scoped AGENTS and canonical architecture/development documentation.
 - [x] Run reader, frontend, Rust, Swift and packaging checks appropriate to all affected areas.
 - [x] Independently review final patch and resolve findings.
-- [ ] Commit/push branch, merge verified branch into main and verify remote state while preserving unrelated work.
+- [x] Commit/push branch, merge verified branch into main and verify remote state while preserving unrelated work.
