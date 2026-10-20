@@ -247,6 +247,9 @@ try {
       hint.lastChange.target,
       { timeout: 15000 },
     );
+    await page.waitForTimeout(1200);
+    const noteBounds = await page.locator(`#${hint.lastChange.target}`).boundingBox();
+    assert.ok(noteBounds.y >= 0 && noteBounds.y + noteBounds.height <= 844, name);
     assert.ok(
       await page
         .locator(`#${hint.lastChange.target}`)
