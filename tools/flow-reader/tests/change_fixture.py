@@ -18,14 +18,18 @@ from flow_reader.document.sections import split_document
 
 
 def document(step):
-    return ('#set heading(numbering: "1")\n'
+    callout = (f'#note(title: "Green functions {max(0, step - 6)}")[\n'
+               f'A fundamental solution is also called a Green function (version {min(step, 6)}).\n'
+               ']\n\n') if step >= 5 else ''
+    return ('#import "@local/math-blocks:0.2.0": note\n'
+            '#set heading(numbering: "1")\n'
             '= First chapter <first>\n\n'
             'Return to #link(<last>)[the last chapter].\n\n' +
             ''.join(f'Passage {number}: Ordinary reading keeps this sentence visible.\n\n'
                     for number in range(90)) +
             '= Last chapter <last>\n\n'
             'Return to #link(<first>)[the first chapter].\n\n'
-            f'Edited passage version {step}.\n\n'
+            f'Edited passage version {min(step, 4)}.\n\n' + callout +
             '$ x^2 + y^2 = z^2 $\n\n' +
             ''.join(f'Final passage {number}: Trailing text permits target alignment.\n\n'
                     for number in range(15)))
@@ -41,7 +45,8 @@ def main():
         entry.write_text(document(0))
         project = Project(work, Path("main.typ"), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
-        state_module.split_document = lambda source, revision: split_document(source, revision, max_blocks=6)
+        state_module.split_document = lambda source, revision, **kwargs: split_document(
+            source, revision, max_blocks=6, **kwargs)
         state = serve.ReaderState(project, work / "output", "https://example.test/paged/", False)
         state.compile()
         if state.revision is None:

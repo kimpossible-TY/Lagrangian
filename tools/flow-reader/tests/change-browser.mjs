@@ -163,8 +163,10 @@ try {
   assert.ok(await page.locator("#first").isVisible());
   assert.equal(await page.locator("#reader-change-jump").isVisible(), false);
   check("connection recovery does not replay an observed edit");
-  await page.locator("#reader-theme").selectOption("dark");
+  await page.locator("#reader-appearance-open").click();
+  await page.locator('label:has(input[name="reader-appearance"][value="dark"])').click();
   await page.locator("#reader-larger").click();
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(400);
   assert.ok(await page.locator("#first").isVisible());
   assert.equal(await page.locator("#reader-change-jump").isVisible(), false);
@@ -226,6 +228,35 @@ try {
   );
   assert.ok((await target().textContent()).includes("version 4"));
   check("a failed compilation retains the accepted document and history");
+
+  for (const [step, name] of [
+    [5, "an inserted short note becomes the automatic change destination"],
+    [6, "an edited unwrapped note body becomes the change destination"],
+    [7, "a title-only note edit becomes the change destination"],
+  ]) {
+    await away();
+    await page.waitForTimeout(2700);
+    await edit(step);
+    const hint = await page.request.get(url + "api/manifest").then((r) => r.json());
+    assert.ok(hint.lastChange?.target.startsWith("reader-callout-"));
+    await page.waitForFunction(
+      (id) => {
+        const rect = document.getElementById(id)?.getBoundingClientRect();
+        return rect && rect.top >= 0 && rect.bottom <= innerHeight;
+      },
+      hint.lastChange.target,
+      { timeout: 15000 },
+    );
+    assert.ok(
+      await page
+        .locator(`#${hint.lastChange.target}`)
+        .evaluate(
+          (node) =>
+            node.classList.contains("flow-note") && node.textContent.includes("Green function"),
+        ),
+    );
+    check(name);
+  }
   assert.deepEqual(errors, []);
   process.stdout.write(JSON.stringify({ passed: checks.length, errors }) + "\n");
 } finally {

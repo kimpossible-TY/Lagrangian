@@ -69,6 +69,54 @@ class ChangeTests(unittest.TestCase):
                 self.tracker.observe(bundle(before), "old")
                 self.assertEqual(self.tracker.observe(bundle(after), "new")["target"], target)
 
+    def test_short_callout_insertion_and_edit_are_visual_targets(self):
+        before = '<p id="definition">Fundamental solution definition.</p>'
+        callout = ('<figure><div class="flow-callout flow-note">'
+                   '<div class="flow-callout-title"><strong>Note: Green functions</strong></div>'
+                   'A fundamental solution is also called a <strong>Green function</strong>.'
+                   '</div></figure>')
+        after = before + callout + '<p id="later">Later body passage.</p>'
+        self.tracker.observe(bundle(before + '<p id="later">Later body passage.</p>'), "old")
+        added = bundle(after, "r2")
+        change = self.tracker.observe(added, "added")
+        self.assertIsNotNone(change)
+        self.assertIn(change["target"], added.manifest["anchors"])
+        self.assertNotIn(change["target"], {"definition", "later"})
+        self.assertIn('class="flow-callout flow-note" id="' + change["target"] + '"',
+                      added.documents[change["section"]].decode())
+        edited = bundle(after.replace("also called", "often called"), "r3")
+        current = self.tracker.observe(edited, "edited")
+        self.assertIsNotNone(current)
+        self.assertNotEqual(current["token"], change["token"])
+        self.assertEqual(self.tracker.observe(edited, "comment")["token"], current["token"])
+
+    def test_callout_title_and_unwrapped_tail_changes_are_detected(self):
+        source = ('<figure><div class="flow-callout flow-definition">'
+                  '<div class="flow-callout-title">Definition</div>'
+                  '<p id="body">Let the operator act.</p>'
+                  '<div class="flow-equation" id="equation"><math><mi>x</mi></math></div>'
+                  'This is a fundamental solution.</div></figure>')
+        for old, new in (("Definition", "Fundamental solution"),
+                         ("This is", "We call this")):
+            with self.subTest(edit=old):
+                tracker = ChangeTracker(self.path, old)
+                tracker.observe(bundle(source), "old")
+                change = tracker.observe(bundle(source.replace(old, new), "r2"), "new")
+                self.assertIsNotNone(change)
+                self.assertNotIn(change["target"], {"body", "equation"})
+
+    def test_existing_child_change_survives_callout_anchor_upgrade(self):
+        current = bundle('<figure><div class="flow-callout flow-note">'
+                         '<p id="body">Existing accepted edit.</p></div></figure>')
+        self.tracker.observe(current, "same-inputs")
+        legacy = self.tracker.record
+        legacy["blocks"] = [block for block in legacy["blocks"] if block["key"]]
+        legacy["last"] = {**legacy["blocks"][0], "token": "existing-token"}
+        self.tracker.persist()
+        restarted = ChangeTracker(self.path, "project").observe(current, "same-inputs")
+        self.assertEqual(restarted["target"], "body")
+        self.assertEqual(restarted["token"], "existing-token")
+
     def test_deleted_passage_uses_surviving_neighbor_including_end_of_document(self):
         for remaining, target in (('<p id="b">B</p>', "b"), ('<p id="a">A</p>', "a")):
             self.tracker = ChangeTracker(self.path, target)

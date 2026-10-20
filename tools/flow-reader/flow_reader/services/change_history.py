@@ -50,8 +50,10 @@ class VisualBlocks(HTMLParser):
         target = attributes.get("id")
         key = attributes.get("data-reader-key")
         figure = tag == "figure" or "data-flow-canvas" in attributes
-        if in_body and not excluded and target and (key or figure):
-            # The native canvas owns its geometry and label changes as one unit.
+        callout = "flow-callout" in attributes.get("class", "").split()
+        if in_body and not excluded and target and (key or figure or callout):
+            # Figures own their complete geometry. Callouts also capture titles
+            # and unwrapped prose, retaining existing child keys for relocation.
             if not any(item["figure"] for item in self.active):
                 block = {"key": key, "target": target, "section": self.section,
                          "figure": figure, "all": [], "body": []}

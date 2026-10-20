@@ -67,6 +67,25 @@ class SectionTests(unittest.TestCase):
         nested = '<html><body><table><tr><td><p>Only the leaf passage.</p></td></tr></table></body></html>'
         self.assertEqual(assign_block_ids(nested).count('data-reader-key='), 1)
 
+    def test_callouts_have_navigation_anchors_without_duplicate_selection_passages(self):
+        source = ('<html><body><h2>Topic</h2><figure>'
+                  '<div class="flow-callout flow-note"><div class="flow-callout-title">Note</div>'
+                  '<p>Existing keyed passage.</p>Unwrapped continuation.</div>'
+                  '</figure></body></html>')
+        indexed = assign_block_ids(source)
+        target = re.search(r'class="flow-callout flow-note" id="([^"]+)"', indexed)[1]
+        bundle = split_document(source, "callout", max_blocks=1)
+        self.assertIn(target, bundle.manifest["anchors"])
+        self.assertEqual(len(bundle.manifest["blocks"]), 2, "heading and existing paragraph only")
+        self.assertEqual([passage["text"] for passage in bundle.passages],
+                         ["Topic", "Existing keyed passage."])
+        moved = assign_block_ids(source.replace('<figure>', '<p>Inserted elsewhere.</p><figure>'))
+        self.assertIn(f'class="flow-callout flow-note" id="{target}"', moved)
+        cell = ('<html><body><table><tr><td><div class="flow-callout flow-note">'
+                'Unwrapped cell note.</div></td></tr></table></body></html>')
+        self.assertEqual([passage["text"] for passage in split_document(cell, "cell").passages],
+                         ["Unwrapped cell note."])
+
     def test_native_label_keys_follow_content_and_nested_labels_have_leaf_keys(self):
         before = '<html><body><h2>Figure topic</h2><div class="flow-canvas-label"><span class="flow-canvas-label-number">1</span><div class="flow-canvas-label-body">Keep this readable label.</div></div></body></html>'
         after = before.replace('>1</span>', '>12</span>').replace('<div class="flow-canvas-label">',
