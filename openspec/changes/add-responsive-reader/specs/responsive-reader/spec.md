@@ -94,6 +94,13 @@ The Reader SHALL include exported h1 through h6 headings and deeper ARIA heading
 ### Requirement: Mathematical fidelity
 The reader MUST retain mathematical symbols and decorations, equation and theorem numbers, cross references, footnotes, and annotation meaning. Unsupported constructs MUST use faithful alternative rendering or produce a visible diagnostic, never silently disappear.
 
+#### Scenario: Authored flowbox derivations
+- **WHEN** an existing `flowbox` contains equations, downward arrows and explanatory prose
+- **THEN** the Reader presents one continuous theme-aware frame with centered prose/arrows and compact internal spacing
+- **AND** no additional separator rules appear before or after the frame or around internal mathematical row groups
+- **AND** equations reflow within the padded inner width at the selected reading font with their numbers vertically centered in a separate inline-end column
+- **AND** cancellation strokes, references, canonical selectable text, Saved for Codex mapping and original paged output remain intact
+
 #### Scenario: PDE annotations
 - **WHEN** a document contains mannot or scoped mathematical annotations
 - **THEN** marked terms remain associated with their annotation content after reflow

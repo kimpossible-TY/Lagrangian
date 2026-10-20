@@ -1,5 +1,10 @@
 # Responsive mobile reader alongside the paged preview
 
+Restore authored flowboxes as centered, continuously framed derivations with
+compact internal spacing. Do not add separator rules outside the frame or
+around the mathematical renderer's internal row groups. Retain existing source
+calls, mathematical text, equation numbering, links and paged output.
+
 Reduce dynamic decoration latency by retaining Typst's incremental compilation
 cache across geometry requests, with unchanged authored output, revision gates,
 bounded worker lifetime, and cold compilation recovery.

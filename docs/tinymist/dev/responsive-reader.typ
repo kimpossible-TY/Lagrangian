@@ -45,6 +45,14 @@ Regenerate these assets from `assets/branding/tinymist-flow.png` using
 
 == Reading appearance
 
+Authored `flowbox` derivations retain one complete outline, centered arrows and
+explanatory paragraphs, and compact internal spacing. No additional horizontal
+rules surround the frame or the mathematical renderer's internal row groups.
+Equations use the remaining padded width at the selected reading font, keeping
+their numbers in a separate column. The maintained math-blocks adapter owns the
+semantic container; Reader CSS owns its presentation. Existing source calls,
+references, selectable mathematical text and paged output are preserved.
+
 The toolbar has two 44px icon buttons, with the Flow identity centered between
 them: outline at the start and reading settings at the end.
 Both use plain 21px icons without persistent backgrounds, borders or shadows.

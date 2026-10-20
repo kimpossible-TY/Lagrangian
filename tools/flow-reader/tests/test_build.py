@@ -147,6 +147,29 @@ class TypstIntegrationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
 
+    def test_flowbox_keeps_semantic_contents_and_paged_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            project = build.Project(ROOT / "tests/fixtures", Path("flowbox.typ"),
+                                    self.packages, compiler=self.compiler)
+            report = build.compile_project(project, work / "html")
+            self.assertEqual(report["exitCode"], 0, (work / "html/compile.log").read_text())
+            self.assertTrue(report["contentGatePassed"], report)
+            source = (work / "html/document.html").read_text()
+            self.assertEqual(source.count('class="flow-flowbox"'), 2)
+            self.assertEqual(report["elements"].get("hr", 0), 0)
+            self.assertEqual(report["elements"].get("menclose", 0), 2)
+            self.assertIn("Use <a href=", source)
+            self.assertIn("↓", source)
+            build.prepare_packages(self.packages, work / "overlay")
+            for name, packages in [("original", self.packages), ("reader", work / "overlay")]:
+                result = subprocess.run([
+                    self.compiler, "compile", "--creation-timestamp", "1760000000",
+                    "--package-path", str(packages), str(ROOT / "tests/fixtures/flowbox.typ"),
+                    str(work / f"{name}.pdf")], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
+
     def test_native_labeled_groups_use_semantic_annotations_without_losing_bodies(self):
         with tempfile.TemporaryDirectory() as temp:
             project = build.Project(ROOT / "tests/fixtures", Path("adaptive-annotations.typ"),

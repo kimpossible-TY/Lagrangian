@@ -229,3 +229,31 @@ checkpoint. Installed-service validation is recorded in the deployment section b
 - [x] Build a clean signed 0.1.27 app with the shared scheduler in its native engine and stage the matching immutable HTML Reader release.
 - [x] Install both candidates with recovery backups and preserve the exact running/stopped profile state and saved context.
 - [x] Verify installed signatures/provenance, HTTPS asset/document delivery, live pinch/local decoration behavior and isolated paged document rendering; record the confirmed release tag and recovery evidence.
+
+## Authored flowbox presentation
+
+- [x] Separate authored flowbox framing from internal mathematical derivation groups; restore centered content and compact spacing with no external separator rules.
+- [x] Verify real compilation, unchanged paged output, narrow/wide light/dark reflow, numbering, cancellation, links and canonical text; record source and actual PDE evidence.
+
+2026-10-20 flowbox validation: the real compiler fixture retains nested equations,
+references and cancellations; original/overlay PDF bytes match. Chrome and WebKit
+each pass 24 combinations of 320/390/430/768px widths, 13/18/30px fonts and both
+themes, including frame-only presentation, compact rows, centered arrows/numbers,
+bounded mathematical ink and canonical text. The full live PDE sources compile
+with all 101 authored flowboxes, no lost links/annotation targets or compiler-loss
+warnings, and the saved `Use Equation (P.1.3)` passage still maps to line 61.
+An isolated service loading that export passes three photographed-flowbox cases
+per engine (390px/18px light, 320px/30px dark, 768px/30px light).
+Evidence and inspected screenshots are under `dist/reader-flowbox-checks`; the
+full compile is under `dist/reader-flowbox-pde`. The Reader gate's equivalent
+direct commands passed 144 Node tests, 147 Python tests (one optional companion
+bridge class skipped) and 82 paged Vitest tests; Yarn is unavailable in this
+shell. Generated-doc consistency, scoped formatting, diff checks and strict
+OpenSpec validation pass. This checkpoint covers local implementation and
+desktop browser checks; installed Reader delivery and physical-device checks
+were not performed.
+
+## Deploy authored flowbox presentation
+
+- [ ] Commit the verified flowbox implementation on the current branch and prepare a clean immutable Reader release with configuration/context recovery snapshots.
+- [ ] Install the Reader release, preserve other service states and saved context, and verify registered HTTPS assets plus the actual photographed flowbox in Chrome/WebKit.
