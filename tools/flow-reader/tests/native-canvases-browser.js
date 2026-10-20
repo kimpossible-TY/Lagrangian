@@ -267,6 +267,43 @@ try {
             canvas.querySelector(":scope > .flow-canvas-stage > .flow-canvas-leaders"),
           ).backgroundColor === "rgba(0, 0, 0, 0)",
       );
+      const inlineBoxes = inline.map((label) => label.getBoundingClientRect());
+      let strokeCollisions = 0;
+      for (const path of geometry.querySelectorAll(
+        "path,rect,circle,ellipse,line,polyline,polygon",
+      )) {
+        if (path.closest("defs") || getComputedStyle(path).stroke === "none") continue;
+        const matrix = path.getScreenCTM();
+        if (!matrix) continue;
+        const length = path.getTotalLength();
+        if (length === 0 && getComputedStyle(path).strokeLinecap === "butt") continue;
+        const samples = Math.max(
+          1,
+          Math.min(4096, Math.ceil(length * Math.hypot(matrix.a, matrix.b))),
+        );
+        const inset = Math.max(0, parseFloat(getComputedStyle(path).strokeWidth) / 2 - 0.2);
+        for (let i = 0; i <= samples; i++) {
+          const point = path
+            .getPointAtLength(Math.max(0.001, (length * i) / samples))
+            .matrixTransform(matrix);
+          if (
+            inlineBoxes.some(
+              (box) =>
+                point.x > box.left - inset &&
+                point.x < box.right + inset &&
+                point.y > box.top - inset &&
+                point.y < box.bottom + inset,
+            )
+          ) {
+            strokeCollisions++;
+            break;
+          }
+        }
+      }
+      check(
+        `${font}px ${id} keeps inline text clear of painted diagram strokes`,
+        strokeCollisions === 0,
+      );
       check(
         `${font}px ${id} retains physical stroke thickness across geometry scale`,
         [...geometry.querySelectorAll("[data-canvas-source-stroke]")].every(

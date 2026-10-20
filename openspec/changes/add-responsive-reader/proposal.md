@@ -1,8 +1,10 @@
 # Responsive mobile reader alongside the paged preview
 
-Keep compact CeTZ symbols such as axis names at the selected reading size in
-measured free space near their original anchors before using numbered legends.
-Retain numbering for longer or obstructed labels and preserve source geometry.
+Place native CeTZ labels from their measured boxes and available drawing space,
+including short formulae, multi-line names, edge labels and aligned SVG labels.
+Use compact line spacing at the selected reading font, bounded nearby candidates,
+collision-aware allocation and explicit leaders before numbered fallback. Verify
+the complete current diagram corpus visually and across mobile widths/fonts.
 
 Restore authored flowboxes as centered, continuously framed derivations with
 compact internal spacing. Do not add separator rules outside the frame or

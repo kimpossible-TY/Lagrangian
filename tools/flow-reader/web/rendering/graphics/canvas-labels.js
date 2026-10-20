@@ -28,12 +28,89 @@ function intersects(a, b, box) {
   return low <= high;
 }
 
+// Sampled strokes are local obstacles. Query only cells touched by a candidate
+// instead of scanning every segment for every alternative label position.
+function strokeCollision(segments, cellSize) {
+  const cells = new Map();
+  const bounds = (box) => [
+    Math.floor(box.left / cellSize),
+    Math.floor(box.top / cellSize),
+    Math.floor((box.left + box.width) / cellSize),
+    Math.floor((box.top + box.height) / cellSize),
+  ];
+  for (const [a, b, clearance = 0] of segments) {
+    const edge = {
+      a,
+      b,
+      clearance,
+      left: Math.min(a.x, b.x) - clearance,
+      top: Math.min(a.y, b.y) - clearance,
+      width: Math.abs(a.x - b.x) + 2 * clearance,
+      height: Math.abs(a.y - b.y) + 2 * clearance,
+    };
+    const [left, top, right, bottom] = bounds(edge);
+    for (let x = left; x <= right; x++)
+      for (let y = top; y <= bottom; y++) {
+        const key = `${x},${y}`;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(edge);
+      }
+  }
+  const cache = new Map();
+  return (box) => {
+    const key = `${box.left},${box.top},${box.width},${box.height}`;
+    if (cache.has(key)) return cache.get(key);
+    const [left, top, right, bottom] = bounds(box);
+    const seen = new Set();
+    for (let x = left; x <= right; x++)
+      for (let y = top; y <= bottom; y++) {
+        for (const edge of cells.get(`${x},${y}`) || []) {
+          if (seen.has(edge)) continue;
+          seen.add(edge);
+          const { a, b, clearance } = edge;
+          if (
+            intersects(a, b, {
+              left: box.left - clearance,
+              top: box.top - clearance,
+              width: box.width + 2 * clearance,
+              height: box.height + 2 * clearance,
+            })
+          ) {
+            cache.set(key, true);
+            return true;
+          }
+        }
+      }
+    cache.set(key, false);
+    return false;
+  };
+}
+
+function labelBox(label, anchor) {
+  return {
+    left:
+      anchor.x -
+      (label.source.align === "end"
+        ? label.width
+        : label.source.align === "start"
+          ? 0
+          : label.width / 2),
+    top:
+      anchor.y -
+      (label.source.baseline && Number.isFinite(label.baseline)
+        ? label.baseline
+        : label.height / 2),
+    width: label.width,
+    height: label.height,
+  };
+}
+
 // Geometry remains in the authored coordinate system. Only its uniform scale
 // changes. Text that cannot occupy its anchor safely has an always-visible
 // numbered legend; a leader connects a displaced number to its original point.
 export function composeCanvas(model, width, labels, fontSize, segments = []) {
   const scale = Math.max(1, width - 4) / Math.max(1, model.width);
-  const pad = Math.ceil(fontSize);
+  const pad = Math.ceil(1.5 * fontSize);
   const geometry = { left: 2, top: pad, width: model.width * scale, height: model.height * scale };
   const occupied = [];
   const placed = new Map();
@@ -42,7 +119,7 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
     x: geometry.left + (label.source.left + label.source.width / 2) * scale,
     y: geometry.top + (label.source.top + label.source.height / 2) * scale,
   });
-  const hits = (box) => segments.some(([a, b]) => intersects(a, b, box));
+  const hits = strokeCollision(segments, Math.max(24, 2 * fontSize));
   const valid = (box, strokes = true) =>
     box.left >= 0 &&
     box.left + box.width <= width &&
@@ -53,66 +130,114 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
   const sorted = [...labels].sort((a, b) => a.width * a.height - b.width * b.height);
   for (const label of sorted) {
     const anchor = point(label);
-    const box = {
-      left:
-        anchor.x -
-        (label.source.align === "end"
-          ? label.width
-          : label.source.align === "start"
-            ? 0
-            : label.width / 2),
-      top:
-        anchor.y -
-        (label.source.baseline && Number.isFinite(label.baseline)
-          ? label.baseline
-          : label.height / 2),
-      width: label.width,
-      height: label.height,
-    };
-    if (!label.nested && label.height <= 3 * fontSize && valid(box)) {
+    const box = labelBox(label, anchor);
+    if (!label.nested && valid(box)) {
       occupied.push(box);
       placed.set(label.id, { ...box, id: label.id, mode: "inline", anchor });
     }
   }
-  // Reserve exact placements first. Compact symbols may move at most one reading
-  // em into nearby free space; never shrink their measured semantic body.
-  for (const label of sorted) {
-    if (
-      placed.has(label.id) ||
-      label.nested ||
-      label.source.baseline ||
-      label.source.align ||
-      label.width > 3 * fontSize ||
-      label.height > 2 * fontSize
+  // Keep safe authored placements, then allocate nearby space to the labels
+  // with the fewest available positions. Width alone is not a reason to number
+  // a short formula or a two-line name. All candidates use measured text boxes.
+  const pending = sorted
+    .filter(
+      (label) =>
+        !placed.has(label.id) && !label.nested && label.width <= width && label.height <= height,
     )
-      continue;
-    const anchor = point(label);
-    const origin = {
-      left: anchor.x - label.width / 2,
-      top: anchor.y - label.height / 2,
-      width: label.width,
-      height: label.height,
-    };
-    const candidates = [];
-    for (const distance of [0.25, 0.5, 0.75, 1]) {
-      for (const [x, y] of [
-        [0, -1],
-        [0, 1],
-        [-1, 0],
-        [1, 0],
-        [-1, -1],
-        [1, -1],
-        [-1, 1],
-        [1, 1],
-      ]) {
-        const step = (distance * fontSize) / Math.hypot(x, y);
-        candidates.push({ ...origin, left: origin.left + x * step, top: origin.top + y * step });
-      }
-    }
-    const box = candidates.find((candidate) => valid(candidate));
-    if (!box) continue;
+    .map((label) => {
+      const anchor = point(label);
+      const origin = labelBox(label, anchor);
+      const radius = Math.min(
+        width / 4,
+        Math.max(2 * fontSize, Math.min(4 * fontSize, Math.max(label.width, label.height) / 2)),
+      );
+      return { label, anchor, origin, radius };
+    });
+  const leader = (box, anchor) => [
+    anchor,
+    {
+      x: Math.max(box.left, Math.min(box.left + box.width, anchor.x)),
+      y: Math.max(box.top, Math.min(box.top + box.height, anchor.y)),
+    },
+  ];
+  const connected = (box, anchor) => {
+    const [a, b] = leader(box, anchor);
+    return (
+      occupied.every((other) => !intersects(a, b, other)) &&
+      [...placed.values()].every((other) => {
+        const [start, end] = leader(other, other.anchor);
+        return !intersects(start, end, box);
+      })
+    );
+  };
+  while (pending.length) {
+    const choices = pending
+      .map((entry) => {
+        const { origin, radius, anchor } = entry;
+        const candidates = [
+          {
+            ...origin,
+            left: Math.max(0, Math.min(width - origin.width, origin.left)),
+            top: Math.max(0, Math.min(height - origin.height, origin.top)),
+          },
+        ];
+        for (let distance = fontSize / 2; distance <= radius + 0.01; distance += fontSize / 2) {
+          for (let angle = 0; angle < 16; angle++) {
+            const theta = (angle * Math.PI) / 8;
+            candidates.push({
+              ...origin,
+              left: origin.left + Math.cos(theta) * distance,
+              top: origin.top + Math.sin(theta) * distance,
+            });
+          }
+        }
+        // Include the exact clearance around occupied boxes, rather than hoping
+        // a coarse angular sample happens to land in a narrow gap.
+        for (const other of occupied) {
+          for (const left of [
+            origin.left,
+            other.left - origin.width - gap,
+            other.left + other.width + gap,
+          ]) {
+            for (const top of [
+              origin.top,
+              other.top - origin.height - gap,
+              other.top + other.height + gap,
+            ])
+              candidates.push({ ...origin, left, top });
+          }
+        }
+        const distance = (box) => Math.hypot(box.left - origin.left, box.top - origin.top);
+        const unique = new Map(
+          candidates.map((box) => {
+            const bounded = {
+              ...box,
+              left: Math.max(0, Math.min(width - box.width, box.left)),
+              top: Math.max(0, Math.min(height - box.height, box.top)),
+            };
+            return [`${bounded.left.toFixed(2)},${bounded.top.toFixed(2)}`, bounded];
+          }),
+        );
+        const available = [...unique.values()]
+          .filter((box) => distance(box) <= radius + 0.01 && valid(box) && connected(box, anchor))
+          .sort((a, b) => distance(a) - distance(b));
+        return { entry, available };
+      })
+      .filter(({ available }) => available.length);
+    if (!choices.length) break;
+    choices.sort((a, b) => a.available.length - b.available.length);
+    const {
+      entry,
+      available: [box],
+    } = choices[0];
     occupied.push(box);
-    placed.set(label.id, { ...box, id: label.id, mode: "inline", anchor });
+    placed.set(entry.label.id, {
+      ...box,
+      id: entry.label.id,
+      mode: "inline",
+      anchor: entry.anchor,
+    });
+    pending.splice(pending.indexOf(entry), 1);
   }
   for (const label of labels) {
     if (placed.has(label.id)) continue;
@@ -174,7 +299,8 @@ function segmentsOf(svg, stage, geometry) {
       if (!sample) continue;
       const transformed = sample.matrixTransform(matrix);
       const current = { x: transformed.x - rect.left, y: transformed.y - rect.top };
-      if (previous) segments.push([previous, current]);
+      if (previous)
+        segments.push([previous, current, Math.max(1, parseFloat(style.strokeWidth) / 2 + 0.5)]);
       previous = current;
     }
   }

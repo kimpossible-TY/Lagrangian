@@ -956,20 +956,44 @@ The maintained mannot and flow-reader overlays export `data-flow-decoration-pain
 Local work follows the same selection/gesture hold as dynamic paint. Revision, occurrence and geometry keys remain authoritative; local decorations can finish even while an unrelated server request is in flight. Semantic/assistive math and paged output remain unchanged. Static asset allow-list and immutable installed layout include the new module. Validate generated geometry against real Typst output, request elimination, mixed fallback, fragment splitting, font/width changes, theme, stale responses and installed delivery.
 
 
-## Compact native canvas labels
+## Measured native canvas label allocation
 
-After reserving all safe original label placements, the existing HTML canvas
-composer tries nearby placements for non-nested labels at most 3 reading em wide
-and 2 em high. Search outward in quarter-em steps to a maximum displacement of
-one em, checking the same stage bounds, occupied boxes and sampled strokes.
-This adapts the nearby-name policy used for annotations without sharing renderer
-geometry or changing semantic HTML/MathML font sizes. Explicit SVG alignment and
-baseline contracts retain exact placement or their existing numbered fallback.
-Long or obstructed labels keep numbered legends. Displaced inline labels reuse
-the existing dotted leader when their box no longer contains the source anchor.
-Exact placements have priority; no author coordinates, compiler calls or PDF
-output change. Width and font changes rerun the existing measured composition.
+The HTML canvas owner measures labels at the selected reading font and uses 1.35
+line spacing for figure label bodies. This removes prose-only line-box slack
+without shrinking glyphs or changing semantic HTML/MathML. Reserve 1.5 reading em
+above and below the uniformly scaled authored drawing for edge labels.
 
-Before sampling SVG strokes, retire the pending placeholder CSS so its forced
-zero offset and automatic height cannot override the planned geometry. Collision
-checks and the published drawing must use the same coordinate plane.
+Keep safe exact placements first. For every non-nested label whose measured box
+can fit the stage, enumerate nearby positions, project candidates onto stage
+edges, and add exact clearances around occupied label boxes. Do not classify a
+label as a number solely because it exceeds a character count, width-in-em cutoff,
+or source-baseline flag. Candidate travel is bounded by two to four reading em
+according to measured label extent, and never exceeds one quarter of stage width.
+Original SVG alignment/baseline determines the starting box and stays in source
+metadata. An offset label keeps an explicit source anchor and dotted leader.
+
+Deduplicate projected candidates and allocate the most constrained fitting label
+first, preferring its nearest valid placement. Reject label overlaps, actual
+stroke thickness, leaders through already placed text and text over existing
+leaders. Stroke samples enter a spatial cell index with per-composition collision
+memoization, so responsive placement does not repeatedly scan every SVG segment.
+Retire placeholder CSS before sampling to use the published coordinate plane.
+
+Numbered legends remain complete fallbacks for nested diagrams, boxes that cannot
+fit, and labels with no collision-free nearby placement. In particular, fixed
+small graph nodes cannot necessarily hold readable multi-line equations; do not
+infer graph topology or redraw arbitrary author geometry merely to remove a
+number. Width/font changes reuse existing measurement, math completion, reading
+position preservation and selection holds; no per-canvas compiler requests are
+added. Keep all text, source identities, colors and paged output.
+
+Verify short formulae, two-line names, aligned baselines, stage edges, thick
+strokes and dense fallback in pure geometry tests. Run the existing compiler and
+browser fixture contracts and audit every current native figure in the real PDE
+corpus with before/after captures. Include Chrome/WebKit, 320/390px widths and
+13/18/30px reading fonts, full-label preservation, ink/page bounds, marker mapping,
+physical strokes and actual painted-stroke clearance. Distinguish corpus coverage
+from a claim about every possible CeTZ program or physical-device behavior.
+
+Nested canvas bodies retain the available label width during font-size resets;
+absolute child geometry cannot supply an intrinsic width for a shrink-to-fit parent.

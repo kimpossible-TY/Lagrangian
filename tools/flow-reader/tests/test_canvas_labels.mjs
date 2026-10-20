@@ -57,7 +57,7 @@ test("SVG text anchors retain their exact source point and measured baseline", (
   const placed = result.labels[0];
   assert.equal(placed.mode, "inline");
   assert.equal(placed.anchor.x, 82);
-  assert.equal(placed.anchor.y, 68);
+  assert.equal(placed.anchor.y, result.geometry.top + 50);
   assert.equal(placed.left + placed.width, placed.anchor.x);
   assert.equal(placed.top + source.baseline, placed.anchor.y);
   assert.deepEqual(source.source, {
@@ -96,7 +96,7 @@ test("crowded labels retain readable badges and complete continuous legends", ()
   }
 });
 
-test("a stroke crossing a label reserves a legend without changing its anchor", () => {
+test("a short formula moves clear of a stroke without changing its source anchor", () => {
   const labels = [label(0, 100, 80, 80)];
   const clear = composeCanvas({ width: 200, height: 160 }, 204, labels, 18);
   const anchor = clear.labels[0].anchor;
@@ -107,7 +107,11 @@ test("a stroke crossing a label reserves a legend without changing its anchor", 
     ],
   ]);
   assert.equal(clear.labels[0].mode, "inline");
-  assert.equal(crossed.labels[0].mode, "legend");
+  assert.equal(crossed.labels[0].mode, "inline");
+  assert.ok(
+    crossed.labels[0].top + crossed.labels[0].height < anchor.y || crossed.labels[0].top > anchor.y,
+  );
+  assert.equal(crossed.labels[0].width, labels[0].width);
   assert.deepEqual(crossed.labels[0].anchor, anchor);
   const distant = composeCanvas({ width: 200, height: 160 }, 204, labels, 18, [
     [
@@ -172,4 +176,64 @@ test("nearby placement preserves exact labels, bounds, and deterministic recompo
     assert.deepEqual(plan.labels[1], exact);
     assert.deepEqual(composeCanvas(model, width, labels, 18), plan);
   }
+});
+
+test("two-line names use free space at their full measured size", () => {
+  const name = label("name", 100, 100, 120, 50);
+  const model = { width: 220, height: 200 };
+  const clear = composeCanvas(model, 224, [name], 18).labels[0];
+  const blocked = composeCanvas(model, 224, [name], 18, [
+    [{ x: 0, y: clear.anchor.y }, { x: 224, y: clear.anchor.y }, 2],
+  ]).labels[0];
+  assert.equal(blocked.mode, "inline");
+  assert.equal(blocked.width, 120);
+  assert.equal(blocked.height, 50);
+  assert.deepEqual(blocked.anchor, clear.anchor);
+  assert.ok(blocked.top + blocked.height < clear.anchor.y - 2 || blocked.top > clear.anchor.y + 2);
+});
+
+test("aligned labels can move while retaining the authored baseline and anchor metadata", () => {
+  const source = {
+    ...label("z", 80, 50, 40, 32),
+    source: { left: 80, top: 50, width: 0, height: 0, align: "end", baseline: true },
+    baseline: 24,
+  };
+  const before = structuredClone(source);
+  const model = { width: 200, height: 100 };
+  const exact = composeCanvas(model, 204, [source], 18).labels[0];
+  const y = exact.top + 16;
+  const placed = composeCanvas(model, 204, [source], 18, [
+    [
+      { x: 0, y },
+      { x: 204, y },
+    ],
+  ]).labels[0];
+  assert.equal(placed.mode, "inline");
+  assert.deepEqual(placed.anchor, exact.anchor);
+  assert.ok(placed.top + placed.height < y || placed.top > y);
+  assert.deepEqual(source, before);
+});
+
+test("a label wider than the old symbol cutoff can use the diagram edge", () => {
+  const source = label("edge", 0, 80, 100, 28);
+  const placed = composeCanvas({ width: 200, height: 160 }, 204, [source], 18).labels[0];
+  assert.equal(placed.mode, "inline");
+  assert.equal(placed.left, 0);
+  assert.equal(placed.width, 100);
+  assert.equal(placed.anchor.x, 2);
+});
+
+test("long labels are decided by measured free space rather than a text-width cutoff", () => {
+  const source = label("title", 180, 100, 270, 28);
+  const model = { width: 360, height: 200 };
+  const y = 127;
+  const placed = composeCanvas(model, 364, [source], 18, [
+    [
+      { x: 0, y },
+      { x: 364, y },
+    ],
+  ]).labels[0];
+  assert.equal(placed.mode, "inline");
+  assert.equal(placed.width, 270);
+  assert.ok(placed.top + placed.height < y || placed.top > y);
 });
