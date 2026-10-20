@@ -980,12 +980,18 @@ mjx-container mjx-stretchy-v {
   grid-template-columns: auto minmax(0, 1fr);
 }
 .flow-canvas-label-body {
+  /* Diagram labels need compact line boxes, while keeping the full reading font. */
+  line-height: 1.35;
   display: flow-root;
   width: fit-content;
   max-width: 100%;
   overflow-wrap: anywhere;
   font-size: var(--reader-font-size);
   background: var(--drawing-surface, var(--paper));
+}
+.flow-canvas-label-body:has([data-flow-canvas]) {
+  /* Nested absolute geometry has no intrinsic width during font-size resets. */
+  width: 100%;
 }
 .flow-canvas-label-body :where(p, div, span, table, img) {
   max-width: 100%;

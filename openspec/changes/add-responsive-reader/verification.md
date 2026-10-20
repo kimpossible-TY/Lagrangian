@@ -2806,3 +2806,34 @@ final WebKit capture was visually checked as well. Evidence is in the prior
 rollout directory's `browser-verification.json`, `final-browser-retry.log` and
 `chromium-note.png`/`webkit-note.png`. This completes the coordinated installation
 and both features' installed-document verification.
+
+## Measured canvas placement — 2026-10-20
+
+The allocation policy now uses the measured label box instead of the former
+3em/2em symbol cutoff. It retains safe authored placements first, projects nearby
+candidates into the stage, allocates constrained labels first, and checks painted
+stroke thickness and inline leader/body intersections. The reading font stays
+unchanged; label line-height is 1.35. A spatial stroke index and per-composition
+collision cache avoid repeatedly scanning the entire drawing.
+
+The actual PDE corpus contains 66 native canvases and 685 semantic labels.
+At 390px/18px, inline labels increased from 238 to 439. Every figure's before/after
+capture was visually inspected. This includes CeTZ, Fletcher and Maquette output,
+axis symbols, aligned labels, multiline descriptions and equations. Small fixed
+flowchart nodes and crowded figures still use complete numbered legends where
+readable text cannot fit; geometry is not redrawn or independently stretched.
+Comparison sheets and raw captures are under
+`dist/reader-canvas-placement/{sheets,before-chromium-390-18,final-chromium-390-18}`.
+
+All 137 HTML/architecture Node tests, eight actual compiler tests and the macOS
+installed-layout integration test passed. Reader ESLint reported zero warnings;
+Prettier accepted the changed JavaScript/CSS. Yarn was unavailable in this shell,
+so its lint script was invoked through the installed ESLint executable directly.
+
+The multi-font nested-canvas fixture exposed an intrinsic-width collapse on a
+13→18px transition: absolute child geometry supplied no width after resetting
+the parent label. Nested label bodies now retain the available width during
+measurement. The unchanged eight-canvas fixture subsequently passed all 24
+measurements at 13/18/30px in Chrome/320px and WebKit/390px (302 checks each).
+The browser oracle additionally checks inline bodies against independently
+sampled painted strokes, excluding unpainted zero-length butt segments.

@@ -320,3 +320,11 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Reproduce short-note insertion, body/title edits and upgrade relocation in Python, and verify actual compiler/WebKit automatic navigation with existing gesture/selection/history guards.
 - [x] Reuse the semantic reading-position hold after local/remote change jumps so asynchronous mathematics cannot hide the changed callout title; verify the actual PDE note in Chrome and WebKit, including reload.
 - [x] Apply the clean immutable Reader release, restore the missed Green-function note as the last accepted edit, and verify installed document delivery and saved-context preservation.
+
+
+## Measured canvas label allocation
+
+- [x] Replace symbol-only nearby placement with measured label candidates, edge projection, constrained allocation and stroke/leader collision checks.
+- [x] Keep the reading font with compact label line spacing and index sampled strokes to bound repeated layout work.
+- [ ] Verify every current native PDE figure visually, compare retained labels, and exercise Chrome/WebKit at 320/390px and 13/18/30px.
+- [ ] Verify selection/text/geometry contracts and install the clean Reader release with preserved context and installed-asset checks.
