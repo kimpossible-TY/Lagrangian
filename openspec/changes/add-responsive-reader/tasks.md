@@ -313,3 +313,9 @@ Receipts, inspected screenshots and recovery snapshots are indexed in
 remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Try bounded nearby placements for compact CeTZ symbols at the reading size before numbered fallback; preserve exact placements, collisions and source anchors.
+
+## Callout change destinations
+
+- [x] Assign semantic navigation anchors to callouts and include titles/unwrapped prose in visual history without duplicating accepted selection passages or losing existing child targets.
+- [x] Reproduce short-note insertion, body/title edits and upgrade relocation in Python, and verify actual compiler/WebKit automatic navigation with existing gesture/selection/history guards.
+- [ ] Apply the clean immutable Reader release, restore the missed Green-function note as the last accepted edit, and verify installed document delivery and saved-context preservation.

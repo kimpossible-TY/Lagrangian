@@ -123,7 +123,7 @@ def heading_level(tag, attributes):
 
 
 class BlockIdentifiers(SvgRanges):
-    """Assign reading keys before partitioning, independent of section numbers."""
+    """Assign reading keys and callout navigation anchors before partitioning."""
 
     def __init__(self, source):
         super().__init__(source)
@@ -138,19 +138,22 @@ class BlockIdentifiers(SvgRanges):
         attributes = dict(attrs)
         classes = attributes.get("class", "").split()
         level = heading_level(tag, attributes)
+        callout = tag == "div" and "flow-callout" in classes
         if "data-flow-canvas-identity" in attributes:
             self.canvas_scopes.append((len(self.stack), attributes["data-flow-canvas-identity"]))
         if "body" in self.stack and not {"math", "svg", "nav"}.intersection(self.stack) and (
             level or tag in {"p", "figcaption", "td", "th"}
+            or callout
             or (tag == "div" and {"flow-equation", "flow-canvas-label-body"}.intersection(classes))
         ):
             for parent in self.active:
-                if parent.get("native_label") or parent.get("table_cell"):
+                if not callout and (parent.get("native_label") or parent.get("table_cell")):
                     parent["child_block"] = True
             self.active.append({"depth": len(self.stack), "tag": tag, "text": [],
                                 "heading_level": level,
                                 "id": attributes.get("id"), "heading": self.heading,
                                 "canvas_scope": self.canvas_scopes[-1][1] if self.canvas_scopes else "",
+                                "callout": callout,
                                 "native_label": "flow-canvas-label-body" in classes,
                                 "table_cell": tag in {"td", "th"},
                                 "position": self.source_offset() + len(self.get_starttag_text()) - 1})
@@ -182,8 +185,10 @@ class BlockIdentifiers(SvgRanges):
             digest = hashlib.sha256(identity.encode()).hexdigest()[:20]
             count = self.counts.get(digest, 0) + 1
             self.counts[digest] = count
-            key = f"reader-{digest}-{count}"
-            attributes = f' data-reader-key="{key}"'
+            key = f'reader-{"callout-" if node["callout"] else ""}{digest}-{count}'
+            # A callout can contain unwrapped prose as well as keyed paragraphs.
+            # Give change navigation an anchor without duplicating selections.
+            attributes = "" if node["callout"] else f' data-reader-key="{key}"'
             if not label:
                 attributes += f' id="{key}"'
             self.insertions.append((node["position"], attributes))
