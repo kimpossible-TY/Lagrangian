@@ -52,8 +52,9 @@ scroll-anchoring holds. Publish that origin only after successful navigation. Ea
 replaces it; external links, footnote popovers, history, editor and visual-change
 navigation do not create or replace it.
 
-Returning uses the current manifest's section lookup and existing guarded section
-loading, then restores the anchor after mounting, replaces the URL with its
+Returning first restores a still-mounted origin directly, retaining its composed
+mathematics and annotations. Only an unmounted origin uses the current manifest's
+section lookup and existing guarded section loading. Restoration replaces the URL with its
 captured origin and focuses the article without scrolling. Reuse semantic anchor
 restoration for font/viewport changes and unmounted sections. Failed fetches
 retain the action for retry; a completed return consumes it, including an origin
@@ -62,6 +63,13 @@ origin. Disposal discards the origin and button listener and prevents obsolete
 callbacks from reviving them. Place both navigation
 actions in one wrapping fixed container so they remain independent without
 overlap on narrow screens.
+
+After an explicit return, HTML `reading-position` retains the intended semantic
+anchor through asynchronous mathematical/annotation composition. Layout-induced
+scroll events cannot replace it with an intermediate position. A direct reading
+gesture, another explicit/history/change navigation or disposal releases the hold.
+This renderer-specific geometry hold does not duplicate the shared return origin
+or button lifetime, which is consumed when the return is published.
 
 ## Last visual edit navigation
 

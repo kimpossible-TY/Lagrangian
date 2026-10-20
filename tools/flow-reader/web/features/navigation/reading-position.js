@@ -5,8 +5,11 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
   let stableAnchor = null;
   let stableScrollY = scrollY;
   let anchorWidth = document.documentElement.clientWidth;
+  let holding = false;
   const textOf = (node) => logicalTextIndex(node).text;
   function capture() {
+    // Explicit returns keep their intended anchor through asynchronous composition.
+    if (holding) return stableAnchor;
     const parked = [...article.querySelectorAll('[data-section-state="parked"]')].find((node) => {
       const rect = node.getBoundingClientRect();
       return rect.top <= 90 && rect.bottom > 90;
@@ -141,6 +144,7 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
   }
 
   const remember = (anchor = capture()) => {
+    if (holding) return;
     if (document.documentElement.clientWidth !== anchorWidth) return;
     stableAnchor = anchor;
     stableScrollY = scrollY;
@@ -153,17 +157,29 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
     restore(stableAnchor);
   };
   const fontsLoaded = () => {
-    if (Math.abs(scrollY - stableScrollY) < 1) restore(stableAnchor);
+    if (holding || Math.abs(scrollY - stableScrollY) < 1) restore(stableAnchor);
   };
   window.addEventListener("resize", resized);
   document.fonts.addEventListener("loadingdone", fontsLoaded);
+  const release = () => {
+    holding = false;
+  };
+  const gestures = ["pointerdown", "touchmove", "wheel", "keydown"];
+  for (const event of gestures) document.addEventListener(event, release, { passive: true });
   return {
     capture,
     restore,
     remember,
+    hold(anchor) {
+      holding = restore(anchor);
+      return holding;
+    },
+    release,
     dispose() {
+      release();
       window.removeEventListener("resize", resized);
       document.fonts.removeEventListener("loadingdone", fontsLoaded);
+      for (const event of gestures) document.removeEventListener(event, release);
     },
   };
 }

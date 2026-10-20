@@ -112,7 +112,14 @@ async function verify(browser, viewport, reducedMotion) {
     // Local and remote links both remember the viewport before activation.
     await follow("passage-0-4", ".local");
     await back.waitFor({ state: "visible" });
+    const mountedOrigin = await page.locator("#passage-0-4").elementHandle();
     await returned("passage-0-4", top, href);
+    assert.equal(
+      await mountedOrigin.evaluate((node) => node.isConnected),
+      true,
+      "a local return retains the mounted section and its composed mathematics",
+    );
+    await mountedOrigin.dispose();
     await follow("passage-0-4", ".remote");
     await page.locator("#heading-7").waitFor();
     await back.waitFor({ state: "visible" });

@@ -295,5 +295,5 @@ were not performed.
 
 ## Deploy reference-return action
 
-- [ ] Commit the verified shared reference-return implementation on the current branch and stage a clean immutable HTML Reader candidate with configuration/context recovery snapshots.
+- [x] Commit the verified shared reference-return implementation on the current branch and stage a clean immutable HTML Reader candidate with configuration/context recovery snapshots.
 - [ ] Install the Reader candidate, preserve existing service states and saved context, and verify registered HTTPS assets and real internal-reference return in Chrome/WebKit.
