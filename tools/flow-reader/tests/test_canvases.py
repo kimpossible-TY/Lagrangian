@@ -87,7 +87,7 @@ class CanvasCompilerTests(unittest.TestCase):
             source = (output / "document.html").read_text()
             parser = NativeSources()
             parser.feed(source)
-            self.assertEqual(len(parser.models), 7)
+            self.assertEqual(len(parser.models), 8)
             self.assertAlmostEqual(parser.models["canvas-2"]["width"], 500 / .75)
             self.assertEqual(len(parser.models["canvas-3"]["labels"]), 7)
             for model in parser.models.values():
@@ -96,14 +96,14 @@ class CanvasCompilerTests(unittest.TestCase):
             self.assertTrue(any("font-size:1em" in style for style in parser.styles))
             self.assertTrue(any("font-size:2.545" in style and "color:#b5261e" in style
                                 and "font-weight:700" in style for style in parser.styles))
-            self.assertEqual(parser.math, 6)
+            self.assertEqual(parser.math, 7)
             self.assertEqual(parser.math_html, [], "Mathematical glyphs must remain native MathML")
             self.assertIn("Original stacked label", source)
             self.assertIn("This fixed content box cannot shrink.", source)
             self.assertIn("Nested readable label", source)
             ranges = SvgRanges(source)
             ranges.feed(source)
-            self.assertEqual(len(ranges.ranges), 7)
+            self.assertEqual(len(ranges.ranges), 8)
             for start, end in ranges.ranges:
                 svg = ET.fromstring(source[start:end])
                 self.assertFalse(list(svg.iter("{http://www.w3.org/2000/svg}symbol")))
