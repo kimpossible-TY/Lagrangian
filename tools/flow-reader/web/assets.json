@@ -24,6 +24,7 @@
   "features/source-highlight/controller.js": "features/source-highlight/controller.js",
   "index.html": "index.html",
   "reader-common/navigation/change-location.js": "reader-common/navigation/change-location.js",
+  "reader-common/navigation/reference-return.js": "reader-common/navigation/reference-return.js",
   "reader-common/rendering/scheduler.js": "reader-common/rendering/scheduler.js",
   "reader-common/review-strikes/bounded-store.js": "reader-common/review-strikes/bounded-store.js",
   "reader-common/selection/press.js": "reader-common/selection/press.js",

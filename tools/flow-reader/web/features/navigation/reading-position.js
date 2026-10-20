@@ -70,7 +70,7 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
     };
   }
   function restore(anchor) {
-    if (!anchor) return;
+    if (!anchor) return false;
     if (anchor.canvas && Number.isFinite(anchor.canvasFraction)) {
       const matchesText = (node) =>
         node?.hasAttribute("data-flow-canvas-model") &&
@@ -100,8 +100,9 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
           stableAnchor = anchor;
           stableScrollY = scrollY;
         }
+        return true;
       }
-      return;
+      return false;
     }
     if (Number.isFinite(anchor.fraction)) {
       const section = article.querySelector(
@@ -114,8 +115,9 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
           stableAnchor = anchor;
           stableScrollY = scrollY;
         }
+        return true;
       }
-      return;
+      return false;
     }
     const candidates = readBlocks().filter(
       (node) =>
@@ -133,7 +135,9 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
         stableAnchor = anchor;
         stableScrollY = scrollY;
       }
+      return true;
     }
+    return false;
   }
 
   const remember = (anchor = capture()) => {

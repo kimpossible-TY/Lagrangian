@@ -103,6 +103,14 @@ accepted live changes after rendering. Recent reading gestures defer the jump
 behind a compact change-location button. Explicit links and history navigation
 retain their destination.
 
+Bring the paged reader's single reference return action to HTML. After following
+an internal body or outline link, offer “원래 위치로” at the bottom alongside the
+independent change-location action. Restore the semantic reading anchor and its
+URL after section loading and reflow; a later link replaces the return origin.
+Both readers use one `reader-common` controller for origin state, action visibility,
+completion consumption and disposal; native coordinates and navigation effects
+remain with their adapters.
+
 Preserve verified HTML block-to-source ranges for prose inside content wrappers
 and complete mathematics. Saved for Codex and bidirectional editor navigation
 share this accepted mapping, keeping source changes, unsupported output and

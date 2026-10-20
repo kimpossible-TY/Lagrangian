@@ -133,6 +133,20 @@ describe("return from an internal reference", () => {
     expect(view.scroller.scrollLeft).toBeCloseTo(120);
   });
 
+  it("keeps a newer reference created during return completion", () => {
+    const view = fixture();
+    view.onRestore.mockImplementationOnce(() => {
+      view.scroller.scrollTop = 2345;
+      view.follow(4);
+    });
+    view.follow(3);
+    view.return();
+    expect(view.button.hidden).toBe(false);
+    view.return();
+    expect(view.scroller.scrollTop).toBeCloseTo(2345);
+    expect(view.button.hidden).toBe(true);
+  });
+
   it("does not create a return for editor navigation or invalid internal targets", () => {
     const view = fixture();
     view.previous({} as Element, 3);
