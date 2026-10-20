@@ -2849,3 +2849,9 @@ Some long corpus runs initially timed out while waiting on a captured canvas
 node. Diagnostics showed the live replacement already composed with every math
 view ready. The browser harness now resolves the current canvas during its wait,
 matching section virtualization rather than observing a detached old instance.
+
+The independent stroke oracle found a subpixel contact at a tight curved brace
+in WebKit/320px/18px (`canvas-10`). Increasing the geometry sampler from about
+3 CSS px to 1 CSS px, capped at 4096 segments per path, removed that contact.
+The focused real-browser check passed after the correction; spatial indexing
+continues to keep collision queries local.
