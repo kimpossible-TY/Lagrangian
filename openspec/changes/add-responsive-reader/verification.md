@@ -2817,7 +2817,7 @@ unchanged; label line-height is 1.35. A spatial stroke index and per-composition
 collision cache avoid repeatedly scanning the entire drawing.
 
 The actual PDE corpus contains 66 native canvases and 685 semantic labels.
-At 390px/18px, inline labels increased from 238 to 437. Every figure's before/after
+At 390px/18px, inline labels increased from 238 to 438. Every figure's before/after
 capture was visually inspected. This includes CeTZ, Fletcher and Maquette output,
 axis symbols, aligned labels, multiline descriptions and equations. Small fixed
 flowchart nodes and crowded figures still use complete numbered legends where
@@ -2855,3 +2855,34 @@ in WebKit/320px/18px (`canvas-10`). Increasing the geometry sampler from about
 3 CSS px to 1 CSS px, capped at 4096 segments per path, removed that contact.
 The focused real-browser check passed after the correction; spatial indexing
 continues to keep collision queries local.
+
+Final installation uses clean immutable revision
+`1de9518f03930969e4cf0b796c3bbe4bd8a9ec0d`. The original smaller-label and callout
+navigation work is included. Installation was coordinated with the idle
+“HTML reader 변경 위치로 이동 수정” task; this task alone performed the rollout.
+All 514 immutable files and 48 first-party assets match through both local and
+actual HTTPS delivery. Accepted compilation passed; configuration, saved explicit
+selection, last-change token, 48 source files and paged-service states were
+preserved. Receipts are in `dist/reader-canvas-placement/rollout-final/`.
+
+Without runtime asset overrides, the installed screenshot's figure retained both
+y labels in all 12 Chrome/WebKit × 320/390px × 13/18/30px combinations. Final
+18px installed captures were visually checked. The Green-note change destination
+remained completely visible on fresh entry and reload in both browsers. Two
+WebKit reload attempts reported the previously observed API-state access-control
+warning; a subsequent complete run passed with no page errors, and an explicit
+post-reload fetch confirmed the accepted live state. Those attempts remain in
+the rollout logs rather than being omitted from the evidence.
+
+The installed Chrome/390px corpus passed 2,378 checks across 198 measurements
+(all 66 figures at 13/18/30px), with no page errors, stroke collisions or page
+width overflow. Its final 18px inline count is 438/685; the earlier priority
+visual audit counted 437 before the final curve-sampling refinement. The visual
+comparison is `dist/reader-canvas-placement/comparison.png`.
+
+The installed WebKit/320px corpus also passed all 2,378 checks and 198
+measurements at 13/18/30px, with zero page errors. Combined final installed corpus
+coverage is 396 figure/font measurements and 4,756 checks. Final read-back again
+confirmed configuration, explicit selection, 48 original source files and the
+last-change token after browser checks. Physical iPhone interaction, native app
+replacement and VoiceOver were not exercised in this iteration.
