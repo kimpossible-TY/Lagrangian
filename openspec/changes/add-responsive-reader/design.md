@@ -67,7 +67,9 @@ overlap on narrow screens.
 After an explicit return, HTML `reading-position` retains the intended semantic
 anchor through asynchronous mathematical/annotation composition. Layout-induced
 scroll events cannot replace it with an intermediate position. A direct reading
-gesture, another explicit/history/change navigation or disposal releases the hold.
+gesture, another explicit/history/change navigation, document replacement or
+disposal releases the hold. A returning replacement establishes its own hold
+only after restoring the newly mounted content.
 This renderer-specific geometry hold does not duplicate the shared return origin
 or button lifetime, which is consumed when the return is published.
 
