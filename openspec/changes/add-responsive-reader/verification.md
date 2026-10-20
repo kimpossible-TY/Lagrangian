@@ -2721,3 +2721,42 @@ the actual painted stroke. Reports and visually inspected captures are under
 `dist/reader-compact-canvas/`. All browser checks used isolated Chromium and a
 loopback fixture service. The screenshot's original document, physical iPhone,
 WebKit and installation were not verified; no managed service was changed.
+
+## 2026-10-20 callout change destinations
+
+Short callouts could export their whole body as unwrapped inline content. They
+had neither a keyed paragraph nor a navigation anchor, so visual history omitted
+inserted/edited notes and unwrapped title/tail changes. `BlockIdentifiers` now
+assigns callout navigation anchors without adding duplicate accepted selection
+passages. Visual history includes the complete callout while retaining existing
+child targets for upgrades. The actual accepted PDE export now identifies the
+Green-function note in section-44 rather than the unrelated former section-54
+last edit. No document source changes are involved.
+
+The focused Python suite passes 21 tests, HTML Node passes 131 tests, and reader
+architecture, lint, formatting and strict OpenSpec validation pass. The complete
+required Python integration run executes 172 tests without skips: 171 pass;
+`test_native_geometry_and_label_sources_are_exported_without_text_flattening`
+fails because the existing CeTZ fixture exports eight models but expects seven.
+The identical failure is reproduced from an unmodified HEAD archive. It is
+independent of this change.
+
+The real Typst/WebKit change-navigation fixture passes 16 checks including note
+insertion, unwrapped body and title-only edits, gesture deferral, selection holds,
+explicit/history destinations, failed compilation and nonvisual comments.
+Installed release `83adf0cb8db4316825a7801669d0a15cb97e540f` includes the anchor fix
+and prior CeTZ placement commit. All 514 immutable files and 48 HTTPS routes
+match. Accepted document bytes, 48 workspace inputs, saved context, configuration
+and paged-service PIDs/states remain unchanged. The missed note was recovered
+using the accepted export and the same visual-history owner; no source was edited.
+Recovery records and receipts are in `dist/reader-callout-rollout`.
+
+Actual-document validation also exposed late mathematical composition moving the
+note title above the viewport after the jump. Local and remote change navigation
+now reuse the existing semantic reading-position hold until a direct gesture,
+new navigation or document replacement. With only the candidate `reader.js`
+overridden in isolated browsers against the installed HTTPS document, Chrome and
+WebKit both show the complete note at about 88px from the viewport top on fresh
+entry and reload, with no page errors. Screenshots were visually inspected.
+Final installation is coordinated by the concurrent CeTZ Reader task; the
+candidate verification is not evidence that this final hold is installed yet.

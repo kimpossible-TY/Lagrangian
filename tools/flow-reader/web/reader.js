@@ -391,8 +391,10 @@ function renderDocument(html, nextManifest, section, options) {
   pending = null;
   requestAnimationFrame(() => {
     if (disposed || revision !== nextManifest.revision || sequence !== loadSequence) return;
-    if (options.target) document.getElementById(options.target)?.scrollIntoView();
-    else if (options.anchor) {
+    if (options.target) {
+      document.getElementById(options.target)?.scrollIntoView();
+      if (options.changeToken) readingPosition.hold(readingAnchor());
+    } else if (options.anchor) {
       const restored = options.referenceReturn
         ? readingPosition.hold(options.anchor)
         : restoreAnchor(options.anchor);
@@ -414,7 +416,7 @@ async function jumpToChange(change, automatic = false) {
     loadSequence++;
     activity.refresh();
     local.scrollIntoView({ behavior: "instant" });
-    readingPosition.remember();
+    readingPosition.hold(readingAnchor());
     sections.schedule();
     changes.hide();
   } else {

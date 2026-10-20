@@ -29,7 +29,10 @@ def document(step):
                     for number in range(90)) +
             '= Last chapter <last>\n\n'
             'Return to #link(<first>)[the first chapter].\n\n'
-            f'Edited passage version {min(step, 4)}.\n\n' + callout +
+            f'Edited passage version {min(step, 4)}.\n\n'
+            '#for i in range(12) [\n'
+            '$ sum_(j=1)^n frac(x_j^2 + y_j^2, sqrt(1 + z_j^2)) = frac(a, b) $\n\n'
+            ']\n\n' + callout +
             '$ x^2 + y^2 = z^2 $\n\n' +
             ''.join(f'Final passage {number}: Trailing text permits target alignment.\n\n'
                     for number in range(15)))
