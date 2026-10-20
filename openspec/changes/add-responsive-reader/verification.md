@@ -2702,3 +2702,22 @@ Receipts and inspected screenshots are under `dist/reader-reference-rollout/`:
 `b7e971587902106abe6e452a15151cc0494c0a0a` release remains available.
 No native app replacement, remote release publication or physical-device/VoiceOver
 verification was performed.
+
+
+## Compact CeTZ symbols near their anchors — 2026-10-20
+
+The native canvas composer reserves safe exact placements, then tries bounded
+nearby space for compact symbols without reducing their measured reading font.
+Long, nested, explicitly aligned and obstructed labels retain numbered legends.
+The placeholder CSS is retired before SVG stroke sampling so collision tests use
+the published geometry rather than its temporary zero-offset loading position.
+
+Validation: HTML Node suite 131/131; focused canvas tests 10/10; architecture
+checks 2/2; full reader ESLint (zero warnings), affected-file ESLint and Prettier,
+and git diff whitespace checks passed. The real Typst/CeTZ native fixture passed
+278 browser assertions at each of 320px and 390px, covering 13px, 18px and 30px
+reading fonts. A new y/axis fixture asserts inline placement and clearance from
+the actual painted stroke. Reports and visually inspected captures are under
+`dist/reader-compact-canvas/`. All browser checks used isolated Chromium and a
+loopback fixture service. The screenshot's original document, physical iPhone,
+WebKit and installation were not verified; no managed service was changed.

@@ -121,6 +121,23 @@ try {
       const labels = direct(canvas),
         sourceLabels = direct(before);
       if (
+        source.body.textContent.includes("Compact symbol beside a stroke") &&
+        before === original.at(-1)
+      ) {
+        check(
+          `${font}px compact y stays beside its stroke without a numbered legend`,
+          labels[0].dataset.labelMode === "inline",
+        );
+        const stroke = canvas.querySelector(".flow-canvas-stage > svg path[stroke]");
+        const point = stroke.getPointAtLength(stroke.getTotalLength() / 2);
+        const y = point.matrixTransform(stroke.getScreenCTM()).y;
+        const box = labels[0].getBoundingClientRect();
+        check(
+          `${font}px compact y clears the actual painted stroke`,
+          box.bottom < y || box.top > y,
+        );
+      }
+      if (
         source.body.textContent.includes(
           "Small, inherited, large, and automatically scaled labels",
         ) &&

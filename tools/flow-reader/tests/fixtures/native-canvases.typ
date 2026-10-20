@@ -29,3 +29,11 @@
 })
 
 This paragraph follows every figure and remains in the ordinary reading flow.
+
+= Compact symbol beside a stroke
+#cetz.canvas({
+  import cetz.draw: *
+  line((0, 0), (10, 0))
+  line((0, -2), (0, 2))
+  content((5, 0), $y$)
+})

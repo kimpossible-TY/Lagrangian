@@ -681,3 +681,12 @@ The HTML Reader SHALL render explicitly supported decoration primitives locally 
 - **THEN** only unsupported decorations request server paint and failures retain existing retry feedback
 - **AND** selection or a live pinch holds paint publication and server requests until release
 - **AND** an older asynchronous response cannot paint a newer revision or measured layout
+
+
+#### Scenario: A compact canvas symbol touches a diagram stroke
+- **WHEN** a short native canvas label such as `y` cannot fit at its original center
+- **THEN** the Reader tries measured free space within one reading em of that center at the selected reading font size
+- **AND** exact safe label placements, stage bounds and sampled strokes remain reserved
+- **AND** a displaced label retains its source anchor and uses the existing leader when separated from it
+- **AND** long, nested, explicitly aligned or still-obstructed labels retain the existing numbered fallback
+- **AND** resizing recomposes the same semantic label without changing authored coordinates or paged output

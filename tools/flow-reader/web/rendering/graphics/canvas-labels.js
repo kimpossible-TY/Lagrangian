@@ -74,6 +74,46 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
       placed.set(label.id, { ...box, id: label.id, mode: "inline", anchor });
     }
   }
+  // Reserve exact placements first. Compact symbols may move at most one reading
+  // em into nearby free space; never shrink their measured semantic body.
+  for (const label of sorted) {
+    if (
+      placed.has(label.id) ||
+      label.nested ||
+      label.source.baseline ||
+      label.source.align ||
+      label.width > 3 * fontSize ||
+      label.height > 2 * fontSize
+    )
+      continue;
+    const anchor = point(label);
+    const origin = {
+      left: anchor.x - label.width / 2,
+      top: anchor.y - label.height / 2,
+      width: label.width,
+      height: label.height,
+    };
+    const candidates = [];
+    for (const distance of [0.25, 0.5, 0.75, 1]) {
+      for (const [x, y] of [
+        [0, -1],
+        [0, 1],
+        [-1, 0],
+        [1, 0],
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ]) {
+        const step = (distance * fontSize) / Math.hypot(x, y);
+        candidates.push({ ...origin, left: origin.left + x * step, top: origin.top + y * step });
+      }
+    }
+    const box = candidates.find((candidate) => valid(candidate));
+    if (!box) continue;
+    occupied.push(box);
+    placed.set(label.id, { ...box, id: label.id, mode: "inline", anchor });
+  }
   for (const label of labels) {
     if (placed.has(label.id)) continue;
     const anchor = point(label);
@@ -295,6 +335,9 @@ export class NativeCanvasLabels {
         margin: "0",
         overflow: "visible",
       });
+      // Retire placeholder CSS before sampling: it overrides the SVG's planned
+      // top/width and would test collisions against a different coordinate plane.
+      this.node.dataset.canvasLayout = "native-labels";
       const plan = composeCanvas(
         this.model,
         width,
@@ -332,29 +375,29 @@ export class NativeCanvasLabels {
             height: `${placement.height}px`,
           });
           this.markers.append(marker);
-          const end = {
-            x: Math.max(
-              placement.left,
-              Math.min(placement.left + placement.width, placement.anchor.x),
-            ),
-            y: Math.max(
-              placement.top,
-              Math.min(placement.top + placement.height, placement.anchor.y),
-            ),
-          };
-          if (Math.hypot(end.x - placement.anchor.x, end.y - placement.anchor.y) > 2) {
-            const line = document.createElementNS(this.overlay.namespaceURI, "path");
-            line.setAttribute(
-              "d",
-              `M ${placement.anchor.x} ${placement.anchor.y} L ${end.x} ${end.y}`,
-            );
-            this.overlay.append(line);
-            const dot = document.createElementNS(this.overlay.namespaceURI, "circle");
-            dot.setAttribute("cx", placement.anchor.x);
-            dot.setAttribute("cy", placement.anchor.y);
-            dot.setAttribute("r", "2");
-            this.overlay.append(dot);
-          }
+        }
+        const end = {
+          x: Math.max(
+            placement.left,
+            Math.min(placement.left + placement.width, placement.anchor.x),
+          ),
+          y: Math.max(
+            placement.top,
+            Math.min(placement.top + placement.height, placement.anchor.y),
+          ),
+        };
+        if (Math.hypot(end.x - placement.anchor.x, end.y - placement.anchor.y) > 2) {
+          const line = document.createElementNS(this.overlay.namespaceURI, "path");
+          line.setAttribute(
+            "d",
+            `M ${placement.anchor.x} ${placement.anchor.y} L ${end.x} ${end.y}`,
+          );
+          this.overlay.append(line);
+          const dot = document.createElementNS(this.overlay.namespaceURI, "circle");
+          dot.setAttribute("cx", placement.anchor.x);
+          dot.setAttribute("cy", placement.anchor.y);
+          dot.setAttribute("r", "2");
+          this.overlay.append(dot);
         }
       }
       this.node.dataset.canvasLayout = "native-labels";

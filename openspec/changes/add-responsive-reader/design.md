@@ -954,3 +954,22 @@ exclusive source range. Save and Sync Editor do not compile.
 The maintained mannot and flow-reader overlays export `data-flow-decoration-paint` only for an explicit supported primitive, preserving point/em length components, source colors, stroke, outset and annotation anchor inset. The versioned description is independent of DOM geometry. `web/rendering/math/decoration-paint.js` validates it and builds the existing drawing/layout contract from current fragment sizes. The existing MathDecorations controller measures, retires stale paint, applies SVG and owns notices; it chooses local drawing before its bounded server cache/request path. Unsupported versions, styles, callbacks or invalid metadata use that existing server path for the entire decoration. No callback source is interpreted.
 
 Local work follows the same selection/gesture hold as dynamic paint. Revision, occurrence and geometry keys remain authoritative; local decorations can finish even while an unrelated server request is in flight. Semantic/assistive math and paged output remain unchanged. Static asset allow-list and immutable installed layout include the new module. Validate generated geometry against real Typst output, request elimination, mixed fallback, fragment splitting, font/width changes, theme, stale responses and installed delivery.
+
+
+## Compact native canvas labels
+
+After reserving all safe original label placements, the existing HTML canvas
+composer tries nearby placements for non-nested labels at most 3 reading em wide
+and 2 em high. Search outward in quarter-em steps to a maximum displacement of
+one em, checking the same stage bounds, occupied boxes and sampled strokes.
+This adapts the nearby-name policy used for annotations without sharing renderer
+geometry or changing semantic HTML/MathML font sizes. Explicit SVG alignment and
+baseline contracts retain exact placement or their existing numbered fallback.
+Long or obstructed labels keep numbered legends. Displaced inline labels reuse
+the existing dotted leader when their box no longer contains the source anchor.
+Exact placements have priority; no author coordinates, compiler calls or PDF
+output change. Width and font changes rerun the existing measured composition.
+
+Before sampling SVG strokes, retire the pending placeholder CSS so its forced
+zero offset and automatic height cannot override the planned geometry. Collision
+checks and the published drawing must use the same coordinate plane.
