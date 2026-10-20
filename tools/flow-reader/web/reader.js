@@ -368,6 +368,7 @@ function mountedSectionsChanged() {
 }
 
 function renderDocument(html, nextManifest, section, options) {
+  readingPosition.release();
   const sequence = loadSequence;
   activity.state.mounting(sequence);
   activity.refresh();
