@@ -326,5 +326,5 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Replace symbol-only nearby placement with measured label candidates, edge projection, constrained allocation and stroke/leader collision checks.
 - [x] Keep the reading font with compact label line spacing and index sampled strokes to bound repeated layout work.
-- [ ] Verify every current native PDE figure visually, compare retained labels, and exercise Chrome/WebKit at 320/390px and 13/18/30px.
-- [ ] Verify selection/text/geometry contracts and install the clean Reader release with preserved context and installed-asset checks.
+- [x] Verify every current native PDE figure visually, compare retained labels, and exercise Chrome/WebKit at 320/390px and 13/18/30px.
+- [x] Verify selection/text/geometry contracts and install the clean Reader release with preserved context and installed-asset checks.
