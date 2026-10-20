@@ -296,4 +296,18 @@ were not performed.
 ## Deploy reference-return action
 
 - [x] Commit the verified shared reference-return implementation on the current branch and stage a clean immutable HTML Reader candidate with configuration/context recovery snapshots.
-- [ ] Install the Reader candidate, preserve existing service states and saved context, and verify registered HTTPS assets and real internal-reference return in Chrome/WebKit.
+- [x] Install the Reader candidate, preserve existing service states and saved context, and verify registered HTTPS assets and real internal-reference return in Chrome/WebKit.
+
+2026-10-20 deployment completed from clean commit
+`b01b5b4409f6920a0400afd84f4d9272f65bc868`. Installed-document verification
+exposed unnecessary mounted-section reconstruction and late mathematical layout
+movement; direct mounted restoration and a renderer-owned semantic anchor hold
+were added before final acceptance. All 159 shared/HTML Node tests and all eight
+reference-browser combinations passed. The installed HTTPS Reader passed Chrome
+and WebKit at 13px/390px and after changing to 18px/430px: local/remote origin,
+consumption, URL/focus and native semantic offsets, with maximum error 0.234375px.
+All 514 immutable files and 48 public/local assets match; published document bytes,
+configuration, three context files and other service states are preserved.
+Receipts, inspected screenshots and recovery snapshots are indexed in
+`dist/reader-reference-rollout/verified-rollout.json`. Native app replacement,
+remote publication and physical-device/VoiceOver checks were not performed.
