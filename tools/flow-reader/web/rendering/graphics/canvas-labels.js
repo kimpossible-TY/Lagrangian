@@ -295,8 +295,8 @@ function segmentsOf(svg, stage, geometry) {
     if (!matrix) continue;
     const length = path.getTotalLength();
     const count = Math.min(
-      512,
-      Math.max(1, Math.ceil((length * geometry.width) / svg.viewBox.baseVal.width / 3)),
+      4096,
+      Math.max(1, Math.ceil((length * geometry.width) / svg.viewBox.baseVal.width)),
     );
     let previous;
     for (let i = 0; i <= count; i++) {

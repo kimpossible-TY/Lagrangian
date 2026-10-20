@@ -299,6 +299,13 @@ try {
             )
           ) {
             strokeCollisions++;
+            (report.strokeCollisions ??= []).push({
+              font,
+              id,
+              path: path.outerHTML,
+              point: { x: point.x, y: point.y },
+              boxes: inlineBoxes.map((box) => box.toJSON()),
+            });
             break;
           }
         }
