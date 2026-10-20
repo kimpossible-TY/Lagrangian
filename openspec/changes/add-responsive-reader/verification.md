@@ -2760,3 +2760,49 @@ WebKit both show the complete note at about 88px from the viewport top on fresh
 entry and reload, with no page errors. Screenshots were visually inspected.
 Final installation is coordinated by the concurrent CeTZ Reader task; the
 candidate verification is not evidence that this final hold is installed yet.
+
+
+## Coordinated installed CeTZ/callout rollout — 2026-10-20
+
+The user authorized applying the compact canvas-label change to the installed
+Reader while coordinating with the active change-navigation task. That task had
+installed `83adf0cb` (already including `cda9dc98`) and handed final placement-hold
+commit `ecac1662` to this task for a single final installation. The added compact
+symbol fixture also required updating compiler-test figure/math/SVG counts;
+`ab8daefe` records that correction and its real compiler suite passed 8/8.
+
+A clean isolated checkout of `ab8daefe1273c02f863ae6e68a7281a23670ab38`
+was installed through the maintained immutable-release installer. Only the
+managed HTML Reader was stopped and restarted. Accepted PDE compilation passed
+with no compiler-loss warnings, using Reader PID 46438. Configuration, the
+explicit Codex selection bytes, Green-note last-change token, 48 original Typst
+source files and paged-service statuses were preserved. New release checksums
+matched all 514 manifest files; all 48 first-party routes served byte-identical
+installed assets through the actual HTTPS Reader origin. The installed-layout
+integration test also passed.
+
+The actual screenshot's Heaviside/Dirac figure (`canvas-41`, `section-42`) passed
+Chrome and WebKit checks at 320px and 390px with 13px, 18px and 30px reading fonts:
+all 12 combinations retained both y-axis labels inline, all 18 semantic labels,
+numbered longer explanations, a bounded page and zero browser errors. Screenshots
+from both engines at 18px were visually reviewed. This validation used the
+installed HTTPS assets without route substitutions. The cooperating session
+also ran the combined required Python integration suite: 172 tests, zero skips,
+all passing; its earlier HTML Node131, architecture2, change-navigation16 and
+reference-return8 checks passed.
+
+Evidence, before/after preservation records, rollback backups and installed
+checks live under `dist/reader-cetz-rollout/`; the previous rollout's note recovery
+and original backup remain under `dist/reader-callout-rollout/`. Physical iPhone
+and VoiceOver were not exercised.
+
+
+The cooperating session independently verified the final installed Green note
+without asset overrides: Chrome and WebKit fresh entry and reload placed its top
+at 88.453125px and kept the complete box in the viewport, with zero page errors
+on the completed run. An earlier WebKit reload reported one API-state fetch
+access-control error; repeating the same procedure did not reproduce it. The
+final WebKit capture was visually checked as well. Evidence is in the prior
+rollout directory's `browser-verification.json`, `final-browser-retry.log` and
+`chromium-note.png`/`webkit-note.png`. This completes the coordinated installation
+and both features' installed-document verification.
