@@ -2664,3 +2664,41 @@ Receipts and inspected screenshots: `dist/reader-flowbox-rollout/`, including
 recovery files under `backup-20261020-191318-720344/`. The previous immutable
 `fe744971ff8da9b5682d6b3580de581b55662079` release remains available for recovery.
 No remote Git release or physical-device test was performed.
+
+## Reference-return deployment (2026-10-20)
+
+Installed the immutable HTML Reader from clean implementation commit
+`b01b5b4409f6920a0400afd84f4d9272f65bc868` on the existing `main` branch.
+Both reader sources use the shared reference-return controller; this deployment
+updates the independent HTML service using its existing installer. Unrelated
+untracked checkout files are preserved.
+
+- All 514 immutable files and 48 first-party assets match their manifests over
+  loopback and certificate-validated registered HTTPS. The strict PDE content
+  gate passes, and the delivered document remains byte-identical to the snapshot.
+- Initial installed checks found that resetting an already-mounted section
+  unnecessarily recomposed mathematics. Local returns now retain that section;
+  remote returns hold their semantic reading anchor through asynchronous layout
+  until reading input or another navigation/document replacement releases it.
+  The shared controller remains the sole owner of return origins and buttons.
+- All 159 shared/HTML Node tests and eight Chromium/WebKit reference-fixture
+  combinations pass, including input release, stale work, failed-return retry,
+  reflow, latest-origin replacement and retained mounted content.
+- Installed HTTPS Chrome and WebKit each pass the actual `Use Equation (P.1.3)`
+  reference and a return from an unmounted outline destination at 13px/390px and
+  after changing to 18px/430px. Native semantic offsets, URL, article focus and
+  one-use button consumption pass with no browser exceptions. Maximum measured
+  restoration error is 0.234375px. These probes use the installed files directly.
+- Reader PID is 20821. PDE paged PID 94765 remains running; Ewald remains stopped.
+  Profiles, signing configuration, Reader configuration, native app manifest and
+  all three saved context files match their recovery snapshots. Exact historical
+  Reader context bytes were restored after startup without rewriting old
+  service/revision evidence.
+
+Receipts and inspected screenshots are under `dist/reader-reference-rollout/`:
+`verified-rollout.json`, `delivery.json`, `browser-basic-report.json` and
+`browser-reflow-report.json`. `preinstall.json` indexes recovery files under
+`backup-20261020-202236-292366/`; the previous immutable
+`b7e971587902106abe6e452a15151cc0494c0a0a` release remains available.
+No native app replacement, remote release publication or physical-device/VoiceOver
+verification was performed.
