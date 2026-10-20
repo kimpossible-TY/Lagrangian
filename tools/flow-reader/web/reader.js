@@ -19,6 +19,7 @@ import {
   installTerminalBridge,
 } from "./features/editor-sync/terminal-bridge.js";
 import { ReaderChangeNavigation } from "./features/navigation/change-navigation.js";
+import { ReferenceReturn } from "./reader-common/navigation/reference-return.js";
 import { OutlineDrawer, ReaderGestures } from "./features/navigation/reading-navigation.js";
 
 const article = document.querySelector("#reader-document");
@@ -56,6 +57,13 @@ const readingPosition = createReadingPosition(article, {
 });
 const readingAnchor = () => readingPosition.capture();
 const restoreAnchor = (anchor) => readingPosition.restore(anchor);
+const references = new ReferenceReturn(
+  document.querySelector("#reader-reference-back"),
+  (anchor) => {
+    if (manifest)
+      loadSection(manifest, sectionFor(manifest, anchor), { anchor, referenceReturn: anchor });
+  },
+);
 const changes = new ReaderChangeNavigation(document.querySelector("#reader-change-jump"), {
   manifest: () => manifest,
   revision: () => revision,
@@ -365,8 +373,17 @@ function renderDocument(html, nextManifest, section, options) {
   requestAnimationFrame(() => {
     if (disposed || revision !== nextManifest.revision || sequence !== loadSequence) return;
     if (options.target) document.getElementById(options.target)?.scrollIntoView();
-    else if (options.anchor) restoreAnchor(options.anchor);
-    else window.scrollTo(0, 0);
+    else if (options.anchor) {
+      const restored = restoreAnchor(options.anchor);
+      if (options.referenceReturn) {
+        if (restored) {
+          history.replaceState({ readerAnchor: options.anchor }, "", options.anchor.url);
+          article.focus({ preventScroll: true });
+        }
+        references.consume(options.referenceReturn);
+      }
+    } else window.scrollTo(0, 0);
+    references.remember(options.referenceOrigin);
     sections.schedule();
     activity.state.rendered(sequence);
     activity.refresh();
@@ -480,10 +497,11 @@ function sectionFor(nextManifest, anchor, target) {
   );
 }
 
-async function navigateAnchor(target, push = true) {
+async function navigateAnchor(target, push = true, reference = false) {
   if (!manifest) return;
   const section = manifest.anchors[target];
   const local = annotations.footnote(target) ?? document.getElementById(target);
+  const origin = reference ? readingAnchor() : null;
   if (local && article.contains(local)) {
     // A newer local jump must supersede an earlier remote jump still fetching.
     activity.state.cancel(loadSequence);
@@ -491,10 +509,11 @@ async function navigateAnchor(target, push = true) {
     activity.refresh();
     article.setAttribute("aria-busy", "false");
     if (push) navigationHistory(section ?? currentSection, target);
+    references.remember(origin);
     local.scrollIntoView();
     if (local.dataset.noteKind === "footnote") local.focus({ preventScroll: true });
   } else if (section) {
-    await loadSection(manifest, section, { target, history: push });
+    await loadSection(manifest, section, { target, history: push, referenceOrigin: origin });
   }
 }
 
@@ -511,9 +530,17 @@ window.addEventListener("popstate", (event) => {
 
 article.addEventListener("click", (event) => {
   const link = event.target.closest('a[href^="#"]');
-  if (link && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+  if (
+    link &&
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  ) {
     event.preventDefault();
-    navigateAnchor(decodeURIComponent(link.getAttribute("href").slice(1)));
+    navigateAnchor(decodeURIComponent(link.getAttribute("href").slice(1)), true, true);
     return;
   }
 });
@@ -522,7 +549,7 @@ outline.addEventListener("click", async (event) => {
   if (link) {
     event.preventDefault();
     drawer.close();
-    await navigateAnchor(decodeURIComponent(link.hash.slice(1)));
+    await navigateAnchor(decodeURIComponent(link.hash.slice(1)), true, true);
     article.focus({ preventScroll: true });
   }
 });
@@ -576,6 +603,7 @@ window.addEventListener("pagehide", (event) => {
     readingPosition.dispose();
     appearance.dispose();
     changes.dispose();
+    references.dispose();
     mathematics.dispose();
   }
 });

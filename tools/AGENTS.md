@@ -6,7 +6,7 @@ Read [the architecture source map](../docs/tinymist/dev/reader-architecture.typ)
 
 ## Ownership and boundaries
 
-- `reader-common/` owns matching selection submission/press state, bounded review persistence, change-location, session activity and browser scheduling policy. Native ESM and declaration files serve JavaScript and TypeScript consumers.
+- `reader-common/` owns matching selection submission/press state, bounded review persistence, change-location/reference-return, session activity and browser scheduling policy. Native ESM and declaration files serve JavaScript and TypeScript consumers.
 - Concrete readers own DOM/page geometry, transport and renderer-specific state. Shared modules must not import concrete readers; readers must not import each other's internals. Keep imports acyclic.
 - Classify new work under an existing feature owner before adding one. Define supported capabilities, effects, failure/stale handling and disposal; expose only implemented capabilities.
 

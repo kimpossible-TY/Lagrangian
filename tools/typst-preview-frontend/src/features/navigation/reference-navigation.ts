@@ -1,3 +1,5 @@
+import { ReferenceReturn } from "../../../../reader-common/navigation/reference-return.js";
+
 export interface ReferenceOrigin {
   page: number;
   x: number;
@@ -53,7 +55,7 @@ export function restoreReferenceOrigin(
 
 /** The global renderer callback is used by internal links, not editor jumps. */
 export class ReferenceNavigation {
-  private origin?: ReferenceOrigin;
+  private references: ReferenceReturn<ReferenceOrigin>;
   private button = document.createElement("button");
   private previous = window.handleTypstLocation;
   private navigate: Window["handleTypstLocation"];
@@ -72,7 +74,20 @@ export class ReferenceNavigation {
     this.button.textContent = navigator.language.startsWith("ko")
       ? "참조 위치로 돌아가기"
       : "Back to reference";
-    this.button.hidden = true;
+    this.references = new ReferenceReturn(this.button, (origin) => {
+      // Populating a virtual page can otherwise make browser scroll anchoring
+      // shift the viewport immediately after our explicit return.
+      if (!this.restoring) {
+        this.restoring = {
+          value: scroller.style.getPropertyValue("overflow-anchor"),
+          priority: scroller.style.getPropertyPriority("overflow-anchor"),
+        };
+      }
+      scroller.style.setProperty("overflow-anchor", "none");
+      if (restoreReferenceOrigin(origin, scroller, root)) onRestore();
+      else this.finishRestore();
+      this.references.consume(origin);
+    });
     actions.appendChild(this.button);
     this.navigate = (element, page, x, y) => {
       if (
@@ -86,30 +101,13 @@ export class ReferenceNavigation {
         const origin = captureReferenceOrigin(scroller, root);
         if (origin) {
           this.finishRestore();
-          this.origin = origin;
-          this.button.hidden = false;
+          this.references.remember(origin);
           onNavigate();
         }
       }
       this.previous(element, page, x, y);
     };
     window.handleTypstLocation = this.navigate;
-    this.button.addEventListener("click", () => {
-      if (!this.origin) return;
-      // Populating a virtual page can otherwise make browser scroll anchoring
-      // shift the viewport immediately after our explicit return.
-      if (!this.restoring) {
-        this.restoring = {
-          value: scroller.style.getPropertyValue("overflow-anchor"),
-          priority: scroller.style.getPropertyPriority("overflow-anchor"),
-        };
-      }
-      scroller.style.setProperty("overflow-anchor", "none");
-      if (restoreReferenceOrigin(this.origin, scroller, root)) onRestore();
-      else this.finishRestore();
-      this.origin = undefined;
-      this.button.hidden = true;
-    });
   }
 
   afterRender(): void {
@@ -139,7 +137,7 @@ export class ReferenceNavigation {
     if (window.handleTypstLocation === this.navigate) {
       window.handleTypstLocation = this.previous;
     }
-    this.origin = undefined;
+    this.references.dispose();
     this.button.remove();
   }
 }

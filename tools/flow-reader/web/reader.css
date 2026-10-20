@@ -64,11 +64,20 @@
 body {
   margin: 0;
 }
-#reader-change-jump {
+#reader-navigation-actions {
   position: fixed;
   z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  left: max(1rem, env(safe-area-inset-left));
   right: max(1rem, env(safe-area-inset-right));
   bottom: max(1rem, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+#reader-navigation-actions button {
+  pointer-events: auto;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);

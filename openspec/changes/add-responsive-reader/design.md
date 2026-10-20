@@ -39,6 +39,30 @@ fallbacks and system forced colors. Press feedback uses native activation and
 does not deform under reduced motion. Measure after applying the visual
 viewport's width so wrapping never pushes controls below its safe bottom edge.
 
+## Return from an internal reference
+
+The HTML navigation adapter captures `reading-position`'s semantic anchor and
+current URL immediately before a valid body or outline link is followed. The
+shared `reader-common/navigation/reference-return.js` controller owns the one
+temporary origin, replacement/consumption, button visibility and click/disposal
+lifecycle for both readers. It delegates return activation to an injected native
+operation and keeps origins opaque. HTML composition retains guarded section/URL
+restoration; the paged adapter retains page-relative capture/restore and browser
+scroll-anchoring holds. Publish that origin only after successful navigation. Each later link
+replaces it; external links, footnote popovers, history, editor and visual-change
+navigation do not create or replace it.
+
+Returning uses the current manifest's section lookup and existing guarded section
+loading, then restores the anchor after mounting, replaces the URL with its
+captured origin and focuses the article without scrolling. Reuse semantic anchor
+restoration for font/viewport changes and unmounted sections. Failed fetches
+retain the action for retry; a completed return consumes it, including an origin
+that can no longer be resolved. Superseded load sequences cannot consume a newer
+origin. Disposal discards the origin and button listener and prevents obsolete
+callbacks from reviving them. Place both navigation
+actions in one wrapping fixed container so they remain independent without
+overlap on narrow screens.
+
 ## Last visual edit navigation
 
 Reuse the paged preview's server-owned visual history and render-before-jump

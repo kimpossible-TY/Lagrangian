@@ -118,6 +118,41 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Allow compact indexed mathematical names as short labels and inset the complete close control/focus ring within the popover; verify the photographed PDE delta and keyboard/touch controls.
 - [x] Install the compact-math and close-control correction from a clean commit and verify registered HTTPS delivery.
 
+## Return from internal references
+
+- [x] Add the single semantic reference origin, successful-link capture and guarded section/URL return with disposal.
+- [x] Present “원래 위치로” beside the independent change action without narrow-screen overlap.
+- [x] Verify latest-reference, reflow, remote/failing/superseded navigation, keyboard focus and static/installed delivery.
+
+2026-10-20 reference-return validation: all 130 HTML Node tests, the full reader
+lint, two architecture checks and the isolated clean-release installation/HTTP
+asset test passed. The real Reader shell passed Chromium and WebKit at 320/390px
+with normal/reduced motion: local and remote references, one-use/latest origin,
+font/viewport reflow, history isolation, failed-return retry, superseded fetches,
+URL/focus restoration and simultaneous navigation-action layout. Screenshots
+were inspected in `dist/reader-reference-checks`. Scoped formatting, diff and
+strict OpenSpec checks passed. The additional existing outline browser fixture
+failed its strict `<1px` scroll assertion on a 1px WebKit change; the identical
+failure was reproduced with the unmodified HEAD assets. No installed service
+was updated, and physical-device/VoiceOver checks were not performed.
+
+## Shared reference-return ownership
+
+- [x] Move the single-origin/action lifecycle to reader-common and compose both reader adapters with their native capture/restore effects.
+- [x] Move policy tests to the shared owner, update asset/ownership contracts and verify both readers, types, preview bundle and installed asset delivery.
+
+2026-10-20 shared ownership correction: `reader-common/navigation/reference-return.js`
+now owns the origin and action lifetime for both readers. The HTML-only controller
+was removed; policy tests moved beside the shared implementation. Native geometry,
+section publication, URL changes and paged scroll-anchoring effects remain local.
+The full reader gate's direct commands passed 158 shared/HTML Node, 85 paged and
+36 DOM tests. Python reported 139 tests with 42 optional compiler/companion-source
+skips; archived installation and HTTP/import delivery of the shared asset passed.
+Both TypeScript checks, warning-free reader lint, preview bundle, Chromium/WebKit
+reference flows, scoped formatting, architecture PDF, generated-doc consistency
+and strict OpenSpec validation passed. No app/service installation or restart,
+physical-device or VoiceOver validation was performed.
+
 ## Last visual edit navigation
 
 - [x] Persist accepted HTML visual changes per project, including disconnected edits, restart restoration, deletion targets and invalid-record recovery.
@@ -257,3 +292,8 @@ were not performed.
 
 - [x] Commit the verified flowbox implementation on the current branch and prepare a clean immutable Reader release with configuration/context recovery snapshots.
 - [x] Install the Reader release, preserve other service states and saved context, and verify registered HTTPS assets plus the actual photographed flowbox in Chrome/WebKit.
+
+## Deploy reference-return action
+
+- [ ] Commit the verified shared reference-return implementation on the current branch and stage a clean immutable HTML Reader candidate with configuration/context recovery snapshots.
+- [ ] Install the Reader candidate, preserve existing service states and saved context, and verify registered HTTPS assets and real internal-reference return in Chrome/WebKit.

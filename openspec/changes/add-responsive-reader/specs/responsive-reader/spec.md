@@ -25,6 +25,36 @@ The HTML Reader SHALL reuse the paged reader's shared activity priority, localiz
 - **AND** cached content and obsolete request completions cannot clear a newer failure or pending update
 - **AND** successful retry resumes normal activity and disposes no replacement session's state
 
+### Requirement: Return to the origin of an internal document link
+The HTML Reader SHALL offer “원래 위치로” after successfully following a valid internal body or outline link. It SHALL capture the semantic reading position and URL immediately before following the link, retain only the latest origin, and consume it after returning. The action SHALL remain independent of visual-change navigation.
+
+#### Scenario: Follow and return across sections and reflow
+- **WHEN** the reader follows an internal reference to another mounted or unmounted section
+- **THEN** the action restores the originating passage and viewport offset using current semantic geometry, including after font or viewport changes
+- **AND** the original URL is restored, the article receives focus without scrolling, and the button disappears
+
+#### Scenario: Latest successful reference and independent actions
+- **WHEN** another internal reference succeeds before returning
+- **THEN** it replaces the single return origin without retaining a stack
+- **WHEN** an external link, footnote popover, browser history, editor or automatic change navigation occurs
+- **THEN** it does not create or replace the return origin
+- **AND** both return and deferred-change actions can appear without overlap on a narrow viewport
+
+#### Scenario: Failed, obsolete and disposed navigation
+- **WHEN** destination loading fails or a navigation is superseded
+- **THEN** it cannot replace or consume the current return origin
+- **AND** a failed return remains available for retry, while a completed return to a removed passage consumes the action without guessing another passage
+- **WHEN** the reader is disposed
+- **THEN** its origin and button listener are discarded
+
+### Requirement: Shared reference-return policy
+Both readers SHALL use one renderer-independent owner for the single origin, replacement/consumption, button visibility and click/disposal lifecycle. Their adapters SHALL retain native capture/restore, asynchronous validity checks, section loading, scroll anchoring and URL/history effects.
+
+#### Scenario: Shared policy with native positions
+- **WHEN** the paged or HTML reader captures a reference origin
+- **THEN** the same shared controller manages its temporary lifetime without converting page coordinates to semantic anchors or vice versa
+- **AND** obsolete return completion cannot consume a newer origin, and disposal prevents later callbacks from reviving the action
+
 ### Requirement: Last visual edit navigation
 The HTML Reader SHALL use the paged preview's persistent visual-change and render-before-jump behavior with reflowable body targets. The server SHALL retain the last accepted visual edit per document independently of connected viewers. A new entry or reload SHALL restore that edit; a live viewer SHALL follow each newly accepted edit once. A direct named link and browser history navigation SHALL retain their destination.
 
