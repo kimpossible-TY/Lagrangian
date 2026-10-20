@@ -6,10 +6,10 @@ import json
 import threading
 import time
 from flow_reader.compiler.build import compile_project
-from flow_reader.compiler.inputs import source_signature
+from flow_reader.compiler.inputs import input_fingerprint, source_signature
 from flow_reader.document.sections import split_document
 from flow_reader.rendering.service import DynamicRenderer
-from flow_reader.services.change_history import ChangeTracker, input_fingerprint
+from flow_reader.services.change_history import ChangeTracker
 from flow_reader.services.codex_context import FocusStore
 from flow_reader.services.selection import SelectionActions
 from flow_reader.services.editor_sync import NeovimEditor, UNSPECIFIED_EDITOR

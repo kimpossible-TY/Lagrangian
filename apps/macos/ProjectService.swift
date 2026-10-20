@@ -5,10 +5,41 @@ protocol ProjectControlling {
   func control(_ action: String, _ profile: Profile) throws
 }
 
-/// Coordinates profile replacement, including restoration after persistence or startup failure.
+/// Owns project creation, selection and profile replacement, including update failure recovery.
 struct ProjectService {
   let store: SettingsPersisting
   let launchAgents: ProjectControlling
+
+  func selectProfile(_ id: String, in settings: Settings) throws -> Settings {
+    _ = try settings.profile(id)
+    var next = settings
+    next.selectedID = id
+    try next.validate()
+    try store.save(next)
+    return next
+  }
+
+  func addProject(
+    at file: URL, in settings: Settings, userHome: URL,
+    fileManager: FileManager = .default
+  ) throws -> Settings {
+    let root = file.deletingLastPathComponent()
+    let ports = Set(settings.profiles.map(\.port))
+    let port = (23625...65535).first { !ports.contains($0) }!
+    let id = "project-" + UUID().uuidString.prefix(8).lowercased()
+    let profile = Profile(
+      id: id, name: root.lastPathComponent, root: root.path, entry: file.lastPathComponent,
+      fonts: fileManager.fileExists(atPath: root.appendingPathComponent("fonts").path)
+        ? ["fonts"] : [],
+      packages: userHome.appendingPathComponent("Library/Application Support/typst/packages").path,
+      port: port, publicURL: "", label: FlowIdentity.bundleID + ".preview." + id)
+    var next = settings
+    next.profiles.append(profile)
+    next.selectedID = id
+    try next.validate()
+    try store.save(next)
+    return next
+  }
 
   func updateProfile(_ updated: Profile, in settings: Settings) throws -> Settings {
     let old = try settings.profile(updated.id)

@@ -6,6 +6,8 @@ const markedSources = new WeakMap();
 const excluded =
   'svg,script,style,nav,[data-flow-targets],.flow-math-accessible,mjx-assistive-mml,.flow-math-stage,.flow-math-status,.flow-canvas-status,.flow-canvas-markers,.flow-canvas-label-number,.flow-note-reference,.flow-note-close,.flow-note-next,.flow-note[data-note-kind="footnote"]';
 const tokenTags = new Set(["mi", "mn", "mo", "mtext", "ms"]);
+// Each variation selector or invisible math operator is independently ignorable.
+// eslint-disable-next-line no-misleading-character-class
 const ignorable = /[\u2061-\u2064\ufe00-\ufe0f]/u;
 const spacing = /\s/u;
 function glyphCharacter(character) {

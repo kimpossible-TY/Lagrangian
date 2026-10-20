@@ -26,6 +26,7 @@
   "reader-common/navigation/change-location.js": "reader-common/navigation/change-location.js",
   "reader-common/rendering/scheduler.js": "reader-common/rendering/scheduler.js",
   "reader-common/review-strikes/bounded-store.js": "reader-common/review-strikes/bounded-store.js",
+  "reader-common/selection/press.js": "reader-common/selection/press.js",
   "reader-common/selection/submission.js": "reader-common/selection/submission.js",
   "reader-common/session/activity.css": "reader-common/session/activity.css",
   "reader-common/session/activity.js": "reader-common/session/activity.js",

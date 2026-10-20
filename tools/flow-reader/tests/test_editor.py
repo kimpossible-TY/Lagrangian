@@ -19,13 +19,12 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.project import Project
-from flow_reader.services.change_history import input_fingerprint
 from flow_reader.services.editor_sync import NeovimEditor, vim_string
 from flow_reader.services.source_mapping import literal_blocks
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.compiler.inputs import source_signature
+from flow_reader.compiler.inputs import input_fingerprint, source_signature
 
 
 class EditorNavigationTests(unittest.TestCase):

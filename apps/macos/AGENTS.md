@@ -1,10 +1,20 @@
 # Native Flow app
 
-Read the root AGENTS, `docs/dev-guide.md` and the app OpenSpec contracts.
+## Read
 
-- `sources.json` is the single explicit source list used by packaging and tests. Update it whenever a Swift source is added, moved or removed.
-- Keep profile models/validation, environment paths, settings persistence, command execution, LaunchAgent control, engine launch, CLI and AppKit UI in their respective files.
-- ProjectService owns profile-update lifecycle and recovery. Validate before stopping a service; preserve the prior settings and recover the previous service on failure. Inject storage/service operations for focused tests.
-- AppKit callbacks gather inputs and delegate lifecycle operations; do not add filesystem or launchctl workflows to UI callbacks.
-- Preserve CLI flags, environment variables, settings schema and engine arguments. Development tests/builds must not install or restart the user's app/services.
-- Run `python3 -m unittest discover -s tests/flow-app -v`. Set FLOW_TEST_ENGINE for external-engine integration/packaging coverage when available.
+Read [the development guide](../../docs/dev-guide.md), [the architecture source map](../../docs/tinymist/dev/reader-architecture.typ) and the app OpenSpec contracts.
+
+## Ownership
+
+- `sources.json` is the single source list used by packaging and tests. Update it when a Swift source is added, moved or removed.
+- Keep profile models/validation, environment paths, settings persistence, command execution, LaunchAgent control, engine launch, CLI and AppKit UI in their existing owners.
+- `ProjectService` owns project creation defaults, profile selection/persistence and profile-update lifecycle/recovery. Inject storage/service operations for focused tests; UI callbacks gather inputs and adopt successfully saved settings.
+
+## Contracts
+
+- Validate before stopping a service; preserve prior settings and recover the previous service on failure.
+- Preserve CLI flags, environment variables, settings schema and engine arguments.
+
+## Verification
+
+From the repository root, run `yarn flow:test`. Set `FLOW_TEST_ENGINE` for external-engine integration/packaging coverage when available. Follow the development guide for builds and releases.

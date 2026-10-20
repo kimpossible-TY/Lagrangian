@@ -1,12 +1,13 @@
 import { focusStatusPlacement } from "./mobile-viewport";
 import { ReviewMarkRenderer } from "../review-strikes/renderer";
 import { SelectionSubmission } from "../../../../reader-common/selection/submission.js";
+import { SelectionPress } from "../../../../reader-common/selection/press.js";
 import { selectedPreviewText, type SelectedText } from "./text-selection";
 
 export class SelectionActions {
   private toolbar = document.createElement("div");
   private selection?: SelectedText;
-  private pressedSelection?: SelectedText;
+  private press = new SelectionPress<SelectedText>(() => this.updateButtons());
   private highlight = new SelectionSubmission<SelectedText>(
     (current, submitted) =>
       current.revision === submitted.revision &&
@@ -18,8 +19,6 @@ export class SelectionActions {
       current.end.x === submitted.end.x &&
       current.end.y === submitted.end.y,
   );
-  private pressing = false;
-  private releaseTimer?: ReturnType<typeof setTimeout>;
   private review: ReviewMarkRenderer;
   private saveButton: HTMLButtonElement;
   private highlightButton: HTMLButtonElement;
@@ -47,26 +46,15 @@ export class SelectionActions {
       element.type = "button";
       element.textContent = this.korean ? ko : en;
       element.addEventListener("pointerdown", (event) => {
-        this.pressing = true;
-        this.pressedSelection = this.selection;
+        this.press.begin(this.selection);
         event.preventDefault();
       });
       element.addEventListener("mousedown", (event) => event.preventDefault());
-      const release = () => {
-        if (this.releaseTimer !== undefined) clearTimeout(this.releaseTimer);
-        this.releaseTimer = setTimeout(() => {
-          this.pressing = false;
-          this.pressedSelection = undefined;
-          this.updateButtons();
-        }, 0);
-      };
+      const release = () => this.press.release();
       element.addEventListener("pointerup", release);
       element.addEventListener("pointercancel", release);
       element.addEventListener("click", () => {
-        const selected = this.pressedSelection ?? this.selection;
-        this.pressing = false;
-        this.pressedSelection = undefined;
-        action(selected);
+        action(this.press.consume(this.selection) ?? undefined);
         this.updateButtons();
       });
       this.toolbar.appendChild(element);
@@ -142,7 +130,7 @@ export class SelectionActions {
   }
 
   private updateButtons() {
-    if (this.pressing) return;
+    if (this.press.active) return;
     const selected = !!this.selection;
     this.highlightButton.hidden = this.saveButton.hidden = this.strikeButton.hidden = !selected;
     const ready =
@@ -179,7 +167,7 @@ export class SelectionActions {
 
   dispose() {
     this.disposed = true;
-    if (this.releaseTimer !== undefined) clearTimeout(this.releaseTimer);
+    this.press.dispose();
     if (this.frame !== undefined) cancelAnimationFrame(this.frame);
     document.removeEventListener("selectionchange", this.selectionChanged);
     this.root.removeEventListener("typst-text-layout", this.refresh);

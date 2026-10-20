@@ -1,3 +1,4 @@
+/* global MathJax */
 // Run against serve.py with fixtures/adaptive-annotations.typ as its entrypoint.
 // PLAYWRIGHT_MODULE may name the desktop's bundled Playwright index.mjs.
 import assert from "node:assert/strict";

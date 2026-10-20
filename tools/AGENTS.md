@@ -1,55 +1,29 @@
-# Reader feature development
+# Reader contracts
 
-Read `../docs/tinymist/dev/reader-architecture.typ` and matching OpenSpec contracts before changing reader behavior. This file applies to tools; Rust/editor implementations follow the same protocol contracts under their own directories.
+## Read
 
-## Current ownership
+Read [the architecture source map](../docs/tinymist/dev/reader-architecture.typ) and the matching OpenSpec contracts. Local reader instructions refine this file.
 
-- `reader-common/`: shared selection submission state, bounded review persistence, change-location queue and session activity policy/notice/styles. It imports no concrete reader and uses native ESM with declaration files for TypeScript consumers.
-- `reader-common/rendering/`: browser render scheduling shared by paged WASM and HTML math adapters; document deltas, spatial bounds, mathematical identities and server rendering stay with their concrete owners.
-- `typst-preview-frontend/src/features/`: paged reader selection, review strikes, navigation, appearance, editor synchronization and connection/session behavior. Page geometry and engine transport remain local.
-- `flow-reader/web/features/`: semantic DOM selection, review paint, navigation, appearance and section/session behavior. `web/rendering/` owns HTML-specific math, figures and annotations.
-- `flow-reader/flow_reader/compiler/`: project inputs, package overlay, isolated/incremental compilation and one content audit/diagnostic policy.
-- `flow-reader/flow_reader/document/`: exported HTML normalization, block/passages and section identities.
-- `flow-reader/flow_reader/rendering/`: validated geometry, dynamic worker and bounded rendering caches.
-- `flow-reader/flow_reader/services/`: source highlight, source mapping, Codex context, change history and managed service lifecycle.
-- `flow-reader/flow_reader/server/`: accepted document publication, watcher, HTTP routes and static delivery.
-- `flow-reader/terminal/`: terminal-specific options, service ownership, persistent browser, editor bridge, native input/image host and protocol. `terminal.mjs` remains the supported launcher; reuse HTML Reader actions and storage.
-- `flow-reader/web/features/editor-sync/terminal-bridge.js`: opt-in selection/follow adapter and configured-editor capability; keep snapshot/source-write checks in Python services.
-- `flow-reader/{build,serve,manage,focus}.py`: supported executable launchers; keep implementation in the package.
+## Ownership and boundaries
 
-## Add or extend a feature
+- `reader-common/` owns matching selection submission/press state, bounded review persistence, change-location, session activity and browser scheduling policy. Native ESM and declaration files serve JavaScript and TypeScript consumers.
+- Concrete readers own DOM/page geometry, transport and renderer-specific state. Shared modules must not import concrete readers; readers must not import each other's internals. Keep imports acyclic.
+- Classify new work under an existing feature owner before adding one. Define supported capabilities, effects, failure/stale handling and disposal; expose only implemented capabilities.
 
-1. Classify it under selection, source-highlight, codex-context, review-strikes, editor-sync, navigation, appearance or session. Introduce another owner only when existing responsibilities do not fit.
-2. Read implementations in each affected reader. Put matching policy/state in the shared layer and renderer differences in concrete adapters. Do not copy a controller into another reader.
-3. Define input/output, unsupported capability, failure/stale handling and disposal. Use adapters for actual differences; do not accumulate reader-type conditionals in common code.
-4. Preserve native positions: page coordinates and semantic DOM block offsets are different contracts. Never invent coordinates to satisfy an unrelated renderer's interface.
-5. Keep document/revision/service validation on asynchronous results and source operations. An older response must not dismiss a newer selection or paint a newer document.
-6. If shared contracts or ownership change, update the source map and applicable tests in the same change.
+## Contracts
 
-## Distinct action effects
-
-- Source Highlight changes verified Typst source after candidate validation.
-- Saved for Codex records only the explicitly selected context. It does not send messages or start an assistant turn.
-- Review Strike is browser-local paint with undo/clear and existing storage keys. It does not edit source.
-- Retired quotation storage stays untouched; do not reintroduce a parallel quote library or automatically migrate it into Codex context.
-
-## Dependencies and delivery
-
-- Shared modules must not import concrete readers; concrete readers must not import each other's internals. Do not add import cycles.
-- Use actual existing consumers to justify abstractions. Keep geometry, DOM selection and protocol transport local where their semantics differ.
-- `flow-reader/web/reader-common` links the shared source tree for native ESM resolution. `install.py` archives both directories so the same layout works after installation.
-- Add every served frontend file to `flow-reader/web/assets.json`. Vendor files remain in their separate reviewed vendor manifest. Never serve arbitrary filesystem paths or auto-discover public files at runtime.
-- Do not hand-edit vendor or generated bundles. Update source and run the existing build.
+- Preserve native page coordinates and semantic DOM offsets. Do not manufacture coordinates to satisfy another renderer's interface.
+- Validate document/revision/service identity on asynchronous results. Old responses must not dismiss current selections or paint a newer document.
+- Source Highlight writes verified source. Saved for Codex stores explicit context without sending messages or starting an assistant turn. Review Strike is browser-local paint with undo/clear and compatible storage keys.
+- Retired quotation storage stays untouched. Do not introduce another quote library or automatic migration.
+- Update the architecture source map when ownership changes. Cross-language reuse shares contracts and fixtures while retaining runtime boundaries.
 
 ## Verification
 
-- Full reader gate: `yarn test:readers` (shared/HTML Node, Python service/install and paged Vitest). Set the real-compiler environment below to include compiler fixtures.
+Commands run from the repository root:
 
-- Shared policy: `node --test tools/reader-common/tests/*.mjs`.
-- HTML browser modules: `node --test tools/flow-reader/tests/test_*.mjs`.
-- Python service/install: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/flow-reader/tests`.
-- Real compilation: set `FLOW_READER_PACKAGES` and optionally `FLOW_READER_TYPST` for the same suite.
-- Paged frontend: `yarn workspace typst-preview-frontend test run` and `node scripts/build.mjs build:preview`.
-- Run shared tests plus each affected reader's integration tests when changing shared behavior. Moving assets also requires the installed-layout test.
-- Terminal integration: `nvim --headless -u NONE -i NONE -n -l tools/flow-reader/tests/neovim-reader.lua`; run `node tools/flow-reader/tests/terminal-browser.mjs` with `FLOW_READER_PLAYWRIGHT_MODULE` and `FLOW_READER_PACKAGES` for the real Chromium/Neovim check. Native iTerm2 and physical-device checks are distinct.
-- Report feature owner, reused implementation, renderer differences and validation. Do not claim skipped device/browser checks passed.
+- `yarn lint:readers` checks first-party browser and Node code.
+- `yarn test:architecture` checks reader dependency boundaries and runtime import cycles.
+- `yarn test:readers` runs shared/HTML policy tests, Python services/install tests, paged frontend and DOM tests. Run it when shared behavior changes.
+- `node --test tools/reader-common/tests/*.mjs` is the focused shared-policy suite.
+- Use concrete reader instructions for compiler, browser, build and installation coverage; report skipped fixtures accurately.

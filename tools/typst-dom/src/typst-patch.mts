@@ -249,11 +249,12 @@ export function changeViewPerspective<T extends ElementChildren, U extends T = T
           inserts.push(["insert", appendOffset, inst[1]]);
           appendOffset++;
           break;
-        case "reuse":
+        case "reuse": {
           const target_off = getShift(inst[1]);
           swapIns.push(target_off);
           appendOffset++;
           break;
+        }
         // case "remove":
         default:
           break;

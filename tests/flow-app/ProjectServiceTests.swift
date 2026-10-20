@@ -12,11 +12,13 @@ private final class TestStore: SettingsPersisting {
   let events: Events
   var saveCount = 0
   var failFirstSave = false
+  var savedSettings: Settings?
 
   init(events: Events) { self.events = events }
 
   func save(_ settings: Settings) throws {
     saveCount += 1
+    savedSettings = settings
     events.values.append("save:\(settings.profiles[0].name)")
     if failFirstSave && saveCount == 1 { throw FixtureError.save }
   }
@@ -52,6 +54,12 @@ private func expectFailure(_ expected: FixtureError, _ operation: () throws -> V
   throw FlowError(message: "Expected \(expected) failure")
 }
 
+private func settingsData(_ settings: Settings) throws -> Data {
+  let encoder = JSONEncoder()
+  encoder.outputFormatting = .sortedKeys
+  return try encoder.encode(settings)
+}
+
 @main
 enum ProjectServiceTests {
   static func main() throws {
@@ -72,6 +80,151 @@ enum ProjectServiceTests {
     let service = ProjectService(store: store, launchAgents: agents)
 
     switch CommandLine.arguments[1] {
+    case "select-profile", "select-invalid-profile", "select-save-failure":
+      var second = profile
+      second.id = "second"
+      second.label = "com.example.second"
+      second.port = 24651
+      settings.profiles.append(second)
+      let before = try settingsData(settings)
+      switch CommandLine.arguments[1] {
+      case "select-profile":
+        let result = try service.selectProfile(second.id, in: settings)
+        var expected = settings
+        expected.selectedID = second.id
+        try require(
+          try settingsData(result) == settingsData(expected),
+          "Selection must preserve profiles and change only the selected ID")
+        try require(
+          try settingsData(store.savedSettings!) == settingsData(result),
+          "Returned settings must match the persisted selection")
+        try require(
+          events.values == ["save:original"], "Selection must save once without controlling services")
+      case "select-invalid-profile":
+        do {
+          _ = try service.selectProfile("missing", in: settings)
+          throw FixtureError.start
+        } catch is FlowError {}
+        try require(
+          events.values.isEmpty, "Unknown profiles must not reach storage or services")
+      default:
+        store.failFirstSave = true
+        var callerSettings = settings
+        try expectFailure(.save) {
+          callerSettings = try service.selectProfile(second.id, in: callerSettings)
+        }
+        try require(
+          try settingsData(callerSettings) == before,
+          "Failed selection must preserve the caller's prior profiles and selected ID")
+        try require(
+          events.values == ["save:original"], "Failed selection must not control or recover services")
+      }
+      try require(try settingsData(settings) == before, "Selection must not mutate input settings")
+    case "create-project", "create-fonts-and-used-ports":
+      let withFonts = CommandLine.arguments[1] == "create-fonts-and-used-ports"
+      if withFonts {
+        try FileManager.default.createDirectory(
+          at: root.appendingPathComponent("fonts"), withIntermediateDirectories: true)
+        settings.profiles[0].port = 23625
+        var second = profile
+        second.id = "second"
+        second.label = "com.example.second"
+        second.port = 23627
+        settings.profiles.append(second)
+      }
+      let before = try settingsData(settings)
+      let home = root.appendingPathComponent("home")
+      let result = try service.addProject(
+        at: root.appendingPathComponent("main.typ"), in: settings, userHome: home)
+      let created = result.profiles.last!
+      try require(
+        created.id.range(of: "^project-[0-9a-f]{8}$", options: .regularExpression) != nil,
+        "New projects must retain the UUID-based ID format")
+      try require(
+        created.label == FlowIdentity.bundleID + ".preview." + created.id,
+        "LaunchAgent labels must retain the app and project identity")
+      try require(
+        created.name == root.lastPathComponent && created.root == root.path
+          && created.entry == "main.typ", "The selected file must determine project paths and name")
+      try require(
+        created.fonts == (withFonts ? ["fonts"] : []),
+        "Only an existing project fonts path is included by default")
+      try require(
+        created.packages == home.appendingPathComponent(
+          "Library/Application Support/typst/packages").path,
+        "Packages must use the supplied home")
+      try require(
+        created.port == (withFonts ? 23626 : 23625) && created.publicURL.isEmpty,
+        "Creation must choose the first unused default port and no public URL")
+      try require(result.selectedID == created.id, "The new project must be selected")
+      var previous = result
+      previous.profiles.removeLast()
+      previous.selectedID = settings.selectedID
+      try require(try settingsData(previous) == before, "Existing profiles must remain unchanged")
+      try require(try settingsData(settings) == before, "Creation must not mutate input settings")
+      try require(
+        try settingsData(store.savedSettings!) == settingsData(result),
+        "Returned settings must match the saved settings")
+      try require(
+        events.values == ["save:original"], "Creation must save once without controlling services")
+    case "create-invalid-project":
+      let before = try settingsData(settings)
+      do {
+        _ = try service.addProject(
+          at: root.appendingPathComponent("invalid.txt"), in: settings, userHome: root)
+        throw FixtureError.start
+      } catch is FlowError {}
+      try require(
+        events.values.isEmpty, "Invalid project settings must not reach storage or services")
+      try require(try settingsData(settings) == before, "Failed validation must preserve settings")
+    case "create-save-failure":
+      store.failFirstSave = true
+      let before = try settingsData(settings)
+      var callerSettings = settings
+      try expectFailure(.save) {
+        callerSettings = try service.addProject(
+          at: root.appendingPathComponent("main.typ"), in: callerSettings, userHome: root)
+      }
+      try require(
+        try settingsData(callerSettings) == before,
+        "The caller must keep its prior profiles and selection when saving fails")
+      try require(
+        events.values == ["save:original"], "Failed creation must not control or recover services")
+    case "agent-ownership":
+      let environment = AppEnvironment(
+        variables: ["FLOW_DATA_DIR": root.appendingPathComponent("data").path],
+        userHome: root, executable: root.appendingPathComponent("tinymist-flow"))
+      let launchAgents = LaunchAgentService(environment: environment)
+      let plist = environment.agents.appendingPathComponent("\(profile.label).plist")
+      try require(!launchAgents.managedByApp(profile), "A missing job must not be app-owned")
+      try FileManager.default.createDirectory(
+        at: environment.agents, withIntermediateDirectories: true)
+      var job = launchAgents.agent(profile)
+      let arguments = job["ProgramArguments"] as! [String]
+      try require(
+        arguments == [environment.executable.path, "--serve", profile.id],
+        "Generated jobs must preserve the app serve invocation")
+      func writeJob() throws {
+        try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
+          .write(to: plist)
+      }
+      try writeJob()
+      try require(launchAgents.managedByApp(profile), "Generated jobs must be recognized as app-owned")
+      for other in [
+        [root.appendingPathComponent("other-app").path, "--serve", profile.id],
+        [environment.executable.path, "--serve", "other-project"],
+        [environment.executable.path, "--background", profile.id],
+        arguments + ["extra"],
+      ] {
+        job["ProgramArguments"] = other
+        try writeJob()
+        try require(!launchAgents.managedByApp(profile), "Foreign invocations must not be app-owned")
+      }
+      job.removeValue(forKey: "ProgramArguments")
+      try writeJob()
+      try require(!launchAgents.managedByApp(profile), "Jobs without an invocation must not be app-owned")
+      try Data("invalid plist".utf8).write(to: plist)
+      try require(!launchAgents.managedByApp(profile), "Malformed jobs must not be app-owned")
     case "invalid-profile":
       updated.entry = "missing.typ"
       do {

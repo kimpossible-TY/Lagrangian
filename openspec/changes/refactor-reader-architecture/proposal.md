@@ -7,6 +7,8 @@ Reader behavior is spread across renderer entrypoints, flat Python modules and c
 - Split the Rust project compiler and native app by responsibility without changing crate boundaries or public protocols.
 - Update AGENTS.md, scoped guidance and canonical development documentation with ownership, dependency and validation rules.
 - Share browser render scheduling between the paged WASM renderer and HTML mathematical composition, retaining their distinct geometry, compilers and transports.
+- Centralize design principles in the development guide, reduce agent instructions to scoped contracts, and run reader lint and architecture/behavior tests through shared local and CI commands.
+- Apply those principles to shared selection press state, accepted-source freshness/input fingerprints, and native project creation/selection/LaunchAgent ownership policy, keeping native adapters and effects local.
 - Validate source and installed-layout delivery, inspect the resulting patch, commit on a new branch and merge the verified result into main.
 
 ## Capabilities

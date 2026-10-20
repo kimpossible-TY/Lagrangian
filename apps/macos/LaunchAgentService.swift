@@ -22,13 +22,17 @@ struct LaunchAgentService: ProjectControlling {
         as? [String: Any],
       let arguments = plist["ProgramArguments"] as? [String]
     else { return false }
-    return arguments == [environment.executable.path, "--serve", profile.id]
+    return arguments == programArguments(for: profile)
+  }
+
+  private func programArguments(for profile: Profile) -> [String] {
+    [environment.executable.path, "--serve", profile.id]
   }
 
   func agent(_ profile: Profile) -> [String: Any] {
     [
       "Label": profile.label,
-      "ProgramArguments": [environment.executable.path, "--serve", profile.id],
+      "ProgramArguments": programArguments(for: profile),
       "AssociatedBundleIdentifiers": [FlowIdentity.bundleID],
       "RunAtLoad": true,
       "KeepAlive": true,

@@ -117,6 +117,7 @@ windowElem.initTypstSvg = function (docRoot: SVGElement, onLayout?: () => void) 
   }
 
   /// initialize text layout at client side
+  // eslint-disable-next-line no-constant-condition -- Legacy client text layout remains disabled.
   if (false) {
     setTimeout(() => {
       layoutText(docRoot);

@@ -25,6 +25,22 @@ This repository owns the native tinymist-flow app, project profiles, preview lif
 
 Read [the reader architecture source map](tinymist/dev/reader-architecture.typ) and scoped `AGENTS.md` files before adding reader features. Shared feature policy depends on explicit renderer operations; DOM positions, page coordinates and transport remain with their concrete adapters. The source map also describes compiler and native app ownership.
 
+## Design principles
+
+This guide is the canonical design policy for contributors and agents. Root `AGENTS.md` provides the working entrypoint; scoped instructions add local ownership, contracts and verification. Keep detailed file ownership in the architecture source map and behavior requirements in OpenSpec.
+
+Apply OOP through encapsulated responsibilities and state, with composition preferred over inheritance. Rust traits, Swift protocols, injected functions and classes are all valid tools; choose the simplest idiomatic implementation.
+
+- **Single responsibility:** keep a policy and its invariants with one owner. UI handlers gather inputs and delegate service operations; initialization composes controllers. Separate responsibilities that change for different reasons.
+- **Open/closed:** extend an existing feature through its supported operations when a real variation exists. Do not create speculative plugin layers or empty base classes; an existing owner can still be corrected or simplified.
+- **Substitution:** implementations of the same contract preserve accepted inputs, outputs, errors, effects and lifetime. Cancellation, stale results and disposal are part of that contract. Test interchangeable adapters against shared behavior.
+- **Interface segregation:** expose only the operations each consumer needs. Model unsupported capabilities explicitly instead of requiring dummy methods or inventing page coordinates for semantic DOM positions.
+- **Dependency inversion:** policy accepts explicit operations for platform, transport and storage work. Shared reader policy never imports concrete readers; concrete composition wires the dependencies.
+
+Centralize identical policy and mutable-state ownership within the appropriate boundary. Reuse the existing owner before adding another implementation. Similar syntax alone does not justify merging distinct behavior. Cross-language systems share protocol contracts and fixtures rather than an unnecessary universal runtime.
+
+Minimal code means fewer unnecessary states, branches and indirect layers while remaining readable and testable. Extract an abstraction for an actual repeated policy or current extension need. Avoid catch-all utility modules and global service objects. File length, class count and interface count are not measures of SOLID compliance.
+
 ## Engine input
 
 Keep engine executables outside the managed source tree. Packaging chooses `--engine` first, then `FLOW_ENGINE_PATH`, then `~/Applications/tinymist-flow.app/Contents/MacOS/flow-engine`. The build copies and signs the supplied executable; use `--build-engine --jobs 2` to build the engine from this workspace before packaging instead. The engine version and input hash identify the dependency independently of the Flow source commit.
@@ -76,4 +92,26 @@ The [web user guide](tinymist/flow-app.md) describes the first preview and readi
 
 ## Workflow
 
-Use a short feature branch and Conventional Commits. Read the matching OpenSpec change before changing behavior and keep its artifacts aligned. Run the app tests and checks for the files touched. Engine and preview implementations are maintained alongside the app. Run targeted Rust crate tests and frontend tests for those changes, and keep installed engines independent of development build output.
+Continue on the current branch unless the user requests another. Use Conventional Commits per work item. Read `openspec/config.yaml`, accepted specs and matching active changes for new features, observable behavior/contract changes and refactors across responsibility boundaries. Continue matching active work and keep proposal, design, tasks and spec deltas aligned. Small local fixes and documentation-only edits can proceed under existing contracts without a new change.
+
+Preserve unrelated changes and upstream notices; record intentionally imported upstream commits. Keep version/dependency/release edits scoped to actual needs. PR descriptions list modified features and issue operations without execution logs. Development tests/builds use isolated profiles and must not install or restart the user’s services. Releases use a clean commit, bundled installation and verified document delivery before a `flow-vX.Y.Z` tag.
+
+## Validation policy
+
+Keep behavior tests beside their feature owner. Policy tests cover state transitions and failure recovery; contract tests cover supported inputs, errors, cancellation, stale responses and disposal; integration tests cover real compiler/browser/service and installed-layout delivery. Share contract fixtures only for implementations with the same semantics.
+
+Use code review for responsibility, reuse and abstraction decisions. Automate objective boundaries with lint, type checks and dependency tests. The existing `tools/reader-common/tests/architecture.mjs` checks cross-reader imports and runtime cycles. Do not replace behavioral assertions with source-text or line-count tests.
+
+Commands below run from the repository root. Start with the affected scope and widen for consumers when shared contracts change:
+
+- Rust: `RUSTFLAGS=-Dwarnings cargo test -p <crate> --locked`, crate Clippy and `cargo fmt --check --all`. Public facade changes also compile consumers. Broad changes use workspace tests/Clippy; feature combinations use `scripts/feature-testing.sh`. Preserve workspace documentation and safety lints. Inspect analyzer snapshot diffs before explicitly accepting expected changes.
+- JavaScript/TypeScript: `yarn lint` aggregates `lint:vscode` and `lint:readers`. Reader lint rejects warnings and separates browser globals from Node globals; vendor/generated files are excluded. Existing VS Code rules retain their baseline until warnings are separately assessed. Use affected project type checks and formatting checks as well.
+- Reader boundaries: `yarn test:architecture`. Shared policy changes: `yarn test:readers` includes shared/HTML Node tests, Python services, paged frontend and DOM tests. The macOS CI reader job runs the same commands, including installed-layout tests. Build changes also require `yarn build:preview`.
+- Python: `yarn test:reader-services` runs the existing service/install suite. Compiler fixtures need `FLOW_READER_PACKAGES` and optionally `FLOW_READER_TYPST`. `yarn test:reader-integration` requires the package directory and rejects all skipped tests; use macOS with Neovim and set `TAIL_HOSTING_SOURCE` to the companion source checkout for the complete suite. Python lint adoption requires a separate baseline assessment.
+- Native app: `yarn flow:test` compiles Swift with warnings as errors and exercises service recovery/packaging. Set `FLOW_TEST_ENGINE` for external-engine coverage.
+- VS Code: use the scoped instructions for unit, LSP integration and system/web bundle checks. Grammar changes use `yarn test:grammar`.
+- Documentation: regenerate with `node scripts/link-docs.mjs`, then run `yarn docs:check` and compile the changed Typst source.
+
+CI and local development use the same package scripts. The base reader suite can report skipped optional compiler/editor fixtures; it does not prove browser or physical-device coverage. Required integration runs must provision prerequisites and fail rather than silently skip. Browser fixtures assert their own compiler and Playwright prerequisites; native terminal and physical-device checks remain separate. When moving assets, verify imports, build inputs, static routes and the installed layout, then generate new release artifacts without rewriting immutable releases.
+
+Report checks actually run and skipped coverage. Do not broaden testing after relevant checks pass unless the change or new evidence warrants it.

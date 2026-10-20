@@ -1,3 +1,4 @@
+/* global fixture */
 // Browser-local mathematics, selection holds and stale composition in both engines.
 import assert from "node:assert/strict";
 import { once } from "node:events";

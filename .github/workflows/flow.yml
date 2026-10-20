@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  readers:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Lint reader browser and Node code
+        run: yarn lint:readers
+      - name: Check reader contracts, architecture and installed layout
+        run: yarn test:readers
+      - name: Check reader types
+        run: |
+          yarn tsc --noEmit -p tools/typst-preview-frontend/tsconfig.json
+          yarn tsc --noEmit -p tools/typst-dom/tsconfig.json
   app:
     runs-on: macos-latest
     steps:

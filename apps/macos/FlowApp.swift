@@ -219,9 +219,9 @@ final class FlowApp: NSObject, NSApplicationDelegate {
   }
   @objc func selectProfile() {
     guard picker.indexOfSelectedItem >= 0 else { return }
-    settings.selectedID = settings.profiles[picker.indexOfSelectedItem].id
+    let id = settings.profiles[picker.indexOfSelectedItem].id
     do {
-      try store.save(settings)
+      settings = try projectService.selectProfile(id, in: settings)
       populate()
     } catch { alert(error) }
   }
@@ -231,22 +231,8 @@ final class FlowApp: NSObject, NSApplicationDelegate {
     panel.allowedContentTypes = [UTType(filenameExtension: "typ")!]
     panel.allowsMultipleSelection = false
     guard panel.runModal() == .OK, let file = panel.url else { return }
-    let root = file.deletingLastPathComponent()
-    let ports = Set(settings.profiles.map(\.port))
-    let port = (23625...65535).first { !ports.contains($0) }!
-    let id = "project-" + UUID().uuidString.prefix(8).lowercased()
-    let p = Profile(
-      id: id, name: root.lastPathComponent, root: root.path, entry: file.lastPathComponent,
-      fonts: FileManager.default.fileExists(atPath: root.appendingPathComponent("fonts").path)
-        ? ["fonts"] : [],
-      packages: environment.userHome.appendingPathComponent(
-        "Library/Application Support/typst/packages"
-      ).path,
-      port: port, publicURL: "", label: FlowIdentity.bundleID + ".preview." + id)
-    settings.profiles.append(p)
-    settings.selectedID = id
     do {
-      try store.save(settings)
+      settings = try projectService.addProject(at: file, in: settings, userHome: environment.userHome)
       populate()
     } catch { alert(error) }
   }
