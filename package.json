@@ -45,7 +45,7 @@
     "docs:pdf": "yarn docs:assets && cargo run --bin tinymist --release -- compile --font-path assets/fonts --root . docs/tinymist/ebook.typ",
     "docs:typ": "node scripts/link-docs.mjs",
     "docs:rs": "cargo doc --workspace --document-private-items --no-deps",
-    "lint": "eslint editors/vscode/src",
+    "lint": "yarn lint:vscode && yarn lint:readers",
     "lint-fix": "eslint editors/vscode/src --fix",
     "benches": "cargo bench --workspace",
     "bench": "cargo bench --workspace --bench",
@@ -61,7 +61,12 @@
     "release": "node scripts/release.mjs",
     "draft-release": "node scripts/draft-release.mjs",
     "docs:check": "node scripts/link-docs.mjs --check",
-    "test:readers": "node --test tools/reader-common/tests/*.mjs tools/flow-reader/tests/test_*.mjs && python3 -m unittest discover -s tools/flow-reader/tests && vitest run --root tools/typst-preview-frontend"
+    "test:readers": "node --test tools/reader-common/tests/*.mjs tools/flow-reader/tests/test_*.mjs && yarn test:reader-services && vitest run --root tools/typst-preview-frontend && vitest run --root tools/typst-dom",
+    "lint:vscode": "eslint editors/vscode/src",
+    "lint:readers": "eslint tools/reader-common tools/flow-reader/web tools/flow-reader/terminal tools/flow-reader/terminal.mjs tools/flow-reader/tests tools/typst-preview-frontend/src tools/typst-dom/src --max-warnings 0",
+    "test:architecture": "node --test tools/reader-common/tests/architecture.mjs",
+    "test:reader-services": "python3 scripts/test-reader-services.py",
+    "test:reader-integration": "python3 scripts/test-reader-services.py --require-integration"
   },
   "dependencies": {},
   "devDependencies": {

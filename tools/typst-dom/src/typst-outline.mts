@@ -9,7 +9,6 @@ import {
 } from "./typst-patch.mjs";
 
 interface CursorPosition {
-  // eslint-disable-next-line @typescript-eslint/naming-convention
   page_no: number;
   x: number;
   y: number;

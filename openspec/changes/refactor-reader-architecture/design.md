@@ -35,3 +35,51 @@ installed app/service update is part of this follow-up.
 
 ## Validation
 Run existing Node and Python reader suites, preview Vitest/build/type checks, Rust project crate tests/format/lints, Swift/app packaging tests and generated-doc checks where affected. Add meaningful cross-reader and packaged-delivery coverage. Inspect diff and get independent review before merge. No app installation or release tagging is required.
+
+## Contributor guidance and validation follow-up
+
+The canonical development guide owns OOP/SOLID interpretation, reuse criteria,
+and validation selection. Root AGENTS provides a short entrypoint; scoped files
+record only local ownership, contracts and commands. Existing source maps retain
+file-level ownership. Continue on the current branch.
+
+Reuse the reader dependency-graph and feature contract tests. Add an explicit
+architecture command and include typst-dom tests in the reader gate. Add scoped
+ESLint checks for browser JS/TS and Node test/terminal code, excluding vendor and
+generated files. Preserve VS Code lint configuration and expose both scopes in
+the aggregate lint command. CI uses the same commands on macOS so installed-layout
+tests run. Compiler/browser fixtures retain explicit prerequisites and are not
+claimed by the base gate. Required integration runs must fail on skipped tests.
+
+Do not add a universal SOLID checker, class/line-count limits, duplicate contract
+fixtures, or a new Python/Swift lint dependency in this change. Python lint
+adoption remains a separate baseline assessment; Swift retains warning-denying
+compilation. Documentation and lint configuration changes need focused validation,
+not an unrelated engine rebuild.
+
+## Feature policy ownership follow-up
+
+Apply the canonical OOP/SOLID rules to three observed responsibility leaks:
+
+- `reader-common/selection/press.js` owns the repeated press/click selection
+  lifecycle shared by HTML and paged toolbars. Native DOM event bindings, selected
+  positions, toolbar presentation and action effects remain with the concrete
+  reader. Preserve deferred release after pointerup/cancel and dispose its timer.
+- `flow_reader/services/accepted_snapshot.py` owns captured accepted document/input
+  freshness for verified source operations. Capture under the existing publication
+  lock, keep highlight's edit-lock order, and retain caller-specific stale/error
+  mappings. `compiler/inputs.py` owns both stat signatures and content fingerprints;
+  source-navigation and selection services share those definitions. Read-only
+  geometry's accepted-output policy and locate's revision-only checks remain local.
+- Existing native `ProjectService` owns project creation defaults, selected-profile
+  changes and persistence in addition to profile updates. AppKit gathers inputs and adopts
+  successfully saved settings. `LaunchAgentService` uses one argument producer for
+  plist creation and ownership checks. Keep profile schema, IDs, label/port/path
+  defaults and CLI behavior compatible; adding a profile does not control services.
+  Creation and selection failures preserve the previously published UI settings.
+
+Use focused lifecycle/contract tests, the shared reader gate, archived delivery,
+TypeScript checks, preview build and native warning-denying tests. Update the
+architecture source map and local ownership descriptions. No universal service
+manager, cross-language runtime, renderer-coordinate unification, dependency pin,
+branch switch, release installation or service restart is needed.

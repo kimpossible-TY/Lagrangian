@@ -8,6 +8,20 @@ import shutil
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 
+def input_fingerprint(project, dependencies):
+    """Content changes count as edits; compiler binaries and mtimes do not."""
+    files = {project.root / project.entry} | {Path(path) for path in dependencies}
+    result = hashlib.sha256()
+    for path in sorted(files):
+        if not path.is_file():
+            continue
+        result.update(str(path).encode())
+        with path.open("rb") as source:
+            while chunk := source.read(65536):
+                result.update(chunk)
+    return result.hexdigest()
+
+
 def source_paths(project, dependencies):
     """Inspect only bounded, accepted Typst dependencies inside the workspace."""
     root, packages = project.root.resolve(), project.packages.resolve()

@@ -30,7 +30,7 @@ const menu = document.querySelector("#reader-menu");
 const drawer = new OutlineDrawer(document.querySelector("#reader-navigation"), menu, {
   beforeOpen: () => outlineNavigation.updateLocation(),
 });
-const settings = readingSettings(
+readingSettings(
   document.querySelector("#reader-appearance-panel"),
   document.querySelector("#reader-appearance-open"),
 );

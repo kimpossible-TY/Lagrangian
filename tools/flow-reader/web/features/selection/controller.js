@@ -4,6 +4,7 @@ import { selectedReaderText } from "./dom-selection.js";
 import { SourceHighlightController } from "../source-highlight/controller.js";
 import { CodexContextController } from "../codex-context/controller.js";
 import { ReaderTransport } from "../session/transport.js";
+import { SelectionPress } from "../../reader-common/selection/press.js";
 export { textIndex } from "./dom-selection.js";
 
 export class ReaderSelectionActions {
@@ -11,6 +12,7 @@ export class ReaderSelectionActions {
     this.article = article;
     this.canHighlight = canHighlight;
     this.editorServer = editorServer;
+    this.press = new SelectionPress();
     this.listeners = [];
     const listen = (target, type, listener) => {
       if (!target) return;
@@ -44,23 +46,14 @@ export class ReaderSelectionActions {
     this.codex = new CodexContextController(view, transport, this.viewerID);
     const action = (button, perform) => {
       listen(button, "pointerdown", (event) => {
-        this.pressing = true;
-        this.pressedSelection = this.selection;
+        this.press.begin(this.selection);
         event.preventDefault();
       });
       listen(button, "mousedown", (event) => event.preventDefault());
       for (const type of ["pointerup", "pointercancel"])
-        listen(button, type, () => {
-          clearTimeout(this.pressTimer);
-          this.pressTimer = setTimeout(() => {
-            this.pressing = false;
-            this.pressedSelection = null;
-          }, 0);
-        });
+        listen(button, type, () => this.press.release());
       listen(button, "click", () => {
-        const selected = this.pressedSelection ?? this.selection;
-        this.pressing = false;
-        this.pressedSelection = null;
+        const selected = this.press.consume(this.selection);
         perform(selected);
         this.updateActions();
       });
@@ -116,7 +109,7 @@ export class ReaderSelectionActions {
   }
 
   capture() {
-    if (this.pressing) return;
+    if (this.press.active) return;
     const selection = window.getSelection();
     if (
       !this.manifest ||
@@ -215,9 +208,9 @@ export class ReaderSelectionActions {
     this.source.dismiss();
     this.codex.dismiss();
     this.transport.dispose();
+    this.press.dispose();
     this.review.dispose();
     for (const remove of this.listeners) remove();
-    for (const timer of [this.pressTimer, this.selectionTimer, this.messageTimer])
-      clearTimeout(timer);
+    for (const timer of [this.selectionTimer, this.messageTimer]) clearTimeout(timer);
   }
 }

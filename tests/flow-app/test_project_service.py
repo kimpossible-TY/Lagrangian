@@ -39,6 +39,30 @@ class ProjectServices(unittest.TestCase):
         result = subprocess.run([self.executable, name], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_profile_selection_preserves_profiles_and_saves_without_service_control(self):
+        self.scenario('select-profile')
+
+    def test_invalid_profile_selection_does_not_save_or_control_service(self):
+        self.scenario('select-invalid-profile')
+
+    def test_profile_selection_save_failure_preserves_caller_settings(self):
+        self.scenario('select-save-failure')
+
+    def test_project_creation_preserves_defaults_and_existing_settings(self):
+        self.scenario('create-project')
+
+    def test_project_creation_detects_fonts_and_chooses_first_unused_port(self):
+        self.scenario('create-fonts-and-used-ports')
+
+    def test_invalid_project_creation_does_not_save_or_control_service(self):
+        self.scenario('create-invalid-project')
+
+    def test_project_creation_save_failure_preserves_caller_settings(self):
+        self.scenario('create-save-failure')
+
+    def test_generated_agent_ownership_rejects_foreign_or_malformed_jobs(self):
+        self.scenario('agent-ownership')
+
     def test_invalid_profile_does_not_stop_service(self):
         self.scenario('invalid-profile')
 

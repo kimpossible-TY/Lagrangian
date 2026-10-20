@@ -1,28 +1,102 @@
 import globals from "globals";
 import typescriptEslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
-import path from "node:path";
 import js from "@eslint/js";
 import { FlatCompat } from "@eslint/eslintrc";
 
-const __dirname = path.dirname(import.meta.dirname);
 const compat = new FlatCompat({
-  baseDirectory: __dirname,
+  baseDirectory: import.meta.dirname,
+  resolvePluginsRelativeTo: import.meta.dirname,
   recommendedConfig: js.configs.recommended,
   allConfig: js.configs.all,
 });
 
 export default [
   {
-    ignores: ["**/.eslintrc.js", "**/out/", "**/node_modules/"],
+    ignores: [
+      "**/.eslintrc.js",
+      "**/out/",
+      "**/node_modules/",
+      "tools/flow-reader/web/vendor/**",
+      "tools/typst-preview-frontend/dist/**",
+      "tools/typst-dom/dist/**",
+    ],
   },
   {
+    files: ["editors/vscode/**/*.ts"],
     languageOptions: {
       globals: {
         ...globals.browser,
         ...globals.node,
       },
     },
+  },
+  {
+    files: [
+      "tools/reader-common/**/*.js",
+      "tools/reader-common/**/*.mjs",
+      "tools/flow-reader/web/**/*.js",
+      "tools/flow-reader/terminal/**/*.mjs",
+      "tools/flow-reader/terminal.mjs",
+      "tools/flow-reader/tests/*.mjs",
+      "tools/typst-preview-frontend/src/**/*.{ts,mts}",
+      "tools/typst-dom/src/**/*.{ts,mts}",
+    ],
+    ignores: ["**/vendor/**", "**/*.d.ts"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: globals.browser,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      "no-unused-vars": ["error", { args: "none", caughtErrors: "none", varsIgnorePattern: "^_" }],
+    },
+  },
+  {
+    // Terminal protocol parsing deliberately recognizes escape/control bytes.
+    files: ["tools/flow-reader/terminal/protocol.mjs", "tools/flow-reader/tests/test_terminal.mjs"],
+    rules: { "no-control-regex": "off" },
+  },
+  {
+    files: ["tools/typst-preview-frontend/src/**/*.{ts,mts}", "tools/typst-dom/src/**/*.{ts,mts}"],
+    languageOptions: { parser: tsParser },
+    plugins: { "@typescript-eslint": typescriptEslint },
+    rules: {
+      "no-undef": "off",
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { args: "none", caughtErrors: "none", varsIgnorePattern: "^_" },
+      ],
+      "no-redeclare": "off",
+    },
+  },
+  {
+    files: [
+      "tools/reader-common/tests/*.mjs",
+      "tools/flow-reader/tests/*.mjs",
+      "tools/flow-reader/terminal/**/*.mjs",
+      "tools/flow-reader/terminal.mjs",
+      "tools/typst-preview-frontend/src/**/*.test.{ts,mts}",
+      "tools/typst-dom/src/**/*.test.{ts,mts}",
+    ],
+    languageOptions: {
+      globals: {
+        ...Object.fromEntries(Object.keys(globals.browser).map((name) => [name, "off"])),
+        ...globals.node,
+      },
+    },
+  },
+  {
+    // These Node hosts also send callbacks to the browser through page.evaluate.
+    files: [
+      "tools/flow-reader/tests/*-browser.mjs",
+      "tools/flow-reader/terminal/browser-session.mjs",
+      "tools/flow-reader/terminal/editor-bridge.mjs",
+      "tools/flow-reader/terminal/host.mjs",
+    ],
+    languageOptions: { globals: globals.browser },
   },
   ...compat
     .extends(

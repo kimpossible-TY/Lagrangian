@@ -1,3 +1,4 @@
+/* global pinchTest */
 // Serve the real Reader shell and modules with a deterministic saved document.
 // Touch events here are synthetic; physical iPhone gesture arbitration is separate.
 import assert from "node:assert/strict";

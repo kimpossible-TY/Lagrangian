@@ -97,20 +97,6 @@ class VisualBlocks(HTMLParser):
                  "bodyHash": digest("\n".join(block["body"]))} for block in self.blocks]
 
 
-def input_fingerprint(project, dependencies):
-    """Content changes count as edits; compiler binaries and mtimes do not."""
-    files = {project.root / project.entry} | {Path(path) for path in dependencies}
-    result = hashlib.sha256()
-    for path in sorted(files):
-        if not path.is_file():
-            continue
-        result.update(str(path).encode())
-        with path.open("rb") as source:
-            while chunk := source.read(65536):
-                result.update(chunk)
-    return result.hexdigest()
-
-
 class ChangeTracker:
     def __init__(self, path, document_id):
         self.path = path
