@@ -60,10 +60,28 @@ const restoreAnchor = (anchor) => readingPosition.restore(anchor);
 const references = new ReferenceReturn(
   document.querySelector("#reader-reference-back"),
   (anchor) => {
-    if (manifest)
+    if (!manifest) return;
+    if (readingPosition.hold(anchor)) {
+      // Keep mounted mathematics and annotations instead of resetting the section.
+      activity.state.cancel(loadSequence);
+      loadSequence++;
+      article.setAttribute("aria-busy", "false");
+      activity.refresh();
+      finishReferenceReturn(anchor, true);
+      sections.schedule();
+    } else {
       loadSection(manifest, sectionFor(manifest, anchor), { anchor, referenceReturn: anchor });
+    }
   },
 );
+
+function finishReferenceReturn(anchor, restored) {
+  if (restored) {
+    history.replaceState({ readerAnchor: anchor }, "", anchor.url);
+    article.focus({ preventScroll: true });
+  }
+  references.consume(anchor);
+}
 const changes = new ReaderChangeNavigation(document.querySelector("#reader-change-jump"), {
   manifest: () => manifest,
   revision: () => revision,
@@ -374,14 +392,10 @@ function renderDocument(html, nextManifest, section, options) {
     if (disposed || revision !== nextManifest.revision || sequence !== loadSequence) return;
     if (options.target) document.getElementById(options.target)?.scrollIntoView();
     else if (options.anchor) {
-      const restored = restoreAnchor(options.anchor);
-      if (options.referenceReturn) {
-        if (restored) {
-          history.replaceState({ readerAnchor: options.anchor }, "", options.anchor.url);
-          article.focus({ preventScroll: true });
-        }
-        references.consume(options.referenceReturn);
-      }
+      const restored = options.referenceReturn
+        ? readingPosition.hold(options.anchor)
+        : restoreAnchor(options.anchor);
+      if (options.referenceReturn) finishReferenceReturn(options.referenceReturn, restored);
     } else window.scrollTo(0, 0);
     references.remember(options.referenceOrigin);
     sections.schedule();
@@ -392,6 +406,7 @@ function renderDocument(html, nextManifest, section, options) {
 }
 
 async function jumpToChange(change, automatic = false) {
+  readingPosition.release();
   const local = document.getElementById(change.target);
   if (local && article.contains(local)) {
     activity.state.cancel(loadSequence);
@@ -499,6 +514,7 @@ function sectionFor(nextManifest, anchor, target) {
 
 async function navigateAnchor(target, push = true, reference = false) {
   if (!manifest) return;
+  readingPosition.release();
   const section = manifest.anchors[target];
   const local = annotations.footnote(target) ?? document.getElementById(target);
   const origin = reference ? readingAnchor() : null;
@@ -519,6 +535,7 @@ async function navigateAnchor(target, push = true, reference = false) {
 
 window.addEventListener("popstate", (event) => {
   if (!manifest) return;
+  readingPosition.release();
   const anchor = event.state?.readerAnchor;
   if (anchor) loadSection(manifest, sectionFor(manifest, anchor), { anchor });
   else if (fragment()) navigateAnchor(fragment(), false);

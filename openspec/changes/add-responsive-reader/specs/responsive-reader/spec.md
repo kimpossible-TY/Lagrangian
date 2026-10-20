@@ -32,6 +32,7 @@ The HTML Reader SHALL offer “원래 위치로” after successfully following 
 - **WHEN** the reader follows an internal reference to another mounted or unmounted section
 - **THEN** the action restores the originating passage and viewport offset using current semantic geometry, including after font or viewport changes
 - **AND** the original URL is restored, the article receives focus without scrolling, and the button disappears
+- **AND** a mounted origin retains its existing section and composed mathematics instead of triggering a new section publication
 
 #### Scenario: Latest successful reference and independent actions
 - **WHEN** another internal reference succeeds before returning
