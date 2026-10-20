@@ -1,5 +1,9 @@
 # Responsive mobile reader alongside the paged preview
 
+Keep compact CeTZ symbols such as axis names at the selected reading size in
+measured free space near their original anchors before using numbered legends.
+Retain numbering for longer or obstructed labels and preserve source geometry.
+
 Restore authored flowboxes as centered, continuously framed derivations with
 compact internal spacing. Do not add separator rules outside the frame or
 around the mathematical renderer's internal row groups. Retain existing source

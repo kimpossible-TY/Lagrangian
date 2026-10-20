@@ -97,7 +97,7 @@ test("crowded labels retain readable badges and complete continuous legends", ()
 });
 
 test("a stroke crossing a label reserves a legend without changing its anchor", () => {
-  const labels = [label(0, 100, 80)];
+  const labels = [label(0, 100, 80, 80)];
   const clear = composeCanvas({ width: 200, height: 160 }, 204, labels, 18);
   const anchor = clear.labels[0].anchor;
   const crossed = composeCanvas({ width: 200, height: 160 }, 204, labels, 18, [
@@ -127,4 +127,49 @@ test("long or nested labels stay in the body with their full measured text size"
     ["legend", "legend"],
   );
   assert.equal(wide.width, 300);
+});
+
+test("compact axis symbols use nearby free space at the measured reading size", () => {
+  for (const font of [13, 18, 30]) {
+    const symbol = label("y", 100, 80, font * 0.7, font * 1.2);
+    const model = { width: 200, height: 160 };
+    const original = composeCanvas(model, 204, [symbol], font).labels[0];
+    const segments = [
+      [
+        { x: 0, y: original.anchor.y },
+        { x: 204, y: original.anchor.y },
+      ],
+    ];
+    const moved = composeCanvas(model, 204, [symbol], font, segments).labels[0];
+    assert.equal(moved.mode, "inline");
+    assert.equal(moved.width, symbol.width);
+    assert.equal(moved.height, symbol.height);
+    assert.deepEqual(moved.anchor, original.anchor);
+    assert.ok(moved.top + moved.height < moved.anchor.y || moved.top > moved.anchor.y);
+    assert.ok(Math.hypot(moved.left - original.left, moved.top - original.top) <= font);
+  }
+});
+
+test("compact labels retain numbered fallback when nearby space is obstructed", () => {
+  const symbol = label("y", 100, 80, 12, 20);
+  const segments = Array.from({ length: 81 }, (_, i) => [
+    { x: 0, y: 60 + i },
+    { x: 204, y: 60 + i },
+  ]);
+  const result = composeCanvas({ width: 200, height: 160 }, 204, [symbol], 18, segments);
+  assert.equal(result.labels[0].mode, "legend");
+});
+
+test("nearby placement preserves exact labels, bounds, and deterministic recomposition", () => {
+  const labels = [label("y", 5, 60, 18, 24), label("x", 32, 60, 18, 24)];
+  for (const width of [204, 304]) {
+    const model = { width: 200, height: 160 };
+    const plan = composeCanvas(model, width, labels, 18);
+    assert.ok(plan.labels.every((box) => box.mode === "inline"));
+    assert.ok(plan.labels.every((box) => box.left >= 0 && box.left + box.width <= width));
+    assert.ok(!overlaps(...plan.labels));
+    const exact = composeCanvas(model, width, [labels[1]], 18).labels[0];
+    assert.deepEqual(plan.labels[1], exact);
+    assert.deepEqual(composeCanvas(model, width, labels, 18), plan);
+  }
 });

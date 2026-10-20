@@ -311,3 +311,5 @@ configuration, three context files and other service states are preserved.
 Receipts, inspected screenshots and recovery snapshots are indexed in
 `dist/reader-reference-rollout/verified-rollout.json`. Native app replacement,
 remote publication and physical-device/VoiceOver checks were not performed.
+
+- [x] Try bounded nearby placements for compact CeTZ symbols at the reading size before numbered fallback; preserve exact placements, collisions and source anchors.
