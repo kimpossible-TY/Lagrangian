@@ -255,5 +255,5 @@ were not performed.
 
 ## Deploy authored flowbox presentation
 
-- [ ] Commit the verified flowbox implementation on the current branch and prepare a clean immutable Reader release with configuration/context recovery snapshots.
-- [ ] Install the Reader release, preserve other service states and saved context, and verify registered HTTPS assets plus the actual photographed flowbox in Chrome/WebKit.
+- [x] Commit the verified flowbox implementation on the current branch and prepare a clean immutable Reader release with configuration/context recovery snapshots.
+- [x] Install the Reader release, preserve other service states and saved context, and verify registered HTTPS assets plus the actual photographed flowbox in Chrome/WebKit.

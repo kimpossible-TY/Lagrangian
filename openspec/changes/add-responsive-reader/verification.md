@@ -2628,3 +2628,39 @@ and its files are under `preinstall-20261019-230800/`. The prior app is retained
 `~/Library/Application Support/tinymist-flow/releases/20261019-230801-029442/tinymist-flow.app`;
 the prior immutable HTML release remains installed and its stable launcher/config
 are backed up. No remote release or physical iPhone verification was performed.
+
+## Authored flowbox deployment (2026-10-20)
+
+Installed the immutable HTML Reader from clean implementation commit
+`b7e971587902106abe6e452a15151cc0494c0a0a` on the existing `main` branch.
+The independent archived checkout excluded and preserved unrelated untracked
+files. This update uses the existing Reader installer and does not replace the
+native app or engine.
+
+- All 500 immutable release files match their manifest. All 46 first-party assets
+  match the installed release over both loopback and certificate-validated public
+  HTTPS. The published PDE passes its strict content gate with 101 flowboxes.
+- The full delivered HTML is byte-identical to the pre-deployment document after
+  replacing only the authored container class from `flow-derivation` to
+  `flow-flowbox`; canonical text is also unchanged.
+- Chrome and WebKit each pass three actual photographed-flowbox cases over the
+  registered HTTPS origin: 390px/18px light, 320px/30px dark and 768px/30px light.
+  Frames, bounded mathematical ink, centered equation numbers, cancellation paint
+  and canonical text pass with no browser exceptions. The installed screenshots
+  were inspected; there are no extra horizontal separators around the frame.
+- PDE paged service PID 94765 remains running and Ewald remains stopped.
+  Project profiles, signing configuration, Reader configuration and all three
+  focus records match their backed-up bytes. The exact historical saved context
+  was restored after startup without rewriting its service/revision evidence.
+- The first rollout accepted the document but the temporary deployment helper
+  mishandled a null startup selection; its recovery restored the previous
+  launcher/configuration. After correcting that helper, the second rollout
+  completed and all installed checks passed. The explicit `Use` context backup
+  was retained across both attempts.
+
+Receipts and inspected screenshots: `dist/reader-flowbox-rollout/`, including
+`candidate.json`, `install.json`, `delivery.json` and `https-report.json`.
+`preinstall.json` indexes the configuration, launcher, LaunchAgent and context
+recovery files under `backup-20261020-191318-720344/`. The previous immutable
+`fe744971ff8da9b5682d6b3580de581b55662079` release remains available for recovery.
+No remote Git release or physical-device test was performed.
