@@ -241,6 +241,16 @@ spoken screen-reader behavior.
 
 ## Fidelity
 
+The math-blocks HTML adapter exports authored `flowbox` bodies as
+`div.flow-flowbox`. Its CSS owns one complete theme-aware outline, small
+responsive inline padding, centered prose/arrows and compact direct-child
+spacing. It emits no separator before or after the box. Internal multiline
+equation groups keep `flow-derivation` with no frame or separator rules; the
+existing mathematical renderer retains line breaking, cancellation paint,
+selection identity and a separately reserved number column. Compose against
+the actual inner width after box padding. Existing source syntax and the
+original paged implementation remain unchanged.
+
 Display equations use a grid with a flexible mathematical cell and an optional
 intrinsic-width number cell at the inline end. Center both cells vertically so
 fractions, matrices and multiline derivations retain a centered number. Measure

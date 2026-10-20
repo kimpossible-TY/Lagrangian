@@ -246,7 +246,7 @@
 // Renders a centered block container with a solid outline matching the active theme's rule color.
 #let flowbox(body) = context {
   if target() == "html" {
-    return html.elem("div", attrs: (class: "flow-derivation"), body)
+    return html.elem("div", attrs: (class: "flow-flowbox"), body)
   }
   let theme = theme-from-text-fill()
 
