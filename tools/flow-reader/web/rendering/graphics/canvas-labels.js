@@ -128,116 +128,121 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
     !occupied.some((other) => overlaps(box, other)) &&
     (!strokes || !hits(box));
   const sorted = [...labels].sort((a, b) => a.width * a.height - b.width * b.height);
-  for (const label of sorted) {
-    const anchor = point(label);
-    const box = labelBox(label, anchor);
-    if (!label.nested && valid(box)) {
-      occupied.push(box);
-      placed.set(label.id, { ...box, id: label.id, mode: "inline", anchor });
-    }
-  }
-  // Keep safe authored placements, then allocate nearby space to the labels
-  // with the fewest available positions. Width alone is not a reason to number
-  // a short formula or a two-line name. All candidates use measured text boxes.
-  const pending = sorted
-    .filter(
-      (label) =>
-        !placed.has(label.id) && !label.nested && label.width <= width && label.height <= height,
-    )
-    .map((label) => {
+  // Preserve small coordinate symbols before larger nearby descriptions use
+  // their limited anchor space. This is priority, never an eligibility cutoff.
+  const compact = (label) => label.width <= 3 * fontSize && label.height <= 2 * fontSize;
+  for (const group of [sorted.filter(compact), sorted.filter((label) => !compact(label))]) {
+    for (const label of group) {
       const anchor = point(label);
-      const origin = labelBox(label, anchor);
-      const radius = Math.min(
-        width / 4,
-        Math.max(2 * fontSize, Math.min(4 * fontSize, Math.max(label.width, label.height) / 2)),
-      );
-      return { label, anchor, origin, radius };
-    });
-  const leader = (box, anchor) => [
-    anchor,
-    {
-      x: Math.max(box.left, Math.min(box.left + box.width, anchor.x)),
-      y: Math.max(box.top, Math.min(box.top + box.height, anchor.y)),
-    },
-  ];
-  const connected = (box, anchor) => {
-    const [a, b] = leader(box, anchor);
-    return (
-      occupied.every((other) => !intersects(a, b, other)) &&
-      [...placed.values()].every((other) => {
-        const [start, end] = leader(other, other.anchor);
-        return !intersects(start, end, box);
-      })
-    );
-  };
-  while (pending.length) {
-    const choices = pending
-      .map((entry) => {
-        const { origin, radius, anchor } = entry;
-        const candidates = [
-          {
-            ...origin,
-            left: Math.max(0, Math.min(width - origin.width, origin.left)),
-            top: Math.max(0, Math.min(height - origin.height, origin.top)),
-          },
-        ];
-        for (let distance = fontSize / 2; distance <= radius + 0.01; distance += fontSize / 2) {
-          for (let angle = 0; angle < 16; angle++) {
-            const theta = (angle * Math.PI) / 8;
-            candidates.push({
-              ...origin,
-              left: origin.left + Math.cos(theta) * distance,
-              top: origin.top + Math.sin(theta) * distance,
-            });
-          }
-        }
-        // Include the exact clearance around occupied boxes, rather than hoping
-        // a coarse angular sample happens to land in a narrow gap.
-        for (const other of occupied) {
-          for (const left of [
-            origin.left,
-            other.left - origin.width - gap,
-            other.left + other.width + gap,
-          ]) {
-            for (const top of [
-              origin.top,
-              other.top - origin.height - gap,
-              other.top + other.height + gap,
-            ])
-              candidates.push({ ...origin, left, top });
-          }
-        }
-        const distance = (box) => Math.hypot(box.left - origin.left, box.top - origin.top);
-        const unique = new Map(
-          candidates.map((box) => {
-            const bounded = {
-              ...box,
-              left: Math.max(0, Math.min(width - box.width, box.left)),
-              top: Math.max(0, Math.min(height - box.height, box.top)),
-            };
-            return [`${bounded.left.toFixed(2)},${bounded.top.toFixed(2)}`, bounded];
-          }),
+      const box = labelBox(label, anchor);
+      if (!label.nested && valid(box)) {
+        occupied.push(box);
+        placed.set(label.id, { ...box, id: label.id, mode: "inline", anchor });
+      }
+    }
+    // Keep safe authored placements, then allocate nearby space to the labels
+    // with the fewest available positions. Width alone is not a reason to number
+    // a short formula or a two-line name. All candidates use measured text boxes.
+    const pending = group
+      .filter(
+        (label) =>
+          !placed.has(label.id) && !label.nested && label.width <= width && label.height <= height,
+      )
+      .map((label) => {
+        const anchor = point(label);
+        const origin = labelBox(label, anchor);
+        const radius = Math.min(
+          width / 4,
+          Math.max(2 * fontSize, Math.min(4 * fontSize, Math.max(label.width, label.height) / 2)),
         );
-        const available = [...unique.values()]
-          .filter((box) => distance(box) <= radius + 0.01 && valid(box) && connected(box, anchor))
-          .sort((a, b) => distance(a) - distance(b));
-        return { entry, available };
-      })
-      .filter(({ available }) => available.length);
-    if (!choices.length) break;
-    choices.sort((a, b) => a.available.length - b.available.length);
-    const {
-      entry,
-      available: [box],
-    } = choices[0];
-    occupied.push(box);
-    placed.set(entry.label.id, {
-      ...box,
-      id: entry.label.id,
-      mode: "inline",
-      anchor: entry.anchor,
-    });
-    pending.splice(pending.indexOf(entry), 1);
+        return { label, anchor, origin, radius };
+      });
+    const leader = (box, anchor) => [
+      anchor,
+      {
+        x: Math.max(box.left, Math.min(box.left + box.width, anchor.x)),
+        y: Math.max(box.top, Math.min(box.top + box.height, anchor.y)),
+      },
+    ];
+    const connected = (box, anchor) => {
+      const [a, b] = leader(box, anchor);
+      return (
+        occupied.every((other) => !intersects(a, b, other)) &&
+        [...placed.values()].every((other) => {
+          const [start, end] = leader(other, other.anchor);
+          return !intersects(start, end, box);
+        })
+      );
+    };
+    while (pending.length) {
+      const choices = pending
+        .map((entry) => {
+          const { origin, radius, anchor } = entry;
+          const candidates = [
+            {
+              ...origin,
+              left: Math.max(0, Math.min(width - origin.width, origin.left)),
+              top: Math.max(0, Math.min(height - origin.height, origin.top)),
+            },
+          ];
+          for (let distance = fontSize / 2; distance <= radius + 0.01; distance += fontSize / 2) {
+            for (let angle = 0; angle < 16; angle++) {
+              const theta = (angle * Math.PI) / 8;
+              candidates.push({
+                ...origin,
+                left: origin.left + Math.cos(theta) * distance,
+                top: origin.top + Math.sin(theta) * distance,
+              });
+            }
+          }
+          // Include the exact clearance around occupied boxes, rather than hoping
+          // a coarse angular sample happens to land in a narrow gap.
+          for (const other of occupied) {
+            for (const left of [
+              origin.left,
+              other.left - origin.width - gap,
+              other.left + other.width + gap,
+            ]) {
+              for (const top of [
+                origin.top,
+                other.top - origin.height - gap,
+                other.top + other.height + gap,
+              ])
+                candidates.push({ ...origin, left, top });
+            }
+          }
+          const distance = (box) => Math.hypot(box.left - origin.left, box.top - origin.top);
+          const unique = new Map(
+            candidates.map((box) => {
+              const bounded = {
+                ...box,
+                left: Math.max(0, Math.min(width - box.width, box.left)),
+                top: Math.max(0, Math.min(height - box.height, box.top)),
+              };
+              return [`${bounded.left.toFixed(2)},${bounded.top.toFixed(2)}`, bounded];
+            }),
+          );
+          const available = [...unique.values()]
+            .filter((box) => distance(box) <= radius + 0.01 && valid(box) && connected(box, anchor))
+            .sort((a, b) => distance(a) - distance(b));
+          return { entry, available };
+        })
+        .filter(({ available }) => available.length);
+      if (!choices.length) break;
+      choices.sort((a, b) => a.available.length - b.available.length);
+      const {
+        entry,
+        available: [box],
+      } = choices[0];
+      occupied.push(box);
+      placed.set(entry.label.id, {
+        ...box,
+        id: entry.label.id,
+        mode: "inline",
+        anchor: entry.anchor,
+      });
+      pending.splice(pending.indexOf(entry), 1);
+    }
   }
   for (const label of labels) {
     if (placed.has(label.id)) continue;
