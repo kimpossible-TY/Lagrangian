@@ -237,3 +237,15 @@ test("long labels are decided by measured free space rather than a text-width cu
   assert.equal(placed.width, 270);
   assert.ok(placed.top + placed.height < y || placed.top > y);
 });
+
+test("coordinate symbols keep their nearby space before larger descriptions", () => {
+  const symbol = label("y", 50, 0, 14, 28);
+  const title = label("title", 50, -15, 100, 24);
+  const result = composeCanvas({ width: 100, height: 1 }, 104, [title, symbol], 18, [
+    [{ x: 0, y: 30 }, { x: 104, y: 30 }, 1],
+  ]);
+  const placed = result.labels.find((item) => item.id === "y");
+  assert.equal(placed.mode, "inline");
+  assert.ok(placed.top + placed.height < 30);
+  assert.ok(result.labels.every((item) => item.id === "y" || !overlaps(item, placed)));
+});

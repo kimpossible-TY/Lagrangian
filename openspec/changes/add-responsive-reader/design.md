@@ -963,7 +963,10 @@ line spacing for figure label bodies. This removes prose-only line-box slack
 without shrinking glyphs or changing semantic HTML/MathML. Reserve 1.5 reading em
 above and below the uniformly scaled authored drawing for edge labels.
 
-Keep safe exact placements first. For every non-nested label whose measured box
+Reserve compact coordinate labels (up to 3em wide and 2em high) before larger
+descriptions can consume their nearby anchor space. This threshold controls
+priority, not eligibility. Within each size group, keep safe exact placements
+first. For every non-nested label whose measured box
 can fit the stage, enumerate nearby positions, project candidates onto stage
 edges, and add exact clearances around occupied label boxes. Do not classify a
 label as a number solely because it exceeds a character count, width-in-em cutoff,

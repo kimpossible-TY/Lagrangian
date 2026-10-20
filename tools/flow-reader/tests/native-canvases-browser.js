@@ -106,17 +106,20 @@ try {
         link.remove();
         await until(() => document.querySelector(`[data-flow-canvas="${id}"]`), `${id} section`);
       }
-      const canvas = document.querySelector(`[data-flow-canvas="${id}"]`);
+      let canvas = document.querySelector(`[data-flow-canvas="${id}"]`);
       canvas.scrollIntoView({ block: "start" });
-      await until(
-        () =>
-          canvas.dataset.canvasLayout === "native-labels" &&
+      await until(() => {
+        // Section virtualization may replace the node during the scroll.
+        // Verify current published content, not a detached pending instance.
+        canvas = document.querySelector(`[data-flow-canvas="${id}"]`);
+        return (
+          canvas?.dataset.canvasLayout === "native-labels" &&
           Number(canvas.dataset.canvasFont) === font &&
           [...canvas.querySelectorAll(".flow-math-view")].every(
             (view) => view.dataset.mathState === "ready",
-          ),
-        `${font}px ${id} composed`,
-      );
+          )
+        );
+      }, `${font}px ${id} composed`);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const labels = direct(canvas),
         sourceLabels = direct(before);

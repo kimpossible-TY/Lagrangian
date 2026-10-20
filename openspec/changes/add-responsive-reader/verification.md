@@ -2817,15 +2817,15 @@ unchanged; label line-height is 1.35. A spatial stroke index and per-composition
 collision cache avoid repeatedly scanning the entire drawing.
 
 The actual PDE corpus contains 66 native canvases and 685 semantic labels.
-At 390px/18px, inline labels increased from 238 to 439. Every figure's before/after
+At 390px/18px, inline labels increased from 238 to 437. Every figure's before/after
 capture was visually inspected. This includes CeTZ, Fletcher and Maquette output,
 axis symbols, aligned labels, multiline descriptions and equations. Small fixed
 flowchart nodes and crowded figures still use complete numbered legends where
 readable text cannot fit; geometry is not redrawn or independently stretched.
 Comparison sheets and raw captures are under
-`dist/reader-canvas-placement/{sheets,before-chromium-390-18,final-chromium-390-18}`.
+`dist/reader-canvas-placement/{sheets,before-chromium-390-18,priority-final-chromium-390-18}`.
 
-All 137 HTML/architecture Node tests, eight actual compiler tests and the macOS
+All 138 HTML/architecture Node tests, eight actual compiler tests and the macOS
 installed-layout integration test passed. Reader ESLint reported zero warnings;
 Prettier accepted the changed JavaScript/CSS. Yarn was unavailable in this shell,
 so its lint script was invoked through the installed ESLint executable directly.
@@ -2837,3 +2837,15 @@ measurement. The unchanged eight-canvas fixture subsequently passed all 24
 measurements at 13/18/30px in Chrome/320px and WebKit/390px (302 checks each).
 The browser oracle additionally checks inline bodies against independently
 sampled painted strokes, excluding unpainted zero-length butt segments.
+
+The initial installed revision exposed competition between nearby descriptions
+and axis symbols at 320px/18px. Compact symbols now reserve their exact/nearby
+space before the larger-label group; both groups retain measured placement rather
+than width-based exclusion. The original Heaviside/Dirac figure retained both y
+labels at all 12 Chrome/WebKit × 320/390px × 13/18/30px combinations. All 66 final
+390px/18px captures were inspected again after this priority correction.
+
+Some long corpus runs initially timed out while waiting on a captured canvas
+node. Diagnostics showed the live replacement already composed with every math
+view ready. The browser harness now resolves the current canvas during its wait,
+matching section virtualization rather than observing a detached old instance.

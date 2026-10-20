@@ -683,18 +683,21 @@ The HTML Reader SHALL render explicitly supported decoration primitives locally 
 - **AND** an older asynchronous response cannot paint a newer revision or measured layout
 
 
+### Requirement: Readable native canvas labels
+The HTML Reader SHALL allocate native figure labels at the selected reading size using measured free space, preserving geometry and complete semantic fallback.
+
 #### Scenario: A native canvas label needs nearby readable space
 - **WHEN** a native label cannot occupy its original box at the selected reading font
 - **THEN** the Reader evaluates its measured dimensions and nearby free space, including multi-line names, edge positions and explicit SVG alignment/baselines
 - **AND** glyph size remains unchanged while figure labels use compact line spacing
 - **AND** nearby travel is bounded to two to four reading em according to label extent and at most one quarter of stage width
-- **AND** safe exact placements, stage bounds, painted stroke thickness and already placed text/leader relationships remain reserved
+- **AND** safe exact placements within the current priority group, stage bounds, painted stroke thickness and already placed text/leader relationships remain reserved
 - **AND** a displaced label retains its source anchor and an explicit leader when separated from it
 - **AND** nested, oversized or obstructed labels retain complete numbered fallback
 - **AND** font/width changes remeasure the same semantic labels without compiler requests, author-coordinate edits or paged-output changes
 
 #### Scenario: Many diagram labels compete for free space
 - **WHEN** multiple measured native labels need nearby placements
-- **THEN** the Reader prefers labels with fewer available candidates, including candidates along actual obstacle and stage boundaries
+- **THEN** the Reader reserves compact coordinate labels before larger descriptions and prefers fewer available candidates within each group, including candidates along actual obstacle and stage boundaries
 - **AND** a local spatial index bounds repeated stroke-collision work
 - **AND** the rendered result preserves logical text, label-to-number associations and the page width
