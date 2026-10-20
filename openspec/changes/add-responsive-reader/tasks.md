@@ -319,4 +319,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Assign semantic navigation anchors to callouts and include titles/unwrapped prose in visual history without duplicating accepted selection passages or losing existing child targets.
 - [x] Reproduce short-note insertion, body/title edits and upgrade relocation in Python, and verify actual compiler/WebKit automatic navigation with existing gesture/selection/history guards.
 - [x] Reuse the semantic reading-position hold after local/remote change jumps so asynchronous mathematics cannot hide the changed callout title; verify the actual PDE note in Chrome and WebKit, including reload.
-- [ ] Apply the clean immutable Reader release, restore the missed Green-function note as the last accepted edit, and verify installed document delivery and saved-context preservation.
+- [x] Apply the clean immutable Reader release, restore the missed Green-function note as the last accepted edit, and verify installed document delivery and saved-context preservation.
