@@ -3,12 +3,6 @@ import { inflateSync } from "node:zlib";
 
 const ESC = "\x1b";
 const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-const palette = Array.from({ length: 256 }, (_, index) => {
-  if (index >= 216) return Array(3).fill(Math.round(((index - 216) * 100) / 39));
-  return [Math.floor(index / 36), Math.floor(index / 6) % 6, index % 6].map(
-    (channel) => channel * 20,
-  );
-});
 
 function paeth(left, above, upperLeft) {
   const prediction = left + above - upperLeft;
@@ -87,15 +81,83 @@ function screenshotPixels(png) {
   return { pixels, width, height, channels };
 }
 
-function colorIndex(pixels, offset, channels) {
-  const alpha = channels === 4 ? pixels[offset + 3] : 255;
-  const flatten = (channel) =>
-    Math.round((pixels[offset + channel] * alpha + 255 * (255 - alpha)) / 255);
-  const red = flatten(0);
-  const green = flatten(1);
-  const blue = flatten(2);
-  if (red === green && green === blue) return 216 + Math.round((red * 39) / 255);
-  return Math.round(red / 51) * 36 + Math.round(green / 51) * 6 + Math.round(blue / 51);
+function colorBox(entries) {
+  let weight = 0;
+  const mean = [0, 0, 0];
+  for (const entry of entries) {
+    weight += entry.count;
+    for (let channel = 0; channel < 3; channel++) mean[channel] += entry.rgb[channel] * entry.count;
+  }
+  for (let channel = 0; channel < 3; channel++) mean[channel] /= weight;
+  const variance = [0, 0, 0];
+  for (const entry of entries)
+    for (let channel = 0; channel < 3; channel++)
+      variance[channel] += (entry.rgb[channel] - mean[channel]) ** 2 * entry.count;
+  const axis = variance.indexOf(Math.max(...variance));
+  return { entries, mean, weight, axis, score: entries.length > 1 ? variance[axis] : 0 };
+}
+
+function screenshotColors(pixels, channels) {
+  // A bounded 5-bit histogram retains actual pixel means. A fixed six-level RGB
+  // cube merged the green/blue channels of gold highlights, turning them red.
+  const bins = 1 << 15;
+  const counts = new Uint32Array(bins);
+  const sums = Array.from({ length: 3 }, () => new Uint32Array(bins));
+  const colors = new Uint16Array(pixels.length / channels);
+  for (let index = 0; index < colors.length; index++) {
+    const offset = index * channels;
+    const alpha = channels === 4 ? pixels[offset + 3] / 255 : 1;
+    const background = 255 * (1 - alpha);
+    const red = Math.round(pixels[offset] * alpha + background);
+    const green = Math.round(pixels[offset + 1] * alpha + background);
+    const blue = Math.round(pixels[offset + 2] * alpha + background);
+    if (red === green && green === blue) {
+      colors[index] = bins + Math.round((red * 39) / 255);
+      continue;
+    }
+    const bin = ((red >> 3) << 10) | ((green >> 3) << 5) | (blue >> 3);
+    colors[index] = bin;
+    counts[bin]++;
+    sums[0][bin] += red;
+    sums[1][bin] += green;
+    sums[2][bin] += blue;
+  }
+  const entries = [];
+  for (let bin = 0; bin < bins; bin++)
+    if (counts[bin])
+      entries.push({ bin, count: counts[bin], rgb: sums.map((sum) => sum[bin] / counts[bin]) });
+  const boxes = entries.length ? [colorBox(entries)] : [];
+  while (boxes.length && boxes.length < 216) {
+    let largest = 0;
+    for (let index = 1; index < boxes.length; index++)
+      if (boxes[index].score > boxes[largest].score) largest = index;
+    const box = boxes[largest];
+    if (!box.score) break;
+    box.entries.sort((a, b) => a.rgb[box.axis] - b.rgb[box.axis]);
+    let split = 0;
+    let weight = 0;
+    while (split < box.entries.length - 1 && weight < box.weight / 2)
+      weight += box.entries[split++].count;
+    boxes.splice(
+      largest,
+      1,
+      colorBox(box.entries.slice(0, split)),
+      colorBox(box.entries.slice(split)),
+    );
+  }
+  const palette = Array.from({ length: 256 }, (_, index) =>
+    index >= 216 ? Array(3).fill(Math.round(((index - 216) * 100) / 39)) : null,
+  );
+  const lookup = new Uint8Array(bins);
+  boxes.forEach((box, index) => {
+    palette[index] = box.mean.map((channel) => Math.round((channel * 100) / 255));
+    for (const entry of box.entries) lookup[entry.bin] = index;
+  });
+  for (let index = 0; index < colors.length; index++) {
+    const bin = colors[index];
+    colors[index] = bin >= bins ? 216 + bin - bins : lookup[bin];
+  }
+  return { colors, palette };
 }
 
 function runs(plane, end) {
@@ -114,13 +176,8 @@ function runs(plane, end) {
 
 export function sixelSequence(png) {
   const { pixels, width, height, channels } = screenshotPixels(png);
-  const colors = new Uint8Array(width * height);
-  const used = new Set();
-  for (let index = 0; index < colors.length; index++) {
-    const color = colorIndex(pixels, index * channels, channels);
-    colors[index] = color;
-    used.add(color);
-  }
+  const { colors, palette } = screenshotColors(pixels, channels);
+  const used = new Set(colors);
   // P2=1 leaves unpainted bits transparent. Every actual pixel is painted,
   // including the background; the last partial band cannot erase the status row.
   const result = [`${ESC}[H${ESC}P0;1;0q"1;1;${width};${height}`];

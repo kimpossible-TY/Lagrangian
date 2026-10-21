@@ -48,6 +48,11 @@ The terminal Reader SHALL support SIXEL output for Windows Terminal, while retai
 - **WHEN** a user selects SIXEL output in a Windows Terminal version with SIXEL support
 - **THEN** the host emits native SIXEL frames and forwards terminal input to the same HTML Reader without requiring an iTerm2-compatible terminal
 
+#### Scenario: Authored highlight colors survive SIXEL encoding
+- **WHEN** a Chromium screenshot contains the existing HTML Reader's light or dark highlight backgrounds
+- **THEN** the bounded SIXEL palette preserves those dominant colors without shifting gold highlights to red
+- **AND** color selection uses screenshot pixels without changing the existing Typst/HTML highlight implementation or theme definitions
+
 ### Requirement: A second remote connection can attach to an editor-owned Reader
 The Neovim integration SHALL prepare an editor-owned terminal session when manual opening is explicitly configured. It SHALL show a command for a second connection to the same host and preserve the existing editor and service lifetime checks.
 
