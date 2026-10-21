@@ -2886,3 +2886,30 @@ coverage is 396 figure/font measurements and 4,756 checks. Final read-back again
 confirmed configuration, explicit selection, 48 original source files and the
 last-change token after browser checks. Physical iPhone interaction, native app
 replacement and VoiceOver were not exercised in this iteration.
+
+## 2026-10-21: bounded native label size search
+
+The shared canvas allocator tries each compact label at full size, then 95/90/85%
+and max(80%, 11px / reading font). Nearby search uses quarter-em rings and 32
+angles; displaced labels reserve other source anchors. No number/text-specific
+production cases were added. Presentation transforms preserve semantic content;
+remeasurement recovers natural dimensions to avoid cumulative reduction.
+
+- Pure/architecture tests: 139 passed; Reader ESLint and strict OpenSpec validation passed.
+- Real PDE corpus: all 66 figures at 13/18/30px in WebKit 320px (198 measurements,
+  2378 checks) and Chrome 390px (198 measurements, 2576 checks), no errors.
+  Chrome used the updated independent transformed-ink/scroll-width oracle and
+  full-size legend assertion. Its first harness launch was displaced by initial
+  change navigation; an explicit initial canvas hash made the test destination
+  authoritative without changing production navigation.
+- Isolated native canvas fixture: WebKit 320px, 13→30→13px, 24 measurements and
+  326 checks passed, including nested canvases and authored tiny/large text.
+- Mobile WebKit 393px actual PDE figure 44: labels 5 and 15 remain inline at
+  13→16→18→20→30→13px. Label 15 uses 95% at 13px, 80% at 16px and full size at
+  18/20/30px. Stable local placement/dimensions were checked between samples;
+  returning to 13px restores the initial scale and placement. Screenshots inspected.
+- This verifies desktop browser engines with phone viewports, not a physical iPhone.
+
+Artifacts: `dist/reader-fraction/` (sizing captures, cycle checks, full-corpus logs)
+and `dist/reader-canvas-placement/verification-*.json` (detailed corpus/fixture checks).
+Installation verification follows in the rollout record.

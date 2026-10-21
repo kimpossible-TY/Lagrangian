@@ -960,7 +960,7 @@ Local work follows the same selection/gesture hold as dynamic paint. Revision, o
 
 The HTML canvas owner measures labels at the selected reading font and uses 1.35
 line spacing for figure label bodies. This removes prose-only line-box slack
-without shrinking glyphs or changing semantic HTML/MathML. Reserve 1.5 reading em
+without changing semantic HTML/MathML. Reserve 1.5 reading em
 above and below the uniformly scaled authored drawing for edge labels.
 
 Reserve compact coordinate labels (up to 3em wide and 2em high) before larger
@@ -976,7 +976,13 @@ Original SVG alignment/baseline determines the starting box and stays in source
 metadata. An offset label keeps an explicit source anchor and dotted leader.
 
 Deduplicate projected candidates and allocate the most constrained fitting label
-first, preferring its nearest valid placement. Reject label overlaps, actual
+first, preferring its nearest valid placement at its largest fitting size. Search
+32 directions in quarter-em steps to avoid skipping narrow available spaces.
+For compact labels only, retry 95%, 90%, 85% and the minimum of max(80%, 11px /
+reading font), omitting levels below that floor. The full-size candidate search
+precedes reduction for each label. Reserve other labels' source points from
+displaced text, so their future leaders are not trapped inside a neighboring
+label. Reject label overlaps, actual
 stroke thickness, leaders through already placed text and text over existing
 leaders. Stroke samples enter a spatial cell index with per-composition collision
 memoization, so responsive placement does not repeatedly scan every SVG segment.
@@ -1000,3 +1006,11 @@ from a claim about every possible CeTZ program or physical-device behavior.
 
 Nested canvas bodies retain the available label width during font-size resets;
 absolute child geometry cannot supply an intrinsic width for a shrink-to-fit parent.
+
+Bounded label reduction uses a uniform transform on the semantic label, including
+its baseline. Geometry, legends and nested diagrams remain independent. The
+canvas owner reads back natural dimensions by undoing its previous transform and
+rounding to CSS layout precision (1/64px); font/width preparation clears it. This
+avoids another mathematical composition/cache key or cumulative shrinking.
+Browser checks measure effective transformed font sizes and actual ink bounds,
+including repeated font changes. No label number or formula text controls policy.

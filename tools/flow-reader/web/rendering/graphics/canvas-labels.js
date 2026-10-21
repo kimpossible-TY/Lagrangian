@@ -143,6 +143,12 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
     // Keep safe authored placements, then allocate nearby space to the labels
     // with the fewest available positions. Width alone is not a reason to number
     // a short formula or a two-line name. All candidates use measured text boxes.
+    // Keep the largest fitting size for each compact label; legends and larger
+    // descriptions retain the reading size. Never trade readability for a fit.
+    const minimum = Math.min(1, Math.max(0.8, 11 / fontSize));
+    const scales = group.every(compact)
+      ? [...new Set([1, 0.95, 0.9, 0.85, minimum].filter((value) => value >= minimum))]
+      : [1];
     const pending = group
       .filter(
         (label) =>
@@ -150,12 +156,11 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
       )
       .map((label) => {
         const anchor = point(label);
-        const origin = labelBox(label, anchor);
         const radius = Math.min(
           width / 4,
           Math.max(2 * fontSize, Math.min(4 * fontSize, Math.max(label.width, label.height) / 2)),
         );
-        return { label, anchor, origin, radius };
+        return { label, anchor, radius };
       });
     const leader = (box, anchor) => [
       anchor,
@@ -167,6 +172,17 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
     const connected = (box, anchor) => {
       const [a, b] = leader(box, anchor);
       return (
+        // A moved neighbor must leave other source anchors reachable.
+        labels.every((other) => {
+          const source = point(other);
+          return (
+            (source.x === anchor.x && source.y === anchor.y) ||
+            source.x < box.left ||
+            source.x > box.left + box.width ||
+            source.y < box.top ||
+            source.y > box.top + box.height
+          );
+        }) &&
         occupied.every((other) => !intersects(a, b, other)) &&
         [...placed.values()].every((other) => {
           const [start, end] = leader(other, other.anchor);
@@ -177,61 +193,76 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
     while (pending.length) {
       const choices = pending
         .map((entry) => {
-          const { origin, radius, anchor } = entry;
-          const candidates = [
-            {
-              ...origin,
-              left: Math.max(0, Math.min(width - origin.width, origin.left)),
-              top: Math.max(0, Math.min(height - origin.height, origin.top)),
-            },
-          ];
-          for (let distance = fontSize / 2; distance <= radius + 0.01; distance += fontSize / 2) {
-            for (let angle = 0; angle < 16; angle++) {
-              const theta = (angle * Math.PI) / 8;
-              candidates.push({
+          const { label, radius, anchor } = entry;
+          for (const labelScale of scales) {
+            const origin = labelBox(
+              {
+                ...label,
+                width: label.width * labelScale,
+                height: label.height * labelScale,
+                baseline: label.baseline * labelScale,
+              },
+              anchor,
+            );
+            const candidates = [
+              {
                 ...origin,
-                left: origin.left + Math.cos(theta) * distance,
-                top: origin.top + Math.sin(theta) * distance,
-              });
+                left: Math.max(0, Math.min(width - origin.width, origin.left)),
+                top: Math.max(0, Math.min(height - origin.height, origin.top)),
+              },
+            ];
+            for (let distance = fontSize / 4; distance <= radius + 0.01; distance += fontSize / 4) {
+              for (let angle = 0; angle < 32; angle++) {
+                const theta = (angle * Math.PI) / 16;
+                candidates.push({
+                  ...origin,
+                  left: origin.left + Math.cos(theta) * distance,
+                  top: origin.top + Math.sin(theta) * distance,
+                });
+              }
             }
-          }
-          // Include the exact clearance around occupied boxes, rather than hoping
-          // a coarse angular sample happens to land in a narrow gap.
-          for (const other of occupied) {
-            for (const left of [
-              origin.left,
-              other.left - origin.width - gap,
-              other.left + other.width + gap,
-            ]) {
-              for (const top of [
-                origin.top,
-                other.top - origin.height - gap,
-                other.top + other.height + gap,
-              ])
-                candidates.push({ ...origin, left, top });
+            // Include the exact clearance around occupied boxes, rather than hoping
+            // a coarse angular sample happens to land in a narrow gap.
+            for (const other of occupied) {
+              for (const left of [
+                origin.left,
+                other.left - origin.width - gap,
+                other.left + other.width + gap,
+              ]) {
+                for (const top of [
+                  origin.top,
+                  other.top - origin.height - gap,
+                  other.top + other.height + gap,
+                ])
+                  candidates.push({ ...origin, left, top });
+              }
             }
+            const distance = (box) => Math.hypot(box.left - origin.left, box.top - origin.top);
+            const unique = new Map(
+              candidates.map((box) => {
+                const bounded = {
+                  ...box,
+                  left: Math.max(0, Math.min(width - box.width, box.left)),
+                  top: Math.max(0, Math.min(height - box.height, box.top)),
+                };
+                return [`${bounded.left.toFixed(2)},${bounded.top.toFixed(2)}`, bounded];
+              }),
+            );
+            const available = [...unique.values()]
+              .filter(
+                (box) => distance(box) <= radius + 0.01 && valid(box) && connected(box, anchor),
+              )
+              .sort((a, b) => distance(a) - distance(b));
+            if (available.length) return { entry, available, labelScale };
           }
-          const distance = (box) => Math.hypot(box.left - origin.left, box.top - origin.top);
-          const unique = new Map(
-            candidates.map((box) => {
-              const bounded = {
-                ...box,
-                left: Math.max(0, Math.min(width - box.width, box.left)),
-                top: Math.max(0, Math.min(height - box.height, box.top)),
-              };
-              return [`${bounded.left.toFixed(2)},${bounded.top.toFixed(2)}`, bounded];
-            }),
-          );
-          const available = [...unique.values()]
-            .filter((box) => distance(box) <= radius + 0.01 && valid(box) && connected(box, anchor))
-            .sort((a, b) => distance(a) - distance(b));
-          return { entry, available };
+          return { entry, available: [] };
         })
         .filter(({ available }) => available.length);
       if (!choices.length) break;
       choices.sort((a, b) => a.available.length - b.available.length);
       const {
         entry,
+        labelScale,
         available: [box],
       } = choices[0];
       occupied.push(box);
@@ -239,6 +270,7 @@ export function composeCanvas(model, width, labels, fontSize, segments = []) {
         ...box,
         id: entry.label.id,
         mode: "inline",
+        labelScale,
         anchor: entry.anchor,
       });
       pending.splice(pending.indexOf(entry), 1);
@@ -392,6 +424,7 @@ export class NativeCanvasLabels {
         for (const label of this.labels) {
           label.node.dataset.labelMode = "flow";
           label.node.style.cssText = "";
+          delete label.node.dataset.labelScale;
           label.body.style.width = "";
         }
         this.markers.replaceChildren();
@@ -433,6 +466,11 @@ export class NativeCanvasLabels {
     }
     const measured = this.labels.map((label, i) => {
       const body = label.body.getBoundingClientRect();
+      // DOM rectangles include the previous presentation transform. Recover the
+      // natural layout dimensions, quantized to CSS layout precision, so retries
+      // never compound the reduction or oscillate on floating-point noise.
+      const natural = (value) =>
+        Math.round((value / Number(label.node.dataset.labelScale || 1)) * 64) / 64;
       const number = label.number.getBoundingClientRect();
       if (number.width > 0 && number.height > 0) {
         label.markerWidth = number.width;
@@ -441,10 +479,10 @@ export class NativeCanvasLabels {
       return {
         ...label,
         source: this.model.labels[i],
-        width: body.width,
-        height: body.height,
+        width: natural(body.width),
+        height: natural(body.height),
         baseline: label.baselineProbe
-          ? label.baselineProbe.getBoundingClientRect().top - body.top
+          ? natural(label.baselineProbe.getBoundingClientRect().top - body.top)
           : undefined,
         markerWidth: label.markerWidth || Math.max(1.5 * fontSize, String(i + 1).length * fontSize),
         markerHeight: label.markerHeight || 1.6 * fontSize,
@@ -485,6 +523,7 @@ export class NativeCanvasLabels {
       for (const placement of plan.labels) {
         const label = measured.find((item) => item.id === placement.id);
         label.node.dataset.labelMode = placement.mode;
+        label.node.dataset.labelScale = String(placement.labelScale || 1);
         label.node.dataset.labelWide = String(
           label.width + label.markerWidth + fontSize * 0.4 > width,
         );
@@ -493,7 +532,9 @@ export class NativeCanvasLabels {
           Object.assign(label.node.style, {
             left: `${placement.left}px`,
             top: `${placement.top}px`,
-            width: `${placement.width}px`,
+            width: `${label.width}px`,
+            transformOrigin: "top left",
+            transform: `scale(${placement.labelScale || 1})`,
           });
         } else {
           label.node.style.cssText = "";
