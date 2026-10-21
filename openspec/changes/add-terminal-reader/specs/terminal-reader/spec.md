@@ -35,6 +35,26 @@ The optional Neovim integration SHALL open the Reader beside the editor in a sup
 - **WHEN** no supported native pane launcher or graphics protocol is configured
 - **THEN** startup explains the missing requirement without opening a broken Neovim terminal buffer
 
+### Requirement: Windows Terminal uses its native image protocol
+The terminal Reader SHALL support SIXEL output for Windows Terminal, while retaining the existing browser input, storage and source-action contracts. A protocol override SHALL work when remote sessions do not forward terminal environment markers.
+
+#### Scenario: PowerShell in Windows Terminal
+- **WHEN** a user selects SIXEL output in a Windows Terminal version with SIXEL support
+- **THEN** the host emits native SIXEL frames and forwards terminal input to the same HTML Reader without requiring an iTerm2-compatible terminal
+
+### Requirement: A second remote connection can attach to an editor-owned Reader
+The Neovim integration SHALL prepare an editor-owned terminal session when manual opening is configured or an SSH session has no native pane opener. It SHALL show a command for a second connection to the same host and preserve the existing editor and service lifetime checks.
+
+#### Scenario: Start from a remote editor
+- **WHEN** an SSH-connected editor invokes start without a native pane opener
+- **THEN** it creates a private argument manifest and shows a command to run in a separate native terminal connection instead of invoking the Mac's GUI pane launcher
+- **AND** the attached host uses that editor's existing source-navigation and verified-highlight channel
+
+#### Scenario: Stop before or after attachment
+- **WHEN** the editor stops its prepared session or exits
+- **THEN** its manifest is removed and an attached host stops its owned service
+- **AND** a command for that expired session cannot start a new Reader
+
 ### Requirement: Source navigation refuses uncertain positions
 The Reader SHALL support editor-to-document and document-to-editor navigation for uniquely located saved literal passages and SHALL report stale, ambiguous or unsupported positions without jumping elsewhere.
 

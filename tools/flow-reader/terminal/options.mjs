@@ -10,10 +10,12 @@ export const help = `tinymist-flow HTML Reader in a native terminal pane
 
 node tools/flow-reader/terminal.mjs --url http://127.0.0.1:PORT/
 node tools/flow-reader/terminal.mjs --root PROJECT --entry main.typ --package-path PACKAGES
+node tools/flow-reader/terminal.mjs --session PATH --protocol sixel
 
 Options:
   --url URL                 Existing stable Reader URL (HTTP or HTTPS)
   --root PATH               Start an isolated Reader for this project
+  --session PATH            Attach using an editor-owned argument manifest
   --entry PATH              Project-relative entrypoint (default main.typ)
   --package-path PATH       Existing Typst packages (default bundled Reader packages)
   --compiler PATH           Typst compiler (default typst)
@@ -24,10 +26,10 @@ Options:
   --profile PATH            Dedicated persistent Chromium profile
   --playwright-module PATH  Playwright module path (or FLOW_READER_PLAYWRIGHT_MODULE)
   --browser-executable PATH Chromium executable (otherwise installed Chrome)
-  --protocol iterm2|kitty    Image protocol override; native panes only
+  --protocol sixel|kitty|iterm2  Native image protocol (SIXEL for Windows Terminal)
   --cell-width NUMBER       Terminal cell width in pixels (otherwise queried)
   --cell-height NUMBER      Terminal cell height in pixels (otherwise queried)
-  --fps NUMBER              Capture rate, 1–20 (default 5)
+  --fps NUMBER              Capture rate, 1–20 (default 2 for SIXEL, otherwise 5)
   --editor-server PATH      Neovim RPC server for code synchronization
   --nvim PATH               Neovim executable (default nvim)
   --parent-pid NUMBER       Exit when the owning editor exits
@@ -40,7 +42,7 @@ Options:
 Controls: drag to select; h source highlight; s strike; u undo strike;
 X clear strikes; g selected text to code; j/k scroll; q quit. Tab/Enter and
 mouse operate the actual HTML controls. Shortcuts pass through while typing.
-Use iTerm2 or a Kitty graphics terminal in a native split, outside tmux and
+Use Windows Terminal with SIXEL, iTerm2 or a Kitty graphics terminal outside tmux and
 Neovim :terminal. Browser, local marks, and layout remain the real HTML Reader.
 `;
 
@@ -50,6 +52,7 @@ export function parseArguments(argv) {
   const options = new Set([
     "url",
     "root",
+    "session",
     "entry",
     "package-path",
     "compiler",
@@ -109,8 +112,8 @@ export function parseArguments(argv) {
       result[key] = number;
     }
   }
-  if (result.protocol && !["iterm2", "kitty"].includes(result.protocol))
-    throw new Error("--protocol must be iterm2 or kitty");
+  if (result.protocol && !["iterm2", "kitty", "sixel"].includes(result.protocol))
+    throw new Error("--protocol must be sixel, kitty or iterm2");
   return result;
 }
 

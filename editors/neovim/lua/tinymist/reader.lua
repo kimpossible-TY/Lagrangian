@@ -234,6 +234,17 @@ local function shell_quote(value)
   return "'" .. value:gsub("'", "'\\''") .. "'"
 end
 
+local function attach_command(command, control)
+  local shell = vim.fs.basename(vim.o.shell):lower()
+  local powershell = shell == 'pwsh' or shell == 'pwsh.exe' or shell == 'powershell' or shell == 'powershell.exe'
+  local quote = powershell and function(value) return "'" .. value:gsub("'", "''") .. "'" end or shell_quote
+  local args = vim.deepcopy(command)
+  vim.list_extend(args, { '--session', control })
+  local quoted = {}
+  for _, argument in ipairs(args) do quoted[#quoted + 1] = quote(argument) end
+  return (powershell and '& ' or '') .. table.concat(quoted, ' ')
+end
+
 local function applescript_quote(value)
   return '"' .. value:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\r', '\\r'):gsub('\n', '\\n') .. '"'
 end
@@ -285,6 +296,7 @@ end
 function reader.stop()
   if session then
     uv.fs_unlink(session.control)
+    uv.fs_unlink(session.control .. '.attached')
     uv.fs_unlink(session.sync)
     session = nil
   end
@@ -293,8 +305,9 @@ end
 
 ---Open the HTML Reader in a native terminal pane.
 ---@return boolean, string?
-function reader.start()
+function reader.start(manual)
   if session and uv.fs_stat(session.control) then
+    if session.manual then vim.notify(session.message, vim.log.levels.INFO) end
     return true
   end
   if session then reader.stop() end
@@ -361,16 +374,29 @@ function reader.start()
       return false, 'Flow Reader command arguments must be strings without NUL bytes.'
     end
   end
-  local launch, launch_error = opener(argv)
-  if not launch then
-    return false, launch_error
+  manual = manual or config.open == 'manual' or (not config.open and
+    (vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_TTY ~= nil or vim.env.SSH_CLIENT ~= nil))
+  local launch
+  if not manual then
+    local launch_error
+    launch, launch_error = opener(argv)
+    if not launch then return false, launch_error end
   end
-  local written, write_error = write_private(control, 'running\n')
+  local args = vim.list_slice(argv, #command + 1)
+  local written, write_error = write_private(control, vim.json.encode { version = 1, args = args })
   if not written then
     return false, 'Flow Reader could not create its lifecycle file: ' .. tostring(write_error)
   end
-  local started = { root = directory, entry = entry, control = control, sync = sync }
+  local started = { root = directory, entry = entry, control = control, sync = sync, manual = manual }
   session = started
+  if manual then
+    local executable_command = vim.list_slice(argv, 1, #command)
+    started.message = 'Flow Reader prepared. In a second native terminal connection to this same host, run:\n'
+      .. attach_command(executable_command, control)
+      .. '\nFor Windows Terminal add: --protocol sixel. Stop with :FlowReader stop.'
+    vim.notify(started.message, vim.log.levels.INFO)
+    return true
+  end
   local errors = {}
   local ok, job = pcall(vim.fn.jobstart, launch, {
     detach = true,
@@ -397,6 +423,14 @@ function reader.start()
   return true
 end
 
+---Prepare an editor-owned Reader for a separate terminal connection.
+function reader.prepare()
+  if session and not session.manual and uv.fs_stat(session.control) then
+    return false, 'Stop the current Reader with :FlowReader stop before preparing another connection.'
+  end
+  return reader.start(true)
+end
+
 ---Request immediate source-to-Reader synchronization.
 function reader.sync()
   if not session then
@@ -418,12 +452,12 @@ function reader.setup(options)
   end
   vim.api.nvim_create_user_command('FlowReader', function(command)
     local action = command.args ~= '' and command.args or 'start'
-    if action == 'start' or action == 'stop' or action == 'sync' then
+    if action == 'start' or action == 'prepare' or action == 'stop' or action == 'sync' then
       invoke(action)
     else
-      vim.notify('Use :FlowReader [start|stop|sync]', vim.log.levels.ERROR)
+      vim.notify('Use :FlowReader [start|prepare|stop|sync]', vim.log.levels.ERROR)
     end
-  end, { nargs = '?', complete = function() return { 'start', 'stop', 'sync' } end, force = true })
+  end, { nargs = '?', complete = function() return { 'start', 'prepare', 'stop', 'sync' } end, force = true })
   if config.auto_open ~= false then
     vim.api.nvim_create_autocmd('FileType', {
       group = group, pattern = 'typst',

@@ -54,3 +54,17 @@
 - [x] Update imports, static assets, installed-layout checks, architecture documentation and agent guidance.
 - [x] Run reader/terminal/POSIX/Neovim and real browser integration checks; inspect the rendered snapshot.
 - [x] Commit and integrate the verified result into remote/local main; preserve local-only agent settings/assets and archive superseded original source.
+
+## 7. Windows Terminal and remote PowerShell
+
+- [x] 7.1 Add native SIXEL screenshot encoding, protocol selection and meaningful pixel/terminal lifecycle tests.
+- [x] 7.2 Add private editor-owned session manifests and manual/SSH start, preserving source RPC and stop/restart behavior; verify CLI and Neovim integration.
+- [x] 7.3 Document Windows Terminal/PowerShell remote setup and ownership; run scoped Node, Python PTY, Neovim, real browser, lint and documentation checks, recording physical Windows coverage separately.
+
+### Windows Terminal verification, 2026-10-21
+
+- HTML/terminal Node suite: 141 passed. SIXEL tests independently reconstruct RGB/RGBA pixels for all five PNG filters, alpha/background, color planes, runs and partial bands; malformed/unsupported/oversized input is rejected.
+- POSIX PTY lifecycle: 9 passed, including SIXEL quit and removing an attached session's manifest. Headless Neovim smoke passed for manual/SSH preparation, private arguments, source RPC identity, sync, shell quoting, repeat start and stop. CLI checks preserve a prepared session and reject duplicate/expired attachments.
+- Real Chromium/Neovim integration: 22 checks passed, including encoding the real 760x700 screenshot, source navigation, persistent strikes, Save for Codex, modified-buffer refusal and verified source edits. Inspected the resulting Reader PNG. A sample frame encoded to 41,543 bytes in about 32 ms on this Mac; this is a local observation, not a transport benchmark.
+- Isolated archived-layout installation test passed. Reader dependency/cycle tests: 2 passed. Scoped ESLint (zero warnings), Prettier, strict OpenSpec validation, generated-document checking and diff whitespace checks passed. Canonical terminal/architecture guides compiled to PDF; terminal HTML text/ordering was inspected (Typst emits its expected experimental HTML-export notice).
+- No physical Windows Terminal, Windows pane launcher, or Devtunnel image/input path was exercised. This adds native SIXEL output and editor-owned attachment in a second remote terminal connection; opening the Windows pane and reconnecting remain manual. No live service or user editor configuration was changed.

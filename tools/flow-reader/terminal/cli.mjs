@@ -1,11 +1,12 @@
 // Compose terminal-owned service, browser, input host and cleanup lifecycle.
-import { access, unlink } from "node:fs/promises";
+import { access, open, unlink } from "node:fs/promises";
 import path from "node:path";
 import { parseArguments, help } from "./options.mjs";
 import { graphicsProtocol, terminalSize } from "./protocol.mjs";
 import { loadPlaywright, browserOptions, openReader, waitForReader } from "./browser-session.mjs";
 import { startReader } from "./service.mjs";
 import { TerminalReader } from "./host.mjs";
+import { sessionOptions } from "./session.mjs";
 
 async function runMain(options) {
   if (options.help) {
@@ -25,7 +26,7 @@ async function runMain(options) {
       const browser = await chromium.launch({ ...(await browserOptions(options)), headless: true });
       report.browser = browser.version();
       await browser.close();
-      report.ready = Boolean(report.protocol && !report.tmux && !report.nvimTerminal);
+      report.ready = Boolean(report.tty && report.protocol && !report.tmux && !report.nvimTerminal);
     } catch (error) {
       report.error = error.message;
       process.exitCode = 1;
@@ -43,7 +44,9 @@ async function runMain(options) {
         "Open the Reader in a native terminal split outside tmux and Neovim :terminal.",
       );
     if (!(options.protocol || graphicsProtocol()))
-      throw new Error("A graphics terminal is required: use iTerm2 or a Kitty graphics terminal.");
+      throw new Error(
+        "A graphics terminal is required: use Windows Terminal with --protocol sixel, iTerm2 or a Kitty graphics terminal.",
+      );
   }
   let reader;
   let browser;
@@ -137,12 +140,35 @@ async function runMain(options) {
 
 export async function main(argv = process.argv.slice(2)) {
   let options;
+  let attachment;
   try {
-    options = parseArguments(argv);
+    const requested = parseArguments(argv);
+    const resolved = await sessionOptions(requested);
+    if (requested.session && !resolved.check && !resolved.help) {
+      const lock = `${requested.session}.attached`;
+      try {
+        const handle = await open(lock, "wx", 0o600);
+        attachment = { lock, handle };
+      } catch (error) {
+        if (error.code === "EEXIST")
+          throw new Error(
+            "This Reader session is already attached; stop it in Neovim before restarting",
+          );
+        throw error;
+      }
+    }
+    options = resolved;
     await runMain(options);
   } finally {
     const index = argv.indexOf("--control-file");
-    const control = options?.["control-file"] || (index >= 0 ? argv[index + 1] : null);
-    if (control && !control.startsWith("--")) await unlink(control).catch(() => {});
+    const control =
+      options?.["control-file"] ||
+      (!argv.includes("--session") && index >= 0 ? argv[index + 1] : null);
+    if (control && !control.startsWith("--") && !options?.check && !options?.help)
+      await unlink(control).catch(() => {});
+    if (attachment) {
+      await attachment.handle.close();
+      await unlink(attachment.lock).catch(() => {});
+    }
   }
 }

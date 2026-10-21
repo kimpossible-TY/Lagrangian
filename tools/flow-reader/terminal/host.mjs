@@ -1,6 +1,7 @@
 // Translate native terminal input and publish current browser image frames.
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
+import { once } from "node:events";
 import {
   browserKey,
   graphicsProtocol,
@@ -15,6 +16,7 @@ import {
 } from "./protocol.mjs";
 import { EditorBridge } from "./editor-bridge.mjs";
 import { readerControls } from "./options.mjs";
+import { sixelSequence } from "./sixel.mjs";
 
 export class TerminalReader {
   constructor(options, page) {
@@ -40,6 +42,7 @@ export class TerminalReader {
     this.frameHash = "";
     this.frameGeneration = 0;
     this.clearBeforeFrame = false;
+    this.outputAbort = new AbortController();
   }
 
   enqueue(action) {
@@ -163,6 +166,7 @@ export class TerminalReader {
 
   stop() {
     this.stopped = true;
+    this.outputAbort.abort();
     this.resolveStop?.();
   }
 
@@ -178,7 +182,9 @@ export class TerminalReader {
     if (process.env.NVIM)
       throw new Error("Run the Reader in a native terminal split, outside Neovim :terminal.");
     if (!this.protocol)
-      throw new Error("Use iTerm2 or a Kitty graphics terminal, or set --protocol explicitly.");
+      throw new Error(
+        "Use Windows Terminal with --protocol sixel, iTerm2 or a Kitty graphics terminal.",
+      );
     const wasRaw = process.stdin.isRaw;
     const wasFlowing = process.stdin.readableFlowing;
     const stopPromise = new Promise((resolve) => {
@@ -223,7 +229,7 @@ export class TerminalReader {
           try {
             if (this.stopped) return;
             const generation = this.frameGeneration;
-            const png = await this.page.screenshot({ type: "png", timeout: 10000 });
+            const png = await this.page.screenshot({ type: "png", scale: "css", timeout: 10000 });
             if (generation !== this.frameGeneration) return;
             const hash = createHash("sha256").update(png).digest("hex");
             if (!this.stopped && hash !== this.frameHash) {
@@ -231,7 +237,12 @@ export class TerminalReader {
                 process.stdout.write("\x1b[2J\x1b[H");
                 this.clearBeforeFrame = false;
               }
-              process.stdout.write(pngSequence(png, this.size, this.protocol));
+              const frame =
+                this.protocol === "sixel"
+                  ? sixelSequence(png)
+                  : pngSequence(png, this.size, this.protocol);
+              if (!process.stdout.write(frame))
+                await once(process.stdout, "drain", { signal: this.outputAbort.signal });
               this.frameHash = hash;
             }
             if (!this.stopped) process.stdout.write(statusSequence(this.message, this.size));
@@ -243,7 +254,9 @@ export class TerminalReader {
         });
         await this.queue;
       };
-      timers.push(setInterval(capture, 1000 / (this.options.fps || 5)));
+      timers.push(
+        setInterval(capture, 1000 / (this.options.fps || (this.protocol === "sixel" ? 2 : 5))),
+      );
       await capture();
       if (this.options["editor-server"] || this.options["sync-file"])
         timers.push(
@@ -276,7 +289,7 @@ export class TerminalReader {
         );
       await stopPromise;
     } finally {
-      this.stopped = true;
+      this.stop();
       for (const timer of timers) clearInterval(timer);
       clearTimeout(escapeTimer);
       process.stdin.off("data", onData);

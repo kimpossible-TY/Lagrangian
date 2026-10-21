@@ -30,6 +30,12 @@ end
 local original_jobstart = vim.fn.jobstart
 local original_term = vim.env.TERM_PROGRAM
 local original_session = vim.env.ITERM_SESSION_ID
+local original_ssh = { vim.env.SSH_CONNECTION, vim.env.SSH_TTY, vim.env.SSH_CLIENT }
+local original_shell = vim.o.shell
+local original_notify = vim.notify
+local messages = {}
+vim.notify = function(message) messages[#messages + 1] = message end
+vim.env.SSH_CONNECTION, vim.env.SSH_TTY, vim.env.SSH_CLIENT = nil, nil, nil
 local launched
 vim.fn.jobstart = function(argv, options)
   launched = { argv = vim.deepcopy(argv), options = options }
@@ -150,6 +156,51 @@ local function run()
   assert(option('--control-file') ~= completed_control)
   assert(reader.stop())
 
+  -- A remote pane reuses the same source RPC and lifecycle without a Mac GUI.
+  launched = nil
+  vim.o.shell = '/bin/sh'
+  reader.setup { root = temporary, auto_open = false, open = 'manual', protocol = 'sixel' }
+  assert(reader.start())
+  equal(nil, launched)
+  local message = messages[#messages]
+  local manifest = assert(message:match("%-%-session' '([^']+)'"), message)
+  local record = vim.json.decode(read(manifest))
+  equal(1, record.version)
+  local function saved_option(name)
+    for index, value in ipairs(record.args) do
+      if value == name then return record.args[index + 1] end
+    end
+  end
+  equal(vim.v.servername, saved_option('--editor-server'))
+  equal(manifest, saved_option('--control-file'))
+  equal(tostring(vim.uv.os_getpid()), saved_option('--parent-pid'))
+  equal('sixel', saved_option('--protocol'))
+  equal(384, bit.band(vim.uv.fs_stat(manifest).mode, 511))
+  assert(reader.sync())
+  equal(other, vim.json.decode(read(saved_option('--sync-file'))).path)
+  assert(reader.start())
+  equal(message, messages[#messages])
+  assert(reader.stop())
+  equal(0, vim.fn.filereadable(manifest))
+
+  vim.env.SSH_CONNECTION = 'remote-client remote-port host host-port'
+  reader.setup { root = temporary, auto_open = false }
+  assert(reader.start())
+  equal(nil, launched)
+  assert(messages[#messages]:find('second native terminal connection', 1, true))
+  assert(reader.stop())
+  vim.env.SSH_CONNECTION = nil
+
+  -- Preparation is explicit when a tunnel does not expose SSH environment hints.
+  vim.o.shell = '/fake/pwsh'
+  reader.setup { root = temporary, auto_open = false, command = { 'node', "reader's $() `script.mjs" } }
+  assert(reader.prepare())
+  local powershell_message = messages[#messages]
+  assert(powershell_message:find("\n& '", 1, true))
+  assert(powershell_message:find("'reader''s $() `script.mjs'", 1, true))
+  assert(reader.stop())
+  vim.o.shell = original_shell
+
   vim.env.TERM_PROGRAM = 'unsupported-terminal'
   reader.setup { root = temporary, auto_open = false }
   local ok, err = reader.start()
@@ -162,6 +213,9 @@ reader.stop()
 vim.fn.jobstart = original_jobstart
 vim.env.TERM_PROGRAM = original_term
 vim.env.ITERM_SESSION_ID = original_session
+vim.env.SSH_CONNECTION, vim.env.SSH_TTY, vim.env.SSH_CLIENT = unpack(original_ssh)
+vim.o.shell = original_shell
+vim.notify = original_notify
 vim.fn.delete(temporary, 'rf')
 if not ok then
   io.stderr:write(err .. '\n')

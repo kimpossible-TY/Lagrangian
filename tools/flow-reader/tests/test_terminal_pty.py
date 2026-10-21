@@ -34,7 +34,7 @@ const page = {
   async setViewportSize() {},
   async evaluate() { return false; },
   async screenshot() {
-    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
+    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
   },
 };
 await new TerminalReader({ protocol: 'iterm2' }, page).run();
@@ -85,6 +85,46 @@ class TerminalLifetimeTests(unittest.TestCase):
     def test_sigterm_restores_terminal(self):
         self.run_terminal(lambda process, _master: process.send_signal(signal.SIGTERM))
 
+    def test_sixel_quit_restores_terminal(self):
+        self.run_terminal(
+            lambda _process, master: os.write(master, b"q"),
+            script=PAGE_STUB.replace("protocol: 'iterm2'", "protocol: 'sixel'"),
+            trigger=b'\x1bP0;1;0q"1;1;1;1',
+        )
+
+    def test_attached_session_stops_when_editor_removes_manifest(self):
+        with tempfile.TemporaryDirectory(prefix="terminal-attach-") as temporary:
+            temporary = Path(temporary)
+            control = temporary / "editor.json"
+            browser = temporary / "playwright.mjs"
+            browser.write_text("""
+const page = {
+  async goto() {}, async waitForFunction() {}, async evaluate() { return false; },
+  async waitForTimeout() {}, async setViewportSize() {},
+  request: { async get() { return { async json() { return { editorServer: 'editor.sock' }; } }; } },
+  async screenshot() {
+    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
+  },
+};
+export const chromium = { async launchPersistentContext() {
+  return { pages() { return [page]; }, on() {}, async close() {} };
+} };
+""")
+            control.write_text(json.dumps({"version": 1, "args": [
+                "--url", "http://127.0.0.1:23626/", "--editor-server", "editor.sock",
+                "--parent-pid", str(os.getpid()), "--control-file", str(control),
+                "--playwright-module", str(browser), "--profile", str(temporary / "profile"),
+            ]}))
+            script = "const {main}=await import(new URL('./cli.mjs',process.argv[1])); await main(" + json.dumps([
+                "--session", str(control), "--protocol", "sixel",
+            ]) + ");"
+            self.run_terminal(
+                lambda _process, _master: control.unlink(), script=script,
+                trigger=b'\x1bP0;1;0q"1;1;1;1',
+            )
+            self.assertFalse(control.exists())
+            self.assertFalse(Path(str(control) + ".attached").exists())
+
     def test_startup_cell_report_cannot_race_initial_browser_resize(self):
         script = """
 const { TerminalReader } = await import(process.argv[1]);
@@ -98,7 +138,7 @@ const page = {
   },
   async evaluate() { return false; },
   async screenshot() {
-    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
+    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
   },
 };
 const terminal = new TerminalReader({ protocol: 'iterm2' }, page);
@@ -127,7 +167,7 @@ const page = {
     await new Promise(resolve => setTimeout(resolve, 120));
     // Model a screenshot backend which restores metrics after taking a frame.
     viewport = originalViewport;
-    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
+    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
   },
 };
 const terminal = new TerminalReader({ protocol: 'iterm2' }, page);

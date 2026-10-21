@@ -17,6 +17,18 @@ installed Google Chrome. An explicit Chromium executable can replace Chrome.
 The Neovim integration also requires a recent Neovim with `vim.fs`, `vim.json`,
 and local RPC support.
 
+PowerShell can remain your shell. For a remote Mac, the compiler, Python, Node,
+Playwright, Chrome and Neovim run on the Mac; Windows Terminal displays the
+images and sends input over the terminal connection.
+
+Windows Terminal versions with SIXEL support use `--protocol sixel`. SIXEL was
+introduced in the #link("https://devblogs.microsoft.com/commandline/windows-terminal-preview-1-22-release/")[1.22 release series].
+The renderer detects `WT_SESSION` or `TERM_PROGRAM=Windows_Terminal` locally;
+remote connections can omit those values, so select the protocol explicitly.
+SIXEL uses a 256-color palette with extra grayscale levels for text. Its default
+capture rate is 2 frames per second; `--fps 1` reduces traffic on slower links.
+Image output, scrolling and selections still use the same real HTML document.
+
 iTerm2 on macOS is the default automatic pane launcher. The renderer selects
 Kitty PNG graphics when `TERM_PROGRAM` is `iTerm.app`; this requires an iTerm2
 version with Kitty graphics support and was tested with iTerm2 3.7.4. Kitty
@@ -26,14 +38,12 @@ argument array. The legacy `--protocol iterm2` override uses OSC file display,
 which may request confirmation for every frame. The renderer does not change
 the terminal's confirmation or security preferences.
 
-PowerShell is a shell, and iTerm2 is the terminal that displays the images.
-Neovim may run inside a PowerShell session in iTerm2. The iTerm2 launcher starts
+Neovim may also run inside a PowerShell session in iTerm2. The iTerm2 launcher starts
 the renderer through `/bin/sh` with a literal executable argument list, so the
 default profile's shell does not need to parse the renderer command.
 
 Run the Reader in a native terminal pane. Neither Neovim `:terminal` nor tmux is
-supported for this image transport. Windows Terminal is not a supported default
-host; this renderer does not implement its SIXEL image transport. A custom
+supported for this image transport. A custom
 `open` launcher must create a native pane in a terminal that
 actually implements the selected image protocol; choosing `--protocol` cannot
 add graphics support to an incompatible terminal.
@@ -75,6 +85,53 @@ that a terminal displays images. `ready: false` reports an unsupported current
 host. To use a Chromium executable other than installed Chrome, add
 `--browser-executable /absolute/path/to/chromium`; in Lua use
 `browser_executable` with the same absolute path.
+
+In a Windows Terminal remote pane, run diagnosis with `--check --protocol sixel`.
+An explicit protocol is a user choice; diagnosis does not probe the terminal's
+SIXEL implementation or guarantee that an intervening transport preserves image
+control sequences.
+
+== Windows Terminal connected to a remote Mac
+
+The default iTerm2 pane opener runs on the Mac. It cannot split a Windows client
+window across a remote connection. Use an editor-owned session in a second
+native Windows Terminal pane instead:
+
++ Open Neovim on the Mac through your existing terminal connection. Load the
+  opt-in Reader module described below.
++ Run `:FlowReader prepare`. This uses the configured project and creates a
+  private session file. `:FlowReader start` chooses this mode automatically when
+  SSH environment markers are present and no custom pane opener is configured.
++ Read the printed command with `:messages`. Open a second Windows Terminal
+  pane, reconnect to the same Mac, and run that command with `--protocol sixel`
+  appended. All paths in the command refer to the Mac. Run it at the shell prompt,
+  outside Neovim and tmux. For example:
+
+```sh
+node /path/to/terminal.mjs --session /path/from/neovim --protocol sixel
+```
+
+The command is quoted for Neovim's configured shell. If the second connection
+uses another shell, use that shell's quoting rules; PowerShell invokes a quoted
+executable with `&`. No browser port forwarding is needed for this terminal
+mode: screenshots and input travel over the second terminal connection.
+
+Both connections share the editor's source-navigation/highlight channel and
+the same persistent Reader profile. `:FlowReader sync` continues to work.
+Repeated start shows the prepared command again. Only one host may attach to a
+session; a duplicate attempt preserves the original host. Use `:FlowReader stop`
+and start/prepare again to replace a lost attachment. Stopping Neovim or its
+Reader removes the session file and stops the attached host and its owned
+service. After `q`, prepare/start again for a fresh command.
+
+Set `open = "manual"` in the Lua setup to always prepare a session, and optionally
+`protocol = "sixel"` to store the protocol in it. If a tunnel does not supply SSH
+environment markers, `:FlowReader prepare` works without changing setup.
+
+Native Windows Terminal display through Devtunnel still requires a connection
+that forwards terminal input/output and allocates a PTY. Node/PTY tests and real
+Chromium checks do not establish compatibility with every tunnel client; verify
+the actual Windows pane separately.
 
 == Standalone Reader
 
@@ -150,13 +207,14 @@ require("tinymist.reader").setup({
 })
 ```
 
-Set `auto_open = false` for manual startup. `:FlowReader start` opens the pane,
+Set `auto_open = false` for manual startup. `:FlowReader start` opens the pane or
+prepares a remote session,
 `:FlowReader sync` requests a saved-source cursor update, and `:FlowReader stop`
 stops only the renderer and service owned by this editor session. Quitting
 Neovim also stops them. After quitting the Reader with `q`, a later
 `:FlowReader start` can open it again.
 
-For a different compatible terminal, `open` must be a nonempty array containing
+For automatic opening in a different compatible terminal, `open` must be a nonempty array containing
 the native pane launcher's executable and its fixed arguments. The integration
 appends the renderer's executable and arguments as separate array entries.
 Configure that launcher's command boundary according to its own interface;
