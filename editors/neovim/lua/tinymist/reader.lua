@@ -400,11 +400,9 @@ function reader.start(manual)
   local view_module, measurement, measure
   if internal then
     view_module = require 'tinymist.reader_view'
-    local python = vim.env.PYTHON or vim.fn.exepath('python3')
-    if python == '' then return false, 'Flow Reader needs Python 3 for terminal measurement.' end
     local protocol = config.protocol
     measure = function()
-      return view_module.measure({ python, repository .. '/tools/flow-reader/terminal/probe.py' }, protocol)
+      return require('tinymist.reader_terminal').measure(protocol)
     end
     local measure_error
     measurement, measure_error = measure()

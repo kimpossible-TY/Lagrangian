@@ -8,59 +8,6 @@ local function clean(text)
   return tostring(text):gsub('[%z\1-\31\127-\159]', ' ')
 end
 
-local function tui()
-  if not vim.api.nvim_ui_send then
-    return nil, 'The internal Flow Reader view requires Neovim 0.12 or newer.'
-  end
-  if vim.fn.has('win32') == 1 then
-    return nil, 'The internal Flow Reader view requires a POSIX Neovim host, such as your remote Mac.'
-  end
-  if vim.env.TMUX or vim.env.TERM == 'screen' or vim.env.TERM == 'tmux-256color' then
-    return nil, 'The internal Flow Reader view requires a direct graphics terminal outside tmux/screen.'
-  end
-  local uis = vim.api.nvim_list_uis()
-  if #uis ~= 1 or not uis[1].stdout_tty then
-    return nil, 'The internal Flow Reader view requires one attached Neovim TUI.'
-  end
-  local client = vim.api.nvim_get_chan_info(uis[1].chan).client
-  if not client or client.name ~= 'nvim-tui' or not client.attributes or not client.attributes.pid then
-    return nil, 'Flow Reader could not identify its attached Neovim TUI.'
-  end
-  return client.attributes.pid
-end
-
--- CSI cell reports are consumed by Neovim's input decoder. Pause that identified
--- input client for the bounded query; always resume it, including helper failure.
-function View.measure(command, protocol)
-  local pid, err = tui()
-  if not pid then return nil, err end
-  local argv = vim.deepcopy(command)
-  argv[#argv + 1] = tostring(pid)
-  if protocol then vim.list_extend(argv, { '--protocol', protocol }) end
-  local output, errors = {}, {}
-  local ok, job = pcall(vim.fn.jobstart, argv, {
-    stdout_buffered = true, stderr_buffered = true,
-    on_stdout = function(_, data) output = data end,
-    on_stderr = function(_, data) errors = data end,
-    on_exit = function() pcall(uv.kill, pid, 'sigcont') end,
-  })
-  if not ok or job <= 0 then
-    return nil, 'Flow Reader could not start terminal measurement: ' .. tostring(job)
-  end
-  local waited, result = pcall(vim.fn.jobwait, { job }, 3000)
-  if not waited or result[1] < 0 then
-    pcall(vim.fn.jobstop, job)
-    pcall(vim.fn.jobwait, { job }, 1000)
-  end
-  pcall(uv.kill, pid, 'sigcont')
-  local decoded, measurement = pcall(vim.json.decode, table.concat(output, '\n'))
-  if not waited or result[1] ~= 0 or not decoded or type(measurement) ~= 'table' or measurement.error then
-    return nil, 'Flow Reader terminal measurement failed: '
-      .. (decoded and type(measurement) == 'table' and measurement.error or clean(table.concat(errors, '\n')))
-  end
-  return measurement
-end
-
 local function clear_image(rect)
   if not rect then return end
   local output = { esc .. '7', esc .. '_Ga=d,d=I,i=39731,q=2;' .. esc .. '\\' }
@@ -126,7 +73,7 @@ function View:paint()
   vim.api.nvim_ui_send(esc .. '7' .. esc .. '[' .. self.rect.top .. ';' .. self.rect.left .. 'H'
     .. (sixel and esc .. '[?80l' or '')
     .. self.frame:sub(4) -- Remove only the encoder's initial CSI H.
-    .. (sixel and self.measurement.sixelDisplay and esc .. '[?80h' or '') .. esc .. '8')
+    .. esc .. '8')
   self.painted = self.rect
   self.repaint = false
 end
@@ -294,7 +241,6 @@ function View:start(argv)
       self.measuring = false
       if not measurement then options.on_error(err); return end
       self.measurement = measurement
-      self:input(vim.base64.decode(measurement.input or ''))
       self:update()
     end, 120)
   end })
@@ -327,7 +273,6 @@ function View:start(argv)
   self.job = job
   self.timer = assert(uv.new_timer())
   self.timer:start(500, 500, vim.schedule_wrap(function() self:update() end))
-  self:input(vim.base64.decode(self.measurement.input or ''))
   self:focus()
   return self
 end

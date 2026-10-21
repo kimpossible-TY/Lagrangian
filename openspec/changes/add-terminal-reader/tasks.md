@@ -86,3 +86,17 @@
 - Real Chromium/Neovim integration: 24 checks passed, including a full 500x580 SIXEL frame in an actual Neovim TUI, input/source cursor/quit, existing persistent review marks, Save for Codex, modified-buffer refusal and verified source highlights. Inspected the browser PNG. The TUI fixtures validate escape streams and behavior; they do not constitute a physical Windows rendering test.
 - Scoped ESLint (zero warnings), Prettier, Python syntax, strict OpenSpec validation and diff whitespace checks passed. Canonical terminal and architecture guides compiled to PDF; terminal HTML text/command ordering and generated-document checks passed.
 - Physical Windows Terminal/Devtunnel delivery and the internal Kitty/iTerm2 view were not exercised. The default view requires Neovim 0.12+ on a POSIX host and a terminal that answers capability/cell-geometry queries; it remains outside tmux/screen. Neovim may coalesce mouse coordinates in one input batch.
+
+## 9. Preserve shell job control during internal startup
+
+- [x] 9.1 Reproduce the reported suspended editor under an interactive login shell; remove TUI stop/resume signalling and use Neovim-owned terminal responses.
+- [x] 9.2 Verify bounded capability failure, Windows virtual geometry, foreground ownership and browser input/restart; update canonical ownership/docs and remove obsolete probe delivery.
+
+### Shell job-control fix verification, 2026-10-21
+
+- The reported `suspended` state was reproduced under an interactive shell. The earlier direct-launch PTY fixtures omitted shell job control: stopping the TUI allowed the shell to reclaim the foreground despite a later SIGCONT. The independent Python TTY probe and all TUI stop/resume signalling have been removed.
+- Fourteen isolated Neovim TUI scenarios now run under an interactive zsh. Typed `:FlowReader start`, foreground process-group ownership, Unicode/paste/mouse, resize, source navigation, stop/restart, dirty/replacement buffers, hidden views, Windows DA1 profiles, Kitty replies/logical geometry, query errors, cancellation, timeout and response-handler cleanup passed.
+- Real Chromium/Neovim integration: 24 checks passed, including the same-connection 500x580 SIXEL viewport under an interactive shell, browser input/source cursor/quit, persistent review marks, Save for Codex and guarded source highlights. The browser snapshot was inspected.
+- HTML/terminal Node and architecture checks: 147 passed. Native PTY lifecycle: 9 passed. Archived-layout installation: 1 passed. Headless Neovim source RPC/manual/native smoke passed. No live installation, editor configuration change or service restart occurred.
+- Canonical terminal and architecture guides compiled to PDF, terminal HTML text was checked, generated docs and strict OpenSpec validation passed. Scoped ESLint, Python syntax and diff whitespace checks passed.
+- Physical Windows Terminal/Devtunnel delivery remains unverified. Internal SIXEL uses the recognized Windows default virtual grid; unknown SIXEL geometry is refused. Kitty input/frame transport is covered by the emulator fixtures, with physical Kitty/iTerm2 rendering still separate coverage.
