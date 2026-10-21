@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -27,15 +28,18 @@ ROOT = Path(__file__).resolve().parents[3]
 NVIM = shutil.which("nvim")
 NODE = shutil.which("node")
 PYTHON = shutil.which("python3")
+TEST_SHELL = shutil.which("zsh") or shutil.which("sh")
 
 
 class EditorTTY:
-    def __init__(self, work, command=None, probe=None, entry=None, address=None, reader_options=None):
+    def __init__(self, work, command=None, entry=None, address=None, reader_options=None, interactive_shell=True):
         self.work = work
         self.output = bytearray()
         self.cell = (10, 20)
-        self.answer_geometry = True
-        self.answer_graphics = True
+        self.attributes = b"\x1b[?61;4;6;7;14;21;22;23;24;28;32;42c"
+        self.answer_attributes = True
+        self.kitty = False
+        self.report_cell_size = False
         self.source = entry or work / "source.typ"
         if entry is None:
             self.source.write_text("Hello source.\nSecond line.\n")
@@ -49,7 +53,6 @@ class EditorTTY:
         init.write_text(
             "vim.opt.rtp:append(" + json.dumps(str(ROOT / "editors/neovim")) + ")\n"
             "require('tinymist.reader').setup(vim.json.decode(" + self.lua(json.dumps(opts)) + "))\n"
-            + (probe or "")
         )
         (work / "host.mjs").write_text("""
 import { appendFileSync } from 'node:fs';
@@ -86,10 +89,14 @@ log({stopped:true});
         env["TERM"] = "xterm-256color"
         env["PYTHON"] = PYTHON
         env["XDG_STATE_HOME"] = str(work / "state")
+        self.interactive_shell = interactive_shell
+        argv = [NVIM, "-u", str(init), "-i", "NONE", "-n", "--listen", self.address, "--", str(self.source)]
         self.process = subprocess.Popen(
-            [NVIM, "-u", str(init), "-i", "NONE", "-n", "--listen", self.address, "--", str(self.source)],
+            [TEST_SHELL, "-f", "-i"] if interactive_shell else argv,
             stdin=self.slave, stdout=self.slave, stderr=self.slave, env=env, preexec_fn=session,
         )
+        if interactive_shell:
+            os.write(self.master, (shlex.join(argv) + "\n").encode())
         self.pump_until(lambda: Path(self.address).exists())
         self.pump(0.25)
 
@@ -129,13 +136,15 @@ log({stopped:true});
             self.requests = getattr(self, "requests", b"") + data
             queries = [
                 (b"\x1b[5n", b"\x1b[0n"),
-                (b"\x1b[c", b"\x1b[?62;4c" if self.answer_graphics else b"\x1b[?62c"),
-                (b"\x1b[?80$p", b"\x1b[?80;1$y"),
                 (b"\x1b]11;?", b"\x1b]11;rgb:0000/0000/0000\x1b\\"),
                 (b"\x1b]10;?", b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\"),
             ]
-            if self.answer_geometry:
-                queries.append((b"\x1b[16t", f"\x1b[6;{self.cell[1]};{self.cell[0]}t".encode()))
+            if self.answer_attributes:
+                queries.append((b"\x1b[c", self.attributes))
+            if self.kitty:
+                queries.append((b"\x1b_Gi=39732,a=q,t=d,f=24,s=1,v=1;AAAA\x1b\\", b"\x1b_Gi=39732;OK\x1b\\"))
+            if self.report_cell_size:
+                queries.append((b"\x1b]1337;ReportCellSize\x07", f"\x1b]1337;ReportCellSize={self.cell[1]};{self.cell[0]};1\x1b\\".encode()))
             for query, reply in queries:
                 while query in self.requests:
                     self.requests = self.requests.replace(query, b"", 1)
@@ -153,8 +162,8 @@ log({stopped:true});
         raise AssertionError("Neovim TUI did not make progress: " + repr(self.output[-1800:]))
 
     def resize(self, columns, rows, signal_editor=True):
-        # Deliberately lie about ioctl pixels like Windows OpenSSH: only the
-        # terminal's CSI response is authoritative for SIXEL placement.
+        # Deliberately lie about ioctl pixels like Windows OpenSSH. Windows
+        # Terminal's SIXEL grid stays virtual 10x20 even when the font changes.
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 640, 480))
         if signal_editor:
             self.process.send_signal(signal.SIGWINCH)
@@ -162,6 +171,13 @@ log({stopped:true});
     def events(self):
         log = self.work / "input.jsonl"
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def foreground_group(self):
+        # macOS restricts tcgetpgrp to the querying process's controlling TTY.
+        return int(subprocess.check_output(["ps", "-p", str(self.process.pid), "-o", "tpgid="], text=True))
+
+    def response_hooks(self):
+        return set(self.lua_rpc("vim.tbl_map(function(hook) return hook.id end, vim.api.nvim_get_autocmds{event='TermResponse'})"))
 
     def close(self):
         if self.process.poll() is None:
@@ -180,7 +196,8 @@ log({stopped:true});
             self.process.wait(timeout=2)
 
 
-@unittest.skipUnless(pty is not None and NVIM and NODE and PYTHON, "Requires POSIX PTY, Neovim 0.12, Node and Python")
+@unittest.skipUnless(pty is not None and NVIM and NODE and PYTHON and TEST_SHELL,
+                     "Requires POSIX PTY/shell, Neovim 0.12, Node and Python")
 class NeovimViewTests(unittest.TestCase):
     def setUp(self):
         version = subprocess.check_output([NVIM, "--version"], text=True).splitlines()[0]
@@ -207,7 +224,7 @@ class NeovimViewTests(unittest.TestCase):
         geometry = e.lua_rpc("{vim.api.nvim_win_get_position(0),vim.api.nvim_win_get_width(0),vim.api.nvim_win_get_height(0)}")
         prefix = f"\x1b7\x1b[{geometry[0][0]+1};{geometry[0][1]+1}H\x1b[?80l\x1bP".encode()
         self.assertIn(prefix, e.output)
-        self.assertIn(b"\x1b[?80h\x1b8", e.output)
+        self.assertIn(b"\x1b\\\x1b8", e.output)
         self.assertIn({"viewport": {"width": geometry[1]*10, "height": (geometry[2]-1)*20}}, e.events())
         cursor = e.lua_rpc("require('tinymist.reader').cursor()")
         self.assertEqual(cursor["path"], str(e.source))
@@ -235,7 +252,7 @@ class NeovimViewTests(unittest.TestCase):
         self.assertEqual(e.lua_rpc("vim.bo[vim.api.nvim_win_get_buf(" + str(view) + ")].buftype"), "terminal")
         e.cell = (8, 16)
         e.resize(120, 36)
-        e.pump_until(lambda: any(event.get("viewport", {}).get("height") == 33*16 for event in e.events()))
+        e.pump_until(lambda: any(event.get("viewport", {}).get("height") == 33*20 for event in e.events()))
         self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
         self.assertEqual(len(e.lua_rpc("vim.api.nvim_list_wins()")), 1)
         self.assertEqual(e.source.read_text(), "Hello source.\nSecond line.\n")
@@ -245,17 +262,38 @@ class NeovimViewTests(unittest.TestCase):
         os.write(e.master, b"q")
         e.pump_until(lambda: len(e.lua_rpc("vim.api.nvim_list_wins()")) == 1)
 
-    def test_missing_geometry_resumes_tui_and_preserves_editor(self):
+    def test_unknown_sixel_geometry_preserves_editor_and_job_control(self):
         e = self.editor
         before = termios.tcgetattr(e.slave)
-        e.answer_geometry = False
+        e.attributes = b"\x1b[?62;4c"
         result = e.lua_rpc("{require('tinymist.reader').start()}")
         self.assertEqual(result[0], False)
         self.assertIn("cell", result[1])
         self.assertEqual(len(e.lua_rpc("vim.api.nvim_list_wins()")), 1)
         self.assertEqual(before, termios.tcgetattr(e.slave))
+        pid = e.lua_rpc("vim.api.nvim_get_chan_info(vim.api.nvim_list_uis()[1].chan).client.attributes.pid")
+        self.assertEqual(e.foreground_group(), os.getpgid(pid))
+        self.assertNotIn(b"suspended", e.output)
         os.write(e.master, b"j")
         e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
+
+    def test_interactive_shell_keeps_editor_in_foreground_during_start(self):
+        e = self.editor
+        self.assertTrue(e.interactive_shell)
+        # Use the exact command typed by the user, under real shell job control.
+        os.write(e.master, b":FlowReader start\r")
+        e.pump_until(lambda: b'\x1bP0;1;0q"1;1;' in e.output)
+        state = e.lua_rpc("vim.api.nvim_get_chan_info(vim.api.nvim_list_uis()[1].chan).client.attributes.pid")
+        process_group = os.getpgid(state)
+        self.assertEqual(e.foreground_group(), process_group,
+                         "The login shell must not reclaim Neovim's foreground terminal")
+        self.assertNotIn(b"suspended", e.output)
+        os.write(e.master, "한".encode())
+        e.pump_until(lambda: {"text": "한"} in e.events())
+        self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
+        self.start()
+        self.assertEqual(e.foreground_group(), process_group)
+        self.assertNotIn(b"suspended", e.output)
 
     def test_closed_reader_window_disposes_host_and_preserves_dirty_source(self):
         e = self.editor
@@ -267,16 +305,67 @@ class NeovimViewTests(unittest.TestCase):
         self.assertEqual(e.lua_rpc("vim.api.nvim_get_current_line()"), "Unsaved")
         self.assertEqual(e.source.read_text(), "Hello source.\nSecond line.\n")
 
-    def test_probe_crash_resumes_only_its_tui_and_leaves_input_usable(self):
+    def test_query_error_disposes_hook_and_allows_retry(self):
         e = self.editor
-        wrapper = e.work / "crashed-probe"
-        wrapper.write_text(f"#!{PYTHON}\nimport os,sys,signal\nos.kill(int(sys.argv[2]),signal.SIGSTOP)\nos._exit(9)\n")
-        wrapper.chmod(0o755)
-        result = e.lua_rpc("(function() vim.env.PYTHON=" + e.lua(str(wrapper)) + "; return {require('tinymist.reader').start()} end)()")
+        before = e.response_hooks()
+        result = e.lua_rpc("(function() local send=vim.api.nvim_ui_send; vim.api.nvim_ui_send=function() error('query failed') end; local result={require('tinymist.reader').start()}; vim.api.nvim_ui_send=send; return result end)()")
         self.assertEqual(result[0], False)
-        self.assertIn("measurement failed", result[1])
+        self.assertIn("query failed", result[1])
+        self.assertLessEqual(e.response_hooks(), before)
         os.write(e.master, b"j")
         e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
+        self.start()
+
+    def test_missing_terminal_reply_times_out_without_leaking_hook(self):
+        e = self.editor
+        e.answer_attributes = False
+        before = e.response_hooks()
+        started = time.monotonic()
+        result = e.lua_rpc("{require('tinymist.reader').start()}")
+        self.assertEqual(result[0], False)
+        self.assertIn("timed out", result[1])
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertLessEqual(e.response_hooks(), before)
+        os.write(e.master, b"j")
+        e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
+        e.answer_attributes = True
+        self.start()
+
+    def test_kitty_reply_uses_scaled_logical_viewport(self):
+        e = self.editor
+        e.attributes = b"\x1b[?62c"
+        e.kitty = True
+        result = e.lua_rpc("{require('tinymist.reader').start()}")
+        self.assertEqual(result, [True])
+        e.pump_until(lambda: b"\x1b_Ga=T" in e.output)
+        geometry = e.lua_rpc("{vim.api.nvim_win_get_width(0),vim.api.nvim_win_get_height(0)}")
+        self.assertIn({"viewport": {"width": geometry[0]*9, "height": (geometry[1]-1)*18}}, e.events())
+
+    def test_interrupted_query_disposes_hook_and_allows_retry(self):
+        e = self.editor
+        e.answer_attributes = False
+        before = e.response_hooks()
+        result = e.lua_rpc("(function() vim.defer_fn(function() vim.api.nvim_input('<C-c>') end,40); return {require('tinymist.reader').start()} end)()")
+        self.assertEqual(result[0], False)
+        self.assertLessEqual(e.response_hooks(), before)
+        os.write(e.master, b"j")
+        e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
+        e.answer_attributes = True
+        self.start()
+
+    def test_windows_clipboard_capability_keeps_virtual_sixel_grid(self):
+        self.editor.attributes = b"\x1b[?61;4;6;7;14;21;22;23;24;28;32;42;52c"
+        self.start()
+
+    def test_kitty_cell_report_updates_viewport_on_resize(self):
+        e = self.editor
+        e.attributes = b"\x1b[?62c"
+        e.kitty = e.report_cell_size = True
+        self.assertEqual(e.lua_rpc("{require('tinymist.reader').start()}"), [True])
+        e.pump_until(lambda: b"\x1b_Ga=T" in e.output)
+        e.cell = (8, 16)
+        e.resize(120, 36)
+        e.pump_until(lambda: any(event.get("viewport", {}).get("height") == 33*16 for event in e.events()))
 
     def test_hidden_view_clears_images_and_stop_keeps_another_tab_focused(self):
         e = self.editor

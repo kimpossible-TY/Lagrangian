@@ -32,7 +32,7 @@ The optional Neovim integration SHALL open the Reader in an internal right-hand 
 - **THEN** its Reader host and any service it started stop without terminating an independently running Reader service
 
 #### Scenario: Unsupported terminal
-- **WHEN** the default view has no attached supported TUI, image protocol or measured cell geometry
+- **WHEN** the default view has no attached supported TUI, image protocol or supported protocol-specific cell geometry
 - **THEN** startup explains the missing requirement without painting an image over source or leaving owned processes running
 
 ### Requirement: Windows Terminal uses its native image protocol
@@ -95,7 +95,7 @@ The default Neovim view SHALL position image frames inside its current window, f
 #### Scenario: Remote Windows start
 - **WHEN** a Neovim 0.12 or newer TUI in a SIXEL-capable Windows Terminal invokes start over one terminal connection
 - **THEN** source remains on the left and the interactive Reader appears on the right without another connection or native pane launch
-- **AND** actual cell geometry determines the browser viewport and mouse coordinates
+- **AND** the recognized Windows SIXEL virtual grid determines the browser viewport and mouse coordinates, even when SSH ioctl pixels are placeholders
 
 #### Scenario: Resize or hide while capturing
 - **WHEN** the Reader window is resized, hidden, replaced or closed while a screenshot is pending
@@ -103,8 +103,17 @@ The default Neovim view SHALL position image frames inside its current window, f
 - **AND** closing stops only that view's owned browser and service
 
 #### Scenario: Probe failure or interrupted startup
-- **WHEN** terminal measurement times out, its helper exits or the editor cancels startup
-- **THEN** the identified TUI client is resumed, terminal settings are restored and startup reports the missing requirement
+- **WHEN** terminal capability queries time out, fail or the editor cancels startup
+- **THEN** the temporary response handler is removed, the editor remains running with input and foreground ownership intact, and startup reports failure
+
+#### Scenario: Interactive shell retains the editor in the foreground
+- **WHEN** a user starts Neovim from an interactive remote shell and types `:FlowReader start`
+- **THEN** the Reader opens without stopping any editor process or changing its terminal foreground process group
+- **AND** browser input and stop/restart work in that same connection
+
+#### Scenario: Kitty terminal has no cell-size report
+- **WHEN** the terminal confirms Kitty graphics but does not report logical cell dimensions
+- **THEN** the view uses a bounded logical viewport scaled to its row/column placement, with browser input using those same logical coordinates
 
 #### Scenario: Browser-to-source navigation from Reader focus
 - **WHEN** the focused Reader requests a verified source jump

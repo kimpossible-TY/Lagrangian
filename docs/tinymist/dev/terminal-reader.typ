@@ -101,21 +101,30 @@ Load the opt-in module below, connect to the Mac as usual, and run
 Reader on the right. No second connection, Windows pane command or browser port
 forwarding is required. All runtime dependencies remain on the Mac.
 
-The default `open = "split"` queries the attached terminal's graphics capability
-and character-cell geometry, including when SSH does not forward Windows
-Terminal environment markers or reports placeholder pixel sizes. Windows
-Terminal reports its SIXEL virtual pixel dimensions, independent of the font's
-physical pixels. The view renders at those dimensions, positions frames in its
-current window and restores the terminal's SIXEL display mode around each image.
-Unmeasured or unsupported terminals receive an error before a Reader window is
-opened.
+The default `open = "split"` queries the attached terminal through Neovim's
+`TermResponse` events, including when SSH omits Windows Terminal environment
+markers or reports placeholder pixel sizes. The recognized Windows Terminal
+device-attribute responses select its default SIXEL grid of 10 by 20 virtual
+pixels per cell, independent of physical font pixels. The view uses that grid
+for browser and mouse coordinates, selects cursor-relative SIXEL placement and
+preserves the editor cursor around each image. Other SIXEL profiles with unknown
+geometry receive an error before a Reader window is opened.
 
-Neovim 0.12 consumes CSI cell-size responses internally. A bounded Python helper
-briefly pauses only the identified parent TUI input client while querying its
-TTY, then restores terminal settings and resumes it. The editor core remains
-running; helper-exit and timeout handlers also resume the client. Measurements
-are refreshed after a terminal resize. This requires a normal host TUI process
-and local POSIX terminal access.
+Kitty graphics uses the logical cell dimensions from `ReportCellSize` when
+available. Otherwise it uses a logical viewport of 9 by 18 pixels per cell;
+Kitty scales the image to its explicit row/column placement. Browser input uses
+the same logical coordinates.
+
+Capability queries have a bounded timeout and are repeated after a terminal
+resize. Neovim continues to own terminal input throughout; startup sends no
+process stop/resume signals and does not open or read the TTY independently.
+This preserves interactive shell job control on the remote Mac. Timeout,
+cancellation and query errors remove the temporary response handler and leave
+the editor available.
+
+If an older version leaves a `suspended` shell message, run `fg` in that same
+remote shell to return to the existing editor. Save your work and reopen Neovim
+with the updated module before using `:FlowReader start` again.
 
 Click the Reader or move into its window to read. `Ctrl-W h` returns to source;
 `Ctrl-W l` returns to the Reader when it is on the right. The usual
