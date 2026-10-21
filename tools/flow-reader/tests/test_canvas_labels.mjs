@@ -249,3 +249,37 @@ test("coordinate symbols keep their nearby space before larger descriptions", ()
   assert.ok(placed.top + placed.height < 30);
   assert.ok(result.labels.every((item) => item.id === "y" || !overlaps(item, placed)));
 });
+
+test("compact labels choose the largest readable size that fits a measured channel", () => {
+  for (const font of [13, 18, 30]) {
+    const source = label("any-formula", 100, 50, 2 * font, 1.7 * font);
+    const model = { width: 200, height: 100 };
+    const center = Math.ceil(1.5 * font) + 50;
+    const minimum = Math.max(0.8, 11 / font);
+    for (const ratio of [1.1, 0.92, minimum + 0.01, 0.7]) {
+      const half = (source.height * ratio) / 2;
+      const segments = [];
+      for (let y = 0; y < 250; y += 0.25)
+        if (Math.abs(y - center) >= half)
+          segments.push([
+            { x: 0, y },
+            { x: 204, y },
+          ]);
+      const original = structuredClone(source);
+      const result = composeCanvas(model, 204, [source], font, segments).labels[0];
+      assert.deepEqual(source, original);
+      if (ratio < 0.8) {
+        assert.equal(result.mode, "legend");
+      } else {
+        assert.equal(result.mode, "inline");
+        assert.equal(
+          result.labelScale || 1,
+          ratio > 1 ? 1 : ratio === 0.92 ? 0.9 : font === 13 ? 0.85 : minimum,
+        );
+        assert.ok(font * (result.labelScale || 1) >= Math.max(11, font * 0.8));
+        assert.equal(result.width, source.width * (result.labelScale || 1));
+        assert.equal(result.height, source.height * (result.labelScale || 1));
+      }
+    }
+  }
+});

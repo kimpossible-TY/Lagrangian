@@ -328,3 +328,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Keep the reading font with compact label line spacing and index sampled strokes to bound repeated layout work.
 - [x] Verify every current native PDE figure visually, compare retained labels, and exercise Chrome/WebKit at 320/390px and 13/18/30px.
 - [x] Verify selection/text/geometry contracts and install the clean Reader release with preserved context and installed-asset checks.
+
+## Bounded canvas label sizing
+
+- [x] Combine generic compact-label size candidates with measured nearby placement and preserve natural dimensions across retries.
+- [x] Verify effective font floors, stroke/label clearance, source anchors and font-reset stability, including the PDE fractions.
+- [ ] Coordinate and install the clean immutable release; verify HTTPS assets, saved context and change navigation.

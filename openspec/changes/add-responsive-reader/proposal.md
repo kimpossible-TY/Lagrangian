@@ -131,3 +131,9 @@ after the current accepted content is displayed.
 ## Local mathematical decoration rendering
 
 Export a versioned drawing description for supported solid highlights, rectangles, underlines and cancellations in the initial HTML compilation. Regenerate their per-fragment SVG in the HTML rendering owner after font/viewport changes, eliminating those dynamic decoration requests. Preserve unsupported styles and arbitrary callbacks through the existing validated Typst path. Relationships, canvas conversion, persistent cache and workers remain subsequent work.
+
+## Bounded canvas label sizing
+
+Extend measured native-label allocation with automatic compact-label size candidates,
+a readable lower bound, finer nearby position search and reserved source anchors.
+Use full-size numbered fallback when no readable candidate fits; no per-label tuning.

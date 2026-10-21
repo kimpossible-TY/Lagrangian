@@ -1,5 +1,5 @@
 import { logicalTextIndex } from "/rendering/math/identity.js";
-import { mathOverflow } from "/rendering/math/layout.js";
+import { mathInkNodes } from "/rendering/math/layout.js";
 import { inkContrast } from "/rendering/graphics/canvas-labels.js";
 
 const report = { width: innerWidth, checks: [], errors: [], measurements: [] };
@@ -183,6 +183,9 @@ try {
             body.scrollWidth <= body.clientWidth + 1,
         ),
       );
+      const effectiveSize = (node) =>
+        parseFloat(getComputedStyle(node).fontSize) *
+        Number(node.closest("[data-flow-canvas-label]")?.dataset.labelScale || 1);
       const textSizes = bodies
         .flatMap((body) => [body, ...body.querySelectorAll("*")])
         .filter(
@@ -195,13 +198,20 @@ try {
               (child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
             ),
         )
-        .map((node) => parseFloat(getComputedStyle(node).fontSize));
+        .map(effectiveSize);
       const mathSizes = bodies
         .flatMap((body) => [...body.querySelectorAll(".flow-math-view")])
-        .map((node) => parseFloat(getComputedStyle(node).fontSize));
+        .map(effectiveSize);
       check(
-        `${font}px ${id} preserves a reading-size font floor`,
-        [...textSizes, ...mathSizes].every((size) => size >= font - 0.1),
+        `${font}px ${id} preserves the bounded readable label size`,
+        [...textSizes, ...mathSizes].every((size) => size >= Math.max(11, font * 0.8) - 0.1),
+      );
+      check(
+        `${font}px ${id} keeps complete legends at full reading size`,
+        labels.every(
+          (label) =>
+            label.dataset.labelMode === "inline" || Number(label.dataset.labelScale || 1) === 1,
+        ),
       );
       const markers = [
         ...canvas.querySelectorAll(":scope > .flow-canvas-stage > .flow-canvas-markers > *"),
@@ -329,8 +339,15 @@ try {
         .every((view) => {
           const parent = view.closest(".flow-canvas-label-body");
           const rect = parent.getBoundingClientRect();
-          const overflow = mathOverflow(view, { width: rect.width, left: rect.left });
-          return Math.max(overflow.left, overflow.right) <= 1;
+          const scale = Number(view.closest("[data-flow-canvas-label]")?.dataset.labelScale || 1);
+          return (
+            view.scrollWidth * scale <= rect.width + 1 &&
+            mathInkNodes(view).every((ink) =>
+              [...ink.getClientRects()].every(
+                (box) => !box.width || (box.left >= rect.left - 1 && box.right <= rect.right + 1),
+              ),
+            )
+          );
         });
       check(`${font}px ${id} retains full horizontal mathematical ink`, mathPaint);
       check(
