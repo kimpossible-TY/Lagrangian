@@ -35,6 +35,12 @@ The optional Neovim integration SHALL open the Reader in an internal right-hand 
 - **WHEN** the default view has no attached supported TUI, image protocol or supported protocol-specific cell geometry
 - **THEN** startup explains the missing requirement without painting an image over source or leaving owned processes running
 
+#### Scenario: Reader startup takes time
+- **WHEN** the internal Reader window is open while its browser or first image is still being prepared
+- **THEN** its statusline shows animated loading feedback and elapsed time until the first image for the current visible layout is accepted
+- **AND** the host handshake, status-only frames and obsolete frames do not dismiss loading
+- **AND** closing the view stops the loading updates with its existing owned lifecycle
+
 ### Requirement: Windows Terminal uses its native image protocol
 The terminal Reader SHALL support SIXEL output for Windows Terminal, while retaining the existing browser input, storage and source-action contracts. A protocol override SHALL work when remote sessions do not forward terminal environment markers.
 

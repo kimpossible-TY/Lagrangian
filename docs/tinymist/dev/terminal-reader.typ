@@ -101,6 +101,12 @@ Load the opt-in module below, connect to the Mac as usual, and run
 Reader on the right. No second connection, Windows pane command or browser port
 forwarding is required. All runtime dependencies remain on the Mac.
 
+While the browser and first image are being prepared, the Reader window's
+Neovim statusline shows `Loading...` with a rotating indicator and elapsed
+seconds. The normal Reader controls replace it when the first current image
+arrives. You can return to source with `Ctrl-W h` while waiting, or close the
+view with `:FlowReader stop`.
+
 The default `open = "split"` queries the attached terminal through Neovim's
 `TermResponse` events, including when SSH omits Windows Terminal environment
 markers or reports placeholder pixel sizes. The recognized Windows Terminal
