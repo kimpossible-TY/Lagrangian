@@ -333,4 +333,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Combine generic compact-label size candidates with measured nearby placement and preserve natural dimensions across retries.
 - [x] Verify effective font floors, stroke/label clearance, source anchors and font-reset stability, including the PDE fractions.
-- [ ] Coordinate and install the clean immutable release; verify HTTPS assets, saved context and change navigation.
+- [x] Coordinate and install the clean immutable release; verify HTTPS assets, saved context and change navigation.
