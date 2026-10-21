@@ -1,61 +1,64 @@
-// Translate native terminal input and publish current browser image frames.
+// Own browser interaction, capture ordering and editor/service lifetime.
+// Concrete transports own terminal modes or the editor's framed stdio channel.
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
-import { once } from "node:events";
 import {
   browserKey,
   graphicsProtocol,
   mousePosition,
   pngSequence,
-  queryCellSize,
-  statusSequence,
-  terminalFinish,
-  TerminalInput,
   terminalSize,
-  terminalStart,
 } from "./protocol.mjs";
 import { EditorBridge } from "./editor-bridge.mjs";
 import { readerControls } from "./options.mjs";
 import { sixelSequence } from "./sixel.mjs";
+import { NativeTransport } from "./native-transport.mjs";
 
 export class TerminalReader {
-  constructor(options, page) {
+  constructor(options, page, transport = new NativeTransport()) {
     this.options = options;
     this.page = page;
+    this.transport = transport;
     this.protocol = options.protocol || graphicsProtocol();
-    this.input = new TerminalInput();
     this.cellWidth = options["cell-width"] || 9;
     this.cellHeight = options["cell-height"] || 18;
     this.cellGeometryPriority = 0;
     this.isIterm = process.env.TERM_PROGRAM === "iTerm.app";
-    this.size = terminalSize(
-      process.stdout.columns,
-      process.stdout.rows,
-      this.cellWidth,
-      this.cellHeight,
-    );
+    this.size = terminalSize(...transport.dimensions(), this.cellWidth, this.cellHeight);
     this.bridge = new EditorBridge(options, page);
     this.queue = Promise.resolve();
     this.mouseDown = false;
     this.message = readerControls;
     this.stopped = false;
+    this.visible = true;
     this.frameHash = "";
     this.frameGeneration = 0;
+    this.layoutGeneration = 0;
     this.clearBeforeFrame = false;
     this.outputAbort = new AbortController();
   }
 
   enqueue(action) {
-    this.queue = this.queue.then(action).catch((error) => {
-      this.message = error.message;
-    });
+    this.queue = this.queue
+      .then(async () => {
+        if (!this.stopped) await action();
+      })
+      .catch((error) => {
+        if (!this.stopped) this.message = error.message;
+      });
+    return this.queue;
   }
 
-  async resize() {
+  async resize(layout) {
     this.frameGeneration++;
+    if (layout) {
+      this.cellWidth = layout.cellWidth;
+      this.cellHeight = layout.cellHeight;
+      this.layoutGeneration = layout.generation;
+      this.visible = layout.visible;
+    }
     this.size = terminalSize(
-      process.stdout.columns,
-      process.stdout.rows,
+      ...(layout ? [layout.columns, layout.rows] : this.transport.dimensions()),
       this.cellWidth,
       this.cellHeight,
     );
@@ -170,98 +173,71 @@ export class TerminalReader {
     this.resolveStop?.();
   }
 
+  async capture() {
+    if (this.captureBusy || this.stopped || !this.visible) return;
+    this.captureBusy = true;
+    try {
+      let captured;
+      await this.enqueue(async () => {
+        const generation = this.frameGeneration;
+        const png = await this.page.screenshot({ type: "png", scale: "css", timeout: 10000 });
+        if (this.stopped || generation !== this.frameGeneration) return;
+        const hash = createHash("sha256").update(png).digest("hex");
+        const image =
+          hash === this.frameHash
+            ? null
+            : this.protocol === "sixel"
+              ? sixelSequence(png)
+              : pngSequence(png, this.size, this.protocol);
+        captured = {
+          hash,
+          frameGeneration: generation,
+          frame: {
+            image,
+            size: this.size,
+            status: this.message,
+            generation: this.layoutGeneration,
+            clear: this.clearBeforeFrame,
+          },
+        };
+      });
+      // Slow presentation must not block browser input, resize or cancellation.
+      if (captured && !this.stopped) {
+        await this.transport.present(captured.frame, this.outputAbort.signal);
+        if (captured.frameGeneration === this.frameGeneration) {
+          this.clearBeforeFrame = false;
+          this.frameHash = captured.hash;
+        }
+      }
+    } catch (error) {
+      if (!this.stopped) this.message = error.message;
+    } finally {
+      this.captureBusy = false;
+    }
+  }
+
   async run() {
-    if (!process.stdin.isTTY || !process.stdout.isTTY)
-      throw new Error(
-        "A native terminal pane is required. Use --check or --snapshot for noninteractive validation.",
-      );
-    if (process.env.TMUX)
-      throw new Error(
-        "Run the Reader in a native terminal split outside tmux; image placement inside tmux is not supported.",
-      );
-    if (process.env.NVIM)
-      throw new Error("Run the Reader in a native terminal split, outside Neovim :terminal.");
-    if (!this.protocol)
-      throw new Error(
-        "Use Windows Terminal with --protocol sixel, iTerm2 or a Kitty graphics terminal.",
-      );
-    const wasRaw = process.stdin.isRaw;
-    const wasFlowing = process.stdin.readableFlowing;
     const stopPromise = new Promise((resolve) => {
       this.resolveStop = resolve;
     });
-    let escapeTimer;
-    const onData = (bytes) => {
-      for (const event of this.input.read(bytes)) this.enqueue(() => this.event(event));
-      clearTimeout(escapeTimer);
-      escapeTimer = setTimeout(() => {
-        for (const event of this.input.flushEscape()) this.enqueue(() => this.event(event));
-      }, 40);
-    };
-    const onResize = () => {
-      this.enqueue(() => this.resize());
-      process.stdout.write(queryCellSize);
-    };
-    const onSignal = () => this.stop();
-    const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
-    let captureBusy = false;
+    const timers = [];
+    let close;
     let cursorBusy = false;
     let ownerBusy = false;
-    const timers = [];
     try {
-      // Finish the initial browser resize before enabling terminal replies.
-      // Otherwise a fast cell report can finish its resize first, then be
-      // overwritten by the slower initial viewport request.
-      await this.resize();
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on("data", onData);
-      process.stdout.on("resize", onResize);
-      for (const signal of signals) process.on(signal, onSignal);
-      process.stdout.write(terminalStart + queryCellSize);
-      const capture = async () => {
-        if (captureBusy || this.stopped) return;
-        captureBusy = true;
-        // Screenshot backends can temporarily change/restore viewport metrics.
-        // Serialize capture with resize and input so restoration cannot undo a
-        // newer cell-size report or change the coordinates during a gesture.
-        this.enqueue(async () => {
-          try {
-            if (this.stopped) return;
-            const generation = this.frameGeneration;
-            const png = await this.page.screenshot({ type: "png", scale: "css", timeout: 10000 });
-            if (generation !== this.frameGeneration) return;
-            const hash = createHash("sha256").update(png).digest("hex");
-            if (!this.stopped && hash !== this.frameHash) {
-              if (this.clearBeforeFrame) {
-                process.stdout.write("\x1b[2J\x1b[H");
-                this.clearBeforeFrame = false;
-              }
-              const frame =
-                this.protocol === "sixel"
-                  ? sixelSequence(png)
-                  : pngSequence(png, this.size, this.protocol);
-              if (!process.stdout.write(frame))
-                await once(process.stdout, "drain", { signal: this.outputAbort.signal });
-              this.frameHash = hash;
-            }
-            if (!this.stopped) process.stdout.write(statusSequence(this.message, this.size));
-          } catch (error) {
-            this.message = error.message;
-          } finally {
-            captureBusy = false;
-          }
-        });
-        await this.queue;
-      };
+      close = await this.transport.open(this);
+      if (this.stopped) return;
       timers.push(
-        setInterval(capture, 1000 / (this.options.fps || (this.protocol === "sixel" ? 2 : 5))),
+        setInterval(
+          () => this.capture(),
+          1000 / (this.options.fps || (this.protocol === "sixel" ? 2 : 5)),
+        ),
       );
-      await capture();
+      await this.capture();
       if (this.options["editor-server"] || this.options["sync-file"])
         timers.push(
           setInterval(async () => {
-            if (cursorBusy || this.mouseDown || this.stopped) return;
+            if (cursorBusy || this.mouseDown || this.stopped || !this.visible) return;
             cursorBusy = true;
             try {
               await this.bridge.cursor();
@@ -291,13 +267,7 @@ export class TerminalReader {
     } finally {
       this.stop();
       for (const timer of timers) clearInterval(timer);
-      clearTimeout(escapeTimer);
-      process.stdin.off("data", onData);
-      process.stdout.off("resize", onResize);
-      for (const signal of signals) process.off(signal, onSignal);
-      process.stdin.setRawMode(wasRaw);
-      if (wasFlowing !== true) process.stdin.pause();
-      process.stdout.write(terminalFinish);
+      await close?.();
       await this.queue;
     }
   }

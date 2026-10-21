@@ -125,7 +125,7 @@ local function run()
     local strange = temporary .. "/quotes ' \" $() ` and\nnewline.cjs"
     local capture = temporary .. '/argv.json'
     write(strange, "require('node:fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))")
-    reader.setup { root = temporary, auto_open = false, command = { 'node', strange, capture, "literal ' \" $(touch ignored) `echo ignored`\nsecond line" } }
+    reader.setup { root = temporary, auto_open = false, open = 'native', command = { 'node', strange, capture, "literal ' \" $(touch ignored) `echo ignored`\nsecond line" } }
     assert(reader.start())
     equal('osascript', launched.argv[1])
     local script = launched.argv[3]
@@ -184,7 +184,7 @@ local function run()
   equal(0, vim.fn.filereadable(manifest))
 
   vim.env.SSH_CONNECTION = 'remote-client remote-port host host-port'
-  reader.setup { root = temporary, auto_open = false }
+  reader.setup { root = temporary, auto_open = false, open = 'manual' }
   assert(reader.start())
   equal(nil, launched)
   assert(messages[#messages]:find('second native terminal connection', 1, true))
@@ -202,7 +202,7 @@ local function run()
   vim.o.shell = original_shell
 
   vim.env.TERM_PROGRAM = 'unsupported-terminal'
-  reader.setup { root = temporary, auto_open = false }
+  reader.setup { root = temporary, auto_open = false, open = 'native' }
   local ok, err = reader.start()
   equal(false, ok)
   assert(err:find('open', 1, true))

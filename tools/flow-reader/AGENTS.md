@@ -10,7 +10,7 @@ Use [the architecture source map](../../docs/tinymist/dev/reader-architecture.ty
 - `document/` owns normalization and block/section identities; `rendering/` owns validated geometry, workers and bounded caches.
 - `services/` owns source validation/mapping, context records, navigation and service lifecycle. `accepted_snapshot.py` owns captured source-input freshness; callers retain lock ordering and action-specific responses. `server/` owns accepted publication, watcher, HTTP and static delivery.
 - `web/features/` owns semantic DOM adapters; `web/rendering/` owns HTML mathematics, figures and annotations. Keep executable Python launchers thin.
-- `terminal/` owns options, started service, browser, editor bridge, native host and protocol. Keep `terminal.mjs` supported and reuse HTML actions/storage. `web/features/editor-sync/terminal-bridge.js` exposes opt-in editor capabilities; source-write checks remain in Python services.
+- `terminal/` owns options, started service, browser, editor bridge, shared input/capture controller, native/editor transports, bounded TUI geometry probe and protocol. Keep `terminal.mjs` supported and reuse HTML actions/storage. `web/features/editor-sync/terminal-bridge.js` exposes opt-in editor capabilities; source-write checks remain in Python services.
 
 ## Contracts and delivery
 

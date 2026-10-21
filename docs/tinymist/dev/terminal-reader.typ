@@ -1,11 +1,12 @@
 = HTML Reader beside Neovim
 
 `tools/flow-reader/terminal.mjs` runs the existing HTML Reader in headless
-Chromium and sends its rendered image to a native terminal pane. Mouse and
+Chromium and sends its rendered image to a graphics terminal. Mouse and
 keyboard input reach the real browser document, including its text selection,
 mathematics, figures, reading settings, Save for Codex and review marks.
-`editors/neovim/lua/tinymist/reader.lua` optionally opens that pane beside Neovim
-and connects saved-source navigation and verified source highlights.
+`editors/neovim/lua/tinymist/reader.lua` opens a right-hand view inside Neovim
+by default and connects saved-source navigation and verified source highlights.
+Source and Reader share the same terminal connection.
 
 This integration opens the Flow HTML Reader. It does not replace or configure
 `typst-preview.nvim`, and it does not change the installed paged preview service.
@@ -14,8 +15,9 @@ This integration opens the Flow HTML Reader. It does not replace or configure
 
 Use Node.js 20 or newer, Python 3, a Typst compiler with HTML support, Playwright, and an
 installed Google Chrome. An explicit Chromium executable can replace Chrome.
-The Neovim integration also requires a recent Neovim with `vim.fs`, `vim.json`,
-and local RPC support.
+The default internal view requires Neovim 0.12 or newer on the host, with its
+built-in TUI directly attached to the graphics terminal. Explicit native/manual
+modes retain the older `vim.fs`, `vim.json` and local RPC prerequisites.
 
 PowerShell can remain your shell. For a remote Mac, the compiler, Python, Node,
 Playwright, Chrome and Neovim run on the Mac; Windows Terminal displays the
@@ -24,12 +26,13 @@ images and sends input over the terminal connection.
 Windows Terminal versions with SIXEL support use `--protocol sixel`. SIXEL was
 introduced in the #link("https://devblogs.microsoft.com/commandline/windows-terminal-preview-1-22-release/")[1.22 release series].
 The renderer detects `WT_SESSION` or `TERM_PROGRAM=Windows_Terminal` locally;
-remote connections can omit those values, so select the protocol explicitly.
+remote connections can omit those values. The internal Neovim view queries the
+terminal directly; standalone native hosts can select the protocol explicitly.
 SIXEL uses a 256-color palette with extra grayscale levels for text. Its default
 capture rate is 2 frames per second; `--fps 1` reduces traffic on slower links.
 Image output, scrolling and selections still use the same real HTML document.
 
-iTerm2 on macOS is the default automatic pane launcher. The renderer selects
+With explicit `open = "native"`, iTerm2 on macOS is the automatic native pane launcher. The renderer selects
 Kitty PNG graphics when `TERM_PROGRAM` is `iTerm.app`; this requires an iTerm2
 version with Kitty graphics support and was tested with iTerm2 3.7.4. Kitty
 graphics output is also available in compatible native terminals with
@@ -42,11 +45,11 @@ Neovim may also run inside a PowerShell session in iTerm2. The iTerm2 launcher s
 the renderer through `/bin/sh` with a literal executable argument list, so the
 default profile's shell does not need to parse the renderer command.
 
-Run the Reader in a native terminal pane. Neither Neovim `:terminal` nor tmux is
-supported for this image transport. A custom
-`open` launcher must create a native pane in a terminal that
-actually implements the selected image protocol; choosing `--protocol` cannot
-add graphics support to an incompatible terminal.
+The internal view sends images through Neovim's `nvim_ui_send`; its terminal
+buffer handles input only. Running the standalone CLI inside an ordinary
+Neovim `:terminal` is still unsupported. Use a direct terminal connection outside
+tmux/screen. A custom `open` launcher must create a native pane in a terminal
+that implements the selected image protocol.
 
 == Browser dependency and diagnosis
 
@@ -93,45 +96,57 @@ control sequences.
 
 == Windows Terminal connected to a remote Mac
 
-The default iTerm2 pane opener runs on the Mac. It cannot split a Windows client
-window across a remote connection. Use an editor-owned session in a second
-native Windows Terminal pane instead:
+Load the opt-in module below, connect to the Mac as usual, and run
+`:FlowReader start`. Neovim keeps source on the left and opens the interactive
+Reader on the right. No second connection, Windows pane command or browser port
+forwarding is required. All runtime dependencies remain on the Mac.
 
-+ Open Neovim on the Mac through your existing terminal connection. Load the
-  opt-in Reader module described below.
-+ Run `:FlowReader prepare`. This uses the configured project and creates a
-  private session file. `:FlowReader start` chooses this mode automatically when
-  SSH environment markers are present and no custom pane opener is configured.
-+ Read the printed command with `:messages`. Open a second Windows Terminal
-  pane, reconnect to the same Mac, and run that command with `--protocol sixel`
-  appended. All paths in the command refer to the Mac. Run it at the shell prompt,
-  outside Neovim and tmux. For example:
+The default `open = "split"` queries the attached terminal's graphics capability
+and character-cell geometry, including when SSH does not forward Windows
+Terminal environment markers or reports placeholder pixel sizes. Windows
+Terminal reports its SIXEL virtual pixel dimensions, independent of the font's
+physical pixels. The view renders at those dimensions, positions frames in its
+current window and restores the terminal's SIXEL display mode around each image.
+Unmeasured or unsupported terminals receive an error before a Reader window is
+opened.
+
+Neovim 0.12 consumes CSI cell-size responses internally. A bounded Python helper
+briefly pauses only the identified parent TUI input client while querying its
+TTY, then restores terminal settings and resumes it. The editor core remains
+running; helper-exit and timeout handlers also resume the client. Measurements
+are refreshed after a terminal resize. This requires a normal host TUI process
+and local POSIX terminal access.
+
+Click the Reader or move into its window to read. `Ctrl-W h` returns to source;
+`Ctrl-W l` returns to the Reader when it is on the right. The usual
+`Ctrl-\` followed by `Ctrl-N` leaves terminal input mode for Neovim commands.
+`:FlowReader stop` or closing the Reader window stops its owned host and service.
+Pressing `q` in the Reader also closes it when focus is outside an HTML text input.
+A later `:FlowReader start` opens a fresh view with the same persistent profile.
+Source cursor polling continues to use the source window while the Reader is
+focused; a verified reverse jump focuses source and retains the Reader window.
+
+Resizes invalidate pending frames. Hidden tabs, overlapping floating windows and
+Neovim command-line entry hide the image until the view is available again.
+Cleanup redraws the editor; it does not replace modified source buffers. Mouse
+precision is limited to character cells, and Neovim can coalesce mouse coordinates
+received in one input batch. Physical Windows Terminal and Devtunnel forwarding
+remain separate checks from the automated POSIX TUI/browser fixtures.
+
+For a separate native pane, set `open = "native"` for iTerm2 or supply a native
+launcher argument array. For another remote connection, explicitly use
+`:FlowReader prepare` or `open = "manual"`. Read the printed command with
+`:messages`, reconnect in another native terminal, and append `--protocol sixel`:
 
 ```sh
 node /path/to/terminal.mjs --session /path/from/neovim --protocol sixel
 ```
 
-The command is quoted for Neovim's configured shell. If the second connection
-uses another shell, use that shell's quoting rules; PowerShell invokes a quoted
-executable with `&`. No browser port forwarding is needed for this terminal
-mode: screenshots and input travel over the second terminal connection.
-
-Both connections share the editor's source-navigation/highlight channel and
-the same persistent Reader profile. `:FlowReader sync` continues to work.
-Repeated start shows the prepared command again. Only one host may attach to a
-session; a duplicate attempt preserves the original host. Use `:FlowReader stop`
-and start/prepare again to replace a lost attachment. Stopping Neovim or its
-Reader removes the session file and stops the attached host and its owned
-service. After `q`, prepare/start again for a fresh command.
-
-Set `open = "manual"` in the Lua setup to always prepare a session, and optionally
-`protocol = "sixel"` to store the protocol in it. If a tunnel does not supply SSH
-environment markers, `:FlowReader prepare` works without changing setup.
-
-Native Windows Terminal display through Devtunnel still requires a connection
-that forwards terminal input/output and allocates a PTY. Node/PTY tests and real
-Chromium checks do not establish compatibility with every tunnel client; verify
-the actual Windows pane separately.
+That private session retains the editor's RPC, persistent profile and lifetime.
+The command uses Neovim's configured shell quoting; PowerShell invokes quoted
+executables with `&`. Repeating start in manual mode repeats its command.
+Stopping the editor or Reader invalidates its manifest and stops an attached
+host. Only one host may attach to each prepared session.
 
 == Standalone Reader
 
@@ -207,8 +222,8 @@ require("tinymist.reader").setup({
 })
 ```
 
-Set `auto_open = false` for manual startup. `:FlowReader start` opens the pane or
-prepares a remote session,
+Set `auto_open = false` for command-only startup. `:FlowReader start` opens the
+internal view by default,
 `:FlowReader sync` requests a saved-source cursor update, and `:FlowReader stop`
 stops only the renderer and service owned by this editor session. Quitting
 Neovim also stops them. After quitting the Reader with `q`, a later
@@ -305,7 +320,8 @@ owned-service port produces an error; startup does not silently choose another
 origin. Use different profiles for independent simultaneous browser instances.
 These terminal profiles do not share the installed app's browser state.
 
-Normal quit, editor stop and handled termination signals restore raw input, mouse reporting and
-the previous terminal screen. The renderer closes its browser and any Reader
+The internal view restores the editor display and releases its input/window hooks
+on quit, stop and editor exit. Native hosts also restore raw input, mouse reporting
+and the previous terminal screen after normal quit or handled termination signals. The renderer closes its browser and any Reader
 service it started. A service supplied through `--url` remains independently
 owned.

@@ -1,4 +1,4 @@
--- Optional native-terminal host for the existing tinymist-flow HTML Reader.
+-- Optional editor integration for the existing tinymist-flow HTML Reader.
 local reader = {}
 local uv = vim.uv or vim.loop
 local config = {}
@@ -106,8 +106,17 @@ end
 
 ---Return the editor cursor using one-based lines and zero-based UTF-8 byte columns.
 function reader.cursor()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local position = vim.api.nvim_win_get_cursor(0)
+  local window = vim.api.nvim_get_current_win()
+  local view = session and session.view
+  if view then
+    if window == view.win and vim.api.nvim_win_is_valid(view.source_win) then
+      window = view.source_win
+    elseif vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(window)):match('%.typ$') then
+      view.source_win = window
+    end
+  end
+  local bufnr = vim.api.nvim_win_get_buf(window)
+  local position = vim.api.nvim_win_get_cursor(window)
   return {
     path = absolute(vim.api.nvim_buf_get_name(bufnr)) or '',
     line = position[1],
@@ -156,6 +165,14 @@ function reader.jump(payload)
   end
   -- nvim_win_set_buf can hide the current dirty buffer without writing it.
   local ok = pcall(function()
+    local view = session and session.view
+    if view then
+      if not vim.api.nvim_win_is_valid(view.source_win) then
+        view.source_win = vim.api.nvim_open_win(target, true, { split = 'left', win = view.win })
+      end
+      vim.api.nvim_set_current_win(view.source_win)
+      vim.cmd.stopinsert()
+    end
     vim.api.nvim_win_set_buf(0, target)
     vim.api.nvim_win_set_cursor(0, { line, column })
   end)
@@ -250,7 +267,7 @@ local function applescript_quote(value)
 end
 
 local function opener(argv)
-  if config.open then
+  if config.open and config.open ~= 'native' then
     if type(config.open) ~= 'table' or #config.open == 0 then
       return nil, 'Flow Reader open must be a nonempty argv array for a native terminal pane launcher.'
     end
@@ -295,19 +312,22 @@ end
 ---Stop only the renderer and service owned by this editor session.
 function reader.stop()
   if session then
-    uv.fs_unlink(session.control)
-    uv.fs_unlink(session.control .. '.attached')
-    uv.fs_unlink(session.sync)
+    local stopped = session
     session = nil
+    uv.fs_unlink(stopped.control)
+    uv.fs_unlink(stopped.control .. '.attached')
+    uv.fs_unlink(stopped.sync)
+    if stopped.view then stopped.view:close() end
   end
   return true
 end
 
----Open the HTML Reader in a native terminal pane.
+---Open the HTML Reader beside source, in the same connection by default.
 ---@return boolean, string?
 function reader.start(manual)
   if session and uv.fs_stat(session.control) then
     if session.manual then vim.notify(session.message, vim.log.levels.INFO) end
+    if session.view then session.view:focus() end
     return true
   end
   if session then reader.stop() end
@@ -374,10 +394,23 @@ function reader.start(manual)
       return false, 'Flow Reader command arguments must be strings without NUL bytes.'
     end
   end
-  manual = manual or config.open == 'manual' or (not config.open and
-    (vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_TTY ~= nil or vim.env.SSH_CLIENT ~= nil))
+  manual = manual or config.open == 'manual'
+  local internal = not manual and (config.open == nil or config.open == 'split')
   local launch
-  if not manual then
+  local view_module, measurement, measure
+  if internal then
+    view_module = require 'tinymist.reader_view'
+    local python = vim.env.PYTHON or vim.fn.exepath('python3')
+    if python == '' then return false, 'Flow Reader needs Python 3 for terminal measurement.' end
+    local protocol = config.protocol
+    measure = function()
+      return view_module.measure({ python, repository .. '/tools/flow-reader/terminal/probe.py' }, protocol)
+    end
+    local measure_error
+    measurement, measure_error = measure()
+    if not measurement then return false, measure_error end
+    protocol = measurement.protocol
+  elseif not manual then
     local launch_error
     launch, launch_error = opener(argv)
     if not launch then return false, launch_error end
@@ -395,6 +428,21 @@ function reader.start(manual)
       .. attach_command(executable_command, control)
       .. '\nFor Windows Terminal add: --protocol sixel. Stop with :FlowReader stop.'
     vim.notify(started.message, vim.log.levels.INFO)
+    return true
+  end
+  if internal then
+    vim.list_extend(argv, { '--embedded', '--protocol', measurement.protocol })
+    local view_error
+    started.view, view_error = view_module.open(argv, {
+      measurement = measurement, measure = measure,
+      on_close = function() if session == started then reader.stop() end end,
+      on_error = function(message)
+        if session ~= started then return end
+        reader.stop()
+        vim.schedule(function() vim.notify(message, vim.log.levels.ERROR) end)
+      end,
+    })
+    if not started.view then reader.stop(); return false, view_error end
     return true
   end
   local errors = {}
