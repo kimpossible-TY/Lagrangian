@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { openReader, waitForReader } from "../terminal/browser-session.mjs";
 import { EditorBridge } from "../terminal/editor-bridge.mjs";
 import { TerminalReader } from "../terminal/host.mjs";
+import { sixelSequence } from "../terminal/sixel.mjs";
 
 const exec = promisify(execFile);
 const work = await mkdtemp(path.join(tmpdir(), "flow-terminal-test-"));
@@ -99,6 +100,12 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await waitForReader(page, url, options);
   await page.waitForFunction(() => globalThis.flowReaderTerminal?.state().ready);
+  const screenshot = await page.screenshot({ type: "png", scale: "css" });
+  const sixel = sixelSequence(screenshot);
+  check(
+    "Real Chromium viewport encodes as native SIXEL with matching geometry",
+    sixel.startsWith('\x1b[H\x1bP0;1;0q"1;1;760;700') && sixel.endsWith("\x1b\\"),
+  );
   const original = await readFile(entry, "utf8");
   const bridge = new EditorBridge(options, page);
   const terminal = new TerminalReader({ ...options, protocol: "iterm2" }, page);

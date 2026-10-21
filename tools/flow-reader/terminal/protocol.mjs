@@ -4,6 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 const ESC = "\x1b";
 
 export function graphicsProtocol(environment = process.env) {
+  if (environment.WT_SESSION || environment.TERM_PROGRAM === "Windows_Terminal") return "sixel";
   // Current iTerm2 supports Kitty graphics without OSC file-display prompts.
   if (environment.TERM_PROGRAM === "iTerm.app") return "kitty";
   if (

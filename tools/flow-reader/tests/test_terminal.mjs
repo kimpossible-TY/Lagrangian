@@ -13,6 +13,11 @@ import { parseArguments, profileDefaults } from "../terminal/options.mjs";
 import { serverArguments } from "../terminal/service.mjs";
 import { EditorBridge } from "../terminal/editor-bridge.mjs";
 import { TerminalReader } from "../terminal/host.mjs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { sessionOptions } from "../terminal/session.mjs";
 
 test("fragmented UTF-8 and SGR drag events remain ordered", () => {
   const input = new TerminalInput();
@@ -82,6 +87,100 @@ test("iTerm image fills only the Reader rows and status rejects control injectio
   assert.equal(graphicsProtocol({ TERM_PROGRAM: "iTerm.app" }), "kitty");
   assert.equal(graphicsProtocol({ TERM: "xterm-kitty" }), "kitty");
   assert.equal(graphicsProtocol({ TERM: "xterm-256color" }), null);
+  assert.equal(graphicsProtocol({ WT_SESSION: "client-pane" }), "sixel");
+  assert.equal(graphicsProtocol({ TERM_PROGRAM: "Windows_Terminal" }), "sixel");
+  assert.equal(parseArguments(["--protocol", "sixel"]).protocol, "sixel");
+  assert.throws(() => parseArguments(["--protocol", "unknown"]), /protocol/);
+});
+
+test("editor sessions preserve RPC/lifecycle and allow only presentation overrides", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "flow-session-"));
+  const control = path.join(directory, "editor.json");
+  const args = [
+    "--url",
+    "http://127.0.0.1:23626/",
+    "--editor-server",
+    "/tmp/editor.sock",
+    "--parent-pid",
+    String(process.pid),
+    "--control-file",
+    control,
+    "--profile",
+    "/tmp/profile ' $()",
+  ];
+  const terminal = new URL("../terminal.mjs", import.meta.url);
+  const record = { version: 1, args };
+  try {
+    await writeFile(control, JSON.stringify(record), { mode: 0o600 });
+    const options = await sessionOptions(
+      parseArguments(["--session", control, "--protocol", "sixel"]),
+    );
+    assert.equal(options.protocol, "sixel");
+    assert.equal(options["editor-server"], "/tmp/editor.sock");
+    assert.equal(options.profile, "/tmp/profile ' $()");
+    assert.equal(options["control-file"], control);
+    await assert.rejects(
+      sessionOptions(parseArguments(["--session", control, "--root", directory])),
+      /only/,
+    );
+    const help = execFileSync(
+      process.execPath,
+      [terminal.pathname, "--session", control, "--help"],
+      { encoding: "utf8" },
+    );
+    assert.ok(help.includes("SIXEL"));
+    assert.deepEqual(
+      JSON.parse(await readFile(control)),
+      record,
+      "diagnosis must not consume a prepared session",
+    );
+    await writeFile(`${control}.attached`, "");
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [terminal.pathname, "--session", control], {
+          stdio: "pipe",
+        }),
+      (error) => error.stderr.toString().includes("already attached"),
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(control)),
+      record,
+      "duplicate attachment must not stop the original host",
+    );
+    await rm(`${control}.attached`);
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [terminal.pathname, "--session", control, "--protocol", "sixel"],
+          { stdio: "pipe" },
+        ),
+      (error) => error.stderr.toString().includes("native terminal pane"),
+    );
+    await assert.rejects(readFile(control), /ENOENT/);
+    await assert.rejects(readFile(`${control}.attached`), /ENOENT/);
+    await assert.rejects(sessionOptions(parseArguments(["--session", control])), /ENOENT/);
+    await writeFile(control, JSON.stringify({ version: 2, args }));
+    await assert.rejects(sessionOptions(parseArguments(["--session", control])), /Invalid/);
+    await writeFile(
+      control,
+      JSON.stringify({ version: 1, args: [...args, "--control-file", "/other/control"] }),
+    );
+    await assert.rejects(sessionOptions(parseArguments(["--session", control])), /lifecycle/);
+    await writeFile(
+      control,
+      JSON.stringify({
+        version: 1,
+        args: [...args, "--parent-pid", String(Number.MAX_SAFE_INTEGER)],
+      }),
+    );
+    await assert.rejects(
+      sessionOptions(parseArguments(["--session", control])),
+      /no longer running/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("argument validation prevents silent modes and preserves shell metacharacters", () => {

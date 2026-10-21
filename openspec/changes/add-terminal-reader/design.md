@@ -42,6 +42,14 @@ An optional CLI-configured Neovim server receives a verified edit only after exi
 - Reader processes can race external edits → retain source freshness checks and use editor-owned final mutation.
 - Terminal protocol behavior differs → test encoded frames and actual browser functions separately, record any unverified native terminal path.
 
+### Windows Terminal and remote PowerShell sessions
+
+Windows Terminal displays SIXEL images; PowerShell remains the shell. Add an explicit `sixel` backend and detect local Windows Terminal environment markers. A remote connection may omit those markers, so `--protocol sixel` remains available. Decode only Chromium's noninterlaced 8-bit RGB/RGBA screenshot PNGs with Node's existing zlib runtime, then encode bounded six-row color planes and runs. Use a 256-entry palette with dedicated grayscale levels for text. Unsupported PNG formats fail explicitly. Keep the same browser viewport, input translation, storage and source actions, and use a lower default capture rate for SIXEL.
+
+An SSH session on the Mac cannot directly invoke the Windows client's pane launcher. Add `open = "manual"` and use that mode automatically for SSH sessions without an explicit native opener. `:FlowReader start` prepares a private, versioned argument manifest and prints a shell-appropriate command to run in a second connection to the same Mac. The manifest is also the existing lifecycle control file: both connections use the editor's RPC address, process identity, stable profile and service options. The CLI accepts `--session` with presentation-only overrides, never executes a command from that file, and removes the manifest on renderer exit. `:FlowReader stop` and editor exit remove it, stopping any attached host through the existing ownership checks. Repeating start while prepared shows the command again. This deliberately requires the user to open the Windows pane and reconnect; no remote-to-local command execution channel is introduced.
+
+Protocol/PTY tests validate pixel output, input ordering and owned cleanup independently of a physical Windows terminal. Real Chromium tests validate the screenshot codec and existing Reader behavior; Windows Terminal over the user's particular Devtunnel transport remains a separate manual check.
+
 ## Migration Plan
 
 Install optional runtime prerequisites, load the Neovim module explicitly, and use a disposable document first. Stopping the module removes only its owned processes. Removing the module restores the previous workflow; existing source highlights and browser profiles remain available.
