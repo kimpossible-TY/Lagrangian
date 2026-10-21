@@ -78,10 +78,22 @@ function View:paint()
   self.repaint = false
 end
 
+function View:status(message)
+  if self.loading_since then
+    local tick = math.floor((uv.hrtime() - self.loading_since) / 500000000)
+    local index = tick % 4 + 1
+    message = ('|/-\\'):sub(index, index) .. ' Loading... ' .. math.floor(tick / 2) .. 's · Ctrl-W h: source'
+  end
+  if not message then return end
+  local status = ('Flow Reader · ' .. clean(message):sub(1, 180)):gsub('%%', '%%%%')
+  if vim.wo[self.win].statusline ~= status then vim.wo[self.win].statusline = status end
+end
+
 function View:update()
   if self.closed then return end
   local rect = self:layout()
   if not rect then self.options.on_close(); return end
+  self:status()
   if self.measuring then rect.visible = false end
   if not vim.deep_equal(rect, self.rect) then
     clear_image(self.painted)
@@ -113,9 +125,9 @@ function View:receive(message)
       if image then
         if image:sub(1, 3) ~= esc .. '[H' then error('Invalid Reader image position') end
         self.frame = image
+        self.loading_since = nil
       end
-      local status = ('Flow Reader · ' .. clean(message.status):sub(1, 180)):gsub('%%', '%%%%')
-      if vim.wo[self.win].statusline ~= status then vim.wo[self.win].statusline = status end
+      self:status(message.status)
       if image or self.repaint then self:paint() end
     end
     self:send { type = 'ack', id = message.id }
@@ -161,7 +173,7 @@ function View.open(argv, options)
   local self = setmetatable({
     options = options, source_win = vim.api.nvim_get_current_win(),
     source_buf = vim.api.nvim_get_current_buf(),
-    measurement = options.measurement, pending_input = '', generation = 0,
+    measurement = options.measurement, pending_input = '', generation = 0, loading_since = uv.hrtime(),
   }, View)
   local ok, view, err = pcall(self.start, self, argv)
   if not ok then
@@ -181,7 +193,6 @@ function View:start(argv)
   for key, value in pairs {
     number = false, relativenumber = false, signcolumn = 'no', foldcolumn = '0',
     statuscolumn = '', winbar = '', wrap = false, cursorline = false, cursorcolumn = false,
-    statusline = 'Flow Reader · starting… · Ctrl-W h: source',
   } do vim.wo[self.win][key] = value end
   local channel = vim.api.nvim_open_term(self.buf, {
     on_input = function(_, _, _, data) self:input(data) end,

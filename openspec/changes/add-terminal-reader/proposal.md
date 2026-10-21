@@ -13,6 +13,7 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 - Document setup, keyboard controls, supported terminal hosts and navigation limits.
 - Add native SIXEL frames for Windows Terminal and an editor-owned session command for a second remote terminal connection, without requiring iTerm2 or replacing PowerShell.
 - Make the default Neovim start open an internal right-hand Reader view in the same terminal connection, forwarding browser input and positioned image frames through the editor's TUI. Keep native panes and manual attachment as explicit alternatives.
+- Show animated loading feedback and elapsed time in the Reader window's statusline until its first current image is ready.
 
 ## Capabilities
 

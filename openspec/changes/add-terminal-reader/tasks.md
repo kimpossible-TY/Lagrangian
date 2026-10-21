@@ -100,3 +100,13 @@
 - HTML/terminal Node and architecture checks: 147 passed. Native PTY lifecycle: 9 passed. Archived-layout installation: 1 passed. Headless Neovim source RPC/manual/native smoke passed. No live installation, editor configuration change or service restart occurred.
 - Canonical terminal and architecture guides compiled to PDF, terminal HTML text was checked, generated docs and strict OpenSpec validation passed. Scoped ESLint, Python syntax and diff whitespace checks passed.
 - Physical Windows Terminal/Devtunnel delivery remains unverified. Internal SIXEL uses the recognized Windows default virtual grid; unknown SIXEL geometry is refused. Kitty input/frame transport is covered by the emulator fixtures, with physical Kitty/iTerm2 rendering still separate coverage.
+
+## 10. Show startup feedback in Neovim
+
+- [x] 10.1 Show an animated loading status and elapsed time until the first current image arrives; verify delayed startup, normal controls, idle output and closing while loading, and update the canonical guide.
+
+### Startup feedback verification, 2026-10-21
+
+- A disposable interactive-shell PTY confirmed immediate `Loading... 0s`, changing spinner/elapsed time, continued loading through the handshake and status-only/obsolete frames, and normal controls after the first current image. Closing during delayed startup stopped updates and preserved source contents.
+- Existing Neovim TUI scenarios: 14 passed, including idle frame suppression and stop/restart. Headless Neovim smoke passed. Real Chromium/Neovim integration: 24 checks passed.
+- Canonical terminal guide compiled to PDF and experimental HTML; loading instructions were checked in the HTML. Generated docs, strict OpenSpec validation and diff whitespace checks passed. No user configuration, installation or live service was changed. Physical Windows display was not re-exercised.
