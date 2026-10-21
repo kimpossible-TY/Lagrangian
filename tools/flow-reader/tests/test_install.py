@@ -110,7 +110,7 @@ finally:
 """
         result = json.loads(subprocess.check_output([sys.executable, "-c", script], cwd=release, text=True))
         self.assertGreater(result["assets"], 20)
-        for entry in ("build.py", "serve.py", "focus.py"):
+        for entry in ("build.py", "serve.py", "focus.py", "terminal/probe.py"):
             subprocess.run([sys.executable, str(release / entry), "--help"],
                            cwd=release.parent.parent.parent, capture_output=True, check=True)
         node = shutil.which("node")

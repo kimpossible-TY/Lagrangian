@@ -16,6 +16,7 @@ Options:
   --url URL                 Existing stable Reader URL (HTTP or HTTPS)
   --root PATH               Start an isolated Reader for this project
   --session PATH            Attach using an editor-owned argument manifest
+  --embedded                Internal Neovim view transport (versioned JSON pipes)
   --entry PATH              Project-relative entrypoint (default main.typ)
   --package-path PATH       Existing Typst packages (default bundled Reader packages)
   --compiler PATH           Typst compiler (default typst)
@@ -48,7 +49,7 @@ Neovim :terminal. Browser, local marks, and layout remain the real HTML Reader.
 
 export function parseArguments(argv) {
   const result = { fonts: [] };
-  const flags = new Set(["check", "help"]);
+  const flags = new Set(["check", "help", "embedded"]);
   const options = new Set([
     "url",
     "root",

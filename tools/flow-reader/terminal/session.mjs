@@ -36,7 +36,8 @@ export async function sessionOptions(options) {
     (!saved.root && !saved.url) ||
     saved.check ||
     saved.help ||
-    saved.snapshot
+    saved.snapshot ||
+    saved.embedded
   )
     throw new Error("Reader session must retain its editor, document and lifecycle control file");
   try {

@@ -6,9 +6,9 @@ The saved-file Reader uses semantic HTML, browser DOM selections, HTTP APIs and 
 
 ## Goals / Non-Goals
 
-**Goals:** reuse the existing Reader and annotation implementation, deliver an interactive native terminal pane, preserve marks across launches, and protect unsaved editor changes.
+**Goals:** reuse the existing Reader and annotation implementation, deliver an interactive Reader beside source in the same Neovim terminal connection or an explicit native pane, preserve marks across launches, and protect unsaved editor changes.
 
-**Non-Goals:** rasterizing inside Neovim's terminal buffer, claiming arbitrary terminal compatibility, importing upstream plugin code, or inventing source positions for generated mathematical content. No installed app release is part of this change.
+**Non-Goals:** adding image decoding to Neovim's terminal emulator, claiming arbitrary terminal compatibility, importing upstream plugin code, or inventing source positions for generated mathematical content. No installed app release is part of this change.
 
 ## Decisions
 
@@ -46,11 +46,19 @@ An optional CLI-configured Neovim server receives a verified edit only after exi
 
 Windows Terminal displays SIXEL images; PowerShell remains the shell. Add an explicit `sixel` backend and detect local Windows Terminal environment markers. A remote connection may omit those markers, so `--protocol sixel` remains available. Decode only Chromium's noninterlaced 8-bit RGB/RGBA screenshot PNGs with Node's existing zlib runtime, then encode bounded six-row color planes and runs. Use a 256-entry palette with dedicated grayscale levels for text. Unsupported PNG formats fail explicitly. Keep the same browser viewport, input translation, storage and source actions, and use a lower default capture rate for SIXEL.
 
-An SSH session on the Mac cannot directly invoke the Windows client's pane launcher. Add `open = "manual"` and use that mode automatically for SSH sessions without an explicit native opener. `:FlowReader start` prepares a private, versioned argument manifest and prints a shell-appropriate command to run in a second connection to the same Mac. The manifest is also the existing lifecycle control file: both connections use the editor's RPC address, process identity, stable profile and service options. The CLI accepts `--session` with presentation-only overrides, never executes a command from that file, and removes the manifest on renderer exit. `:FlowReader stop` and editor exit remove it, stopping any attached host through the existing ownership checks. Repeating start while prepared shows the command again. This deliberately requires the user to open the Windows pane and reconnect; no remote-to-local command execution channel is introduced.
+An SSH session on the Mac cannot directly invoke the Windows client's pane launcher. Keep explicit `open = "manual"` for users who prefer another terminal connection; the default same-connection view is described below. In manual mode, `:FlowReader start` or `:FlowReader prepare` creates a private, versioned argument manifest and prints a shell-appropriate command to run in a second connection to the same Mac. The manifest is also the existing lifecycle control file: both connections use the editor's RPC address, process identity, stable profile and service options. The CLI accepts `--session` with presentation-only overrides, never executes a command from that file, and removes the manifest on renderer exit. `:FlowReader stop` and editor exit remove it, stopping any attached host through the existing ownership checks. Repeating start while prepared shows the command again. Only this explicit alternative requires the user to open the Windows pane and reconnect; no remote-to-local command execution channel is introduced.
 
 Protocol/PTY tests validate pixel output, input ordering and owned cleanup independently of a physical Windows terminal. Real Chromium tests validate the screenshot codec and existing Reader behavior; Windows Terminal over the user's particular Devtunnel transport remains a separate manual check.
 
 ## Migration Plan
+
+### Same-connection Neovim view
+
+Default `:FlowReader start` opens a right-hand Neovim split. Neovim 0.12's `nvim_ui_send` writes positioned native frames to its attached TUI; the internal terminal buffer supplies raw Unicode, paste and mouse input only. No image bytes enter Neovim's terminal emulator. Buffer-local window-navigation maps return to source. Explicit `open = "native"`, native opener arrays and `open = "manual"` retain their existing delivery paths; SSH no longer selects manual attachment implicitly.
+
+Separate the browser interaction/session controller from its native and editor transports. Both adapters reuse the same viewport, input, screenshot, source bridge and ownership logic. The editor transport uses versioned newline JSON over owned job pipes, acknowledges each presented frame for bounded backpressure, and tags layout generations so obsolete frames cannot paint a resized or hidden view. Lua owns window position, visibility, clearing, focus and repaint; source RPC continues using the source window while the Reader is focused. Closing the window, stopping or exiting disposes the owned job and restores editor display.
+
+SIXEL needs actual character-cell pixels, including when Windows SSH reports placeholder ioctl dimensions. Neovim's TUI consumes CSI window-size responses without exposing them to Lua. A bounded probe helper briefly suspends only the identified attached `nvim-tui` input client, queries its actual TTY and resumes it in `finally`; the editor's job-exit/timeout handler also resumes that client. The editor core remains alive. Preserve termios and captured non-report input. Query again after a terminal resize. Reject a missing measurement instead of painting an image over source. Probe identity, timeouts, cancellation and restoration require real PTY tests; physical Windows/Devtunnel remains separate coverage.
 
 Install optional runtime prerequisites, load the Neovim module explicitly, and use a disposable document first. Stopping the module removes only its owned processes. Removing the module restores the previous workflow; existing source highlights and browser profiles remain available.
 

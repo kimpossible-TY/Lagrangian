@@ -6,6 +6,7 @@ import { graphicsProtocol, terminalSize } from "./protocol.mjs";
 import { loadPlaywright, browserOptions, openReader, waitForReader } from "./browser-session.mjs";
 import { startReader } from "./service.mjs";
 import { TerminalReader } from "./host.mjs";
+import { EditorTransport } from "./editor-transport.mjs";
 import { sessionOptions } from "./session.mjs";
 
 async function runMain(options) {
@@ -13,6 +14,8 @@ async function runMain(options) {
     process.stdout.write(help);
     return;
   }
+  if (options.embedded && (!options.protocol || options.snapshot || options.check))
+    throw new Error("--embedded requires an explicit protocol and an interactive editor view");
   if (options.check) {
     const report = {
       node: process.version,
@@ -34,7 +37,7 @@ async function runMain(options) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     return;
   }
-  if (!options.snapshot) {
+  if (!options.snapshot && !options.embedded) {
     if (!process.stdin.isTTY || !process.stdout.isTTY)
       throw new Error(
         "A native terminal pane is required; use --check or --snapshot for validation.",
@@ -120,7 +123,11 @@ async function runMain(options) {
         }) + "\n",
       );
     } else {
-      terminal = new TerminalReader(options, browser.page);
+      terminal = new TerminalReader(
+        options,
+        browser.page,
+        options.embedded ? new EditorTransport() : undefined,
+      );
       await terminal.run();
     }
     if (readerFailure) throw readerFailure;

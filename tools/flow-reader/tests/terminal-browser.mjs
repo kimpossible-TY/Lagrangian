@@ -315,6 +315,34 @@ try {
     markedLocation.status === "located",
   );
   check("Browser bridge produced no page errors", errors.length === 0);
+  await host.context.close();
+  host = null;
+  await stop(editor);
+  editor = null;
+  const { stdout: viewReport } = await exec(
+    process.env.PYTHON || "python3",
+    [
+      fileURLToPath(new URL("./neovim-browser-view.py", import.meta.url)),
+      "--root",
+      path.dirname(entry),
+      "--entry",
+      entry,
+      "--address",
+      address,
+      "--url",
+      url,
+    ],
+    { timeout: 60000 },
+  );
+  const view = JSON.parse(viewReport);
+  check(
+    "Same-connection Neovim TUI displays real Chromium SIXEL frames",
+    view.started && view.sixelViewport.join("x") === "500x580",
+  );
+  check(
+    "Internal Reader input, source cursor and quit restore the editor",
+    view.input && view.source && view.stopped,
+  );
   console.log(`Terminal Reader: ${checks} integration checks passed. Snapshot: ${snapshot}`);
 } finally {
   await host?.context.close().catch(() => {});

@@ -24,16 +24,16 @@ The terminal Reader SHALL use persistent document storage and a stable origin, a
 - **WHEN** the same document is reopened with the same configured profile and origin
 - **THEN** review strikes remain available; Save for Codex context remains in its service record and is freshly validated
 
-### Requirement: Native terminal panes have an owned lifecycle
-The optional Neovim integration SHALL open the Reader beside the editor in a supported native terminal pane, SHALL provide explicit start and stop actions, and SHALL restore terminal modes and stop owned subprocesses on exit.
+### Requirement: Editor Reader views have an owned lifecycle
+The optional Neovim integration SHALL open the Reader in an internal right-hand view in the same terminal connection by default, SHALL retain explicit native pane and manual attachment modes, and SHALL provide start and stop actions that dispose owned subprocesses and restore the editor display.
 
 #### Scenario: Editor exits
 - **WHEN** the editor owning a terminal Reader exits
 - **THEN** its Reader host and any service it started stop without terminating an independently running Reader service
 
 #### Scenario: Unsupported terminal
-- **WHEN** no supported native pane launcher or graphics protocol is configured
-- **THEN** startup explains the missing requirement without opening a broken Neovim terminal buffer
+- **WHEN** the default view has no attached supported TUI, image protocol or measured cell geometry
+- **THEN** startup explains the missing requirement without painting an image over source or leaving owned processes running
 
 ### Requirement: Windows Terminal uses its native image protocol
 The terminal Reader SHALL support SIXEL output for Windows Terminal, while retaining the existing browser input, storage and source-action contracts. A protocol override SHALL work when remote sessions do not forward terminal environment markers.
@@ -43,10 +43,10 @@ The terminal Reader SHALL support SIXEL output for Windows Terminal, while retai
 - **THEN** the host emits native SIXEL frames and forwards terminal input to the same HTML Reader without requiring an iTerm2-compatible terminal
 
 ### Requirement: A second remote connection can attach to an editor-owned Reader
-The Neovim integration SHALL prepare an editor-owned terminal session when manual opening is configured or an SSH session has no native pane opener. It SHALL show a command for a second connection to the same host and preserve the existing editor and service lifetime checks.
+The Neovim integration SHALL prepare an editor-owned terminal session when manual opening is explicitly configured. It SHALL show a command for a second connection to the same host and preserve the existing editor and service lifetime checks.
 
 #### Scenario: Start from a remote editor
-- **WHEN** an SSH-connected editor invokes start without a native pane opener
+- **WHEN** an editor invokes prepare or starts with manual opening configured
 - **THEN** it creates a private argument manifest and shows a command to run in a separate native terminal connection instead of invoking the Mac's GUI pane launcher
 - **AND** the attached host uses that editor's existing source-navigation and verified-highlight channel
 
@@ -88,3 +88,24 @@ The terminal host SHALL invoke the HTML Reader's explicit Save for Codex action,
 #### Scenario: Legacy terminal profile
 - **WHEN** an existing terminal browser profile contains stored quotations
 - **THEN** the updated Reader leaves them untouched without exposing a quotation library or sending them automatically
+
+### Requirement: Same-connection frames remain inside the current Reader view
+The default Neovim view SHALL position image frames inside its current window, forward Unicode keyboard, paste and mouse input to the existing browser, and discard frames from obsolete layouts. It SHALL provide source-window navigation without replacing the Reader buffer or losing modified source buffers.
+
+#### Scenario: Remote Windows start
+- **WHEN** a Neovim 0.12 or newer TUI in a SIXEL-capable Windows Terminal invokes start over one terminal connection
+- **THEN** source remains on the left and the interactive Reader appears on the right without another connection or native pane launch
+- **AND** actual cell geometry determines the browser viewport and mouse coordinates
+
+#### Scenario: Resize or hide while capturing
+- **WHEN** the Reader window is resized, hidden, replaced or closed while a screenshot is pending
+- **THEN** the old frame is not presented and obsolete images are cleared before the editor is redrawn
+- **AND** closing stops only that view's owned browser and service
+
+#### Scenario: Probe failure or interrupted startup
+- **WHEN** terminal measurement times out, its helper exits or the editor cancels startup
+- **THEN** the identified TUI client is resumed, terminal settings are restored and startup reports the missing requirement
+
+#### Scenario: Browser-to-source navigation from Reader focus
+- **WHEN** the focused Reader requests a verified source jump
+- **THEN** the source window receives the location and focus, and the Reader remains in its own window

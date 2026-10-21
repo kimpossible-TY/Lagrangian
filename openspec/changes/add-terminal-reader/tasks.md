@@ -61,6 +61,13 @@
 - [x] 7.2 Add private editor-owned session manifests and manual/SSH start, preserving source RPC and stop/restart behavior; verify CLI and Neovim integration.
 - [x] 7.3 Document Windows Terminal/PowerShell remote setup and ownership; run scoped Node, Python PTY, Neovim, real browser, lint and documentation checks, recording physical Windows coverage separately.
 
+## 8. Same-connection Neovim Reader
+
+- [x] 8.1 Separate browser session behavior from native/editor transports; add bounded versioned editor frame/input delivery and stale-layout guards.
+- [x] 8.2 Add a right-hand Neovim view with measured geometry, browser input, source focus, repaint and owned cleanup; make it the default start while retaining explicit native/manual modes.
+- [x] 8.3 Verify probe/TUI restoration, same-connection frames, input, resizing, source RPC and stop/restart with isolated PTY and real Chromium fixtures.
+- [x] 8.4 Update canonical guides, ownership and OpenSpec contracts; run scoped checks and record unverified physical Windows coverage.
+
 ### Windows Terminal verification, 2026-10-21
 
 - HTML/terminal Node suite: 141 passed. SIXEL tests independently reconstruct RGB/RGBA pixels for all five PNG filters, alpha/background, color planes, runs and partial bands; malformed/unsupported/oversized input is rejected.
@@ -68,3 +75,14 @@
 - Real Chromium/Neovim integration: 22 checks passed, including encoding the real 760x700 screenshot, source navigation, persistent strikes, Save for Codex, modified-buffer refusal and verified source edits. Inspected the resulting Reader PNG. A sample frame encoded to 41,543 bytes in about 32 ms on this Mac; this is a local observation, not a transport benchmark.
 - Isolated archived-layout installation test passed. Reader dependency/cycle tests: 2 passed. Scoped ESLint (zero warnings), Prettier, strict OpenSpec validation, generated-document checking and diff whitespace checks passed. Canonical terminal/architecture guides compiled to PDF; terminal HTML text/ordering was inspected (Typst emits its expected experimental HTML-export notice).
 - No physical Windows Terminal, Windows pane launcher, or Devtunnel image/input path was exercised. This adds native SIXEL output and editor-owned attachment in a second remote terminal connection; opening the Windows pane and reconnecting remain manual. No live service or user editor configuration was changed.
+
+
+### Same-connection Neovim verification, 2026-10-21
+
+- Default start now opens an internal right-hand view over the existing connection. Browser input/capture policy is shared by native and editor transports; explicit native/manual launchers remain available. No user configuration or installed service was changed.
+- HTML/terminal Node and architecture checks: 147 passed. Editor transport coverage includes bounded acknowledgments, resize generations, Unicode/paste/drag, malformed input and cancellation/EOF. Subsequent focused editor transport checks passed after tightening viewport bounds.
+- Eight isolated Neovim TUI scenarios passed using a real POSIX PTY: measured placement despite false SSH ioctl pixels, default mouse/Unicode/paste, source focus/navigation, resize/quit/restart, modified source preservation, hidden tabs/full redraw/idle frame suppression, floating borders, split failure, helper crash/timeout recovery and replacement-buffer ownership. Terminal modes and SIXEL cursor-placement state remain preserved. The standalone Neovim source RPC/manual/native smoke also passed.
+- Existing native terminal lifecycle/race tests: 9 passed. Isolated archived-layout installation: 1 passed, including the new transports and probe helper. No live installation or service restart occurred.
+- Real Chromium/Neovim integration: 24 checks passed, including a full 500x580 SIXEL frame in an actual Neovim TUI, input/source cursor/quit, existing persistent review marks, Save for Codex, modified-buffer refusal and verified source highlights. Inspected the browser PNG. The TUI fixtures validate escape streams and behavior; they do not constitute a physical Windows rendering test.
+- Scoped ESLint (zero warnings), Prettier, Python syntax, strict OpenSpec validation and diff whitespace checks passed. Canonical terminal and architecture guides compiled to PDF; terminal HTML text/command ordering and generated-document checks passed.
+- Physical Windows Terminal/Devtunnel delivery and the internal Kitty/iTerm2 view were not exercised. The default view requires Neovim 0.12+ on a POSIX host and a terminal that answers capability/cell-geometry queries; it remains outside tmux/screen. Neovim may coalesce mouse coordinates in one input batch.
