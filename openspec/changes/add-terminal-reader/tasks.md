@@ -110,3 +110,16 @@
 - A disposable interactive-shell PTY confirmed immediate `Loading... 0s`, changing spinner/elapsed time, continued loading through the handshake and status-only/obsolete frames, and normal controls after the first current image. Closing during delayed startup stopped updates and preserved source contents.
 - Existing Neovim TUI scenarios: 14 passed, including idle frame suppression and stop/restart. Headless Neovim smoke passed. Real Chromium/Neovim integration: 24 checks passed.
 - Canonical terminal guide compiled to PDF and experimental HTML; loading instructions were checked in the HTML. Generated docs, strict OpenSpec validation and diff whitespace checks passed. No user configuration, installation or live service was changed. Physical Windows display was not re-exercised.
+
+## 11. Preserve screenshot colors in SIXEL
+
+- [x] 11.1 Reproduce the light/dark highlight hue shift and replace fixed RGB-cube quantization with a bounded screenshot-derived palette, preserving grayscale and alpha behavior.
+- [x] 11.2 Verify theme colors, palette pressure, real browser output and scoped lifecycle/packaging checks; update the terminal guide and contracts without changing shared HTML highlight policy.
+
+### SIXEL highlight color verification, 2026-10-21
+
+- The running HTML and terminal services served the same highlight CSS and equivalent highlight markup. The old fixed RGB cube reproduced the reported hue shift: light gold `(243,228,179)` became `(255,204,204)`, and dark gold `(81,69,43)` became `(102,51,51)`.
+- Screenshot-derived color selection fixes the transport layer without importing theme tokens or changing HTML/Typst highlight policy. Six SIXEL tests passed, including reconstructed theme pixels, over 1,000 input colors, palette bounds/determinism, grayscale, alpha, all PNG row filters and malformed/oversized inputs.
+- A real Chromium page using the shared CSS encoded light gold as `(242,227,179)` and dark gold as `(82,69,43)`. Both screenshot palettes remained below 256 entries; inspected light/dark screenshots.
+- HTML/terminal Node and architecture checks: 150 passed. Neovim TUI: 14 passed. Native PTY lifecycle: 9 passed. Archived-layout installation: 1 passed. Real Chromium/Neovim integration: 24 checks passed.
+- Scoped ESLint and Prettier, canonical guide PDF/HTML, generated docs, strict OpenSpec validation and diff whitespace checks passed. Existing services were inspected read-only; no live service was installed or restarted and no user source/configuration was changed. Physical Windows Terminal/Devtunnel rendering remains separate coverage.

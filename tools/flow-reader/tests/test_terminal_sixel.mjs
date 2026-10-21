@@ -139,6 +139,71 @@ test("SIXEL composites alpha onto white and compresses repeated columns", () => 
   assert.ok(decodeSixel(frame).pixels.every((pixel) => pixel.join() === "255,0,0"));
 });
 
+test("SIXEL preserves authored light/dark highlight and Reader theme colors", () => {
+  const samples = [
+    [243, 228, 179], // HTML light highlight: previously became pink #ffcccc.
+    [81, 69, 43], // HTML dark highlight: previously became red-brown #663333.
+    [255, 254, 128], // Paged source highlight.
+    [102, 92, 31],
+    [201, 223, 215], // HTML selection.
+    [250, 249, 246],
+    [41, 40, 36],
+    [27, 28, 30],
+  ];
+  const actual = decodeSixel(sixelSequence(png(samples.length, 1, samples.flat(), 3)));
+  samples.forEach((expected, index) => {
+    actual.pixels[index].forEach((channel, component) => {
+      assert.ok(
+        Math.abs(channel - expected[component]) <= 3,
+        `${expected} became ${actual.pixels[index]}`,
+      );
+    });
+  });
+});
+
+test("SIXEL bounds adaptive colors while retaining dominant highlights and grayscale", () => {
+  const samples = Array.from({ length: 1024 }, (_, index) => [
+    (index % 32) * 8,
+    Math.floor(index / 32) * 8,
+    ((index * 13) % 32) * 8,
+  ]);
+  const highlights = [
+    [243, 228, 179],
+    [81, 69, 43],
+  ];
+  for (const color of highlights) for (let index = 0; index < 256; index++) samples.push(color);
+  for (let gray = 0; gray < 256; gray++) samples.push([gray, gray, gray]);
+  const input = png(128, 14, samples.flat(), 3);
+  const frame = sixelSequence(input);
+  assert.equal(sixelSequence(input), frame, "the same screenshot has deterministic colors");
+  const definitions = [...frame.matchAll(/#(\d+);2;/g)];
+  assert.ok(definitions.length <= 256);
+  assert.ok(definitions.every((match) => Number(match[1]) < 256));
+  const actual = decodeSixel(frame).pixels;
+  highlights.forEach((color, index) => {
+    assert.ok(
+      actual[1024 + index * 256].every((value, channel) => Math.abs(value - color[channel]) <= 3),
+    );
+  });
+  for (let gray = 0; gray < 256; gray++) {
+    const pixel = actual[1536 + gray];
+    assert.ok(pixel.every((value) => value === pixel[0]));
+    assert.ok(Math.abs(pixel[0] - gray) <= 5);
+    if (gray) assert.ok(pixel[0] >= actual[1535 + gray][0]);
+  }
+});
+
+test("SIXEL derives adaptive colors after compositing partial alpha", () => {
+  const actual = decodeSixel(sixelSequence(png(2, 1, [255, 0, 0, 128, 0, 128, 255, 64])));
+  const expected = [
+    [255, 127, 127],
+    [191, 223, 255],
+  ];
+  actual.pixels.forEach((pixel, index) => {
+    assert.ok(pixel.every((value, channel) => Math.abs(value - expected[index][channel]) <= 3));
+  });
+});
+
 test("SIXEL rejects truncated, unsupported and oversized screenshots before drawing", () => {
   assert.throws(() => sixelSequence(Buffer.from("PNG")), /Invalid screenshot/);
   const valid = png(1, 1, [255, 0, 0, 255]);

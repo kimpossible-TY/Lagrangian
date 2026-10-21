@@ -28,8 +28,11 @@ introduced in the #link("https://devblogs.microsoft.com/commandline/windows-term
 The renderer detects `WT_SESSION` or `TERM_PROGRAM=Windows_Terminal` locally;
 remote connections can omit those values. The internal Neovim view queries the
 terminal directly; standalone native hosts can select the protocol explicitly.
-SIXEL uses a 256-color palette with extra grayscale levels for text. Its default
-capture rate is 2 frames per second; `--fps 1` reduces traffic on slower links.
+SIXEL derives its palette from each browser screenshot, with up to 216 colors
+and 40 grayscale levels for text. The shared HTML theme still owns highlight
+colors; the terminal conversion keeps dominant colors close to the screenshot.
+Its default capture rate is 2 frames per second; `--fps 1` reduces traffic on
+slower links.
 Image output, scrolling and selections still use the same real HTML document.
 
 With explicit `open = "native"`, iTerm2 on macOS is the automatic native pane launcher. The renderer selects
