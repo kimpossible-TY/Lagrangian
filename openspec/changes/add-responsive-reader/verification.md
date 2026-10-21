@@ -2913,3 +2913,23 @@ remeasurement recovers natural dimensions to avoid cumulative reduction.
 Artifacts: `dist/reader-fraction/` (sizing captures, cycle checks, full-corpus logs)
 and `dist/reader-canvas-placement/verification-*.json` (detailed corpus/fixture checks).
 Installation verification follows in the rollout record.
+
+### Installed sizing rollout
+
+Installed clean revision `99068b76839180ba074cb33d8bb36c244d948a2d` through the
+maintained installer after coordinating sole deployment ownership with the
+change-navigation session. All 514 immutable files and all 48 first-party assets
+match on localhost and HTTPS. Accepted PDE compilation passed. The 48 source
+hashes, saved focus bytes, latest-change token and other service states were
+preserved from the fresh pre-install snapshot.
+
+Actual HTTPS mobile WebKit 393px passed the six-step font cycle above, with
+identical first/final 13px scale and local placement. The installed original
+Heaviside figure passed Chrome at 13/18/30px (41 checks). Chrome and WebKit both
+restored the latest changed passage on fresh entry and reload, with no page
+errors. The latest target was `reader-3e3d14850368ac91b138-1`; the older Green-note
+text-specific probe was inapplicable, so verification used the fresh snapshot's
+target/token and visible passage instead of resetting the user's newer edit.
+
+Receipts and captures: `dist/reader-fraction/rollout/`,
+`dist/reader-fraction/sizing-installed.json`, `dist/reader-fraction/sizing-installed.png`.
