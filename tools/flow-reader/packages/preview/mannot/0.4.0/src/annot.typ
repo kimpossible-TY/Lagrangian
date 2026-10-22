@@ -544,6 +544,7 @@
   return context {
     if target() == "html" {
       let tags = if type(tag) == array { tag.map(str) } else { (str(tag),) }
+      [#metadata(tags)<flow-reader-text-annotation>]
       html.elem("mtext", html.elem("span", attrs: (
         class: "flow-annotation", "data-flow-targets": json.encode(tags),
       ), annotation))

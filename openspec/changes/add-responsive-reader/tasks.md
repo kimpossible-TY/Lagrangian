@@ -334,3 +334,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Combine generic compact-label size candidates with measured nearby placement and preserve natural dimensions across retries.
 - [x] Verify effective font floors, stroke/label clearance, source anchors and font-reset stability, including the PDE fractions.
 - [x] Coordinate and install the clean immutable release; verify HTTPS assets, saved context and change navigation.
+
+## Adaptive annotation grouping
+
+- [x] Omit mannot text-note grouping paint and anchor outsets in HTML while retaining independent grouping, graphical-only targets and paged output.
+- [x] Verify native/grouped targets, multi-target notes and note order through real compiler and browser reflow fixtures.
+- [ ] Install the clean grouping-annotation release and verify full PDE compilation, HTTPS delivery, browser reflow and preserved service/context state.

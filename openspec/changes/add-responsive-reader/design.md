@@ -673,6 +673,16 @@ short-name popover that the reader has just opened.
 Labeled native under/over braces and brackets use the same semantic association
 in HTML; unlabeled grouping and paged output retain
 their original presentation.
+The mannot HTML adapter registers text-note targets as private Typst metadata.
+An annotated `markub` target becomes an ordinary semantic mark, with no bracket
+callback, decoration request or bracket anchor outset. An unlabeled native brace
+or bracket wrapping the complete annotated mark body is also replaced by that
+body; inner grouping within a larger expression is retained. This decision uses
+the text-note association, including notes before the mark and multi-target
+notes, rather than a tag's mere presence. Graphical-only targets and independent
+grouping keep their authored paint. Cancellation, overlines, underlines and
+arbitrary callbacks retain their existing rendering paths. All substitutions
+are HTML-only and leave paged output unchanged.
 
 At tablet widths of at least 768px, the reading canvas expands to a maximum
 1200px border box, retaining its responsive inner padding. The 76ch compact

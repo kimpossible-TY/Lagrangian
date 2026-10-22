@@ -2933,3 +2933,37 @@ target/token and visible passage instead of resetting the user's newer edit.
 
 Receipts and captures: `dist/reader-fraction/rollout/`,
 `dist/reader-fraction/sizing-installed.json`, `dist/reader-fraction/sizing-installed.png`.
+
+## Adaptive annotation grouping — 2026-10-22
+
+The mannot HTML adapter now records text-note targets as private compiler
+metadata. An associated `markub` emits a semantic mark without its bracket
+callback or outsets. A native unlabeled under/over brace or bracket wrapping the
+complete annotated mark body is replaced by that body, including equation-valued
+arguments. Native labeled groups continue using the existing adaptive adapter.
+Independent and nested grouping, graphical-only targets, underlines, overlines
+and custom callbacks retain their rendering. Paged branches remain unchanged.
+
+Validation completed against the installed Typst compiler and an isolated
+loopback Reader; no managed service was installed or restarted:
+
+- All 22 `test_build.py` tests and all six `test_decorations.py` tests passed with
+  `FLOW_READER_PACKAGES` set. The new fixture checks complete bodies, all four
+  native grouping kinds, note ordering, multi-target notes and graphical-only
+  preservation. Original and Reader PDF bytes match at a fixed creation time.
+  The existing local-paint PDF comparison also uses a fixed timestamp to avoid
+  false failures when its two compiles cross a wall-clock second.
+- `annotation-grouping-browser.mjs` passed 40 checks each in Chromium and WebKit:
+  390px/13px, 320px/30px, 1280px/18px and a return to 390px/13px. Omitted targets
+  retain complete canonical equations and note associations without paint or
+  anchor outsets. Long notes switch between functional popovers and side notes;
+  independent brackets, underlines and custom strokes still finish painting.
+  Both browsers reported no page errors. The 320px/30px and tablet screenshots
+  were visually inspected.
+- Reader ESLint passed with zero warnings, invoked through the installed local
+  binary because Yarn is unavailable in this shell. Prettier and strict OpenSpec
+  validation passed.
+
+Browser reports and screenshots are under
+`dist/reader-annotation-grouping/{chromium,webkit}/`. Physical iPhone, VoiceOver,
+full PDE-document and installed-service checks were not run for this change.

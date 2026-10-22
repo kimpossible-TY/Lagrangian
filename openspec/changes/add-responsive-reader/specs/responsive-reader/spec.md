@@ -354,6 +354,14 @@ The Reader SHALL shade annotated terms without cloning their equations. Short ma
 - **THEN** HTML exposes its body as the shaded target and its annotation through the same adaptive presentation
 - **AND** an unlabeled grouping decoration and the paged output remain intact
 
+#### Scenario: Grouping decorations associated with mannot text notes
+- **WHEN** a mannot text annotation targets a bottom-bracket mark or a mark whose complete body is wrapped in an unlabeled underbrace, overbrace, underbracket or overbracket
+- **THEN** HTML retains the complete mathematical body and adaptive text-note association without the associated brace/bracket paint, reserved decoration space or decoration anchor outset
+- **AND** this holds for notes before or after their marks and notes associated with multiple targets
+- **AND** independent grouping, graphical-only targets, nested grouping within a larger expression and other mathematical decorations retain their authored behavior
+- **AND** viewport/font changes retain the association without reintroducing the omitted decoration
+- **AND** paged output retains its original rendering
+
 #### Scenario: Connected local side columns
 - **WHEN** an authored annotation uses the wide-screen side presentation
 - **THEN** a visible local divider and accent leader with a target dot connect its marked term to the note column without covering intervening ink
