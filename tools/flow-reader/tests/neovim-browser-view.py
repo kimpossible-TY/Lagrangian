@@ -31,10 +31,27 @@ def main():
             os.write(editor.master, b"j")
             editor.pump_until(lambda: len(re.findall(rb'\x1bP0;1;0q"1;1;', editor.output)) > before, timeout=10)
             assert editor.lua_rpc("require('tinymist.reader').cursor().path") == str(Path(args.entry).resolve())
+            source, view = editor.lua_rpc("vim.api.nvim_list_wins()")
+            position, width = editor.lua_rpc("{vim.api.nvim_win_get_position(0),vim.api.nvim_win_get_width(0)}")
+            divider, row = position[1], position[0] + 4
+            source_width = editor.lua_rpc("vim.api.nvim_win_get_width(" + str(source) + ")")
+            editor.output.clear()
+            editor.mouse(0, divider, row)
+            editor.mouse(32, divider + 8, row)
+            editor.mouse(0, divider + 8, row, release=True)
+            assert editor.lua_rpc("vim.api.nvim_win_get_width(" + str(source) + ")") == source_width + 8
+            assert editor.lua_rpc("vim.api.nvim_win_get_width(" + str(view) + ")") == width - 8
+            prefix = f'\x1b7\x1b[1;{divider+9}H\x1b[?80l\x1bP0;1;0q"1;1;{(width-8)*10};580'.encode()
+            editor.pump_until(lambda: prefix in editor.output, timeout=15)
+            # Width controls remain in Reader input mode after the native drag.
+            editor.lua_rpc("(function() vim.api.nvim_set_current_win(" + str(view) + "); vim.cmd.startinsert(); return true end)()")
+            os.write(editor.master, b"\x17=")
+            editor.pump_until(lambda: editor.lua_rpc("vim.api.nvim_win_get_width(" + str(view) + ")") == width)
+            assert editor.lua_rpc("vim.fn.mode()") == "t"
             os.write(editor.master, b"q")
             editor.pump_until(lambda: len(editor.lua_rpc("vim.api.nvim_list_wins()")) == 1, timeout=10)
             assert editor.lua_rpc("vim.api.nvim_buf_get_name(0)") == str(Path(args.entry).resolve())
-            print(json.dumps({"started": True, "sixelViewport": [500, 580], "input": True, "source": True, "stopped": True}))
+            print(json.dumps({"started": True, "sixelViewport": [500, 580], "input": True, "source": True, "resized": True, "stopped": True}))
         finally:
             editor.close()
 

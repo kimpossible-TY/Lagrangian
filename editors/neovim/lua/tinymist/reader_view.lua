@@ -202,6 +202,9 @@ function View:start(argv)
   for _, key in ipairs { 'h', 'j', 'k', 'l', 'w', 'p' } do
     vim.keymap.set('t', '<C-w>' .. key, '<C-\\><C-n><C-w>' .. key, { buffer = self.buf, silent = true })
   end
+  for _, key in ipairs { '<', '>', '=' } do
+    vim.keymap.set('t', '<C-w>' .. key, '<Cmd>wincmd ' .. key .. '<CR>', { buffer = self.buf, silent = true })
+  end
   vim.keymap.set('n', '<CR>', function() self:focus() end, { buffer = self.buf })
   self.group = vim.api.nvim_create_augroup('TinymistReaderView' .. self.buf, { clear = true })
   self.namespace = vim.api.nvim_create_namespace('TinymistReaderMouse' .. self.buf)
@@ -221,7 +224,13 @@ function View:start(argv)
     if not rect or not rect.visible then return end
     local column, row = point.screencol - rect.left + 1, point.screenrow - rect.top + 1
     local inside = column >= 1 and column <= rect.columns and row >= 1 and row < rect.rows
-    if not inside and not self.dragging then return end
+    -- A divider/source drag belongs to Neovim even after entering the Reader.
+    if event[1] == 32 or event[2] then
+      if not self.dragging then return end
+    elseif not inside then
+      if event[1] == 0 then self.dragging = false end
+      return
+    end
     if event[1] == 0 then self.dragging = not event[2] end
     vim.schedule(function()
       if self.closed then return end

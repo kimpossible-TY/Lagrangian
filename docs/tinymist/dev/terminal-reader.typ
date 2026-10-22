@@ -149,6 +149,15 @@ A later `:FlowReader start` opens a fresh view with the same persistent profile.
 Source cursor polling continues to use the source window while the Reader is
 focused; a verified reverse jump focuses source and retains the Reader window.
 
+With Neovim mouse support enabled, drag the vertical divider between source and
+Reader left or right to resize both windows. Divider and source gestures remain
+with Neovim when the pointer enters the Reader; a selection started inside the
+Reader stays with the browser through release, even outside its window.
+While the Reader has focus, `Ctrl-W <` narrows it, `Ctrl-W >` widens it, and
+`Ctrl-W =` equalizes the windows. These controls keep Reader input mode active
+and are also available when mouse support is disabled. The integration preserves
+your global mouse setting and uses Neovim's existing split sizing.
+
 Resizes invalidate pending frames. Hidden tabs, overlapping floating windows and
 Neovim command-line entry hide the image until the view is available again.
 Cleanup redraws the editor; it does not replace modified source buffers. Mouse

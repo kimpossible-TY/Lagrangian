@@ -343,6 +343,7 @@ try {
     "Internal Reader input, source cursor and quit restore the editor",
     view.input && view.source && view.stopped,
   );
+  check("Dragging the Neovim divider resizes source and real Chromium frames", view.resized);
   console.log(`Terminal Reader: ${checks} integration checks passed. Snapshot: ${snapshot}`);
 } finally {
   await host?.context.close().catch(() => {});
