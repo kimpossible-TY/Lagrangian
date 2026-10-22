@@ -113,7 +113,7 @@ view with `:FlowReader stop`.
 The default `open = "split"` queries the attached terminal through Neovim's
 `TermResponse` events, including when SSH omits Windows Terminal environment
 markers or reports placeholder pixel sizes. The recognized Windows Terminal
-device-attribute responses select its default SIXEL grid of 10 by 20 virtual
+device-attribute feature set selects its default SIXEL grid of 10 by 20 virtual
 pixels per cell, independent of physical font pixels. The view uses that grid
 for browser and mouse coordinates, selects cursor-relative SIXEL placement and
 preserves the editor cursor around each image. Other SIXEL profiles with unknown
@@ -124,8 +124,13 @@ available. Otherwise it uses a logical viewport of 9 by 18 pixels per cell;
 Kitty scales the image to its explicit row/column placement. Browser input uses
 the same logical coordinates.
 
-Capability queries have a bounded timeout and are repeated after a terminal
-resize. Neovim continues to own terminal input throughout; startup sends no
+Capability queries tolerate additional/reordered Windows features and retry
+once if a remote reply is lost or delayed, within a four-second budget.
+A confirmed Windows grid is retained for that attached TUI across Reader
+restart and resize; a new UI must establish its own capabilities. Kitty logical
+cell dimensions are refreshed after terminal resize. Failure messages include
+the received DA1, Kitty and cell reports, or `none` when no matching reply was
+received. Neovim continues to own terminal input throughout; startup sends no
 process stop/resume signals and does not open or read the TTY independently.
 This preserves interactive shell job control on the remote Mac. Timeout,
 cancellation and query errors remove the temporary response handler and leave

@@ -123,3 +123,15 @@
 - A real Chromium page using the shared CSS encoded light gold as `(242,227,179)` and dark gold as `(82,69,43)`. Both screenshot palettes remained below 256 entries; inspected light/dark screenshots.
 - HTML/terminal Node and architecture checks: 150 passed. Neovim TUI: 14 passed. Native PTY lifecycle: 9 passed. Archived-layout installation: 1 passed. Real Chromium/Neovim integration: 24 checks passed.
 - Scoped ESLint and Prettier, canonical guide PDF/HTML, generated docs, strict OpenSpec validation and diff whitespace checks passed. Existing services were inspected read-only; no live service was installed or restarted and no user source/configuration was changed. Physical Windows Terminal/Devtunnel rendering remains separate coverage.
+
+## 12. Tolerate remote capability response variation
+
+- [x] 12.1 Reproduce delayed/dropped capability replies and Windows DA1 feature variation; accept required feature sets, retry within a bounded budget and preserve positive Kitty/iTerm reports without requiring unrelated DA1 replies.
+- [x] 12.2 Keep Windows geometry for the same attached TUI, report received capabilities on failure and verify cancellation, cleanup, foreground ownership and restart; align the guide and contracts.
+
+### Remote capability detection verification, 2026-10-22
+
+- The previous error was reproduced with a 1.6-second DA1 delay and with reordered/additional Windows features. Required-feature comparison and one bounded retry now handle both cases and a dropped first query, without assuming arbitrary SIXEL cell geometry.
+- Twenty-two isolated Neovim TUI scenarios passed. New coverage includes same-TUI Windows restart/resize without replies, cache invalidation for a different UI, refusal without SIXEL, positive Kitty and explicit iTerm reports without DA1, capability details in failures and cancellation/handler cleanup. Foreground/input behavior remains covered under an interactive shell.
+- Headless Neovim smoke passed. Real Chromium/Neovim integration: 24 checks passed. Canonical guide PDF/HTML, HTML wording, generated docs, strict OpenSpec validation, Python syntax and diff whitespace checks passed.
+- The user confirmed the same Windows Terminal/Devtunnel connection, but its actual failed response was not captured during this change. Physical verification was requested with a module reload and the new diagnostic output; that result remains unverified. No user configuration, service installation or live-process restart occurred.

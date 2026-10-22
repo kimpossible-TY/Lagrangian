@@ -38,6 +38,10 @@ class EditorTTY:
         self.cell = (10, 20)
         self.attributes = b"\x1b[?61;4;6;7;14;21;22;23;24;28;32;42c"
         self.answer_attributes = True
+        self.attribute_queries = 0
+        self.drop_attributes = 0
+        self.attribute_delay = 0
+        self.pending_replies = []
         self.kitty = False
         self.report_cell_size = False
         self.source = entry or work / "source.typ"
@@ -127,8 +131,17 @@ log({stopped:true});
     def pump(self, duration=0.05):
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
-            if not select.select([self.master], [], [], max(0, deadline - time.monotonic()))[0]:
-                break
+            now = time.monotonic()
+            pending = []
+            for due, reply in self.pending_replies:
+                if due <= now:
+                    os.write(self.master, reply)
+                else:
+                    pending.append((due, reply))
+            self.pending_replies = pending
+            next_reply = min((due for due, _ in pending), default=deadline)
+            if not select.select([self.master], [], [], max(0, min(deadline, next_reply) - now))[0]:
+                continue
             data = os.read(self.master, 1048576)
             self.output.extend(data)
             # Queries are short atomic writes in these fixtures; fragments are
@@ -138,9 +151,8 @@ log({stopped:true});
                 (b"\x1b[5n", b"\x1b[0n"),
                 (b"\x1b]11;?", b"\x1b]11;rgb:0000/0000/0000\x1b\\"),
                 (b"\x1b]10;?", b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\"),
+                (b"\x1b[c", self.attributes if self.answer_attributes else None),
             ]
-            if self.answer_attributes:
-                queries.append((b"\x1b[c", self.attributes))
             if self.kitty:
                 queries.append((b"\x1b_Gi=39732,a=q,t=d,f=24,s=1,v=1;AAAA\x1b\\", b"\x1b_Gi=39732;OK\x1b\\"))
             if self.report_cell_size:
@@ -148,7 +160,16 @@ log({stopped:true});
             for query, reply in queries:
                 while query in self.requests:
                     self.requests = self.requests.replace(query, b"", 1)
-                    os.write(self.master, reply)
+                    if query == b"\x1b[c":
+                        self.attribute_queries += 1
+                        if self.drop_attributes:
+                            self.drop_attributes -= 1
+                            continue
+                        if reply and self.attribute_delay:
+                            self.pending_replies.append((time.monotonic() + self.attribute_delay, reply))
+                            continue
+                    if reply:
+                        os.write(self.master, reply)
             self.requests = self.requests[-512:]
 
     def pump_until(self, predicate, timeout=6):
@@ -269,6 +290,7 @@ class NeovimViewTests(unittest.TestCase):
         result = e.lua_rpc("{require('tinymist.reader').start()}")
         self.assertEqual(result[0], False)
         self.assertIn("cell", result[1])
+        self.assertIn("DA1=62;4", result[1])
         self.assertEqual(len(e.lua_rpc("vim.api.nvim_list_wins()")), 1)
         self.assertEqual(before, termios.tcgetattr(e.slave))
         pid = e.lua_rpc("vim.api.nvim_get_chan_info(vim.api.nvim_list_uis()[1].chan).client.attributes.pid")
@@ -324,7 +346,9 @@ class NeovimViewTests(unittest.TestCase):
         result = e.lua_rpc("{require('tinymist.reader').start()}")
         self.assertEqual(result[0], False)
         self.assertIn("timed out", result[1])
-        self.assertLess(time.monotonic() - started, 3)
+        self.assertIn("DA1=none", result[1])
+        self.assertIn("2 attempts", result[1])
+        self.assertLess(time.monotonic() - started, 5.5)
         self.assertLessEqual(e.response_hooks(), before)
         os.write(e.master, b"j")
         e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
@@ -347,6 +371,7 @@ class NeovimViewTests(unittest.TestCase):
         before = e.response_hooks()
         result = e.lua_rpc("(function() vim.defer_fn(function() vim.api.nvim_input('<C-c>') end,40); return {require('tinymist.reader').start()} end)()")
         self.assertEqual(result[0], False)
+        self.assertIn("cancelled", result[1])
         self.assertLessEqual(e.response_hooks(), before)
         os.write(e.master, b"j")
         e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
@@ -356,6 +381,69 @@ class NeovimViewTests(unittest.TestCase):
     def test_windows_clipboard_capability_keeps_virtual_sixel_grid(self):
         self.editor.attributes = b"\x1b[?61;4;6;7;14;21;22;23;24;28;32;42;52c"
         self.start()
+
+    def test_windows_reordered_and_additional_capabilities_start(self):
+        self.editor.attributes = b"\x1b[?61;52;42;32;28;24;23;22;21;14;7;6;4;7;99c"
+        self.start()
+
+    def test_late_remote_capability_reply_starts_reader(self):
+        e = self.editor
+        e.attribute_delay = 1.6
+        e.attribute_queries = 0
+        self.start()
+        self.assertEqual(e.attribute_queries, 2)
+
+    def test_dropped_first_capability_query_is_retried(self):
+        e = self.editor
+        e.drop_attributes = 1
+        e.attribute_queries = 0
+        self.start()
+        self.assertEqual(e.attribute_queries, 2)
+
+    def test_positive_kitty_reply_does_not_need_da1(self):
+        e = self.editor
+        e.answer_attributes = False
+        e.kitty = True
+        self.assertEqual(e.lua_rpc("{require('tinymist.reader').start()}"), [True])
+        e.pump_until(lambda: b"\x1b_Ga=T" in e.output)
+
+    def test_confirmed_windows_grid_survives_missing_replies_on_restart_and_resize(self):
+        e = self.editor
+        self.start()
+        self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
+        e.answer_attributes = False
+        e.attribute_queries = 0
+        e.output.clear()
+        self.start()
+        e.resize(120, 36)
+        e.pump_until(lambda: any(event.get("viewport", {}).get("height") == 33*20 for event in e.events()))
+        self.assertEqual(e.attribute_queries, 0)
+
+    def test_different_tui_does_not_reuse_confirmed_windows_grid(self):
+        e = self.editor
+        self.start()
+        self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
+        e.answer_attributes = False
+        e.attribute_queries = 0
+        result = e.lua_rpc("(function() local list=vim.api.nvim_list_uis; local uis=list(); uis[1].chan=uis[1].chan+1000; vim.api.nvim_list_uis=function() return uis end; local result={require('tinymist.reader').start()}; vim.api.nvim_list_uis=list; return result end)()")
+        self.assertEqual(result[0], False)
+        self.assertIn("DA1=none", result[1])
+        self.assertEqual(e.attribute_queries, 2)
+
+    def test_windows_profile_without_sixel_is_refused(self):
+        e = self.editor
+        e.attributes = b"\x1b[?61;6;7;14;21;22;23;24;28;32;42c"
+        result = e.lua_rpc("{require('tinymist.reader').start()}")
+        self.assertEqual(result[0], False)
+        self.assertIn("DA1=61;6;7;14;21;22;23;24;28;32;42", result[1])
+        self.assertEqual(len(e.lua_rpc("vim.api.nvim_list_wins()")), 1)
+
+    def test_explicit_iterm_cell_response_does_not_need_da1(self):
+        e = self.editor
+        e.answer_attributes = False
+        e.report_cell_size = True
+        result = e.lua_rpc("{require('tinymist.reader_terminal').measure('iterm2')}")
+        self.assertEqual(result, [{"protocol":"iterm2", "cellWidth":10, "cellHeight":20}])
 
     def test_kitty_cell_report_updates_viewport_on_resize(self):
         e = self.editor

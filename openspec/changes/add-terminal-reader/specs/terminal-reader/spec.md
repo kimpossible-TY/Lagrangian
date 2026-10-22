@@ -117,6 +117,17 @@ The default Neovim view SHALL position image frames inside its current window, f
 - **WHEN** terminal capability queries time out, fail or the editor cancels startup
 - **THEN** the temporary response handler is removed, the editor remains running with input and foreground ownership intact, and startup reports failure
 
+#### Scenario: Remote terminal replies late or varies optional capabilities
+- **WHEN** the first capability query is lost or delayed, or Windows DA1 reports reordered/additional features
+- **THEN** startup retries within a bounded time budget and recognizes the required Windows feature set without requiring an exact response string
+- **AND** positive Kitty graphics or explicit iTerm cell reports do not depend on an unrelated DA1 response
+- **AND** failed detection reports the received capability information or absence of replies without stopping the editor
+
+#### Scenario: Same TUI starts the Windows Reader again
+- **WHEN** the current attached TUI previously confirmed the Windows SIXEL grid and starts or resizes its Reader again
+- **THEN** the integration reuses that fixed virtual grid without another capability round trip
+- **AND** a different attached UI must establish its capabilities separately
+
 #### Scenario: Interactive shell retains the editor in the foreground
 - **WHEN** a user starts Neovim from an interactive remote shell and types `:FlowReader start`
 - **THEN** the Reader opens without stopping any editor process or changing its terminal foreground process group
