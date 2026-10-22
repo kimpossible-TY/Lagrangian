@@ -32,7 +32,8 @@ TEST_SHELL = shutil.which("zsh") or shutil.which("sh")
 
 
 class EditorTTY:
-    def __init__(self, work, command=None, entry=None, address=None, reader_options=None, interactive_shell=True):
+    def __init__(self, work, command=None, entry=None, address=None, reader_options=None, interactive_shell=True,
+                 first_frame_delay=0):
         self.work = work
         self.output = bytearray()
         self.cell = (10, 20)
@@ -65,10 +66,17 @@ import { EditorTransport } from TRANSPORT;
 import { parseArguments } from OPTIONS;
 const options = parseArguments(process.argv.slice(2));
 const log = data => appendFileSync(LOG, JSON.stringify(data)+'\\n');
+let firstFrameDelay = DELAY;
 const page = {
   async setViewportSize(size) { log({viewport:size}); },
   async evaluate() { return false; },
-  async screenshot() { return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==','base64'); },
+  async screenshot() {
+    if (firstFrameDelay) {
+      await new Promise(resolve => setTimeout(resolve,firstFrameDelay));
+      firstFrameDelay=0;
+    }
+    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==','base64');
+  },
   keyboard: { async insertText(text) {log({text});}, async press(key) {log({key});} },
   mouse: { async move(x,y) {log({move:[x,y]});}, async down() {log({down:true});},
     async up() {log({up:true});}, async wheel(x,y) {log({wheel:[x,y]});} },
@@ -79,6 +87,7 @@ log({stopped:true});
 """.replace("HOST", json.dumps((ROOT / "tools/flow-reader/terminal/host.mjs").as_uri()))
             .replace("TRANSPORT", json.dumps((ROOT / "tools/flow-reader/terminal/editor-transport.mjs").as_uri()))
             .replace("OPTIONS", json.dumps((ROOT / "tools/flow-reader/terminal/options.mjs").as_uri()))
+            .replace("DELAY", str(first_frame_delay * 1000))
             .replace("LOG", json.dumps(str(work / "input.jsonl"))))
         self.master, self.slave = pty.openpty()
         self.before = termios.tcgetattr(self.slave)
@@ -545,6 +554,63 @@ class NeovimViewTests(unittest.TestCase):
         self.assertNotIn(b"\x1bP0;1;0q", e.output)
         self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
         self.assertEqual(current, e.lua_rpc("vim.api.nvim_get_current_win()"))
+
+    def test_external_statusline_refresh_does_not_fight_reader_or_repaint_images(self):
+        e = self.editor
+        e.lua_rpc("(function() vim.o.laststatus=3; vim.wo.statusline='Source status'; return true end)()")
+        self.start()
+        e.lua_rpc("""(function()
+          local win=vim.api.nvim_get_current_win()
+          _G.reader_status_writes={}
+          vim.api.nvim_create_autocmd('OptionSet',{pattern='statusline',callback=function()
+            table.insert(_G.reader_status_writes,vim.v.option_new)
+          end})
+          _G.reader_status_timer=vim.uv.new_timer()
+          _G.reader_status_timer:start(0,100,vim.schedule_wrap(function()
+            if vim.api.nvim_win_is_valid(win) then
+              vim.wo[win].statusline='Plugin status'
+              vim.cmd.redrawstatus()
+            end
+          end))
+          return true
+        end)()""")
+        e.pump(0.7)
+        e.lua_rpc("(function() _G.reader_status_writes={}; return true end)()")
+        e.output.clear()
+        e.pump(1.3)
+        self.assertEqual(e.lua_rpc("vim.wo.statusline"), 'Plugin status')
+        self.assertFalse(any(value.startswith('Flow Reader') for value in e.lua_rpc('_G.reader_status_writes')))
+        self.assertNotIn(b'\x1bP0;1;0q', e.output, 'Statusline-only refreshes must not retransmit the image')
+        e.lua_rpc("(function() local source=vim.api.nvim_list_wins()[1]; vim.api.nvim_buf_set_lines(vim.api.nvim_win_get_buf(source),0,1,false,{'Edited source'}); return true end)()")
+        e.pump(0.7)
+        self.assertNotIn(b'\x1bP0;1;0q', e.output, 'Redrawing only source must not retransmit the Reader image')
+        # A new Reader message still appears once, without fighting the next refresh.
+        os.write(e.master, b'h')
+        e.pump(1.2)
+        messages = [value for value in e.lua_rpc('_G.reader_status_writes') if value.startswith('Flow Reader')]
+        self.assertEqual(messages, ['Flow Reader · Select text to use that action'])
+        e.output.clear()
+        e.lua_rpc("(function() vim.cmd('redraw!'); return true end)()")
+        e.pump_until(lambda: b'\x1bP0;1;0q' in e.output)
+        self.assertEqual(e.lua_rpc("vim.wo.statusline"), 'Plugin status')
+        e.lua_rpc("(function() _G.reader_status_timer:stop(); _G.reader_status_timer:close(); return true end)()")
+        self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
+        self.assertEqual(e.lua_rpc("vim.wo.statusline"), 'Source status')
+        self.assertEqual(e.lua_rpc("vim.o.laststatus"), 3)
+        self.assertTrue(e.lua_rpc('vim.bo.modified'))
+        self.assertEqual(e.lua_rpc('vim.api.nvim_get_current_line()'), 'Edited source')
+
+    def test_loading_ticks_and_first_image_still_change_status(self):
+        self.editor.close()
+        self.editor = e = EditorTTY(Path(self.directory.name).resolve(), first_frame_delay=1.7)
+        self.assertEqual(e.lua_rpc("{require('tinymist.reader').start()}"), [True])
+        first = e.lua_rpc('vim.wo.statusline')
+        self.assertIn('Loading...', first)
+        e.pump_until(lambda: 'Loading... 1s' in e.lua_rpc('vim.wo.statusline'))
+        self.assertNotEqual(first, e.lua_rpc('vim.wo.statusline'))
+        e.pump_until(lambda: b'\x1bP0;1;0q' in e.output)
+        self.assertNotIn('Loading...', e.lua_rpc('vim.wo.statusline'))
+        self.assertIn('drag select', e.lua_rpc('vim.wo.statusline'))
 
     def test_overlapping_float_hides_images_until_its_border_is_removed(self):
         e = self.editor

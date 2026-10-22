@@ -110,6 +110,11 @@ seconds. The normal Reader controls replace it when the first current image
 arrives. You can return to source with `Ctrl-W h` while waiting, or close the
 view with `:FlowReader stop`.
 
+Reader feedback coexists with statusline plugins such as lualine: an unchanged
+message does not repeatedly replace the plugin's statusline. Loading progress
+and new feedback still update. Refreshing only the statusline does not repaint
+the document image, and the integration leaves your plugin configuration intact.
+
 The default `open = "split"` queries the attached terminal through Neovim's
 `TermResponse` events, including when SSH omits Windows Terminal environment
 markers or reports placeholder pixel sizes. The recognized Windows Terminal

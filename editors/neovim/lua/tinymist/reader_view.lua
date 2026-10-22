@@ -86,7 +86,11 @@ function View:status(message)
   end
   if not message then return end
   local status = ('Flow Reader · ' .. clean(message):sub(1, 180)):gsub('%%', '%%%%')
-  if vim.wo[self.win].statusline ~= status then vim.wo[self.win].statusline = status end
+  -- A statusline plugin may replace our last message between periodic frames.
+  if self.status_text ~= status then
+    vim.wo[self.win].statusline = status
+    self.status_text = status
+  end
 end
 
 function View:update()
@@ -209,7 +213,9 @@ function View:start(argv)
   self.group = vim.api.nvim_create_augroup('TinymistReaderView' .. self.buf, { clear = true })
   self.namespace = vim.api.nvim_create_namespace('TinymistReaderMouse' .. self.buf)
   vim.api.nvim_set_decoration_provider(self.namespace, {
-    on_end = function() if not self.painting then self.repaint = true end end,
+    on_range = function(_, win, buf)
+      if win == self.win and buf == self.buf and not self.painting then self.repaint = true end
+    end,
   })
   local mouse = {}
   for key, event in pairs {
