@@ -160,3 +160,15 @@
 - Twenty-seven isolated Neovim TUI scenarios passed. New coverage exercises an external statusline refresh timer, unchanged/new feedback, statusline-only and source-only redraws, full Reader redraw recovery, delayed loading ticks/first image and preservation of source status, global status mode and unsaved source text. A focused delayed-frame check passed after fixture formatting.
 - Headless Neovim smoke and 25 real Chromium/Neovim integration checks passed, including divider resizing, current frame placement, browser input, source navigation, review persistence, Save for Codex and verified source highlights.
 - Canonical guide PDF/HTML, rendered wording, generated docs, strict OpenSpec validation, Python syntax and diff whitespace checks passed. This change adds no dependency on lualine and does not modify user configuration, install a release or restart a live service. Physical Windows Terminal/Devtunnel flicker remains separate coverage.
+
+## 15. Hand statusline ownership over with Reader focus
+
+- [x] 15.1 Pause an already loaded lualine statusline through its public API while the Reader is focused, retaining the status layout and restoring it on focus changes and disposal.
+- [x] 15.2 Verify keyboard/mouse focus transitions, loading feedback, repeated focus, tabs, launch failure and cleanup with isolated TUI contracts and the real installed lualine; update the guide and scoped validation.
+
+### Focused lualine handoff verification, 2026-10-22
+
+- Thirty isolated Neovim TUI scenarios passed. The public lualine API fixture exercises keyboard/mouse focus, repeated focus without repeated toggles, another tab, delayed first-frame loading, launch failure, focused close, loading lualine after Reader startup and replacing its buffer while preserving unsaved work. Reader startup without lualine leaves that module unloaded.
+- The real installed lualine passed separate disposable TUI checks in both per-window and global-statusline modes, including a global layout established by lualine setup. Reader feedback remained stable, source focus restored lualine, repeated focus/close restored it again, idle images stayed suppressed, the configured tabline remained active and the complete lualine configuration was unchanged.
+- Headless Neovim smoke and 25 real Chromium/Neovim integration checks passed, preserving input, divider resizing/current frame position, source navigation, local review state, Save for Codex and verified highlights.
+- Canonical guide PDF/HTML and rendered wording, generated docs, strict OpenSpec validation, Python syntax and diff whitespace checks passed. Physical Windows Terminal/Devtunnel focus switching remains unverified. User configuration was read only; no live service or editor was installed or restarted.

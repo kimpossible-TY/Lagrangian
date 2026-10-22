@@ -214,6 +214,27 @@ log({stopped:true});
     def response_hooks(self):
         return set(self.lua_rpc("vim.tbl_map(function(hook) return hook.id end, vim.api.nvim_get_autocmds{event='TermResponse'})"))
 
+    def simulate_lualine(self):
+        self.lua_rpc("""(function()
+          vim.o.laststatus=3
+          local plugin={enabled=true,changes={}}
+          function plugin.refresh()
+            if plugin.enabled then vim.wo.statusline='Lualine status' end
+          end
+          function plugin.hide(options)
+            assert(vim.deep_equal(options.place,{'statusline'}))
+            plugin.enabled=options.unhide==true
+            table.insert(plugin.changes,plugin.enabled)
+            -- The real API restores the laststatus from before lualine setup.
+            vim.o.laststatus=plugin.enabled and 3 or 2
+            vim.wo.statusline='Restored status'
+          end
+          local timer=vim.uv.new_timer()
+          timer:start(0,100,vim.schedule_wrap(plugin.refresh))
+          package.loaded.lualine=plugin
+          return true
+        end)()""")
+
     def close(self):
         if self.process.poll() is None:
             try:
@@ -603,6 +624,7 @@ class NeovimViewTests(unittest.TestCase):
     def test_loading_ticks_and_first_image_still_change_status(self):
         self.editor.close()
         self.editor = e = EditorTTY(Path(self.directory.name).resolve(), first_frame_delay=1.7)
+        e.simulate_lualine()
         self.assertEqual(e.lua_rpc("{require('tinymist.reader').start()}"), [True])
         first = e.lua_rpc('vim.wo.statusline')
         self.assertIn('Loading...', first)
@@ -611,6 +633,67 @@ class NeovimViewTests(unittest.TestCase):
         e.pump_until(lambda: b'\x1bP0;1;0q' in e.output)
         self.assertNotIn('Loading...', e.lua_rpc('vim.wo.statusline'))
         self.assertIn('drag select', e.lua_rpc('vim.wo.statusline'))
+        self.assertFalse(e.lua_rpc('package.loaded.lualine.enabled'))
+
+    def test_lualine_statusline_follows_keyboard_mouse_and_tab_focus(self):
+        e = self.editor
+        e.simulate_lualine()
+        self.start()
+        source, view = e.lua_rpc('vim.api.nvim_list_wins()')
+        e.pump(1.1)
+        self.assertFalse(e.lua_rpc('package.loaded.lualine.enabled'))
+        self.assertEqual(e.lua_rpc('vim.o.laststatus'), 3)
+        self.assertIn('Flow Reader', e.lua_rpc('vim.wo.statusline'))
+        os.write(e.master, b'\x17h')
+        e.pump_until(lambda: e.lua_rpc('vim.api.nvim_get_current_win()') == source)
+        e.pump_until(lambda: e.lua_rpc('vim.wo.statusline') == 'Lualine status')
+        self.assertTrue(e.lua_rpc('package.loaded.lualine.enabled'))
+        # Native source mouse focus and Reader click focus must use the same handoff.
+        e.mouse(0, 55, 4)
+        e.mouse(0, 55, 4, release=True)
+        e.pump_until(lambda: not e.lua_rpc('package.loaded.lualine.enabled'))
+        self.assertEqual(e.lua_rpc('vim.api.nvim_get_current_win()'), view)
+        e.pump(0.7)
+        self.assertIn('Flow Reader', e.lua_rpc('vim.wo.statusline'))
+        self.assertEqual(e.lua_rpc('package.loaded.lualine.changes'), [False, True, False])
+        e.lua_rpc("(function() vim.cmd.stopinsert(); vim.cmd.tabnew(); return true end)()")
+        e.pump_until(lambda: e.lua_rpc('package.loaded.lualine.enabled'))
+        current = e.lua_rpc('vim.api.nvim_get_current_win()')
+        self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
+        self.assertEqual(e.lua_rpc('vim.api.nvim_get_current_win()'), current)
+        self.assertEqual(e.lua_rpc('package.loaded.lualine.changes'), [False, True, False, True])
+
+    def test_lualine_restores_after_launch_failure_and_focused_close(self):
+        e = self.editor
+        e.simulate_lualine()
+        result = e.lua_rpc("(function() local jobstart=vim.fn.jobstart; vim.fn.jobstart=function() return -1 end; local result={require('tinymist.reader').start()}; vim.fn.jobstart=jobstart; return result end)()")
+        self.assertEqual(result[0], False)
+        self.assertTrue(e.lua_rpc('package.loaded.lualine.enabled'))
+        self.assertEqual(e.lua_rpc('package.loaded.lualine.changes'), [False, True])
+        self.assertEqual(len(e.lua_rpc('vim.api.nvim_list_wins()')), 1)
+        self.start()
+        self.assertFalse(e.lua_rpc('package.loaded.lualine.enabled'))
+        os.write(e.master, b'q')
+        e.pump_until(lambda: len(e.lua_rpc('vim.api.nvim_list_wins()')) == 1)
+        self.assertTrue(e.lua_rpc('package.loaded.lualine.enabled'))
+        self.assertEqual(e.lua_rpc('vim.wo.statusline'), 'Lualine status')
+        self.assertEqual(e.lua_rpc('vim.o.laststatus'), 3)
+
+    def test_lualine_loaded_after_start_restores_after_buffer_replacement(self):
+        e = self.editor
+        self.start()
+        self.assertTrue(e.lua_rpc('package.loaded.lualine==nil'))
+        e.simulate_lualine()
+        e.pump_until(lambda: not e.lua_rpc('package.loaded.lualine.enabled'))
+        self.assertIn('Flow Reader', e.lua_rpc('vim.wo.statusline'))
+        window = e.lua_rpc('vim.api.nvim_get_current_win()')
+        replacement = e.lua_rpc("(function() vim.cmd.stopinsert(); local buf=vim.api.nvim_create_buf(true,false); vim.api.nvim_buf_set_lines(buf,0,-1,false,{'Replacement work'}); vim.api.nvim_win_set_buf(0,buf); return buf end)()")
+        e.pump_until(lambda: {"stopped": True} in e.events())
+        self.assertTrue(e.lua_rpc('package.loaded.lualine.enabled'))
+        self.assertEqual(e.lua_rpc('package.loaded.lualine.changes'), [False, True])
+        self.assertEqual(e.lua_rpc('vim.api.nvim_get_current_win()'), window)
+        self.assertEqual(e.lua_rpc('vim.api.nvim_get_current_buf()'), replacement)
+        self.assertTrue(e.lua_rpc('vim.bo.modified'))
 
     def test_overlapping_float_hides_images_until_its_border_is_removed(self):
         e = self.editor

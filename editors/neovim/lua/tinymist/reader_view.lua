@@ -93,10 +93,32 @@ function View:status(message)
   end
 end
 
+function View:sync_lualine()
+  local focused = not self.closed and vim.api.nvim_get_current_win() == self.win
+    and vim.api.nvim_win_get_buf(self.win) == self.buf
+  if focused and not self.lualine then
+    local lualine = package.loaded.lualine
+    if type(lualine) ~= 'table' or type(lualine.hide) ~= 'function'
+      or type(lualine.refresh) ~= 'function' then return end
+    self.lualine = lualine
+    local laststatus = vim.o.laststatus
+    lualine.hide { place = { 'statusline' } }
+    -- hide() restores the layout from before lualine setup; keep the current layout.
+    vim.o.laststatus = laststatus
+    if self.status_text then vim.wo[self.win].statusline = self.status_text end
+  elseif not focused and self.lualine then
+    local lualine = self.lualine
+    self.lualine = nil
+    lualine.hide { place = { 'statusline' }, unhide = true }
+    lualine.refresh { scope = 'window', place = { 'statusline' }, force = true }
+  end
+end
+
 function View:update()
   if self.closed then return end
   local rect = self:layout()
   if not rect then self.options.on_close(); return end
+  self:sync_lualine()
   self:status()
   if self.measuring then rect.visible = false end
   if not vim.deep_equal(rect, self.rect) then
@@ -170,6 +192,7 @@ function View:close()
     if vim.api.nvim_win_is_valid(self.source_win) then vim.api.nvim_set_current_win(self.source_win) end
     vim.cmd.stopinsert()
   end
+  self:sync_lualine()
   vim.cmd('redraw!')
 end
 

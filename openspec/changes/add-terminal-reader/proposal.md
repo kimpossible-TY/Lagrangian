@@ -15,6 +15,7 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 - Make the default Neovim start open an internal right-hand Reader view in the same terminal connection, forwarding browser input and positioned image frames through the editor's TUI. Keep native panes and manual attachment as explicit alternatives.
 - Show animated loading feedback and elapsed time in the Reader window's statusline until its first current image is ready.
 - Preserve native Neovim divider dragging and expose window-width controls from Reader input mode, keeping browser selections separate from editor gestures.
+- Pause an already loaded lualine statusline while the Reader is focused and restore it when focus returns to source or the Reader closes.
 
 ## Capabilities
 
