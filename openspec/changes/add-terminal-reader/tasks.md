@@ -148,3 +148,15 @@
 - Headless Neovim smoke passed. Real Chromium/Neovim integration: 25 checks passed, including both window widths changing and a newly positioned 420x580 SIXEL browser frame after dragging the divider. Existing source navigation, review persistence, Save for Codex, verified highlights and quit remain covered. Inspected the browser snapshot.
 - Canonical guide PDF/HTML and rendered control wording, generated docs, scoped ESLint/Prettier, Python syntax, strict OpenSpec validation and diff whitespace checks passed.
 - The user confirmed Reader operation after upgrading Windows Terminal from 1.18. This divider enhancement has not yet been exercised on their physical Windows Terminal/Devtunnel path. No user editor configuration, installation or live service was changed.
+
+## 14. Avoid statusline refresh flicker
+
+- [x] 14.1 Reproduce competing Reader/lualine statusline writes in an isolated editor; update feedback only on content changes and scope image invalidation to Reader-buffer redraws.
+- [x] 14.2 Verify external statusline refreshes, new feedback, delayed loading, full Reader redraws and existing TUI/browser interactions; align the guide and record physical coverage separately.
+
+### Statusline flicker verification, 2026-10-22
+
+- Reproduced the user's local lualine/global-statusline combination in a disposable Neovim TUI without loading or changing their full configuration. Before the fix, lualine and unchanged Flow Reader controls alternated six times over three seconds, with six redundant image transmissions. After the fix, the same idle interval had zero statusline changes, image transmissions or output bytes.
+- Twenty-seven isolated Neovim TUI scenarios passed. New coverage exercises an external statusline refresh timer, unchanged/new feedback, statusline-only and source-only redraws, full Reader redraw recovery, delayed loading ticks/first image and preservation of source status, global status mode and unsaved source text. A focused delayed-frame check passed after fixture formatting.
+- Headless Neovim smoke and 25 real Chromium/Neovim integration checks passed, including divider resizing, current frame placement, browser input, source navigation, review persistence, Save for Codex and verified source highlights.
+- Canonical guide PDF/HTML, rendered wording, generated docs, strict OpenSpec validation, Python syntax and diff whitespace checks passed. This change adds no dependency on lualine and does not modify user configuration, install a release or restart a live service. Physical Windows Terminal/Devtunnel flicker remains separate coverage.

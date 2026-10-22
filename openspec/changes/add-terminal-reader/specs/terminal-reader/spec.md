@@ -113,6 +113,12 @@ The default Neovim view SHALL position image frames inside its current window, f
 - **THEN** the old frame is not presented and obsolete images are cleared before the editor is redrawn
 - **AND** closing stops only that view's owned browser and service
 
+#### Scenario: Statusline plugin refreshes while Reader is focused
+- **WHEN** a statusline plugin replaces Reader feedback and periodically refreshes its statusline while the Reader message remains unchanged
+- **THEN** periodic frames do not replace the plugin's statusline again or change the user's plugin configuration
+- **AND** statusline-only refreshes do not retransmit the Reader image, while an actual Reader-buffer redraw restores it
+- **AND** loading progress and new Reader feedback still update when their content changes
+
 #### Scenario: User drags the source and Reader divider
 - **WHEN** a mouse-enabled Neovim user presses the divider and drags it left or right, with either source or Reader focused
 - **THEN** Neovim adjusts both window widths and the Reader renders at its new measured position and size
