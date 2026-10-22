@@ -119,6 +119,14 @@ The default Neovim view SHALL position image frames inside its current window, f
 - **AND** statusline-only refreshes do not retransmit the Reader image, while an actual Reader-buffer redraw restores it
 - **AND** loading progress and new Reader feedback still update when their content changes
 
+#### Scenario: Focus switches between Reader and source with lualine loaded
+- **WHEN** focus enters the owned Reader window and lualine is already loaded
+- **THEN** its statusline refresh is paused and the Reader statusline remains visible through loading and normal reading
+- **AND** returning to source or another window/tab restores and refreshes lualine
+- **AND** closing or replacing the Reader and failing its launch restore any lualine statusline paused by that view
+- **AND** the current global/per-window status layout, lualine configuration, tabline and winbar are preserved
+- **AND** starting the Reader without lualine does not load or require that plugin
+
 #### Scenario: User drags the source and Reader divider
 - **WHEN** a mouse-enabled Neovim user presses the divider and drags it left or right, with either source or Reader focused
 - **THEN** Neovim adjusts both window widths and the Reader renders at its new measured position and size
