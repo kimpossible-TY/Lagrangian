@@ -189,6 +189,11 @@ log({stopped:true});
         if signal_editor:
             self.process.send_signal(signal.SIGWINCH)
 
+    def mouse(self, button, column, row, release=False):
+        ending = 'm' if release else 'M'
+        os.write(self.master, f'\x1b[<{button};{column};{row}{ending}'.encode())
+        self.pump(0.06)
+
     def events(self):
         log = self.work / "input.jsonl"
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -298,6 +303,74 @@ class NeovimViewTests(unittest.TestCase):
         self.assertNotIn(b"suspended", e.output)
         os.write(e.master, b"j")
         e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_cursor(0)[1]") == 2)
+
+    def test_divider_drag_resizes_both_windows_without_browser_input(self):
+        e = self.editor
+        self.start()
+        source, view = e.lua_rpc("vim.api.nvim_list_wins()")
+        mouse_option = e.lua_rpc("vim.o.mouse")
+        for source_focus, delta in [(False, 8), (False, -12), (True, 7), (True, -9)]:
+            with self.subTest(source_focus=source_focus, delta=delta):
+                e.lua_rpc("(function() vim.cmd.stopinsert(); vim.api.nvim_set_current_win(" + str(source if source_focus else view) + "); " + ("" if source_focus else "vim.cmd.startinsert(); ") + "return true end)()")
+                before = e.lua_rpc("{vim.api.nvim_win_get_width(" + str(source) + "),vim.api.nvim_win_get_width(" + str(view) + "),vim.api.nvim_win_get_position(" + str(view) + ")}")
+                divider, row = before[2][1], before[2][0] + 4
+                e.output.clear()
+                e.mouse(0, divider, row)
+                e.mouse(32, divider + delta, row)
+                e.mouse(0, divider + delta, row, release=True)
+                after = e.lua_rpc("{vim.api.nvim_win_get_width(" + str(source) + "),vim.api.nvim_win_get_width(" + str(view) + "),vim.api.nvim_win_get_position(" + str(view) + ")}")
+                self.assertEqual(after, [before[0] + delta, before[1] - delta, [before[2][0], divider + delta]])
+                e.pump_until(lambda: {"viewport": {"width": after[1]*10, "height": 29*20}} in e.events())
+                prefix = f"\x1b7\x1b[1;{after[2][1]+1}H\x1b[?80l\x1bP".encode()
+                e.pump_until(lambda: prefix in e.output)
+        self.assertFalse(any(key in event for event in e.events() for key in ("down", "move", "up")))
+        self.assertEqual(e.lua_rpc("vim.o.mouse"), mouse_option)
+        self.assertEqual(e.source.read_text(), "Hello source.\nSecond line.\n")
+
+    def test_cross_divider_drags_keep_their_starting_owner(self):
+        e = self.editor
+        self.start()
+        source, view = e.lua_rpc("vim.api.nvim_list_wins()")
+        position, width = e.lua_rpc("{vim.api.nvim_win_get_position(0),vim.api.nvim_win_get_width(0)}")
+        divider, row = position[1], position[0] + 4
+        # Reader selection still releases in the browser outside its rectangle.
+        e.mouse(0, divider + 5, row)
+        e.mouse(32, divider - 6, row)
+        e.mouse(0, divider - 6, row, release=True)
+        e.pump_until(lambda: {"up": True} in e.events())
+        self.assertIn({"down": True}, e.events())
+        self.assertEqual(e.lua_rpc("vim.api.nvim_win_get_width(" + str(view) + ")"), width)
+        before = len(e.events())
+        # A source selection crossing into the Reader must never reach Chromium.
+        e.lua_rpc("(function() vim.cmd.stopinsert(); vim.api.nvim_set_current_win(" + str(source) + "); return true end)()")
+        e.mouse(0, 3, 1)
+        e.mouse(32, divider + 8, row)
+        e.mouse(0, divider + 8, row, release=True)
+        e.pump(0.2)
+        self.assertFalse(any(key in event for event in e.events()[before:] for key in ("down", "move", "up")))
+        self.assertEqual(e.lua_rpc("vim.api.nvim_get_current_win()"), source)
+        self.assertEqual(e.lua_rpc("vim.api.nvim_win_get_width(" + str(view) + ")"), width)
+
+    def test_reader_keyboard_width_controls_and_terminal_resize(self):
+        e = self.editor
+        e.lua_rpc("(function() vim.o.mouse=''; return true end)()")
+        self.start()
+        source, view = e.lua_rpc("vim.api.nvim_list_wins()")
+        for key, width in [(b'<', 49), (b'>', 50), (b'>', 51), (b'=', 50)]:
+            os.write(e.master, b'\x17' + key)
+            e.pump_until(lambda: e.lua_rpc("vim.api.nvim_win_get_width(" + str(view) + ")") == width)
+            self.assertEqual(e.lua_rpc("vim.fn.mode()"), 't')
+        e.resize(120, 36)
+        e.pump_until(lambda: any(event.get("viewport", {}).get("height") == 33*20 for event in e.events()))
+        geometry = e.lua_rpc("{vim.api.nvim_win_get_width(" + str(source) + "),vim.api.nvim_win_get_width(" + str(view) + "),vim.api.nvim_win_get_position(" + str(view) + "),vim.api.nvim_win_get_height(" + str(source) + ")}")
+        self.assertEqual(geometry[0] + geometry[1] + 1, 120)
+        self.assertEqual(geometry[2], [0, geometry[0] + 1])
+        self.assertEqual(geometry[3], 34)
+        self.assertIn({"viewport": {"width": geometry[1]*10, "height": 33*20}}, e.events())
+        self.assertFalse(any(key in event for event in e.events() for key in ("key", "text")))
+        self.assertTrue(e.lua_rpc("require('tinymist.reader').stop()"))
+        self.assertEqual(e.lua_rpc("vim.api.nvim_win_get_width(0)"), 120)
+        self.assertEqual(e.lua_rpc("vim.o.mouse"), '')
 
     def test_interactive_shell_keeps_editor_in_foreground_during_start(self):
         e = self.editor

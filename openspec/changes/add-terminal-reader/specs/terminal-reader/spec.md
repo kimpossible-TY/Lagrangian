@@ -113,6 +113,21 @@ The default Neovim view SHALL position image frames inside its current window, f
 - **THEN** the old frame is not presented and obsolete images are cleared before the editor is redrawn
 - **AND** closing stops only that view's owned browser and service
 
+#### Scenario: User drags the source and Reader divider
+- **WHEN** a mouse-enabled Neovim user presses the divider and drags it left or right, with either source or Reader focused
+- **THEN** Neovim adjusts both window widths and the Reader renders at its new measured position and size
+- **AND** the gesture is not sent to the browser, even when it crosses into the Reader
+
+#### Scenario: Mouse gestures retain their starting owner
+- **WHEN** a drag begins in the source or Reader document and crosses the divider
+- **THEN** the source gesture remains with Neovim or the Reader gesture remains with the browser through release
+- **AND** a Reader selection does not resize the editor windows
+
+#### Scenario: Reader keyboard width controls
+- **WHEN** a user types `Ctrl-W <`, `Ctrl-W >` or `Ctrl-W =` in Reader input mode
+- **THEN** Neovim decreases or increases the Reader width, or equalizes the windows, without forwarding those keys to the browser
+- **AND** existing global mouse settings and unrelated window mappings are preserved
+
 #### Scenario: Probe failure or interrupted startup
 - **WHEN** terminal capability queries time out, fail or the editor cancels startup
 - **THEN** the temporary response handler is removed, the editor remains running with input and foreground ownership intact, and startup reports failure

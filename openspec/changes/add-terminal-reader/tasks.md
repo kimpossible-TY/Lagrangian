@@ -135,3 +135,16 @@
 - Twenty-two isolated Neovim TUI scenarios passed. New coverage includes same-TUI Windows restart/resize without replies, cache invalidation for a different UI, refusal without SIXEL, positive Kitty and explicit iTerm reports without DA1, capability details in failures and cancellation/handler cleanup. Foreground/input behavior remains covered under an interactive shell.
 - Headless Neovim smoke passed. Real Chromium/Neovim integration: 24 checks passed. Canonical guide PDF/HTML, HTML wording, generated docs, strict OpenSpec validation, Python syntax and diff whitespace checks passed.
 - The user confirmed the same Windows Terminal/Devtunnel connection, but its actual failed response was not captured during this change. Physical verification was requested with a module reload and the new diagnostic output; that result remains unverified. No user configuration, service installation or live-process restart occurred.
+
+## 13. Resize the source and Reader divider
+
+- [x] 13.1 Reproduce divider gestures entering the Reader, preserve native gesture ownership and add Reader-local keyboard width/equalize controls using Neovim's existing split layout.
+- [x] 13.2 Verify divider movement from both window focuses, cross-boundary selections, keyboard and terminal resizing, current browser frame geometry and cleanup; update the canonical guide and record physical coverage separately.
+
+### Divider resizing verification, 2026-10-22
+
+- Reproduced the rightward divider drag being consumed as browser movement, leaving source and Reader widths unchanged. The existing view input owner now forwards drag/release only for a press started inside the Reader; native Neovim split sizing and layout generation remain the sizing owner.
+- Twenty-five isolated Neovim TUI scenarios passed under an interactive shell, including divider dragging left/right from both focuses, current image placement, cross-divider browser/source selections, keyboard width/equalize controls, terminal resizing and cleanup. The focused keyboard test also passed with mouse support disabled and confirmed that setting remained unchanged.
+- Headless Neovim smoke passed. Real Chromium/Neovim integration: 25 checks passed, including both window widths changing and a newly positioned 420x580 SIXEL browser frame after dragging the divider. Existing source navigation, review persistence, Save for Codex, verified highlights and quit remain covered. Inspected the browser snapshot.
+- Canonical guide PDF/HTML and rendered control wording, generated docs, scoped ESLint/Prettier, Python syntax, strict OpenSpec validation and diff whitespace checks passed.
+- The user confirmed Reader operation after upgrading Windows Terminal from 1.18. This divider enhancement has not yet been exercised on their physical Windows Terminal/Devtunnel path. No user editor configuration, installation or live service was changed.
