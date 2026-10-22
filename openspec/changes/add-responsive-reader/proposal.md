@@ -24,6 +24,11 @@ names compete; a local collision alone must not turn a fitting short name into
 a popover. Keep longer explanations and physically oversized names accessible
 through the existing popover controls.
 
+Replace annotation-only braces and brackets with the same adaptive association
+when a mannot target has a text note. Remove the grouping paint and its anchor
+outset together, preserving independent grouping, other mathematical decorations
+and graphical relationships.
+
 Use the tablet's wider reading canvas instead of limiting the entire document
 to a narrow book column. Side notes reserve their measured width and height only
 within the equation or paragraph they annotate; ordinary passages regain the

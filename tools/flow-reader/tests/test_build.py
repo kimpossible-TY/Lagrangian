@@ -213,6 +213,94 @@ class TypstIntegrationTests(unittest.TestCase):
             self.assertEqual(report["elements"].get("msub"), 1)
             self.assertEqual(report["annotations"], 1)
 
+    def test_mannot_text_notes_replace_only_their_grouping_decorations(self):
+        from html.parser import HTMLParser
+        from unicodedata import normalize
+        from xml.etree import ElementTree as ET
+
+        class Document(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.tree = ET.TreeBuilder()
+
+            def handle_starttag(self, tag, attrs):
+                self.tree.start(tag, {key: value or "" for key, value in attrs})
+
+            def handle_endtag(self, tag):
+                self.tree.end(tag)
+
+            def handle_data(self, data):
+                self.tree.data(data)
+
+        with tempfile.TemporaryDirectory() as temp:
+            project = build.Project(ROOT / "tests/fixtures", Path("annotation-grouping.typ"),
+                                    self.packages, compiler=self.compiler)
+            output = Path(temp)
+            report = build.compile_project(project, output)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            source = (output / "document.html").read_text()
+            body = source.split("<body>", 1)[1].split("</body>", 1)[0]
+            parser = Document()
+            parser.feed("<body>" + body + "</body>")
+            document = parser.tree.close()
+            marks = {node.get("data-flow-mark"): node
+                     for node in document.findall('.//*[@data-flow-mark]')}
+            for tag in ("brace-note", "bracket-note", "native-underbrace", "native-overbrace",
+                        "native-underbracket", "native-overbracket", "equation-note"):
+                with self.subTest(tag=tag):
+                    mark = marks[tag]
+                    self.assertNotIn("data-flow-decoration", mark.attrib)
+                    self.assertIsNone(mark.find(".//{*}munder"))
+                    self.assertIsNone(mark.find(".//{*}mover"))
+            self.assertEqual(normalize("NFKC", ''.join(marks["brace-note"].itertext())),
+                             "a+b+c+d+e+f+g+h+i+j+k+l")
+            self.assertEqual(normalize("NFKC", ''.join(marks["equation-note"].itertext())), "m+n")
+            self.assertEqual(report["annotations"], 10)
+            for tag in ("tag-only", "underline-note", "callback-note"):
+                self.assertIn("data-flow-decoration", marks[tag].attrib, tag)
+            self.assertIsNotNone(marks["overline-note"].find(".//{*}mover"))
+            self.assertIsNotNone(marks["nested-group"].find(".//{*}munder"))
+            self.assertEqual(report["elements"].get("munder"), 3)
+            self.assertEqual(report["elements"].get("mover"), 3)
+            self.assertEqual(len(report["decorations"]), 4)
+
+    def test_mannot_grouping_resolves_text_notes_before_multi_target_marks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            (work / "main.typ").write_text(
+                '#import "@preview/cetz:0.4.2"\n'
+                '#import "@preview/mannot:0.4.0": mark, markub, annot\n'
+                '#import "@preview/mannot:0.4.0": annot-cetz\n'
+                '#annot((<first>, <second>))[both]\n'
+                '$ markub(a+b, tag: #<first>) + mark(overbrace(c+d), tag: #<second>) $\n'
+                '$ markub(underbrace(x+y), tag: #<graphic>) = 1 $\n'
+                '#annot-cetz(<graphic>, cetz, {\n'
+                '  cetz.draw.content((0, 0), [Graphical label], anchor: "north-west")\n'
+                '})')
+            project = build.Project(work, Path("main.typ"), self.packages, compiler=self.compiler)
+            output = work / "output"
+            report = build.compile_project(project, output)
+            self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
+            self.assertEqual(report["annotations"], 2)
+            self.assertEqual(len(report["decorations"]), 1, "Graphical-only grouping keeps its paint")
+            self.assertEqual(report["elements"].get("munder"), 1)
+            self.assertEqual(report["elements"].get("mover", 0), 0)
+
+    def test_mannot_grouping_keeps_original_paged_rendering(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            build.prepare_packages(self.packages, work / "overlay")
+            for name, packages in (("original", self.packages), ("reader", work / "overlay")):
+                command = [self.compiler, "compile", "--creation-timestamp", "1760000000",
+                           "--root", str(ROOT / "tests/fixtures"), "--package-path", str(packages),
+                           "-", str(work / f"{name}.pdf")]
+                prelude = ('#import "@local/flow-reader:0.1.0": apply-reader\n#show: apply-reader\n'
+                           if name == "reader" else "")
+                result = subprocess.run(command, input=prelude + '#include "annotation-grouping.typ"',
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((work / "original.pdf").read_bytes(), (work / "reader.pdf").read_bytes())
+
     def test_highlighted_preserves_text_and_native_math_in_html(self):
         from xml.etree import ElementTree as ET
 

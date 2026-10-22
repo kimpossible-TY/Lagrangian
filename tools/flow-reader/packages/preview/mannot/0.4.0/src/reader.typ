@@ -5,6 +5,31 @@
 
 #let decoration-counter = counter("flow-reader-decoration")
 
+#let is-text-target(tag) = {
+  tag != none and query(<flow-reader-text-annotation>).any(it => str(tag) in it.value)
+}
+
+// Only a group enclosing the complete target is replaced by its text note.
+// Inner grouping within a larger expression retains its independent meaning.
+#let without-annotation-group(body) = {
+  if type(body) != content { return body }
+  if body.func() == math.equation {
+    let inner = without-annotation-group(body.body)
+    if inner == body.body { return body }
+    let fields = body.fields()
+    let _ = fields.remove("body")
+    let tag = fields.remove("label", default: none)
+    [#math.equation(inner, ..fields)#tag]
+  } else if (
+    body.func() in (math.underbrace, math.overbrace, math.underbracket, math.overbracket)
+    and body.fields().at("annotation", default: none) == none
+  ) {
+    body.body
+  } else {
+    body
+  }
+}
+
 #let decoration(id, underlay, overlay, color, outset, inset) = context {
   let request = flow-inputs.geometry("decorations").at(id, default: none)
   if request != none {

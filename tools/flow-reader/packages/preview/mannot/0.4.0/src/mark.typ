@@ -370,6 +370,7 @@
   return context {
     if target() == "html" {
       if tag != none { [#metadata((kind: "flow-mark", tag: str(tag), body: body, color: color))#tag] }
+      let body = if reader.is-text-target(tag) { reader.without-annotation-group(body) } else { body }
       let attrs = (class: "flow-mark", "data-flow-mark": if tag == none { "" } else { str(tag) })
       if color != auto { attrs.insert("style", "color:" + color.to-hex()) }
       if underlay == none and overlay == none {
@@ -875,6 +876,10 @@
   (body, tag, color) = _coerce-args(args, body, tag, color)
 
   context {
+    if target() == "html" and reader.is-text-target(tag) {
+      // The adaptive note replaces this bracket and its anchor/mark outsets.
+      return core-mark(body, tag: tag, color: color)
+    }
     let overlay = (width, height, color) => {
       let ub = math.equation(math.stretch(bracket, size: width), block: true)
       let size = measure(ub)

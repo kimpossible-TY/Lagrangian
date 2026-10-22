@@ -84,7 +84,8 @@ class DecorationCompilerTests(unittest.TestCase):
             self.assertEqual(cancel["stroke"]["thickness"], {"px": 2, "em": 0})
             prepare_packages(Path(packages), output / "overlay")
             for name, package_path in (("original", Path(packages)), ("reader", output / "overlay")):
-                result = subprocess.run([compiler, "compile", "--root", str(project.root),
+                result = subprocess.run([compiler, "compile", "--creation-timestamp", "1760000000",
+                                         "--root", str(project.root),
                                          "--package-path", str(package_path),
                                          str(project.root / project.entry), str(output / f"{name}.pdf")],
                                         capture_output=True, text=True)
