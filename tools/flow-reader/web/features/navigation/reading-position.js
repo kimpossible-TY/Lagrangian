@@ -130,10 +130,12 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
             anchor.canvasIdentity),
     );
     const block =
-      readBlocks().find((node) => node.dataset.readerKey === anchor.key) ??
+      candidates.find((node) => node.dataset.readerKey === anchor.key) ??
       (candidates.length === 1 ? candidates[0] : null);
     if (block) {
-      window.scrollBy(0, block.getBoundingClientRect().top - 90 - anchor.offset);
+      // Match capture's integer target. Fractional scrollBy values are rounded
+      // differently by engines and otherwise drift at every recovery render.
+      window.scrollBy(0, Math.round(block.getBoundingClientRect().top) - 90 - anchor.offset);
       if (document.documentElement.clientWidth === anchorWidth) {
         stableAnchor = anchor;
         stableScrollY = scrollY;

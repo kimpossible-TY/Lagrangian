@@ -7,9 +7,12 @@
     "LaunchAgentService.swift",
     "EngineLaunch.swift",
     "ProjectService.swift",
+    "PreviewReadiness.swift",
+    "ReadingSessionController.swift",
     "CLI.swift"
   ],
   "app": [
+    "NativeReadingEnvironment.swift",
     "FlowApp.swift",
     "main.swift"
   ]

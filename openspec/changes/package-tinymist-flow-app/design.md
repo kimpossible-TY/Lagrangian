@@ -27,6 +27,16 @@ Non-goals: replacing tinymist at runtime, a new editor, or an automatic public u
 
 ## Risks / Trade-offs
 
+### Reading session continuity
+
+- A native reading-session controller owns request generations, asynchronous lifecycle work, readiness deadlines and status reconciliation. AppKit callbacks collect input and render state; process commands and settings writes run away from the main thread, with serialized mutations. Selecting another profile, stopping or disposing invalidates pending browser opens and old status completions.
+- Read validates the selected profile, starts or reuses its managed service, observes its PID and verifies document availability before opening the configured URL once. A static HTTP page or accepted launchctl command is not proof of a readable document. Reuse the preview's existing compiler/document protocol where possible. Native readiness means a document is available; actual browser rendering remains owned and reported by the reader.
+- Startup and network requests have bounded waits and actionable inline failure states. Background probes are coalesced, command completion triggers reconciliation immediately, and a late response cannot revive stopped state. Persistent errors remain visible until retry or a meaningful state change.
+- Sleep suspends native probes and invalidates in-flight results; wake and network changes trigger fresh reconciliation without automatically opening tabs or restarting explicitly stopped services. Battery, Low Power Mode and elevated thermal conditions reduce idle polling; explicit user actions remain prompt. Do not inhibit system sleep or silently terminate previews to save energy. App termination disposes monitors and pending browser opens while launchd services retain their existing independent lifetime.
+- Paged and HTML transports retain accepted DOM while disconnected, retry with capped backoff, and respond to online/pageshow/visibility. A new connection must discard obsolete transport work. Preserve viewport, zoom and selected text while reconnecting. Existing selection holds defer replacement until explicit selection release; do not expire selection on a timer. Any restored anchors or ranges must belong to the same document and match current content, and new user interaction wins over an older recovery snapshot.
+- Renderer geometry stays in the paged and HTML adapters. Shared policy is extracted only for identical semantics. Source-writing actions keep their existing revision/source/service freshness checks even while old selected content remains visible.
+- Validate with injected native lifecycle/probe/power collaborators, real local HTTP/WebSocket fixtures and browser transport interruption/restart fixtures. Development validation must not install or restart user services.
+
 - Ad-hoc signing can require new Documents consent after updates; stable bundle naming alone does not promise persistent TCC grants. Support a real signing identity when available.
 - Updates may fail after installation due to OS consent. Preserve the previous app and report health failure rather than claiming success.
 - The app manages only configured projects. Tail Hosting remains responsible for remote HTTPS and access policy.

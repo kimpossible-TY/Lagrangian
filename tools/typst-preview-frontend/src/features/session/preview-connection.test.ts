@@ -18,17 +18,24 @@ class TestSocket extends EventTarget {
   }
 }
 
-function viewer(hidden = false) {
+function viewer(hidden = false, online = true) {
   vi.useFakeTimers();
   const page = Object.assign(new EventTarget(), { hidden });
   const lifecycle = new EventTarget();
   const sockets: TestSocket[] = [];
   const callbacks = { opened: vi.fn(), message: vi.fn(), disconnected: vi.fn() };
-  const connection = new PreviewConnection("ws://preview", callbacks, page, lifecycle, () => {
-    const socket = new TestSocket();
-    sockets.push(socket);
-    return socket;
-  });
+  const connection = new PreviewConnection(
+    "ws://preview",
+    callbacks,
+    page,
+    lifecycle,
+    () => {
+      const socket = new TestSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    { onLine: online },
+  );
   const visibility = (hidden: boolean) => {
     page.hidden = hidden;
     page.dispatchEvent(new Event("visibilitychange"));
@@ -166,6 +173,52 @@ describe("suspended preview connections", () => {
     expect(v.sockets).toHaveLength(0);
     v.visibility(false);
     expect(v.sockets).toHaveLength(1);
+    v.connection.dispose();
+  });
+
+  it("makes no initial or retry network requests while known offline", () => {
+    const v = viewer(false, false);
+    vi.advanceTimersByTime(60000);
+    v.lifecycle.dispatchEvent(new Event("pageshow"));
+    expect(v.sockets).toHaveLength(0);
+    v.lifecycle.dispatchEvent(new Event("online"));
+    expect(v.sockets).toHaveLength(1);
+    v.sockets[0].close();
+    v.lifecycle.dispatchEvent(new Event("offline"));
+    vi.advanceTimersByTime(60000);
+    expect(v.sockets).toHaveLength(1);
+    v.lifecycle.dispatchEvent(new Event("online"));
+    expect(v.sockets).toHaveLength(2);
+    v.connection.dispose();
+  });
+
+  it("suspends a foreground probe offline and probes the retained socket on return", () => {
+    const v = viewer();
+    v.sockets[0].open();
+    v.connection.supportPing();
+    v.lifecycle.dispatchEvent(new Event("pageshow"));
+    v.lifecycle.dispatchEvent(new Event("offline"));
+    vi.advanceTimersByTime(60000);
+    expect(v.sockets[0].close).not.toHaveBeenCalled();
+    v.lifecycle.dispatchEvent(new Event("online"));
+    expect(v.sockets[0].send).toHaveBeenCalledTimes(2);
+    v.sockets[0].message();
+    vi.advanceTimersByTime(60000);
+    expect(v.sockets).toHaveLength(1);
+    v.connection.dispose();
+    v.lifecycle.dispatchEvent(new Event("offline"));
+    v.lifecycle.dispatchEvent(new Event("online"));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("replaces an older engine's open socket after actual offline recovery without probing it", () => {
+    const v = viewer();
+    v.sockets[0].open();
+    v.lifecycle.dispatchEvent(new Event("offline"));
+    v.lifecycle.dispatchEvent(new Event("online"));
+    expect(v.sockets[0].send).not.toHaveBeenCalled();
+    expect(v.sockets[0].close).toHaveBeenCalledOnce();
+    expect(v.sockets).toHaveLength(2);
     v.connection.dispose();
   });
 });

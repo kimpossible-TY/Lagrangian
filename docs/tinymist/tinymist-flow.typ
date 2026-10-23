@@ -32,10 +32,12 @@ If Flow is installed, follow these steps. For a new Mac, use the #link("#first-i
 + Open `~/Applications/tinymist-flow.app`.
 + Click *Add Project* (프로젝트 추가…) and select your document's `.typ` entry file. To try the features, select `docs/tinymist/examples/reading-demo.typ` from this checkout.
 + If the document belongs to a larger workspace, set *Project folder* (프로젝트 폴더) to its root. Add any required font or package folders, then click *Save settings* (설정 저장).
-+ Click *Start* (시작), then *Open Preview* (프리뷰 열기). Wait for the document to render.
++ Click *Start reading* (읽기 시작). Flow validates and saves changed settings, starts the preview, and opens the browser when a document is available. Preparation progress and failures appear in the app window.
 + Save a source edit in your editor to see the preview update. Select a sentence to reveal the reading actions.
 
 Closing the app leaves started previews running. Use *Stop* (중지) to stop a project and disable its automatic service startup. The app's *Usage, update and recovery guide* (사용·업데이트·복구 안내) menu opens the bundled PDF.
+
+Keep the reading tab open through a temporary interruption: the reader reconnects while preserving the accepted content and selection. Flow checks service state after wake and network changes, reduces idle checks under battery or power constraints, and respects system sleep. See the #link("flow-app.md#resume-after-an-interruption")[resume guide] for recovery behavior.
 
 == Read on your phone or tablet
 

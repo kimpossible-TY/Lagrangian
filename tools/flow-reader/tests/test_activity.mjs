@@ -159,3 +159,13 @@ test("selection release is explicit and disposal removes listeners and delayed f
     [globalThis.document, globalThis.window] = previous;
   }
 });
+
+test("an equal revision from another document cannot report the old content ready", () => {
+  const state = new ReaderActivityState();
+  state.update(accepted("r1", { documentID: "first" }));
+  rendered(state, 1, "r1");
+  state.update(accepted("r1", { documentID: "second" }));
+  assert.equal(state.phase("selection-held"), "selection-held");
+  rendered(state, 2, "r1");
+  assert.equal(state.phase(), "ready");
+});

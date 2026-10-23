@@ -1,4 +1,4 @@
-import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
+import { hasPreviewSelection } from "typst-dom/touch-selection.mjs";
 import {
   ActivityNotice,
   activityPhase,
@@ -69,7 +69,7 @@ export class PreviewActivityState {
   }
 }
 
-/** Paged engine events and native touch selection adapt the shared notice. */
+/** Paged engine events and native text selection adapt the shared notice. */
 export class PreviewActivity {
   readonly state = new PreviewActivityState();
   private notice: ActivityNotice;
@@ -81,11 +81,11 @@ export class PreviewActivity {
       phase: () => this.state.phase,
       hasSelection: () => {
         const app = root();
-        return Boolean(app && hasTouchSelection(app));
+        return Boolean(app && hasPreviewSelection(app));
       },
       releaseSelection: () => {
         const app = root();
-        if (app && hasTouchSelection(app)) app.ownerDocument.getSelection()?.removeAllRanges();
+        if (app && hasPreviewSelection(app)) app.ownerDocument.getSelection()?.removeAllRanges();
       },
     });
   }

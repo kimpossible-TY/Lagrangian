@@ -20,17 +20,25 @@ Use Flow to manage a document's live preview while editing its Typst source in y
 + Click *Add Project* (프로젝트 추가…) and select the document's `.typ` entry file. The #link("examples/reading-demo.typ")[reading demo] is a small document for trying selection, highlights, references, and themes.
 + Check *Project folder* (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
 + Add any required font or package folders, then click *Save settings* (설정 저장).
-+ Click *Start* (시작), then *Open Preview* (프리뷰 열기). Wait for the document to appear, and save a source edit in your editor to see it update.
++ Click *Start reading* (읽기 시작). Flow saves changed settings, starts the preview if needed, and opens your browser once the engine has a document available. Save a source edit in your editor to see the preview update.
 
-*Result:* Flow runs a preview for this project and opens it in your browser. Each project keeps its own entry file, settings, port, and preview lifecycle. If the document does not appear, use *Logs* (로그) and the troubleshooting steps below.
+*Result:* Flow runs a preview for this project and opens it in your browser. The same window shows settings validation, the start request, the running engine and document readiness. The browser reports its own rendering progress. If preparation fails, the explanation stays in the window; correct the cause and choose *Read again* (다시 읽기). *Logs* (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
 
 == Project controls and settings
 
 Choose a project from the picker to open or control its preview. *Stop* (중지) disables its service until you use Start again; *Restart* (재시작) restarts it. Closing the project window or quitting the menu bar app leaves started previews running.
 
+*Start reading* also works for an already running project. It waits for an available document before opening the configured address. *Start* starts the service without opening a browser. Switching projects or choosing *Stop* cancels a pending browser opening. Service and settings operations run in the background so the window remains responsive.
+
 Font paths are relative to the project root and separated by semicolons. For example, `fonts;../shared-fonts` selects two folders. The local package folder is optional; use it when your document depends on local packages. Saving changed settings restarts a running preview.
 
 The login checkbox opens the menu bar app after login. Started preview services also resume after login independently of that checkbox. Sleeping or logging out can interrupt availability.
+
+== Resume after an interruption
+
+After a temporary network interruption or engine restart, keep the reading tab open. The paged and HTML readers retain the accepted document and retry the connection. Returning to the tab or reconnecting the network prompts a fresh check. Reading position and zoom stay with the document; an active text selection keeps its displayed content until you explicitly clear it. Source actions still check that the selected revision and source are current.
+
+Flow pauses background status checks while the Mac sleeps and checks again after wake or a network change. Recovery does not open an extra tab or start a project you stopped. On battery, in Low Power Mode or under elevated thermal conditions, Flow checks idle services less often; an explicit reading action remains immediate. Flow respects system sleep and keeps requested previews running independently of the app. Remote reading is available again once the Mac is awake and its network route has recovered.
 
 The app's *Usage, update and recovery guide* (사용·업데이트·복구 안내) menu opens the bundled PDF. This web guide and that PDF are generated from the same Typst source.
 
@@ -60,7 +68,7 @@ Select text to copy a passage or use the reading actions. On a touch device, lon
 
 #image("images/mobile-selection.png", width: 65mm, alt: "Reading demo with a selected sentence and the Highlight, Save for Codex, and Red strike actions")
 
-*Result:* The selection stays on the rendered revision while you use it. Preview updates wait during an active touch text selection; dismiss the selection to apply pending edits. Copying covers the currently populated preview pages, rather than an arbitrary range across the whole document.
+*Result:* The selection stays on the rendered revision while you use it. Preview updates wait during an active text selection on desktop and touch devices; dismiss the selection to apply pending edits. Copying covers the currently populated preview pages, rather than an arbitrary range across the whole document.
 
 Dragging or long-pressing does not save a Codex source location. Use *Save for Codex* to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
 

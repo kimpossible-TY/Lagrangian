@@ -9,7 +9,7 @@ import "./styles/selection-actions.css";
 
 import { wsMain, PreviewMode } from "./ws";
 import { setupDrag } from "./drag";
-import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
+import { hasPreviewSelection } from "typst-dom/touch-selection.mjs";
 import {
   DocumentThemeController,
   themeWebSocketUrl,
@@ -43,7 +43,7 @@ function main() {
     const controller = new DocumentThemeController(
       window.matchMedia("(prefers-color-scheme: dark)"),
       document,
-      () => hasTouchSelection(document.getElementById("typst-app")),
+      () => hasPreviewSelection(document.getElementById("typst-app")),
       (theme) => {
         document.documentElement.dataset.documentTheme = theme;
         document.documentElement.style.removeProperty("--typst-preview-background-color");

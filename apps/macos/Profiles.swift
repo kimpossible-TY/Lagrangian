@@ -13,7 +13,7 @@ private func matches(_ value: String, _ pattern: String) -> Bool {
   value.range(of: pattern, options: .regularExpression) != nil
 }
 
-struct Profile: Codable {
+struct Profile: Codable, Equatable {
   var id: String
   var name: String
   var root: String

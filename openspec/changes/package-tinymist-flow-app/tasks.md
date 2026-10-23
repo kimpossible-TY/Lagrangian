@@ -38,3 +38,12 @@
 - [x] 7.2 Reorganize the canonical user guide around reading and review tasks, mobile access, Codex reader setup, and troubleshooting while retaining maintenance guidance.
 - [x] 7.3 Generate a GitHub-readable user guide from the bundled guide source and document generation for all outputs.
 - [x] 7.4 Validate Markdown generation and local links, compile and inspect the Typst documents, and run app build and tests for the bundled guide.
+
+## 8. Seamless reading sessions
+- [x] 8.1 Implement asynchronous native reading-session orchestration, verified readiness, bounded failures, cancellation and stale-result protection with isolated tests.
+- [x] 8.2 Wire Read, service controls, settings operations and inline accessible progress into AppKit without blocking the main thread.
+- [x] 8.3 Reconcile native state after wake/network changes and implement tested battery, Low Power Mode and thermal polling policy with proper disposal.
+- [x] 8.4 Preserve paged reader viewport, zoom and selection across network interruption and engine reconnect; verify retry and stale-session behavior.
+- [x] 8.5 Preserve HTML reader position and selection across interruption and service restart with bounded requests and document/source freshness guards.
+- [x] 8.6 Update canonical user/developer documentation and source ownership, regenerate Markdown, and validate OpenSpec.
+- [x] 8.7 Run native, reader, type/lint, preview build and isolated end-to-end interruption/readiness checks; inspect evidence for every continuity requirement and record remaining physical-device coverage.

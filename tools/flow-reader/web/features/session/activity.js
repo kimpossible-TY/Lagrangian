@@ -7,6 +7,7 @@ export class ReaderActivityState {
     this.server = null;
     this.connected = true;
     this.renderedRevision = null;
+    this.renderedDocumentID = null;
     this.sequence = 0;
     this.request = null;
     this.failed = false;
@@ -25,7 +26,9 @@ export class ReaderActivityState {
       compiler,
       pending:
         this.request?.phase ??
-        (this.server?.revision && this.server.revision !== this.renderedRevision
+        (this.server?.revision &&
+        (this.server.revision !== this.renderedRevision ||
+          this.server.documentID !== this.renderedDocumentID)
           ? (held ?? "loading")
           : null),
       rendered: Boolean(this.renderedRevision),
@@ -39,7 +42,7 @@ export class ReaderActivityState {
 
   begin(sequence, revision) {
     this.sequence = sequence;
-    this.request = { revision, phase: "loading" };
+    this.request = { revision, documentID: this.server?.documentID, phase: "loading" };
     this.failed = false;
   }
 
@@ -51,13 +54,17 @@ export class ReaderActivityState {
     if (sequence !== this.sequence) return;
     // Local navigation can supersede the scroll callback after synchronous
     // mounting. That content is already present; a cancelled fetch is not.
-    if (this.request?.phase === "rendering") this.renderedRevision = this.request.revision;
+    if (this.request?.phase === "rendering") {
+      this.renderedRevision = this.request.revision;
+      this.renderedDocumentID = this.request.documentID;
+    }
     this.request = null;
   }
 
   rendered(sequence) {
     if (sequence !== this.sequence || !this.request) return;
     this.renderedRevision = this.request.revision;
+    this.renderedDocumentID = this.request.documentID;
     this.request = null;
   }
 

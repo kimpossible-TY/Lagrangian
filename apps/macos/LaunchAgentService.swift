@@ -6,6 +6,10 @@ struct LaunchAgentService: ProjectControlling {
   var commands = CommandRunner()
   var fileManager: FileManager = .default
   var userID = getuid()
+  var shutdownTimeout: TimeInterval = 10
+  var processExists: (Int) -> Bool = { pid in
+    kill(pid_t(pid), 0) == 0 || errno == EPERM
+  }
 
   func jobPID(_ label: String) -> Int? {
     let result = try? commands.run("/bin/launchctl", ["print", "gui/\(userID)/\(label)"])
@@ -58,12 +62,27 @@ struct LaunchAgentService: ProjectControlling {
     return try body()
   }
 
+  /// bootout may return before its process exits. Keep stop/start and restart ordered,
+  /// including the interval after launchd forgets the job but the old PID is still alive.
+  private func waitForExit(_ profile: Profile, previousPID: Int?) throws {
+    let deadline = Date().addingTimeInterval(shutdownTimeout)
+    while true {
+      let registeredPID = jobPID(profile.label)
+      let previousStillRunning = previousPID.map(processExists) ?? false
+      if registeredPID == nil && !previousStillRunning { return }
+      try require(Date() < deadline, "이전 프리뷰가 아직 종료되지 않았습니다. 잠시 후 다시 시도하세요.")
+      Thread.sleep(forTimeInterval: min(0.1, max(0, deadline.timeIntervalSinceNow)))
+    }
+  }
+
   func control(_ action: String, _ profile: Profile) throws {
     try withControlLock {
       let target = "gui/\(userID)/\(profile.label)"
       if action == "stop" {
+        let pid = jobPID(profile.label)
         try commands.run("/bin/launchctl", ["disable", target])
         try commands.run("/bin/launchctl", ["bootout", target], allowFailure: true)
+        try waitForExit(profile, previousPID: pid)
         return
       }
       try require(action == "start" || action == "restart", "지원하지 않는 작업입니다.")
@@ -89,6 +108,7 @@ struct LaunchAgentService: ProjectControlling {
         fromPropertyList: agent(profile), format: .xml, options: 0)
       try data.write(to: plist, options: .atomic)
       try commands.run("/bin/launchctl", ["bootout", target], allowFailure: true)
+      try waitForExit(profile, previousPID: pid)
       try commands.run("/bin/launchctl", ["enable", target])
       var lastError: Error?
       for _ in 0..<5 {
