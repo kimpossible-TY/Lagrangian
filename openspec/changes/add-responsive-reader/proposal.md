@@ -153,3 +153,16 @@ Export a versioned drawing description for supported solid highlights, rectangle
 Extend measured native-label allocation with automatic compact-label size candidates,
 a readable lower bound, finer nearby position search and reserved source anchors.
 Use full-size numbered fallback when no readable candidate fits; no per-label tuning.
+
+## Browser computation and offline reading
+
+Extend the existing HTML Reader with an installable web app and recoverable offline
+reading of complete accepted snapshots. Move raw Typst compilation into an injected
+execution boundary, with the local executable and an active browser WASM Worker
+as interchangeable executors. Python retains normalization, content audit, source
+mapping, final highlight validation and publication. All viewers consume the same
+server-adopted revision. Expand supported local mathematical/figure composition,
+measure the actual PDE corpus in a Worker, lease shared jobs to visible phones with
+server fallback, and queue revision-bound offline highlight requests for guarded
+reconnection. This work does not require a native iPhone app or deployment to the
+user's running services.

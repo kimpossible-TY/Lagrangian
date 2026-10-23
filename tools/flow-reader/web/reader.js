@@ -5,6 +5,7 @@ import { DocumentStorage } from "./features/session/document-storage.js";
 import { ReaderActivity } from "./features/session/activity.js";
 import { ReaderRecovery, sameSnapshot, sameSession } from "./features/session/recovery.js";
 import { ReaderTransport } from "./features/session/transport.js";
+import { OfflineReader } from "./features/session/offline.js";
 import { createReadingPosition } from "./features/navigation/reading-position.js";
 import { MathDecorations } from "./rendering/math/decorations.js";
 import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
@@ -52,6 +53,16 @@ let serverState = null;
 let disposed = false;
 let awaitingEntryChange = false;
 const transport = new ReaderTransport();
+const offline = new OfflineReader({
+  changed(state) {
+    document.querySelector("#reader-offline-status").textContent = {
+      saving: "오프라인 문서를 저장하고 있습니다.",
+      saved: "이 문서는 오프라인에서도 읽을 수 있습니다.",
+      failed: "문서를 저장하지 못했습니다. 연결과 저장 공간을 확인해 주세요.",
+      unavailable: "현재 연결에서는 오프라인 저장을 사용할 수 없습니다.",
+    }[state];
+  },
+});
 const outlineNavigation = createOutline(article, outline, () => manifest);
 const readingPosition = createReadingPosition(article, {
   readBlocks: () => blocks,
@@ -737,10 +748,15 @@ async function refresh(signal, current) {
     if (candidate.lastChange) awaitingEntryChange = false;
     changes.afterRender();
   }
-  status.dataset.state = state.development ? "incomplete" : "ready";
-  status.textContent = state.development
-    ? "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다."
-    : "";
+  activity.state.connected = !state.offline;
+  if (state.offline)
+    document.querySelector("#reader-offline-status").textContent = "저장된 문서를 읽고 있습니다.";
+  status.dataset.state = state.offline ? "offline" : state.development ? "incomplete" : "ready";
+  status.textContent = state.offline
+    ? "오프라인으로 저장된 문서를 읽고 있습니다. 연결되면 최신 문서를 확인합니다."
+    : state.development
+      ? "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다."
+      : "";
   if (state.revision && !sameSnapshot(state, manifest) && !sameSession(state, pending)) {
     const candidate = await transport.get(
       `api/manifest?revision=${encodeURIComponent(state.revision)}`,
@@ -781,6 +797,7 @@ async function refresh(signal, current) {
         : sectionFor(pending, anchor, target);
     await loadSection(pending, section, { anchor, target, update: true, signal });
   }
+  if (manifest && !state.offline) void offline.save(manifest);
   activity.refresh();
 }
 const recovery = new ReaderRecovery({
@@ -806,3 +823,9 @@ const disposeTerminalBridge = installTerminalBridge({
   loadSection: (document, section) => loadSection(document, section, { terminalFollow: true }),
 });
 recovery.request();
+// Polling is deliberately suspended offline; one cache-backed load restores the app.
+if (navigator.onLine === false) {
+  refresh(undefined, () => !disposed).catch(() => {
+    status.textContent = "저장된 문서가 없습니다. 연결 후 문서를 열어 주세요.";
+  });
+}

@@ -6,11 +6,11 @@ and canonical text. Carriers are discarded before publication.
 """
 
 from collections import Counter
+from dataclasses import replace
 from html.parser import HTMLParser
 import hashlib
 import json
 import re
-import subprocess
 import uuid
 
 from flow_reader.compiler.audit import diagnostic_warnings, normalize_content, unhandled_warnings
@@ -22,7 +22,7 @@ from flow_reader.document.sections import assign_block_ids, separate_assets, spl
 MAX_RANGES = 100000
 
 
-def compile_source_map(project, dependencies, command, wrapper, baseline, work):
+def compile_source_map(project, dependencies, request, baseline, work):
     """Build optional correspondence without making carrier failure a compile failure."""
     carriers = SourceCarriers()
     root = project.root.resolve()
@@ -31,15 +31,10 @@ def compile_source_map(project, dependencies, command, wrapper, baseline, work):
     sources = {path: value for path, value in sources.items() if value is not None}
     shadow = work / "source-root"
     shadow_sources(root, shadow, sources)
-    mapped_command = command.copy()
-    mapped_command[mapped_command.index("--root") + 1] = str(shadow)
-    mapped_command[mapped_command.index("--deps") + 1] = str(work / "mapped-dependencies.json")
-    mapped_command[-1] = str(work / "mapped.html")
-    result = subprocess.run(mapped_command, input=wrapper, text=True,
-                            capture_output=True, cwd=root, timeout=60)
+    result = project.execute(replace(request, root=shadow, timeout=60))
     if result.returncode or unhandled_warnings(diagnostic_warnings(result.stderr)):
         return {"sourceMap": {}, "sourceMapStatus": "compiler-rejected"}
-    annotated = carriers.normalize((work / "mapped.html").read_text())
+    annotated = carriers.normalize(result.artifact.decode("utf-8"))
     mapping = carriers.extract(baseline, annotated)
     return {"sourceMap": mapping, "sourceNavigationMap": carriers.navigation,
             "sourceMapStatus": "verified" if carriers.complete else "partial" if mapping else "unmapped"}

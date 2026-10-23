@@ -756,3 +756,74 @@ The HTML Reader SHALL allocate native figure labels using measured free space, p
 - **THEN** the owner recovers its natural dimensions, preventing compounded reduction or repeated layout drift
 - **AND** width/font changes reset the reduction before measuring, while nested labels and numbered fallback retain full reading size
 - **AND** the same rules apply to every label without source-text or label-number exceptions
+
+
+### Requirement: Replaceable raw compile execution
+The HTML Reader SHALL support injected local and browser compilation while retaining
+server-owned normalization, acceptance, source correspondence and final source writes.
+
+#### Scenario: Browser result follows the existing acceptance gate
+- **WHEN** a browser returns raw HTML, diagnostics and dependencies for an immutable task
+- **THEN** the server applies the same normalization and content audit as local compilation
+- **AND** source carriers and highlight candidates use the same execution contract
+- **AND** a failed or stale result cannot replace the accepted document
+
+#### Scenario: Browser disappears or submits an obsolete result
+- **WHEN** a foreground worker hides, disconnects or exceeds its bounded lease
+- **THEN** the server reassigns the task or executes it locally
+- **AND** late, duplicate or mismatched lease results cannot publish
+- **AND** all viewers continue to receive the same server-adopted revision
+
+#### Scenario: A compiler discovers another input
+- **WHEN** a task needs a file absent from its immutable input bundle
+- **THEN** it cannot read that file from a newer live workspace under the old task identity
+- **AND** the server captures another validated bundle before retrying
+
+### Requirement: Recoverable offline web reading
+The Reader SHALL provide a web app with cached static assets and complete accepted
+snapshots, preserving a recoverable last-complete document when refresh fails.
+
+#### Scenario: Offline restart after a successful snapshot download
+- **WHEN** the web app opens without a server connection
+- **THEN** it restores the cached document, all sections, referenced assets and reading state
+- **AND** it identifies offline status and reconnects through existing freshness checks
+
+#### Scenario: Cache update is interrupted or exceeds quota
+- **WHEN** downloading or storing a new snapshot fails
+- **THEN** the previous complete snapshot remains readable without mixed revisions
+- **AND** storage loss has an explicit online recovery path
+
+### Requirement: Local screen-dependent work
+The Reader SHALL extend browser-local mathematical decoration and figure composition
+using explicit supported descriptions and preserve unsupported authored behavior.
+
+#### Scenario: Supported geometry changes with reading size
+- **WHEN** width or font changes affect supported decorations or figure placement
+- **THEN** local computation updates their measured geometry without a server round trip
+- **AND** unsupported descriptions retain the existing validated rendering path
+
+### Requirement: Measured real-document browser compilation
+The project SHALL benchmark the actual PDE corpus in a WASM Worker using isolated
+inputs and record cold, incremental, memory and sustained-use evidence.
+
+#### Scenario: Reproducible browser performance report
+- **WHEN** the benchmark runs
+- **THEN** it records corpus/engine/asset identities, first and incremental timings,
+  repeated-use behavior, available memory metrics and their limitations
+- **AND** output agreement and Python postprocessing/transfer costs are measured separately
+- **AND** physical iPhone evidence is distinguished from desktop browser evidence
+
+### Requirement: Guarded offline highlight intents
+The Reader SHALL persist explicit offline highlight requests and retain server control
+of final source saving and conflict decisions.
+
+#### Scenario: Reconnect after an offline highlight
+- **WHEN** connectivity returns with a queued request
+- **THEN** the server checks its document, service, revision and source selection before compiling candidates
+- **AND** changed or ambiguous inputs cannot overwrite current source
+- **AND** the UI reports saved only after a confirmed server write
+
+#### Scenario: An acknowledgment was lost
+- **WHEN** a queued request retries after an uncertain response
+- **THEN** its stable request identity prevents applying the same source edit twice
+- **AND** an old acknowledgment cannot dismiss a newer selection

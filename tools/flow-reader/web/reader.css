@@ -524,6 +524,11 @@ button:disabled {
   margin: 0.8rem auto;
   padding: 0 1rem;
 }
+#reader-offline-status {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 #reader-status[data-state="ready"] {
   display: none;
 }

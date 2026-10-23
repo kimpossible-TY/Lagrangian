@@ -5,12 +5,12 @@ import os
 from pathlib import Path
 import re
 import stat
-import subprocess
 import tempfile
 import unicodedata
 import uuid
 
 from flow_reader.compiler.build import compile_project
+from flow_reader.compiler.execution import CompileRequest
 from flow_reader.compiler.inputs import shadow_sources, source_paths
 from flow_reader.document.passages import PassageIndex, locate_passages, normalized, normalized_offsets, occurrences, validate_fragments
 from flow_reader.document.sections import assign_block_ids, split_document
@@ -147,12 +147,13 @@ def math_hint(text):
 
 def paged_candidate_compiles(project, destination):
     """The shared source must also compile with the original paged packages."""
-    command = [project.compiler, "compile", "--root", str(project.root),
-               "--package-path", str(project.packages.resolve())]
-    for font in project.fonts:
-        command.extend(["--font-path", str((project.root / font).resolve())])
-    command.extend([str(project.root / project.relative_entry()), str(destination)])
-    return subprocess.run(command, cwd=project.root, capture_output=True).returncode == 0
+    result = project.execute(CompileRequest(
+        compiler=project.compiler, root=project.root, packages=project.packages.resolve(),
+        target="pdf", entry=project.root / project.relative_entry(),
+        fonts=tuple((project.root / font).resolve() for font in project.fonts)))
+    if result.returncode == 0:
+        destination.write_bytes(result.artifact)
+    return result.returncode == 0
 
 
 def apply_highlight(project, output, bundle, dependencies, fragments, fresh, writer=None):

@@ -9,6 +9,7 @@ CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".ico": "image/vnd.microsoft.icon",
     ".png": "image/png",
+    ".webmanifest": "application/manifest+json",
 }
 
 
