@@ -10,6 +10,7 @@ import tempfile
 import time
 from flow_reader.compiler.audit import audit_content, normalize_content, unhandled_warnings
 from flow_reader.compiler.project import Project
+from flow_reader.compiler.execution import CompileRequest
 from flow_reader.compiler.packages import prepare_packages
 from flow_reader.compiler.source_map import compile_source_map
 from flow_reader.resources import READER_ROOT as HERE
@@ -29,21 +30,18 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
     with tempfile.TemporaryDirectory(prefix="compile-", dir=output) as temporary:
         work = Path(temporary)
         prepare_packages(project.packages.resolve(), work / "packages")
-        command = [project.compiler, "compile", "--features", "html", "--root", str(root),
-                   "--deps", str(work / "dependencies.json"),
-                   "--package-path", str(work / "packages"), "--input", "flow-reader=true"]
+        inputs = [("flow-reader", "true")]
         if project.semantic_canvases:
-            command.extend(["--input", "flow-native-labels=true"])
-        for font in project.fonts:
-            command.extend(["--font-path", str((root / font).resolve())])
-        if geometry is not None:
-            command.extend(["--input", "flow-geometry=" + json.dumps(geometry, separators=(",", ":"))])
-        if decorations is not None:
-            command.extend(["--input", "flow-decorations=" + json.dumps(decorations, separators=(",", ":"))])
-        if canvases is not None:
-            command.extend(["--input", "flow-canvases=" + json.dumps(canvases, separators=(",", ":"))])
-        command.extend(["-", str(work / "document.html")])
-        result = subprocess.run(command, input=wrapper, text=True, capture_output=True, cwd=root)
+            inputs.append(("flow-native-labels", "true"))
+        for key, value in (("flow-geometry", geometry), ("flow-decorations", decorations),
+                           ("flow-canvases", canvases)):
+            if value is not None:
+                inputs.append((key, json.dumps(value, separators=(",", ":"))))
+        request = CompileRequest(
+            compiler=project.compiler, root=root, packages=work / "packages", target="html",
+            source=wrapper, fonts=tuple((root / font).resolve() for font in project.fonts),
+            inputs=tuple(inputs))
+        result = project.execute(request)
         (output / "compile.log").write_text(result.stderr)
         report = {
             "schemaVersion": 1,
@@ -57,27 +55,24 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
                                      if line.startswith("warning:"))),
         }
         dependencies = {str((root / entry).resolve())}
-        dependency_file = work / "dependencies.json"
-        if dependency_file.exists():
-            for filename in json.loads(dependency_file.read_text())["inputs"]:
-                path = Path(filename)
-                if path.name == "<stdin>":
-                    continue
-                if not path.is_absolute():
-                    path = root / path
-                # Map the temporary overlay back to the maintained package files.
-                # Otherwise its deletion would look like a source edit every time.
-                path = path.resolve()
-                overlay_root = (work / "packages").resolve()
-                if path.is_relative_to(overlay_root):
-                    relative = path.relative_to(overlay_root)
-                    adapter = HERE / "packages" / relative
-                    adapter_manifest = HERE / "packages" / Path(*relative.parts[:3]) / "typst.toml"
-                    path = adapter if adapter_manifest.exists() else project.packages / relative
-                dependencies.add(str(path.resolve()))
+        for filename in result.dependencies:
+            path = Path(filename)
+            if path.name == "<stdin>":
+                continue
+            if not path.is_absolute():
+                path = root / path
+            # Map the temporary overlay back to the maintained package files.
+            path = path.resolve()
+            overlay_root = (work / "packages").resolve()
+            if path.is_relative_to(overlay_root):
+                relative = path.relative_to(overlay_root)
+                adapter = HERE / "packages" / relative
+                adapter_manifest = HERE / "packages" / Path(*relative.parts[:3]) / "typst.toml"
+                path = adapter if adapter_manifest.exists() else project.packages / relative
+            dependencies.add(str(path.resolve()))
         report["dependencies"] = sorted(dependencies)
         if result.returncode == 0:
-            content = normalize_content((work / "document.html").read_text())
+            content = normalize_content(result.artifact.decode("utf-8"))
             (work / "document.html").write_text(content)
             report.update(audit_content(content))
             # Typst can successfully exit after dropping unsupported elements.
@@ -90,7 +85,7 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             if map_sources and report["contentGatePassed"] and all(
                     value is None for value in (geometry, canvases, decorations)):
                 try:
-                    report.update(compile_source_map(project, dependencies, command, wrapper, content, work))
+                    report.update(compile_source_map(project, dependencies, request, content, work))
                 except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
                     report.update(sourceMap={}, sourceMapStatus="unavailable")
             report["revision"] = hashlib.sha256(content.encode()).hexdigest()

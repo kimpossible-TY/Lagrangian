@@ -1074,3 +1074,59 @@ rounding to CSS layout precision (1/64px); font/width preparation clears it. Thi
 avoids another mathematical composition/cache key or cumulative shrinking.
 Browser checks measure effective transformed font sizes and actual ink bounds,
 including repeated font changes. No label number or formula text controls policy.
+
+## Browser compilation with server-owned adoption
+
+Keep `compiler/audit.py`, `document/`, source-map comparison and verified source
+writes as the authoritative Python policies. Introduce an immutable compile request
+and raw result contract under `compiler/`: target, entry or wrapper, root/packages,
+font roots, sys.inputs, engine identity, diagnostics, actual dependencies and bytes.
+Inject execution through Project so isolated builds, instrumented source-map builds
+and all highlight candidates (including paged validation) preserve the same executor.
+Dynamic rendering selects the browser executor when available and retains the native
+incremental process for local fallback. Execution never sets contentGatePassed.
+
+Before sending jobs, materialize bounded immutable input bundles, with exact engine,
+font, package and settings identities. Never resolve an old task's newly discovered
+input against a newer live filesystem. Missing inputs require a new captured bundle
+and task. The server owns lease tokens, deadlines, result size checks, duplicate and
+stale rejection, and reassignment. A result belongs to its original task and captured
+inputs; outputs arriving after expiration cannot publish. A foreground client offers
+capacity only after the matching WASM compiler is ready; hidden/terminated clients
+release capacity, and lost heartbeats expire. Failed mobile compilation can be retried
+locally without erasing the accepted document. Do not hold the publication lock while
+waiting for HTTP clients or compiler work. Source operations retain their freshness
+checks before final writes; external filesystem edits are not an atomic transaction.
+
+## Offline accepted snapshots and requests
+
+A Service Worker caches an explicit versioned app/static dependency set. Cache an
+accepted document transactionally: identity plus manifest, every section and referenced
+assets. Flip the current snapshot pointer only after completeness checks. Keep the last
+complete snapshot on quota, fetch, revision-race or install failure. Scope records to
+document and origin; never mix a new manifest with old sections. Restore reading state,
+show offline status, and revalidate service/revision on reconnect. Cache storage is
+recoverable, not guaranteed permanent. Service Workers are not background compilers.
+
+Persist explicit offline highlight intents with unique IDs, document, accepted revision,
+service identity and canonical fragments; do not report them as saved. Reconnect submits
+through the existing server validation owner. Changed or ambiguous sources require a
+new selection; no blind replay, timestamps-as-authority or overwritten source. Retry
+lost acknowledgments using an idempotency record so a source edit cannot be applied
+twice. Keep newer selections independent of older queue acknowledgments.
+
+## Local geometry and evidence
+
+Extend the existing versioned local decoration descriptions and measured canvas/label
+owners. Preserve authored styles and unsupported callbacks via validated server paths;
+never substitute approximate geometry silently. Count actual avoided server requests
+and compare reflow output at multiple fonts/widths, including offline cached geometry.
+
+Build a reproducible Worker benchmark against an isolated copy of the real PDE corpus,
+with a content manifest and exact WASM/compiler/font/package versions. Measure cold
+module initialization, first compile, incremental edits, long sequences, output agreement,
+transport and Python postprocessing separately. Record WASM linear-memory high-water
+marks and available browser/device memory telemetry with explicit metric limits; a
+sampled JS heap value is not total iPhone process memory. Test physical iPhone foreground,
+hide/resume and worker loss when hardware access is available. Desktop WebKit results
+must never be labeled as iPhone measurements. Deployment remains a separate user action.

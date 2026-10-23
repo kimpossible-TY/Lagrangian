@@ -26,6 +26,11 @@ def main():
         resized = source.resize(touch.size, Image.Resampling.LANCZOS)
         touch.paste(resized, mask=resized.getchannel("A"))
         touch.save(WEB / "apple-touch-icon.png")
+        for size in (192, 512):
+            icon = Image.new("RGB", (size, size), "#15136e")
+            resized = source.resize(icon.size, Image.Resampling.LANCZOS)
+            icon.paste(resized, mask=resized.getchannel("A"))
+            icon.save(WEB / f"app-icon-{size}.png")
 
 
 if __name__ == "__main__":

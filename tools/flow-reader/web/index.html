@@ -8,6 +8,7 @@
     />
     <meta name="color-scheme" content="light dark" />
     <title>Flow Reader</title>
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="favicon.ico?v=flow-1" sizes="16x16 24x24 32x32 48x48 64x64" />
     <link rel="icon" type="image/png" href="favicon.png?v=flow-1" sizes="64x64" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png?v=flow-1" sizes="180x180" />
@@ -105,6 +106,7 @@
               <button id="reader-larger" type="button" aria-label="글자 크게" autofocus>A+</button>
             </div>
           </div>
+          <p id="reader-offline-status" role="status">오프라인 읽기를 준비하고 있습니다.</p>
           <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
             <option value="system">자동</option>
             <option value="light">라이트</option>

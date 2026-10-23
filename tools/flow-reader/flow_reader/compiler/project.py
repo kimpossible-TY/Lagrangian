@@ -1,6 +1,7 @@
 """Validated project compilation inputs."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from flow_reader.compiler.execution import CompileExecutor, local_compile
 
 @dataclass(frozen=True)
 class Project:
@@ -10,6 +11,7 @@ class Project:
     fonts: tuple[Path, ...] = ()
     compiler: str = "typst"
     semantic_canvases: bool = False
+    execute: CompileExecutor = field(default=local_compile, compare=False, repr=False)
 
     def relative_entry(self) -> str:
         entry = (self.root / self.entry).resolve()

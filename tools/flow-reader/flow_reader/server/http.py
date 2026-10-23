@@ -7,6 +7,7 @@ from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.server.assets import reader_assets
+from flow_reader.server.offline import snapshot_inventory, worker_script
 
 
 def handler_for(state):
@@ -15,6 +16,7 @@ def handler_for(state):
     vendor_files = json.loads((vendor / "manifest.json").read_text())["files"]
     vendor_routes = {"/vendor/mathjax-4.1.3/" + name: vendor / name for name in vendor_files}
     vendor_routes["/vendor/mathjax-4.1.3/manifest.json"] = vendor / "manifest.json"
+    offline_worker = worker_script(assets, vendor_routes)
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -66,6 +68,13 @@ def handler_for(state):
         def do_GET(self):
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
+            if path == "/service-worker.js":
+                return self.respond(offline_worker, "text/javascript; charset=utf-8")
+            if path == "/api/offline":
+                inventory = snapshot_inventory(state)
+                if inventory is None:
+                    return self.respond(b"No accepted document is available", "text/plain", 503)
+                return self.respond(json.dumps(inventory).encode(), "application/json")
             if path == "/api/state":
                 return self.respond(json.dumps(state.public()).encode(), "application/json")
             if path == "/api/focus":
