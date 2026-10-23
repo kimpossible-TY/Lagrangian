@@ -181,6 +181,30 @@ class CompiledSourceMappingTests(unittest.TestCase):
         self.assertEqual(location['status'], 'located')
         self.assertIn('key', location)
 
+    def test_computed_labels_stay_attached_to_referenced_notes_and_figures(self):
+        for label in ('#(scope.tag)', '#marker', '#label'):
+            with self.subTest(label=label):
+                source = ('#import "@local/math-blocks:0.2.0": note\n'
+                          '#let scope = (tag: name => label(name),)\n'
+                          '#let marker(name) = label(name)\n'
+                          '#note(title: "Named note")[#par[The referenced note body.]] '
+                          + label + '("named-note")\n\n'
+                          '#figure([Figure body.], caption: [Figure caption.]) '
+                          + label + '("named-figure")\n\n'
+                          'See @named-note and @named-figure.')
+                state = self.state(source)
+                plain = compile_project(self.project, self.work / "baseline", map_sources=False)
+                self.assertTrue(plain["contentGatePassed"])
+                self.assertEqual(state.document, (self.work / "baseline/document.html").read_bytes())
+                self.assertEqual(state.source(state.revision, [self.fragment(
+                    state, "The referenced note body.")])["status"], "located")
+                offset = source.index('Named note')
+                location = edit_location(self.project, state.accepted_dependencies, state.bundle, {
+                    'path': str(self.entry), 'source_hash': hashlib.sha256(source.encode()).hexdigest(),
+                    'start': offset, 'end': offset + len('Named note'), 'line': 4, 'column': 0})
+                self.assertEqual(location['status'], 'located', location)
+                self.assertTrue(location['target'].startswith('reader-callout-'))
+
     def test_nested_closure_proof_math_unicode_and_saved_range_share_one_mapping(self):
         chapter = self.root / "chapter.typ"
         source = ('#let scope(body) = body(none)\r\n'

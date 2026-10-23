@@ -195,6 +195,8 @@
 - [x] 17.3 Replace HTML visual chronology with the shared owner, observe before compilation, register accepted dependencies and expose engine selection through managed/terminal/editor launch paths; preserve compiler-verified callout/figure navigation without expanding source-write mappings.
 - [x] 17.4 Verify HTML-only edits, failed compilation, restart, concurrent writers, real compiler/browser mapping and installed-layout delivery; run affected Rust, reader, editor, lint and documentation gates.
 - [x] 17.5 Align canonical ownership/guides, review the full change and commit the verified work with a Conventional Commit, preserving unrelated files and live services.
+- [x] 17.6 Preserve computed-label attachment for referenced invocation carriers; reproduce the real PDE mapping failure and verify compiler/reference, source-selection and navigation regressions.
+- [ ] 17.7 Install the compatible app/engine and immutable HTML runtime, preserve live project/context records, verify actual document/shared-edit delivery and record the confirmed local release.
 
 ### Project-owned history verification, 2026-10-23
 

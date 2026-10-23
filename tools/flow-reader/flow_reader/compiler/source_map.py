@@ -117,6 +117,19 @@ def markup_ranges(source, *, invocations=False):
                 position += 1
         return position
 
+    def attached_label_end(position):
+        label = re.match(r"\s*#?<[^<>\s]+>", source[position:])
+        if label:
+            position += label.end()
+        # Computed labels must attach to the original element, rather than an
+        # empty carrier emitted between the element and the label expression.
+        tail = re.match(r"[ \t]*#(?:[\w.-]+|\([\w.-]+\))", source[position:])
+        if tail:
+            position += tail.end()
+            while position < length and source[position] in "([":
+                position = opaque(position + 1, {"(": ")", "[": "]"}[source[position]])
+        return position
+
     def markup(position, closing=False):
         initial = position
         while position < length:
@@ -159,16 +172,7 @@ def markup_ranges(source, *, invocations=False):
                 if end < length:
                     # Labels must stay attached to the equation, inside its
                     # carrier; attaching them to html.elem changes references.
-                    label = re.match(r"\s*#?<[^<>\s]+>", source[end + 1:])
-                    end += label.end() if label else 0
-                    # A computed label can be a following hash expression.
-                    # Keep its attachment to the original equation as well.
-                    tail = re.match(r"[ \t]*#(?:[\w.-]+|\([\w.-]+\))", source[end + 1:])
-                    if tail:
-                        stop = end + 1 + tail.end()
-                        while stop < length and source[stop] in "([":
-                            stop = opaque(stop + 1, {"(": ")", "[": "]"}[source[stop]])
-                        end = stop - 1
+                    end = attached_label_end(end + 1) - 1
                     yield position, end + 1, "math"
                 position = min(length, end + 1)
             elif character == "#":
@@ -200,9 +204,7 @@ def markup_ranges(source, *, invocations=False):
                     # A variable or unknown expression is not literal prose.
                     position = end
                 if invocations and position > call.end():
-                    label = re.match(r"\s*#?<[^<>\s]+>", source[position:])
-                    if label:
-                        position += label.end()
+                    position = attached_label_end(position)
                     yield invocation_start, position, "invocation"
             elif character == "[":
                 position = yield from markup(position + 1, True)
