@@ -2,6 +2,7 @@
 import { ReaderReviewMarks } from "../review-strikes/renderer.js";
 import { selectedReaderText } from "./dom-selection.js";
 import { SourceHighlightController } from "../source-highlight/controller.js";
+import { SourceHighlightRenderer } from "../source-highlight/renderer.js";
 import { CodexContextController } from "../codex-context/controller.js";
 import { ReaderTransport } from "../session/transport.js";
 import { SelectionPress } from "../../reader-common/selection/press.js";
@@ -28,6 +29,7 @@ export class ReaderSelectionActions {
     this.undoButton = document.querySelector("#reader-strike-undo");
     this.clearButton = document.querySelector("#reader-strike-clear");
     this.review = new ReaderReviewMarks(article, () => this.updateActions());
+    this.sourcePaint = new SourceHighlightRenderer(article);
     const view = {
       document: () => this.manifest,
       selection: () => this.selection,
@@ -35,6 +37,7 @@ export class ReaderSelectionActions {
       editorServer: () => this.editorServer,
       enabled: (action) => !(action === "save" ? this.saveButton : this.sourceButton).disabled,
       collapse: () => this.collapse(),
+      releaseSelection: () => window.getSelection()?.removeAllRanges(),
       retain: (selected) => {
         this.selection = this.retainedSelection = selected;
       },
@@ -42,7 +45,7 @@ export class ReaderSelectionActions {
       changed: () => this.updateActions(),
     };
     const transport = (this.transport = new ReaderTransport());
-    this.source = new SourceHighlightController(view, transport);
+    this.source = new SourceHighlightController(view, transport, this.sourcePaint.highlights);
     this.codex = new CodexContextController(view, transport, this.viewerID);
     const action = (button, perform) => {
       listen(button, "pointerdown", (event) => {
@@ -106,6 +109,7 @@ export class ReaderSelectionActions {
 
   repaint() {
     this.review.schedule();
+    this.sourcePaint.highlights.repaint();
   }
 
   capture() {
@@ -136,6 +140,7 @@ export class ReaderSelectionActions {
 
   updateActions() {
     if (this.disposed) return;
+    if (this.manifest) this.sourcePaint.onDocument(this.manifest);
     const fragments = this.selection;
     const tooLarge =
       fragments &&
@@ -210,6 +215,7 @@ export class ReaderSelectionActions {
     this.transport.dispose();
     this.press.dispose();
     this.review.dispose();
+    this.sourcePaint.dispose();
     for (const remove of this.listeners) remove();
     for (const timer of [this.selectionTimer, this.messageTimer]) clearTimeout(timer);
   }

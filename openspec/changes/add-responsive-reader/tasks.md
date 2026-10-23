@@ -340,3 +340,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Omit mannot text-note grouping paint and anchor outsets in HTML while retaining independent grouping, graphical-only targets and paged output.
 - [x] Verify native/grouped targets, multi-target notes and note order through real compiler and browser reflow fixtures.
 - [ ] Install the clean grouping-annotation release and verify full PDE compilation, HTTPS delivery, browser reflow and preserved service/context state.
+
+## Immediate source-highlight feedback
+
+- [x] Share optimistic paint lifetime across paged and HTML/terminal readers, retaining concrete geometry and existing feedback wording.
+- [x] Release native selection after immediate paint and retire it only on accepted replacement; roll back rejected/stale/disconnected actions with retry and newer-selection guards.
+- [x] Verify lifecycle, real browser geometry/reflow and replacement, reader suites, type/lint checks and built/installed asset layout; record coverage limits in verification-optimistic-highlights.md.

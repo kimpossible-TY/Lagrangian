@@ -1,5 +1,11 @@
 # Responsive mobile reader alongside the paged preview
 
+Show source highlights immediately in both paged and HTML readers, including
+the terminal Reader's shared browser surface. Keep existing feedback text while
+verification and compilation run in the background, then replace temporary
+paint with the accepted document. Roll back rejected paint without changing
+unselected text, source validation or review-strike persistence.
+
 Place native CeTZ labels from their measured boxes and available drawing space,
 including short formulae, multi-line names, edge labels and aligned SVG labels.
 Use compact line spacing at the selected reading font, bounded nearby candidates,

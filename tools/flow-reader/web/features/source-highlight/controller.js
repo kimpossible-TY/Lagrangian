@@ -1,10 +1,14 @@
 import { SelectionSubmission } from "../../reader-common/selection/submission.js";
 
+export const sourceHighlightSnapshot = (document) =>
+  JSON.stringify([document?.documentID, document?.revision, document?.service]);
+
 /** Verified source edits; the selection adapter owns DOM capture and feedback. */
 export class SourceHighlightController {
-  constructor(view, transport) {
+  constructor(view, transport, highlights) {
     this.view = view;
     this.transport = transport;
+    this.highlights = highlights;
     this.submission = new SelectionSubmission(view.sameSelection);
   }
 
@@ -28,8 +32,12 @@ export class SourceHighlightController {
     }
     const ticket = this.submission.begin(selected, revision);
     if (!ticket) return;
+    const snapshot = sourceHighlightSnapshot(document);
     const canApply = () =>
+      snapshot === sourceHighlightSnapshot(view.document()) &&
       this.submission.canApply(ticket, view.selection(), view.document()?.revision);
+    this.highlights.begin(ticket, snapshot);
+    view.releaseSelection();
     view.changed();
     view.announce("하이라이트를 소스에 적용하는 중…");
     try {
@@ -39,6 +47,7 @@ export class SourceHighlightController {
         { revision, fragments: selected, ...(editorServer ? { editorServer } : {}) },
         120000,
       );
+      this.highlights.settle(ticket, result.status);
       if (["highlighted", "stale"].includes(result.status)) {
         if (canApply()) view.collapse();
         view.announce(
@@ -59,6 +68,7 @@ export class SourceHighlightController {
         );
       }
     } catch {
+      this.highlights.settle(ticket, "error");
       if (canApply()) view.retain(selected);
       view.announce("하이라이트를 저장하지 못했습니다. 연결 후 다시 시도해 주세요.");
     } finally {

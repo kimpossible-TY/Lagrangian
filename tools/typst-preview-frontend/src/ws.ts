@@ -209,7 +209,8 @@ export async function wsMain({
       // A viewport render must not adopt a hint before its document frame arrives.
       focusRevision =
         queuedFocusRevision === pendingFocusRevision ? queuedFocusRevision : undefined;
-      if (queuedFocusDocument) selectionActions?.setDocument(queuedFocusDocument);
+      if (queuedFocusDocument)
+        selectionActions?.setDocument(queuedFocusDocument, queuedFocusRevision);
       selectionActions?.setEnabled(focusEnabled && !!focusRevision);
       selectionActions?.afterRender();
       if (recovery.afterRender(queuedFocusDocument, queuedFocusRevision)) {

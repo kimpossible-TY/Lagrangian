@@ -1,5 +1,6 @@
 import { focusStatusPlacement } from "./mobile-viewport";
 import { ReviewMarkRenderer } from "../review-strikes/renderer";
+import { SourceHighlightRenderer } from "../source-highlight/renderer";
 import { SelectionSubmission } from "../../../../reader-common/selection/submission.js";
 import { SelectionPress } from "../../../../reader-common/selection/press.js";
 import { selectedPreviewText, type SelectedText } from "./text-selection";
@@ -7,6 +8,7 @@ import { selectedPreviewText, type SelectedText } from "./text-selection";
 export class SelectionActions {
   private toolbar = document.createElement("div");
   private selection?: SelectedText;
+  private retainedSelection?: SelectedText;
   private press = new SelectionPress<SelectedText>(() => this.updateButtons());
   private highlight = new SelectionSubmission<SelectedText>(
     (current, submitted) =>
@@ -20,6 +22,8 @@ export class SelectionActions {
       current.end.y === submitted.end.y,
   );
   private review: ReviewMarkRenderer;
+  private sourcePaint: SourceHighlightRenderer;
+  private documentID = "";
   private saveButton: HTMLButtonElement;
   private highlightButton: HTMLButtonElement;
   private strikeButton: HTMLButtonElement;
@@ -36,6 +40,7 @@ export class SelectionActions {
     private readRevision: () => string | undefined,
   ) {
     this.review = new ReviewMarkRenderer(root);
+    this.sourcePaint = new SourceHighlightRenderer(root);
     this.toolbar.className = "typst-selection-actions";
     this.toolbar.setAttribute("role", "toolbar");
     this.toolbar.setAttribute("aria-label", this.korean ? "선택한 텍스트" : "Selected text");
@@ -61,8 +66,12 @@ export class SelectionActions {
       return element;
     };
     this.highlightButton = button("하이라이트", "Highlight", (selected) => {
-      if (selected && !this.highlight.pending && this.onAction("highlight", selected))
-        this.highlight.begin(selected, selected.revision);
+      if (!selected || this.highlight.pending || !this.onAction("highlight", selected)) return;
+      const ticket = this.highlight.begin(selected, selected.revision);
+      if (!ticket) return;
+      this.sourcePaint.highlights.begin(ticket, this.snapshot(selected.revision));
+      // Release native selection so it cannot hold the compiled replacement.
+      document.getSelection()?.removeAllRanges();
     });
     this.saveButton = button("Codex 저장", "Save for Codex", (selected) => {
       if (selected) this.onAction("save", selected);
@@ -99,7 +108,12 @@ export class SelectionActions {
     // A failed connection has no deliverable acknowledgment. Do not replay a
     // source mutation, or leave every future selection blocked by its ticket.
     const ticket = this.highlight.pending;
-    if (ticket) this.highlight.finish(ticket);
+    if (ticket) {
+      this.sourcePaint.highlights.settle(ticket, "error");
+      if (this.highlight.canApply(ticket, this.selection, this.readRevision()))
+        this.selection = this.retainedSelection = this.selection ?? ticket.selection;
+      this.highlight.finish(ticket);
+    }
     this.enabled = false;
     this.updateButtons();
   }
@@ -107,14 +121,25 @@ export class SelectionActions {
   highlightFinished(status: string) {
     const ticket = this.highlight.pending;
     if (!ticket) return;
+    this.sourcePaint.highlights.settle(ticket, status);
     if (this.highlight.canApply(ticket, this.selection, this.readRevision())) {
       if (status === "highlighted" || status === "stale") this.collapse();
-      else this.selection ??= ticket.selection;
+      else this.selection = this.retainedSelection = this.selection ?? ticket.selection;
     }
     this.highlight.finish(ticket);
     this.updateButtons();
   }
-  setDocument(id: string) {
+  private snapshot(revision = this.readRevision()) {
+    return JSON.stringify([this.documentID, revision]);
+  }
+
+  setDocument(id: string, revision = this.readRevision()) {
+    if (id !== this.documentID || this.retainedSelection?.revision !== revision) {
+      if (this.selection === this.retainedSelection) this.selection = undefined;
+      this.retainedSelection = undefined;
+    }
+    this.documentID = id;
+    this.sourcePaint.highlights.onDocument(this.snapshot(revision));
     this.review.store.setDocument(id);
     this.afterRender();
   }
@@ -127,14 +152,19 @@ export class SelectionActions {
   }
 
   private selectionChanged = () => {
-    this.selection = selectedPreviewText(this.root);
-    if (this.selection) this.selection.revision = this.readRevision();
+    const selected = selectedPreviewText(this.root);
+    if (selected) {
+      selected.revision = this.readRevision();
+      this.retainedSelection = undefined;
+    }
+    this.selection = selected ?? this.retainedSelection;
     this.updateButtons();
   };
 
   private collapse() {
     document.getSelection()?.removeAllRanges();
     this.selection = undefined;
+    this.retainedSelection = undefined;
     this.updateButtons();
   }
 
@@ -171,6 +201,7 @@ export class SelectionActions {
   private refresh = () => {
     if (this.disposed) return;
     this.review.repaint();
+    this.sourcePaint.highlights.repaint();
     this.updateButtons();
   };
 
@@ -185,5 +216,6 @@ export class SelectionActions {
     window.visualViewport?.removeEventListener("scroll", this.position);
     this.toolbar.remove();
     this.review.dispose();
+    this.sourcePaint.dispose();
   }
 }
