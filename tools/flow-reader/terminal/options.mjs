@@ -20,6 +20,7 @@ Options:
   --entry PATH              Project-relative entrypoint (default main.typ)
   --package-path PATH       Existing Typst packages (default bundled Reader packages)
   --compiler PATH           Typst compiler (default typst)
+  --engine PATH             Flow engine supporting shared source history
   --font-path PATH          Additional font directory; repeat as needed
   --output PATH             Generated Reader output directory
   --port NUMBER             Stable loopback port (otherwise derived from project)
@@ -36,7 +37,7 @@ Options:
   --parent-pid NUMBER       Exit when the owning editor exits
   --control-file PATH       Exit when the editor removes this launch file
   --sync-file PATH          Cursor JSON written by :FlowReader sync
-  --change-file PATH        Common paged edit history (otherwise match a Flow profile)
+  --change-file PATH        Common project edit history (otherwise match project identity)
   --check                   Print dependency/capability diagnosis and exit
   --snapshot PATH           Capture one real Reader PNG without requiring a terminal
   --help                    Show this help
@@ -58,6 +59,7 @@ export function parseArguments(argv) {
     "entry",
     "package-path",
     "compiler",
+    "engine",
     "font-path",
     "output",
     "port",

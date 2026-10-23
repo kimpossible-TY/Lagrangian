@@ -9,6 +9,7 @@ Use [the architecture source map](../../docs/tinymist/dev/reader-architecture.ty
 - `flow_reader/compiler/` owns inputs/signatures/fingerprints, overlays and isolated/incremental compilation; `audit.py` owns content acceptance policy.
 - `document/` owns normalization and block/section identities; `rendering/` owns validated geometry, workers and bounded caches.
 - `services/` owns source validation/mapping, context records, navigation and service lifecycle. `accepted_snapshot.py` owns captured source-input freshness; callers retain lock ordering and action-specific responses. `server/` owns accepted publication, watcher, HTTP and static delivery.
+- `services/source_history.py` transports observations to the Rust project owner and disposes only its own engine helpers. Keep edit chronology out of Python. Compiler-verified navigation-only container ranges remain separate from selection/highlight mappings and served metadata.
 - `web/features/` owns semantic DOM adapters; `web/rendering/` owns HTML mathematics, figures and annotations. Keep executable Python launchers thin.
 - `terminal/` owns options, started service, browser, editor bridge, shared input/capture controller, native/editor transports and protocol. Neovim owns internal-view capability queries and layout. Keep `terminal.mjs` supported and reuse HTML actions/storage. `web/features/editor-sync/terminal-bridge.js` exposes opt-in editor capabilities; source-write checks remain in Python services.
 
@@ -26,5 +27,6 @@ Commands run from the repository root:
 - Python services and installed layout: `yarn test:reader-services`. Installation tests require macOS.
 - Required Python integration: set `FLOW_READER_PACKAGES`, `TAIL_HOSTING_SOURCE` (companion source checkout) and optionally `FLOW_READER_TYPST`, then run `yarn test:reader-integration`. This mode fails on missing prerequisites or skipped tests; it also needs macOS and Neovim for the full suite.
 - Shared changes: `yarn test:readers`; frontend code: `yarn lint:readers`.
+- Common source-history changes: set `FLOW_TEST_ENGINE` to a freshly built compatible engine and `FLOW_READER_PACKAGES` for real compiler/source-history tests. Run `tests/change-browser.mjs` for source-edit navigation and container targets.
 - Terminal editor: `nvim --headless -u NONE -i NONE -n -l tools/flow-reader/tests/neovim-reader.lua`.
 - Real Chromium/Neovim integration: `node tools/flow-reader/tests/terminal-browser.mjs` with `FLOW_READER_PLAYWRIGHT_MODULE` and `FLOW_READER_PACKAGES` set. Use the affected browser fixture in `tests/` for HTML interactions. Native terminal and physical-device checks are separate coverage.

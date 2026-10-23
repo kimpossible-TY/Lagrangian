@@ -1,5 +1,6 @@
 """Compiler-carried ranges must agree for saved context and editor navigation."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,9 +17,58 @@ from flow_reader.compiler.build import Project, compile_project
 from flow_reader.compiler.source_map import SourceCarriers
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
+from flow_reader.services.source_mapping import edit_location
 
 
 class CarrierAcceptanceTests(unittest.TestCase):
+    def navigation_for(self, body):
+        carriers = SourceCarriers()
+        carriers.navigation_sources['0'] = {'path': '/unused.typ', 'source_hash': 'unused',
+                                             'start': 0, 'end': 20, 'kind': 'invocation'}
+        start = f'<span {carriers.navigation_attribute}="0" data-flow-source-edge="start"></span>'
+        end = f'<span {carriers.navigation_attribute}="0" data-flow-source-edge="end"></span>'
+        document = lambda content: '<html><body>' + content + '</body></html>'
+        carriers.extract(document(body), document(start + body + end))
+        return carriers.navigation
+
+    def test_sibling_callout_and_figure_are_independent_invocation_outputs(self):
+        callout = '<figure><div class="flow-callout">Repeated output.</div></figure>'
+        for figure in ('<figure><img src="picture.png"><figcaption>Repeated output.</figcaption></figure>',
+                       '<figure style="border: 1px solid red"></figure>'):
+            for body in (callout + figure, figure + callout):
+                with self.subTest(body=body):
+                    self.assertEqual(self.navigation_for(body), [])
+
+    def test_content_outside_nested_callout_maps_to_its_whole_figure(self):
+        callout = '<div class="flow-callout">Nested callout.</div>'
+        for outside in ('<img src="picture.png">', '<p>Other figure content.</p>',
+                        '<svg><rect width="20" height="10"/></svg>',
+                        '<figure style="border: 1px solid red"></figure>'):
+            for children in (outside + callout, callout + outside):
+                with self.subTest(children=children):
+                    navigation = self.navigation_for('<figure>' + children + '</figure>')
+                    self.assertEqual(len(navigation), 1)
+                    self.assertTrue(navigation[0]['target'].startswith('reader-figure-'))
+
+    def test_navigation_containers_require_complete_compiler_agreement_and_unique_output(self):
+        carriers = SourceCarriers()
+        carriers.navigation_sources['0'] = {'path': '/unused.typ', 'source_hash': 'unused',
+                                             'start': 0, 'end': 20, 'kind': 'invocation'}
+        start = f'<span {carriers.navigation_attribute}="0" data-flow-source-edge="start"></span>'
+        end = f'<span {carriers.navigation_attribute}="0" data-flow-source-edge="end"></span>'
+        container = '<figure><div class="flow-callout">Unwrapped body.</div></figure>'
+        document = lambda body: '<html><body>' + body + '</body></html>'
+        carriers.extract(document(container), document(start + container + end))
+        self.assertEqual(len(carriers.navigation), 1)
+        self.assertTrue(carriers.navigation[0]['target'].startswith('reader-callout-'))
+        for baseline, annotated in (
+                (container, start + container.replace('body.', 'different.') + end),
+                (container, start + container),
+                (container * 2, (start + container + end) * 2),
+                ('<p>Outside.</p>' + container, start + '<p>Outside.</p>' + container + end)):
+            carriers.extract(document(baseline), document(annotated))
+            self.assertEqual(carriers.navigation, [])
+
     def test_changed_html_and_unbalanced_carriers_never_authorize_a_map(self):
         carriers = SourceCarriers()
         carriers.ranges["0"] = {"path": "/unused.typ", "source_hash": "unused",
@@ -75,6 +125,61 @@ class CompiledSourceMappingTests(unittest.TestCase):
         return {"key": passage["key"], "exact": exact,
                 "prefix": passage["text"][:start][-64:],
                 "suffix": passage["text"][start + len(exact):][:64]}
+
+    def test_callout_title_and_unwrapped_body_map_only_to_navigation_container(self):
+        source = ('#import "@local/math-blocks:0.2.0": note\n'
+                  'Before the note.\n\n'
+                  '#note(title: "Green functions")[Unwrapped #strong[Green function] body.]\n\n'
+                  'After the note.')
+        state = self.state(source)
+        for text in ('Green functions', 'Unwrapped', 'Green function'):
+            offset = source.index(text)
+            location = edit_location(self.project, state.accepted_dependencies, state.bundle, {
+                'path': str(self.entry), 'source_hash': hashlib.sha256(source.encode()).hexdigest(),
+                'start': offset, 'end': offset + len(text), 'line': 4, 'column': 0})
+            self.assertEqual(location['status'], 'located', (text, location))
+            self.assertTrue(location['target'].startswith('reader-callout-'))
+            self.assertEqual(state.bundle.manifest['anchors'][location['target']], location['section'])
+        title = source.index('Green functions')
+        self.assertFalse(any(span['start'] <= title < span['end'] for passage in state.bundle.passages
+                             for span in passage.get('source_ranges', [])))
+        self.assertEqual(state.cursor(state.revision, str(self.entry), 4, len('#note(title: "'.encode()))['status'],
+                         'unmapped')
+        self.assertNotIn('navigation_ranges', json.dumps(state.bundle.manifest))
+        self.assertNotIn(b'data-flow-navigation-', state.document)
+        plain = compile_project(self.project, self.work / 'plain', map_sources=False)
+        self.assertTrue(plain['contentGatePassed'])
+        self.assertEqual(state.document, (self.work / 'plain/document.html').read_bytes())
+
+    def test_native_figure_arguments_map_to_verified_figure_without_selection_ranges(self):
+        (self.root / 'picture.svg').write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">'
+            '<rect width="20" height="10" fill="red"/></svg>')
+        source = ('Before.\n\n#figure(image("picture.svg", width: 20pt), '
+                  'caption: [Native figure caption.]) <picture>\n\nAfter.')
+        state = self.state(source)
+        offset = source.index('20pt')
+        location = edit_location(self.project, state.accepted_dependencies, state.bundle, {
+            'path': str(self.entry), 'source_hash': hashlib.sha256(source.encode()).hexdigest(),
+            'start': offset, 'end': offset + 4, 'line': 3, 'column': 0})
+        self.assertEqual(location['status'], 'located', location)
+        self.assertTrue(location['target'].startswith('reader-figure-'))
+        self.assertIn(location['target'], state.bundle.manifest['anchors'])
+        self.assertFalse(any(span['start'] <= offset < span['end'] for passage in state.bundle.passages
+                             for span in passage.get('source_ranges', [])))
+
+    def test_wrapper_prose_does_not_inherit_a_nested_note_navigation_range(self):
+        source = ('#import "@local/math-blocks:0.2.0": note\n'
+                  '#let scope(body) = body\n'
+                  '#scope[Outside wrapper paragraph.\n\n#note[Only this note.]]')
+        state = self.state(source)
+        outer = source.index('Outside')
+        self.assertFalse(any(span['start'] <= outer < span['end'] for span in state.bundle.navigation_ranges))
+        location = edit_location(self.project, state.accepted_dependencies, state.bundle, {
+            'path': str(self.entry), 'source_hash': hashlib.sha256(source.encode()).hexdigest(),
+            'start': outer, 'end': outer + len('Outside'), 'line': 3, 'column': len('#scope[')})
+        self.assertEqual(location['status'], 'located')
+        self.assertIn('key', location)
 
     def test_nested_closure_proof_math_unicode_and_saved_range_share_one_mapping(self):
         chapter = self.root / "chapter.typ"

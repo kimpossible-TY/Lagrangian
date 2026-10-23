@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,12 +39,32 @@ class ReaderInstallTests(unittest.TestCase):
                       "fonts": [], "packages": str(project / "packages"), "port": 25001, "publicURL": "",
                       "label": "com.example.reader-install-fixture-paged"}
             flow = work / "flow-fixture"
+            change_file = work / 'configured Flow data' / 'changes' / 'install-fixture.json'
             # repr embeds the fixture dictionary as Python data, without shell evaluation.
-            flow.write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({repr({'profiles': [parent]})}))\n")
+            flow.write_text(f"#!{sys.executable}\nimport json\nimport sys\n" +
+                            f"profiles = {repr({'profiles': [parent]})}\n" +
+                            f"plan = {repr({'environment': {'TINYMIST_PREVIEW_CHANGE_FILE': str(change_file)}})}\n" +
+                            "print(json.dumps(plan if sys.argv[1] == '--launch-plan' else profiles))\n")
             flow.chmod(0o755)
+            engine = work / "source-history-engine"
+            engine.write_text(f"#!{sys.executable}\n" + r'''
+import json
+from pathlib import Path
+import sys
+if sys.argv[-1] == '--help':
+    print('--root ROOT --change-file PATH')
+else:
+    assert sys.argv[1] == 'source-history'
+    assert isinstance(json.load(sys.stdin)['sources'], list)
+    path = Path(sys.argv[sys.argv.index('--change-file') + 1]).resolve()
+    print(json.dumps({'path': str(path), 'sequence': 0}))
+''')
+            engine.chmod(0o755)
+            if os.environ.get('FLOW_TEST_ENGINE'):
+                engine = Path(os.environ['FLOW_TEST_ENGINE']).resolve(strict=True)
             args = argparse.Namespace(data=work / "installed", profile="install-fixture", port=25002,
                                       public_url="", development=True, flow_manager=flow,
-                                      python=Path(sys.executable), compiler=Path(sys.executable), start=False)
+                                      python=Path(sys.executable), compiler=Path(sys.executable), engine=engine, start=False)
             args.semantic_canvases = True
             with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"):
                 result = installer.install(args)
@@ -52,7 +73,10 @@ class ReaderInstallTests(unittest.TestCase):
                 self.assertEqual(profiles["profiles"][0]["root"], str(project))
                 self.assertTrue(profiles["profiles"][0]["semanticCanvases"])
                 release = args.data / "releases" / result["revision"] / "tools/flow-reader"
-                self.verify_installed_delivery(release)
+                self.verify_installed_delivery(release, engine)
+                plan = json.loads(subprocess.check_output([manager, "--launch-plan", result['id']], text=True))
+                self.assertEqual(Path(plan['arguments'][plan['arguments'].index('--engine') + 1]), engine.resolve())
+                self.assertEqual(Path(plan['arguments'][plan['arguments'].index('--change-file') + 1]), change_file.resolve())
                 args.semantic_canvases = None
                 installer.install(args)
                 self.assertTrue(json.loads((args.data / "config.json").read_text())["services"][0]["semanticCanvases"])
@@ -71,21 +95,32 @@ class ReaderInstallTests(unittest.TestCase):
                 self.assertEqual(manager.read_bytes(), launcher)
                 self.assertEqual((args.data / "config.json").read_bytes(), config)
 
-    def verify_installed_delivery(self, release):
+    def verify_installed_delivery(self, release, engine):
         """Exercise imports and HTTP from the archived layout, outside the checkout."""
         script = r"""
 from http.server import ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import sys
+import tempfile
 import threading
 from urllib.parse import urljoin
 from urllib.request import urlopen
 from flow_reader.server import state
 from flow_reader.server.http import handler_for
 from flow_reader.server.assets import reader_assets
+from flow_reader.services.source_history import SourceHistoryClient, source_snapshots
+from flow_reader.compiler.project import Project
 
 assert Path(state.__file__).resolve().is_relative_to(Path.cwd())
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary).resolve()
+    (root / 'main.typ').write_text('Installed source-history client')
+    project = Project(root, Path('main.typ'), root / 'packages')
+    history = SourceHistoryClient(project, engine=sys.argv[1], change_file=root / 'common.json')
+    history.seed(source_snapshots(project, []))
+    assert history.location.path == root / 'common.json'
 assets = reader_assets()
 assert any(name.startswith('/reader-common/') for name in assets)
 server = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(None))
@@ -108,7 +143,7 @@ finally:
     server.server_close()
     thread.join()
 """
-        result = json.loads(subprocess.check_output([sys.executable, "-c", script], cwd=release, text=True))
+        result = json.loads(subprocess.check_output([sys.executable, "-c", script, str(engine)], cwd=release, text=True))
         self.assertGreater(result["assets"], 20)
         for entry in ("build.py", "serve.py", "focus.py", "edit-location.py"):
             subprocess.run([sys.executable, str(release / entry), "--help"],

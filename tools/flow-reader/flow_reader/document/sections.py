@@ -1,6 +1,6 @@
 """Deliver bounded reading sections while retaining every document anchor."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import base64
 import hashlib
 from html import escape
@@ -139,11 +139,12 @@ class BlockIdentifiers(SvgRanges):
         classes = attributes.get("class", "").split()
         level = heading_level(tag, attributes)
         callout = tag == "div" and "flow-callout" in classes
+        figure = tag == "figure" or "data-flow-canvas" in attributes
         if "data-flow-canvas-identity" in attributes:
             self.canvas_scopes.append((len(self.stack), attributes["data-flow-canvas-identity"]))
         if "body" in self.stack and not {"math", "svg", "nav"}.intersection(self.stack) and (
             level or tag in {"p", "figcaption", "td", "th"}
-            or callout
+            or callout or figure
             or (tag == "div" and {"flow-equation", "flow-canvas-label-body"}.intersection(classes))
         ):
             for parent in self.active:
@@ -154,6 +155,7 @@ class BlockIdentifiers(SvgRanges):
                                 "id": attributes.get("id"), "heading": self.heading,
                                 "canvas_scope": self.canvas_scopes[-1][1] if self.canvas_scopes else "",
                                 "callout": callout,
+                                "figure": figure,
                                 "native_label": "flow-canvas-label-body" in classes,
                                 "table_cell": tag in {"td", "th"},
                                 "position": self.source_offset() + len(self.get_starttag_text()) - 1})
@@ -185,10 +187,10 @@ class BlockIdentifiers(SvgRanges):
             digest = hashlib.sha256(identity.encode()).hexdigest()[:20]
             count = self.counts.get(digest, 0) + 1
             self.counts[digest] = count
-            key = f'reader-{"callout-" if node["callout"] else ""}{digest}-{count}'
+            key = f'reader-{"callout-" if node["callout"] else "figure-" if node["figure"] else ""}{digest}-{count}'
             # A callout can contain unwrapped prose as well as keyed paragraphs.
             # Give change navigation an anchor without duplicating selections.
-            attributes = "" if node["callout"] else f' data-reader-key="{key}"'
+            attributes = "" if node["callout"] or node["figure"] else f' data-reader-key="{key}"'
             if not label:
                 attributes += f' id="{key}"'
             self.insertions.append((node["position"], attributes))
@@ -285,9 +287,10 @@ class SectionBundle:
     documents: dict[str, bytes]
     assets: dict[str, bytes]
     passages: list[dict]
+    navigation_ranges: list[dict] = field(default_factory=list)
 
 
-def split_document(source, revision, max_chars=180000, max_blocks=140, *, source_map=None):
+def split_document(source, revision, max_chars=180000, max_blocks=140, *, source_map=None, source_navigation_map=None):
     source, assets = separate_assets(source)
     source = assign_block_ids(source)
     index = BodyIndex(source)
@@ -335,4 +338,5 @@ def split_document(source, revision, max_chars=180000, max_blocks=140, *, source
     return SectionBundle({"revision": revision, "language": index.language,
                           "sections": sections, "anchors": anchors,
                           "blocks": blocks, "canvasIdentities": canvas_sections, "outline": outline}, documents, assets,
-                         passages)
+                         passages, [{**span, "section": anchors[span["target"]]}
+                                    for span in source_navigation_map or [] if span.get("target") in anchors])

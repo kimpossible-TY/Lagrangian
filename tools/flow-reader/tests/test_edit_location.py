@@ -1,11 +1,13 @@
 """Common source history is read once under the same identity/byte contract."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -94,6 +96,46 @@ class SharedEditTests(unittest.TestCase):
         self.assertEqual(edit_location(self.project, [str(self.part)], bundle, edit)['key'], bundle.passages[1]['key'])
         bundle.passages[0]['source_ranges'] = [span]
         self.assertEqual(edit_location(self.project, [str(self.part)], bundle, edit)['status'], 'ambiguous')
+
+    def test_relative_and_symlinked_profile_storage_resolve_one_canonical_record(self):
+        data = self.root / 'flow-data'
+        (data / 'changes').mkdir(parents=True)
+        path = data / 'changes/project.json'
+        path.write_bytes(self.record_path.read_bytes())
+        (data / 'profiles.json').write_text(json.dumps({'schemaVersion': 1, 'profiles': [
+            {'id': 'project', 'root': str(self.root), 'entry': 'main.typ'}]}))
+        alias = self.root / 'flow-alias'
+        alias.symlink_to(data, target_is_directory=True)
+        for support in (alias, Path(os.path.relpath(data))):
+            with self.subTest(support=support):
+                location = SharedEditLocation(self.root, self.entry, data=support)
+                self.assertEqual(location.path, path.resolve())
+                self.assertEqual(location.read(), self.reader.read())
+
+    def test_engine_default_discovery_is_read_only_and_never_replaces_explicit_identity(self):
+        before = self.record_path.read_bytes()
+        location = SharedEditLocation(self.root, self.entry, data=self.root / 'empty-data')
+        result = subprocess.CompletedProcess([], 0, json.dumps({'path': str(self.record_path)}), '')
+        with patch('flow_reader.services.edit_location.resolve_engine', return_value=sys.executable), \
+                patch('flow_reader.services.edit_location.subprocess.run', return_value=result) as run:
+            location.discover_engine_record('requested-engine')
+            arguments, options = run.call_args
+            self.assertIn('--path-only', arguments[0])
+            self.assertNotIn('input', options)
+            self.assertEqual(location.read(), self.reader.read())
+            self.reader.discover_engine_record('requested-engine')
+            self.assertEqual(run.call_count, 1)
+        self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_missing_or_incompatible_engine_keeps_default_lookup_unavailable(self):
+        for result in (subprocess.CompletedProcess([], 2, '', 'unsupported'),
+                       subprocess.CompletedProcess([], 0, '{}', ''),
+                       subprocess.CompletedProcess([], 0, '{"path":"relative.json"}', '')):
+            location = SharedEditLocation(self.root, self.entry, data=self.root / 'empty-data')
+            with patch('flow_reader.services.edit_location.resolve_engine', return_value=sys.executable), \
+                    patch('flow_reader.services.edit_location.subprocess.run', return_value=result):
+                location.discover_engine_record()
+            self.assertEqual(location.read()['status'], 'unavailable')
 
     def test_late_common_record_updates_metadata_without_changing_revision(self):
         output = self.root / 'output'

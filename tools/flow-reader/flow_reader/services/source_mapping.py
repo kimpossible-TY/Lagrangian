@@ -298,6 +298,11 @@ def edit_location(project, dependencies, bundle, edit):
     path = Path(edit["path"])
     if path not in set(source_paths(project, dependencies)):
         return {"status": "unmapped"}
+    containers = [span for span in bundle.navigation_ranges
+                  if span["path"] == str(path) and span["start"] < edit["end"]
+                  and edit["start"] < span["end"]]
+    if any(span["source_hash"] != edit["source_hash"] for span in containers):
+        return {"status": "stale"}
     matches = []
     for passage in bundle.passages:
         offsets = []
@@ -309,8 +314,16 @@ def edit_location(project, dependencies, bundle, edit):
                 offsets.append(max(span["start"], edit["start"]))
         if offsets:
             matches.append((min(offsets), passage))
-    if matches:
-        first = min(offset for offset, _ in matches)
+    if matches or containers:
+        first = min([offset for offset, _ in matches] +
+                    [max(span["start"], edit["start"]) for span in containers])
+        targets = {(span["target"], span["section"]) for span in containers
+                   if max(span["start"], edit["start"]) == first}
+        if targets:
+            if len(targets) != 1:
+                return {"status": "ambiguous"}
+            target, section = targets.pop()
+            return {"status": "located", "target": target, "section": section}
         passages = [passage for offset, passage in matches if offset == first]
         if len(passages) != 1:
             return {"status": "ambiguous"}

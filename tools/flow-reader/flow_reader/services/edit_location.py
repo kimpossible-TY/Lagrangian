@@ -6,11 +6,26 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 
 from flow_reader.services.source_mapping import source_position
 
-MAX_RECORD_BYTES = 4 * 1024 * 1024
+MAX_RECORD_BYTES = 16 * 1024 * 1024
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
+
+
+def resolve_engine(requested=None):
+    """Resolve the source-history executable separately from the HTML compiler."""
+    selected = requested or os.environ.get("FLOW_ENGINE_PATH")
+    candidates = ([selected] if selected else [
+        Path.home() / "Applications/tinymist-flow.app/Contents/MacOS/flow-engine", "tinymist"])
+    for candidate in candidates:
+        executable = shutil.which(str(Path(candidate).expanduser()))
+        if executable:
+            return str(Path(executable).resolve())
+    raise ValueError("A source-history capable Flow engine is required; pass --engine PATH "
+                     "or set FLOW_ENGINE_PATH to the newly built flow-engine executable")
 
 
 def read_json(path):
@@ -48,7 +63,7 @@ class SharedEditLocation:
                             raise ValueError("Invalid Flow profile ID")
                         matches.append(support / "changes" / (identifier + ".json"))
                 if len(matches) == 1:
-                    self.path = matches[0]
+                    self.path = matches[0].resolve()
                 elif matches:
                     self.discovery = "ambiguous"
             except FileNotFoundError:
@@ -66,6 +81,24 @@ class SharedEditLocation:
     @property
     def configured(self):
         return self.path is not None or self.discovery != "unavailable"
+
+    def discover_engine_record(self, engine=None):
+        """Find the engine's default path without observing or writing history."""
+        if self.path is not None or self.discovery != "unavailable":
+            return
+        try:
+            executable = resolve_engine(engine)
+            result = subprocess.run([executable, "source-history", "--path-only",
+                                     "--root", str(self.root), "--entry", str(self.entry)],
+                                    text=True, capture_output=True, timeout=20)
+            if result.returncode:
+                return
+            value = json.loads(result.stdout)
+            path = Path(value["path"])
+            if path.is_absolute():
+                self.path = path.resolve()
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+            pass
 
     def read(self):
         if not self.entry.is_relative_to(self.root):
@@ -122,5 +155,8 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--entry", type=Path, default=Path("main.typ"))
     parser.add_argument("--change-file", type=Path)
+    parser.add_argument("--engine", help="Flow engine used only to discover the shared record path")
     args = parser.parse_args()
-    print(json.dumps(SharedEditLocation(args.root, args.entry, args.change_file).read(), ensure_ascii=False))
+    location = SharedEditLocation(args.root, args.entry, args.change_file)
+    location.discover_engine_record(args.engine)
+    print(json.dumps(location.read(), ensure_ascii=False))

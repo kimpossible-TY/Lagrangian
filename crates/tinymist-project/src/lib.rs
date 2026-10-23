@@ -5,6 +5,7 @@ mod compiler;
 mod entry;
 mod lock;
 mod model;
+pub mod source_history;
 
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;

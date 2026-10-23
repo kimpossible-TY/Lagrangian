@@ -47,6 +47,8 @@ Keep engine executables outside the managed source tree. Packaging chooses `--en
 
 A compatible engine supports document preview, device theme variants, `TINYMIST_PREVIEW_FOCUS_FILE`, `TINYMIST_PREVIEW_CHANGE_FILE`, and `TINYMIST_ALLOWED_ORIGINS`. The CLI probe requires `--follow-system-theme`; retain the current installed Flow engine when preserving these features. A different engine needs compatibility verification before use.
 
+HTML Reader services also require the engine’s `source-history` command for project-owned saved-edit observation. Select this executable separately from the HTML compiler with `--engine` or `FLOW_ENGINE_PATH`. The common project store serializes source and renderer metadata updates across processes; HTML-only sessions do not depend on a running paged preview.
+
 ## Build and validate
 
 macOS, the Swift compiler, and Python 3 are required for the app. AppKit and Foundation provide the runtime.

@@ -187,3 +187,20 @@
 - Real Chromium/Neovim integration: 29 checks passed, including late metadata without a content revision, shared source restoration and initial cursor polling preserving the destination. WebKit change navigation: 16 checks passed. Inspected the Chromium snapshot.
 - Scoped ESLint/Prettier, canonical guide PDF, generated documentation, strict OpenSpec validation and whitespace checks passed. The actual user Neovim configuration restored an included file in an isolated process launched outside the project, with disposable history/state and no plugin installation.
 - User Neovim opt-in configuration was updated. No installed release or live service was installed/restarted; the installed HTML Reader needs a release upgrade to gain this integration. Physical Windows Terminal/Devtunnel coverage remains unverified. Edits made while the source-history engine is stopped cannot establish a new shared last edit.
+
+## 17. Project-owned source history
+
+- [x] 17.1 Move source policy and compatible atomic persistence into the Rust project owner; serialize cross-process updates and preserve paged variants, UTF-8, comments, deletion and stale-result behavior.
+- [x] 17.2 Add a bounded source-history engine command and one deterministic standalone project path; connect native paged preview without requiring a browser.
+- [x] 17.3 Replace HTML visual chronology with the shared owner, observe before compilation, register accepted dependencies and expose engine selection through managed/terminal/editor launch paths; preserve compiler-verified callout/figure navigation without expanding source-write mappings.
+- [x] 17.4 Verify HTML-only edits, failed compilation, restart, concurrent writers, real compiler/browser mapping and installed-layout delivery; run affected Rust, reader, editor, lint and documentation gates.
+- [x] 17.5 Align canonical ownership/guides, review the full change and commit the verified work with a Conventional Commit, preserving unrelated files and live services.
+
+### Project-owned history verification, 2026-10-23
+
+- The common Rust owner preserves schema-2 records, palette metadata and exact root/entry identity under cross-process transactions. Real separate-process, thread, symlink, profile/default-path, foreign-record, bounded-input, UTF-8, comment-rebase and deletion tests passed. Independent review reproduced and fixed comment insertion at the edit boundary; an actual engine/editor-location regression now restores the edited word instead of the inserted comment.
+- Warning-denying Rust tests passed: CLI 2, preview 25 and project 51; five existing filesystem tests remain ignored. Consuming engine build, all-target Clippy and workspace formatting passed.
+- Reader services ran 216 tests successfully with one optional companion-source skip. The real-engine suite covers HTML-only and failed saves, restart, helper cancellation and source-location rebasing. Clean archived installed-layout delivery uses the candidate engine outside the checkout; managed services preserve the parent's explicit record under a nondefault data directory.
+- Shared/HTML Node tests passed 200, paged frontend 98 and DOM 37. Scoped ESLint/Prettier and headless Neovim smoke passed. WebKit change navigation passed all 16 checks with the final engine; the 320px screenshot was inspected, including note/figure navigation and accepted-document preservation.
+- Native app tests ran 83 successfully with one optional signing-certificate skip. All three real-engine source-navigation tests passed again with the final candidate, including HTML-created history, default managed record discovery, interleaved updates and preservation of both PDF palette snapshots.
+- Generated documentation checks, both matching strict OpenSpec validations, all four changed canonical Typst documents and diff whitespace checks passed. Tests use disposable documents/profiles and owned processes. No installed release, live service or user editor configuration was installed, restarted or changed by this work. Full companion integration, certificate signing and physical Windows Terminal/Devtunnel/device coverage remain unverified.

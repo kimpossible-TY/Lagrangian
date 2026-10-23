@@ -364,8 +364,16 @@ test("accepted Reader actions clear an earlier terminal selection error", async 
   }
 });
 
-test("explicit common change history reaches the owned Reader service", () => {
-  const options = parseArguments(["--root", "/project", "--change-file", "/state/changes.json"]);
+test("explicit common change history and engine reach the owned Reader service", () => {
+  const options = parseArguments([
+    "--root",
+    "/project",
+    "--change-file",
+    "/state/changes.json",
+    "--engine",
+    "/bin/flow-engine",
+  ]);
   const args = serverArguments(options);
   assert.equal(args[args.indexOf("--change-file") + 1], "/state/changes.json");
+  assert.equal(args[args.indexOf("--engine") + 1], "/bin/flow-engine");
 });

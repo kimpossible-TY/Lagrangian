@@ -52,7 +52,7 @@ end
 
 local function run()
   write(source, original)
-  reader.setup { root = temporary, auto_open = false, command = { 'node', 'runtime with spaces.mjs' }, open = { 'test-opener', '--' } }
+  reader.setup { root = temporary, auto_open = false, engine = temporary .. '/engine with spaces', command = { 'node', 'runtime with spaces.mjs' }, open = { 'test-opener', '--' } }
   vim.cmd.edit(vim.fn.fnameescape(source))
   vim.bo.swapfile = false
   vim.api.nvim_win_set_cursor(0, { 2, 3 })
@@ -108,6 +108,7 @@ local function run()
   equal({ 'test-opener', '--', vim.fn.exepath('node'), 'runtime with spaces.mjs' }, vim.list_slice(launched.argv, 1, 4))
   equal('', launched.options.env.NVIM)
   equal(temporary, option('--root'))
+  equal(temporary .. '/engine with spaces', option('--engine'))
   equal(other, option('--entry'))
   local control = assert(option('--control-file'))
   equal(1, vim.fn.filereadable(control))

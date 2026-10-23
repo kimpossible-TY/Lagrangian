@@ -155,6 +155,8 @@ physical-device or VoiceOver validation was performed.
 
 ## Last visual edit navigation
 
+The original visual-tracker delivery below is historical. Project-owned shared source observation and navigation-only container mapping supersede that implementation; current work and verification are tracked in `add-terminal-reader` section 17.
+
 - [x] Persist accepted HTML visual changes per project, including disconnected edits, restart restoration, deletion targets and invalid-record recovery.
 - [x] Follow each revision-bound change after rendering, defer during recent gestures, and retain explicit-link/history and selection behavior.
 - [x] Verify server history and actual browser update/reload/button/reconnect flows; document the feature.

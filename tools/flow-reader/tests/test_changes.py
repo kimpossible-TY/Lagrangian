@@ -1,7 +1,6 @@
-"""Last-edit history follows accepted visual output, independently of viewers."""
+"""HTML delegates saved-source observation and retains accepted navigation guards."""
 
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -10,185 +9,100 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from flow_reader.compiler.build import Project
-from flow_reader.services.change_history import ChangeTracker, MAX_RECORD_BYTES
-from flow_reader.document.sections import split_document
+from flow_reader.compiler.project import Project
+from flow_reader.compiler.inputs import source_signature
+from flow_reader.services.edit_location import SharedEditLocation
 from flow_reader.server.state import ReaderState
-from flow_reader.compiler.inputs import input_fingerprint, source_signature
 
 
-def bundle(body, revision="r1", max_blocks=2):
-    return split_document("<html><body>" + body + "</body></html>", revision,
-                          max_blocks=max_blocks)
+class RecordingHistory:
+    def __init__(self, project, path):
+        self.location = SharedEditLocation(project.root, project.entry, path)
+        self.events = []
+
+    def observe(self):
+        self.events.append("observe")
+
+    def seed(self, sources):
+        self.events.append(sources)
+
+    def close(self):
+        pass
 
 
-class ChangeTests(unittest.TestCase):
+class SharedHistoryPublicationTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.path = Path(self.directory.name) / "last-change.json"
-        self.tracker = ChangeTracker(self.path, "project")
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve() / "project"
+        self.root.mkdir()
+        self.entry = self.root / "main.typ"
+        self.entry.write_text('Before accepted edit.')
+        self.output = self.root / "output"
+        self.output.mkdir()
+        self.project = Project(self.root, Path("main.typ"), self.root / "packages", compiler="missing")
+        self.history = RecordingHistory(self.project, self.root / "common.json")
+        self.state = ReaderState(self.project, self.output, "", False, source_history=self.history)
+        self.addCleanup(self.state.close)
 
-    def test_distant_heading_prefers_body_over_outline_and_reference_copies(self):
-        def source(title):
-            return ('<nav><p><a href="#distant">' + title + '</a></p></nav>'
-                    '<p id="reference">See <a href="#distant">' + title + '</a>.</p>'
-                    '<p id="first">First body passage</p><h2 id="distant">' + title + '</h2>')
-        self.assertIsNone(self.tracker.observe(bundle(source("Old heading")), "inputs-1"))
-        change = self.tracker.observe(bundle(source("Edited heading"), "r2"), "inputs-2")
-        self.assertEqual(change["target"], "distant")
-        self.assertEqual(change["section"], "section-1")
-        self.assertEqual(change["revision"], "r2")
-        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+    def result(self, accepted=True):
+        report = {"revision": "body", "exitCode": 0 if accepted else 1,
+                  "contentGatePassed": accepted, "dependencies": [str(self.entry)]}
+        (self.output / "report.json").write_text(json.dumps(report))
+        (self.output / "document.html").write_text('<html><body><p id="body">Before accepted edit.</p></body></html>')
+        return report
 
-    def test_restart_comment_and_runtime_rebase_retain_the_same_edit(self):
-        self.tracker.observe(bundle('<p id="a">Original</p>'), "a")
-        change = self.tracker.observe(bundle('<p id="a">Changed</p>', "r2"), "b")
-        tracker = ChangeTracker(self.path, "project")
-        for body, inputs in (('<p id="a">Changed</p>', "b"),
-                             ('<p id="a">Changed</p>', "comment"),
-                             ('<p id="a" class="new-renderer">Changed</p>', "comment")):
-            current = tracker.observe(bundle(body, "r3"), inputs)
-            self.assertEqual(current["target"], "a")
-            self.assertEqual(current["token"], change["token"])
-        stopped_edit = ChangeTracker(self.path, "project").observe(
-            bundle('<p id="a">Edited while stopped</p>', "r4"), "stopped")
-        self.assertNotEqual(stopped_edit["token"], change["token"])
+    def test_observation_precedes_compilation_and_failed_compile_does_not_seed(self):
+        report = self.result(False)
+        def compile_saved(*_args):
+            self.assertEqual(self.history.events, ["observe"])
+            return report
+        with patch("flow_reader.server.state.compile_project", side_effect=compile_saved):
+            self.state.compile()
+        self.assertEqual(self.history.events, ["observe"])
+        self.assertIsNone(self.state.revision)
+        self.assertFalse((self.output / "last-change.json").exists())
 
-    def test_math_format_and_native_geometry_are_visual_changes(self):
-        for before, after, target in (
-            ('<div class="flow-equation" id="equation"><math><mi>x</mi></math></div>',
-             '<div class="flow-equation" id="equation"><math><mi mathvariant="bold">x</mi></math></div>',
-             "equation"),
-            ('<div id="canvas" data-flow-canvas="canvas-1"><svg><path d="M0 0L1 1"/></svg></div>',
-             '<div id="canvas" data-flow-canvas="canvas-1"><svg><path d="M0 0L2 2"/></svg></div>',
-             "canvas"),
-        ):
-            with self.subTest(target=target):
-                self.tracker = ChangeTracker(self.path, target)
-                self.tracker.observe(bundle(before), "old")
-                self.assertEqual(self.tracker.observe(bundle(after), "new")["target"], target)
+    def test_accepted_snapshot_registers_exact_local_sources_without_visual_history(self):
+        self.entry.write_bytes(b'Before accepted edit.\r\n')
+        imported = self.root / "part.typ"
+        imported.write_text("Imported paragraph")
+        outside = self.root.parent / "outside" / "not-an-input.typ"
+        outside.parent.mkdir()
+        outside.write_text("A real file outside this project")
+        self.state.dependencies.update([str(imported), str(outside)])
+        self.result()
+        self.state.load_result(source_signature(self.project, self.state.dependencies))
+        sources = self.history.events[-1]
+        self.assertEqual({source["filepath"] for source in sources}, {str(self.entry), str(imported)})
+        self.assertEqual(sources[0]["text"], 'Before accepted edit.\r\n')
+        self.assertIsNone(self.state.bundle.manifest["lastChange"])
+        self.assertFalse((self.output / "last-change.json").exists())
+        revision, document = self.state.revision, self.state.document
+        self.entry.write_text("Failed saved edit")
+        self.result(False)
+        self.state.load_result(source_signature(self.project, self.state.dependencies))
+        self.assertEqual(len(self.history.events), 1)
+        self.assertEqual((self.state.revision, self.state.document), (revision, document))
 
-    def test_short_callout_insertion_and_edit_are_visual_targets(self):
-        before = '<p id="definition">Fundamental solution definition.</p>'
-        callout = ('<figure><div class="flow-callout flow-note">'
-                   '<div class="flow-callout-title"><strong>Note: Green functions</strong></div>'
-                   'A fundamental solution is also called a <strong>Green function</strong>.'
-                   '</div></figure>')
-        after = before + callout + '<p id="later">Later body passage.</p>'
-        self.tracker.observe(bundle(before + '<p id="later">Later body passage.</p>'), "old")
-        added = bundle(after, "r2")
-        change = self.tracker.observe(added, "added")
-        self.assertIsNotNone(change)
-        self.assertIn(change["target"], added.manifest["anchors"])
-        self.assertNotIn(change["target"], {"definition", "later"})
-        self.assertIn('class="flow-callout flow-note" id="' + change["target"] + '"',
-                      added.documents[change["section"]].decode())
-        edited = bundle(after.replace("also called", "often called"), "r3")
-        current = self.tracker.observe(edited, "edited")
-        self.assertIsNotNone(current)
-        self.assertNotEqual(current["token"], change["token"])
-        self.assertEqual(self.tracker.observe(edited, "comment")["token"], current["token"])
+    def test_sources_changed_during_registration_cannot_publish(self):
+        self.result()
+        def concurrent_save(_sources):
+            self.entry.write_text("Newer save during registration")
+        self.history.seed = concurrent_save
+        with self.assertRaisesRegex(ValueError, "Sources changed"):
+            self.state.load_result(source_signature(self.project))
+        self.assertIsNone(self.state.revision)
 
-    def test_callout_title_and_unwrapped_tail_changes_are_detected(self):
-        source = ('<figure><div class="flow-callout flow-definition">'
-                  '<div class="flow-callout-title">Definition</div>'
-                  '<p id="body">Let the operator act.</p>'
-                  '<div class="flow-equation" id="equation"><math><mi>x</mi></math></div>'
-                  'This is a fundamental solution.</div></figure>')
-        for old, new in (("Definition", "Fundamental solution"),
-                         ("This is", "We call this")):
-            with self.subTest(edit=old):
-                tracker = ChangeTracker(self.path, old)
-                tracker.observe(bundle(source), "old")
-                change = tracker.observe(bundle(source.replace(old, new), "r2"), "new")
-                self.assertIsNotNone(change)
-                self.assertNotIn(change["target"], {"body", "equation"})
-
-    def test_existing_child_change_survives_callout_anchor_upgrade(self):
-        current = bundle('<figure><div class="flow-callout flow-note">'
-                         '<p id="body">Existing accepted edit.</p></div></figure>')
-        self.tracker.observe(current, "same-inputs")
-        legacy = self.tracker.record
-        legacy["blocks"] = [block for block in legacy["blocks"] if block["key"]]
-        legacy["last"] = {**legacy["blocks"][0], "token": "existing-token"}
-        self.tracker.persist()
-        restarted = ChangeTracker(self.path, "project").observe(current, "same-inputs")
-        self.assertEqual(restarted["target"], "body")
-        self.assertEqual(restarted["token"], "existing-token")
-
-    def test_deleted_passage_uses_surviving_neighbor_including_end_of_document(self):
-        for remaining, target in (('<p id="b">B</p>', "b"), ('<p id="a">A</p>', "a")):
-            self.tracker = ChangeTracker(self.path, target)
-            self.tracker.observe(bundle('<p id="a">A</p><p id="b">B</p>'), "old")
-            self.assertEqual(self.tracker.observe(bundle(remaining), "new")["target"], target)
-
-    def test_generated_ids_and_section_boundaries_do_not_invent_edits(self):
-        source = '<p id="loc-1">Before</p><p id="loc-2">After</p>'
-        self.tracker.observe(bundle(source, max_blocks=2), "old")
-        source = source.replace("After", "Edited")
-        change = self.tracker.observe(bundle(source, "r2", 2), "new")
-        source = source.replace("loc-1", "loc-7").replace("loc-2", "loc-8")
-        rebased = self.tracker.observe(bundle(source, "r3", 1), "newer-comment")
-        self.assertEqual(rebased["token"], change["token"])
-        self.assertEqual(rebased["target"], "loc-8")
-        self.assertEqual(rebased["section"], "section-1")
-
-    def test_invalid_oversized_and_other_project_records_establish_baselines(self):
-        self.tracker.observe(bundle('<p id="a">Initial</p>'), "a")
-        self.tracker.observe(bundle('<p id="a">Edit</p>'), "b")
-        original = self.path.read_bytes()
-        for payload in (b"{broken", b"null", b"[]", b"[" * 2000 + b"]" * 2000,
-                        b" " * (MAX_RECORD_BYTES + 1),
-                        original.replace(b'"project"', b'"other-project"')):
-            self.path.write_bytes(payload)
-            self.assertIsNone(ChangeTracker(self.path, "project").observe(
-                bundle('<p id="a">Edit</p>'), "b"))
-
-    def test_content_fingerprint_ignores_touch_but_includes_import_edits(self):
-        root = Path(self.directory.name)
-        entry, imported = root / "main.typ", root / "part.typ"
-        entry.write_text('#include "part.typ"')
-        imported.write_text("Original")
-        project = Project(root, Path("main.typ"), root / "packages")
-        first = input_fingerprint(project, [str(imported)])
-        os.utime(imported, (1, 1))
-        self.assertEqual(input_fingerprint(project, [str(imported)]), first)
-        imported.write_text("Imported edit")
-        self.assertNotEqual(input_fingerprint(project, [str(imported)]), first)
-
-    def test_failed_persistence_keeps_in_memory_navigation(self):
-        self.tracker.observe(bundle('<p id="a">Initial</p>'), "a")
-        with patch.object(self.tracker, "persist", side_effect=OSError("read only")):
-            with self.assertLogs("flow_reader.services.change_history", level="WARNING"):
-                self.assertEqual(self.tracker.observe(bundle('<p id="a">Edit</p>'), "b")["target"], "a")
-
-    def test_reader_publishes_history_only_from_successful_accepted_snapshots(self):
-        root = Path(self.directory.name)
-        entry = root / "main.typ"
-        entry.write_text("Original")
-        output = root / "output"
-        output.mkdir()
-        project = Project(root, Path("main.typ"), root / "packages", compiler="missing")
-        state = ReaderState(project, output, "https://example.test/paged/", False)
-        def publish(text, accepted=True):
-            entry.write_text(text)
-            (output / "report.json").write_text(json.dumps({
-                "revision": text, "exitCode": 0 if accepted else 1,
-                "contentGatePassed": accepted}))
-            (output / "document.html").write_text(f'<html><body><p id="body">{text}</p></body></html>')
-            state.load_result(source_signature(project))
-        publish("Original")
-        self.assertIsNone(state.bundle.manifest["lastChange"])
-        publish("Accepted edit")
-        manifest = json.loads(state.manifest_json)
-        change = manifest["lastChange"]
-        self.assertEqual(change["revision"], state.revision)
-        self.assertEqual(change["target"], "body")
-        saved = (output / "last-change.json").read_bytes()
-        publish("Failed edit", accepted=False)
-        self.assertEqual(state.bundle.manifest["lastChange"], change)
-        self.assertEqual((output / "last-change.json").read_bytes(), saved)
+    def test_read_only_state_does_not_invent_output_chronology(self):
+        state = ReaderState(self.project, self.output, "", False, change_file=self.root / "common.json")
+        self.addCleanup(state.close)
+        for text in ("First output", "Different output"):
+            self.result()
+            (self.output / "document.html").write_text(f'<html><body><p id="body">{text}</p></body></html>')
+            state.load_result(source_signature(self.project))
+            self.assertIsNone(state.bundle.manifest["lastChange"])
+        self.assertFalse((self.output / "last-change.json").exists())
 
 
 if __name__ == "__main__":

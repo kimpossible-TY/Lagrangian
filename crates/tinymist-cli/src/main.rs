@@ -17,6 +17,7 @@ mod cmd {
     #[cfg(feature = "preview")]
     pub mod preview;
     pub mod query;
+    pub mod source_history;
     pub mod test;
     pub mod trace_lsp;
 
@@ -80,6 +81,9 @@ struct Args {
 enum Commands {
     /// Probe existence (Nop run)
     Probe,
+
+    /// Observe saved project sources without compiling a document
+    SourceHistory(crate::source_history::SourceHistoryArgs),
 
     /// Run language server
     Lsp(crate::lsp::LspArgs),
@@ -148,6 +152,11 @@ fn main() -> Result<()> {
     if matches!(cmd, Commands::Probe) {
         return Ok(());
     }
+    // Source observations are small synchronous transactions. Avoid starting
+    // language, rendering and CPU runtimes for the HTML watcher's requests.
+    if let Commands::SourceHistory(args) = &cmd {
+        return crate::source_history::source_history_main(args).map_err(Into::into);
+    }
 
     // Loads translations
     #[cfg(feature = "l10n")]
@@ -155,7 +164,7 @@ fn main() -> Result<()> {
     // Starts logging
     let verbose = match &cmd {
         // Short-running commands, usually run from the CLI.
-        Commands::Completion(..) | Commands::Probe => false,
+        Commands::Completion(..) | Commands::Probe | Commands::SourceHistory(..) => false,
         #[cfg(feature = "export")]
         Commands::Compile(..) => false,
         Commands::Lint(..) => false,
@@ -209,6 +218,9 @@ fn main() -> Result<()> {
 
     match cmd {
         Commands::Probe => Ok(()),
+        Commands::SourceHistory(args) => {
+            crate::source_history::source_history_main(&args).map_err(Into::into)
+        }
 
         Commands::Lsp(args) => crate::lsp::lsp_main(args),
         #[cfg(feature = "dap")]

@@ -9,19 +9,19 @@ from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.inputs import input_fingerprint, source_signature
 from flow_reader.document.sections import split_document
 from flow_reader.rendering.service import DynamicRenderer
-from flow_reader.services.change_history import ChangeTracker
 from flow_reader.services.codex_context import FocusStore
 from flow_reader.services.selection import SelectionActions
 from flow_reader.services.editor_sync import NeovimEditor, UNSPECIFIED_EDITOR
 from flow_reader.services.navigation import SavedSourceNavigation
 from flow_reader.services.edit_location import SharedEditLocation
+from flow_reader.services.source_history import source_snapshots
 from flow_reader.services.source_mapping import edit_location
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 
 
 class ReaderState:
     def __init__(self, project, output, original_url, allow_incomplete, focus_file=None,
-                 *, editor_server=None, nvim="nvim", change_file=None):
+                 *, editor_server=None, nvim="nvim", change_file=None, source_history=None):
         self.project = project
         self.output = output
         self.original_url = original_url
@@ -31,8 +31,9 @@ class ReaderState:
         self.document_id = hashlib.sha256(
             json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
         self.focus = FocusStore(focus_file or output / "focus.json", project, self.document_id)
-        self.changes = ChangeTracker(output / "last-change.json", self.document_id)
-        self.shared_edit = SharedEditLocation(project.root, project.entry, change_file)
+        self.source_history = source_history
+        self.shared_edit = (source_history.location if source_history else
+                            SharedEditLocation(project.root, project.entry, change_file))
         self.shared_edit_stamp = None
         self.lock = threading.RLock()
         self.accepted_inputs = None
@@ -72,18 +73,23 @@ class ReaderState:
             report["revision"] = hashlib.sha256(
                 (report["revision"] + json.dumps(source_stamp)).encode()).hexdigest()
             document = (self.output / "document.html").read_bytes()
-            bundle = split_document(document.decode(), report["revision"], source_map=report.get("sourceMap"))
+            bundle = split_document(document.decode(), report["revision"], source_map=report.get("sourceMap"),
+                                    source_navigation_map=report.get("sourceNavigationMap"))
             bundle.manifest["documentID"] = self.document_id
             bundle.manifest["service"] = self.focus.service
             inputs = input_fingerprint(self.project, self.dependencies)
             if source_stamp != source_signature(self.project, self.dependencies):
                 raise ValueError("Sources changed before Reader publication")
+            if self.source_history:
+                sources = source_snapshots(self.project, self.dependencies)
+                if source_stamp != source_signature(self.project, self.dependencies):
+                    raise ValueError("Sources changed before Reader history registration")
+                self.source_history.seed(sources)
             edit_stamp = self.shared_edit.stamp()
-            change = self.shared_change(bundle, self.dependencies) if self.shared_edit.configured else None
+            change = self.shared_change(bundle, self.dependencies)
             if source_stamp != source_signature(self.project, self.dependencies):
                 raise ValueError("Sources changed before Reader navigation publication")
-            bundle.manifest["lastChange"] = (change if self.shared_edit.configured else
-                                             self.changes.observe(bundle, inputs))
+            bundle.manifest["lastChange"] = change
             compressed = gzip.compress(document)
             section_compressed = {key: gzip.compress(value) for key, value in bundle.documents.items()}
             manifest_json = json.dumps(bundle.manifest, ensure_ascii=False).encode()
@@ -114,6 +120,9 @@ class ReaderState:
         with self.lock:
             self.compiling = True
         try:
+            if self.source_history:
+                # Save chronology survives failed compilation and has no viewer lifetime.
+                self.source_history.observe()
             for attempt in range(3):
                 before = source_signature(self.project, self.dependencies)
                 report = compile_project(self.project, self.output)
@@ -153,11 +162,11 @@ class ReaderState:
             return None
         if location["status"] != "located":
             return None
-        passage = next(part for part in bundle.passages if part["key"] == location["key"])
-        target = passage["id"]
+        passage = next((part for part in bundle.passages if part["key"] == location.get("key")), None)
+        target = location.get("target") or (passage["id"] if passage else None)
         if bundle.manifest["anchors"].get(target) != location["section"]:
             return None
-        return {"token": edit["token"], "key": location["key"], "target": target,
+        return {"token": edit["token"], "key": location.get("key"), "target": target,
                 "section": location["section"], "revision": bundle.manifest["revision"]}
 
     def refresh_shared_change(self):
@@ -200,7 +209,11 @@ class ReaderState:
 
 
     def close(self):
-        self.renderer.close()
+        try:
+            if self.source_history:
+                self.source_history.close()
+        finally:
+            self.renderer.close()
 
     def locate(self, revision, fragments):
         return self.selection.locate(revision, fragments)

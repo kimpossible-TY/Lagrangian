@@ -6,6 +6,7 @@ and canonical text. Carriers are discarded before publication.
 """
 
 from collections import Counter
+from html.parser import HTMLParser
 import hashlib
 import json
 import re
@@ -16,7 +17,7 @@ from flow_reader.compiler.audit import diagnostic_warnings, normalize_content, u
 from flow_reader.compiler.inputs import shadow_sources, source_paths
 from flow_reader.document.content import MathHtmlEmbedding
 from flow_reader.document.passages import PassageIndex, normalized_offsets
-from flow_reader.document.sections import assign_block_ids, split_document
+from flow_reader.document.sections import assign_block_ids, separate_assets, split_document
 
 MAX_RANGES = 100000
 
@@ -40,11 +41,11 @@ def compile_source_map(project, dependencies, command, wrapper, baseline, work):
         return {"sourceMap": {}, "sourceMapStatus": "compiler-rejected"}
     annotated = carriers.normalize((work / "mapped.html").read_text())
     mapping = carriers.extract(baseline, annotated)
-    return {"sourceMap": mapping,
+    return {"sourceMap": mapping, "sourceNavigationMap": carriers.navigation,
             "sourceMapStatus": "verified" if carriers.complete else "partial" if mapping else "unmapped"}
 
 
-def markup_ranges(source):
+def markup_ranges(source, *, invocations=False):
     """Recognize prose/content calls and whole equations, excluding code/raw.
 
     Unknown hash expressions are skipped through their line and balanced code
@@ -171,6 +172,7 @@ def markup_ranges(source):
                     yield position, end + 1, "math"
                 position = min(length, end + 1)
             elif character == "#":
+                invocation_start = position
                 call = call_pattern.match(source, position)
                 if not call:
                     end = position + 1
@@ -197,6 +199,11 @@ def markup_ranges(source):
                 else:
                     # A variable or unknown expression is not literal prose.
                     position = end
+                if invocations and position > call.end():
+                    label = re.match(r"\s*#?<[^<>\s]+>", source[position:])
+                    if label:
+                        position += label.end()
+                    yield invocation_start, position, "invocation"
             elif character == "[":
                 position = yield from markup(position + 1, True)
             elif character in "\n\r*<>@_{}]":
@@ -232,7 +239,10 @@ class SourceCarriers:
 
     def __init__(self):
         self.attribute = "data-flow-source-" + uuid.uuid4().hex
+        self.navigation_attribute = "data-flow-navigation-" + uuid.uuid4().hex
         self.ranges = {}
+        self.navigation_sources = {}
+        self.navigation = []
         self.verified = False
         self.complete = False
 
@@ -243,21 +253,27 @@ class SourceCarriers:
         except UnicodeDecodeError:
             return None
         digest = hashlib.sha256(raw).hexdigest()
-        pieces, previous = [], 0
-        for start, end, kind in markup_ranges(source):
-            if len(self.ranges) >= MAX_RANGES:
+        events = []
+        for start, end, kind in markup_ranges(source, invocations=True):
+            if len(self.ranges) + len(self.navigation_sources) >= MAX_RANGES:
                 raise ValueError("Source range carrier limit exceeded")
-            identifier = str(len(self.ranges))
-            self.ranges[identifier] = {"path": str(path), "source_hash": digest,
-                                       "start": start, "end": end, "kind": kind}
+            navigation = kind == "invocation"
+            ranges = self.navigation_sources if navigation else self.ranges
+            identifier = str(len(ranges))
+            ranges[identifier] = {"path": str(path), "source_hash": digest,
+                                 "start": start, "end": end, "kind": kind}
             body = source[start:end]
             tag = "div" if (kind == "math" and body[1:2].isspace()
                             and body.rsplit("$", 1)[0][-1:].isspace()) else "span"
             def edge(name):
-                return (f'#html.elem("{tag}", attrs: ({json.dumps(self.attribute)}: "{identifier}", '
+                attribute = self.navigation_attribute if navigation else self.attribute
+                return (f'#html.elem("{tag}", attrs: ({json.dumps(attribute)}: "{identifier}", '
                         f'"data-flow-source-edge": "{name}"), []);')
-            pieces.extend((source[previous:start], edge("start"), body, edge("end")))
-            previous = end
+            events.extend(((start, 1, -end, edge("start")), (end, 0, -start, edge("end"))))
+        pieces, previous = [], 0
+        for position, _, _, marker in sorted(events):
+            pieces.extend((source[previous:position], marker))
+            previous = position
         pieces.append(source[previous:])
         return "".join(pieces)
 
@@ -276,6 +292,7 @@ class SourceCarriers:
         to agree so an earlier change cannot shift their occurrence numbers.
         """
         self.verified = self.complete = False
+        self.navigation = navigation_mapping(baseline, annotated, self)
         bundle = split_document(annotated, "source-map")
         index = CarrierPassages(assign_block_ids(annotated), bundle.manifest["blocks"], self)
         if not index.valid or index.carrier_stack:
@@ -293,6 +310,132 @@ class SourceCarriers:
                 and (self.complete or counts[signature(part)] == 2)}
         self.verified = bool(result)
         return result
+
+
+class NavigationContainers(HTMLParser):
+    """Index complete compiler-bracketed containers without selection ranges."""
+
+    def __init__(self, source, carriers):
+        super().__init__(convert_charrefs=True)
+        self.carriers = carriers
+        self.stack, self.scopes, self.containers = [], [], []
+        self.container_scopes, self.coverage = {}, {}
+        self.content_containers = set()
+        self.valid = True
+        self.feed(assign_block_ids(separate_assets(source)[0]))
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        marker = self.carriers.attribute in attributes or self.carriers.navigation_attribute in attributes
+        identifier = attributes.get(self.carriers.navigation_attribute)
+        if identifier in self.carriers.navigation_sources:
+            if attributes.get("data-flow-source-edge") == "start":
+                self.scopes.append(identifier)
+            elif self.scopes and self.scopes[-1] == identifier:
+                self.scopes.pop()
+            else:
+                self.valid = False
+        parent = next((node for _, node in reversed(self.stack) if node is not None), None)
+        node = None if marker else [tag, sorted(attrs), []]
+        if node is not None and parent is not None:
+            parent[2].append(node)
+        tags = {name for name, _ in self.stack}
+        classes = attributes.get("class", "").split()
+        callout = tag == "div" and "flow-callout" in classes
+        figure = tag == "figure" or "data-flow-canvas" in attributes
+        if (node is not None and "body" in tags and not tags.intersection({"nav", "svg", "math"})
+                and (callout or figure) and attributes.get("id")):
+            self.containers.append({"target": attributes["id"], "node": node,
+                                    "carriers": list(self.scopes),
+                                    "ancestors": [id(parent) for _, parent in self.stack
+                                                  if id(parent) in self.container_scopes]})
+            self.container_scopes[id(node)] = set(self.scopes)
+        elif not marker and tag in {"svg", "img", "hr", "canvas"}:
+            self.check_containment()
+        if tag not in MathHtmlEmbedding.VOID:
+            self.stack.append((tag, node))
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in MathHtmlEmbedding.VOID:
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag):
+        if self.stack and self.stack[-1][0] == tag:
+            node = id(self.stack[-1][1])
+            if node in self.container_scopes and node not in self.content_containers:
+                # Empty containers can still paint a border or background.
+                self.check_containment()
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if data.strip():
+            self.check_containment()
+        node = next((node for _, node in reversed(self.stack) if node is not None), None)
+        if node is not None:
+            if node[2] and isinstance(node[2][-1], str):
+                node[2][-1] += data
+            else:
+                node[2].append(data)
+
+    def check_containment(self):
+        self.content_containers.update(id(node) for _, node in self.stack
+                                       if id(node) in self.container_scopes)
+        for identifier in self.scopes:
+            covered = {id(node) for _, node in self.stack
+                       if identifier in self.container_scopes.get(id(node), ())}
+            if identifier in self.coverage:
+                self.coverage[identifier].intersection_update(covered)
+            else:
+                self.coverage[identifier] = covered
+
+
+def navigation_signature(node):
+    """Compare accepted paint/structure while discarding private empty markers."""
+    if isinstance(node, str):
+        return " ".join(node.split())
+    tag, attributes, children = node
+    accepted_attributes = []
+    for name, value in attributes:
+        if name == "data-reader-key" or (name == "id" and re.fullmatch(
+                r"reader-(?:callout-|figure-)?[0-9a-f]{20}-[0-9]+", value or "")):
+            continue
+        if name in {"id", "href", "xlink:href", "clip-path", "filter", "mask", "style", "aria-labelledby"}:
+            value = re.sub(r"(?:loc|flow-svg|canvas|graphic|decoration)-\d+", "generated", value or "")
+        accepted_attributes.append((name, value))
+    children = [value for child in children if (value := navigation_signature(child))]
+    return [tag, accepted_attributes, children]
+
+
+def navigation_mapping(baseline, annotated, carriers):
+    """Bind invocation ranges only to matching complete accepted containers."""
+    accepted = NavigationContainers(baseline, carriers)
+    mapped = NavigationContainers(annotated, carriers)
+    if not mapped.valid or mapped.scopes:
+        return []
+    def signature(container):
+        return json.dumps(navigation_signature(container["node"]), ensure_ascii=False)
+    before, after = list(map(signature, accepted.containers)), list(map(signature, mapped.containers))
+    complete = before == after
+    candidates = {}
+    for number, container in enumerate(mapped.containers):
+        matches = [i for i, value in enumerate(before) if value == after[number]]
+        target = (accepted.containers[number]["target"] if complete else
+                  accepted.containers[matches[0]]["target"] if len(matches) == 1 else None)
+        if target is not None:
+            for identifier in container["carriers"]:
+                if id(container["node"]) in mapped.coverage.get(identifier, ()):
+                    candidates.setdefault(identifier, []).append({**container, "target": target})
+    result = []
+    for identifier, entries in candidates.items():
+        # A callout can own all paint inside its wrapper figure. Only discard
+        # ancestors: sibling figures or paint outside the callout must remain
+        # separate output rather than inheriting its navigation destination.
+        ancestors = {ancestor for entry in entries for ancestor in entry["ancestors"]}
+        preferred = [entry for entry in entries if id(entry["node"]) not in ancestors]
+        if len(preferred) == 1:
+            result.append({**carriers.navigation_sources[identifier], "target": preferred[0]["target"]})
+    return result
 
 
 class CarrierMathHtml(MathHtmlEmbedding):

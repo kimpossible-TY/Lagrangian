@@ -94,16 +94,17 @@ or button lifetime, which is consumed when the return is published.
 
 ## Last visual edit navigation
 
-Reuse the paged preview's server-owned visual history and render-before-jump
-policy. HTML coordinates reflow, so the independent Reader stores canonical
-body-block fingerprints and a revision-bound target instead of PDF page points.
-Exclude generated navigation and prefer original body content over changed
-reference copies. Detect text, mathematical markup and native figure changes;
-deletions use a surviving adjacent target. Persist the baseline and last target
-atomically with mode 0600 in the managed document output, scoped by document ID.
-Compare content fingerprints of compiler inputs, not timestamps, so metadata and
-runtime-only recompilations do not invent edits. Invalid records establish a
-baseline. Failed compilations never replace accepted navigation history.
+Use the common project source-edit history described by
+`add-terminal-reader` and retain the shared render-before-jump policy. HTML
+coordinates reflow, so map the saved source range into one accepted semantic
+body target instead of PDF page points. The Rust project owner compares saved
+source bytes, preserves comment-only shifts and deletion anchors, and persists
+the common baseline under a cross-process lock. The HTML watcher invokes that
+owner before compilation and registers newly discovered stable source snapshots
+after successful compilation. Remove independent HTML block-diff chronology.
+Source mismatches, ambiguous mappings and failed compilations never publish a
+guessed destination. Each renderer retains its own output geometry and revision
+validation; metadata-only or runtime-only recompilations do not invent edits.
 
 The browser follows each new change token once, after its matching section is
 mounted. Like the PDF queue, a gesture within 2500ms defers navigation and exposes
