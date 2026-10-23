@@ -479,29 +479,47 @@ Red strikes remain browser-local review marks with undo and clear. They follow
 logical text through reflow and reload, never edit source, and do not paint
 changed block text. Unavailable storage retains in-memory review controls.
 
-== Last visual edit
+== Shared last source edit
 
-The HTML Reader and paged preview share the same render-before-jump queue and
-2500ms recent-gesture policy. Successful saved changes to body text, mathematical
-markup and native figures produce a revision-bound HTML target. The Reader
-service stores that target and its canonical body baseline atomically in
-`last-change.json` inside its managed document output, with mode 0600. History
-belongs to the project and entrypoint, survives service restarts, and is recorded
-even when no browser is connected. It does not write the PDF service's history.
+The HTML Reader and paged preview share one project/entry saved-source record,
+the render-before-jump queue and the 2500ms recent-gesture policy. The common Rust
+project service owns source comparison, edit ordering and atomic mode-0600
+persistence. A project file lock serializes updates from both services while
+preserving PDF palette coordinates. The HTML watcher invokes the engine's
+`source-history` command before compilation and registers newly discovered
+stable source snapshots after successful compilation. Either service can record
+saves with no browser connected. HTML no longer keeps a separate
+`last-change.json` chronology.
 
-A fresh entry or reload restores the last visual edit ahead of an older saved
+Select an existing record with `--change-file`, or use exact managed Flow
+profile discovery. Without a matching profile, the engine derives one common
+root/entry path independent of the HTML output folder. HTML compiler selection
+is separate from the required source-history engine; `--engine` or
+`FLOW_ENGINE_PATH` chooses that executable. The terminal Reader guide describes
+engine discovery and read-only editor restoration.
+
+HTML maps the saved range into its accepted compiler-carried source ranges.
+Complete matching callout and figure invocations also have private navigation
+ranges, including title strings and code arguments. These ranges authorize only
+navigation; selection, source highlighting and editor cursor mapping retain
+their narrower contracts. Ambiguous, stale or unmatched output never supplies a
+guessed target. Private source metadata does not reach served HTML or manifests.
+
+A fresh entry or reload restores the last mapped edit ahead of an older saved
 reading position. A newly opened named link and browser-history return retain
 their explicit destination. Without valid edit history, the existing reading
-position rules apply. The first accepted document establishes a baseline;
-subsequent accepted edits create navigation history.
+position rules apply. The first accepted source snapshot establishes a baseline;
+later observations record saved edits independently of successful layout.
 
 Recent scrolling defers an automatic jump and exposes the floating 변경 위치로
 button. A gesture during destination loading also defers it. Selections and open
 Reader dialogs still postpone document publication. Connection recovery, theme
-and font changes do not replay an already observed edit. Failed compilations,
-metadata changes and source comments cannot replace the last visual target.
-Navigation copies are excluded; authored body changes take priority over updated
-reference copies. A removed block uses a surviving adjacent target.
+and font changes do not replay an already observed edit. Failed compilation
+preserves the accepted document and the newly recorded source edit; navigation
+waits for a matching successful document. Metadata changes and source comments
+do not replace the last authored edit. A deletion uses a surviving source anchor
+when it maps to accepted output. If all observing services stop, a later source
+comparison cannot recover the exact chronology of several unobserved saves.
 
 == Sections and graphical annotations
 

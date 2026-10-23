@@ -113,7 +113,7 @@ try {
   await away();
   await page.waitForTimeout(400);
   await page.reload();
-  await aligned("reload prioritizes the saved visual edit over the stored reading position");
+  await aligned("reload prioritizes the shared source edit over the stored reading position");
   await away();
   assert.equal(await page.locator("#reader-change-jump").isVisible(), false);
   check("an explicit named link retains its destination");
@@ -261,6 +261,8 @@ try {
     check(name);
   }
   assert.deepEqual(errors, []);
+  if (process.env.FLOW_READER_TEST_SCREENSHOT)
+    await page.screenshot({ path: process.env.FLOW_READER_TEST_SCREENSHOT });
   process.stdout.write(JSON.stringify({ passed: checks.length, errors }) + "\n");
 } finally {
   await browser.close();

@@ -171,7 +171,7 @@ The default Neovim view SHALL position image frames inside its current window, f
 - **THEN** the source window receives the location and focus, and the Reader remains in its own window
 
 ### Requirement: Readers and Neovim share the saved source edit
-For a configured common paged change record, HTML and terminal Readers and opt-in Neovim source restoration SHALL use the same project/entry source edit. Paged layout remains owned by the existing engine; HTML SHALL map that range only into its accepted source-backed document. Neovim SHALL validate exact saved source before opening the corresponding file and UTF-8 byte position.
+Readers and Neovim SHALL share one project/entry source edit owned by the common Rust project service. Saved-source observation and serialized persistence SHALL work independently of renderer lifetime. Managed, explicit and standalone lookup SHALL resolve the same project record. Each consumer SHALL validate current saved source and map positions through its own accepted document.
 
 #### Scenario: Reopen the project in Neovim
 - **WHEN** the configured entry opens with shared restoration enabled and a verified common edit exists in an included source file
@@ -193,3 +193,25 @@ For a configured common paged change record, HTML and terminal Readers and opt-i
 - **WHEN** a terminal Reader starts with an unchanged source cursor
 - **THEN** its first cursor poll establishes a baseline without replacing the restored reading destination
 - **AND** later cursor movement or explicit sync can navigate normally
+
+#### Scenario: HTML-only saved edits
+- **WHEN** only the HTML service is running and a registered source dependency is saved, including while no viewers are connected
+- **THEN** the common project service records its source range before HTML compilation
+- **AND** failed compilation retains the accepted document without discarding the new source edit
+- **AND** a later source-matching successful document can map that edit
+
+#### Scenario: Concurrent reader services
+- **WHEN** HTML and paged services alternately or concurrently observe and publish the same project
+- **THEN** locked transactions reload current state and preserve the latest source sequence and all valid palette snapshots
+- **AND** stale compilation results do not roll back or consume a newer edit
+
+#### Scenario: Source-only changes and engine compatibility
+- **WHEN** a comment-only save shifts the last edit or a deletion removes its original text
+- **THEN** shared policy preserves UTF-8 boundaries, rebases comment shifts and chooses a surviving deletion anchor
+- **WHEN** the configured engine lacks the common source-history capability
+- **THEN** HTML startup reports the required capability without starting another visual edit chronology
+
+#### Scenario: Stop during common history observation
+- **WHEN** the Reader closes or startup is interrupted while an owned source-history helper is running
+- **THEN** it terminates and reaps that helper within a bounded shutdown period
+- **AND** a disposed client cannot start another observation or mutate the record later

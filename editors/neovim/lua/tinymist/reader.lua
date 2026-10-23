@@ -385,6 +385,7 @@ function reader.start(manual)
       { '--output', config.output and absolute(config.output, directory) or storage .. '/html' },
       { '--package-path', config.package_path and absolute(config.package_path, directory) },
       { '--compiler', compiler }, { '--port', config.port and tostring(config.port) },
+      { '--engine', config.engine and absolute(config.engine, directory) },
     })
   end
   for _, option in ipairs(options) do
@@ -510,6 +511,7 @@ function reader.resume(automatic, done)
   local command = { config.python or 'python3', repository .. '/tools/flow-reader/edit-location.py',
     '--root', directory, '--entry', entry }
   if config.change_file then vim.list_extend(command, { '--change-file', absolute(config.change_file, directory) }) end
+  if config.engine then vim.list_extend(command, { '--engine', absolute(config.engine, directory) }) end
   local ok, process = pcall(vim.system, command, { text = true, timeout = 2500 }, function(result)
     vim.schedule(function()
       if generation ~= resume_generation then return end

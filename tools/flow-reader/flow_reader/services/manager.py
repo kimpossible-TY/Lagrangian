@@ -60,6 +60,9 @@ class ReaderManager:
             path = Path(config.get(key, ""))
             if not path.is_absolute() or not os.access(path, os.X_OK):
                 raise ValueError(f"Missing executable: {key}")
+        if config.get("engine") and (not Path(config["engine"]).is_absolute()
+                                     or not os.access(config["engine"], os.X_OK)):
+            raise ValueError("Missing executable: engine")
         return config
 
     def profiles(self):
@@ -68,6 +71,7 @@ class ReaderManager:
         by_id = {profile["id"]: profile for profile in parents}
         ids, ports, result = set(by_id), {profile["port"] for profile in parents}, []
         focus_files = {str(Path(p["focusFile"]).resolve()) for p in parents if p.get("focusFile")}
+        change_files = {}
         for service in config["services"]:
             identifier, parent_id = service.get("id"), service.get("parentID")
             if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", identifier) or identifier in ids:
@@ -91,6 +95,17 @@ class ReaderManager:
             semantic_canvases = service.get("semanticCanvases", False)
             if type(semantic_canvases) is not bool:
                 raise ValueError("Reader semanticCanvases must be a boolean")
+            if parent_id not in change_files:
+                plan = json.loads(run([config["flowManager"], "--launch-plan", parent_id]))
+                if not isinstance(plan, dict) or ("environment" in plan and not isinstance(plan["environment"], dict)):
+                    raise ValueError("Invalid Flow parent launch plan")
+                environment = plan.get("environment", {})
+                change_file = environment.get("TINYMIST_PREVIEW_CHANGE_FILE")
+                if "TINYMIST_PREVIEW_CHANGE_FILE" in environment:
+                    if not isinstance(change_file, str) or not Path(change_file).is_absolute():
+                        raise ValueError("Flow parent changeFile must be absolute")
+                    change_file = str(Path(change_file).resolve())
+                change_files[parent_id] = change_file
             profile = {**parent, "id": identifier, "parentID": parent_id,
                        "name": parent["name"] + " · Reader", "port": port,
                        "focusFile": str(focus_file.resolve()),
@@ -98,6 +113,8 @@ class ReaderManager:
                        "originalURL": parent.get("publicURL") or f"http://127.0.0.1:{parent['port']}/",
                        "development": bool(service.get("development", False)),
                        "semanticCanvases": semantic_canvases}
+            if change_files[parent_id]:
+                profile["changeFile"] = change_files[parent_id]
             result.append(profile)
             ids.add(identifier)
             ports.add(port)
@@ -119,6 +136,15 @@ class ReaderManager:
                      "--compiler", config["compiler"], "--output", str(self.data / "documents" / profile["id"]),
                      "--focus-file", profile["focusFile"],
                      "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
+        engine = config.get("engine") or os.environ.get("FLOW_ENGINE_PATH")
+        if not engine:
+            sibling = Path(config["flowManager"]).parent / "flow-engine"
+            if os.access(sibling, os.X_OK):
+                engine = str(sibling)
+        if engine:
+            arguments.extend(["--engine", engine])
+        if profile.get("changeFile"):
+            arguments.extend(["--change-file", profile["changeFile"]])
         for font in profile["fonts"]:
             if not (root / font).exists():
                 raise ValueError("A configured Flow font directory is missing")

@@ -18,6 +18,7 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 - Pause an already loaded lualine statusline while the Reader is focused and restore it when focus returns to source or the Reader closes.
 
 - Share the paged engine's project-scoped saved source edit with HTML/terminal Readers and opt-in Neovim source restoration. Resolve one exact project/entry and validate saved source before navigation.
+- Move source-edit observation and persistence into the common Rust project service. HTML-only sessions use the same bounded source policy and serialized record transactions as paged previews, including failed compilations and concurrent processes.
 
 ## Capabilities
 
@@ -27,8 +28,8 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 
 ### Modified Capabilities
 
-None. Existing paged preview and mobile Reader behavior remains the default.
+Project source-edit history becomes renderer-independent; existing paged coordinates and HTML navigation guards remain with their adapters.
 
 ## Impact
 
-`tools/flow-reader/`, the optional Neovim module, and canonical Typst developer documentation. Playwright and Chromium are optional runtime prerequisites; existing dependency pins and installed services are unchanged.
+`tinymist-project`, paged preview history, the engine CLI, `tools/flow-reader/`, the optional Neovim module, and canonical Typst developer documentation. HTML service startup requires an engine supporting `source-history`; the HTML compiler remains independently configurable. Existing dependency pins and installed services are unchanged.

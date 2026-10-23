@@ -56,11 +56,11 @@ Both readers SHALL use one renderer-independent owner for the single origin, rep
 - **THEN** the same shared controller manages its temporary lifetime without converting page coordinates to semantic anchors or vice versa
 - **AND** obsolete return completion cannot consume a newer origin, and disposal prevents later callbacks from reviving the action
 
-### Requirement: Last visual edit navigation
-The HTML Reader SHALL use the paged preview's persistent visual-change and render-before-jump behavior with reflowable body targets. The server SHALL retain the last accepted visual edit per document independently of connected viewers. A new entry or reload SHALL restore that edit; a live viewer SHALL follow each newly accepted edit once. A direct named link and browser history navigation SHALL retain their destination.
+### Requirement: Last source edit navigation
+HTML SHALL map the common project source edit into its accepted semantic document and use the shared render-before-jump policy. Its service SHALL observe saves without connected viewers and SHALL NOT keep separate visual-change chronology. Entry/reload SHALL restore the last mapped edit; live viewers SHALL follow each new edit once. Explicit named links and history navigation SHALL retain priority.
 
 #### Scenario: Distant saved edit and reload
-- **WHEN** a saved edit changes a distant body passage, mathematical expression or native figure
+- **WHEN** a saved source edit changes a distant body passage, mathematical expression or native figure with a uniquely mapped source range
 - **THEN** the Reader navigates directly to its matching accepted target after mounting the destination section
 - **AND** a refreshed or newly opened Reader restores that edit even when another reading position was saved
 - **AND** an edit accepted with no connected viewer is available on the next entry
@@ -71,6 +71,13 @@ The HTML Reader SHALL use the paged preview's persistent visual-change and rende
 - **AND** a gesture during destination loading also defers navigation
 - **WHEN** a selection or Reader dialog is active
 - **THEN** publication waits until it ends
+
+#### Scenario: Compiler-verified callout and figure navigation
+- **WHEN** the shared edit covers a callout title, unwrapped body or native figure argument and compilation verifies one matching complete container
+- **THEN** navigation targets that accepted container
+- **AND** navigation-only ranges do not authorize source selections, highlights or editor cursor mappings and never enter served HTML or manifests
+- **WHEN** one invocation emits independent competing containers or changed output
+- **THEN** it does not supply a guessed navigation destination
 
 #### Scenario: Stable history and explicit navigation
 - **WHEN** the Reader reconnects, changes appearance or recomposes at a different font size
@@ -83,7 +90,8 @@ The HTML Reader SHALL use the paged preview's persistent visual-change and rende
 - **THEN** its valid last-edit target is retained and relocated in the current document
 - **AND** metadata-only changes or runtime-only rendering changes do not replace it
 - **WHEN** a compilation fails or a saved record is corrupt or belongs to another document
-- **THEN** no false visual edit is published from that result
+- **THEN** no false navigation target is published from that result
+- **AND** failed compilation preserves the accepted document and any newly observed source edit
 - **AND** a deleted target uses a surviving adjacent body location when available
 
 ### Requirement: Parallel reading outputs

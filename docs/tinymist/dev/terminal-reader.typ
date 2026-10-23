@@ -13,8 +13,12 @@ This integration opens the Flow HTML Reader. It does not replace or configure
 
 == Requirements and terminal choice
 
-Use Node.js 20 or newer, Python 3, a Typst compiler with HTML support, Playwright, and an
-installed Google Chrome. An explicit Chromium executable can replace Chrome.
+Use Node.js 20 or newer, Python 3, a Typst compiler with HTML support, a Flow engine
+supporting `source-history`, Playwright, and an installed Google Chrome. The HTML
+compiler and source-history engine are separate executable settings. Select the
+engine with `--engine`, Lua `engine`, or `FLOW_ENGINE_PATH`; automatic discovery
+uses the installed Flow engine and then `tinymist` on PATH. An explicit Chromium
+executable can replace Chrome.
 The default internal view requires Neovim 0.12 or newer on the host, with its
 built-in TUI directly attached to the graphics terminal. Explicit native/manual
 modes retain the older `vim.fs`, `vim.json` and local RPC prerequisites.
@@ -253,6 +257,7 @@ require("tinymist.reader").setup({
     "/absolute/path/tinymist-engine-mobile/tools/flow-reader/terminal.mjs",
   },
   compiler = "/absolute/path/to/typst",
+  engine = "/absolute/path/to/flow-engine",
   package_path = "/absolute/path/typst/packages",
   playwright_module =
     "/absolute/path/flow-reader-browser/node_modules/playwright/index.mjs",
@@ -293,14 +298,27 @@ this automatically when the entry opens. This option requires Neovim 0.10 or
 newer and Python 3 (`python` can select its executable). The default is off.
 Use `auto_open = false` when only source restoration is wanted.
 
-The existing paged Flow engine owns this source-edit record. HTML, terminal and
-Neovim consumers resolve the exact same root/entry in Flow's profiles and read
-its saved source range. `FLOW_DATA_DIR` selects a nondefault Flow data directory.
-For a standalone paged engine, pass the file configured by
-`TINYMIST_PREVIEW_CHANGE_FILE` as Lua `change_file` or CLI `--change-file`.
+The common Rust project service owns this source-edit record. PDF and HTML
+observation use the same saved-source comparison and locked persistence; the
+HTML service invokes the engine's lightweight `source-history` command before
+compiling, including with no browser viewers. HTML, terminal and Neovim resolve
+the exact same root/entry in Flow's profiles. Without a matching profile, the
+engine derives one deterministic project record shared across output folders.
+`FLOW_DATA_DIR` selects a nondefault Flow data directory. Lua `change_file` or CLI
+`--change-file` selects an explicit record, matching the paged engine's
+`TINYMIST_PREVIEW_CHANGE_FILE` setting when used. The source restoration command
+discovers a standalone record with `--path-only` without changing it.
+Managed HTML services receive the parent's exact change-file path from its
+launch plan, including when the parent uses a nondefault data directory.
 The source record, not a viewer's scroll position or editor's local cursor mark,
 determines the shared edit. Light and dark PDF layouts keep their own mapping;
 HTML maps the range into its accepted source-backed passage.
+
+Compiler-verified callout and figure invocations also provide navigation-only
+targets for title strings, unwrapped callout prose and figure code arguments.
+Their complete accepted containers must agree and resolve uniquely. These
+targets do not authorize a source selection or broaden highlighting/editor
+cursor mappings.
 
 Automatic editor lookup is asynchronous. Cursor movement, buffer changes,
 unsaved source and explicit startup line/session commands prevent it from
@@ -309,12 +327,15 @@ move the cursor. The editor's ordinary local position remains when no verified
 shared edit is available. Terminal startup also retains Reader restoration
 until the source cursor actually moves or `:FlowReader sync` is requested.
 
-The paged engine must have observed the save; edits made while it was stopped
-have no reliable chronology. HTML refuses an unmappable shared edit instead of
-selecting a different visual edit. Projects without a matching Flow profile or
-explicit common record retain standalone Reader history. Installed Readers
-need the updated release to consume the shared record; changing this checkout
-does not update or restart them.
+Either the paged or HTML service can observe saves. When all observing services
+are stopped, a later comparison cannot recover the exact chronology of several
+unobserved saves. A failed HTML compile preserves the accepted reading document
+and the newly recorded source edit; navigation resumes when a matching accepted
+document can map it. HTML refuses an unmappable shared edit. It no longer keeps
+an independent visual-change history. An older engine without `source-history`
+reports the required capability at startup; configure an updated executable.
+Installed Readers need the updated release and compatible engine; changing this
+checkout does not update or restart them.
 
 == Reading controls
 

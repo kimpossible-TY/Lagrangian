@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -27,7 +28,8 @@ class SourceNavigation(unittest.TestCase):
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
-            env = dict(os.environ, TINYMIST_PREVIEW_FOCUS_FILE=str(focus))
+            env = dict(os.environ, TINYMIST_PREVIEW_FOCUS_FILE=str(focus),
+                       FLOW_DATA_DIR=str(root / "flow-data"))
             env.pop("TINYMIST_PREVIEW_CHANGE_FILE", None)
             with (root / "engine.log").open("wb") as log:
                 process = subprocess.Popen([
@@ -105,7 +107,8 @@ class SourceNavigation(unittest.TestCase):
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
-            env = dict(os.environ, TINYMIST_PREVIEW_FOCUS_FILE=str(focus))
+            env = dict(os.environ, TINYMIST_PREVIEW_FOCUS_FILE=str(focus),
+                       FLOW_DATA_DIR=str(root / "flow-data"))
             env.pop("TINYMIST_PREVIEW_CHANGE_FILE", None)
             log_path = root / "engine.log"
             with log_path.open("wb") as log:
@@ -185,6 +188,161 @@ class SourceNavigation(unittest.TestCase):
                         desktop.close()
                         phone.close()
                         viewers.clear()
+                finally:
+                    for viewer in viewers:
+                        viewer.close()
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+
+    def test_html_history_and_native_default_share_edits_and_palette_snapshots(self):
+        with tempfile.TemporaryDirectory(prefix="flow-shared-source-history-") as directory:
+            base = Path(directory).resolve()
+            root, support = base / "project", base / "flow-data"
+            root.mkdir()
+            support.mkdir()
+            document, part = root / "main.typ", root / "part.typ"
+            document.write_text(
+                '#set page(width: 240pt, height: 120pt, margin: 10pt)\n'
+                '#let palette = sys.inputs.at("theme", default: "light")\n'
+                '#set page(fill: if palette == "dark" { black } else { white })\n'
+                '#set text(size: 12pt, fill: if palette == "dark" { white } else { black })\n'
+                '= Cover\n'
+                '#if palette == "dark" [#pagebreak() Dark introduction]\n'
+                '#pagebreak()\n#include "part.typ"\n', encoding="utf-8")
+            part.write_text("= Shared destination\nOriginal source body.\n", encoding="utf-8")
+            (support / "profiles.json").write_text(json.dumps({
+                "schemaVersion": 1, "profiles": [
+                    {"id": "unrelated", "root": str(root), "entry": "other.typ"},
+                    {"id": "cross-reader", "root": str(root), "entry": "main.typ"},
+                ]}), encoding="utf-8")
+            record_path = support / "changes/cross-reader.json"
+            env = dict(os.environ, FLOW_DATA_DIR=str(support),
+                       TINYMIST_PREVIEW_FOCUS_FILE=str(base / "focus.json"),
+                       PYTHONPATH=str(ROOT / "tools/flow-reader"))
+            env.pop("TINYMIST_PREVIEW_CHANGE_FILE", None)
+            helper_script = """
+import json, os, sys
+from pathlib import Path
+from flow_reader.compiler.project import Project
+from flow_reader.services.source_history import SourceHistoryClient
+root = Path(sys.argv[1])
+client = SourceHistoryClient(Project(root, Path("main.typ"), root),
+                             engine=os.environ["FLOW_TEST_ENGINE"])
+sources = json.load(sys.stdin)["sources"]
+result = client.seed(sources) if sources else client.observe()
+print(json.dumps(result | {"edit": client.location.read()}))
+"""
+
+            def html_history(sources=None):
+                result = subprocess.run(
+                    [sys.executable, "-c", helper_script, str(root)],
+                    input=json.dumps({"sources": sources or []}), text=True,
+                    capture_output=True, env=env, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                response = json.loads(result.stdout)
+                self.assertEqual(Path(response["path"]), record_path)
+                return response
+
+            snapshots = [{"filepath": str(path), "text": path.read_text(encoding="utf-8")}
+                         for path in (document, part)]
+            self.assertEqual(html_history(snapshots)["sequence"], 0)
+            part.write_text("= Shared destination\nHTML saved 변경 body.\n", encoding="utf-8")
+            first_edit = html_history()
+            self.assertEqual(first_edit["sequence"], 1)
+            self.assertEqual(first_edit["edit"]["status"], "located")
+            self.assertEqual(first_edit["edit"]["path"], str(part))
+
+            with socket.socket() as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                port = reservation.getsockname()[1]
+            log_path = base / "engine.log"
+            with log_path.open("wb") as log:
+                process = subprocess.Popen([
+                    env["FLOW_TEST_ENGINE"], "--log-filter", "tinymist_project::compiler=info",
+                    "preview", str(document), "--root", str(root), "--follow-system-theme",
+                    "--no-open", f"--data-plane-host=127.0.0.1:{port}",
+                    "--control-plane-host=127.0.0.1:0"], env=env, stdout=log, stderr=log)
+                viewers = []
+                try:
+                    deadline = time.monotonic() + 30
+                    while True:
+                        try:
+                            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1).close()
+                            break
+                        except OSError:
+                            if time.monotonic() > deadline or process.poll() is not None:
+                                self.fail("Fixture preview did not start: " + log_path.read_text())
+                            time.sleep(0.05)
+
+                    def render_hint(viewer, kind, expected_page):
+                        deadline = time.monotonic() + 30
+                        hint, frame = None, False
+                        while time.monotonic() < deadline:
+                            message = viewer.receive(1)
+                            if not message:
+                                continue
+                            payload = message[1]
+                            if payload.startswith(kind + b","):
+                                hint = payload.split(b",", 1)[1].decode().split()
+                            elif payload.startswith((b"new,", b"diff-v1,")):
+                                frame = True
+                            if hint and frame:
+                                self.assertEqual(int(hint[0]), expected_page)
+                                return
+                        self.fail(f"Missing {kind!r} and rendered frame: " + log_path.read_text())
+
+                    def open_viewer(theme, expected_page):
+                        viewer = wire.WebSocket(port, f"/_theme/{theme}")
+                        viewers.append(viewer)
+                        viewer.send("current")
+                        render_hint(viewer, b"resume", expected_page)
+                        return viewer
+
+                    def accepted_record(sequence):
+                        deadline = time.monotonic() + 30
+                        while time.monotonic() < deadline:
+                            record = json.loads(record_path.read_text(encoding="utf-8"))
+                            variants = record["variants"]
+                            if (record["source_history"]["sequence"] == sequence
+                                    and all(variants.get(theme, {}).get("source_sequence") == sequence
+                                            for theme in ("light", "dark"))):
+                                self.assertEqual(record["source_history"]["latest"]["filepath"], str(part))
+                                self.assertEqual(variants["light"]["position"][0], 2)
+                                self.assertEqual(variants["dark"]["position"][0], 3)
+                                return record
+                            if process.poll() is not None:
+                                break
+                            time.sleep(0.05)
+                        self.fail("Both palette snapshots did not accept the common edit: " +
+                                  log_path.read_text())
+
+                    light = open_viewer("light", 2)
+                    dark = open_viewer("dark", 3)
+                    before = accepted_record(1)
+                    # The helper must preserve native renderer payloads when no
+                    # source changed, including each palette's different page.
+                    self.assertEqual(html_history()["sequence"], 1)
+                    self.assertEqual(json.loads(record_path.read_text())["variants"], before["variants"])
+
+                    part.write_text("= Shared destination\nLater HTML saved 본문 body.\n", encoding="utf-8")
+                    second_edit = html_history()
+                    self.assertEqual(second_edit["sequence"], 2)
+                    self.assertEqual(second_edit["edit"]["path"], str(part))
+                    render_hint(light, b"change", 2)
+                    render_hint(dark, b"change", 3)
+                    after = accepted_record(2)
+                    self.assertEqual(set(after["variants"]), {"light", "dark"})
+                    dark.close()
+                    viewers.remove(dark)
+                    self.assertEqual(html_history()["sequence"], 2)
+                    open_viewer("dark", 3)
+                    final = accepted_record(2)
+                    self.assertEqual(final["variants"], after["variants"])
+                    self.assertEqual(list((support / "changes").glob("*.json")), [record_path])
                 finally:
                     for viewer in viewers:
                         viewer.close()

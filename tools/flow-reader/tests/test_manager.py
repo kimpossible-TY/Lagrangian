@@ -55,6 +55,37 @@ class ReaderManagerTests(unittest.TestCase):
         self.assertEqual(second["entry"], "changed.typ")
         self.assertNotIn("root", self.config["services"][0])
 
+    def test_parent_launch_plan_pins_custom_record_independent_of_child_environment(self):
+        data = self.root / 'custom Flow data'
+        data.mkdir()
+        alias = self.root / 'flow-data-alias'
+        alias.symlink_to(data, target_is_directory=True)
+        path = alias / 'changes' / 'parent.json'
+        self.config['services'].append({'id': 'second-reader', 'parentID': 'parent', 'port': 24003})
+        self.save()
+        def dispatch(arguments):
+            if arguments[1:] == ['--profiles']:
+                return json.dumps({'profiles': [self.parent]})
+            self.assertEqual(arguments[1:], ['--launch-plan', 'parent'])
+            return json.dumps({'environment': {'TINYMIST_PREVIEW_CHANGE_FILE': str(path)}})
+        with patch.dict(os.environ, {'FLOW_DATA_DIR': str(self.root / 'unrelated ambient data')}), \
+                patch('flow_reader.services.manager.run', side_effect=dispatch) as command:
+            profiles = self.manager.profiles()
+        self.assertEqual(command.call_count, 2)
+        for profile in profiles:
+            self.assertEqual(profile['changeFile'], str(path.resolve()))
+            arguments = self.manager.arguments(profile)
+            self.assertEqual(arguments[arguments.index('--change-file') + 1], str(path.resolve()))
+        self.assertNotIn('changeFile', self.config['services'][0])
+
+    def test_parent_launch_plan_rejects_invalid_explicit_record_paths(self):
+        for path in ('relative.json', '', None, []):
+            responses = [json.dumps({'profiles': [self.parent]}),
+                         json.dumps({'environment': {'TINYMIST_PREVIEW_CHANGE_FILE': path}})]
+            with self.subTest(path=path), patch('flow_reader.services.manager.run', side_effect=responses):
+                with self.assertRaisesRegex(ValueError, 'changeFile must be absolute'):
+                    self.manager.profiles()
+
     def test_reader_port_cannot_reuse_any_parent_port(self):
         self.config["services"][0]["port"] = self.parent["port"]
         self.save()
@@ -108,6 +139,32 @@ class ReaderManagerTests(unittest.TestCase):
         self.save()
         with self.assertRaisesRegex(ValueError, "boolean"):
             self.resolve()
+
+    def test_explicit_engine_and_flow_sibling_reach_the_owned_reader(self):
+        profile = self.resolve()
+        self.config['engine'] = sys.executable
+        self.save()
+        arguments = self.manager.arguments(profile)
+        self.assertEqual(arguments[arguments.index('--engine') + 1], sys.executable)
+        del self.config['engine']
+        flow = self.root / 'app' / 'tinymist-flow'
+        flow.parent.mkdir()
+        flow.write_text('fixture')
+        flow.chmod(0o755)
+        sibling = flow.with_name('flow-engine')
+        sibling.write_text('fixture')
+        sibling.chmod(0o755)
+        self.config['flowManager'] = str(flow)
+        self.save()
+        arguments = self.manager.arguments(profile)
+        self.assertEqual(arguments[arguments.index('--engine') + 1], str(sibling))
+        with patch.dict(os.environ, {'FLOW_ENGINE_PATH': sys.executable}):
+            arguments = self.manager.arguments(profile)
+            self.assertEqual(arguments[arguments.index('--engine') + 1], sys.executable)
+        self.config['engine'] = str(self.root / 'missing-engine')
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'Missing executable: engine'):
+            self.manager.arguments(profile)
 
     def test_unrelated_port_owner_cannot_be_stopped_or_replaced(self):
         profile = self.resolve()

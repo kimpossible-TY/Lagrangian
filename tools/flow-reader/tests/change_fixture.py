@@ -15,6 +15,7 @@ from flow_reader.server import cli as serve
 from flow_reader.server import state as state_module
 from flow_reader.compiler.build import Project
 from flow_reader.document.sections import split_document
+from flow_reader.services.source_history import SourceHistoryClient
 
 
 def document(step):
@@ -50,7 +51,10 @@ def main():
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
         state_module.split_document = lambda source, revision, **kwargs: split_document(
             source, revision, max_blocks=6, **kwargs)
-        state = serve.ReaderState(project, work / "output", "https://example.test/paged/", False)
+        history = SourceHistoryClient(project, engine=os.environ.get("FLOW_TEST_ENGINE"),
+                                      change_file=work / "common.json")
+        state = serve.ReaderState(project, work / "output", "https://example.test/paged/", False,
+                                  source_history=history)
         state.compile()
         if state.revision is None:
             raise RuntimeError(state.report)
@@ -64,7 +68,7 @@ def main():
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 step = request["step"]
                 if step == "failure":
-                    entry.write_text("#unknown-fixture-function()")
+                    entry.write_text(entry.read_text() + "\n#unknown-fixture-function()\n")
                 elif step == "comment":
                     entry.write_text(entry.read_text() + "\n// Comment without visible output\n")
                 elif type(step) is int and 0 <= step <= 20:

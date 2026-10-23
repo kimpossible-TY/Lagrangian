@@ -1,18 +1,16 @@
 //! Persistent visual edit locations, independent of viewers and explicit taps.
 
-use std::collections::BTreeMap;
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use tinymist_project::source_history::SourceHistoryStore;
 
 use crate::CompileView;
 use crate::actor::render::RenderActor;
 
-const MAX_RECORD_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PAGES: usize = 50_000;
-const SCHEMA_VERSION: u32 = 2;
 pub(crate) type ChangePosition = (usize, f64, f64);
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -41,23 +39,9 @@ impl Variant {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct Record {
-    schema_version: u32,
-    project: String,
-    variants: BTreeMap<String, Variant>,
-    #[serde(default)]
-    source_history: crate::source_change::SourceHistory,
-}
-
-struct ChangeStore {
-    path: PathBuf,
-    record: parking_lot::Mutex<Record>,
-}
-
 /// A variant-specific view of one project's persisted visual edit history.
 pub(crate) struct ChangeTracker {
-    store: Arc<ChangeStore>,
+    store: Arc<SourceHistoryStore>,
     variant: String,
 }
 
@@ -69,55 +53,18 @@ impl ChangeTracker {
                 "invalid preview change path or variant",
             ));
         }
-        let parent = path
-            .parent()
-            .ok_or_else(|| io::Error::other("missing change directory"))?;
-        std::fs::create_dir_all(parent)?;
-        let loaded = (|| -> io::Result<Record> {
-            let mut bytes = Vec::new();
-            std::fs::File::open(&path)?
-                .take(MAX_RECORD_BYTES + 1)
-                .read_to_end(&mut bytes)?;
-            if bytes.len() as u64 > MAX_RECORD_BYTES {
-                return Err(io::Error::other("preview change record is oversized"));
-            }
-            Ok(serde_json::from_slice(&bytes)?)
-        })();
-        let record = match loaded {
-            Ok(record)
-                if record.schema_version == SCHEMA_VERSION
-                    && record.project == project
-                    && record.variants.len() <= 3
-                    && record.source_history.valid()
-                    && record.variants.iter().all(|(key, value)| {
-                        matches!(key.as_str(), "default" | "light" | "dark") && value.valid()
-                    }) =>
-            {
-                record
-            }
-            Ok(_) => Record {
-                schema_version: SCHEMA_VERSION,
-                project,
-                variants: BTreeMap::new(),
-                source_history: Default::default(),
-            },
-            Err(error) => {
-                if error.kind() != io::ErrorKind::NotFound {
-                    log::warn!("Ignoring invalid preview change record: {error}");
-                }
-                Record {
-                    schema_version: SCHEMA_VERSION,
-                    project,
-                    variants: BTreeMap::new(),
-                    source_history: Default::default(),
-                }
-            }
-        };
+        Self::with_store(SourceHistoryStore::for_project(path, project)?, variant)
+    }
+
+    pub fn with_store(store: SourceHistoryStore, variant: &str) -> io::Result<Self> {
+        if !matches!(variant, "default" | "light" | "dark") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid preview change variant",
+            ));
+        }
         Ok(Self {
-            store: Arc::new(ChangeStore {
-                path,
-                record: parking_lot::Mutex::new(record),
-            }),
+            store: Arc::new(store),
             variant: variant.into(),
         })
     }
@@ -130,10 +77,7 @@ impl ChangeTracker {
     }
 
     pub fn observe_source_changes(&self) {
-        let mut record = self.store.record.lock();
-        if record.source_history.observe_disk()
-            && let Err(error) = self.store.write(&record)
-        {
+        if let Err(error) = self.store.observe(vec![]) {
             log::warn!("Could not persist preview source history: {error}");
         }
     }
@@ -147,107 +91,124 @@ impl ChangeTracker {
             return;
         }
         let source_fingerprint = view.preview_source_fingerprint();
-        let mut record = self.store.record.lock();
-        let files = view.preview_source_files();
-        let latest_matches = record.source_history.latest.as_ref().is_none_or(|edit| {
-            files.iter().any(|file| {
-                file.filepath == edit.filepath
-                    && crate::source_change::source_hash(&file.text) == edit.source_hash
-            })
-        });
-        let seeded = record.source_history.seed(files);
-        let sequence = record.source_history.sequence;
-        let old = record.variants.get(&self.variant);
-        if old.is_some_and(|old| {
-            old.page_hashes == hashes
-                && old.source_fingerprint == source_fingerprint
-                && (previous.is_some() || old.position.is_some())
-                && old.source_sequence == sequence
-        }) && !seeded
-        {
-            return;
-        }
-        let mut position = old.and_then(|old| {
-            let same_inputs = old
-                .source_fingerprint
-                .as_ref()
-                .zip(source_fingerprint.as_ref())
-                .is_some_and(|(old, new)| old == new);
-            if old.page_hashes == hashes || same_inputs {
-                // A comment can change source inputs without changing pixels;
-                // a renderer update can change page hashes without any edit.
-                // Rebase either baseline without replacing its saved location.
-                old.position.filter(|(page, _, _)| *page <= hashes.len())
-            } else if previous.is_some() {
-                let changed = RenderActor::changed_pages(&old.page_hashes, &hashes);
-                resolve_change(view, previous, &changed)
-            } else {
-                // On startup, changed output cannot identify the user's edit.
-                // In particular, the first changed page may just be an outline.
-                None
+        let result = self.store.transaction(|history, variants| {
+            let files = view.preview_source_files();
+            let latest_matches = history.latest.as_ref().is_none_or(|edit| {
+                files.iter().any(|file| {
+                    file.filepath == edit.filepath
+                        && crate::source_change::source_hash(&file.text) == edit.source_hash
+                })
+            });
+            let seeded = history.seed(files);
+            let sequence = history.sequence;
+            let old = variants
+                .get(&self.variant)
+                .and_then(|value| serde_json::from_value::<Variant>(value.clone()).ok())
+                .filter(Variant::valid);
+            let old = old.as_ref();
+            if old.is_some_and(|old| {
+                old.page_hashes == hashes
+                    && old.source_fingerprint == source_fingerprint
+                    && (previous.is_some() || old.position.is_some())
+                    && old.source_sequence == sequence
+            }) && !seeded
+            {
+                return Ok(());
             }
+            let mut position = old.and_then(|old| {
+                let same_inputs = old
+                    .source_fingerprint
+                    .as_ref()
+                    .zip(source_fingerprint.as_ref())
+                    .is_some_and(|(old, new)| old == new);
+                if old.page_hashes == hashes || same_inputs {
+                    // A comment can change source inputs without changing pixels;
+                    // a renderer update can change page hashes without any edit.
+                    // Rebase either baseline without replacing its saved location.
+                    old.position.filter(|(page, _, _)| *page <= hashes.len())
+                } else if previous.is_some() {
+                    let changed = RenderActor::changed_pages(&old.page_hashes, &hashes);
+                    resolve_change(view, previous, &changed)
+                } else {
+                    // On startup, changed output cannot identify the user's edit.
+                    // In particular, the first changed page may just be an outline.
+                    None
+                }
+            });
+            if old.is_none_or(|old| old.source_sequence != sequence)
+                && let Some(edit) = &history.latest
+                && let Some(pos) =
+                    view.source_edit_document_positions(edit)
+                        .into_iter()
+                        .find(|pos| {
+                            pos.page.get() <= hashes.len()
+                                && pos.point.x.to_pt().is_finite()
+                                && pos.point.y.to_pt().is_finite()
+                                && pos.point.x.to_pt() >= 0.0
+                                && pos.point.y.to_pt() >= 0.0
+                        })
+            {
+                position = Some((pos.page.get(), pos.point.x.to_pt(), pos.point.y.to_pt()));
+            }
+            if previous.is_none() && position.is_none() {
+                position = view
+                    .git_changed_document_positions()
+                    .into_iter()
+                    .map(|pos| (pos.page.get(), pos.point.x.to_pt(), pos.point.y.to_pt()))
+                    .filter(|(page, x, y)| {
+                        *page <= hashes.len()
+                            && x.is_finite()
+                            && y.is_finite()
+                            && *x >= 0.0
+                            && *y >= 0.0
+                    })
+                    .min_by(|a, b| {
+                        a.0.cmp(&b.0)
+                            .then(a.2.total_cmp(&b.2))
+                            .then(a.1.total_cmp(&b.1))
+                    });
+            }
+            // An older in-flight theme result must not consume the newer anchor
+            // before a matching source snapshot reaches it.
+            let source_sequence = if latest_matches {
+                sequence
+            } else {
+                old.map_or(0, |old| old.source_sequence)
+            };
+            variants.insert(
+                self.variant.clone(),
+                serde_json::to_value(Variant {
+                    page_hashes: hashes,
+                    source_fingerprint,
+                    position,
+                    source_sequence,
+                })?,
+            );
+            Ok(())
         });
-        if old.is_none_or(|old| old.source_sequence != sequence)
-            && let Some(edit) = &record.source_history.latest
-            && let Some(pos) = view
-                .source_edit_document_positions(edit)
-                .into_iter()
-                .find(|pos| {
-                    pos.page.get() <= hashes.len()
-                        && pos.point.x.to_pt().is_finite()
-                        && pos.point.y.to_pt().is_finite()
-                        && pos.point.x.to_pt() >= 0.0
-                        && pos.point.y.to_pt() >= 0.0
-                })
-        {
-            position = Some((pos.page.get(), pos.point.x.to_pt(), pos.point.y.to_pt()));
-        }
-        if previous.is_none() && position.is_none() {
-            position = view
-                .git_changed_document_positions()
-                .into_iter()
-                .map(|pos| (pos.page.get(), pos.point.x.to_pt(), pos.point.y.to_pt()))
-                .filter(|(page, x, y)| {
-                    *page <= hashes.len()
-                        && x.is_finite()
-                        && y.is_finite()
-                        && *x >= 0.0
-                        && *y >= 0.0
-                })
-                .min_by(|a, b| {
-                    a.0.cmp(&b.0)
-                        .then(a.2.total_cmp(&b.2))
-                        .then(a.1.total_cmp(&b.1))
-                });
-        }
-        // An older in-flight theme result must not consume the newer anchor
-        // before a matching source snapshot reaches it.
-        let source_sequence = if latest_matches {
-            sequence
-        } else {
-            old.map_or(0, |old| old.source_sequence)
-        };
-        record.variants.insert(
-            self.variant.clone(),
-            Variant {
-                page_hashes: hashes,
-                source_fingerprint,
-                position,
-                source_sequence,
-            },
-        );
-        if let Err(error) = self.store.write(&record) {
+        if let Err(error) = result {
             log::warn!("Could not persist preview change location: {error}");
         }
     }
 
     /// Coordinates are usable only with the exact successful document baseline.
     pub fn position(&self, hashes: &[u64]) -> Option<ChangePosition> {
-        let record = self.store.record.lock();
-        let variant = record.variants.get(&self.variant)?;
-        (variant.page_hashes == hashes && variant.source_sequence == record.source_history.sequence)
-            .then_some(variant.position)
-            .flatten()
+        self.store
+            .transaction(|history, variants| {
+                let variant = variants
+                    .get(&self.variant)
+                    .and_then(|value| serde_json::from_value::<Variant>(value.clone()).ok())
+                    .filter(Variant::valid);
+                Ok(variant.and_then(|variant| {
+                    (variant.page_hashes == hashes && variant.source_sequence == history.sequence)
+                        .then_some(variant.position)
+                        .flatten()
+                }))
+            })
+            .unwrap_or_else(|error| {
+                log::warn!("Could not read preview change location: {error}");
+                None
+            })
     }
 }
 
@@ -282,48 +243,11 @@ pub(crate) fn resolve_change(
     Some((first, 0.0, 0.0))
 }
 
-impl ChangeStore {
-    fn write(&self, record: &Record) -> io::Result<()> {
-        let bytes = serde_json::to_vec(record)?;
-        if bytes.len() as u64 >= MAX_RECORD_BYTES {
-            return Err(io::Error::other(
-                "preview change record exceeds its byte budget",
-            ));
-        }
-        // The shared record lock serializes writers from both theme compilers.
-        let temp = self.path.with_extension(format!(
-            "{}.{}.tmp",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        let result = (|| {
-            file.write_all(&bytes)?;
-            file.write_all(b"\n")?;
-            file.sync_all()?;
-            std::fs::rename(&temp, &self.path)
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(temp);
-        }
-        result
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::CompileStatus;
+    use tinymist_project::source_history::MAX_RECORD_BYTES;
     use tinymist_std::typst::{TypstDocument, TypstPagedDocument};
     use typst::introspection::PagedPosition;
     use typst::layout::{Abs, Point};
@@ -465,6 +389,10 @@ mod tests {
         let before = make("Original", false);
         light.observe(&before, None);
         std::fs::write(&source_path, "Latest edit").unwrap();
+        // HTML's short-lived Rust command updates the same record while the
+        // long-lived PDF trackers retain only their renderer-specific identity.
+        let external = SourceHistoryStore::for_project(path.clone(), "project".into()).unwrap();
+        assert_eq!(external.observe(vec![]).unwrap(), 1);
         light.observe_source_changes();
         let old_dark = make("Original", true);
         dark.observe(&old_dark, None);
@@ -658,8 +586,9 @@ mod tests {
         let tracker = ChangeTracker::new(path.clone(), "project".into(), "light").unwrap();
         tracker.observe(&view, None);
         assert_eq!(tracker.position(&hashes(&view)), None);
-        let record: Record = serde_json::from_reader(std::fs::File::open(&path).unwrap()).unwrap();
-        assert_eq!(record.schema_version, SCHEMA_VERSION);
+        let record: serde_json::Value =
+            serde_json::from_reader(std::fs::File::open(&path).unwrap()).unwrap();
+        assert_eq!(record["schema_version"], 2);
         std::fs::remove_file(path).unwrap();
     }
 
@@ -704,7 +633,7 @@ mod tests {
     fn themes_share_persistence_without_sharing_positions() {
         let path = path();
         let light = ChangeTracker::new(path.clone(), "project".into(), "light").unwrap();
-        let dark = light.sibling("dark");
+        let dark = ChangeTracker::new(path.clone(), "project".into(), "dark").unwrap();
         let before = document("First\n#pagebreak()\nBefore");
         let after = document("First\n#pagebreak()\nAfter");
         light.observe(&before, None);
@@ -744,5 +673,32 @@ mod tests {
         assert_eq!(tracker.position(&hashes(&view)), None);
         assert!(ChangeTracker::new("relative.json".into(), "project".into(), "light").is_err());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn injected_project_store_retains_strict_identity_through_preview_builder() {
+        let directory = path().with_extension("dir");
+        std::fs::create_dir(&directory).unwrap();
+        let root = directory.canonicalize().unwrap();
+        let entry = root.join("main.typ");
+        let path = root.join("changes.json");
+        std::fs::write(&entry, "Body").unwrap();
+        let foreign = br#"{"schema_version":2,"project":"foreign","variants":{}}"#;
+        std::fs::write(&path, foreign).unwrap();
+        let store = SourceHistoryStore::open(&root, &entry, Some(path.clone())).unwrap();
+        let tracker = ChangeTracker::with_store(store.clone(), "light").unwrap();
+        let view = document("Body");
+        tracker.observe(&view, None);
+        assert_eq!(tracker.position(&hashes(&view)), None);
+        assert_eq!(std::fs::read(&path).unwrap(), foreign);
+        let builder = crate::PreviewBuilder::new(crate::PreviewConfig::default())
+            .with_source_history(store, "light")
+            .unwrap();
+        let tracker = builder.change_tracker.as_ref().unwrap();
+        tracker.observe_source_changes();
+        tracker.observe(&view, None);
+        assert_eq!(tracker.position(&hashes(&view)), None);
+        assert_eq!(std::fs::read(path).unwrap(), foreign);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

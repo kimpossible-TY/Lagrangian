@@ -364,6 +364,16 @@ impl PreviewBuilder {
         Ok(self)
     }
 
+    /// Use an already resolved project history and preserve its identity checks.
+    pub fn with_source_history(
+        mut self,
+        store: tinymist_project::source_history::SourceHistoryStore,
+        variant: &str,
+    ) -> std::io::Result<Self> {
+        self.change_tracker = Some(Arc::new(change::ChangeTracker::with_store(store, variant)?));
+        Ok(self)
+    }
+
     /// Create an independent rendering pipeline sharing the ordered focus store.
     pub fn sibling(&self, config: PreviewConfig) -> Self {
         let mut sibling = Self::new(config);

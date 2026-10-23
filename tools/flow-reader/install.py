@@ -32,6 +32,8 @@ def install(args):
                 if manager.job_pid(profile):
                     raise ValueError("Stop the Reader services before updating their installed release")
         config.update(flowManager=str(args.flow_manager), python=str(args.python), compiler=str(args.compiler))
+        if getattr(args, "engine", None):
+            config["engine"] = str(args.engine.expanduser().resolve())
         previous = next((service for service in config["services"] if service["id"] == identifier), {})
         semantic_canvases = getattr(args, "semantic_canvases", None)
         if semantic_canvases is None:
@@ -97,6 +99,7 @@ def main():
     parser.add_argument("--flow-manager", type=Path, default=Path.home() / "Applications/tinymist-flow.app/Contents/MacOS/tinymist-flow")
     parser.add_argument("--python", type=Path, default=Path(shutil.which("python3") or "/missing/python3"))
     parser.add_argument("--compiler", type=Path, default=Path(shutil.which("typst") or "/missing/typst"))
+    parser.add_argument("--engine", type=Path, help="Flow engine supporting shared source history (otherwise use the Flow app engine)")
     parser.add_argument("--development", action="store_true", help="Retain the visible development notice; do not use as the mobile default")
     parser.add_argument("--semantic-canvases", action=argparse.BooleanOptionalAction, default=None,
                         help="Enable native figure labels; omission preserves the installed setting")
