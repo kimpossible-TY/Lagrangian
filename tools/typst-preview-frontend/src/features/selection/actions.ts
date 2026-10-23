@@ -95,6 +95,15 @@ export class SelectionActions {
     this.updateButtons();
   }
 
+  connectionLost() {
+    // A failed connection has no deliverable acknowledgment. Do not replay a
+    // source mutation, or leave every future selection blocked by its ticket.
+    const ticket = this.highlight.pending;
+    if (ticket) this.highlight.finish(ticket);
+    this.enabled = false;
+    this.updateButtons();
+  }
+
   highlightFinished(status: string) {
     const ticket = this.highlight.pending;
     if (!ticket) return;

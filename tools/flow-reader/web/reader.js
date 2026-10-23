@@ -3,6 +3,8 @@ import { createOutline } from "./features/navigation/outline.js";
 import { createFontSize } from "./features/appearance/font-size.js";
 import { DocumentStorage } from "./features/session/document-storage.js";
 import { ReaderActivity } from "./features/session/activity.js";
+import { ReaderRecovery, sameSnapshot, sameSession } from "./features/session/recovery.js";
+import { ReaderTransport } from "./features/session/transport.js";
 import { createReadingPosition } from "./features/navigation/reading-position.js";
 import { MathDecorations } from "./rendering/math/decorations.js";
 import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
@@ -46,10 +48,9 @@ const terminalParameters = new URL(location.href).searchParams;
 const terminalEditor = new TerminalEditorConnection(terminalParameters.get("terminalEditorServer"));
 let loadSequence = 0;
 let shellRevision = null;
-let refreshTimer;
-let refreshing = false;
-let refreshRequested = false;
+let serverState = null;
 let disposed = false;
+const transport = new ReaderTransport();
 const outlineNavigation = createOutline(article, outline, () => manifest);
 const readingPosition = createReadingPosition(article, {
   readBlocks: () => blocks,
@@ -77,7 +78,11 @@ const references = new ReferenceReturn(
 
 function finishReferenceReturn(anchor, restored) {
   if (restored) {
-    history.replaceState({ readerAnchor: anchor }, "", anchor.url);
+    history.replaceState(
+      { readerAnchor: anchor, readerDocumentID: manifest.documentID },
+      "",
+      anchor.url,
+    );
     article.focus({ preventScroll: true });
   }
   references.consume(anchor);
@@ -149,7 +154,7 @@ const annotations = new TextAnnotations(article, {
     const document = manifest;
     const section = document?.anchors[target];
     if (!section) return null;
-    const key = `${document.revision}:${section}`;
+    const key = `${document.documentID}:${document.revision}:${section}`;
     if (!footnoteSections.has(key)) {
       const request = fetchSection(document, section)
         .then(parseDocument)
@@ -338,13 +343,14 @@ function parseDocument(html) {
 
 function prepareSection(html, section) {
   const parsed = parseDocument(html);
-  if (shellRevision !== revision) {
+  const shellIdentity = `${manifest.documentID}:${revision}`;
+  if (shellRevision !== shellIdentity) {
     setLanguage(article, languageOf(parsed.body) ?? "");
     document
       .querySelector("#reader-document-styles")
       .replaceChildren(...parsed.head.querySelectorAll("style"));
     document.title = parsed.title ? `${parsed.title} · Flow Reader` : "Flow Reader";
-    shellRevision = revision;
+    shellRevision = shellIdentity;
   }
   prepareNotes(parsed.body, section);
   annotations.prepareFootnotes(parsed.body, section);
@@ -370,6 +376,7 @@ function mountedSectionsChanged() {
 function renderDocument(html, nextManifest, section, options) {
   readingPosition.release();
   const sequence = loadSequence;
+  const gestureAtMount = changes.lastGesture;
   activity.state.mounting(sequence);
   activity.refresh();
   annotations.clear();
@@ -379,6 +386,13 @@ function renderDocument(html, nextManifest, section, options) {
   revision = nextManifest.revision;
   manifest = nextManifest;
   currentSection = section;
+  const documentStorageKey = manifest.documentID
+    ? `flow-reader:${manifest.documentID}`
+    : preferences.key;
+  if (documentStorageKey !== preferences.key) {
+    preferences.key = documentStorageKey;
+    appearance.restore();
+  }
   sections.reset(manifest, section, html);
   indexDocument();
   mathematics.sync();
@@ -390,16 +404,16 @@ function renderDocument(html, nextManifest, section, options) {
   outlineNavigation.index(manifest);
   pending = null;
   requestAnimationFrame(() => {
-    if (disposed || revision !== nextManifest.revision || sequence !== loadSequence) return;
+    if (disposed || !sameSnapshot(manifest, nextManifest) || sequence !== loadSequence) return;
     if (options.target) {
       document.getElementById(options.target)?.scrollIntoView();
       if (options.changeToken) readingPosition.hold(readingAnchor());
-    } else if (options.anchor) {
+    } else if (options.anchor && (!options.update || changes.lastGesture === gestureAtMount)) {
       const restored = options.referenceReturn
         ? readingPosition.hold(options.anchor)
         : restoreAnchor(options.anchor);
       if (options.referenceReturn) finishReferenceReturn(options.referenceReturn, restored);
-    } else window.scrollTo(0, 0);
+    } else if (!options.anchor) window.scrollTo(0, 0);
     references.remember(options.referenceOrigin);
     sections.schedule();
     activity.state.rendered(sequence);
@@ -437,16 +451,16 @@ function fragment() {
 }
 
 async function fetchSection(nextManifest, section, signal) {
-  const key = `${nextManifest.revision}:${section}`;
+  const key = `${nextManifest.documentID}:${nextManifest.revision}:${section}`;
   let html = sectionCache.get(key);
   if (!html) {
-    const response = await fetch(
+    html = await transport.get(
       `api/sections/${encodeURIComponent(section)}?revision=${nextManifest.revision}`,
-      { signal },
+      { signal, format: "text" },
     );
-    if (!response.ok) throw new Error(`Section HTTP ${response.status}`);
-    html = await response.text();
   }
+  if (signal?.aborted || !sameSnapshot(nextManifest, serverState))
+    throw new DOMException("Document changed", "AbortError");
   sectionCache.delete(key);
   sectionCache.set(key, html);
   while (sectionCache.size > 6) sectionCache.delete(sectionCache.keys().next().value);
@@ -454,7 +468,11 @@ async function fetchSection(nextManifest, section, signal) {
 }
 
 function navigationHistory(section, target) {
-  history.replaceState({ readerAnchor: readingAnchor() }, "", location.href);
+  history.replaceState(
+    { readerAnchor: readingAnchor(), readerDocumentID: manifest.documentID },
+    "",
+    location.href,
+  );
   const url = new URL(location.href);
   url.searchParams.set("section", section);
   url.hash = target ? encodeURIComponent(target) : "";
@@ -463,12 +481,20 @@ function navigationHistory(section, target) {
 
 async function loadSection(nextManifest, section, options = {}) {
   const sequence = ++loadSequence;
+  const session = serverState;
   activity.state.begin(sequence, nextManifest.revision);
   activity.refresh();
   article.setAttribute("aria-busy", "true");
   try {
-    const html = await fetchSection(nextManifest, section);
-    if (disposed || sequence !== loadSequence) return;
+    const html = await fetchSection(nextManifest, section, options.signal);
+    if (
+      disposed ||
+      options.signal?.aborted ||
+      sequence !== loadSequence ||
+      !sameSession(session, serverState) ||
+      !sameSnapshot(nextManifest, serverState)
+    )
+      return;
     if (options.changeToken && !changes.allowPublication(nextManifest, options)) {
       activity.state.cancel(sequence);
       return;
@@ -487,15 +513,19 @@ async function loadSection(nextManifest, section, options = {}) {
       activity.state.cancel(sequence);
       return;
     }
-    if (options.update && revision) {
+    if (options.update && manifest?.documentID === nextManifest.documentID) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
       if (destination !== section) return loadSection(nextManifest, destination, options);
     }
     if (options.history) navigationHistory(section, options.target);
     renderDocument(html, nextManifest, section, options);
-  } catch {
+  } catch (error) {
     if (disposed || sequence !== loadSequence) return;
+    if (error.name === "AbortError") {
+      activity.state.cancel(sequence);
+      return;
+    }
     if (options.changeToken) changes.show();
     activity.state.error(sequence);
   } finally {
@@ -539,7 +569,10 @@ async function navigateAnchor(target, push = true, reference = false) {
 window.addEventListener("popstate", (event) => {
   if (!manifest) return;
   readingPosition.release();
-  const anchor = event.state?.readerAnchor;
+  const anchor =
+    !event.state?.readerDocumentID || event.state.readerDocumentID === manifest.documentID
+      ? event.state?.readerAnchor
+      : null;
   if (anchor) loadSection(manifest, sectionFor(manifest, anchor), { anchor });
   else if (fragment()) navigateAnchor(fragment(), false);
   else {
@@ -598,9 +631,13 @@ let saveTimer;
 history.scrollRestoration = "manual";
 function savePosition() {
   const anchor = readingAnchor();
-  if (!anchor) return;
+  if (!anchor || !manifest) return;
   preferences.write("position", anchor);
-  history.replaceState({ readerAnchor: anchor }, "", location.href);
+  history.replaceState(
+    { readerAnchor: anchor, readerDocumentID: manifest.documentID },
+    "",
+    location.href,
+  );
 }
 window.addEventListener(
   "scroll",
@@ -616,7 +653,10 @@ window.addEventListener("pagehide", (event) => {
   if (!event.persisted) {
     disposed = true;
     gestures.dispose();
-    clearTimeout(refreshTimer);
+    clearTimeout(saveTimer);
+    recovery.dispose();
+    transport.dispose();
+    sections.dispose();
     activity.dispose();
     disposeTerminalBridge();
     selectionActions?.dispose();
@@ -657,83 +697,86 @@ const activity = new ReaderActivity(document.querySelector("#reader-activity"), 
 });
 
 function requestRefresh() {
-  if (disposed) return;
-  if (refreshing) {
-    refreshRequested = true;
-    return;
-  }
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(refresh, 0);
+  recovery.request();
 }
 
-async function refresh() {
-  if (disposed || refreshing) return;
-  refreshing = true;
-  refreshRequested = false;
-  try {
-    const response = await fetch("api/state", { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const state = await response.json();
-    if (disposed) return;
-    activity.state.update(state);
-    activity.refresh();
-    // An identical revision can survive a service restart. New selections use
-    // its new identity; already captured selections retain the old identity.
-    if (manifest && state.revision === manifest.revision) manifest.service = state.service;
-    terminalEditor.update(state.editorServer);
-    selectionActions?.updateActions();
-    const documentStorageKey = state.documentID
-      ? `flow-reader:${state.documentID}`
-      : preferences.key;
-    if (documentStorageKey !== preferences.key) {
-      preferences.key = documentStorageKey;
-      appearance.restore();
+async function refresh(signal, current) {
+  const state = await transport.get("api/state", { signal });
+  if (!current()) return;
+  if (!sameSession(serverState, state)) {
+    activity.state.cancel(loadSequence);
+    loadSequence++;
+    if (!sameSnapshot(serverState, state)) {
+      sectionCache.clear();
+      footnoteSections.clear();
     }
-    status.dataset.state = state.development ? "incomplete" : "ready";
-    status.textContent = state.development
-      ? "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다."
-      : "";
-    if (state.revision && state.revision !== revision && state.revision !== pending?.revision) {
-      const manifestResponse = await fetch(
-        `api/manifest?revision=${encodeURIComponent(state.revision)}`,
-      );
-      if (!manifestResponse.ok) throw new Error(`HTTP ${manifestResponse.status}`);
-      pending = await manifestResponse.json();
-      if (disposed) return;
-    }
-    if (pending && !selectionActive()) {
-      const entryAnchor = !revision ? history.state?.readerAnchor : null;
-      const anchor = revision
-        ? readingAnchor()
-        : (entryAnchor ?? preferences.read("position", null));
-      const navigationType = performance.getEntriesByType("navigation")[0]?.type;
-      const resuming =
-        !revision &&
-        anchor?.url === location.href &&
-        (Boolean(entryAnchor) || ["reload", "back_forward"].includes(navigationType));
-      const target = !revision && !resuming ? fragment() : null;
-      // New named links take precedence over a previous session's position.
-      // Reload/history navigation restores its entry; section queries are entry hints.
-      const sectionHint =
-        !revision && !resuming && new URL(location.href).searchParams.get("section");
-      changes.queue(
-        pending,
-        !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward"),
-      );
-      const section =
-        sectionHint && pending.sections.some((item) => item.id === sectionHint)
-          ? (pending.anchors[target] ?? sectionHint)
-          : sectionFor(pending, anchor, target);
-      await loadSection(pending, section, { anchor, target, update: true });
-    }
-  } catch {
-    if (!disposed) activity.state.connected = false;
-  } finally {
-    refreshing = false;
-    activity.refresh();
-    if (!disposed) refreshTimer = setTimeout(refresh, refreshRequested ? 0 : 3000);
+    if (pending && !sameSession(pending, state)) pending = null;
   }
+  serverState = state;
+  activity.state.update(state);
+  activity.refresh();
+  // An identical revision can survive a service restart. New selections use
+  // its new identity; already captured selections retain the old identity.
+  if (sameSnapshot(manifest, state)) manifest.service = state.service;
+  terminalEditor.update(state.editorServer);
+  selectionActions?.updateActions();
+  status.dataset.state = state.development ? "incomplete" : "ready";
+  status.textContent = state.development
+    ? "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다."
+    : "";
+  if (state.revision && !sameSnapshot(state, manifest) && !sameSession(state, pending)) {
+    const candidate = await transport.get(
+      `api/manifest?revision=${encodeURIComponent(state.revision)}`,
+      { signal },
+    );
+    if (!current()) return;
+    if (!sameSession(candidate, state)) throw new Error("Reader session changed");
+    pending = candidate;
+  }
+  if (pending && !selectionActive()) {
+    const entryAnchor =
+      !revision &&
+      (!history.state?.readerDocumentID || history.state.readerDocumentID === pending.documentID)
+        ? history.state?.readerAnchor
+        : null;
+    const sameDocument = manifest?.documentID === pending.documentID;
+    const storedPosition = pending.documentID
+      ? new DocumentStorage(`flow-reader:${pending.documentID}`).read("position", null)
+      : preferences.read("position", null);
+    const anchor = revision && sameDocument ? readingAnchor() : (entryAnchor ?? storedPosition);
+    const navigationType = performance.getEntriesByType("navigation")[0]?.type;
+    const resuming =
+      !revision &&
+      anchor?.url === location.href &&
+      (Boolean(entryAnchor) || ["reload", "back_forward"].includes(navigationType));
+    const target = !revision && !resuming ? fragment() : null;
+    // New named links take precedence over a previous session's position.
+    // Reload/history navigation restores its entry; section queries are entry hints.
+    const sectionHint =
+      !revision && !resuming && new URL(location.href).searchParams.get("section");
+    changes.queue(
+      pending,
+      !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward"),
+    );
+    const section =
+      sectionHint && pending.sections.some((item) => item.id === sectionHint)
+        ? (pending.anchors[target] ?? sectionHint)
+        : sectionFor(pending, anchor, target);
+    await loadSection(pending, section, { anchor, target, update: true, signal });
+  }
+  activity.refresh();
 }
+const recovery = new ReaderRecovery({
+  refresh,
+  disconnected() {
+    activity.state.connected = false;
+    activity.refresh();
+  },
+  resumed() {
+    sections.resume();
+    if (!textSelectionActive()) scheduleFontLayout();
+  },
+});
 const disposeTerminalBridge = installTerminalBridge({
   enabled: terminalParameters.get("terminal") === "1",
   article,
@@ -745,4 +788,4 @@ const disposeTerminalBridge = installTerminalBridge({
   textOf,
   loadSection: (document, section) => loadSection(document, section, { terminalFollow: true }),
 });
-refresh();
+recovery.request();

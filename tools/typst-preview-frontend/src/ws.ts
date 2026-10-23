@@ -2,7 +2,7 @@ import { presentHighlightResult } from "./features/source-highlight/transport";
 import { presentCodexContextResult } from "./features/codex-context/transport";
 import { createSelectionTransport } from "./features/selection/transport";
 import { PreviewMode } from "typst-dom/typst-doc.mjs";
-import { hasTouchSelection } from "typst-dom/touch-selection.mjs";
+import { hasPreviewSelection } from "typst-dom/touch-selection.mjs";
 import {
   TypstPreviewDocument as TypstDocument,
   TypstDomHookedElement,
@@ -30,6 +30,7 @@ import {
   type PanelScrollRequest,
 } from "./features/editor-sync/editor-navigation";
 import { PreviewConnection } from "./features/session/preview-connection";
+import { ReadingRecovery } from "./features/session/reading-recovery";
 export { PreviewMode } from "typst-dom/typst-doc.mjs";
 
 // for debug propose
@@ -197,6 +198,9 @@ export async function wsMain({
       );
     }
     let restoreReadingState = readingState;
+    const recovery = new ReadingRecovery(resizeTarget, hookedElem);
+    svgDoc.impl.onBeforeDocumentReset = () => recovery.beforeReset();
+    svgDoc.impl.disposeList.push(() => recovery.dispose());
     svgDoc.impl.onDidRender = () => {
       // Viewport callbacks before the first document (or during reconnect) do
       // not consume initial restoration or hints waiting for that document.
@@ -208,6 +212,9 @@ export async function wsMain({
       if (queuedFocusDocument) selectionActions?.setDocument(queuedFocusDocument);
       selectionActions?.setEnabled(focusEnabled && !!focusRevision);
       selectionActions?.afterRender();
+      if (recovery.afterRender(queuedFocusDocument, queuedFocusRevision)) {
+        svgDoc.addViewportChange();
+      }
       previousOnDidRender?.();
       flushEditorScroll();
       if (restoreReadingState) {
@@ -485,7 +492,7 @@ export async function wsMain({
         windowElem.typstWebsocket = undefined as any;
         focusRevision = pendingFocusRevision = undefined;
         focusEnabled = false;
-        selectionActions?.setEnabled(false);
+        selectionActions?.connectionLost();
         if (focusStatus)
           showFocusStatus(
             "연결 끊김 · 다시 연결한 뒤 탭해 주세요",
@@ -566,7 +573,7 @@ export async function wsMain({
             : "Share a location with Codex · tap the document",
         );
         windowElem.onPreviewFocus = (position) => {
-          if (hasTouchSelection(svgDoc.impl.hookedElem)) return;
+          if (hasPreviewSelection(svgDoc.impl.hookedElem)) return;
           if (!focusRevision || svgDoc.impl.isRendering || svgDoc.impl.patchQueue.length) {
             showFocusStatus(
               "문서 갱신 중 · 잠시 후 다시 탭해 주세요",
@@ -592,7 +599,7 @@ export async function wsMain({
       }
       if (message[0] === "focus-document") {
         const id = dec.decode(message[1] as Uint8Array);
-        if (/^[a-f0-9]{32}$/.test(id)) pendingFocusDocument = id;
+        pendingFocusDocument = /^[a-f0-9]{32}$/.test(id) ? id : undefined;
         return;
       }
       if (message[0] === "highlight") {
@@ -757,12 +764,16 @@ export async function wsMain({
         // to `current`. It has no common baseline with the retained client model.
         if (awaitingFullFrame && message[0] === "diff-v1") {
           clearChangedLocation?.();
+          pendingFocusDocument = undefined;
           return;
         }
         awaitingFullFrame = false;
         updateActivity(() => activity.state.frame());
         queuedFocusRevision = pendingFocusRevision;
         queuedFocusDocument = pendingFocusDocument;
+        // Identity belongs to this frame, never a future frame whose sender
+        // cannot provide a document identity (for example an untitled entry).
+        pendingFocusDocument = undefined;
       }
       svgDoc.addChangement(message as any);
     }

@@ -99,7 +99,8 @@ enum ProjectServiceTests {
           try settingsData(store.savedSettings!) == settingsData(result),
           "Returned settings must match the persisted selection")
         try require(
-          events.values == ["save:original"], "Selection must save once without controlling services")
+          events.values == ["save:original"],
+          "Selection must save once without controlling services")
       case "select-invalid-profile":
         do {
           _ = try service.selectProfile("missing", in: settings)
@@ -117,7 +118,8 @@ enum ProjectServiceTests {
           try settingsData(callerSettings) == before,
           "Failed selection must preserve the caller's prior profiles and selected ID")
         try require(
-          events.values == ["save:original"], "Failed selection must not control or recover services")
+          events.values == ["save:original"],
+          "Failed selection must not control or recover services")
       }
       try require(try settingsData(settings) == before, "Selection must not mutate input settings")
     case "create-project", "create-fonts-and-used-ports":
@@ -150,8 +152,10 @@ enum ProjectServiceTests {
         created.fonts == (withFonts ? ["fonts"] : []),
         "Only an existing project fonts path is included by default")
       try require(
-        created.packages == home.appendingPathComponent(
-          "Library/Application Support/typst/packages").path,
+        created.packages
+          == home.appendingPathComponent(
+            "Library/Application Support/typst/packages"
+          ).path,
         "Packages must use the supplied home")
       try require(
         created.port == (withFonts ? 23626 : 23625) && created.publicURL.isEmpty,
@@ -190,6 +194,78 @@ enum ProjectServiceTests {
         "The caller must keep its prior profiles and selection when saving fails")
       try require(
         events.values == ["save:original"], "Failed creation must not control or recover services")
+    case "agent-update-delayed-exit", "agent-restart-delayed-exit", "agent-shutdown-timeout":
+      let environment = AppEnvironment(
+        variables: ["FLOW_DATA_DIR": root.appendingPathComponent("data").path],
+        userHome: root, executable: root.appendingPathComponent("tinymist-flow"))
+      var launchAgents = LaunchAgentService(environment: environment)
+      let timesOut = CommandLine.arguments[1] == "agent-shutdown-timeout"
+      launchAgents.shutdownTimeout = timesOut ? 0.02 : 1
+      var running = true
+      var retiring = false
+      var exitPolls = 0
+      var bootstraps = 0
+      launchAgents.processExists = { _ in running }
+      launchAgents.commands.execute = { path, arguments, _ in
+        if path == "/usr/sbin/lsof" { return "" }
+        switch arguments[0] {
+        case "print":
+          if retiring && !timesOut {
+            exitPolls += 1
+            if exitPolls >= 3 {
+              running = false
+              retiring = false
+            }
+            // launchd can forget the job one poll before the actual process has exited.
+            if exitPolls >= 2 { return "" }
+          }
+          return running ? "    pid = 123\n" : ""
+        case "bootout":
+          if running {
+            retiring = true
+            exitPolls = 0
+          }
+        case "bootstrap":
+          try require(
+            !running && exitPolls >= 3,
+            "New service must bootstrap only after confirmed previous process exit")
+          bootstraps += 1
+          running = true
+        default: break
+        }
+        return ""
+      }
+      if timesOut {
+        do {
+          try launchAgents.control("restart", profile)
+          throw FixtureError.start
+        } catch let error as FlowError {
+          try require(error.message.contains("종료"), "Shutdown timeout must explain its cause")
+        }
+        try require(bootstraps == 0, "Timed-out shutdown must never bootstrap a replacement")
+      } else {
+        updated.publicURL = "https://updated.example"
+        if CommandLine.arguments[1] == "agent-update-delayed-exit" {
+          let project = ProjectService(store: store, launchAgents: launchAgents)
+          let saved = try project.updateProfile(updated, in: settings)
+          try require(
+            saved.profiles[0].publicURL == updated.publicURL,
+            "Profile replacement must retain the saved settings")
+        } else {
+          try launchAgents.control("restart", updated)
+        }
+        try require(
+          bootstraps == 1 && running,
+          "Delayed shutdown must lead to one actual bootstrap instead of a skipped start")
+        let plist = environment.agents.appendingPathComponent("\(profile.label).plist")
+        let job =
+          try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: plist), format: nil) as! [String: Any]
+        let variables = job["EnvironmentVariables"] as! [String: String]
+        try require(
+          variables["TINYMIST_ALLOWED_ORIGINS"] == updated.publicURL,
+          "The replacement must launch with the updated environment")
+      }
     case "agent-ownership":
       let environment = AppEnvironment(
         variables: ["FLOW_DATA_DIR": root.appendingPathComponent("data").path],
@@ -209,7 +285,8 @@ enum ProjectServiceTests {
           .write(to: plist)
       }
       try writeJob()
-      try require(launchAgents.managedByApp(profile), "Generated jobs must be recognized as app-owned")
+      try require(
+        launchAgents.managedByApp(profile), "Generated jobs must be recognized as app-owned")
       for other in [
         [root.appendingPathComponent("other-app").path, "--serve", profile.id],
         [environment.executable.path, "--serve", "other-project"],
@@ -218,11 +295,13 @@ enum ProjectServiceTests {
       ] {
         job["ProgramArguments"] = other
         try writeJob()
-        try require(!launchAgents.managedByApp(profile), "Foreign invocations must not be app-owned")
+        try require(
+          !launchAgents.managedByApp(profile), "Foreign invocations must not be app-owned")
       }
       job.removeValue(forKey: "ProgramArguments")
       try writeJob()
-      try require(!launchAgents.managedByApp(profile), "Jobs without an invocation must not be app-owned")
+      try require(
+        !launchAgents.managedByApp(profile), "Jobs without an invocation must not be app-owned")
       try Data("invalid plist".utf8).write(to: plist)
       try require(!launchAgents.managedByApp(profile), "Malformed jobs must not be app-owned")
     case "invalid-profile":

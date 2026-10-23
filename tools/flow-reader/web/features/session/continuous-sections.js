@@ -5,16 +5,27 @@ export class ContinuousSections {
     Object.assign(this, { article, fetchSection, prepare, changed, anchor, restore });
     this.generation = 0;
     this.entries = new Map();
+    this.listeners = [];
+    const listen = (target, type, handler) => {
+      target.addEventListener(type, handler, { passive: true });
+      this.listeners.push(() => target.removeEventListener(type, handler));
+    };
     this.resize = new ResizeObserver(() => this.schedule());
     this.resize.observe(article);
-    window.addEventListener("scroll", () => this.schedule(), { passive: true });
-    window.addEventListener("resize", () => this.schedule());
-    window.addEventListener("online", () => {
-      this.retry = {};
-      for (const entry of this.entries.values()) entry.retryAt = 0;
-      this.schedule();
+    listen(window, "scroll", () => this.schedule());
+    listen(window, "resize", () => this.schedule());
+    listen(window, "online", () => this.resume());
+    listen(window, "offline", () => this.pause());
+    listen(window, "pagehide", () => {
+      this.suspended = true;
+      this.pause();
     });
-    document.addEventListener("selectionchange", () => this.schedule());
+    listen(window, "pageshow", () => {
+      this.suspended = false;
+      this.resume();
+    });
+    listen(document, "visibilitychange", () => (document.hidden ? this.pause() : this.resume()));
+    listen(document, "selectionchange", () => this.schedule());
   }
 
   reset(manifest, section, html) {
@@ -70,7 +81,40 @@ export class ContinuousSections {
 
   schedule(delay = 80) {
     clearTimeout(this.timer);
+    if (!this.available()) return;
     this.timer = setTimeout(() => this.pump(), delay);
+  }
+
+  available() {
+    return (
+      !this.disposed &&
+      !this.suspended &&
+      !globalThis.document?.hidden &&
+      globalThis.navigator?.onLine !== false
+    );
+  }
+
+  pause() {
+    this.generation++;
+    this.controller?.abort();
+    this.running = null;
+    clearTimeout(this.timer);
+  }
+
+  resume() {
+    if (!this.available()) return;
+    if (!this.controller || this.controller.signal.aborted) this.controller = new AbortController();
+    this.retry = {};
+    for (const entry of this.entries.values()) entry.retryAt = 0;
+    this.schedule(0);
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.pause();
+    this.resize.disconnect();
+    this.observer?.disconnect();
+    for (const remove of this.listeners) remove();
   }
 
   near(node, margin = 1200) {
@@ -191,7 +235,7 @@ export class ContinuousSections {
   }
 
   async pump() {
-    if (!this.manifest || this.running === this.generation) return;
+    if (!this.available() || !this.manifest || this.running === this.generation) return;
     const generation = this.generation;
     this.running = generation;
     let changed = false;

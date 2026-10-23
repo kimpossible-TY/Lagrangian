@@ -63,6 +63,15 @@ class ProjectServices(unittest.TestCase):
     def test_generated_agent_ownership_rejects_foreign_or_malformed_jobs(self):
         self.scenario('agent-ownership')
 
+    def test_profile_update_waits_for_old_process_before_starting_new_settings(self):
+        self.scenario('agent-update-delayed-exit')
+
+    def test_restart_waits_for_old_process_before_bootstrap(self):
+        self.scenario('agent-restart-delayed-exit')
+
+    def test_shutdown_timeout_does_not_bootstrap_replacement(self):
+        self.scenario('agent-shutdown-timeout')
+
     def test_invalid_profile_does_not_stop_service(self):
         self.scenario('invalid-profile')
 

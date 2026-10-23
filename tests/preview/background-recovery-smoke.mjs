@@ -1,5 +1,6 @@
 // Real documents and WebKit; synthetic lifecycle events cannot reproduce physical iOS suspension.
 // PREVIEW_PROBE_PROXY=1 negotiates the additive probe through a transport fixture for older engines.
+// PREVIEW_DESKTOP=1 also verifies desktop SVG text selection rather than the mobile overlay.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -11,6 +12,7 @@ import WebSocket, { WebSocketServer } from "ws";
 
 const engine = process.argv[2];
 assert.ok(engine, "Pass a preview engine executable");
+const desktop = process.env.PREVIEW_DESKTOP === "1";
 const playwright = await import(
   process.env.PLAYWRIGHT_MODULE ||
     resolve(
@@ -29,40 +31,52 @@ const source = (revision) => `#set page(width: 320pt, height: 440pt)
 ${Array.from({ length: 20 }, (_, i) => `${i ? "#pagebreak()" : ""}\n= Page ${i + 1}\nRevision ${revision}. A readable passage survives reconnection.`).join("\n")}
 `;
 await writeFile(file, source(0));
-const child = spawn(
-  engine,
-  [
-    "preview",
-    file,
-    "--root",
-    temp,
-    "--no-open",
-    "--follow-system-theme",
-    "--partial-rendering=true",
-    "--data-plane-host=127.0.0.1:0",
-    "--control-plane-host=127.0.0.1:0",
-  ],
-  {
-    env: {
-      ...process.env,
-      TINYMIST_ALLOWED_ORIGINS: "",
-      TINYMIST_PREVIEW_FOCUS_FILE: resolve(temp, "focus.json"),
-      TINYMIST_PREVIEW_CHANGE_FILE: resolve(temp, "changes.json"),
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  },
-);
+let child;
 let logs = "",
   address,
   browserAddress,
   browser,
   hold = false,
   blackhole = false;
+const startEngine = () => {
+  logs = "";
+  address = undefined;
+  child = spawn(
+    engine,
+    [
+      "preview",
+      file,
+      "--root",
+      temp,
+      "--no-open",
+      "--follow-system-theme",
+      "--partial-rendering=true",
+      "--data-plane-host=127.0.0.1:0",
+      "--control-plane-host=127.0.0.1:0",
+    ],
+    {
+      env: {
+        ...process.env,
+        TINYMIST_ALLOWED_ORIGINS: "",
+        TINYMIST_PREVIEW_FOCUS_FILE: resolve(temp, "focus.json"),
+        TINYMIST_PREVIEW_CHANGE_FILE: resolve(temp, "changes.json"),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  child.stdout.on("data", (data) => (logs += data));
+  child.stderr.on("data", (data) => (logs += data));
+};
+const stopEngine = async () => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((done) => child.once("exit", done));
+  child.kill("SIGTERM");
+  await exited;
+};
+startEngine();
 const pairs = new Set();
 const emulateProbe = process.env.PREVIEW_PROBE_PROXY === "1";
 const expectProbe = emulateProbe || process.env.PREVIEW_EXPECT_PROBE === "1";
-child.stdout.on("data", (data) => (logs += data));
-child.stderr.on("data", (data) => (logs += data));
 const until = async (predicate, label) => {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
@@ -111,21 +125,26 @@ wss.on("connection", (downstream, request) => {
   downstream.on("error", () => upstream.close());
 });
 const ready = (page) =>
-  page.waitForFunction(() => {
+  page.waitForFunction((desktop) => {
     const d = document.getElementById("typst-container")?.documents?.[0]?.impl;
     return (
       d?.moduleInitialized &&
       !d.isRendering &&
       !d.patchQueue.length &&
       document.getElementById("typst-preview-status").hidden &&
-      document.querySelector(".typst-touch-selection-line")
+      document.querySelector(desktop ? ".tsel" : ".typst-touch-selection-line")
     );
-  });
+  }, desktop);
 const visibility = (page, hidden) =>
   page.evaluate((hidden) => {
     window.testHidden = hidden;
     document.dispatchEvent(new Event("visibilitychange"));
   }, hidden);
+const network = (page, online) =>
+  page.evaluate((online) => {
+    window.testOnline = online;
+    window.dispatchEvent(new Event(online ? "online" : "offline"));
+  }, online);
 const counters = (page) => page.evaluate(() => ({ ...window.recoveryMetrics }));
 const flush = () => {
   hold = false;
@@ -142,9 +161,9 @@ try {
   browserAddress = `127.0.0.1:${proxy.address().port}`;
   browser = await playwright.webkit.launch({ headless: true });
   const context = await browser.newContext({
-    viewport: { width: 393, height: 852 },
-    hasTouch: true,
-    isMobile: true,
+    viewport: desktop ? { width: 1280, height: 900 } : { width: 393, height: 852 },
+    hasTouch: !desktop,
+    isMobile: !desktop,
     colorScheme: "light",
   });
   const page = await context.newPage();
@@ -152,13 +171,24 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
     window.testHidden = false;
+    window.testOnline = true;
     Object.defineProperty(document, "hidden", { get: () => window.testHidden });
-    window.recoveryMetrics = { opens: 0, full: 0, resets: 0, merges: 0, layouts: 0, probes: 0 };
+    Object.defineProperty(navigator, "onLine", { get: () => window.testOnline });
+    window.recoveryMetrics = {
+      attempts: 0,
+      opens: 0,
+      full: 0,
+      resets: 0,
+      merges: 0,
+      layouts: 0,
+      probes: 0,
+    };
     window.recoverySockets = [];
     const NativeSocket = WebSocket;
     window.WebSocket = class extends NativeSocket {
       constructor(...args) {
         super(...args);
+        window.recoveryMetrics.attempts++;
         window.recoverySockets.push(this);
         this.addEventListener("open", () => window.recoveryMetrics.opens++);
         this.addEventListener("message", ({ data }) => {
@@ -204,15 +234,15 @@ try {
     d.addViewportChange();
   });
   await ready(page);
-  await page.evaluate(() => {
-    const line = document.querySelector(".typst-touch-selection-line");
+  await page.evaluate((desktop) => {
+    const line = document.querySelector(desktop ? ".tsel" : ".typst-touch-selection-line");
     const text = document.createTreeWalker(line, NodeFilter.SHOW_TEXT).nextNode();
     const range = document.createRange();
     range.selectNodeContents(text);
     getSelection().removeAllRanges();
     getSelection().addRange(range);
     window.recoverySelection = { node: text, text: getSelection().toString() };
-  });
+  }, desktop);
   const baseline = await counters(page);
   const readingTop = await page.evaluate(
     () => document.getElementById("typst-container-main").scrollTop,
@@ -225,14 +255,24 @@ try {
   assert.equal((await counters(page)).full, baseline.full);
 
   hold = true;
+  await network(page, false);
   await visibility(page, true);
-  for (const pair of pairs) pair.downstream.close();
+  await stopEngine();
   await page.waitForFunction(
     () => document.getElementById("typst-preview-status").dataset.phase === "reconnecting",
   );
   await delay(1200);
   assert.equal((await counters(page)).opens, baseline.opens);
+  assert.equal((await counters(page)).attempts, baseline.attempts);
+  startEngine();
+  await until(
+    () => (address = /Data plane server listening on: (127\.0\.0\.1:\d+)/.exec(logs)?.[1]),
+    "restarted engine listener",
+  );
   await visibility(page, false);
+  await delay(1200);
+  assert.equal((await counters(page)).attempts, baseline.attempts);
+  await network(page, true);
   await until(() => [...pairs].some((pair) => pair.queued.length), "held replacement full frame");
   assert.equal(
     await page.evaluate(
@@ -282,7 +322,9 @@ try {
   await writeFile(file, source(1));
   await visibility(page, false);
   await page.waitForFunction(() =>
-    document.querySelector(".typst-touch-selection")?.textContent.includes("Revision 1"),
+    Array.from(document.querySelectorAll(".tsel")).some((line) =>
+      line.textContent.includes("Revision 1"),
+    ),
   );
   await ready(page);
   assert.ok((await counters(page)).merges > recovered.merges);
@@ -306,6 +348,7 @@ try {
     JSON.stringify(
       {
         browser: `WebKit ${browser.version()}`,
+        selectionSurface: desktop ? "desktop SVG" : "mobile overlay",
         probeFixture: emulateProbe,
         nativeProbe: expectProbe && !emulateProbe,
         baseline,
@@ -314,6 +357,8 @@ try {
         verified: [
           "healthy socket reuse",
           "hidden retry suppression",
+          "offline retry suppression",
+          "engine subprocess restart recovery",
           "retained document while awaiting full frame",
           "no reset/merge/layout before selection release",
           "full-frame render after selection release",
@@ -348,10 +393,6 @@ try {
   wss.close();
   proxy.closeAllConnections();
   proxy.close();
-  if (child.exitCode === null && child.signalCode === null) {
-    const exited = new Promise((done) => child.once("exit", done));
-    child.kill("SIGTERM");
-    await exited;
-  }
+  await stopEngine();
   await rm(temp, { recursive: true, force: true });
 }

@@ -65,6 +65,10 @@ function fixture() {
       vi.mocked(selectedPreviewText).mockReturnValue(undefined);
       page.dispatchEvent(new Event("selectionchange"));
     },
+    select() {
+      vi.mocked(selectedPreviewText).mockReturnValue({ ...selected });
+      page.dispatchEvent(new Event("selectionchange"));
+    },
   };
 }
 
@@ -75,6 +79,22 @@ afterEach(() => {
 });
 
 describe("paged selection toolbar interaction", () => {
+  it("abandons an undeliverable highlight acknowledgment without replaying the mutation", () => {
+    const h = fixture();
+    const highlight = h.toolbar.children[0];
+    highlight.dispatchEvent(new Event("click"));
+    expect(h.submitted).toHaveBeenCalledExactlyOnceWith("highlight", h.selected);
+    expect(h.save.disabled).toBe(true);
+    h.actions.connectionLost();
+    expect(h.save.disabled).toBe(true);
+    h.collapse();
+    h.select();
+    h.actions.setEnabled(true);
+    expect(h.save.disabled).toBe(false);
+    expect(h.submitted).toHaveBeenCalledOnce();
+    h.actions.dispose();
+  });
+
   it("retains its pressed page selection and controls through native collapse until click", () => {
     const h = fixture();
     expect(h.event("pointerdown").defaultPrevented).toBe(true);

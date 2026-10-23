@@ -16,6 +16,9 @@ Flow needs a stable branded macOS installation, project settings, visible previe
 - Persist a user-selected signing certificate for app and engine builds, reject missing configured identities instead of falling back to ad-hoc signing, and verify certificate provenance.
 - Wait for asynchronous preview shutdown before replacing a bundle and restarting profiles during update or recovery.
 - Introduce a feature-first README, an explicit first-preview walkthrough, a reusable reading demo and screenshot, and a GitHub-readable user guide generated from the bundled PDF's Typst source.
+- Connect Read to profile validation, asynchronous service startup, verified document readiness and one browser opening, with progress and recoverable errors in the app.
+- Reconcile service state after commands, wake and network changes; adapt background checks to power conditions without preventing sleep or stopping requested previews.
+- Preserve reading position and native text selection through paged and HTML reader transport interruptions and engine restarts, with document identity checks and bounded reconnect work.
 
 ## Capabilities
 

@@ -1,6 +1,6 @@
 import type { RenderSession } from "@myriaddreamin/typst.ts/dist/esm/renderer.mjs";
 import type { TypstPreviewDocument } from "./index.preview.mjs";
-import { hasTouchSelection } from "./touch-selection.mjs";
+import { hasPreviewSelection } from "./touch-selection.mjs";
 import { RenderScheduler } from "../../reader-common/rendering/scheduler.js";
 
 export interface ContainerDOMState {
@@ -130,7 +130,9 @@ export class TypstDocumentContext<O = any> {
   private disposed = false;
   /// Called after the document DOM has settled for the queued updates.
   onDidRender?: () => void;
-  /// Called when queued rendering runs or is held by native touch selection.
+  /// Capture the current reading anchor immediately before replacing the document model.
+  onBeforeDocumentReset?: () => void;
+  /// Called when queued rendering runs or is held by native text selection.
   onRenderActivity?: (activity: "rendering" | "selection-held") => void;
   /// Called if processing or rendering queued changes fails.
   onRenderError?: (error: unknown) => void;
@@ -161,7 +163,7 @@ export class TypstDocumentContext<O = any> {
     this.opts = opts || {};
     this.renderWork = new RenderScheduler({
       render: () => this.renderChanges(),
-      blocked: () => hasTouchSelection(this.hookedElem),
+      blocked: () => hasPreviewSelection(this.hookedElem),
       onBlocked: () => {
         this.selectionHeld = true;
         if (this.patchQueue.length) this.onRenderActivity?.("selection-held");
@@ -207,7 +209,7 @@ export class TypstDocumentContext<O = any> {
 
     this.installRescaleHandler();
     const selectionChanged = () => {
-      const held = hasTouchSelection(this.hookedElem);
+      const held = hasPreviewSelection(this.hookedElem);
       if (this.selectionHeld && !held) this.addViewportChange();
       this.selectionHeld = held;
     };
@@ -423,6 +425,7 @@ export class TypstDocumentContext<O = any> {
       case "new":
       case "diff-v1": {
         if (eventName === "new") {
+          this.onBeforeDocumentReset?.();
           this.reset();
         }
         this.kModule.manipulateData({

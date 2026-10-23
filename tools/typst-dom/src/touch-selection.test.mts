@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hasTouchSelection } from "./touch-selection.mjs";
+import { hasPreviewSelection, hasTouchSelection } from "./touch-selection.mjs";
 import { visibleVerticalBounds } from "./visual-viewport.mjs";
 import { TypstDocumentContext } from "./typst-doc.mjs";
 
@@ -29,6 +29,22 @@ function fixture() {
 }
 
 describe("mobile selection render lifetime", () => {
+  it("holds desktop text ranges but excludes toolbar and unrelated text", () => {
+    const { root, selection } = fixture();
+    const text = {
+      nodeType: 3,
+      parentElement: { closest: (selector: string) => selector === ".tsel" },
+    } as unknown as Node;
+    root.contains = (node) => node === text;
+    selection.anchorNode = text;
+    selection.focusNode = text;
+    expect(hasTouchSelection(root)).toBe(false);
+    expect(hasPreviewSelection(root)).toBe(true);
+    selection.anchorNode = selection.focusNode = {} as Node;
+    expect(hasPreviewSelection(root)).toBe(false);
+    selection.isCollapsed = true;
+    expect(hasPreviewSelection(root)).toBe(false);
+  });
   it("holds ranges in either end of the overlay, not carets or unrelated ranges", () => {
     const { root, selection } = fixture();
     expect(hasTouchSelection(root)).toBe(true);

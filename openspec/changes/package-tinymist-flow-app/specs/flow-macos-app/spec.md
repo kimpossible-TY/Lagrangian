@@ -1,5 +1,67 @@
 ## ADDED Requirements
 
+### Requirement: One action starts reading
+The app SHALL offer Read to validate the selected profile, asynchronously start or reuse its managed preview, verify document availability, and open the configured URL once. It SHALL show progress and actionable failure causes in the same window. A successful command or static HTTP response alone SHALL NOT imply document readiness.
+
+#### Scenario: Read a stopped project
+- **WHEN** the user selects Read for a valid stopped project
+- **THEN** the app displays validation, requested startup, observed running service and document readiness as distinct states
+- **AND** opens the browser once after a document is available
+- **AND** the window remains responsive throughout the operation
+
+#### Scenario: Invalid or failed startup
+- **WHEN** profile validation, launch, compilation, readiness or browser opening fails or exceeds its deadline
+- **THEN** the app shows the known cause and a retry path without claiming readiness
+- **AND** validation failure does not stop an existing service
+
+#### Scenario: An old request completes
+- **WHEN** the user switches projects, stops the preview or closes the app before an earlier request completes
+- **THEN** that request cannot open a browser or replace the current project's status
+
+### Requirement: Native status follows asynchronous operations
+The app SHALL execute blocking service and settings operations off the UI thread, serialize conflicting mutations, coalesce status checks, and reconcile immediately after actions. It SHALL distinguish requested commands, an observed process, an available document, stopped state and failure. Actual browser rendering remains reader-owned.
+
+#### Scenario: Slow service command
+- **WHEN** a process command or settings operation is slow
+- **THEN** the main run loop continues handling window events
+- **AND** duplicate or conflicting controls cannot create overlapping mutations
+- **AND** completing a command triggers a fresh status observation
+
+### Requirement: Laptop lifecycle and power preserve reading intent
+The native app SHALL suspend probes while asleep, reconcile on wake and network changes, and reduce idle checks on battery, Low Power Mode or elevated thermal conditions. Explicit Read and retry actions SHALL remain immediate. It SHALL neither prevent sleep nor stop requested previews as an implicit power policy.
+
+#### Scenario: Wake after a network transition
+- **WHEN** the Mac wakes or its network path changes
+- **THEN** stale observations are ignored and current service/document state is checked
+- **AND** recovery does not open another browser tab or start an explicitly stopped project
+
+#### Scenario: Low power operation
+- **WHEN** battery or system power/thermal policy requests less background work
+- **THEN** idle checks use a reduced cadence without accumulating concurrent requests
+- **AND** an explicit reading action still starts promptly
+
+### Requirement: Reader continuity survives interrupted transport
+Paged and HTML readers SHALL retain accepted content, reading position, zoom and native selection across transient network loss, sleep/resume and engine restart. They SHALL reconnect with bounded requests and capped retries, react to online/resume signals and ignore obsolete callbacks. Reconnection SHALL NOT require a page reload. Active selection SHALL continue to hold document replacement until explicitly released.
+
+#### Scenario: Reconnect an unchanged document
+- **WHEN** transport reconnects to the same document after an engine restart
+- **THEN** the reader resumes delivery without resetting the viewport or losing selected text
+- **AND** source actions continue enforcing current service/revision/source checks
+
+#### Scenario: Content changes during interruption
+- **WHEN** replacement content arrives while text is selected
+- **THEN** the accepted DOM and selection remain until the user releases selection
+- **AND** pending replacement and reading-location restoration use the latest valid document state
+
+#### Scenario: Old position or selection no longer matches
+- **WHEN** a recovery snapshot belongs to another document, its text no longer matches, or the user has since navigated
+- **THEN** the reader does not apply stale selection or position to unrelated content
+
+#### Scenario: Hidden or disposed reader
+- **WHEN** the page is hidden, offline or disposed
+- **THEN** retry work is reduced or suspended and disposed sessions cannot publish updates
+- **AND** returning online or visible triggers recovery without duplicate connection loops
+
 ### Requirement: Discoverable user documentation
 The README SHALL describe Flow's reading and review features before development details, show a screenshot of a reproducible example document, and explain the first preview using the app's actual control labels. Installation instructions SHALL distinguish a fresh machine from rebuilding with an installed engine.
 

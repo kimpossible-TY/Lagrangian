@@ -20,6 +20,7 @@
   "features/session/activity.js": "features/session/activity.js",
   "features/session/continuous-sections.js": "features/session/continuous-sections.js",
   "features/session/document-storage.js": "features/session/document-storage.js",
+  "features/session/recovery.js": "features/session/recovery.js",
   "features/session/transport.js": "features/session/transport.js",
   "features/source-highlight/controller.js": "features/source-highlight/controller.js",
   "index.html": "index.html",

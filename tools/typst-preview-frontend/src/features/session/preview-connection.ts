@@ -7,11 +7,27 @@ export class PreviewConnection {
   private probing = false;
   private pingSupported = false;
   private paused = false;
+  private offline = false;
   private disposed = false;
   private failures = 0;
   private visibility = () => (this.page.hidden ? this.pause() : this.resume());
   private hide = () => this.pause();
   private show = () => this.resume();
+  private online = () => {
+    const wasOffline = this.offline;
+    this.offline = false;
+    // Older engines cannot answer probes. An explicit network loss still
+    // invalidates their apparently-open transport, without sending new commands.
+    if (wasOffline && this.socket?.readyState === 1 && !this.pingSupported) {
+      this.fail(this.socket, true);
+    } else {
+      this.resume();
+    }
+  };
+  private wentOffline = () => {
+    this.offline = true;
+    this.clearTimer();
+  };
 
   constructor(
     private url: string,
@@ -23,12 +39,15 @@ export class PreviewConnection {
     private page: Pick<Document, "hidden" | "addEventListener" | "removeEventListener"> = document,
     private lifecycle: Pick<Window, "addEventListener" | "removeEventListener"> = window,
     private createSocket: (url: string) => Socket = (url) => new WebSocket(url),
+    network: Pick<Navigator, "onLine"> = navigator,
   ) {
     this.paused = page.hidden;
+    this.offline = network.onLine === false;
     page.addEventListener("visibilitychange", this.visibility);
     lifecycle.addEventListener("pagehide", this.hide);
     lifecycle.addEventListener("pageshow", this.show);
-    lifecycle.addEventListener("online", this.show);
+    lifecycle.addEventListener("online", this.online);
+    lifecycle.addEventListener("offline", this.wentOffline);
     if (!this.paused) this.connect();
   }
 
@@ -48,7 +67,7 @@ export class PreviewConnection {
   }
 
   private resume() {
-    if (this.disposed || this.page.hidden) return;
+    if (this.disposed || this.page.hidden || this.offline) return;
     this.paused = false;
     const socket = this.socket;
     if (!socket) {
@@ -77,7 +96,7 @@ export class PreviewConnection {
   }
 
   private connect() {
-    if (this.disposed || this.paused || this.socket) return;
+    if (this.disposed || this.paused || this.offline || this.socket) return;
     this.clearTimer();
     let socket: Socket;
     try {
@@ -126,7 +145,7 @@ export class PreviewConnection {
   }
 
   private retry() {
-    if (this.disposed || this.paused) return;
+    if (this.disposed || this.paused || this.offline) return;
     const delay = Math.min(1000 * 2 ** this.failures++, 10000);
     this.timer = setTimeout(() => this.connect(), delay);
   }
@@ -137,7 +156,8 @@ export class PreviewConnection {
     this.page.removeEventListener("visibilitychange", this.visibility);
     this.lifecycle.removeEventListener("pagehide", this.hide);
     this.lifecycle.removeEventListener("pageshow", this.show);
-    this.lifecycle.removeEventListener("online", this.show);
+    this.lifecycle.removeEventListener("online", this.online);
+    this.lifecycle.removeEventListener("offline", this.wentOffline);
     try {
       this.socket?.close();
     } catch {
