@@ -19,6 +19,8 @@ def main():
     parser.add_argument("--package-path", type=Path, required=True)
     parser.add_argument("--font-path", type=Path, action="append", default=[])
     parser.add_argument("--compiler", default="typst")
+    parser.add_argument("--browser-compiler", type=Path,
+                        help="Generated WASM compiler directory; uses explicit and bundled fonts for all executors")
     parser.add_argument("--engine", help="Flow engine supporting shared source history (FLOW_ENGINE_PATH or installed engine)")
     parser.add_argument("--semantic-canvases", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
@@ -46,7 +48,8 @@ def main():
         parser.error(str(error))
     state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete,
                         focus_file=args.focus_file, editor_server=args.editor_server, nvim=args.nvim,
-                        change_file=args.change_file, source_history=source_history)
+                        change_file=args.change_file, source_history=source_history,
+                        browser_compiler=args.browser_compiler)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))
     state.prewarm = True
     stopped = threading.Event()

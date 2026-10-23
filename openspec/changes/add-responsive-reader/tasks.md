@@ -370,11 +370,11 @@ remote publication and physical-device/VoiceOver checks were not performed.
 ## Web computation and offline reading
 
 - [x] Define and integrate a raw compile execution contract for base HTML, source carriers and highlight HTML/PDF candidates, retaining the Python acceptance owner.
-- [ ] Capture bounded immutable input bundles with compiler/font/package/settings identities and tested missing-input handling.
-- [ ] Build and package the matching HTML/PDF WASM compiler and Worker with persistent incremental state and explicit lifecycle.
-- [ ] Add server-owned foreground worker leases, deadlines, stale/duplicate rejection and local fallback; connect base and dynamic compilation.
+- [x] Capture bounded immutable input bundles with compiler/font/package/settings identities and tested missing-input handling.
+- [x] Build and package the matching HTML/PDF WASM compiler and Worker with persistent incremental state and explicit lifecycle.
+- [x] Add server-owned foreground worker leases, deadlines, stale/duplicate rejection and local fallback; connect base and dynamic compilation.
 - [x] Add versioned PWA shell/static caching and transactional complete accepted-document snapshots with offline recovery UI.
 - [ ] Extend local math decoration and figure composition with measured output parity and reduced server requests.
 - [ ] Add persistent revision-bound highlight intents, idempotent reconnect handling and conflict/reselection feedback through existing source validation.
-- [ ] Run the real PDE Worker benchmark for cold/incremental/sustained work and memory metrics, recording corpus and toolchain identities plus output agreement.
+- [x] Run the real PDE Worker benchmark for cold/incremental/sustained work and memory metrics, recording corpus and toolchain identities plus output agreement.
 - [ ] Verify browser lifecycle/recovery, competing edits, stale leases, interrupted caches, installed layout and affected reader suites; record physical iPhone coverage separately.

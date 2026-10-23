@@ -7344,6 +7344,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinymist-web-compiler"
+version = "0.15.8"
+dependencies = [
+ "comemo",
+ "serde_json",
+ "tinymist-vfs",
+ "tinymist-world",
+ "typst",
+ "typst-assets",
+ "typst-html",
+ "typst-layout",
+ "typst-pdf",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "tinymist-world"
 version = "0.15.0"
 dependencies = [

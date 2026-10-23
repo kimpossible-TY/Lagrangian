@@ -23,6 +23,8 @@ class CompileRequest:
     fonts: tuple[Path, ...] = ()
     inputs: tuple[tuple[str, str], ...] = ()
     timeout: float = 90
+    system_fonts: bool = True
+    timestamp: int | None = None
 
     def __post_init__(self):
         if (self.entry is None) == (self.source is None):
@@ -46,6 +48,19 @@ class CompileExecutor(Protocol):
     def __call__(self, request: CompileRequest) -> CompileResult: ...
 
 
+def font_arguments(fonts, work):
+    """Expose explicit font files to the directory-searching Typst CLI."""
+    arguments = []
+    for index, font in enumerate(fonts):
+        if font.is_file():
+            directory = work / f"font-{index}"
+            directory.mkdir()
+            (directory / font.name).symlink_to(font.resolve())
+            font = directory
+        arguments.extend(["--font-path", str(font)])
+    return arguments
+
+
 def local_compile(request: CompileRequest) -> CompileResult:
     """Run the existing CLI in an isolated output directory with bounded lifetime."""
     started = time.monotonic()
@@ -57,8 +72,11 @@ def local_compile(request: CompileRequest) -> CompileResult:
                    "--package-path", str(request.packages), "--deps", str(dependencies)]
         if request.target == "html":
             command.extend(["--features", "html"])
-        for font in request.fonts:
-            command.extend(["--font-path", str(font)])
+        if not request.system_fonts:
+            command.append("--ignore-system-fonts")
+        if request.timestamp is not None:
+            command.extend(["--creation-timestamp", str(request.timestamp)])
+        command.extend(font_arguments(request.fonts, work))
         for key, value in request.inputs:
             command.extend(["--input", key + "=" + value])
         command.extend([str(request.entry) if request.entry is not None else "-", str(output)])

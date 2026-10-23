@@ -1,0 +1,568 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "environment": "macOS desktop browsers; not physical iPhone",
+  "corpus": {
+    "identity": "19bf9e00bdae1eb49803da5d7feb353fee1bb719be65364f94d2d3e133c6f7f1",
+    "engine": "6a194fad0b95c8b456b7ba237a45c61e66d21fdf7b946e86e05e49d9409b7f2c",
+    "fontHashes": [
+      "214cf8faede3b1abbca9154b32715b60f97beb7e95f218d87482dcfebffd3fcf",
+      "b1be69f4df4a8f7b17c7ca29dce36f60dbe14c0b683fef62c5193851916fa185",
+      "7cef97556a5d1530272a591cb7d8c84b1c2a99b51cfeb7c03d4ebc57f568153e",
+      "0bfd31ce13616f03db92e9746fab01b49a5635dbc0ac509a84168aadc6f7e6fc",
+      "7aefae260b2cd4233d3ca3f23903905581dab10f59ce19da83c725718e5223d6",
+      "2aa96f58a7db7cd8b82f7cefb7165988f81370495aade79315a1a1179ea7630c",
+      "3a2afd7529cde3cbf433913cca4d5b0f2a51a0ac2c3161f1761ffea91f8716f5",
+      "f7c09f85ce467e0a09c47a83806e19d446cbb22bfa02ea13da85969302f6ec25",
+      "f6d658d28ec07a227baf993bec7b9f3c6aea5ef97bc2483c3bb2d80c101f6b60",
+      "8ece127a50089d7aea7a294d0d4b02221d923dd2ef0e4b5f32eb556698d867ae",
+      "258f6612eb1d677de2d2eb5109848274c24de9022e3e287f018fdc1b87b207e6",
+      "945c0b387b75c05419e8e3a2df28931d9e935d896da2c6d1adeb071a5e0d5580",
+      "158ad9ef18069d4996bce4d2b2c1ad676520bf326f15cbf47c01d053c50f00b5",
+      "d664faa3319c800a84dee3c049611e29084334c91a830b48f74d5458e4541f9e",
+      "14d43717e66ce87e3691a104891ca010677edbbfefc7d96b36dced626611e147",
+      "51966b27ce9d5a3f58bc4890b98bdd08efd9683b9265251ddaf09b8965a849ea",
+      "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9",
+      "d72db21f9242aedd6b917d8549ad5921766b24d5f8d0becfda2ff4c620b3c2e0",
+      "ce1d2f1ab89db45f9796100eee960f5702a40e84c225c2b48c3ec3e81d153f98",
+      "374b0190a9844343110d8f8ed1818117a4591803d022bbb2bd189d63a681e731"
+    ],
+    "inputBytes": 10494755,
+    "nativeCompileSeconds": 10.414963165996596,
+    "pythonPostprocessSeconds": 2.0301584580010967,
+    "nativeHtmlHash": "ae802b829efb653d099ac189d69d26f46679daeefc6762daa169343a43db4fd9",
+    "fileCount": 188
+  },
+  "compiler": {
+    "schemaVersion": 1,
+    "files": {
+      "compiler.js": "f1b4eb565ca62b822766ff48513f19f8476e162c11c689ca43b9630b5be12bde",
+      "compiler_bg.wasm": "f453b5d3e06686d18aa8ae17c7bf8b5a0b8f3f5c9bcb98b1377c341ceca9875f"
+    },
+    "typstVersion": "0.15.1",
+    "wasmBindgenVersion": "0.2.125",
+    "lockHash": "8a320ef71bbe5b07280383f8fe6cda11a5062aec3d667f9e13ff91fbab8eae50",
+    "engine": "6a194fad0b95c8b456b7ba237a45c61e66d21fdf7b946e86e05e49d9409b7f2c"
+  },
+  "browsers": {
+    "chromium": {
+      "init": {
+        "id": 1,
+        "ready": true,
+        "initMs": 87.29999999701977,
+        "wasmMemoryBytes": 20447232
+      },
+      "runs": [
+        {
+          "prepareMs": 444.6000000014901,
+          "compileMs": 15040.69999999553,
+          "wasmMemoryBytes": 2368143360,
+          "run": 1,
+          "totalMs": 15496.60000000149,
+          "outputTransferMs": 231,
+          "bytes": 8958011,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1.4000000059604645,
+          "compileMs": 3276.1999999955297,
+          "wasmMemoryBytes": 3470458880,
+          "run": 2,
+          "totalMs": 3294.10000000149,
+          "outputTransferMs": 231.59999999403954,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 0.8999999985098839,
+          "compileMs": 1690.6000000014901,
+          "wasmMemoryBytes": 3470458880,
+          "run": 3,
+          "totalMs": 1701.3000000044703,
+          "outputTransferMs": 234.89999999850988,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 2,
+          "compileMs": 1613.7999999970198,
+          "wasmMemoryBytes": 3470458880,
+          "run": 4,
+          "totalMs": 1628.8999999985099,
+          "outputTransferMs": 237.79999999701977,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 0.7000000029802322,
+          "compileMs": 1525.2999999970198,
+          "wasmMemoryBytes": 3470458880,
+          "run": 5,
+          "totalMs": 1538.6000000014901,
+          "outputTransferMs": 225.69999999552965,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1.1000000014901161,
+          "compileMs": 1536.6999999955297,
+          "wasmMemoryBytes": 3470458880,
+          "run": 6,
+          "totalMs": 1551.8999999985099,
+          "outputTransferMs": 242.39999999850988,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 0.6000000014901161,
+          "compileMs": 1882.1999999955297,
+          "wasmMemoryBytes": 3470458880,
+          "run": 7,
+          "totalMs": 1891.8999999985099,
+          "outputTransferMs": 241.39999999850988,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1.5,
+          "compileMs": 1914.9000000059605,
+          "wasmMemoryBytes": 3470458880,
+          "run": 8,
+          "totalMs": 1932.8999999985099,
+          "outputTransferMs": 246.60000000149012,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1.1000000014901161,
+          "compileMs": 1866.1999999955297,
+          "wasmMemoryBytes": 3470458880,
+          "run": 9,
+          "totalMs": 1888.9000000059605,
+          "outputTransferMs": 231,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1.6000000014901161,
+          "compileMs": 2343.5,
+          "wasmMemoryBytes": 3470458880,
+          "run": 10,
+          "totalMs": 2353.7000000029802,
+          "outputTransferMs": 230,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 2,
+          "compileMs": 1641.6000000014901,
+          "wasmMemoryBytes": 3470458880,
+          "run": 11,
+          "totalMs": 1653.2000000029802,
+          "outputTransferMs": 235.5,
+          "bytes": 8958044,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 0.8000000044703484,
+          "compileMs": 1510.7999999970198,
+          "wasmMemoryBytes": 3470458880,
+          "run": 12,
+          "totalMs": 1520.5,
+          "outputTransferMs": 237.89999999850988,
+          "bytes": 8958044,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "hardwareConcurrency": 8
+        }
+      ]
+    },
+    "webkit": {
+      "init": {
+        "id": 1,
+        "ready": true,
+        "initMs": 122,
+        "wasmMemoryBytes": 20447232
+      },
+      "runs": [
+        {
+          "prepareMs": 101,
+          "compileMs": 15434,
+          "wasmMemoryBytes": 2368143360,
+          "run": 1,
+          "totalMs": 15542,
+          "outputTransferMs": 59,
+          "bytes": 8958011,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 3,
+          "compileMs": 2670,
+          "wasmMemoryBytes": 3470458880,
+          "run": 2,
+          "totalMs": 2682,
+          "outputTransferMs": 52,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1,
+          "compileMs": 1931,
+          "wasmMemoryBytes": 3470458880,
+          "run": 3,
+          "totalMs": 1948,
+          "outputTransferMs": 52,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1,
+          "compileMs": 1826,
+          "wasmMemoryBytes": 3470458880,
+          "run": 4,
+          "totalMs": 1834,
+          "outputTransferMs": 77,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1,
+          "compileMs": 1817,
+          "wasmMemoryBytes": 3470458880,
+          "run": 5,
+          "totalMs": 1827,
+          "outputTransferMs": 65,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 2,
+          "compileMs": 1855,
+          "wasmMemoryBytes": 3470458880,
+          "run": 6,
+          "totalMs": 1866,
+          "outputTransferMs": 57,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 3,
+          "compileMs": 1812,
+          "wasmMemoryBytes": 3470458880,
+          "run": 7,
+          "totalMs": 1825,
+          "outputTransferMs": 61,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 3,
+          "compileMs": 1742,
+          "wasmMemoryBytes": 3470458880,
+          "run": 8,
+          "totalMs": 1754,
+          "outputTransferMs": 78,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 5,
+          "compileMs": 1755,
+          "wasmMemoryBytes": 3470458880,
+          "run": 9,
+          "totalMs": 1773,
+          "outputTransferMs": 59,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 2,
+          "compileMs": 3101,
+          "wasmMemoryBytes": 3470458880,
+          "run": 10,
+          "totalMs": 3110,
+          "outputTransferMs": 48,
+          "bytes": 8958043,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 3,
+          "compileMs": 2124,
+          "wasmMemoryBytes": 3470458880,
+          "run": 11,
+          "totalMs": 2134,
+          "outputTransferMs": 63,
+          "bytes": 8958044,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        },
+        {
+          "prepareMs": 1,
+          "compileMs": 2064,
+          "wasmMemoryBytes": 3470458880,
+          "run": 12,
+          "totalMs": 2074,
+          "outputTransferMs": 70,
+          "bytes": 8958044,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+          "hardwareConcurrency": 8
+        }
+      ]
+    }
+  },
+  "agreement": [
+    {
+      "engine": "chromium",
+      "run": 0,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 11.38330283400137,
+      "pythonPostprocessSeconds": 2.0238691669947,
+      "normalizedHtmlHash": "ff558cf859f67d287548f63e9b2010564aba4c42ef12541a19251bca472e59db"
+    },
+    {
+      "engine": "webkit",
+      "run": 0,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 11.38330283400137,
+      "pythonPostprocessSeconds": 2.025414832998649,
+      "normalizedHtmlHash": "ff558cf859f67d287548f63e9b2010564aba4c42ef12541a19251bca472e59db"
+    },
+    {
+      "engine": "chromium",
+      "run": 1,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.322483083000407,
+      "pythonPostprocessSeconds": 2.0357473749972996,
+      "normalizedHtmlHash": "8e39df6319dab3e7094db80c13857036b7afc3ca85a49d9059d24a1596041cc7"
+    },
+    {
+      "engine": "webkit",
+      "run": 1,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.322483083000407,
+      "pythonPostprocessSeconds": 2.015785125004186,
+      "normalizedHtmlHash": "8e39df6319dab3e7094db80c13857036b7afc3ca85a49d9059d24a1596041cc7"
+    },
+    {
+      "engine": "chromium",
+      "run": 2,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.449069916001463,
+      "pythonPostprocessSeconds": 2.0332706249973853,
+      "normalizedHtmlHash": "5d96856da13e77f572e505db9bf4633a72b1afbc812ab4a6e9e8404fdfea3cd9"
+    },
+    {
+      "engine": "webkit",
+      "run": 2,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.449069916001463,
+      "pythonPostprocessSeconds": 2.060922707998543,
+      "normalizedHtmlHash": "5d96856da13e77f572e505db9bf4633a72b1afbc812ab4a6e9e8404fdfea3cd9"
+    },
+    {
+      "engine": "chromium",
+      "run": 3,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.374883541997406,
+      "pythonPostprocessSeconds": 2.0356156660054694,
+      "normalizedHtmlHash": "e53794eb0b59ea65f3c423e6180149d37393f7c161c71e526092de71d1b1a61d"
+    },
+    {
+      "engine": "webkit",
+      "run": 3,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.374883541997406,
+      "pythonPostprocessSeconds": 2.027757083000324,
+      "normalizedHtmlHash": "e53794eb0b59ea65f3c423e6180149d37393f7c161c71e526092de71d1b1a61d"
+    },
+    {
+      "engine": "chromium",
+      "run": 4,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.326458458999696,
+      "pythonPostprocessSeconds": 2.027980500002741,
+      "normalizedHtmlHash": "23669edaf7c78cf1427b648b3bc75c456a2c555830ec7b741b9d04af7c0e948d"
+    },
+    {
+      "engine": "webkit",
+      "run": 4,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.326458458999696,
+      "pythonPostprocessSeconds": 2.0128726249968167,
+      "normalizedHtmlHash": "23669edaf7c78cf1427b648b3bc75c456a2c555830ec7b741b9d04af7c0e948d"
+    },
+    {
+      "engine": "chromium",
+      "run": 5,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.332789542000683,
+      "pythonPostprocessSeconds": 2.363986249998561,
+      "normalizedHtmlHash": "923ed0d23f97c03a085effa669dba64ce875ba3df56d0152261b01abe0c66230"
+    },
+    {
+      "engine": "webkit",
+      "run": 5,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.332789542000683,
+      "pythonPostprocessSeconds": 2.063034584003617,
+      "normalizedHtmlHash": "923ed0d23f97c03a085effa669dba64ce875ba3df56d0152261b01abe0c66230"
+    },
+    {
+      "engine": "chromium",
+      "run": 6,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.918625207996229,
+      "pythonPostprocessSeconds": 2.302958749998652,
+      "normalizedHtmlHash": "00111dad7f1b66eb0427f0cc6260c17d790ab5ab6713af2794e007af7b5fff6a"
+    },
+    {
+      "engine": "webkit",
+      "run": 6,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.918625207996229,
+      "pythonPostprocessSeconds": 2.212286583002424,
+      "normalizedHtmlHash": "00111dad7f1b66eb0427f0cc6260c17d790ab5ab6713af2794e007af7b5fff6a"
+    },
+    {
+      "engine": "chromium",
+      "run": 7,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.749696833998314,
+      "pythonPostprocessSeconds": 2.080445541003428,
+      "normalizedHtmlHash": "e03e077a01ce9116c2ed36c5890d5f982ef367cd57b6b6b346a838ba1c551807"
+    },
+    {
+      "engine": "webkit",
+      "run": 7,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.749696833998314,
+      "pythonPostprocessSeconds": 2.0954499159997795,
+      "normalizedHtmlHash": "e03e077a01ce9116c2ed36c5890d5f982ef367cd57b6b6b346a838ba1c551807"
+    },
+    {
+      "engine": "chromium",
+      "run": 8,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.43260162500519,
+      "pythonPostprocessSeconds": 2.0298040409979876,
+      "normalizedHtmlHash": "45bffee8adf8fe854e979a1539d022af0d0aecf68cf8674d1071c7ae80ab21a1"
+    },
+    {
+      "engine": "webkit",
+      "run": 8,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.43260162500519,
+      "pythonPostprocessSeconds": 2.0241835410051863,
+      "normalizedHtmlHash": "45bffee8adf8fe854e979a1539d022af0d0aecf68cf8674d1071c7ae80ab21a1"
+    },
+    {
+      "engine": "chromium",
+      "run": 9,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.274405625001236,
+      "pythonPostprocessSeconds": 2.0953535410008044,
+      "normalizedHtmlHash": "3bb05124573dfd7a0dc4198dc6b9a2a9d4c1f3cbf77cdf9bb0ac5fdd52c811df"
+    },
+    {
+      "engine": "webkit",
+      "run": 9,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 10.274405625001236,
+      "pythonPostprocessSeconds": 2.0263662500001374,
+      "normalizedHtmlHash": "3bb05124573dfd7a0dc4198dc6b9a2a9d4c1f3cbf77cdf9bb0ac5fdd52c811df"
+    },
+    {
+      "engine": "chromium",
+      "run": 10,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 11.403812791002565,
+      "pythonPostprocessSeconds": 2.0680797090026317,
+      "normalizedHtmlHash": "cb6c98ee244cb7c2e93c40562fb45eee51a8dfd2aeebab18efa50cde9d462134"
+    },
+    {
+      "engine": "webkit",
+      "run": 10,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 11.403812791002565,
+      "pythonPostprocessSeconds": 2.0287495420052437,
+      "normalizedHtmlHash": "cb6c98ee244cb7c2e93c40562fb45eee51a8dfd2aeebab18efa50cde9d462134"
+    },
+    {
+      "engine": "chromium",
+      "run": 11,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 11.50338287500199,
+      "pythonPostprocessSeconds": 2.0458645000035176,
+      "normalizedHtmlHash": "2720ce84891f53c5882990da2fd35972461989431d4b73ff04b99ecef1a40488"
+    },
+    {
+      "engine": "webkit",
+      "run": 11,
+      "exactNormalizedHtml": true,
+      "contentGatePassed": true,
+      "nativeCompileSeconds": 11.50338287500199,
+      "pythonPostprocessSeconds": 2.0487200420029694,
+      "normalizedHtmlHash": "2720ce84891f53c5882990da2fd35972461989431d4b73ff04b99ecef1a40488"
+    }
+  ],
+  "limits": [
+    "WASM linear memory only; not total browser RSS",
+    "Inputs fetched once; production leases currently send a full snapshot per task",
+    "Output transfers use loopback HTTP",
+    "Physical iPhone lifecycle, memory and thermal behavior unverified"
+  ],
+  "priorCachePolicyFailure": {
+    "engine": "c43f5a8dc7d496d5612f00ad191e481e0090ddb43a0fcb43d22ce286bdc7a154",
+    "completedMemoryBytes": [
+      2368143360,
+      2776170496,
+      3190292480,
+      3566469120,
+      4045471744
+    ],
+    "error": "Error: page.evaluate: Error: Worker deadline exceeded"
+  }
+}

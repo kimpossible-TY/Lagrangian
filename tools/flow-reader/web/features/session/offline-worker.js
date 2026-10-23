@@ -153,10 +153,18 @@ export function runOfflineWorker(scope, config) {
           const timer = setTimeout(() => controller.abort(), 5000);
           try {
             return await scope.fetch(request, { signal: controller.signal });
-          } catch (error) {
+          } catch {
             const cached = await snapshots.match(request);
             if (cached) return cached;
-            throw error;
+            // Optional live services have no offline representation. A bounded
+            // HTTP failure lets callers recover without rejecting respondWith.
+            return Response.json(
+              { error: "Reader service is unavailable offline" },
+              {
+                status: 503,
+                headers: { "Cache-Control": "no-store" },
+              },
+            );
           } finally {
             clearTimeout(timer);
           }

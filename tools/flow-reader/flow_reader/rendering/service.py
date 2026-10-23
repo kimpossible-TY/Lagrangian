@@ -30,6 +30,8 @@ class DynamicRenderer:
         self.component_cache.clear()
 
     def warm(self):
+        if self.state.compiler_pool and self.state.compiler_pool.available():
+            return
         with self.graphic_lock:
             if self.closed or self.dynamic_revision == self.state.revision:
                 return
@@ -50,7 +52,8 @@ class DynamicRenderer:
         if (self.dynamic_revision != revision or
                 (self.dynamic_compiler is not None and self.dynamic_compiler.requests >= 256)):
             self.reset_dynamic()
-            self.dynamic_compiler = DynamicCompiler(self.state.project, self.state.output)
+            self.dynamic_compiler = DynamicCompiler(self.state.project, self.state.output,
+                                                    system_fonts=self.state.compiler_pool is None)
             self.dynamic_revision = revision
         return self.dynamic_compiler
 
@@ -97,10 +100,13 @@ class DynamicRenderer:
             with tempfile.TemporaryDirectory(prefix=f"{kind}-", dir=self.state.output) as temporary:
                 work = Path(temporary)
                 arguments = {"geometry" if kind == "graphics" else kind: geometry}
-                try:
-                    content = self.dynamic(revision).compile(**arguments)
-                except (OSError, ValueError, TimeoutError):
-                    self.reset_dynamic()
+                content = None
+                if not (self.state.compiler_pool and self.state.compiler_pool.available()):
+                    try:
+                        content = self.dynamic(revision).compile(**arguments)
+                    except (OSError, ValueError, TimeoutError):
+                        self.reset_dynamic()
+                if content is None:
                     if self.closed:
                         raise ValueError("Reader is stopping")
                     report = compile_project(self.state.project, work, **arguments)

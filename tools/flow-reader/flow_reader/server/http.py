@@ -17,11 +17,15 @@ def handler_for(state):
     vendor_routes = {"/vendor/mathjax-4.1.3/" + name: vendor / name for name in vendor_files}
     vendor_routes["/vendor/mathjax-4.1.3/manifest.json"] = vendor / "manifest.json"
     offline_worker = worker_script(assets, vendor_routes)
+    compiler_pool = getattr(state, "compiler_pool", None)
+    compiler_assets = getattr(state, "compiler_assets", None)
+    compiler_actions = {"/api/compiler/" + action for action in
+                        ("register", "heartbeat", "poll", "release", "result")}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
+            if path not in compiler_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
                             "/api/highlight", "/api/source", "/api/cursor", "/api/focus"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
@@ -32,12 +36,35 @@ def handler_for(state):
                 return self.respond(b"Expected application/json", "text/plain", 415)
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 262144:
+                limit = 90 * 1024 * 1024 if path == "/api/compiler/result" and compiler_pool else 262144
+                if not 0 < length <= limit:
                     return self.respond(b"Invalid request size", "text/plain", 413)
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                if path == "/api/focus":
+                if path in compiler_actions:
+                    if not compiler_pool:
+                        return self.respond(b"Browser compilation is disabled", "text/plain", 503)
+                    if path == "/api/compiler/register":
+                        result = compiler_pool.register(request.get("engine"))
+                    else:
+                        worker = request.get("worker")
+                        if not isinstance(worker, str) or len(worker) > 128:
+                            raise ValueError("Invalid worker identity")
+                        if path == "/api/compiler/poll":
+                            result = {"task": compiler_pool.poll(worker)}
+                        elif path == "/api/compiler/heartbeat":
+                            compiler_pool.heartbeat(worker)
+                            result = {"ok": True}
+                        elif path == "/api/compiler/release":
+                            compiler_pool.release(worker)
+                            result = {"ok": True}
+                        else:
+                            job, lease = request.get("job"), request.get("lease")
+                            if not all(isinstance(value, str) and len(value) <= 128 for value in (job, lease)):
+                                raise ValueError("Invalid compiler lease")
+                            result = compiler_pool.submit(worker, job, lease, request.get("result"))
+                elif path == "/api/focus":
                     try:
                         result = state.save_focus(request.get("revision"), request.get("fragments"),
                                                   request.get("service"), request.get("viewerID"))
@@ -68,6 +95,12 @@ def handler_for(state):
         def do_GET(self):
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
+            if path == "/api/compiler/config":
+                config = compiler_assets.config() if compiler_assets else {"enabled": False}
+                return self.respond(json.dumps(config).encode(), "application/json")
+            if compiler_assets and path in compiler_assets.routes:
+                asset, content_type = compiler_assets.routes[path]
+                return self.respond(asset.read_bytes(), content_type)
             if path == "/service-worker.js":
                 return self.respond(offline_worker, "text/javascript; charset=utf-8")
             if path == "/api/offline":

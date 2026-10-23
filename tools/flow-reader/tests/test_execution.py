@@ -97,6 +97,21 @@ class ExecutionTests(unittest.TestCase):
         self.assertIsNone(result.artifact)
         self.assertIn("error:", result.stderr)
 
+    @unittest.skipUnless(shutil.which("typst"), "Typst required")
+    def test_portable_timestamp_and_explicit_single_font_file(self):
+        from flow_reader.compiler.execution import font_arguments
+        font = self.root / "chosen.ttf"
+        font.write_bytes(b"fixture")
+        args = font_arguments((font,), self.root)
+        directory = Path(args[1])
+        self.assertEqual(list(directory.iterdir()), [directory / font.name])
+        self.assertEqual((directory / font.name).resolve(), font)
+        result = local_compile(CompileRequest("typst", self.root, self.packages, "html",
+                              source="#datetime.today().display(\"[year]-[month]-[day]\")",
+                              system_fonts=False, timestamp=0))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"1970-01-01", result.artifact)
+
 
 if __name__ == "__main__":
     unittest.main()
