@@ -36,6 +36,7 @@ Options:
   --parent-pid NUMBER       Exit when the owning editor exits
   --control-file PATH       Exit when the editor removes this launch file
   --sync-file PATH          Cursor JSON written by :FlowReader sync
+  --change-file PATH        Common paged edit history (otherwise match a Flow profile)
   --check                   Print dependency/capability diagnosis and exit
   --snapshot PATH           Capture one real Reader PNG without requiring a terminal
   --help                    Show this help
@@ -73,6 +74,7 @@ export function parseArguments(argv) {
     "parent-pid",
     "control-file",
     "sync-file",
+    "change-file",
     "snapshot",
   ]);
   for (let index = 0; index < argv.length; index++) {

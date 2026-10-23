@@ -169,3 +169,27 @@ The default Neovim view SHALL position image frames inside its current window, f
 #### Scenario: Browser-to-source navigation from Reader focus
 - **WHEN** the focused Reader requests a verified source jump
 - **THEN** the source window receives the location and focus, and the Reader remains in its own window
+
+### Requirement: Readers and Neovim share the saved source edit
+For a configured common paged change record, HTML and terminal Readers and opt-in Neovim source restoration SHALL use the same project/entry source edit. Paged layout remains owned by the existing engine; HTML SHALL map that range only into its accepted source-backed document. Neovim SHALL validate exact saved source before opening the corresponding file and UTF-8 byte position.
+
+#### Scenario: Reopen the project in Neovim
+- **WHEN** the configured entry opens with shared restoration enabled and a verified common edit exists in an included source file
+- **THEN** Neovim opens that source file at the shared edit
+- **AND** the command is available without opening a terminal Reader
+- **AND** unsaved buffers and cursor movement during asynchronous lookup are preserved
+
+#### Scenario: The common edit arrives after HTML publication
+- **WHEN** the engine records the common edit after the HTML document has been accepted
+- **THEN** HTML navigation metadata updates without compiling or replacing the accepted document
+- **AND** active selections, recent gestures and explicit named destinations retain their existing navigation priority
+
+#### Scenario: Wrong, ambiguous or stale history
+- **WHEN** a record belongs to another project, profiles are ambiguous, source bytes differ, or the saved range is invalid
+- **THEN** no guessed shared position is opened
+- **AND** a common but unusable edit is not replaced by an unrelated local visual edit
+
+#### Scenario: Terminal startup retains restoration
+- **WHEN** a terminal Reader starts with an unchanged source cursor
+- **THEN** its first cursor poll establishes a baseline without replacing the restored reading destination
+- **AND** later cursor movement or explicit sync can navigate normally

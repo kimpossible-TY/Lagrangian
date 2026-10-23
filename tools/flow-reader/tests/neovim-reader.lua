@@ -206,6 +206,66 @@ local function run()
   local ok, err = reader.start()
   equal(false, ok)
   assert(err:find('open', 1, true))
+
+  -- The same paged source history restores an included source without a Reader.
+  local main = temporary .. '/main.typ'
+  local part = temporary .. '/shared.typ'
+  local history = temporary .. '/changes.json'
+  local body = '첫 줄\n마지막 수정 위치\n'
+  write(main, '#include "shared.typ"\n\n')
+  write(part, body)
+  local start = assert(body:find('수정', 1, true)) - 1
+  write(history, vim.json.encode {
+    schema_version = 2, project = vim.json.encode { temporary, main }, variants = {},
+    source_history = { sequence = 7, sources = { [part] = body },
+      latest = { filepath = part, source_hash = string.rep('a', 32), range = { start = start, ['end'] = #body - 1 } } },
+  })
+  reader.setup { root = temporary, entry = main, change_file = history, auto_open = false }
+  vim.cmd.edit(vim.fn.fnameescape(main))
+  local resumed
+  assert(reader.resume(false, function(status) resumed = status end))
+  assert(vim.wait(5000, function() return resumed ~= nil end), 'Shared lookup did not finish')
+  equal('jumped', resumed)
+  equal(part, vim.api.nvim_buf_get_name(0))
+  equal({ 2, #'마지막 ' }, vim.api.nvim_win_get_cursor(0))
+
+  vim.cmd.edit(vim.fn.fnameescape(main))
+  vim.bo.filetype = 'typst'
+  reader.setup { root = temporary, entry = main, change_file = history, auto_open = false, restore_last_edit = true }
+  assert(vim.wait(5000, function() return vim.api.nvim_buf_get_name(0) == part end), 'Automatic shared restore failed')
+  equal({ 2, #'마지막 ' }, vim.api.nvim_win_get_cursor(0))
+
+  reader.setup { root = temporary, entry = main, change_file = history, auto_open = false }
+  vim.cmd.edit(vim.fn.fnameescape(main))
+  local system = vim.system
+  local reply
+  vim.system = function(_, _, callback)
+    reply = callback
+    return { kill = function() end }
+  end
+  local function deliver()
+    local delivered = false
+    reply { code = 0, stdout = vim.json.encode {
+      status = 'located', path = part, line = 2, column = #'마지막 ', source_hash = vim.fn.sha256(body),
+    } }
+    vim.schedule(function() delivered = true end)
+    assert(vim.wait(1000, function() return delivered end))
+  end
+  assert(reader.resume())
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
+  deliver()
+  equal(main, vim.api.nvim_buf_get_name(0))
+  equal({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+  assert(reader.resume())
+  reader.stop()
+  deliver()
+  equal(main, vim.api.nvim_buf_get_name(0))
+  assert(reader.resume())
+  vim.api.nvim_buf_set_lines(0, 1, 2, false, { 'Unsaved while looking up' })
+  deliver()
+  equal(main, vim.api.nvim_buf_get_name(0))
+  equal(true, vim.bo.modified)
+  vim.system = system
 end
 
 local ok, err = xpcall(run, debug.traceback)

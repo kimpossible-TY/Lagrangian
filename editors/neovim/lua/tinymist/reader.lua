@@ -3,6 +3,8 @@ local reader = {}
 local uv = vim.uv or vim.loop
 local config = {}
 local session
+local resume_job
+local resume_generation = 0
 local source_file = debug.getinfo(1, 'S').source:sub(2)
 local repository = vim.fs.dirname(source_file)
 for _ = 1, 4 do
@@ -311,6 +313,8 @@ end
 
 ---Stop only the renderer and service owned by this editor session.
 function reader.stop()
+  resume_generation = resume_generation + 1
+  if resume_job then pcall(resume_job.kill, resume_job, 15); resume_job = nil end
   if session then
     local stopped = session
     session = nil
@@ -373,6 +377,7 @@ function reader.start(manual)
     { '--url', config.url },
     { '--playwright-module', config.playwright_module }, { '--browser-executable', config.browser_executable },
     { '--protocol', config.protocol },
+    { '--change-file', config.change_file and absolute(config.change_file, directory) },
   }
   if not config.url then
     vim.list_extend(options, {
@@ -485,6 +490,49 @@ function reader.sync()
   return write_private(session.sync, vim.json.encode(reader.cursor()))
 end
 
+---Restore the common saved source edit without requiring a Reader window.
+function reader.resume(automatic, done)
+  if not vim.system then return false, 'Shared edit restoration requires Neovim 0.10 or newer.' end
+  if resume_job then pcall(resume_job.kill, resume_job, 15); resume_job = nil end
+  resume_generation = resume_generation + 1
+  local generation = resume_generation
+  local active = vim.api.nvim_get_current_win()
+  local view = session and session.view
+  local window = view and active == view.win and view.source_win or active
+  if not vim.api.nvim_win_is_valid(window) then return false, 'The source window is unavailable.' end
+  local buffer = vim.api.nvim_win_get_buf(window)
+  if vim.bo[buffer].modified then return false, 'Save the source buffer before restoring the shared edit.' end
+  local position = vim.api.nvim_win_get_cursor(window)
+  local tick = vim.api.nvim_buf_get_changedtick(buffer)
+  local directory = root()
+  local entry = absolute(config.entry or vim.api.nvim_buf_get_name(buffer), directory)
+  if not entry or not directory then return false, 'Configure a project root and entry first.' end
+  local command = { config.python or 'python3', repository .. '/tools/flow-reader/edit-location.py',
+    '--root', directory, '--entry', entry }
+  if config.change_file then vim.list_extend(command, { '--change-file', absolute(config.change_file, directory) }) end
+  local ok, process = pcall(vim.system, command, { text = true, timeout = 2500 }, function(result)
+    vim.schedule(function()
+      if generation ~= resume_generation then return end
+      local current = vim.api.nvim_win_is_valid(window) and vim.api.nvim_get_current_win() == active
+        and vim.api.nvim_win_get_buf(window) == buffer and not vim.bo[buffer].modified
+        and vim.api.nvim_buf_get_changedtick(buffer) == tick
+        and vim.deep_equal(vim.api.nvim_win_get_cursor(window), position)
+      if not current then resume_job = nil; return end
+      local decoded, location = pcall(vim.json.decode, result.stdout or '')
+      local status = result.code == 0 and decoded and type(location) == 'table' and location.status or 'error'
+      if status == 'located' then status = reader.jump(location) end
+      resume_job = nil
+      if not automatic and status ~= 'jumped' then
+        vim.notify('Shared edit location unavailable (' .. tostring(status) .. ').', vim.log.levels.WARN)
+      end
+      if done then done(status) end
+    end)
+  end)
+  if not ok then resume_job = nil; return false, tostring(process) end
+  resume_job = process
+  return true
+end
+
 ---Opt in to automatic Typst Reader panes; no user configuration files are written.
 ---@param options? table
 function reader.setup(options)
@@ -498,19 +546,40 @@ function reader.setup(options)
   end
   vim.api.nvim_create_user_command('FlowReader', function(command)
     local action = command.args ~= '' and command.args or 'start'
-    if action == 'start' or action == 'prepare' or action == 'stop' or action == 'sync' then
+    if action == 'start' or action == 'prepare' or action == 'stop' or action == 'sync' or action == 'resume' then
       invoke(action)
     else
-      vim.notify('Use :FlowReader [start|prepare|stop|sync]', vim.log.levels.ERROR)
+      vim.notify('Use :FlowReader [start|prepare|stop|sync|resume]', vim.log.levels.ERROR)
     end
-  end, { nargs = '?', complete = function() return { 'start', 'prepare', 'stop', 'sync' } end, force = true })
-  if config.auto_open ~= false then
+  end, { nargs = '?', complete = function() return { 'start', 'prepare', 'stop', 'sync', 'resume' } end, force = true })
+  if config.auto_open ~= false or config.restore_last_edit then
+    local function opened()
+      if resume_job then return end
+      local generation = resume_generation
+      local buffer = vim.api.nvim_get_current_buf()
+      local function start()
+        if config.auto_open ~= false then invoke('start') end
+      end
+      local explicit = vim.fn.argc() > 1
+      for _, argument in ipairs(vim.v.argv) do
+        if argument:sub(1, 1) == '+' or argument == '-c' or argument == '-S' then explicit = true end
+      end
+      local restore = config.restore_last_edit and config.entry and not explicit
+        and absolute(vim.api.nvim_buf_get_name(buffer)) == absolute(config.entry, root())
+      vim.schedule(function()
+        if generation ~= resume_generation or vim.api.nvim_get_current_buf() ~= buffer then return end
+        if restore then
+          local ok = reader.resume(true, start)
+          if not ok then start() end
+        else start() end
+      end)
+    end
     vim.api.nvim_create_autocmd('FileType', {
       group = group, pattern = 'typst',
-      callback = function() vim.schedule(function() invoke('start') end) end,
+      callback = opened,
     })
     if vim.bo.filetype == 'typst' then
-      vim.schedule(function() invoke('start') end)
+      opened()
     end
   end
 end

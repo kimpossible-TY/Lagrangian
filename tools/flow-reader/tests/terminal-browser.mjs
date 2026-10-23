@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, mkdir, realpath } from "node:fs/promises";
+import { mkdtemp, readFile, rm, mkdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -16,12 +16,17 @@ import { sixelSequence } from "../terminal/sixel.mjs";
 const exec = promisify(execFile);
 const work = await mkdtemp(path.join(tmpdir(), "flow-terminal-test-"));
 const address = path.join(work, "editor.sock");
+const changeFile = path.join(work, "changes.json");
 const repository = fileURLToPath(new URL("../../..", import.meta.url));
 const fixture = spawn(
   process.env.PYTHON || "python3",
   [fileURLToPath(new URL("./selection_fixture.py", import.meta.url))],
   {
-    env: { ...process.env, FLOW_READER_EDITOR_SERVER: address },
+    env: {
+      ...process.env,
+      FLOW_READER_EDITOR_SERVER: address,
+      FLOW_READER_CHANGE_FILE: changeFile,
+    },
     stdio: ["ignore", "pipe", "inherit"],
   },
 );
@@ -108,6 +113,67 @@ try {
   );
   const original = await readFile(entry, "utf8");
   const bridge = new EditorBridge(options, page);
+  check("Initial cursor polling preserves the Reader destination", !(await bridge.cursor()));
+  const beforeChange = await (await page.request.get(url + "api/state")).json();
+  const editStart = original.indexOf("Trailing paragraph 13");
+  const sourcePath = await realpath(entry);
+  const sourceRoot = path.dirname(sourcePath);
+  await writeFile(
+    changeFile,
+    JSON.stringify({
+      schema_version: 2,
+      project: JSON.stringify([sourceRoot, sourcePath]),
+      variants: {},
+      source_history: {
+        sequence: 7,
+        sources: { [sourcePath]: original },
+        latest: {
+          filepath: sourcePath,
+          source_hash: "a".repeat(32),
+          range: {
+            start: Buffer.byteLength(original.slice(0, editStart)),
+            end: Buffer.byteLength(original.slice(0, editStart + "Trailing paragraph 13".length)),
+          },
+        },
+      },
+    }),
+  );
+  await page.waitForFunction(
+    () => {
+      const target = [...document.querySelectorAll("#reader-document p")].find((node) =>
+        node.textContent.startsWith("Trailing paragraph 13"),
+      );
+      const rect = target?.getBoundingClientRect();
+      return rect && rect.top >= 0 && rect.bottom <= innerHeight;
+    },
+    null,
+    { timeout: 15000 },
+  );
+  const afterChange = await (await page.request.get(url + "api/state")).json();
+  check(
+    "Late common source history navigates HTML without a new document revision",
+    beforeChange.revision === afterChange.revision && afterChange.changeToken,
+  );
+  const restoredY = await page.evaluate(() => scrollY);
+  check("An unchanged editor cursor cannot replace shared restoration", !(await bridge.cursor()));
+  assert.equal(await page.evaluate(() => scrollY), restoredY);
+  await rpc("require('tinymist.reader').setup(_A)", {
+    auto_open: false,
+    root: sourceRoot,
+    entry: sourcePath,
+    change_file: changeFile,
+  });
+  await rpc("require('tinymist.reader').resume()");
+  const expectedLine = original.slice(0, editStart).split("\n").length;
+  for (
+    let attempt = 0;
+    (await rpc("require('tinymist.reader').cursor()")).line !== expectedLine;
+    attempt++
+  ) {
+    assert.ok(attempt < 50, "Neovim did not restore the shared edit");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  check("Neovim source restores the same saved edit as HTML", await bridge.cursor());
   const terminal = new TerminalReader({ ...options, protocol: "iterm2" }, page);
   const select = async (exact) => {
     // Real mouse drag, using rendered text range geometry rather than assigning Selection.

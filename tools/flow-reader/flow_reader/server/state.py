@@ -14,11 +14,14 @@ from flow_reader.services.codex_context import FocusStore
 from flow_reader.services.selection import SelectionActions
 from flow_reader.services.editor_sync import NeovimEditor, UNSPECIFIED_EDITOR
 from flow_reader.services.navigation import SavedSourceNavigation
+from flow_reader.services.edit_location import SharedEditLocation
+from flow_reader.services.source_mapping import edit_location
+from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 
 
 class ReaderState:
     def __init__(self, project, output, original_url, allow_incomplete, focus_file=None,
-                 *, editor_server=None, nvim="nvim"):
+                 *, editor_server=None, nvim="nvim", change_file=None):
         self.project = project
         self.output = output
         self.original_url = original_url
@@ -29,6 +32,8 @@ class ReaderState:
             json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
         self.focus = FocusStore(focus_file or output / "focus.json", project, self.document_id)
         self.changes = ChangeTracker(output / "last-change.json", self.document_id)
+        self.shared_edit = SharedEditLocation(project.root, project.entry, change_file)
+        self.shared_edit_stamp = None
         self.lock = threading.RLock()
         self.accepted_inputs = None
         self.report = {}
@@ -73,7 +78,12 @@ class ReaderState:
             inputs = input_fingerprint(self.project, self.dependencies)
             if source_stamp != source_signature(self.project, self.dependencies):
                 raise ValueError("Sources changed before Reader publication")
-            bundle.manifest["lastChange"] = self.changes.observe(bundle, inputs)
+            edit_stamp = self.shared_edit.stamp()
+            change = self.shared_change(bundle, self.dependencies) if self.shared_edit.configured else None
+            if source_stamp != source_signature(self.project, self.dependencies):
+                raise ValueError("Sources changed before Reader navigation publication")
+            bundle.manifest["lastChange"] = (change if self.shared_edit.configured else
+                                             self.changes.observe(bundle, inputs))
             compressed = gzip.compress(document)
             section_compressed = {key: gzip.compress(value) for key, value in bundle.documents.items()}
             manifest_json = json.dumps(bundle.manifest, ensure_ascii=False).encode()
@@ -84,6 +94,7 @@ class ReaderState:
                 self.document = document
                 self.compressed = compressed
                 self.bundle = bundle
+                self.shared_edit_stamp = edit_stamp
                 self.section_compressed = section_compressed
                 self.manifest_json = manifest_json
                 self.manifest_compressed = manifest_compressed
@@ -132,13 +143,49 @@ class ReaderState:
         if self.prewarm and self.revision and self.report.get("contentGatePassed") and not self.renderer.closed:
             threading.Thread(target=self.renderer.warm, daemon=True).start()
 
+    def shared_change(self, bundle, dependencies):
+        edit = self.shared_edit.read()
+        if edit["status"] != "located":
+            return None
+        try:
+            location = edit_location(self.project, dependencies, bundle, edit)
+        except (OSError, ValueError):
+            return None
+        if location["status"] != "located":
+            return None
+        passage = next(part for part in bundle.passages if part["key"] == location["key"])
+        target = passage["id"]
+        if bundle.manifest["anchors"].get(target) != location["section"]:
+            return None
+        return {"token": edit["token"], "key": location["key"], "target": target,
+                "section": location["section"], "revision": bundle.manifest["revision"]}
+
+    def refresh_shared_change(self):
+        """The engine may persist its edit after our accepted HTML compilation."""
+        with self.lock:
+            stamp = self.shared_edit.stamp()
+            if self.compiling or not self.bundle or stamp == self.shared_edit_stamp:
+                return
+            snapshot = AcceptedSnapshot.capture(self, self.revision)
+            if snapshot is None or not snapshot.current(self):
+                return
+            change = self.shared_change(snapshot.bundle, snapshot.dependencies)
+            if not snapshot.current(self):
+                return
+            self.shared_edit_stamp = stamp
+            self.bundle.manifest["lastChange"] = change
+            self.manifest_json = json.dumps(self.bundle.manifest, ensure_ascii=False).encode()
+            self.manifest_compressed = gzip.compress(self.manifest_json)
+
     def public(self):
+        self.refresh_shared_change()
         with self.lock:
             return {key: self.report.get(key) for key in (
                 "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
                 "elapsedSeconds", "compiledAt",
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
+                  "changeToken": (self.bundle.manifest.get("lastChange") or {}).get("token") if self.bundle else None,
                   "service": self.focus.service,
                   "editorServer": self.editor_server,
                   "originalURL": self.original_url, "development": self.allow_incomplete,

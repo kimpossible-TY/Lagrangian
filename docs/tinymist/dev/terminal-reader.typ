@@ -260,6 +260,7 @@ require("tinymist.reader").setup({
   output = "/absolute/path/flow-reader-state/html",
   port = 23628,
   auto_open = true,
+  restore_last_edit = true, -- restore the shared source edit when main.typ opens
 })
 ```
 
@@ -282,6 +283,38 @@ this Neovim instance's `v:servername`, and it must use the matching Neovim
 executable when needed. The host rejects a mismatched connection before source
 highlights are enabled. The ordinary project setup above supplies the RPC
 address and executable automatically.
+
+== Shared last edit in the source editor
+
+`:FlowReader resume` opens the common last edited source file and its saved
+line/column, including an included chapter. It works without opening a Reader
+window. Set `restore_last_edit = true` with an explicit `root` and `entry` to do
+this automatically when the entry opens. This option requires Neovim 0.10 or
+newer and Python 3 (`python` can select its executable). The default is off.
+Use `auto_open = false` when only source restoration is wanted.
+
+The existing paged Flow engine owns this source-edit record. HTML, terminal and
+Neovim consumers resolve the exact same root/entry in Flow's profiles and read
+its saved source range. `FLOW_DATA_DIR` selects a nondefault Flow data directory.
+For a standalone paged engine, pass the file configured by
+`TINYMIST_PREVIEW_CHANGE_FILE` as Lua `change_file` or CLI `--change-file`.
+The source record, not a viewer's scroll position or editor's local cursor mark,
+determines the shared edit. Light and dark PDF layouts keep their own mapping;
+HTML maps the range into its accepted source-backed passage.
+
+Automatic editor lookup is asynchronous. Cursor movement, buffer changes,
+unsaved source and explicit startup line/session commands prevent it from
+interrupting current work. Invalid, ambiguous or changed source records cannot
+move the cursor. The editor's ordinary local position remains when no verified
+shared edit is available. Terminal startup also retains Reader restoration
+until the source cursor actually moves or `:FlowReader sync` is requested.
+
+The paged engine must have observed the save; edits made while it was stopped
+have no reliable chronology. HTML refuses an unmappable shared edit instead of
+selecting a different visual edit. Projects without a matching Flow profile or
+explicit common record retain standalone Reader history. Installed Readers
+need the updated release to consume the shared record; changing this checkout
+does not update or restart them.
 
 == Reading controls
 

@@ -31,6 +31,7 @@ export function serverArguments(options) {
   for (const font of options.fonts || []) args.push("--font-path", font);
   if (options["editor-server"]) args.push("--editor-server", options["editor-server"]);
   if (options.nvim) args.push("--nvim", options.nvim);
+  if (options["change-file"]) args.push("--change-file", options["change-file"]);
   return args;
 }
 

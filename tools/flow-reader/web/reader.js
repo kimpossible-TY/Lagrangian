@@ -50,6 +50,7 @@ let loadSequence = 0;
 let shellRevision = null;
 let serverState = null;
 let disposed = false;
+let awaitingEntryChange = false;
 const transport = new ReaderTransport();
 const outlineNavigation = createOutline(article, outline, () => manifest);
 const readingPosition = createReadingPosition(article, {
@@ -720,6 +721,22 @@ async function refresh(signal, current) {
   if (sameSnapshot(manifest, state)) manifest.service = state.service;
   terminalEditor.update(state.editorServer);
   selectionActions?.updateActions();
+  if (
+    sameSnapshot(state, manifest) &&
+    state.changeToken !== undefined &&
+    state.changeToken !== (manifest.lastChange?.token ?? null)
+  ) {
+    const candidate = await transport.get(
+      `api/manifest?revision=${encodeURIComponent(state.revision)}`,
+      { signal },
+    );
+    if (!current()) return;
+    if (!sameSession(candidate, state)) throw new Error("Reader session changed");
+    manifest.lastChange = candidate.lastChange;
+    changes.queue(manifest, awaitingEntryChange);
+    if (candidate.lastChange) awaitingEntryChange = false;
+    changes.afterRender();
+  }
   status.dataset.state = state.development ? "incomplete" : "ready";
   status.textContent = state.development
     ? "개발 중인 읽기 화면입니다. 일부 그림·주석은 원본 확인이 필요합니다."
@@ -754,10 +771,10 @@ async function refresh(signal, current) {
     // Reload/history navigation restores its entry; section queries are entry hints.
     const sectionHint =
       !revision && !resuming && new URL(location.href).searchParams.get("section");
-    changes.queue(
-      pending,
-      !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward"),
-    );
+    const explicit =
+      !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward");
+    if (!revision) awaitingEntryChange = explicit && !pending.lastChange;
+    changes.queue(pending, explicit);
     const section =
       sectionHint && pending.sections.some((item) => item.id === sectionHint)
         ? (pending.anchors[target] ?? sectionHint)

@@ -293,6 +293,32 @@ def cursor_location(project, dependencies, bundle, path, line, column):
             "exact": passage["text"]}
 
 
+def edit_location(project, dependencies, bundle, edit):
+    """Map the earliest covered part of one shared edit, rejecting repeated output."""
+    path = Path(edit["path"])
+    if path not in set(source_paths(project, dependencies)):
+        return {"status": "unmapped"}
+    matches = []
+    for passage in bundle.passages:
+        offsets = []
+        for span in passage.get("source_ranges", []):
+            if (span["path"] == str(path) and span["start"] < edit["end"]
+                    and edit["start"] < span["end"]):
+                if span["source_hash"] != edit["source_hash"]:
+                    return {"status": "stale"}
+                offsets.append(max(span["start"], edit["start"]))
+        if offsets:
+            matches.append((min(offsets), passage))
+    if matches:
+        first = min(offset for offset, _ in matches)
+        passages = [passage for offset, passage in matches if offset == first]
+        if len(passages) != 1:
+            return {"status": "ambiguous"}
+        passage = passages[0]
+        return {"status": "located", "key": passage["key"], "section": passage["section"]}
+    return cursor_location(project, dependencies, bundle, edit["path"], edit["line"], edit["column"])
+
+
 def cursor_offset(source, line, column):
     """Validate and translate a one-based line and UTF-8 byte column."""
     lines = source.split("\n")
