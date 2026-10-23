@@ -70,6 +70,40 @@ test("mannot filled underlays retain legible mathematical ink", () => {
   }
 });
 
+test("pale CeTZ cell fills retain subtle shading and color in either appearance", () => {
+  for (const [background, ink] of [
+    [light, darkInk],
+    [dark, softInk],
+    [[238, 241, 236], darkInk],
+    [[37, 45, 42], softInk],
+  ]) {
+    for (const source of [
+      [240, 245, 255],
+      [240, 235, 248],
+      [239, 239, 239],
+      [220, 220, 220, 0.7],
+    ]) {
+      const original = [...source];
+      const fill = drawingPaint(source, background, ink, { paper: true });
+      assert.ok(inkContrast(fill, background) < 1.5, JSON.stringify({ source, fill }));
+      assert.ok(inkContrast(ink, fill) >= 4.5, JSON.stringify({ ink, fill }));
+      assert.ok(fill.every(Number.isFinite));
+      assert.equal(fill[3], source[3]);
+      assert.deepEqual(source, original);
+    }
+    const blue = drawingPaint([240, 245, 255], background, ink, { paper: true });
+    const purple = drawingPaint([240, 235, 248], background, ink, { paper: true });
+    const tint = (rgb) => rgb.map((value, i) => value - background[i]);
+    const blueTint = tint(blue),
+      purpleTint = tint(purple);
+    assert.ok(blueTint[2] > blueTint[0] && blueTint[2] > blueTint[1]);
+    assert.ok(purpleTint[0] > purpleTint[1] && purpleTint[2] > purpleTint[1]);
+    assert.notDeepEqual(blue, purple);
+    // The same authored color still needs foreground contrast for glyphs/lines.
+    assert.ok(inkContrast(drawingPaint([240, 245, 255], background, ink), background) >= 3);
+  }
+});
+
 test("already readable colors retain their exact channels and transparency", () => {
   const source = [230, 228, 223, 0.9];
   assert.equal(readableInk(source, dark), source);

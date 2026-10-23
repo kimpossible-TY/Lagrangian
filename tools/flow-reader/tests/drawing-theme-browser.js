@@ -61,6 +61,34 @@ async function audit() {
     inkContrast(color("#colored-glyph", "fill"), background) >= 4.5,
   );
   check(
+    "Inherited pale glyph ink remains readable rather than becoming paper",
+    inkContrast(color("#pale-glyph-group use", "fill"), background) >= 4.5,
+  );
+  const cells = ["blue-cell", "purple-cell", "gray-cell", "alpha-cell"];
+  for (const id of cells) {
+    const fill = color(`#${id}`, "fill");
+    check(`${id} remains a subtle surface wash`, inkContrast(fill, background) < 1.5);
+    check(
+      `${id} permits readable label ink`,
+      inkContrast(color("#native-label", "color"), fill) >= 4.5,
+    );
+  }
+  const blue = color("#blue-cell", "fill"),
+    purple = color("#purple-cell", "fill");
+  const tint = (rgb) => rgb.map((value, i) => value - background[i]);
+  const blueTint = tint(blue),
+    purpleTint = tint(purple);
+  check("Blue cell tint is retained", blueTint[2] > blueTint[0] && blueTint[2] > blueTint[1]);
+  check(
+    "Purple cell tint is retained",
+    purpleTint[0] > purpleTint[1] && purpleTint[2] > purpleTint[1],
+  );
+  check("Authored cell alpha is retained", color("#alpha-cell", "fill")[3] === 0.7);
+  check(
+    "A pale stroke still receives foreground contrast",
+    inkContrast(color("#pale-stroke", "stroke"), background) >= 3,
+  );
+  check(
     "SVG masks retain white coverage and black holes",
     near(color("#mask-paper", "fill"), [255, 255, 255]) &&
       near(color("#mask-hole", "fill"), [0, 0, 0]),
@@ -98,6 +126,13 @@ async function audit() {
       "Cloned paint uses its original color on a different background",
       near(color("#late-paper", "fill"), drawingBackground(late.closest("svg").parentElement)),
     );
+    check(
+      "Cloned cell shading remains subtle on a different background",
+      inkContrast(
+        color("#late-cell", "fill"),
+        drawingBackground(late.closest("svg").parentElement),
+      ) < 1.5,
+    );
   }
   const theme = document.documentElement.dataset.theme;
   const palette = JSON.stringify([
@@ -105,6 +140,7 @@ async function audit() {
     color("#axis", "stroke"),
     color("#native-label", "color"),
     color("#colored-label", "color"),
+    ...cells.map((id) => color(`#${id}`, "fill")),
   ]);
   if (histories.has(theme))
     check(
@@ -129,6 +165,7 @@ document.querySelector("#late").addEventListener("click", () => {
   for (const [source, id] of [
     ["paper", "late-paper"],
     ["axis", "late-ink"],
+    ["blue-cell", "late-cell"],
   ]) {
     const copy = document.getElementById(source).cloneNode(true);
     copy.id = id;

@@ -68,6 +68,16 @@ export function drawingPaint(
     Math.max(...rgb.slice(0, 3)) - Math.min(...rgb.slice(0, 3)) < 12
   )
     return rgb.length > 3 ? [...background, rgb[3]] : background;
+  if (paper && !underlay && inkContrast(rgb, lightPaper) < minimum) {
+    // Pale filled areas encode shading, rather than foreground ink. Recover
+    // their pigment and coverage over white, then apply that wash to the actual
+    // surface. Requiring foreground contrast here turns CeTZ cell tints black.
+    const coverage = 1 - Math.min(...rgb.slice(0, 3)) / 255;
+    const pigment = rgb.slice(0, 3).map((value) => 255 - (255 - value) / coverage);
+    const color = neutralInk(pigment) ? ink : readableInk(pigment, background, minimum);
+    const result = mix(background, color, coverage);
+    return rgb.length > 3 ? [...result, rgb[3]] : result;
+  }
   if (!underlay) {
     if (neutralInk(rgb))
       return readableInk(
@@ -209,19 +219,12 @@ export class DrawingTheme {
     const signature = JSON.stringify([background, ink]);
     if (signature === source.signature) return;
     for (const { node, property, rgb } of source.paints) {
+      const glyph =
+        node.closest("symbol") || node.matches("use,text,tspan") || node.querySelector("use,text");
       const value = drawingPaint(rgb, background, ink, {
         underlay: property === "fill" && svg.dataset.layer === "under",
-        paper:
-          property === "fill" &&
-          !node.closest("symbol") &&
-          !["use", "text", "tspan"].includes(node.localName),
-        minimum:
-          property === "fill" &&
-          (node.closest("symbol") ||
-            node.matches("use,text,tspan") ||
-            node.querySelector("use,text"))
-            ? 4.5
-            : 3,
+        paper: property === "fill" && !glyph,
+        minimum: property === "fill" && glyph ? 4.5 : 3,
       });
       node.style[property] = css(value);
     }

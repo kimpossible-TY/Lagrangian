@@ -246,6 +246,11 @@ original inline colors independently of its presentation overrides. It adapts
 neutral ink to the surrounding palette and mixes colored ink toward a contrast
 endpoint only when necessary: 4.5:1 for labels/marked mathematics and 3:1 for
 vector strokes. Near-white vector backplates use the actual enclosing surface.
+Pale geometric fills retain their surface-shading role: recover their tint and
+coverage over source white, adapt the tint to the reading palette, and composite
+that wash over the enclosing surface while retaining authored alpha. They are
+not forced to meet foreground contrast. Glyphs, including inherited symbol/use
+ink, retain foreground contrast even when authored with the same pale colors.
 Filled decoration underlays retain at least 4.5:1 contrast against their own
 marked term's ink. Coverage masks, clipping, gradient resources, path geometry,
 references and embedded raster pixels are unchanged. The source surface rasters
