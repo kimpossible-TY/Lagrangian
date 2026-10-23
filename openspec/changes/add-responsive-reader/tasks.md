@@ -357,3 +357,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Preserve pale geometric fills as tinted surface washes while keeping foreground glyph/stroke contrast and decoration-underlay rules.
 - [x] Verify photographed blue/purple cell colors, alpha, masks/resources, repeated themes and late/cloned SVG paint in Node, Chromium and WebKit; record coverage in verification-cetz-shading.md.
+
+## Complete drawing color adaptation
+
+- [x] Resolve compiler Oklab paint and browser numeric color formats to bounded sRGB with preserved alpha.
+- [x] Separate inherited shape/text paint, adapt fixed currentColor ink, and refresh source caches after authored SVG paint edits without feedback or clone drift.
+- [x] Verify all four regressions, actual compiled Oklab fills, repeated themes/resources and installed asset delivery; record coverage and limits in verification-drawing-colors.md.

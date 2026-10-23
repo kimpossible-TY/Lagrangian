@@ -1,19 +1,8 @@
+import { parseColor } from "./color.js";
+export { parseColor } from "./color.js";
+
 // Adapt drawing paint, never geometry, raster pixels, or semantic mathematics.
 const lightPaper = [252, 250, 246];
-
-export function parseColor(value) {
-  if (/^#[\da-f]{6}$/i.test(value))
-    return [1, 3, 5].map((offset) => parseInt(value.slice(offset, offset + 2), 16));
-  const match = value?.match(/^rgba?\(([^)]+)\)$/);
-  const srgb = value?.match(/^color\(srgb\s+([^)]+)\)$/);
-  const channels = (match?.[1] ?? srgb?.[1])
-    ?.trim()
-    .split(/[, /]+/)
-    .map(Number);
-  if (!channels || ![3, 4].includes(channels.length) || !channels.every(Number.isFinite))
-    return null;
-  return srgb ? channels.map((channel, i) => (i < 3 ? channel * 255 : channel)) : channels;
-}
 
 function luminance(rgb) {
   const linear = rgb.slice(0, 3).map((value) => {
@@ -122,12 +111,12 @@ function prepareCanvasSurface(canvas, background = drawingBackground(canvas.pare
 
 function adaptTextColor(element) {
   if (element.closest("svg,mjx-assistive-mml,.flow-math-stage")) return;
-  const original =
-    element.dataset.readerSourceColor ??
-    element.dataset.canvasSourceColor ??
-    (element.style.color || element.getAttribute("mathcolor"));
+  restorePaint(element, "color");
+  delete element.dataset.readerSourceColor;
+  delete element.dataset.canvasSourceColor;
+  const original = element.style.color || element.getAttribute("mathcolor");
   if (!original || /^(inherit|currentcolor|var\()/i.test(original)) return;
-  element.dataset.readerSourceColor ??= parseColor(original)
+  element.dataset.readerSourceColor = parseColor(original)
     ? original
     : getComputedStyle(element).color;
   const source = parseColor(element.dataset.readerSourceColor);
@@ -137,8 +126,59 @@ function adaptTextColor(element) {
     41, 40, 36,
   ];
   if (element.closest(".flow-canvas-label-body"))
-    element.dataset.canvasSourceColor ??= element.dataset.readerSourceColor;
-  element.style.color = css(drawingPaint(source, background, ink, { minimum: 4.5 }));
+    element.dataset.canvasSourceColor = element.dataset.readerSourceColor;
+  presentDrawingPaint(element, "color", drawingPaint(source, background, ink, { minimum: 4.5 }));
+}
+
+const paintProperties = ["fill", "stroke"];
+const paintKey = (property) => property[0].toUpperCase() + property.slice(1);
+
+function restorePaint(node, property) {
+  const key = paintKey(property);
+  const presentation = node.dataset[`readerPaint${key}`];
+  if (presentation === undefined) return;
+  // An edited inline value/priority belongs to the author. Otherwise remove
+  // only our override before resolving current attributes and inheritance.
+  if (
+    node.style.getPropertyValue(property) === presentation &&
+    node.style.getPropertyPriority(property) === node.dataset[`readerPaintPriority${key}`]
+  ) {
+    const original = node.dataset[`readerInline${key}`];
+    if (original) node.style.setProperty(property, original, node.dataset[`readerPriority${key}`]);
+    else node.style.removeProperty(property);
+  }
+  delete node.dataset[`readerPaint${key}`];
+  delete node.dataset[`readerPaintPriority${key}`];
+  delete node.dataset[`readerInline${key}`];
+  delete node.dataset[`readerPriority${key}`];
+  delete node.dataset[`readerSource${property}`];
+}
+
+function restoreDrawingPaint(svg) {
+  for (const node of [svg, ...svg.querySelectorAll("*")])
+    for (const property of [...paintProperties, "color"]) restorePaint(node, property);
+}
+
+function presentDrawingPaint(node, property, value) {
+  const key = paintKey(property);
+  if (node.dataset[`readerPaint${key}`] === undefined) {
+    node.dataset[`readerInline${key}`] = node.style.getPropertyValue(property);
+    node.dataset[`readerPriority${key}`] = node.style.getPropertyPriority(property);
+  }
+  node.style.setProperty(property, css(value), node.dataset[`readerPriority${key}`]);
+  // Store CSSOM's serialization so clones can recognize our own presentation.
+  node.dataset[`readerPaint${key}`] = node.style.getPropertyValue(property);
+  node.dataset[`readerPaintPriority${key}`] = node.style.getPropertyPriority(property);
+}
+
+function definitionPaint(node, definition, property) {
+  for (let parent = node; parent; parent = parent.parentElement) {
+    const value = parent.style[property] || parent.getAttribute(property);
+    if (value && !/^(inherit|unset)$/i.test(value))
+      return !/^(currentcolor|context-fill|context-stroke|var\()/i.test(value);
+    if (parent === definition) break;
+  }
+  return false;
 }
 
 export class DrawingTheme {
@@ -146,19 +186,48 @@ export class DrawingTheme {
     this.article = article;
     this.sources = new WeakMap();
     this.content = new MutationObserver((changes) => {
-      for (const change of changes) {
-        const svg = change.target.closest?.("svg");
-        if (svg) this.sources.delete(svg);
-      }
+      this.invalidate(changes);
       this.schedule();
     });
-    this.content.observe(article, { childList: true, subtree: true });
-    this.appearance = new MutationObserver(() => this.schedule());
+    this.observeContent();
+    this.appearance = new MutationObserver(() => {
+      // Authored currentColor/variables can inherit a different palette after
+      // surrounding HTML text has adapted to the new appearance.
+      for (const svg of article.querySelectorAll("svg")) this.sources.delete(svg);
+      this.schedule();
+    });
     this.appearance.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["data-theme"],
     });
     this.schedule();
+  }
+
+  observeContent() {
+    this.content.observe(this.article, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["fill", "stroke", "color", "style", "class", "mathcolor"],
+    });
+  }
+
+  invalidate(changes) {
+    for (const change of changes) {
+      let svg = change.target.closest?.("svg");
+      if (svg) {
+        for (
+          let parent = svg.parentElement?.closest("svg");
+          parent;
+          parent = svg.parentElement?.closest("svg")
+        )
+          svg = parent;
+        this.sources.delete(svg);
+      } else if (change.type === "attributes") {
+        // An enclosing color/class can change the SVG's inherited source paint.
+        for (const child of change.target.querySelectorAll("svg")) this.sources.delete(child);
+      }
+    }
   }
 
   schedule() {
@@ -170,40 +239,59 @@ export class DrawingTheme {
   }
 
   refresh() {
-    for (const canvas of this.article.querySelectorAll("[data-flow-canvas-model]"))
-      prepareCanvasSurface(canvas);
-    for (const element of this.article.querySelectorAll("[style],[mathcolor]"))
-      if (element.style.color || element.hasAttribute("mathcolor")) adaptTextColor(element);
-    for (const svg of this.article.querySelectorAll("svg")) {
-      if (svg.parentElement.closest("svg") || svg.closest(".flow-math-stage,mjx-assistive-mml"))
-        continue;
-      this.paint(svg);
+    this.invalidate(this.content.takeRecords());
+    // Presentation writes must not look like new authored paint. JavaScript
+    // runs this refresh synchronously; queued authored mutations were read above.
+    this.content.disconnect();
+    try {
+      for (const canvas of this.article.querySelectorAll("[data-flow-canvas-model]"))
+        prepareCanvasSurface(canvas);
+      for (const element of this.article.querySelectorAll("[style],[mathcolor]"))
+        if (element.style.color || element.hasAttribute("mathcolor")) adaptTextColor(element);
+      for (const svg of this.article.querySelectorAll("svg")) {
+        if (svg.parentElement.closest("svg") || svg.closest(".flow-math-stage,mjx-assistive-mml"))
+          continue;
+        this.paint(svg);
+      }
+    } finally {
+      this.observeContent();
     }
   }
 
   paint(svg) {
     let source = this.sources.get(svg);
     if (!source) {
+      restoreDrawingPaint(svg);
       const paints = [];
-      for (const node of [svg, ...svg.querySelectorAll("[fill],[stroke],[style]")]) {
+      for (const node of svg.querySelectorAll(
+        "path,rect,circle,ellipse,line,polyline,polygon,text,tspan,textPath,use",
+      )) {
         // Mask/clip colors encode coverage, not visible paint.
-        if (node.closest("mask,clipPath")) continue;
-        for (const property of ["fill", "stroke"]) {
-          const original =
-            node.dataset[`readerSource${property}`] ??
-            (node.style[property] || node.getAttribute(property));
-          if (!original || /^(none|currentcolor|context-fill|context-stroke|url\()/i.test(original))
-            continue;
-          const color = node.dataset[`readerSource${property}`] ?? getComputedStyle(node)[property];
+        if (node.closest("mask,clipPath,pattern")) continue;
+        const symbol = node.closest("symbol");
+        const definition = node.closest("symbol,defs");
+        const style = getComputedStyle(node);
+        for (const property of paintProperties) {
+          // An unpainted glyph path must inherit from each <use> instance.
+          if (definition && !definitionPaint(node, definition, property)) continue;
+          const color = style[property];
           const rgb = parseColor(color);
           if (!rgb) continue;
-          // Keep originals through clones and repeat theme changes; authored
-          // attributes remain intact, including SVG paths and arrow geometry.
           node.dataset[`readerSource${property}`] = color;
-          paints.push({ node, property, rgb });
+          paints.push({
+            node,
+            property,
+            rgb,
+            glyph: Boolean(symbol || node.matches("use,text,tspan,textPath")),
+          });
+        }
+        if (node.localName === "use") {
+          // Symbolic definition paint resolves currentColor in each instance,
+          // not in the hidden definition's unrelated color context.
+          const rgb = parseColor(style.color);
+          if (rgb) paints.push({ node, property: "color", rgb, glyph: true });
         }
       }
-      if (!svg.hasAttribute("fill") && !svg.style.fill) svg.style.fill = "currentColor";
       source = { paints };
       this.sources.set(svg, source);
     }
@@ -218,15 +306,13 @@ export class DrawingTheme {
     const ink = parseColor(getComputedStyle(term || svg).color) ?? [41, 40, 36];
     const signature = JSON.stringify([background, ink]);
     if (signature === source.signature) return;
-    for (const { node, property, rgb } of source.paints) {
-      const glyph =
-        node.closest("symbol") || node.matches("use,text,tspan") || node.querySelector("use,text");
+    for (const { node, property, rgb, glyph } of source.paints) {
       const value = drawingPaint(rgb, background, ink, {
         underlay: property === "fill" && svg.dataset.layer === "under",
         paper: property === "fill" && !glyph,
-        minimum: property === "fill" && glyph ? 4.5 : 3,
+        minimum: property !== "stroke" && glyph ? 4.5 : 3,
       });
-      node.style[property] = css(value);
+      presentDrawingPaint(node, property, value);
     }
     source.signature = signature;
   }
