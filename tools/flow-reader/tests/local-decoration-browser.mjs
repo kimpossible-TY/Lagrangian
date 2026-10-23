@@ -10,6 +10,7 @@ import { once } from "node:events";
 const playwright = await import(process.env.FLOW_READER_PLAYWRIGHT_MODULE || "playwright");
 assert.ok(process.env.FLOW_READER_PACKAGES, "Set FLOW_READER_PACKAGES");
 const output = await mkdtemp(`${tmpdir()}/flow-local-decoration-`);
+const eligible = [1, 2, 3, 4, 5, 7, 11, 12, 13, 14, 15];
 const service = spawn(
   process.env.PYTHON || "python3",
   [
@@ -52,7 +53,7 @@ try {
       });
       await page.goto(origin);
       await page.waitForFunction(
-        () => document.querySelectorAll(".flow-math-view[data-math-state=ready]").length === 10,
+        () => document.querySelectorAll(".flow-math-view[data-math-state=ready]").length === 15,
       );
       const revision = (await (await page.request.get(`${origin}api/manifest`)).json()).revision;
       const canonicalText = () =>
@@ -74,9 +75,7 @@ try {
             { width: 60, height: 25 },
           ],
         };
-        const decorations = Object.fromEntries(
-          [1, 2, 3, 4, 5].map((i) => [`decoration-${i}`, request]),
-        );
+        const decorations = Object.fromEntries(eligible.map((i) => [`decoration-${i}`, request]));
         const response = await page.request.post(`${origin}api/decorations`, {
           data: { revision, decorations },
         });
@@ -112,6 +111,20 @@ try {
                   stroke: shape.getAttribute("stroke") || "none",
                   thickness:
                     (Number(shape.getAttribute("stroke-width")) || 0) * Math.hypot(m.a, m.b),
+                  cap: shape.getAttribute("stroke-linecap") || "butt",
+                  join: shape.getAttribute("stroke-linejoin") || "miter",
+                  miter: Number(shape.getAttribute("stroke-miterlimit") || 4),
+                  dash: (shape.getAttribute("stroke-dasharray") || "")
+                    .trim()
+                    .split(/[ ,]+/)
+                    .filter(Boolean)
+                    .map((value) => Number(value) * Math.hypot(m.a, m.b)),
+                  phase:
+                    Number(shape.getAttribute("stroke-dashoffset") || 0) * Math.hypot(m.a, m.b),
+                  pathSamples: Array.from({ length: 9 }, (_, i) => {
+                    const p = shape.getPointAtLength((shape.getTotalLength() * i) / 8);
+                    return point(p.x, p.y);
+                  }),
                   box: [
                     Math.min(...corners.map((p) => p[0])),
                     Math.min(...corners.map((p) => p[1])),
@@ -182,7 +195,7 @@ try {
               .click();
         }, font);
         await page.waitForTimeout(300);
-        for (let id = 1; id <= 10; id++) {
+        for (let id = 1; id <= 15; id++) {
           await page.evaluate((id) => {
             const node = [
               ...document.querySelectorAll(`[data-flow-decoration="decoration-${id}"]`),
@@ -205,13 +218,13 @@ try {
       }
       assert.ok(requests.length, "Unsupported callbacks must retain server rendering");
       assert.ok(
-        requests.flat().every((id) => +id.split("-")[1] > 5),
+        requests.flat().every((id) => !eligible.includes(+id.split("-")[1])),
         JSON.stringify(requests),
       );
       await page.emulateMedia({ colorScheme: "dark" });
       await page.waitForTimeout(350);
       assert.ok(
-        requests.flat().every((id) => +id.split("-")[1] > 5),
+        requests.flat().every((id) => !eligible.includes(+id.split("-")[1])),
         "Theme uses local primitives too",
       );
       assert.deepEqual(await canonicalText(), canonical);

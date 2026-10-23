@@ -25,22 +25,26 @@
 
 #let stroke-spec(value, color, thickness) = {
   if value == none { return none }
-  // Sided strokes, gradients, dash patterns and non-default joins stay Typst.
+  // Sided strokes and gradients stay Typst. Resolve dash names through Typst.
   if type(value) == dictionary and value.keys().any(k => k in ("top", "right", "bottom", "left", "x", "y", "rest")) {
     return false
   }
   let s = stroke(value)
   let paint = paint-spec(if s.paint == auto { color } else { s.paint })
-  if paint == none or s.dash != none and s.dash != auto { return false }
-  if s.cap != auto and s.cap != "butt" { return false }
-  if s.join != auto and s.join != "miter" { return false }
-  if s.miter-limit != auto { return false }
-  (paint: paint, thickness: length-spec(if s.thickness == auto { thickness } else { s.thickness }))
+  if paint == none { return false }
+  let dash = if s.dash == none or s.dash == auto { none } else {
+    (array: s.dash.array.map(v => if v == "dot" { "dot" } else { length-spec(v) }),
+      phase: length-spec(s.dash.phase))
+  }
+  (paint: paint, thickness: length-spec(if s.thickness == auto { thickness } else { s.thickness }),
+    cap: if s.cap == auto { "butt" } else { s.cap },
+    join: if s.join == auto { "miter" } else { s.join },
+    miter: if s.miter-limit == auto { 4 } else { s.miter-limit }, dash: dash)
 }
 
 #let local-paint(spec, color, outset, inset) = {
   if spec == none { return none }
-  let result = (version: 1, kind: spec.kind, outset: edges-spec(outset), inset: edges-spec(inset))
+  let result = (version: 2, kind: spec.kind, outset: edges-spec(outset), inset: edges-spec(inset))
   if spec.kind == "cancel" {
     if spec.angle != auto and type(spec.angle) != angle { return none }
     let value = spec.length + 0pt + 0%

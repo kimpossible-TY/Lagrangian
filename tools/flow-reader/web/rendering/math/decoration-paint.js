@@ -7,7 +7,8 @@ export function localDecorationPaint(record, request) {
     if (!source || source.length > 16000 || descriptions.some((value) => value !== source))
       return null;
     const spec = JSON.parse(source);
-    if (spec.version !== 1 || !["rect", "underline", "cancel"].includes(spec.kind)) return null;
+    if (![1, 2].includes(spec.version) || !["rect", "underline", "cancel"].includes(spec.kind))
+      return null;
     const finite = (value, limit = 100000) => {
       if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > limit)
         throw new Error("Invalid primitive geometry");
@@ -32,6 +33,18 @@ export function localDecorationPaint(record, request) {
       const thickness = length(spec.stroke.thickness);
       if (thickness < 0) return null;
       stroke = `stroke="${paint(spec.stroke.paint)}" stroke-width="${thickness}"`;
+      if (spec.version === 2) {
+        const { cap, join, miter, dash } = spec.stroke;
+        if (!["butt", "round", "square"].includes(cap)) return null;
+        if (!["miter", "round", "bevel"].includes(join) || finite(miter) < 1) return null;
+        stroke += ` stroke-linecap="${cap}" stroke-linejoin="${join}" stroke-miterlimit="${miter}"`;
+        if (dash !== null) {
+          if (!Array.isArray(dash.array) || dash.array.length > 128) return null;
+          const values = dash.array.map((value) => (value === "dot" ? thickness : length(value)));
+          if (values.some((value) => value < 0)) return null;
+          stroke += ` stroke-dasharray="${values.join(" ")}" stroke-dashoffset="${length(dash.phase)}"`;
+        }
+      }
     }
     if (
       !Array.isArray(request.fragments) ||
@@ -58,7 +71,9 @@ export function localDecorationPaint(record, request) {
       };
       let shape;
       if (spec.kind === "rect") {
-        shape = `<rect width="${width}" height="${height}" fill="${paint(spec.fill)}" ${stroke}/>`;
+        // Typst walks down the left edge first. SVG rect walks right first,
+        // which changes dash placement even when bounds and styles match.
+        shape = `<path d="M 0 0 V ${height} H ${width} V 0 Z" fill="${paint(spec.fill)}" ${stroke}/>`;
       } else if (spec.kind === "underline") {
         shape = `<path d="M 0 ${height} H ${width}" fill="none" ${stroke}/>`;
       } else {

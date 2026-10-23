@@ -1133,6 +1133,23 @@ owners. Preserve authored styles and unsupported callbacks via validated server 
 never substitute approximate geometry silently. Count actual avoided server requests
 and compare reflow output at multiple fonts/widths, including offline cached geometry.
 
+Decoration description version 2 adds Typst-resolved dash arrays and phase, line caps,
+joins and miter limits. Named dash styles are resolved by Typst rather than reimplemented
+in JavaScript; point/em lengths and the line-width dot token resolve against each
+fragment's reading font. Version 1 remains readable. Older clients reject version 2 and
+use server rendering instead of silently dropping a style. Rounded corners, sided
+strokes, gradients and arbitrary callbacks retain the validated server path.
+
+Native figure placement already avoided compiler requests. Move its pure collision and
+placement algorithm into a dedicated browser Worker while retaining DOM measurement
+and publication in the figure owner. The same function supplies the local fallback when
+Workers fail or are unavailable. Keep one outstanding job per figure and at most 64 in
+the shared Worker queue; reset/terminate with document and page lifetime. A completed
+plan must match current width, font and measured labels, and must wait for active
+selection release. Cache the explicit worker/module assets with the offline shell.
+This improves where local CPU work runs; it does not claim additional canvas API
+requests were removed from figures that were already local.
+
 Build a reproducible Worker benchmark against an isolated copy of the real PDE corpus,
 with a content manifest and exact WASM/compiler/font/package versions. Measure cold
 module initialization, first compile, incremental edits, long sequences, output agreement,

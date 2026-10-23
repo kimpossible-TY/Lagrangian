@@ -556,13 +556,76 @@
   ],
   "priorCachePolicyFailure": {
     "engine": "c43f5a8dc7d496d5612f00ad191e481e0090ddb43a0fcb43d22ce286bdc7a154",
-    "completedMemoryBytes": [
-      2368143360,
-      2776170496,
-      3190292480,
-      3566469120,
-      4045471744
-    ],
+    "completedMemoryBytes": [2368143360, 2776170496, 3190292480, 3566469120, 4045471744],
     "error": "Error: page.evaluate: Error: Worker deadline exceeded"
+  },
+  "integration": {
+    "browsers": ["Chrome desktop", "WebKit desktop"],
+    "compilerPool": [
+      "actual WASM HTML/source-carrier adoption",
+      "pagehide lease reassignment",
+      "competing source edit rejection",
+      "verified HTML/PDF highlight write",
+      "native incremental dynamic fallback"
+    ],
+    "offlineHighlight": [
+      "real Service Worker reload",
+      "persistent original request identity",
+      "lost acknowledgment after source write",
+      "new selection preserved during replay",
+      "competing source edit requires reselection"
+    ],
+    "localDecorations": {
+      "eligibleExamples": 11,
+      "unsupportedExamples": 4,
+      "fontsPx": [13, 30],
+      "fragments": [
+        {
+          "width": 100,
+          "height": 30
+        },
+        {
+          "width": 60,
+          "height": 25
+        }
+      ],
+      "checks": [
+        "Typst geometry and path sample parity",
+        "paint and stroke/dash/cap/join/miter parity",
+        "unchanged paged PDF",
+        "semantic text after viewport/theme changes"
+      ],
+      "eligibleApiRequests": 0
+    },
+    "canvasWorker": {
+      "figures": 8,
+      "fontsPx": [13, 30, 18],
+      "onlineViewportWidth": 390,
+      "offlineViewportWidth": 768,
+      "cases": 4,
+      "checksPerCase": 326,
+      "exactWorkerPlansPerCase": 30,
+      "canvasApiRequests": 0,
+      "lifecycleUnitChecks": [
+        "stale width/font result rejection",
+        "selection hold",
+        "document reset and disposal",
+        "timeout and unavailable Worker fallback",
+        "64-job queue bound"
+      ]
+    },
+    "nodeTestsIncludingArchitecture": 188,
+    "pythonTestsRun": 248,
+    "pythonOptionalSkips": 7,
+    "skipRequirements": [
+      "FLOW_TEST_ENGINE: 6 source-history tests",
+      "TAIL_HOSTING_SOURCE: companion adapter class"
+    ],
+    "installer": "isolated clean-commit archive, all allowlisted HTTP assets and module imports, immutable compiler assets and preserved configuration",
+    "lint": "reader ESLint, zero warnings",
+    "physicalIPhoneTested": false,
+    "userServicesInstalledOrRestarted": false,
+    "previewBuild": "TypeScript and Vite production build passed",
+    "documentation": "generated Markdown check, two Typst documents and strict OpenSpec validation passed"
   }
 }

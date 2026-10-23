@@ -1,5 +1,6 @@
 """Semantic terms and authored decoration layers must survive independently."""
 import json
+from contextlib import ExitStack
 import math
 import os
 import re
@@ -70,10 +71,15 @@ class DecorationCompilerTests(unittest.TestCase):
             self.assertTrue(report["contentGatePassed"], (output / "compile.log").read_text())
             parser = Primitives()
             parser.feed((output / "document.html").read_text())
-            self.assertEqual(len(report["decorations"]), 10)
-            self.assertEqual(list(parser.specs), [f"decoration-{i}" for i in range(1, 6)])
+            self.assertEqual(len(report["decorations"]), 15)
+            self.assertEqual(list(parser.specs), [f"decoration-{i}" for i in (1, 2, 3, 4, 5, 7, 11, 12, 13, 14, 15)])
+            self.assertTrue(all(v["version"] == 2 for v in parser.specs.values()))
             self.assertEqual([v["kind"] for v in parser.specs.values()],
-                             ["rect", "rect", "underline", "cancel", "cancel"])
+                             ["rect", "rect", "underline", "cancel", "cancel", "underline", "underline", "cancel", "rect", "underline", "rect"])
+            self.assertEqual(parser.specs["decoration-7"]["stroke"]["dash"]["array"],
+                             [{"px": 4, "em": 0}, {"px": 4, "em": 0}])
+            self.assertEqual(parser.specs["decoration-11"]["stroke"]["dash"]["array"][0], "dot")
+            self.assertEqual(parser.specs["decoration-13"]["stroke"]["join"], "bevel")
             self.assertEqual(parser.specs["decoration-2"]["outset"]["left"],
                              {"px": 1 / .75, "em": .1})
             cancel = parser.specs["decoration-5"]
@@ -235,7 +241,7 @@ class DecorationCompilerTests(unittest.TestCase):
         packages = os.environ.get("FLOW_READER_PACKAGES")
         if not compiler or not packages:
             self.skipTest("Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST")
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as resources:
             work = Path(temporary)
             source = work / "source"
             source.mkdir()
@@ -243,6 +249,7 @@ class DecorationCompilerTests(unittest.TestCase):
             shutil.copyfile(ROOT / "tests/fixtures/decorations.typ", entry)
             state = ReaderState(Project(source, Path("main.typ"), Path(packages), compiler=compiler),
                                 work / "output", "https://example.test/paged", False)
+            resources.callback(state.close)
             state.compile()
             revision = state.revision
             self.assertIsNotNone(revision, state.report)
