@@ -542,6 +542,18 @@ content, quotations, mathematical structure and reading position.
 - **AND** text and strokes using those same source colors retain their foreground contrast correction
 - **AND** authored alpha, source paint attributes, SVG resources and geometry survive repeated appearance changes and late/cloned paint
 
+#### Scenario: Compiler and inherited SVG colors
+- **WHEN** the compiler emits Oklab paint, a group shares paint between shapes and text, or SVG ink uses a fixed color through currentColor
+- **THEN** the Reader resolves the original colors with authored alpha before adapting the current appearance
+- **AND** geometric surface fills retain shading while text and strokes independently retain foreground contrast
+- **AND** unpainted symbol paths inherit the paint of their individual use instances and coverage/resource definitions remain intact
+
+#### Scenario: Authored paint changes on an existing SVG
+- **WHEN** fill, stroke, color or inline paint changes on an existing SVG or its inheritance chain
+- **THEN** the next coalesced appearance refresh resolves the new authored source instead of retaining a prior override or cached color
+- **AND** removing a paint value or changing it to none, a resource URL or currentColor preserves the resulting authored cascade
+- **AND** subsequent appearance changes and clones retain the edited source without drift or observer feedback
+
 ### Requirement: Explicit Save for Codex context
 The HTML Reader SHALL replace the former local quotation library with Save for Codex. An explicit action SHALL atomically save the service's latest bounded selection on the preview host, with document identity, rendered and accepted revisions, viewer and process identity, logical HTML endpoints, exact text and verified source context where available. Saving SHALL neither compile nor edit source nor send a Codex message.
 

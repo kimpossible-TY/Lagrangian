@@ -262,6 +262,31 @@ moving a drawing between differently colored containers cannot accumulate color
 drift. Background composition includes transparent CSS color-mix layers. These
 paint changes do not alter logical text, label measurements or reading anchors.
 
+The appearance color parser resolves Typst/browser Oklab and Oklch output to
+bounded sRGB with alpha, alongside existing numeric sRGB input. The drawing
+adapter resolves computed source paint on individual drawable shapes, text and
+use instances before applying any presentation. Group paint stays authored so a
+shared pale fill can remain a surface wash on a rectangle and readable ink on
+its adjacent text. Unpainted symbol paths inherit from their individual use
+instances; masks, clipping and other resource definitions retain their coverage.
+Fixed SVG `color` and `currentColor` resolve through the original DOM cascade
+before foreground correction.
+
+Authored fill, stroke, color, style and class mutations invalidate their enclosing
+SVG source cache, including inherited paint changed on an ancestor. The adapter
+remembers each overridden inline value/priority and the serialized presentation
+in cloneable metadata. On recapture it restores only its still-owned overrides,
+preserves edited inline values, and resolves current attributes, resource URLs,
+none and inheritance afresh. Native HTML/MathML label colors use the same inline
+ownership so enclosing color edits cannot restore an older cached source. It
+reads queued mutations before a synchronous refresh and disconnects its observer
+during its own presentation writes to avoid feedback. Theme changes resolve the
+authored cascade again, including currentColor and variables inherited from the
+newly adapted HTML palette. Cloning and source edits reconstruct source paint
+from authored values rather than previous theme output. Symbolic definition
+paint resolves through each use instance's adapted color; explicit reusable
+definition paint retains its own original source.
+
 ## Output and ownership
 
 The `text-utils` paragraph-tab show rules export an empty, assistive-hidden

@@ -2,6 +2,7 @@
   "apple-touch-icon.png": "apple-touch-icon.png",
   "favicon.ico": "favicon.ico",
   "favicon.png": "favicon.png",
+  "features/appearance/color.js": "features/appearance/color.js",
   "features/appearance/drawing-theme.js": "features/appearance/drawing-theme.js",
   "features/appearance/font-size.js": "features/appearance/font-size.js",
   "features/appearance/reading-settings.js": "features/appearance/reading-settings.js",

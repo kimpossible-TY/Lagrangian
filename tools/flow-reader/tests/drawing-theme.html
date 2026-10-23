@@ -16,6 +16,7 @@
         <option value="dark">다크</option>
       </select>
       <button id="late">늦게 도착한 그림</button>
+      <button id="mutate">그림 원본 색 변경</button>
     </header>
     <main id="reader-document">
       <h1>CeTZ · mannot</h1>
@@ -32,6 +33,9 @@
                 <stop offset="1" stop-color="#2f8f6b" />
               </linearGradient>
               <symbol id="glyph"><path d="M0 10L5 0L10 10Z" /></symbol>
+              <symbol id="inherited-glyph"><path fill="inherit" d="M0 10L5 0L10 10Z" /></symbol>
+              <symbol id="current-glyph"><path fill="currentColor" d="M0 10L5 0L10 10Z" /></symbol>
+              <path id="reusable-ink" fill="#000000" d="M0 10L5 0L10 10Z" />
             </defs>
             <rect id="paper" x="0" y="0" width="240" height="110" fill="#ffffff" stroke="#000000" />
             <path
@@ -42,6 +46,7 @@
             />
             <path id="blue" d="M20 80L80 25" stroke="#3157c8" fill="none" />
             <use id="colored-glyph" href="#glyph" x="75" y="20" fill="#3157c8" />
+            <use id="red-glyph" href="#glyph" x="90" y="20" fill="#c84031" />
             <g id="pale-glyph-group" fill="#ffffff">
               <use href="#glyph" x="105" y="85" />
             </g>
@@ -74,6 +79,94 @@
           />
           <path id="pale-stroke" d="M10 55H220" stroke="#f0f5ff" fill="none" />
         </svg>
+        <svg id="modern-and-inherited" viewBox="0 0 240 180" width="240" height="180">
+          <rect id="oklab-cell" width="70" height="40" fill="oklab(95% 0.00001 0.00004)" />
+          <rect
+            id="oklab-alpha-cell"
+            x="80"
+            width="70"
+            height="40"
+            fill="oklab(95% 0.00001 0.00004 / 0.7)"
+          />
+          <g fill="#f0f5ff">
+            <rect id="plain-inherited-cell" y="50" width="110" height="40" />
+          </g>
+          <g fill="#f0f5ff">
+            <rect id="mixed-inherited-cell" x="120" y="50" width="110" height="40" />
+            <text id="mixed-inherited-text" x="125" y="75">label</text>
+          </g>
+          <g color="#000000">
+            <path id="attribute-current-ink" d="M10 110H230" stroke="currentColor" fill="none" />
+          </g>
+          <g style="color: #000000">
+            <path id="style-current-ink" d="M10 135H230" stroke="currentColor" fill="none" />
+          </g>
+          <g style="color: #000000">
+            <text id="current-text" x="10" y="170" fill="currentColor">currentColor</text>
+          </g>
+        </svg>
+        <svg id="definition-instances" viewBox="0 0 240 30" width="240" height="30">
+          <use id="inherited-blue-glyph" href="#inherited-glyph" x="10" y="5" fill="#3157c8" />
+          <use id="inherited-red-glyph" href="#inherited-glyph" x="40" y="5" fill="#c84031" />
+          <use
+            id="current-blue-glyph"
+            href="#current-glyph"
+            x="70"
+            y="5"
+            fill="currentColor"
+            color="#3157c8"
+          />
+          <use
+            id="current-red-glyph"
+            href="#current-glyph"
+            x="100"
+            y="5"
+            fill="currentColor"
+            color="#c84031"
+          />
+          <use id="reusable-ink-use" href="#reusable-ink" x="130" y="5" />
+        </svg>
+        <div id="live-comparison" data-live-tests>
+          <div id="live-drawing">
+            <svg viewBox="0 0 240 150" width="240" height="150">
+              <rect data-paint="attribute-fill" width="70" height="30" fill="#f0f5ff" />
+              <rect data-paint="style-fill" x="80" width="70" height="30" style="fill: #f0f5ff" />
+              <path data-paint="attribute-stroke" d="M10 45H230" fill="none" stroke="#3157c8" />
+              <path data-paint="style-stroke" d="M10 65H230" style="fill: none; stroke: #3157c8" />
+              <g data-paint="attribute-color" color="#3157c8">
+                <path
+                  data-paint="attribute-current"
+                  d="M10 85H230"
+                  fill="none"
+                  stroke="currentColor"
+                />
+              </g>
+              <g data-paint="style-color" style="color: #3157c8">
+                <path
+                  data-paint="style-current"
+                  d="M10 105H230"
+                  fill="none"
+                  stroke="currentColor"
+                />
+              </g>
+              <path
+                data-paint="important-stroke"
+                d="M10 125H230"
+                style="fill: none; stroke: #3157c8 !important"
+              />
+            </svg>
+            <div data-paint="html-color" style="color: #3157c8">
+              <svg viewBox="0 0 240 30" width="240" height="30">
+                <path data-paint="html-current" d="M10 15H230" fill="none" stroke="currentColor" />
+              </svg>
+            </div>
+            <div class="flow-canvas-label-body">
+              <span data-paint="native-label" style="color: #3157c8">Edited native label</span>
+              <math data-paint="mathcolor" mathcolor="#3157c8"><mi>x</mi></math>
+            </div>
+          </div>
+          <div id="live-reference"></div>
+        </div>
       </div>
       <div class="flow-graphic-frame">
         <div class="flow-decoration-surface" style="font-size: 24px; margin-block: 24px">
@@ -95,6 +188,7 @@
         </div>
       </div>
       <div id="late-drawing"></div>
+      <div id="late-live-drawing" data-live-tests></div>
     </main>
     <pre id="report" style="white-space: pre-wrap; margin: 16px; font: 12px monospace"></pre>
     <script type="module" src="drawing-theme-browser.js"></script>
