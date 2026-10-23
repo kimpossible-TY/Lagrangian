@@ -232,6 +232,7 @@ import("./features/selection/controller.js")
       editorServer: terminalEditor.expected,
     });
     if (manifest && currentSection) selectionActions.onDocument(manifest, currentSection);
+    if (serverState) selectionActions.connectionChanged(!serverState.offline);
   })
   .catch(() => {
     // Keep reading available during a mixed-version development update.
@@ -819,6 +820,7 @@ async function refresh(signal, current) {
     await loadSection(pending, section, { anchor, target, update: true, signal });
   }
   if (manifest && !state.offline) void offline.save(manifest);
+  selectionActions?.connectionChanged(!state.offline);
   activity.refresh();
 }
 const recovery = new ReaderRecovery({

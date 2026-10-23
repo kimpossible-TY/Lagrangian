@@ -71,8 +71,11 @@ def handler_for(state):
                     except OSError:
                         return self.respond(b"Could not save Codex context", "text/plain", 503)
                 elif path == "/api/highlight":
-                    result = state.highlight(request.get("revision"), request.get("fragments"),
-                                             expected_editor=request.get("editorServer", UNSPECIFIED_EDITOR))
+                    if "requestID" in request:
+                        result = state.highlight_intent(request)
+                    else:
+                        result = state.highlight(request.get("revision"), request.get("fragments"),
+                                                 expected_editor=request.get("editorServer", UNSPECIFIED_EDITOR))
                 elif path == "/api/source":
                     result = state.source(request.get("revision"), request.get("fragments"))
                 elif path == "/api/cursor":

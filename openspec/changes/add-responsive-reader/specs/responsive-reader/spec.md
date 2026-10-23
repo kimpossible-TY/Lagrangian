@@ -827,3 +827,13 @@ of final source saving and conflict decisions.
 - **WHEN** a queued request retries after an uncertain response
 - **THEN** its stable request identity prevents applying the same source edit twice
 - **AND** an old acknowledgment cannot dismiss a newer selection
+
+#### Scenario: Source write and receipt completion are interrupted
+- **WHEN** the server restarts with a request receipt whose final outcome was not recorded
+- **THEN** retry reports an uncertain result without applying the source edit again
+- **AND** the Reader requires source review and a new selection instead of claiming success
+
+#### Scenario: Browser storage is unavailable
+- **WHEN** the Reader cannot durably store a new highlight request
+- **THEN** it reports the storage failure without dispatching or claiming queued work
+- **AND** independent tabs do not overwrite one another's pending requests

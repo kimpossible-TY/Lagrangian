@@ -31,6 +31,7 @@
   "features/session/recovery.js": "features/session/recovery.js",
   "features/session/transport.js": "features/session/transport.js",
   "features/source-highlight/controller.js": "features/source-highlight/controller.js",
+  "features/source-highlight/intents.js": "features/source-highlight/intents.js",
   "features/source-highlight/renderer.js": "features/source-highlight/renderer.js",
   "index.html": "index.html",
   "manifest.webmanifest": "manifest.webmanifest",

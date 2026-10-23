@@ -3,6 +3,7 @@ import { ReaderReviewMarks } from "../review-strikes/renderer.js";
 import { selectedReaderText } from "./dom-selection.js";
 import { SourceHighlightController } from "../source-highlight/controller.js";
 import { SourceHighlightRenderer } from "../source-highlight/renderer.js";
+import { HighlightIntents } from "../source-highlight/intents.js";
 import { CodexContextController } from "../codex-context/controller.js";
 import { ReaderTransport } from "../session/transport.js";
 import { SelectionPress } from "../../reader-common/selection/press.js";
@@ -45,7 +46,25 @@ export class ReaderSelectionActions {
       changed: () => this.updateActions(),
     };
     const transport = (this.transport = new ReaderTransport());
-    this.source = new SourceHighlightController(view, transport, this.sourcePaint.highlights);
+    let storage;
+    try {
+      storage = globalThis.localStorage;
+    } catch {
+      /* Report unavailable storage on submission. */
+    }
+    this.intents = new HighlightIntents({
+      storage,
+      prefix: `flow-reader:highlight-intents:v1:${globalThis.location?.pathname || "/"}:`,
+      transport,
+      online: () => this.connected !== false && globalThis.navigator?.onLine !== false,
+      changed: () => this.updateIntentStatus(),
+    });
+    this.source = new SourceHighlightController(
+      view,
+      transport,
+      this.sourcePaint.highlights,
+      this.intents,
+    );
     this.codex = new CodexContextController(view, transport, this.viewerID);
     const action = (button, perform) => {
       listen(button, "pointerdown", (event) => {
@@ -81,6 +100,10 @@ export class ReaderSelectionActions {
     listen(window, "resize", () => this.position());
     listen(window.visualViewport, "resize", () => this.position());
     listen(window.visualViewport, "scroll", () => this.position());
+    listen(window, "storage", () => this.updateIntentStatus());
+    listen(document.querySelector("#reader-highlight-results-clear"), "click", () => {
+      this.intents.clearRejected(this.manifest?.documentID);
+    });
     listen(document, "selectionchange", () => {
       clearTimeout(this.selectionTimer);
       this.selectionTimer = setTimeout(() => this.capture(), 80);
@@ -105,6 +128,35 @@ export class ReaderSelectionActions {
     this.review.onDocument(manifest.documentID);
     this.updateActions();
     this.repaint();
+    this.updateIntentStatus();
+  }
+
+  updateIntentStatus() {
+    if (this.disposed) return;
+    const status = document.querySelector("#reader-highlight-queue-status");
+    const clear = document.querySelector("#reader-highlight-results-clear");
+    if (!status || !clear) return;
+    try {
+      const records = this.intents.records(this.manifest?.documentID);
+      const pending = records.filter((record) => record.state === "pending").length;
+      const rejected = records.filter((record) => record.state === "rejected").length;
+      status.textContent = `${pending ? `연결 후 확인할 하이라이트 ${pending}개. ` : ""}${
+        rejected
+          ? `확인이 필요한 요청 ${rejected}개. 최신 문서에서 저장 여부를 확인하고 다시 선택해 주세요.`
+          : pending
+            ? "아직 원본에 저장되지 않았습니다."
+            : "대기 중인 하이라이트 요청이 없습니다."
+      }`;
+      clear.hidden = rejected === 0;
+    } catch {
+      status.textContent = "하이라이트 요청 저장 공간을 사용할 수 없습니다.";
+    }
+  }
+
+  connectionChanged(online) {
+    this.connected = online;
+    if (online && this.manifest)
+      void this.intents.flush(this.manifest.documentID).catch(() => this.updateIntentStatus());
   }
 
   repaint() {
@@ -213,6 +265,7 @@ export class ReaderSelectionActions {
     this.source.dismiss();
     this.codex.dismiss();
     this.transport.dispose();
+    this.intents.dispose();
     this.press.dispose();
     this.review.dispose();
     this.sourcePaint.dispose();

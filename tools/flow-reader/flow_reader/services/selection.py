@@ -7,12 +7,25 @@ from flow_reader.services.source_highlight import StaleSelection, apply_highligh
 from flow_reader.services.source_mapping import source_location
 from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.services.codex_context import selected_text, source_context
+from flow_reader.services.highlight_receipts import HighlightReceipts
 
 
 class SelectionActions:
     def __init__(self, state):
         self.state = state
-        self.edit_lock = threading.Lock()
+        self.edit_lock = threading.RLock()
+        self.receipts = HighlightReceipts(state.output / "highlight-receipts.sqlite3")
+
+    def highlight_intent(self, request):
+        """Receipts survive lost acknowledgments; existing validation owns writes."""
+        def execute():
+            if (request.get("documentID") != self.state.document_id
+                    or request.get("service") != self.state.focus.service):
+                return {"status": "stale", "revision": self.state.revision}
+            return self.highlight(request.get("revision"), request.get("fragments"),
+                                  request.get("editorServer", UNSPECIFIED_EDITOR))
+        with self.edit_lock:
+            return self.receipts.run(request, self.state.focus.service, execute)
 
     def locate(self, revision, fragments):
         with self.state.lock:
