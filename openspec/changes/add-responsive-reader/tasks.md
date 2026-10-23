@@ -375,6 +375,6 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Add server-owned foreground worker leases, deadlines, stale/duplicate rejection and local fallback; connect base and dynamic compilation.
 - [x] Add versioned PWA shell/static caching and transactional complete accepted-document snapshots with offline recovery UI.
 - [ ] Extend local math decoration and figure composition with measured output parity and reduced server requests.
-- [ ] Add persistent revision-bound highlight intents, idempotent reconnect handling and conflict/reselection feedback through existing source validation.
+- [x] Add persistent revision-bound highlight intents, idempotent reconnect handling and conflict/reselection feedback through existing source validation.
 - [x] Run the real PDE Worker benchmark for cold/incremental/sustained work and memory metrics, recording corpus and toolchain identities plus output agreement.
 - [ ] Verify browser lifecycle/recovery, competing edits, stale leases, interrupted caches, installed layout and affected reader suites; record physical iPhone coverage separately.

@@ -1115,6 +1115,17 @@ new selection; no blind replay, timestamps-as-authority or overwritten source. R
 lost acknowledgments using an idempotency record so a source edit cannot be applied
 twice. Keep newer selections independent of older queue acknowledgments.
 
+Store at most 32 requests per document under independent localStorage keys so tabs
+cannot overwrite a shared queue array. Persist before dispatch; storage failure cannot
+claim queued or saved work. The existing highlight endpoint accepts a stable request ID
+and exact payload. A SQLite receipt commits its digest before the guarded source action,
+then stores the terminal result. Replays return that result without executing. An
+unfinished receipt after a crash returns uncertain and requires source review; source
+files and SQLite are not one atomic transaction. Bound receipts to 10,000 entries;
+prune old service identities only at capacity, since those cannot authorize new writes.
+Pending requests survive reload; rejected/uncertain requests require manual review and
+reselection, with no automatic rebasing. Clearing results never deletes pending work.
+
 ## Local geometry and evidence
 
 Extend the existing versioned local decoration descriptions and measured canvas/label

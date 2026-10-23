@@ -103,7 +103,23 @@ writes and dynamic geometry with native incremental fallback. The separate offli
 fixture exercises Service Worker delivery; routing interception in the compiler
 fixture disables Service Workers so intercepted POSTs actually reach Playwright.
 
-Additional local decoration/figure computation and persistent offline highlight
-intents are separate unfinished tasks. An offline cached document currently does
-not authorize a source write. No installation or physical iPhone run is implied by
-the desktop validation above.
+`tests/highlight-offline-browser.mjs` uses real Service Worker caching and dropped
+HTTP connections in Chrome and WebKit. It verifies offline reload, reconnect,
+lost acknowledgments after an actual source write, preservation of a newer selection,
+and rejection after a competing source edit. Browser-local requests retain their
+original document, service, revision and fragments. Each has an independent durable
+key; pending work is never described as saved. Reconnect uses the normal server
+source validation and candidate compilation. A changed service or source requires
+reselection, even if the selected words still appear in the latest document.
+
+The server records request IDs and payload digests in SQLite before attempting the
+source operation. Confirmed results replay without repeating the write. If a crash
+leaves a pending receipt, its outcome is uncertain: the Reader asks for source review
+instead of automatically attempting the write again. This avoids claiming a filesystem
+write and receipt update are one atomic transaction. Settings show pending and
+review-needed counts; clearing reviewed results does not discard pending requests.
+Browser storage loss still requires recovery from the current server document.
+
+Additional local decoration/figure computation remains unfinished. An offline cached
+document does not itself authorize a source write. No installation or physical iPhone
+run is implied by the desktop validation above.

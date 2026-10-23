@@ -235,6 +235,9 @@ class ReaderState:
     def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR):
         return self.selection.highlight(revision, fragments, expected_editor)
 
+    def highlight_intent(self, request):
+        return self.selection.highlight_intent(request)
+
     def source(self, revision, fragments):
         return self.navigation.source(revision, fragments)
 
