@@ -346,3 +346,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Share optimistic paint lifetime across paged and HTML/terminal readers, retaining concrete geometry and existing feedback wording.
 - [x] Release native selection after immediate paint and retire it only on accepted replacement; roll back rejected/stale/disconnected actions with retry and newer-selection guards.
 - [x] Verify lifecycle, real browser geometry/reflow and replacement, reader suites, type/lint checks and built/installed asset layout; record coverage limits in verification-optimistic-highlights.md.
+
+## Install immediate source highlights
+
+- [x] Build and verify signed Flow 0.1.30 with its new native engine and stage the matching immutable HTML Reader release from a clean commit.
+- [x] Install both releases with recovery snapshots, preserve profile states/settings/history and verify actual local/HTTPS document and asset delivery.
+- [x] Verify installed browser highlighting and real isolated source writes in Chromium/WebKit, complete compiled-document handoff, and confirm services and release integrity after the user's Mac reboot.

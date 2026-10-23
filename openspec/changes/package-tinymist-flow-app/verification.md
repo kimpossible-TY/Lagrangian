@@ -115,3 +115,16 @@ Physical Mac sleep, battery drain and thermal performance, iPhone background sus
 - Before installation, the final engine passed isolated bundle installation and distinct light/dark document delivery (two tests passed; the optional separate test-signing-identity test was skipped). Real WebKit 26.5 mobile-overlay and desktop-SVG restart/recovery checks passed with the newly built engine; the final metadata rebuild was also rechecked with the mobile-overlay test. Bundle signature, version, engine hash and executable checks passed.
 - Installed the verified 0.1.29 bundle over 0.1.28 using the app installer, which retained the prior bundle for rollback. The managed `typst-pde` preview restarted from PID 215 to PID 26209; `typst-ewald` stayed stopped. The local and configured HTTPS endpoints returned 200. TLS-validated HTTPS WebSockets delivered complete `new,` frames for light and dark (18,338,064 and 18,393,864 bytes with distinct hashes). The menu bar app was relaunched from PID 33066 to PID 27162; the preview retained PID 26209. Installed bundle verification passed.
 - This run closes the installed-update coverage pending in the preceding development record. Physical iPhone suspension and return were not exercised. The separately hosted semantic HTML Reader service was not updated by this native engine installation.
+
+## Immediate-highlight application (2026-10-23)
+
+Installed signed Flow 0.1.30 and the HTML Reader from clean commit
+`43c8f9a359a0f860fb48d60de4240009777cc10f`, preserving certificate/designated
+requirements, settings and running/stopped profile states. Installed Chromium
+and WebKit checks confirm immediate paint, real isolated source writes and
+compiled replacement; public PDE delivery passes in both themes. Following the
+user's Mac reboot, signatures, immutable files and automatically restarted PDE
+services verify successfully; Ewald remains stopped. Full receipts and limits
+are recorded in the responsive-reader change's
+`verification-optimistic-highlights.md` and
+`dist/optimistic-highlight-rollout/verified-rollout.json`.
