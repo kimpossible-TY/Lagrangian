@@ -143,6 +143,11 @@ class ReaderManager:
                 engine = str(sibling)
         if engine:
             arguments.extend(["--engine", engine])
+        if config.get("browserCompiler"):
+            directory = Path(config["browserCompiler"])
+            if not (directory / "manifest.json").is_file():
+                raise ValueError("The configured browser compiler is missing")
+            arguments.extend(["--browser-compiler", str(directory)])
         if profile.get("changeFile"):
             arguments.extend(["--change-file", profile["changeFile"]])
         for font in profile["fonts"]:

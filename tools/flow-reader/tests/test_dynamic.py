@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.build import Project, compile_project
 from flow_reader.rendering.decorations import extract_decorations
 from flow_reader.compiler.dynamic import DynamicCompiler
+from flow_reader.compiler.pool import BrowserCompilePool
 from flow_reader.server.state import ReaderState
 from flow_reader.errors import RevisionChanged
 
@@ -100,6 +101,21 @@ class DynamicCompilerTests(unittest.TestCase):
         self.assertIsNot(state.renderer.dynamic_compiler, worker)
         with self.assertRaises(RevisionChanged):
             state.render_dynamic(revision, self.request(100), "decorations")
+
+    def test_browser_mode_without_ready_workers_preserves_native_incremental_cache(self):
+        state = ReaderState(self.project, self.output, "", False)
+        self.addCleanup(state.close)
+        state.compiler_pool = BrowserCompilePool(self.project, lambda: state.dependencies, "engine")
+        from dataclasses import replace
+        state.project = replace(self.project, execute=state.compiler_pool)
+        state.compile()
+        self.assertTrue(state.report["contentGatePassed"])
+        state.render_dynamic(state.revision, self.request(100), "decorations")
+        worker = state.renderer.dynamic_compiler
+        self.assertFalse(worker.system_fonts)
+        state.render_dynamic(state.revision, self.request(110), "decorations")
+        self.assertIs(state.renderer.dynamic_compiler, worker)
+        self.assertEqual(worker.requests, 2)
 
 
 if __name__ == "__main__":

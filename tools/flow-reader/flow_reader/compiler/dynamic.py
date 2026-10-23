@@ -11,6 +11,7 @@ import uuid
 
 from flow_reader.compiler.packages import prepare_packages
 from flow_reader.compiler.audit import validate_content
+from flow_reader.compiler.execution import font_arguments
 
 
 class DynamicCompiler:
@@ -22,8 +23,9 @@ class DynamicCompiler:
     All mutable files live outside the user's project and installed packages.
     """
 
-    def __init__(self, project, output):
+    def __init__(self, project, output, *, system_fonts=True):
         self.project = project
+        self.system_fonts = system_fonts
         self.temporary = tempfile.TemporaryDirectory(prefix="dynamic-", dir=output)
         self.work = Path(self.temporary.name)
         self.process = None
@@ -61,8 +63,9 @@ class DynamicCompiler:
                        "--input", "flow-reader=true", "--input", "flow-live=true"]
             if project.semantic_canvases:
                 command.extend(["--input", "flow-native-labels=true"])
-            for font in project.fonts:
-                command.extend(["--font-path", str((project.root / font).resolve())])
+            if not self.system_fonts:
+                command.extend(["--ignore-system-fonts", "--creation-timestamp", str(int(time.time()))])
+            command.extend(font_arguments(tuple((project.root / font).resolve() for font in project.fonts), self.work))
             wrapper = ('#import "@local/flow-reader:0.1.0": apply-reader\n'
                        '#import "@local/flow-inputs:0.1.0": inputs\n'
                        '#show: apply-reader\n'

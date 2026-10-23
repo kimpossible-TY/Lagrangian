@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OfflineSnapshots } from "../web/features/session/offline-worker.js";
+import { OfflineSnapshots, runOfflineWorker } from "../web/features/session/offline-worker.js";
 
 const base = "https://reader.test/project/";
 class MemoryCaches {
@@ -120,4 +120,27 @@ test("retains previous revision for active readers and bounds obsolete caches", 
   assert.ok(await f.snapshot.match(base + "api/sections/one?revision=r2"));
   assert.ok(await f.snapshot.match(base + "api/sections/one?revision=r3"));
   assert.equal(await f.snapshot.match(base + "api/sections/one?revision=r1"), undefined);
+});
+
+test("uncached live compiler service returns recoverable HTTP failure offline", async () => {
+  const listeners = new Map();
+  const scope = {
+    registration: { scope: base },
+    caches: new MemoryCaches(),
+    fetch: async () => {
+      throw new TypeError("Network disconnected");
+    },
+    addEventListener: (name, callback) => listeners.set(name, callback),
+  };
+  runOfflineWorker(scope, { version: "test", files: [] });
+  let pending;
+  listeners.get("fetch")({
+    request: new Request(base + "api/compiler/config"),
+    respondWith: (response) => {
+      pending = response;
+    },
+  });
+  const response = await pending;
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /offline/);
 });

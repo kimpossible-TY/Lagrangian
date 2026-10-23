@@ -6,6 +6,7 @@ import { ReaderActivity } from "./features/session/activity.js";
 import { ReaderRecovery, sameSnapshot, sameSession } from "./features/session/recovery.js";
 import { ReaderTransport } from "./features/session/transport.js";
 import { OfflineReader } from "./features/session/offline.js";
+import { BrowserCompilerClient } from "./compiler/client.js";
 import { createReadingPosition } from "./features/navigation/reading-position.js";
 import { MathDecorations } from "./rendering/math/decorations.js";
 import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
@@ -53,6 +54,25 @@ let serverState = null;
 let disposed = false;
 let awaitingEntryChange = false;
 const transport = new ReaderTransport();
+const compilerToggle = document.querySelector("#reader-compiler-enabled");
+const browserCompiler = new BrowserCompilerClient({
+  changed(state) {
+    document.querySelector("#reader-compiler-status").textContent = {
+      loading: "이 기기의 문서 계산을 준비하고 있습니다.",
+      ready: "이 화면이 열려 있는 동안 문서 계산을 도울 수 있습니다.",
+      working: "이 기기에서 문서를 계산하고 있습니다.",
+      retrying: "문서 계산 연결을 다시 시도합니다.",
+      unavailable: "서버에서 기기 계산을 사용하도록 설정하지 않았습니다.",
+      idle: "이 기기의 문서 계산이 쉬고 있습니다.",
+    }[state];
+  },
+});
+compilerToggle.checked = preferences.read("compiler-enabled") !== false;
+compilerToggle.addEventListener("change", () => {
+  preferences.write("compiler-enabled", compilerToggle.checked);
+  browserCompiler.setEnabled(compilerToggle.checked);
+});
+browserCompiler.setEnabled(compilerToggle.checked);
 const offline = new OfflineReader({
   changed(state) {
     document.querySelector("#reader-offline-status").textContent = {
@@ -664,6 +684,7 @@ window.addEventListener("pagehide", (event) => {
   savePosition();
   if (!event.persisted) {
     disposed = true;
+    browserCompiler.dispose();
     gestures.dispose();
     clearTimeout(saveTimer);
     recovery.dispose();

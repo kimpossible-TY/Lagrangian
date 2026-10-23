@@ -1,7 +1,22 @@
 """Read-only package overlay preparation."""
 from pathlib import Path
+import os
+import sys
 import shutil
 from flow_reader.resources import READER_ROOT as HERE
+
+
+def package_cache_root() -> Path:
+    """The CLI's cache root; only already discovered dependencies are captured."""
+    if override := os.environ.get("TYPST_PACKAGE_CACHE_PATH"):
+        return Path(override).resolve()
+    if sys.platform == "darwin":
+        base = Path.home() / "Library/Caches"
+    elif sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return (base / "typst/packages").resolve()
 
 def prepare_packages(original: Path, destination: Path) -> None:
     """Overlay package versions, with untouched packages linked read-only by convention.

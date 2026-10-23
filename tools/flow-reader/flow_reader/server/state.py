@@ -1,5 +1,6 @@
 """Atomic publication and status of the last accepted saved document."""
 from collections import OrderedDict
+from dataclasses import replace
 import gzip
 import hashlib
 import json
@@ -17,11 +18,14 @@ from flow_reader.services.edit_location import SharedEditLocation
 from flow_reader.services.source_history import source_snapshots
 from flow_reader.services.source_mapping import edit_location
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
+from flow_reader.compiler.pool import BrowserCompilePool
+from flow_reader.server.compiler_assets import CompilerAssets
 
 
 class ReaderState:
     def __init__(self, project, output, original_url, allow_incomplete, focus_file=None,
-                 *, editor_server=None, nvim="nvim", change_file=None, source_history=None):
+                 *, editor_server=None, nvim="nvim", change_file=None, source_history=None,
+                 browser_compiler=None):
         self.project = project
         self.output = output
         self.original_url = original_url
@@ -58,6 +62,14 @@ class ReaderState:
         self.dependencies = set()
         self.accepted_dependencies = set()
         self.watch_stamp = None
+        self.compiler_assets = CompilerAssets(browser_compiler) if browser_compiler else None
+        self.compiler_pool = None
+        if self.compiler_assets:
+            def dependencies():
+                with self.lock:
+                    return set(self.dependencies)
+            self.compiler_pool = BrowserCompilePool(project, dependencies, self.compiler_assets.engine)
+            self.project = replace(project, execute=self.compiler_pool)
         try:
             self.dependencies.update(json.loads((output / "report.json").read_text()).get("dependencies", []))
         except (OSError, ValueError):
@@ -209,6 +221,8 @@ class ReaderState:
 
 
     def close(self):
+        if self.compiler_pool:
+            self.compiler_pool.close()
         try:
             if self.source_history:
                 self.source_history.close()

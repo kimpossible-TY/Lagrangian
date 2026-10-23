@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 
 from flow_reader.services.manager import DEFAULT_DATA, ReaderManager, atomic_write, run
+from flow_reader.server.compiler_assets import CompilerAssets
 
 
 def install(args):
@@ -32,6 +33,13 @@ def install(args):
                 if manager.job_pid(profile):
                     raise ValueError("Stop the Reader services before updating their installed release")
         config.update(flowManager=str(args.flow_manager), python=str(args.python), compiler=str(args.compiler))
+        browser_path = getattr(args, "browser_compiler", None) or config.get("browserCompiler")
+        if getattr(args, "no_browser_compiler", False):
+            browser_path = None
+            config.pop("browserCompiler", None)
+        browser_assets = CompilerAssets(browser_path) if browser_path else None
+        if browser_assets:
+            config["browserCompiler"] = str(Path(browser_path).resolve())
         if getattr(args, "engine", None):
             config["engine"] = str(args.engine.expanduser().resolve())
         previous = next((service for service in config["services"] if service["id"] == identifier), {})
@@ -53,7 +61,8 @@ def install(args):
                 candidate.arguments(profile)
         releases = manager.data / "releases"
         releases.mkdir(parents=True, exist_ok=True)
-        release = releases / revision
+        release_id = revision + ("-wasm-" + browser_assets.engine[:16] if browser_assets else "")
+        release = releases / release_id
         with tempfile.TemporaryDirectory(prefix=".install-", dir=releases) as temporary:
             staging = Path(temporary) / "release"
             staging.mkdir()
@@ -61,10 +70,20 @@ def install(args):
                                      capture_output=True, check=True).stdout
             with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(staging, filter="data")
+            if browser_assets:
+                destination = staging / "tools/flow-reader/compiler-assets"
+                destination.mkdir()
+                for name in ("compiler.js", "compiler_bg.wasm", "manifest.json"):
+                    shutil.copyfile(Path(browser_path) / name, destination / name)
+                # Recheck copied bytes, including a build racing the copy operation.
+                if CompilerAssets(destination).engine != browser_assets.engine:
+                    raise ValueError("Browser compiler changed during installation")
             files = {str(path.relative_to(staging)): hashlib.sha256(path.read_bytes()).hexdigest()
                      for path in staging.rglob("*") if path.is_file()}
             release_manifest = {"revision": revision, "files": files,
                                 "compilerVersion": run([args.compiler, "--version"]).strip()}
+            if browser_assets:
+                release_manifest["browserCompiler"] = browser_assets.engine
             if release.exists():
                 for filename, expected in files.items():
                     if hashlib.sha256((release / filename).read_bytes()).hexdigest() != expected:
@@ -72,6 +91,8 @@ def install(args):
             else:
                 atomic_write(staging / "release.json", json.dumps(release_manifest, indent=2).encode())
                 staging.replace(release)
+        if browser_assets:
+            config["browserCompiler"] = str(release / "tools/flow-reader/compiler-assets")
         marker = "# Flow Reader managed launcher\n"
         if manager.launcher.exists() and marker not in manager.launcher.read_text():
             raise ValueError("The installer will not replace an unrelated launcher")
@@ -86,7 +107,7 @@ def install(args):
     run([manager.launcher, "--launch-plan", identifier])
     if args.start:
         run([manager.launcher, "--control", "start", identifier])
-    return {"revision": revision, "manager": str(manager.launcher), "id": identifier,
+    return {"revision": revision, "release": release_id, "manager": str(manager.launcher), "id": identifier,
             "publicURL": args.public_url, "port": args.port, "started": args.start}
 
 
@@ -100,6 +121,9 @@ def main():
     parser.add_argument("--python", type=Path, default=Path(shutil.which("python3") or "/missing/python3"))
     parser.add_argument("--compiler", type=Path, default=Path(shutil.which("typst") or "/missing/typst"))
     parser.add_argument("--engine", type=Path, help="Flow engine supporting shared source history (otherwise use the Flow app engine)")
+    browser = parser.add_mutually_exclusive_group()
+    browser.add_argument("--browser-compiler", type=Path, help="Package generated WASM compiler assets in this immutable release")
+    browser.add_argument("--no-browser-compiler", action="store_true", help="Disable browser compilation; omission preserves the setting")
     parser.add_argument("--development", action="store_true", help="Retain the visible development notice; do not use as the mobile default")
     parser.add_argument("--semantic-canvases", action=argparse.BooleanOptionalAction, default=None,
                         help="Enable native figure labels; omission preserves the installed setting")

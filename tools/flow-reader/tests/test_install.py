@@ -1,6 +1,7 @@
 """Exercise a real clean-commit install and preservation on failed updates."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -94,6 +95,31 @@ else:
                     installer.install(args)
                 self.assertEqual(manager.read_bytes(), launcher)
                 self.assertEqual((args.data / "config.json").read_bytes(), config)
+                installed_marker.write_text("immutable source")
+                # A compiler build is part of a new immutable release identity.
+                browser = work / "generated browser compiler"
+                browser.mkdir()
+                (browser / "compiler.js").write_text("export default () => {};\n")
+                (browser / "compiler_bg.wasm").write_bytes(b"\x00asm\x01\x00\x00\x00")
+                files = {name: hashlib.sha256((browser / name).read_bytes()).hexdigest()
+                         for name in ("compiler.js", "compiler_bg.wasm")}
+                manifest = {"schemaVersion": 1, "files": files,
+                            "engine": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
+                (browser / "manifest.json").write_text(json.dumps(manifest))
+                args.browser_compiler = browser
+                compiled = installer.install(args)
+                self.assertNotEqual(compiled["release"], result["release"])
+                delivery = args.data / "releases" / compiled["release"] / "tools/flow-reader/compiler-assets"
+                self.assertEqual((delivery / "compiler_bg.wasm").read_bytes(), (browser / "compiler_bg.wasm").read_bytes())
+                plan = json.loads(subprocess.check_output([manager, "--launch-plan", result['id']], text=True))
+                self.assertEqual(Path(plan['arguments'][plan['arguments'].index('--browser-compiler') + 1]), delivery.resolve())
+                args.browser_compiler = None
+                self.assertEqual(installer.install(args)["release"], compiled["release"])
+                saved = (args.data / "config.json").read_bytes()
+                (delivery / "compiler_bg.wasm").write_bytes(b"changed")
+                with self.assertRaisesRegex(ValueError, "do not match"):
+                    installer.install(args)
+                self.assertEqual((args.data / "config.json").read_bytes(), saved)
 
     def verify_installed_delivery(self, release, engine):
         """Exercise imports and HTTP from the archived layout, outside the checkout."""

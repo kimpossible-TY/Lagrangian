@@ -1,0 +1,269 @@
+// Actual Reader HTTP leases, WASM Worker and Python acceptance in isolated projects.
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
+
+const playwright = await import(process.env.FLOW_READER_PLAYWRIGHT_MODULE || "playwright");
+assert.ok(process.env.FLOW_READER_PACKAGES, "Set FLOW_READER_PACKAGES");
+const root = fileURLToPath(new URL("../", import.meta.url));
+const assets = resolve(process.env.FLOW_COMPILER_ASSETS || "dist/reader-compiler");
+const work = await mkdtemp(join(tmpdir(), "flow-browser-pool-"));
+const entry = join(work, "main.typ");
+await writeFile(entry, "Initial shared document $x^2$.\n");
+const script = `
+from pathlib import Path
+from http.server import ThreadingHTTPServer
+import json, os, sys, threading
+from flow_reader.compiler.project import Project
+from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
+root = Path(sys.argv[1])
+project = Project(root, Path('main.typ'), Path(os.environ['FLOW_READER_PACKAGES']))
+state = ReaderState(project, root / 'output', '', False, browser_compiler=sys.argv[2])
+state.compile()
+assert state.revision, state.report
+class Handler(handler_for(state)):
+    def do_GET(self):
+        if self.path == '/test/status':
+            with state.compiler_pool.condition:
+                result = dict(workers=len(state.compiler_pool.workers),
+                              completed=state.compiler_pool.completed,
+                              fallbacks=state.compiler_pool.fallbacks,
+                              jobs=[dict(id=key, worker=job.worker, lease=job.lease)
+                                    for key, job in state.compiler_pool.jobs.items()])
+            result.update(revision=state.revision, compiling=state.compiling)
+            result['nativeDynamicRequests'] = state.renderer.dynamic_compiler.requests if state.renderer.dynamic_compiler else 0
+            return self.respond(json.dumps(result).encode(), 'application/json')
+        super().do_GET()
+server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+print(server.server_port, flush=True)
+try:
+    for line in sys.stdin:
+        state.compile()
+        print(json.dumps(dict(revision=state.revision, report=state.report)), flush=True)
+finally:
+    state.close()
+    server.shutdown()
+    server.server_close()
+`;
+const service = spawn("python3", ["-u", "-c", script, work, assets], {
+  env: { ...process.env, PYTHONPATH: root },
+  stdio: ["pipe", "pipe", "inherit"],
+});
+const lines = createInterface({ input: service.stdout });
+async function until(read, predicate, description) {
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (predicate(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out: ${description}`);
+}
+try {
+  const [port] = await once(lines, "line");
+  assert.match(port, /^\d+$/);
+  const origin = `http://127.0.0.1:${port}`;
+  const status = () => fetch(origin + "/test/status").then((r) => r.json());
+  const compile = () => {
+    const done = once(lines, "line").then(([line]) => JSON.parse(line));
+    service.stdin.write("compile\n");
+    return done;
+  };
+  for (const engine of (process.env.FLOW_READER_BROWSER_ENGINES || "chromium,webkit").split(",")) {
+    const browser = await playwright[engine].launch({
+      headless: true,
+      ...(engine === "chromium" && process.env.FLOW_READER_CHROMIUM_CHANNEL
+        ? { channel: process.env.FLOW_READER_CHROMIUM_CHANNEL }
+        : {}),
+    });
+    try {
+      // Separate contexts represent two devices, both foreground in this test.
+      // Network interception must see result POSTs; SW recovery has its own fixture.
+      const first = await browser.newPage({
+        viewport: { width: 390, height: 844 },
+        serviceWorkers: "block",
+      });
+      const errors = [];
+      first.on("pageerror", (error) => errors.push(error.message));
+      await first.goto(origin);
+      await until(status, (s) => s.workers === 1, "first Worker readiness");
+      const before = await status();
+      await writeFile(entry, `Shared browser output ${engine} $y^2$.\n`);
+      const accepted = await compile();
+      assert.equal(accepted.report.contentGatePassed, true);
+      assert.notEqual(accepted.revision, before.revision);
+      const after = await status();
+      assert.ok(
+        after.completed >= before.completed + 2,
+        "base and source carriers must execute on browser",
+      );
+      assert.equal(after.fallbacks, before.fallbacks);
+      await first.waitForFunction(() =>
+        document.querySelector("#reader-document").textContent.includes("Shared browser output"),
+      );
+
+      const second = await browser.newPage({
+        viewport: { width: 768, height: 1024 },
+        serviceWorkers: "block",
+      });
+      second.on("pageerror", (error) => errors.push(error.message));
+      await second.goto(origin);
+      await until(status, (s) => s.workers === 2, "second Worker readiness");
+      // Hold the first result, terminate its page, then let the other device take its lease.
+      let heldPage;
+      let releaseResult;
+      let heldResolve;
+      const held = new Promise((resolve) => {
+        heldResolve = resolve;
+      });
+      const gate = new Promise((resolve) => {
+        releaseResult = resolve;
+      });
+      for (const page of [first, second]) {
+        await page.route("**/api/compiler/result", async (route) => {
+          if (!heldPage) {
+            heldPage = page;
+            heldResolve();
+            await gate;
+          }
+          await route.continue().catch(() => {});
+        });
+      }
+      await writeFile(entry, `Reassigned shared output ${engine}.\n`);
+      const reassigned = compile();
+      await held;
+      const leased = await status();
+      assert.equal(leased.jobs.length, 1);
+      // Pagehide disposes computation and releases the server lease.
+      await heldPage.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+      releaseResult();
+      const survivor = heldPage === first ? second : first;
+      const adopted = await reassigned;
+      assert.equal(adopted.report.contentGatePassed, true);
+      assert.equal((await status()).fallbacks, after.fallbacks);
+      await survivor.waitForFunction(() =>
+        document.querySelector("#reader-document").textContent.includes("Reassigned shared output"),
+      );
+      const manifest = await survivor.evaluate(() => fetch("api/manifest").then((r) => r.json()));
+      assert.equal(manifest.revision, adopted.revision);
+
+      // In-flight outputs cannot publish over a later external source edit.
+      let resume;
+      let capturedResolve;
+      const captured = new Promise((resolve) => {
+        capturedResolve = resolve;
+      });
+      const pending = new Promise((resolve) => {
+        resume = resolve;
+      });
+      await survivor.unroute("**/api/compiler/result");
+      let intercepted = false;
+      await survivor.route("**/api/compiler/result", async (route) => {
+        if (!intercepted) {
+          intercepted = true;
+          capturedResolve();
+          await pending;
+        }
+        await route.continue();
+      });
+      await writeFile(entry, "Candidate before external edit.\n");
+      const stale = compile();
+      await captured;
+      await writeFile(
+        entry,
+        "#let highlighted(body) = highlight(body)\nExternal Codex edit wins.\n",
+      );
+      resume();
+      const rejected = await stale;
+      assert.equal(rejected.report.contentGatePassed, false);
+      assert.equal(rejected.revision, adopted.revision);
+      await survivor.unroute("**/api/compiler/result");
+      assert.equal((await compile()).report.contentGatePassed, true);
+      await survivor.waitForFunction(() =>
+        document
+          .querySelector("#reader-document")
+          .textContent.includes("External Codex edit wins."),
+      );
+      const beforeHighlight = await status();
+      const highlighted = await survivor.evaluate(async () => {
+        const state = await (await fetch("api/state")).json();
+        const block = [...document.querySelectorAll("[data-reader-key]")].find(
+          (node) => node.textContent.trim() === "External Codex edit wins.",
+        );
+        const response = await fetch("api/highlight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revision: state.revision,
+            fragments: [
+              {
+                key: block.dataset.readerKey,
+                exact: "External Codex edit wins.",
+                prefix: "",
+                suffix: "",
+              },
+            ],
+          }),
+        });
+        return response.json();
+      });
+      assert.equal(highlighted.status, "highlighted");
+      assert.ok(
+        (await readFile(entry, "utf8")).includes("#highlighted[External Codex edit wins.]"),
+      );
+      assert.ok(
+        (await status()).completed > beforeHighlight.completed,
+        "highlight candidates must use WASM",
+      );
+      await writeFile(entry, await readFile(new URL("fixtures/decorations.typ", import.meta.url)));
+      const decorated = await compile();
+      assert.equal(decorated.report.contentGatePassed, true);
+      const geometry = async (width) => {
+        const response = await fetch(origin + "/api/decorations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revision: decorated.revision,
+            decorations: {
+              "decoration-6": { fontSize: 24, ink: "#242c34", fragments: [{ width, height: 25 }] },
+            },
+          }),
+        });
+        assert.equal(response.status, 200, await response.clone().text());
+        assert.ok((await response.json()).decorations["decoration-6"]);
+      };
+      const beforeGeometry = await status();
+      await geometry(137);
+      assert.ok(
+        (await status()).completed > beforeGeometry.completed,
+        "dynamic geometry must execute on browser",
+      );
+      await survivor.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+      await until(status, (s) => s.workers === 0, "all Worker leases released");
+      await geometry(145);
+      assert.ok(
+        (await status()).nativeDynamicRequests > 0,
+        "offline Worker capacity falls back to native incremental compilation",
+      );
+      assert.deepEqual(errors, []);
+      console.log(
+        engine,
+        "real Worker adoption, source carriers, pagehide reassignment, competing edits, highlight writes and dynamic rendering passed",
+      );
+    } finally {
+      await browser.close();
+    }
+  }
+} finally {
+  service.stdin.end();
+  await once(service, "exit");
+  lines.close();
+  await rm(work, { recursive: true, force: true });
+}
