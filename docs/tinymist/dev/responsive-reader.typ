@@ -1109,6 +1109,42 @@ document compilation.
 
 == Managed installation
 
+=== Project-owned source history rollout (2026-10-23)
+
+Flow `0.1.31` installs the native ThinLTO engine from clean commit `c659af1d`.
+The immutable HTML runtime is `2888f190`, including the computed-label carrier
+correction found during installed verification. Literal and computed labels stay
+with the original equation, figure or callout, preserving reference targets.
+The app and engine retain the existing signing certificate.
+
+The actual PDE document passes the content gate. Its source map retains 3,434
+compiler-verified block correspondences and 307 navigation-only container ranges;
+unsupported correspondence remains conservative. The common edit at source
+sequence 129 resolves to section 55 in the installed HTML Reader. Chromium and
+WebKit each restore that destination over the existing HTTPS origin without
+horizontal overflow or page errors. WebKit displays the 324-page paged document
+in both light and dark themes, preserving the same source sequence and each
+palette's coordinates.
+
+All 540 immutable runtime files match their release hashes. All 54 first-party
+asset routes and the accepted document match over loopback and HTTPS. The saved
+35-character Codex selection is restored through the supported API with verified
+source, usable context and `needs_reselection: false`. Project/signing files and
+Reader service settings are preserved; only explicit compatible engine selection
+is added. PDE resumes running and the previously stopped Ewald service remains
+stopped. Workspace source documents are not edited by the rollout.
+
+The signed engine passes 12 source-history and three native source-navigation
+tests. The final Python Reader suite runs 217 tests with one optional companion
+skip; source mapping passes 15 tests and WebKit change navigation passes 16
+checks. Physical-device interactions are not repeated for this backend release.
+
+Receipts, screenshots and both pre-install snapshots are retained in
+`dist/source-history-rollout/`. The app installer retains the previous bundle,
+and the original Reader launcher/configuration and immutable runtime remain
+available. Recovery to the older engine also restores its matching Reader
+configuration, since the new Reader requires `source-history` support.
+
 === HTML source range rollout (2026-10-19)
 
 Runtime `3d59f262` preserves compiler-carried ranges for 3,439 corresponding PDE

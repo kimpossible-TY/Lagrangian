@@ -196,7 +196,7 @@
 - [x] 17.4 Verify HTML-only edits, failed compilation, restart, concurrent writers, real compiler/browser mapping and installed-layout delivery; run affected Rust, reader, editor, lint and documentation gates.
 - [x] 17.5 Align canonical ownership/guides, review the full change and commit the verified work with a Conventional Commit, preserving unrelated files and live services.
 - [x] 17.6 Preserve computed-label attachment for referenced invocation carriers; reproduce the real PDE mapping failure and verify compiler/reference, source-selection and navigation regressions.
-- [ ] 17.7 Install the compatible app/engine and immutable HTML runtime, preserve live project/context records, verify actual document/shared-edit delivery and record the confirmed local release.
+- [x] 17.7 Install the compatible app/engine and immutable HTML runtime, preserve live project/context records, verify actual document/shared-edit delivery and record the confirmed local release.
 
 ### Project-owned history verification, 2026-10-23
 
@@ -206,3 +206,10 @@
 - Shared/HTML Node tests passed 200, paged frontend 98 and DOM 37. Scoped ESLint/Prettier and headless Neovim smoke passed. WebKit change navigation passed all 16 checks with the final engine; the 320px screenshot was inspected, including note/figure navigation and accepted-document preservation.
 - Native app tests ran 83 successfully with one optional signing-certificate skip. All three real-engine source-navigation tests passed again with the final candidate, including HTML-created history, default managed record discovery, interleaved updates and preservation of both PDF palette snapshots.
 - Generated documentation checks, both matching strict OpenSpec validations, all four changed canonical Typst documents and diff whitespace checks passed. Tests use disposable documents/profiles and owned processes. No installed release, live service or user editor configuration was installed, restarted or changed by this work. Full companion integration, certificate signing and physical Windows Terminal/Devtunnel/device coverage remain unverified.
+
+### Installed project-owned history, 2026-10-23
+
+- User-requested installation upgrades Flow to 0.1.31 with the native signed ThinLTO engine from `c659af1d` and immutable Reader `2888f190`. Installed PDE validation exposed computed labels attaching to private invocation carriers; the focused regression reproduced the rejection, and the shared attachment fix restores 3,434 block mappings and 307 navigation-only ranges without changing accepted HTML.
+- Signed-engine history 12, native source-navigation 3, compiler source-mapping 15 and WebKit change-navigation 16 checks pass. The final Reader suite runs 217 with one optional companion-source skip. Physical-device interaction is not repeated.
+- Both HTTPS browsers restore the real shared edit in section 55 without page errors or horizontal overflow. WebKit displays the 324-page PDF in light/dark themes. Source sequence 129, all 46 tracked source snapshots, both palette positions and the exact saved 35-character context are preserved; context is source-verified and usable without reselection.
+- All 540 immutable runtime files and all 54 first-party HTTP asset routes match. Loopback/HTTPS deliver the same accepted document/revision. Profiles, signing certificate and Reader service settings remain intact; PDE is running and Ewald remains stopped. The normal app backup plus original Reader launcher/configuration support paired recovery. Receipts and screenshots remain in `dist/source-history-rollout/`.
