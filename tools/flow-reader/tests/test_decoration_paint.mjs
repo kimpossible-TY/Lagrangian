@@ -35,7 +35,7 @@ const request = {
 test("primitive validation falls back atomically for unsupported or inconsistent descriptions", () => {
   for (const paint of [
     null,
-    { ...spec, version: 2 },
+    { ...spec, version: 3 },
     { ...spec, kind: "callback" },
     { ...spec, angle: "eval()" },
     { ...spec, stroke: { ...spec.stroke, paint: "url(secret)" } },
@@ -48,6 +48,36 @@ test("primitive validation falls back atomically for unsupported or inconsistent
   assert.equal(localDecorationPaint(copy, request), null);
   for (const fragments of [[{ width: NaN, height: 20 }], [{ width: -1, height: 20 }], []])
     assert.equal(localDecorationPaint(record("d"), { ...request, fragments }), null);
+});
+
+test("versioned stroke styles retain font-relative dash lengths and reject unsupported geometry", () => {
+  const stroke = {
+    ...spec.stroke,
+    cap: "round",
+    join: "bevel",
+    miter: 5,
+    dash: { array: ["dot", { px: 2, em: 0.1 }], phase: { px: -1, em: 0.2 } },
+  };
+  const paint = { ...spec, version: 2, stroke };
+  const drawings = localDecorationPaint(record("d", paint), request);
+  assert.match(
+    drawings[0].svg,
+    /stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="5"/,
+  );
+  assert.match(drawings[0].svg, /stroke-dasharray="1 4" stroke-dashoffset="3"/);
+  const large = localDecorationPaint(record("d", paint), { ...request, fontSize: 30 });
+  assert.match(large[0].svg, /stroke-dasharray="1.5 5" stroke-dashoffset="5"/);
+  for (const change of [
+    { cap: "arbitrary" },
+    { join: "arbitrary" },
+    { miter: 0 },
+    { dash: { array: [{ px: -1, em: 0 }], phase: zero } },
+    { dash: { array: Array(129).fill("dot"), phase: zero } },
+  ])
+    assert.equal(
+      localDecorationPaint(record("d", { ...paint, stroke: { ...stroke, ...change } }), request),
+      null,
+    );
 });
 
 test("each fragment retains its own geometry, source ink, em scaling and anchor inset", () => {

@@ -94,7 +94,35 @@ These results prove browser execution and output agreement on this Mac; they do
 not establish iPhone memory viability, sustained thermal performance or background
 execution. Physical iPhone testing remains separate.
 
-= Validation and remaining work
+= Local screen computation
+
+Version 2 decoration descriptions support dashed/dotted strokes, phases, caps, joins
+and miter limits. Typst resolves named patterns; the browser resolves their point/em
+lengths at the current reading font. Unsupported rounded corners, sided strokes,
+gradients and callbacks retain server rendering. Older clients reject the new version
+and use that same fallback. The compiler fixture also confirms unchanged paged PDF.
+
+`tests/local-decoration-browser.mjs` compares SVG geometry, paint, stroke width,
+dash arrays/phases and line styles against actual Typst output in Chrome and WebKit.
+Eleven eligible decorations at two fonts and two fragment shapes agree; viewport/theme
+changes preserve semantic text with zero eligible decoration requests. The four
+unsupported examples still request their original server paint.
+
+Native figure placement already ran in the browser. Its collision search now runs in
+a dedicated Worker using the same pure function as the fallback. DOM measurements,
+source anchors, selection holds and publication stay in the figure owner. Width/font
+changes and document replacement reject obsolete results; failed Workers use the
+identical local algorithm. This moves CPU work away from the interface without claiming
+that these already-local figures previously needed compiler requests.
+
+`tests/canvas-worker-browser.mjs` verifies eight native figures at 13, 18 and 30 px,
+with 390 px online and 768 px offline viewports. Each of the four Chrome/WebKit and
+online/offline cases passed 326 geometry/semantic checks and 30 exact Worker/fallback
+plan comparisons, with zero canvas API requests. Offline reload uses the real cached
+Worker modules and accepted document. These are browser correctness checks, not a
+physical iPhone responsiveness benchmark.
+
+= Validation and coverage limits
 
 `tests/compiler-pool-browser.mjs` uses actual HTTP leases, generated WASM and Python
 acceptance in Chrome and WebKit. It checks base/source-carrier execution, shared
@@ -120,6 +148,14 @@ write and receipt update are one atomic transaction. Settings show pending and
 review-needed counts; clearing reviewed results does not discard pending requests.
 Browser storage loss still requires recovery from the current server document.
 
-Additional local decoration/figure computation remains unfinished. An offline cached
-document does not itself authorize a source write. No installation or physical iPhone
-run is implied by the desktop validation above.
+An offline cached document does not itself authorize a source write. No installation
+or physical iPhone run is implied by the desktop validation above. The optional browser
+compiler should remain opt-in until the actual phone can sustain the PDE memory load.
+
+The final service suite ran 248 tests successfully with seven optional skips requiring
+the external source-history engine or companion Tail Hosting checkout. The HTML Node
+and architecture run passed 188 tests. Reader lint, the preview TypeScript/production
+build, documentation checks and strict OpenSpec validation passed. Installation tests
+used a temporary clean commit and verified every allowlisted module in the archived
+HTTP layout; no user service was installed or restarted. The measurement JSON retains
+the immutable benchmark corpus identity separately from these integration checks.

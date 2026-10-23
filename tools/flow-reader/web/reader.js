@@ -699,6 +699,7 @@ window.addEventListener("pagehide", (event) => {
     changes.dispose();
     references.dispose();
     mathematics.dispose();
+    canvases.dispose();
   }
 });
 appearance.restore();

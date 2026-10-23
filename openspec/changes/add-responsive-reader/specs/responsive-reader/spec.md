@@ -802,6 +802,17 @@ using explicit supported descriptions and preserve unsupported authored behavior
 - **THEN** local computation updates their measured geometry without a server round trip
 - **AND** unsupported descriptions retain the existing validated rendering path
 
+#### Scenario: Styled strokes are explicitly supported
+- **WHEN** a supported decoration uses a dash pattern, line cap, join or miter limit
+- **THEN** the local drawing preserves Typst-resolved lengths and styles at each reading font
+- **AND** unknown descriptor versions fall back instead of dropping authored styling
+
+#### Scenario: Figure placement finishes after reading conditions change
+- **WHEN** the placement Worker completes after width, font, measurements or the document changed
+- **THEN** obsolete geometry cannot publish, and an active selection holds matching results
+- **AND** Worker failure uses the identical local algorithm without requesting compilation
+- **AND** cached Worker assets support reflow after an offline reload
+
 ### Requirement: Measured real-document browser compilation
 The project SHALL benchmark the actual PDE corpus in a WASM Worker using isolated
 inputs and record cold, incremental, memory and sustained-use evidence.

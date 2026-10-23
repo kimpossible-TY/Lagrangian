@@ -59,7 +59,7 @@ try {
   const manifest = await (await fetch("/api/manifest")).json();
   report.revision = manifest.revision;
   const source = new DOMParser().parseFromString(
-    await (await fetch("/document.html")).text(),
+    globalThis.nativeCanvasReference ?? (await (await fetch("/document.html")).text()),
     "text/html",
   );
   const original = [...source.querySelectorAll("[data-flow-canvas-model]")];

@@ -1,4 +1,5 @@
 import { NativeCanvasLabels } from "./canvas-labels.js";
+import { CanvasComputation } from "./canvas-computation.js";
 import { setLanguage, uiLanguage } from "../../ui/language.js";
 
 // CeTZ coordinate units adapt before rendering. The browser never scales the
@@ -17,6 +18,7 @@ export class AdaptiveCanvases {
     this.sequence = 0;
     this.records = [];
     this.cache = new Map();
+    this.computation = new CanvasComputation();
     // schedule() may retire paint or prepare native geometry. Keep those
     // writes out of ResizeObserver's current notification delivery cycle.
     this.resize = new ResizeObserver(() => {
@@ -24,15 +26,21 @@ export class AdaptiveCanvases {
       this.resizeFrame = requestAnimationFrame(() => this.schedule());
     });
     this.resize.observe(article);
-    document.addEventListener("selectionchange", () => this.schedule());
+    this.selectionChanged = () => this.schedule();
+    document.addEventListener("selectionchange", this.selectionChanged);
   }
 
   onDocument() {
+    if (this.disposed) return;
     this.sequence++;
     this.controller?.abort();
     clearTimeout(this.timer);
     this.intersection?.disconnect();
-    for (const record of this.records) record.message.remove();
+    for (const record of this.records) {
+      record.native?.dispose();
+      record.message.remove();
+    }
+    this.computation.reset();
     this.records = [];
     this.intersection = new IntersectionObserver(
       (entries) => {
@@ -51,6 +59,7 @@ export class AdaptiveCanvases {
     if (!this.intersection) return;
     this.records = this.records.filter((record) => {
       if (record.node.isConnected) return true;
+      record.native?.dispose();
       this.intersection.unobserve(record.node);
       return false;
     });
@@ -75,7 +84,13 @@ export class AdaptiveCanvases {
       if (node.dataset.flowCanvasModel) {
         record.semantic = true;
         try {
-          record.native = new NativeCanvasLabels(node, this.preserve, this.selectionActive);
+          record.native = new NativeCanvasLabels(
+            node,
+            this.preserve,
+            this.selectionActive,
+            (input) => this.computation.run(input),
+            () => this.schedule(),
+          );
           node.dataset.canvasPlaceholder = "false";
         } catch (error) {
           message.textContent = error.message;
@@ -89,6 +104,7 @@ export class AdaptiveCanvases {
   }
 
   schedule() {
+    if (this.disposed) return;
     // Width can change while another compiler request is in flight. Keep
     // offscreen and pending drawings bounded before the network worker runs.
     const revision = this.getRevision();
@@ -159,7 +175,21 @@ export class AdaptiveCanvases {
     });
   }
 
+  dispose() {
+    this.disposed = true;
+    this.sequence++;
+    this.controller?.abort();
+    clearTimeout(this.timer);
+    cancelAnimationFrame(this.resizeFrame);
+    this.resize.disconnect();
+    this.intersection?.disconnect();
+    document.removeEventListener("selectionchange", this.selectionChanged);
+    for (const record of this.records) record.native?.dispose();
+    this.computation.dispose();
+  }
+
   async render() {
+    if (this.disposed) return;
     if (this.selectionActive?.()) return;
     const fontSize = parseFloat(getComputedStyle(this.article).fontSize);
     for (const record of this.records) {
