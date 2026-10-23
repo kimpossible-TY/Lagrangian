@@ -1,0 +1,20 @@
+.reader-optimistic-highlights {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+}
+
+.reader-optimistic-highlights span {
+  position: absolute;
+  background: var(--reader-optimistic-highlight, #ffdc004d);
+  border-radius: 2px;
+}
+
+@media (forced-colors: active) {
+  .reader-optimistic-highlights span {
+    background: transparent;
+    outline: 1px solid Highlight;
+  }
+}

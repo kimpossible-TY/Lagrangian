@@ -6,6 +6,7 @@ import "./styles/layout.css";
 import "./styles/help-panel.css";
 import "./styles/outline.css";
 import "./styles/selection-actions.css";
+import "../../reader-common/source-highlight/optimistic.css";
 
 import { wsMain, PreviewMode } from "./ws";
 import { setupDrag } from "./drag";

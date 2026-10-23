@@ -1,5 +1,24 @@
 # Design
 
+## Immediate source-highlight feedback
+
+`reader-common/source-highlight/optimistic.js` owns temporary paint lifetime:
+paint at submission, retain after a successful source-write acknowledgment,
+retire when a different accepted snapshot is rendered, and remove only the
+rejected ticket on failure. Snapshot identity includes document and revision,
+plus the HTML service identity. Late acknowledgments never recreate paint.
+Disposal removes it; no optimistic mark is written to browser storage.
+
+Concrete source-highlight renderers own geometry. HTML resolves the existing
+canonical block offsets on every layout and verifies the selected text. Paged
+paint uses captured page fragments and original text-layout fingerprints.
+Both use empty, inaccessible, pointer-transparent rectangles without wrapping
+or changing text. Native selection is released after paint so it cannot hold
+the compiled replacement; submission tickets retain retry context. Existing
+status wording, duplicate-submission guards, verified source operations and
+compiler error/reconnect notices remain in place. Retire paint synchronously
+with accepted document publication, never merely on source-write success.
+
 ## Selection review actions
 
 Keep saved Codex context separate from persistent source highlighting and temporary

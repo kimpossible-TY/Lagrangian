@@ -627,8 +627,23 @@ selection and fit the visible safe area.
 #### Scenario: Pending source action and native selection collapse
 - **WHEN** a source highlight is pending or its toolbar tap collapses native selection
 - **THEN** duplicate submissions are disabled and the submitted quotation remains available if rejected
-- **AND** success or staleness releases only that submitted selection so document updates can resume
+- **AND** temporary highlight paint immediately replaces native selection so document updates can resume while verification runs
 - **AND** a newer selection survives an older response
+
+#### Scenario: Immediate source highlight in every reader
+- **WHEN** a current selection is submitted for Highlight in the paged, HTML or terminal Reader
+- **THEN** the selected fragments receive immediate browser-local highlight paint before source verification or compilation completes
+- **AND** existing action and compiler feedback wording remains unchanged and unselected text is unchanged
+- **AND** source-write success retains temporary paint until the accepted replacement document is rendered
+- **AND** the replacement removes temporary paint in the same publication, without a blank intermediate state or duplicate lasting paint
+- **AND** resize, font changes and mathematical reflow use current renderer geometry without source edits
+
+#### Scenario: Optimistic highlight is rejected or superseded
+- **WHEN** a highlight fails, becomes stale, loses its acknowledgment connection or belongs to a replaced document/revision/service
+- **THEN** its temporary paint is removed and verified source-write rules remain unchanged
+- **AND** rejection retains the submitted retry context unless dismissed or superseded by a newer selection or snapshot
+- **AND** late results never paint a newer snapshot, clear another submission's paint or dismiss a newer selection
+- **AND** disposal removes temporary paint and no optimistic mark is persisted as a review strike
 
 #### Scenario: Temporary red strikes
 - **WHEN** the reader applies Red strike to selected prose or mathematical fragments
