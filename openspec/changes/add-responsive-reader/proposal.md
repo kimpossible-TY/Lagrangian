@@ -103,6 +103,8 @@ Use coordinated reading and control palettes, and restrained theme-specific colo
 for authored highlights instead of browser-default yellow. Original
 drawings and mannot annotations blend into their surrounding reading background,
 with readable theme-aware vector paint and label colors.
+Preserve pale CeTZ cell fills as distinct surface shading rather than converting
+them to foreground ink; keep text and stroke contrast correction separate.
 
 Preserve the existing `highlighted` helper for plain text and mixed mathematical
 passages. Its HTML adapter must retain native math and paint the complete

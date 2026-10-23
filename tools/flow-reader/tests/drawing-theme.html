@@ -42,6 +42,9 @@
             />
             <path id="blue" d="M20 80L80 25" stroke="#3157c8" fill="none" />
             <use id="colored-glyph" href="#glyph" x="75" y="20" fill="#3157c8" />
+            <g id="pale-glyph-group" fill="#ffffff">
+              <use href="#glyph" x="105" y="85" />
+            </g>
             <rect
               id="gradient-box"
               x="130"
@@ -57,6 +60,20 @@
             <span id="colored-label" style="color: #3157c8">x² + y²</span>
           </div>
         </div>
+        <svg id="shading" viewBox="0 0 240 110" width="240" height="110">
+          <path id="blue-cell" d="M10 10H110V50H10Z" fill="#f0f5ff" />
+          <path id="purple-cell" d="M120 10H220V50H120Z" fill="#f0ebf8" />
+          <rect id="gray-cell" x="10" y="60" width="100" height="40" fill="#efefef" />
+          <rect
+            id="alpha-cell"
+            x="120"
+            y="60"
+            width="100"
+            height="40"
+            fill="rgba(220,220,220,0.7)"
+          />
+          <path id="pale-stroke" d="M10 55H220" stroke="#f0f5ff" fill="none" />
+        </svg>
       </div>
       <div class="flow-graphic-frame">
         <div class="flow-decoration-surface" style="font-size: 24px; margin-block: 24px">

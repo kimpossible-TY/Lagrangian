@@ -352,3 +352,8 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Build and verify signed Flow 0.1.30 with its new native engine and stage the matching immutable HTML Reader release from a clean commit.
 - [x] Install both releases with recovery snapshots, preserve profile states/settings/history and verify actual local/HTTPS document and asset delivery.
 - [x] Verify installed browser highlighting and real isolated source writes in Chromium/WebKit, complete compiled-document handoff, and confirm services and release integrity after the user's Mac reboot.
+
+## Preserve CeTZ cell shading
+
+- [x] Preserve pale geometric fills as tinted surface washes while keeping foreground glyph/stroke contrast and decoration-underlay rules.
+- [x] Verify photographed blue/purple cell colors, alpha, masks/resources, repeated themes and late/cloned SVG paint in Node, Chromium and WebKit; record coverage in verification-cetz-shading.md.

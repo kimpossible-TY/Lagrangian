@@ -536,6 +536,12 @@ content, quotations, mathematical structure and reading position.
 - **AND** original source colors, vector geometry, SVG resource references, masks, clipping and raster pixel payloads remain intact
 - **AND** repeated theme changes restore the same presentation colors without replacing semantic mathematics
 
+#### Scenario: CeTZ cells use pale shading
+- **WHEN** a CeTZ drawing contains pale gray, blue or purple geometric fills
+- **THEN** those fills remain subtle, distinct surface shading in light and dark reading appearances rather than becoming foreground ink
+- **AND** text and strokes using those same source colors retain their foreground contrast correction
+- **AND** authored alpha, source paint attributes, SVG resources and geometry survive repeated appearance changes and late/cloned paint
+
 ### Requirement: Explicit Save for Codex context
 The HTML Reader SHALL replace the former local quotation library with Save for Codex. An explicit action SHALL atomically save the service's latest bounded selection on the preview host, with document identity, rendered and accepted revisions, viewer and process identity, logical HTML endpoints, exact text and verified source context where available. Saving SHALL neither compile nor edit source nor send a Codex message.
 
