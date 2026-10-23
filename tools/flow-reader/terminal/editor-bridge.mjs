@@ -12,7 +12,7 @@ export class EditorBridge {
   constructor(options, page) {
     this.options = options;
     this.page = page;
-    this.lastCursor = "";
+    this.lastCursor = null;
     this.lastSync = 0;
   }
 
@@ -38,8 +38,14 @@ export class EditorBridge {
     }
     if (!cursor && this.options["editor-server"])
       cursor = await this.rpc(`luaeval("vim.json.encode(require('tinymist.reader').cursor())")`);
-    if (!cursor || cursor.modified) return false;
-    const identity = JSON.stringify(cursor);
+    if (!cursor) return false;
+    const identity = JSON.stringify([cursor.path, cursor.line, cursor.column]);
+    // Opening an editor is not a new navigation request. Keep Reader restoration.
+    if (!forced && this.lastCursor === null) {
+      this.lastCursor = identity;
+      return false;
+    }
+    if (cursor.modified) return false;
     if (!forced && identity === this.lastCursor) return false;
     const selection = await this.page.evaluate(() => Boolean(window.getSelection()?.toString()));
     if (selection && !forced) return false;

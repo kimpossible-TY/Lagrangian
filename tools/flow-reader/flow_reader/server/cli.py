@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--focus-file", type=Path, help="Absolute Codex context file (default OUTPUT/focus.json)")
     parser.add_argument("--editor-server", help="Neovim server owning final verified source edits")
     parser.add_argument("--nvim", default="nvim", help="Neovim executable used for editor RPC")
+    parser.add_argument("--change-file", type=Path, help="Common paged edit history (otherwise match a Flow profile)")
     parser.add_argument("--allow-incomplete", action="store_true",
                         help="Local development only: show explicit fidelity diagnostics")
     args = parser.parse_args()
@@ -33,7 +34,8 @@ def main():
                       tuple(args.font_path), args.compiler, args.semantic_canvases)
     project.relative_entry()
     state = ReaderState(project, args.output.resolve(), args.original_url, args.allow_incomplete,
-                        focus_file=args.focus_file, editor_server=args.editor_server, nvim=args.nvim)
+                        focus_file=args.focus_file, editor_server=args.editor_server, nvim=args.nvim,
+                        change_file=args.change_file)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))
     state.prewarm = True
     stopped = threading.Event()

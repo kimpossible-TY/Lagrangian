@@ -252,6 +252,45 @@ test("iTerm Retina report uses logical cell points and ignores whole-window dime
   assert.equal(reader.size.height, reader.size.imageRows * 18);
 });
 
+test("cursor baseline preserves restoration while moves and explicit sync still navigate", async (t) => {
+  let cursor = { path: "/project/main.typ", line: 1, column: 0, modified: true };
+  let requests = 0;
+  let blocked = false;
+  const page = {
+    url: () => "http://127.0.0.1:23626/",
+    async evaluate(_callback, location) {
+      return location ? !blocked : false;
+    },
+    request: {
+      async get() {
+        return { json: async () => ({ revision: "current" }) };
+      },
+      async post() {
+        requests++;
+        return { ok: () => true, json: async () => ({ status: "located" }) };
+      },
+    },
+  };
+  const bridge = new EditorBridge({ "editor-server": "/editor.sock" }, page);
+  bridge.rpc = async () => cursor;
+  assert.equal(await bridge.cursor(), false);
+  cursor.modified = false;
+  assert.equal(await bridge.cursor(), false);
+  assert.equal(requests, 0);
+  cursor = { ...cursor, line: 7 };
+  blocked = true;
+  assert.equal(await bridge.cursor(), false);
+  blocked = false;
+  assert.equal(await bridge.cursor(), true);
+  assert.equal(await bridge.cursor(), false);
+  const work = await mkdtemp(path.join(tmpdir(), "flow-sync-test-"));
+  t.after(() => rm(work, { recursive: true, force: true }));
+  const sync = path.join(work, "sync.json");
+  await writeFile(sync, JSON.stringify(cursor));
+  const forced = new EditorBridge({ "sync-file": sync }, page);
+  assert.equal(await forced.cursor(), true);
+});
+
 test("source navigation reports Neovim refusal rather than claiming cursor synchronization", async () => {
   const page = {
     async evaluate() {
@@ -323,4 +362,10 @@ test("accepted Reader actions clear an earlier terminal selection error", async 
     await terminal.event({ type: "key", value });
     assert.equal(terminal.message, help);
   }
+});
+
+test("explicit common change history reaches the owned Reader service", () => {
+  const options = parseArguments(["--root", "/project", "--change-file", "/state/changes.json"]);
+  const args = serverArguments(options);
+  assert.equal(args[args.indexOf("--change-file") + 1], "/state/changes.json");
 });

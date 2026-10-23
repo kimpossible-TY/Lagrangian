@@ -172,3 +172,18 @@
 - The real installed lualine passed separate disposable TUI checks in both per-window and global-statusline modes, including a global layout established by lualine setup. Reader feedback remained stable, source focus restored lualine, repeated focus/close restored it again, idle images stayed suppressed, the configured tabline remained active and the complete lualine configuration was unchanged.
 - Headless Neovim smoke and 25 real Chromium/Neovim integration checks passed, preserving input, divider resizing/current frame position, source navigation, local review state, Save for Codex and verified highlights.
 - Canonical guide PDF/HTML and rendered wording, generated docs, strict OpenSpec validation, Python syntax and diff whitespace checks passed. Physical Windows Terminal/Devtunnel focus switching remains unverified. User configuration was read only; no live service or editor was installed or restarted.
+
+## 16. Share saved source edits across viewers and Neovim
+
+- [x] 16.1 Add one bounded read-only resolver for existing paged source history, exact Flow profile discovery and an editor-facing CLI; verify identity, UTF-8, stale and malformed records.
+- [x] 16.2 Map common edits into accepted HTML navigation and refresh late-arriving metadata; preserve browser and terminal navigation priorities with focused behavior tests.
+- [x] 16.3 Add asynchronous guarded Neovim source restoration and configure the user's opt-in integration; verify included-file restoration, cancellation, modified buffers and explicit navigation.
+- [x] 16.4 Align canonical documentation/ownership, validate scoped tests and installed delivery, and record unverified physical coverage.
+
+### Shared source edit verification, 2026-10-23
+
+- The existing paged source-history record remains the sole writer. HTML and Neovim resolve the exact project/entry, verify saved source bytes and use the same source range. A read-only check of the user's PDE record resolved the included source file at line 130.
+- Five shared-history tests, 12 change-history tests, 13 editor tests, eight real-compiler source-mapping tests and archived-layout delivery passed. Node and architecture checks: 168 passed. Native PTY: nine passed. Neovim TUI: 30 passed; headless restoration/cancellation smoke also passed.
+- Real Chromium/Neovim integration: 29 checks passed, including late metadata without a content revision, shared source restoration and initial cursor polling preserving the destination. WebKit change navigation: 16 checks passed. Inspected the Chromium snapshot.
+- Scoped ESLint/Prettier, canonical guide PDF, generated documentation, strict OpenSpec validation and whitespace checks passed. The actual user Neovim configuration restored an included file in an isolated process launched outside the project, with disposable history/state and no plugin installation.
+- User Neovim opt-in configuration was updated. No installed release or live service was installed/restarted; the installed HTML Reader needs a release upgrade to gain this integration. Physical Windows Terminal/Devtunnel coverage remains unverified. Edits made while the source-history engine is stopped cannot establish a new shared last edit.

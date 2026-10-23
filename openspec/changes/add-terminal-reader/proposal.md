@@ -17,6 +17,8 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 - Preserve native Neovim divider dragging and expose window-width controls from Reader input mode, keeping browser selections separate from editor gestures.
 - Pause an already loaded lualine statusline while the Reader is focused and restore it when focus returns to source or the Reader closes.
 
+- Share the paged engine's project-scoped saved source edit with HTML/terminal Readers and opt-in Neovim source restoration. Resolve one exact project/entry and validate saved source before navigation.
+
 ## Capabilities
 
 ### New Capabilities

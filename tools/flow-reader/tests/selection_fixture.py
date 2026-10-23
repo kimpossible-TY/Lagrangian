@@ -47,7 +47,8 @@ def main():
         project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
         state = ReaderState(project, work / "output", "https://example.test/paged/", False,
-                            editor_server=os.environ.get("FLOW_READER_EDITOR_SERVER"))
+                            editor_server=os.environ.get("FLOW_READER_EDITOR_SERVER"),
+                            change_file=os.environ.get("FLOW_READER_CHANGE_FILE"))
         state.compile()
         if not state.revision:
             raise RuntimeError(state.report)
