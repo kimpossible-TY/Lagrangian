@@ -375,8 +375,14 @@ impl<M: PathAccessModel + Sized> Vfs<M> {
                 .map_err(Clone::clone)?;
 
             let mut cache_entry = self.source_cache.cache_entries.entry(file_id).or_default();
-            if let Some(source) = cache_entry.sources.get(content) {
-                return source.source.clone();
+            if let Some(source) = cache_entry.sources.get_mut(content) {
+                if source.last_accessed_rev < self.revision {
+                    source.last_accessed_rev = self.revision;
+                }
+                let res = source.source.clone();
+                cache_entry.last_accessed_rev =
+                    cache_entry.last_accessed_rev.max(self.revision.get());
+                return res;
             }
 
             let source = (|| {
@@ -399,6 +405,7 @@ impl<M: PathAccessModel + Sized> Vfs<M> {
 
                 Ok(next)
             })();
+            cache_entry.last_accessed_rev = cache_entry.last_accessed_rev.max(self.revision.get());
 
             let entry = cache_entry
                 .sources
@@ -717,5 +724,57 @@ mod tests {
     fn test_vfs_send_sync() {
         is_send::<super::Vfs<super::dummy::DummyAccessModel>>();
         is_sync::<super::Vfs<super::dummy::DummyAccessModel>>();
+    }
+
+    #[test]
+    fn source_cache_updates_shard_access_revision_and_evicts_stale_snapshots() {
+        use std::num::NonZeroUsize;
+        use std::path::Path;
+        use std::sync::Arc;
+        use typst::foundations::Bytes;
+
+        use super::{
+            FileSnapshot, Vfs, WorkspaceResolver, dummy::DummyAccessModel, mock::MockRootResolver,
+        };
+
+        let mut vfs = Vfs::new(Arc::new(MockRootResolver), DummyAccessModel);
+        let fid = WorkspaceResolver::workspace_file(
+            Some(&Path::new("/").into()),
+            typst::syntax::VirtualPath::new("main.typ").unwrap(),
+        );
+
+        for rev in 1..=35usize {
+            let mut revising = vfs.revise();
+            revising
+                .map_shadow_by_id(
+                    fid,
+                    FileSnapshot::from(Ok(Bytes::from_string(format!("#let x = {rev}")))),
+                )
+                .unwrap();
+            drop(revising);
+            let src = vfs.source(fid).unwrap();
+            assert_eq!(src.text(), format!("#let x = {rev}"));
+        }
+
+        let cache = vfs.clone_source_cache();
+        cache.evict(vfs.revision(), 30);
+
+        let shard = cache
+            .cache_entries
+            .get(&fid)
+            .expect("active file shard must survive eviction past revision 30");
+        assert_eq!(shard.last_accessed_rev, vfs.revision().get());
+        assert!(shard.recent_source.is_some());
+        assert!(
+            shard.sources.len() <= 31,
+            "snapshots older than threshold must be evicted from shard.sources"
+        );
+        drop(shard);
+
+        cache.evict(NonZeroUsize::new(vfs.revision().get() + 31).unwrap(), 30);
+        assert!(
+            cache.cache_entries.get(&fid).is_none(),
+            "shard must be evicted once inactive beyond threshold"
+        );
     }
 }

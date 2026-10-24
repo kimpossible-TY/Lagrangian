@@ -291,6 +291,23 @@ impl<F: CompilerFeat + Send + Sync + 'static, Ext: Default + 'static> ProjectCom
             .map(|proj| &proj.id)
     }
 
+    pub(super) fn maintains_shared_cache(&self, id: &ProjectInsId) -> bool {
+        let is_active_demanded = std::iter::once(&self.primary)
+            .chain(self.dedicates.iter())
+            .any(|proj| {
+                &proj.id == id && proj.is_demanded() && !proj.verse.entry_state().is_inactive()
+            });
+        let other_demanded_pending = std::iter::once(&self.primary)
+            .chain(self.dedicates.iter())
+            .any(|proj| {
+                &proj.id != id
+                    && proj.is_demanded()
+                    && !proj.verse.entry_state().is_inactive()
+                    && (proj.committed_revision < proj.verse.revision.get() || proj.reason.any())
+            });
+        is_active_demanded && !other_demanded_pending
+    }
+
     /// Process an interrupt.
     pub fn process(&mut self, intr: Interrupt<F>) {
         self.process_inner(intr);
@@ -334,7 +351,7 @@ impl<F: CompilerFeat + Send + Sync + 'static, Ext: Default + 'static> ProjectCom
                 }
             }
             Interrupt::Compiled(artifact) => {
-                let maintains_shared_cache = self.cache_owner() == Some(artifact.id());
+                let maintains_shared_cache = self.maintains_shared_cache(artifact.id());
                 let Some(proj) = std::iter::once(&mut self.primary)
                     .chain(self.dedicates.iter_mut())
                     .find(|proj| &proj.id == artifact.id())

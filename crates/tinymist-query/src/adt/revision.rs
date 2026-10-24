@@ -57,6 +57,14 @@ impl<T> RevisionManager<T> {
         self.slots.clear();
     }
 
+    pub fn is_unlocked(&self) -> bool {
+        self.locked.is_empty()
+    }
+
+    pub fn slots(&self) -> &[Arc<RevisionSlot<T>>] {
+        &self.slots
+    }
+
     /// Lock the revision in *main thread*.
     #[must_use]
     pub fn lock(&mut self, used: NonZeroUsize) -> RevisionLock {
