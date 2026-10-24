@@ -1221,3 +1221,22 @@ Silent-loss follow-up: the worker emits bounded font/file/evaluation/output phas
 Cached-shell update: Service Worker installation retains the current complete shell while a new complete shell waits. OfflineReader exposes waiting updates in reading settings; only an explicit apply action asks the waiting worker to skipWaiting, then reloads once controllerchange confirms activation. Registration bypasses HTTP import cache. Existing reading pages are not silently reloaded; accepted offline snapshots and preferences remain. A one-time legacy migration closes all Reader clients so the already-waiting shell can activate. Compiler registration carries a bounded diagnosticsVersion; explicit checks require the current evidence version while ordinary compilation retains its existing protocol compatibility. This prevents a successful legacy quick check from being mistaken for current instrumentation coverage.
 
 Deployment recovery under host contention: the CLI fallback now uses one Typst parallel job. This bounds Reader-native parallel work independently of the paged preview and retains the exact request inputs, artifact, deadlines and publication/source guards. An isolated PDE base compile passed content acceptance in 58.446 seconds with one job while normal parallel fallback repeatedly exceeded 90 seconds under concurrent host work. This is a host-load observation, not a controlled speed benchmark or iPhone memory result.
+
+## Compact layout history
+
+The pinned Typst core stores up to four complete previous outputs solely to access
+their introspectors. Replace each history entry with an owned shared introspector
+for HtmlDocument and PagedDocument. Extract the existing Arc without cloning its
+contents, then drop the old document before constructing the next output. Retain
+all introspectors in original order for nonconvergence diagnostics. Unknown Output
+implementations (including bundle) retain their full output through a fallback;
+no public trait or convergence semantics change. Dynamic type detection happens
+once per unsuccessful iteration, outside element/layout hot loops.
+
+Vendor only the core typst crate from the existing lockfile commit, preserving
+licenses and provenance. Other Typst crates retain their pinned identity. Tests
+must cover early output release, fallback lifetime, converging/nonconverging HTML
+and paged results, diagnostics and trace equivalence with the full-history path.
+Measure the same frozen PDE corpus before/after in isolated WASM workers. Distinguish
+history-owned release from memoization references and linear-memory high-water
+marks; no claim of iPhone viability follows from desktop evidence.

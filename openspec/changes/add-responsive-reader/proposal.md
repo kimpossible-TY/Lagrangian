@@ -189,3 +189,10 @@ Record explicit browser termination signals and distinguish unreported heartbeat
 After silent iPhone document-check loss and an observed automatic page reload, retain last execution phase, bounded WASM allocation and heartbeat timing, plus optional tab-local recovery correlation.
 
 Provide an explicit waiting web-shell update action and reject diagnostic checks from legacy clients without current execution evidence.
+
+## Layout iteration history memory
+
+Retain shared introspectors instead of complete previous HTML and paged outputs
+during layout convergence. Preserve the five-pass limit, all iteration diagnostics,
+tracing, public Output implementations, and final exports. Maintain the exact pinned
+Typst core as a small local patch; do not change installed services.

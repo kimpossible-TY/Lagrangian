@@ -916,3 +916,22 @@ diagnostics, without treating native fallback as successful device execution.
 - **WHEN** the Reader invokes its native CLI executor
 - **THEN** compilation uses one parallel job with the original inputs, deadline, acceptance and source freshness guards
 - **AND** this does not change parallelism in the separate paged preview service
+
+### Requirement: Compact layout iteration history
+The maintained compiler SHALL release previous HTML and paged output containers
+before the next layout iteration while retaining the exact introspection state
+needed for convergence and diagnostics.
+
+#### Scenario: Multiple layout iterations
+- **WHEN** an HTML or paged compilation needs another iteration
+- **THEN** history retains the existing shared introspector rather than the full output
+- **AND** final output, iteration limit, diagnostics and traced values remain equivalent
+
+#### Scenario: An output has no supported independent introspector
+- **WHEN** a custom or bundle Output participates in compilation
+- **THEN** its existing complete-output history remains valid without new trait requirements
+
+#### Scenario: Memory verification
+- **WHEN** reporting this optimization
+- **THEN** history ownership is tested separately from cache retention and total memory
+- **AND** before/after browser measurements use identical captured input bytes

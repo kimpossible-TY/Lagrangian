@@ -1,0 +1,35 @@
+[package]
+name = "typst"
+description = "A new markup-based typesetting system that is powerful and easy to learn."
+categories = ["compilers", "science"]
+keywords = ["markup", "typesetting", "typst"]
+version = "0.15.1"
+rust-version = "1.92"
+authors = ["The Typst Project Developers"]
+edition = "2024"
+homepage = "https://typst.app"
+repository = "https://github.com/typst/typst"
+license = "Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+typst-eval = { workspace = true }
+typst-html = { workspace = true }
+typst-layout = { workspace = true }
+typst-library = { workspace = true }
+typst-macros = { workspace = true }
+typst-realize = "0.15.1"
+typst-syntax = { workspace = true }
+typst-timing = { workspace = true }
+typst-utils = { workspace = true }
+arrayvec = "0.7.6"
+comemo = { workspace = true }
+ecow = { workspace = true }
+rustc-hash = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+typst-assets = { workspace = true, features = ["fonts"] }
+typst-pdf = { workspace = true }

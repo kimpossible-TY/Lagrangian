@@ -7860,17 +7860,18 @@ dependencies = [
 [[package]]
 name = "typst"
 version = "0.15.1"
-source = "git+https://github.com/Myriad-Dreamin/typst.git?tag=tinymist%2Fv0.15.1#59b5999da8e74e74583069408d2564fc1f9bc973"
 dependencies = [
  "arrayvec",
  "comemo",
  "ecow",
  "rustc-hash 2.1.2",
+ "typst-assets",
  "typst-eval",
  "typst-html",
  "typst-layout",
  "typst-library",
  "typst-macros",
+ "typst-pdf",
  "typst-realize",
  "typst-syntax 0.15.1",
  "typst-timing 0.15.1",

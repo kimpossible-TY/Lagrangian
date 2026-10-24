@@ -90,6 +90,7 @@ try {
         let id = 0;
         const pending = new Map();
         worker.onmessage = ({ data }) => {
+          if (data.type === "progress") return;
           const done = pending.get(data.id);
           pending.delete(data.id);
           if (done) data.error ? done.reject(new Error(data.error)) : done.resolve(data);
