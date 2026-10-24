@@ -415,6 +415,6 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Expose an explicit waiting-shell activation action with reload after controller change.
 - [x] Version diagnostic registrations and reject legacy checks before task dispatch.
-- [ ] Reproduce stale reloads with real Service Workers, verify offline update recovery, and deploy.
+- [x] Reproduce stale reloads with real Service Workers, verify offline update recovery, and deploy.
 
-- [ ] Bound native CLI parallelism and verify content acceptance during deployment recovery under host contention.
+- [x] Bound native CLI parallelism and verify content acceptance during deployment recovery under host contention.
