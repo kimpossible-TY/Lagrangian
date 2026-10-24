@@ -185,3 +185,5 @@ results for physical iPhone verification. Deploy through the existing Flow Reade
 Record explicit browser termination signals and distinguish unreported heartbeat loss from deadlines.
 
 After silent iPhone document-check loss and an observed automatic page reload, retain last execution phase, bounded WASM allocation and heartbeat timing, plus optional tab-local recovery correlation.
+
+Provide an explicit waiting web-shell update action and reject diagnostic checks from legacy clients without current execution evidence.

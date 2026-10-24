@@ -223,8 +223,11 @@ are in `dist/default-on-rollout/`.
 
 == Verify computation on an actual iPhone
 
-Open the HTTPS Reader on the iPhone and reload once after updating. Open reading
-settings, expand *이 기기 계산 확인*, and keep *이 기기로 문서 계산 돕기* enabled.
+Open the HTTPS Reader on the iPhone. If reading settings shows *업데이트 적용*,
+apply it to activate the complete waiting shell and reload. For a legacy Reader
+without this button, close all Reader tabs and the home-screen app before reopening
+so its waiting Service Worker can activate. Expand *이 기기 계산 확인* and confirm
+*진단 1* next to this device before checking. Keep *이 기기로 문서 계산 돕기* enabled.
 The panel identifies this connection with its device name and short ID.
 
 Tap *1. 간단 검사* and keep this page visible until *통과* appears. Then tap
@@ -289,3 +292,26 @@ instance with recent failed checks. Storage denial does not block compilation.
 New-page recovery cannot distinguish an automatic reload from a manual reload.
 The eight-second connection lease and ninety-second document-check deadline are
 unchanged; a late observation cannot revive an expired lease.
+
+
+== Cached-shell update delivery
+
+A subsequent iPhone check lost heartbeats after 24.806 seconds (8.357 seconds since
+the last response). Its preceding quick check succeeded without any progress
+observation, although current clients await a progress heartbeat before submitting
+that result. The later iPhone connection did report the new ready phase. This
+identifies legacy execution at the failed check; it does not identify the cause of
+the original page interruption.
+
+A real Service Worker fixture reproduces an ordinary reload retaining an older
+shell while a fully cached update waits. Reading settings now offers an explicit
+*업데이트 적용* action. Activation uses the waiting worker and reloads after the
+controller changes; it does not reload an active reading session automatically.
+Offline snapshots and browser preferences remain available. Registration bypasses
+HTTP import caches. Existing legacy pages require closing their clients once to
+activate the waiting version and gain this action.
+
+Compiler registration declares diagnosticsVersion. The server rejects explicit
+checks without the current version before dispatch; ordinary compilation remains
+compatible. The diagnostic panel shows *진단 1* when the current evidence contract
+is registered, making cache delivery visible before another large test.

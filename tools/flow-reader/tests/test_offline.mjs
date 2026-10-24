@@ -144,3 +144,75 @@ test("uncached live compiler service returns recoverable HTTP failure offline", 
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /offline/);
 });
+
+test("waiting shell only activates after an explicit apply-update message", async () => {
+  const listeners = new Map();
+  let activations = 0;
+  const scope = {
+    registration: { scope: base },
+    caches: new MemoryCaches(),
+    fetch: async () => new Response(""),
+    skipWaiting: async () => {
+      activations++;
+    },
+    addEventListener: (name, callback) => listeners.set(name, callback),
+  };
+  runOfflineWorker(scope, { version: "new", files: [] });
+  assert.equal(activations, 0);
+  let pending;
+  listeners.get("message")({
+    data: { type: "activate-update" },
+    waitUntil(value) {
+      pending = value;
+    },
+  });
+  await pending;
+  assert.equal(activations, 1);
+});
+
+test("page update is opt-in, bypasses import HTTP cache, and cancels on disposal", async () => {
+  const { OfflineReader } = await import("../web/features/session/offline.js");
+  const keys = ["isSecureContext", "navigator"];
+  const saved = keys.map((key) => Object.getOwnPropertyDescriptor(globalThis, key));
+  const container = new EventTarget();
+  const registration = new EventTarget();
+  let messages = 0;
+  registration.waiting = {
+    postMessage(message) {
+      assert.equal(message.type, "activate-update");
+      messages++;
+      queueMicrotask(() => container.dispatchEvent(new Event("controllerchange")));
+    },
+  };
+  container.register = async (_, options) => {
+    assert.equal(options.updateViaCache, "none");
+    return registration;
+  };
+  container.ready = Promise.resolve(registration);
+  Object.defineProperty(globalThis, "isSecureContext", { configurable: true, value: true });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { serviceWorker: container },
+  });
+  try {
+    let available = false;
+    const reader = new OfflineReader({
+      updateAvailable(value) {
+        available = value;
+      },
+    });
+    await reader.ready;
+    assert.equal(available, true);
+    assert.equal(messages, 0);
+    assert.equal(await reader.applyUpdate(), true);
+    registration.waiting.postMessage = () => {};
+    const pending = reader.applyUpdate();
+    await Promise.resolve();
+    reader.dispose();
+    assert.equal(await pending, false);
+  } finally {
+    keys.forEach((key, i) =>
+      saved[i] ? Object.defineProperty(globalThis, key, saved[i]) : delete globalThis[key],
+    );
+  }
+});

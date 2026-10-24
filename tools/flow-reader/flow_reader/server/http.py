@@ -47,7 +47,7 @@ def handler_for(state):
                         return self.respond(b"Browser compilation is disabled", "text/plain", 503)
                     if path == "/api/compiler/register":
                         result = compiler_pool.register(request.get("engine"), request.get("name", "Browser"),
-                                                        request.get("recovery"))
+                                                        request.get("recovery"), request.get("diagnosticsVersion", 0))
                     else:
                         worker = request.get("worker")
                         if not isinstance(worker, str) or len(worker) > 128:

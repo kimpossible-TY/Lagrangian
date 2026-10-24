@@ -118,6 +118,10 @@ export function runOfflineWorker(scope, config) {
   });
   scope.addEventListener("activate", (event) => event.waitUntil(scope.clients.claim()));
   scope.addEventListener("message", (event) => {
+    if (event.data?.type === "activate-update") {
+      event.waitUntil(scope.skipWaiting());
+      return;
+    }
     if (event.data?.type !== "save-offline") return;
     if (!saving)
       saving = snapshots.save().finally(() => {

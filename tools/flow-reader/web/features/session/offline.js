@@ -1,7 +1,9 @@
 /** The page owns visible status; the Service Worker owns complete snapshot commits. */
 export class OfflineReader {
-  constructor({ changed = () => {} } = {}) {
+  constructor({ changed = () => {}, updateAvailable = () => {} } = {}) {
     this.changed = changed;
+    this.updateAvailable = updateAvailable;
+    this.disposed = false;
     this.ready = this.register();
   }
 
@@ -13,14 +15,52 @@ export class OfflineReader {
     try {
       const registration = await navigator.serviceWorker.register(
         new URL("../../service-worker.js", import.meta.url),
-        { type: "module", scope: new URL("../../", import.meta.url).href },
+        { type: "module", updateViaCache: "none", scope: new URL("../../", import.meta.url).href },
       );
+      if (this.disposed) return null;
+      this.registration = registration;
+      this.watchUpdate = () => {
+        if (!this.disposed) this.updateAvailable(Boolean(registration.waiting));
+      };
+      this.onUpdateFound = () => {
+        this.installing?.removeEventListener("statechange", this.watchUpdate);
+        this.installing = registration.installing;
+        this.installing?.addEventListener("statechange", this.watchUpdate);
+      };
+      registration.addEventListener("updatefound", this.onUpdateFound);
+      this.onUpdateFound();
+      this.watchUpdate();
       await navigator.serviceWorker.ready;
-      return registration;
+      return this.disposed ? null : registration;
     } catch {
       this.changed("unavailable");
       return null;
     }
+  }
+
+  async applyUpdate() {
+    const registration = await this.ready;
+    if (!registration?.waiting || this.disposed) return false;
+    return new Promise((resolve) => {
+      const finish = (applied) => {
+        clearTimeout(timer);
+        navigator.serviceWorker.removeEventListener("controllerchange", changed);
+        this.cancelUpdate = null;
+        resolve(applied);
+      };
+      const changed = () => finish(true);
+      const timer = setTimeout(() => finish(false), 15000);
+      this.cancelUpdate = () => finish(false);
+      navigator.serviceWorker.addEventListener("controllerchange", changed);
+      registration.waiting.postMessage({ type: "activate-update" });
+    });
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.cancelUpdate?.();
+    this.registration?.removeEventListener("updatefound", this.onUpdateFound);
+    this.installing?.removeEventListener("statechange", this.watchUpdate);
   }
 
   async save(manifest) {

@@ -93,3 +93,8 @@ Device diagnosis also retains the latest bounded worker phase and heartbeat timi
 client.js owns optional tab-local public-identity checkpoints; the pool correlates
 client-reported recovery with recent pinned failures. Runtime phase observations
 do not transfer publication authority or expose source bodies.
+
+OfflineReader also owns waiting-shell update notification and explicit activation.
+The Service Worker activates only on that request, and the page reloads after
+controller change. Compiler diagnostics require the current declared evidence
+contract before dispatch; ordinary execution retains legacy compatibility.
