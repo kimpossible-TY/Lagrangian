@@ -147,7 +147,9 @@ class BrowserCompilePool:
             self._expire()
             return not self.closed and bool(self._available())
 
-    def register(self, engine, name="Browser", recovery=None):
+    def register(self, engine, name="Browser", recovery=None, diagnostics_version=0):
+        if type(diagnostics_version) is not int or not 0 <= diagnostics_version <= 1:
+            raise ValueError("Invalid diagnostics version")
         recovery = checked_recovery(recovery)
         with self.condition:
             self._expire()
@@ -157,7 +159,7 @@ class BrowserCompilePool:
                 raise ValueError("Compiler unavailable or incompatible")
             token = secrets.token_urlsafe(24)
             self.workers[token] = self.clock()
-            self.worker_info[token] = {"id": secrets.token_hex(4), "name": name.strip()}
+            self.worker_info[token] = {"id": secrets.token_hex(4), "name": name.strip(), "diagnosticsVersion": diagnostics_version}
             if recovery:
                 evidence = {**recovery, "device": dict(self.worker_info[token])}
                 for event in self.history:

@@ -1593,3 +1593,11 @@ math svg {
 .flow-decoration-notice:empty {
   display: none;
 }
+
+#reader-apply-update {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--accent);
+}

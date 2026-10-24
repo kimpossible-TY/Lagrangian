@@ -47,6 +47,8 @@ class CompilerDiagnostics:
         pool = self.state.compiler_pool
         with pool.condition:
             device = pool.ready_device(worker)
+            if device.get("diagnosticsVersion", 0) < 1:
+                raise ValueError("client-update-required")
             if not self.lock.acquire(blocking=False):
                 raise ValueError("test-already-running")
             event = pool.record(executor="diagnostic", purpose=mode, status="running",

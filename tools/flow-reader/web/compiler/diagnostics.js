@@ -57,6 +57,8 @@ function terminationText(event) {
   );
 }
 const reasons = {
+  "client-update-required":
+    "기기에 이전 버전이 남아 있습니다. 읽기 설정에서 ‘업데이트 적용’을 누르세요. 버튼이 없으면 Reader 탭과 홈 화면 앱을 모두 닫고 다시 열어 주세요.",
   "snapshot-unavailable": "기기에 보낼 문서 입력을 준비하지 못했습니다. 결과를 복사해 알려 주세요.",
   "device-not-ready": "이 기기가 준비되지 않았거나 다른 계산 중입니다. 잠시 후 다시 눌러 주세요.",
   "test-already-running": "다른 검사가 진행 중입니다. 완료 후 다시 눌러 주세요.",
@@ -116,11 +118,12 @@ export function compilerDiagnostics(client, preferences) {
     if (starting) return;
     const device = client.device;
     document.querySelector("#reader-device-identity").textContent = device
-      ? `이 기기: ${device.name} · ${device.id}`
+      ? `이 기기: ${device.name} · ${device.id} · 진단 ${device.diagnosticsVersion || 0}`
       : "계산 돕기를 켜고 이 화면에서 기기 준비가 끝날 때까지 기다려 주세요.";
     const event = status.history.find((item) => item.id === testID);
     running = event?.status === "running";
-    for (const button of buttons) button.disabled = !device || running;
+    for (const button of buttons)
+      button.disabled = !device || running || !device.diagnosticsVersion;
     if (event) {
       const name = event.purpose === "quick" ? "간단 검사" : "현재 문서 검사";
       const who = `${event.device.name} · ${event.device.id}`;
@@ -145,9 +148,11 @@ export function compilerDiagnostics(client, preferences) {
       result.textContent =
         !device && client.lastError
           ? `기기 계산 연결을 준비하지 못했습니다: ${client.lastError}. 새로고침 후에도 반복되면 결과를 복사해 알려 주세요.`
-          : device
-            ? "준비됐습니다. ‘1. 간단 검사’를 눌러 주세요."
-            : "기기 연결을 기다리고 있습니다.";
+          : device && !device.diagnosticsVersion
+            ? reasons["client-update-required"]
+            : device
+              ? "준비됐습니다. ‘1. 간단 검사’를 눌러 주세요."
+              : "기기 연결을 기다리고 있습니다.";
     }
     const list = (selector, rows) => {
       document.querySelector(selector).replaceChildren(

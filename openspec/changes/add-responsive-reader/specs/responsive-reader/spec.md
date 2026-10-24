@@ -892,3 +892,13 @@ diagnostics, without treating native fallback as successful device execution.
 - **THEN** the recent failed check includes the reported same-page retry or new-page recovery and last bounded computation observations
 - **AND** recovery or memory observations never claim a confirmed crash, automatic reload, total memory use or out-of-memory cause
 - **AND** unavailable storage does not prevent compilation and telemetry cannot refresh an expired lease
+
+#### Scenario: A complete web-shell update waits behind an open reader
+- **WHEN** a new shell finishes caching while an older reader is open
+- **THEN** reading settings exposes an explicit update action without automatically reloading or clearing selection
+- **AND** applying activates the complete waiting shell and reloads after controller change while retaining complete offline snapshots
+
+#### Scenario: A legacy compiler client starts a device check
+- **WHEN** its registration lacks the current diagnostics evidence version
+- **THEN** the server rejects the diagnostic before dispatch and the current UI instructs updating the cached reader
+- **AND** ordinary compilation compatibility is preserved

@@ -75,7 +75,11 @@ compilerToggle.addEventListener("change", () => {
   compilerPreferences.write("compiler-enabled", compilerToggle.checked);
   browserCompiler.setEnabled(compilerToggle.checked);
 });
+const updateButton = document.querySelector("#reader-apply-update");
 const offline = new OfflineReader({
+  updateAvailable(available) {
+    updateButton.hidden = !available;
+  },
   changed(state) {
     document.querySelector("#reader-offline-status").textContent = {
       saving: "오프라인 문서를 저장하고 있습니다.",
@@ -84,6 +88,15 @@ const offline = new OfflineReader({
       unavailable: "현재 연결에서는 오프라인 저장을 사용할 수 없습니다.",
     }[state];
   },
+});
+updateButton.addEventListener("click", async () => {
+  updateButton.disabled = true;
+  updateButton.textContent = "업데이트를 적용하고 있습니다.";
+  if (await offline.applyUpdate()) location.reload();
+  else {
+    updateButton.disabled = false;
+    updateButton.textContent = "업데이트 다시 적용";
+  }
 });
 const outlineNavigation = createOutline(article, outline, () => manifest);
 const readingPosition = createReadingPosition(article, {
@@ -698,6 +711,7 @@ window.addEventListener("pagehide", (event) => {
   if (!event.persisted) {
     disposed = true;
     browserCompiler.dispose();
+    offline.dispose();
     diagnostics.dispose();
     gestures.dispose();
     clearTimeout(saveTimer);

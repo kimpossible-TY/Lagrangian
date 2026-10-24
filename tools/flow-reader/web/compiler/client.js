@@ -180,6 +180,7 @@ export class BrowserCompilerClient {
       const registration = await this.post(session, "register", {
         engine: config.engine,
         name,
+        diagnosticsVersion: 1,
         ...(this.previous ? { recovery: { ...this.previous, mode: this.recoveryMode } } : {}),
       });
       session.token = registration.worker;

@@ -46,7 +46,7 @@ class PoolTests(unittest.TestCase):
         self.snapshot = capture_snapshot(self.request, self.project, [self.entry], "engine")
 
     def worker(self):
-        return self.pool.register("engine")["worker"]
+        return self.pool.register("engine", diagnostics_version=1)["worker"]
 
     def start(self, call=None):
         future = self.threads.submit(call or (lambda: self.pool.execute(self.snapshot, 30)))
@@ -223,6 +223,14 @@ class PoolTests(unittest.TestCase):
                 self.assertEqual(state.revision, "unchanged")
                 self.assertEqual(self.native, [])
                 self.pool.release(worker)
+
+    def test_legacy_client_cannot_start_a_diagnostic_without_current_evidence(self):
+        legacy = self.pool.register("engine")["worker"]
+        diagnostic = CompilerDiagnostics(SimpleNamespace(compiler_pool=self.pool))
+        with self.assertRaisesRegex(ValueError, "client-update-required"):
+            diagnostic.start(legacy, "document")
+        self.assertFalse(self.pool.jobs)
+        self.assertFalse(diagnostic.lock.locked())
 
     def test_diagnostic_copy_retains_termination_reason(self):
         worker = self.worker()

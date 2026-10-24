@@ -410,3 +410,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Retain bounded worker phase, WASM allocation and heartbeat timing in pinned outcomes.
 - [x] Correlate optional tab-local recovery and render copyable failure evidence.
 - [x] Test timing, telemetry bounds, storage failure, page restart and actual worker messages; deploy immutable delivery.
+
+## Cached shell diagnostic delivery
+
+- [x] Expose an explicit waiting-shell activation action with reload after controller change.
+- [x] Version diagnostic registrations and reject legacy checks before task dispatch.
+- [ ] Reproduce stale reloads with real Service Workers, verify offline update recovery, and deploy.
