@@ -1,0 +1,151 @@
+{
+  "physicalIPhone": {
+    "id": "f51bbddc5198",
+    "at": 1792811764.0181918,
+    "executor": "diagnostic",
+    "purpose": "document",
+    "status": "failed",
+    "device": {
+      "id": "88255ada",
+      "name": "iPhone",
+      "diagnosticsVersion": 1
+    },
+    "stage": "device",
+    "snapshot": "2bf2e760248e",
+    "termination": {
+      "status": "disconnected",
+      "reason": "heartbeat-lost",
+      "elapsedSeconds": 20.004,
+      "lastProgress": {
+        "phase": "evaluating",
+        "phaseSequence": 12,
+        "wasmMemoryBytes": 33357824,
+        "roundTripMs": 95,
+        "timerLagMs": 0
+      },
+      "lastHeartbeatAgeSeconds": 8.023,
+      "phaseAgeSeconds": 17.527,
+      "heartbeatTimeoutSeconds": 8
+    },
+    "reason": "device-did-not-finish",
+    "errorType": "ValueError",
+    "elapsedSeconds": 20.174,
+    "recovery": {
+      "previousDevice": "88255ada",
+      "mode": "page-restart",
+      "reason": "unreported",
+      "progress": {
+        "phase": "evaluating",
+        "phaseSequence": 12,
+        "wasmMemoryBytes": 33357824,
+        "roundTripMs": 59,
+        "timerLagMs": 0
+      },
+      "device": {
+        "id": "81f9b2b5",
+        "name": "iPhone",
+        "diagnosticsVersion": 1
+      }
+    }
+  },
+  "desktopSameAcceptedDocument": {
+    "event": {
+      "id": "b50488c87cec",
+      "at": 1792812023.564648,
+      "executor": "diagnostic",
+      "purpose": "document",
+      "status": "passed",
+      "device": {
+        "id": "effbabbf",
+        "name": "컴퓨터 브라우저",
+        "diagnosticsVersion": 1
+      },
+      "stage": "complete",
+      "snapshot": "bb79fc0d37a1",
+      "deviceSeconds": 27.446,
+      "outputHash": "7f1a3fd62c01",
+      "revision": "3a168ed2a61d",
+      "elapsedSeconds": 77.914
+    },
+    "metrics": {
+      "prepareMs": 526.1000000014901,
+      "compileMs": 20868.39999999851,
+      "wasmMemoryBytes": 2379874304,
+      "run": 1
+    },
+    "phaseChanges": [
+      {
+        "at": 1792812025022,
+        "phase": "received",
+        "phaseSequence": 2,
+        "roundTripMs": 46,
+        "timerLagMs": 13
+      },
+      {
+        "at": 1792812025068,
+        "phase": "fonts",
+        "wasmMemoryBytes": 20447232,
+        "phaseSequence": 3,
+        "roundTripMs": 46,
+        "timerLagMs": 13
+      },
+      {
+        "at": 1792812025232,
+        "phase": "files",
+        "wasmMemoryBytes": 26017792,
+        "phaseSequence": 4,
+        "roundTripMs": 4,
+        "timerLagMs": 13
+      },
+      {
+        "at": 1792812025556,
+        "phase": "evaluating",
+        "wasmMemoryBytes": 32833536,
+        "phaseSequence": 5,
+        "roundTripMs": 4,
+        "timerLagMs": 13
+      },
+      {
+        "at": 1792812046409,
+        "phase": "output",
+        "wasmMemoryBytes": 2370830336,
+        "phaseSequence": 6,
+        "roundTripMs": 11,
+        "timerLagMs": 2
+      },
+      {
+        "at": 1792812046436,
+        "phase": "sending-result",
+        "wasmMemoryBytes": 2370830336,
+        "phaseSequence": 7,
+        "roundTripMs": 14,
+        "timerLagMs": 2
+      },
+      {
+        "at": 1792812053784,
+        "phase": "ready",
+        "wasmMemoryBytes": 2370830336,
+        "phaseSequence": 8,
+        "roundTripMs": 36,
+        "timerLagMs": 1
+      }
+    ],
+    "publicationUnchanged": true
+  },
+  "interpretation": {
+    "confirmed": [
+      "current diagnostic evidence protocol ran on iPhone",
+      "input preparation reached synchronous Typst calculation",
+      "no explicit termination signal was checkpointed before a new page instance reconnected",
+      "desktop normalized output matched the native reference without publication",
+      "WASM boundary allocation grew from about 31.3 MiB before evaluation to about 2.22 GiB by completion"
+    ],
+    "notConfirmed": [
+      "iPhone peak or physical RSS",
+      "iOS termination reason",
+      "automatic versus manual reload in this run"
+    ],
+    "priorityHypothesis": "memory pressure during whole-document WASM computation; needs runtime allocation profiling or device termination evidence",
+    "nextEngineeringWork": "Reduce or bound whole-document WASM memory before requesting further physical full-document repetition; lighter tasks need their own measured eligibility."
+  }
+}
