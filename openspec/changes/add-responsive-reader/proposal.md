@@ -171,8 +171,10 @@ The user-requested rollout packages the matching browser compiler, preserves exp
 Reader-only font inputs, updates the signed Flow app and bundled guide, and verifies
 actual PDE delivery over the existing local and HTTPS routes with recovery snapshots.
 
-At the user's request, enable browser computation for viewers without a saved choice,
-while preserving explicitly disabled preferences and the existing foreground leases.
+Expose a two-position Low/High workload slider in reading settings. Low is the new
+default and retains server compilation with existing browser-local math and figure
+composition. High offers the local WASM compiler under the existing foreground leases.
+Preserve explicit saved boolean preferences as Low/High, including older document choices.
 
 ## Verifiable device computation
 

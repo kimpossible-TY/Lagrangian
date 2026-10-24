@@ -13,7 +13,7 @@ assert.ok(process.env.FLOW_READER_PACKAGES, "Set FLOW_READER_PACKAGES");
 const root = fileURLToPath(new URL("../", import.meta.url));
 const assets = resolve(process.env.FLOW_COMPILER_ASSETS || "dist/reader-compiler");
 const work = await mkdtemp(join(tmpdir(), "flow-browser-pool-"));
-const evidence = resolve("dist/device-diagnostics-browser");
+const evidence = resolve("dist/reader-load-browser");
 await mkdir(evidence, { recursive: true });
 const entry = join(work, "main.typ");
 await writeFile(entry, "Initial shared document $x^2$.\n");
@@ -93,17 +93,47 @@ try {
       // Network interception must see result POSTs; SW recovery has its own fixture.
       const first = await browser.newPage({
         viewport: { width: 390, height: 844 },
+        hasTouch: true,
         serviceWorkers: "block",
       });
       const errors = [];
       first.on("pageerror", (error) => errors.push(error.message));
+      const compilerRequests = [];
+      first.on("request", (request) => {
+        if (request.url().includes("/compiler-assets/")) compilerRequests.push(request.url());
+      });
       await first.goto(origin);
-      await first.waitForFunction(() => document.querySelector("#reader-compiler-enabled"));
-      assert.equal(await first.locator("#reader-compiler-enabled").isChecked(), true);
-      await until(status, (s) => s.workers === 1, "first Worker readiness");
+      await first.waitForFunction(() =>
+        document.querySelector('.flow-math-view[data-math-state="ready"]'),
+      );
+      const level = first.locator("#reader-compute-level");
+      assert.equal(await level.inputValue(), "0");
+      assert.equal((await status()).workers, 0, "Low cannot offer compiler capacity");
+      assert.deepEqual(compilerRequests, [], "Low does not load the WASM compiler");
+      assert.equal(
+        await first.evaluate(() => localStorage.getItem("flow-reader:/:compiler-enabled")),
+        null,
+        "An untouched default is not an explicit choice",
+      );
       const initialRevision = (await status()).revision;
       await first.locator("#reader-appearance-open").click();
+      assert.equal(await first.getByRole("slider", { name: "이 기기 계산 부하" }).count(), 1);
+      assert.equal(await level.getAttribute("aria-valuetext"), "Low");
+      await first.waitForFunction(
+        () =>
+          getComputedStyle(document.querySelector("#reader-appearance-panel")).transform === "none",
+      );
+      assert.ok((await level.boundingBox()).height >= 44);
+      await first.screenshot({ path: join(evidence, `${engine}-low.png`) });
       await first.locator("#reader-compiler-diagnostics > summary").click();
+      await first.waitForFunction(() =>
+        document.querySelector("#reader-device-identity").textContent.includes("Low에서는"),
+      );
+      assert.equal(await first.locator('[data-diagnostic="quick"]').isDisabled(), true);
+      await level.press("End");
+      assert.equal(await level.inputValue(), "1");
+      assert.equal(await level.getAttribute("aria-valuetext"), "High");
+      await until(status, (s) => s.workers === 1, "High Worker readiness");
       for (const mode of ["quick", "document"]) {
         await first.locator(`[data-diagnostic="${mode}"]`).click();
         await first.waitForFunction(
@@ -141,17 +171,21 @@ try {
       });
       await first.locator('[data-diagnostic="quick"]').click();
       await resultHeld;
-      await first.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+      await level.press("Home");
+      await until(status, (s) => s.workers === 0, "Low stops a busy diagnostic worker");
       await heldResult.abort().catch(() => {});
       await first.unroute("**/api/compiler/result");
       await first.reload();
-      await until(status, (s) => s.workers === 1, "reloaded Worker readiness");
+      assert.equal(await level.inputValue(), "0");
+      await first.locator("#reader-appearance-open").click();
+      await level.press("End");
+      await until(status, (s) => s.workers === 1, "reloaded High Worker readiness");
       const recovered = await fetch(origin + "/api/compiler/status").then((r) => r.json());
       const interrupted = recovered.history.find((item) => item.executor === "diagnostic");
       assert.equal(interrupted.status, "failed");
+      assert.equal(interrupted.termination.reason, "disabled");
       assert.equal(interrupted.recovery.mode, "page-restart");
       assert.equal(interrupted.recovery.progress.phase, "sending-result");
-      await first.locator("#reader-appearance-open").click();
       await first.locator("#reader-compiler-diagnostics > summary").click();
       await first.waitForFunction(() =>
         document
@@ -187,38 +221,48 @@ try {
 
       const second = await browser.newPage({
         viewport: { width: 768, height: 1024 },
+        hasTouch: true,
         serviceWorkers: "block",
       });
       second.on("pageerror", (error) => errors.push(error.message));
       await second.goto(origin);
-      assert.equal(await second.locator("#reader-compiler-enabled").isChecked(), true);
-      await until(status, (s) => s.workers === 2, "second default-enabled Worker readiness");
-      await second.evaluate(() => {
-        const toggle = document.querySelector("#reader-compiler-enabled");
-        toggle.checked = false;
-        toggle.dispatchEvent(new Event("change"));
-      });
-      await until(status, (s) => s.workers === 1, "explicit disabling releases the Worker");
+      const secondLevel = second.locator("#reader-compute-level");
+      assert.equal(await secondLevel.inputValue(), "0");
+      await second.locator("#reader-appearance-open").click();
+      await second.waitForFunction(
+        () =>
+          getComputedStyle(document.querySelector("#reader-appearance-panel")).transform === "none",
+      );
+      const track = await secondLevel.boundingBox();
+      await second.touchscreen.tap(track.x + track.width - 10, track.y + track.height / 2);
+      await second.screenshot({ path: join(evidence, `${engine}-touch-high.png`) });
+      assert.equal(await secondLevel.inputValue(), "1", "touch selects the High value");
+      await until(status, (s) => s.workers === 2, "touch selects High");
+      await second.mouse.move(track.x + track.width - 10, track.y + track.height / 2);
+      await second.mouse.down();
+      await second.mouse.move(track.x + 10, track.y + track.height / 2, { steps: 8 });
+      await second.mouse.up();
+      await until(status, (s) => s.workers === 1, "dragging to Low releases the Worker");
       await second.reload();
       await second.waitForFunction(() =>
         document.querySelector("#reader-document [data-reader-key]"),
       );
-      assert.equal(await second.locator("#reader-compiler-enabled").isChecked(), false);
+      assert.equal(await secondLevel.inputValue(), "0");
       assert.equal(
         (await status()).workers,
         1,
         "Reload preserves the explicit disabled preference",
       );
-      await second.evaluate(() => {
-        const toggle = document.querySelector("#reader-compiler-enabled");
-        toggle.checked = true;
-        toggle.dispatchEvent(new Event("change"));
-      });
+      await second.locator("#reader-appearance-open").click();
+      await secondLevel.press("End");
       await until(status, (s) => s.workers === 2, "second Worker readiness");
       assert.equal(
         await second.evaluate(() => localStorage.getItem("flow-reader:/:compiler-enabled")),
         "true",
       );
+      await second.reload();
+      await until(status, (s) => s.workers === 2, "saved High restores capacity");
+      assert.equal(await secondLevel.inputValue(), "1");
       const legacy = await browser.newPage({ serviceWorkers: "block" });
       const identity = await fetch(origin + "/api/state").then((response) => response.json());
       await legacy.addInitScript((id) => {
@@ -228,7 +272,7 @@ try {
       await legacy.waitForFunction(() =>
         document.querySelector("#reader-document [data-reader-key]"),
       );
-      assert.equal(await legacy.locator("#reader-compiler-enabled").isChecked(), false);
+      assert.equal(await legacy.locator("#reader-compute-level").inputValue(), "0");
       assert.equal(
         await legacy.evaluate(() => localStorage.getItem("flow-reader:/:compiler-enabled")),
         "false",
@@ -244,6 +288,7 @@ try {
       await unavailable.route("**/compiler-assets/compiler.js", (route) => route.abort());
       await unavailable.goto(origin);
       await unavailable.locator("#reader-appearance-open").click();
+      await unavailable.locator("#reader-compute-level").press("End");
       await unavailable.locator("#reader-compiler-diagnostics > summary").click();
       await unavailable.waitForFunction(() =>
         document
@@ -382,12 +427,13 @@ try {
         (await status()).completed > beforeGeometry.completed,
         "dynamic geometry must execute on browser",
       );
-      await survivor.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
-      await until(status, (s) => s.workers === 0, "all Worker leases released");
+      await survivor.locator("#reader-appearance-open").click();
+      await survivor.locator("#reader-compute-level").press("Home");
+      await until(status, (s) => s.workers === 0, "Low releases remaining Worker capacity");
       await geometry(145);
       assert.ok(
         (await status()).nativeDynamicRequests > 0,
-        "offline Worker capacity falls back to native incremental compilation",
+        "Low retains native fallback for geometry",
       );
       assert.deepEqual(errors, []);
       console.log(

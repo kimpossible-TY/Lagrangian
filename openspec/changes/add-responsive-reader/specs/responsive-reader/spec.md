@@ -776,9 +776,18 @@ server-owned normalization, acceptance, source correspondence and final source w
 
 #### Scenario: A new viewer has not offered compilation
 - **WHEN** the Reader opens without a saved enabled preference
-- **THEN** browser compilation is enabled by default while the visible page is connected
-- **AND** previously saved true or false preferences retain their meaning
+- **THEN** the reading-settings workload slider starts at Low without loading the WASM compiler or offering capacity
+- **AND** existing browser-local math, decoration and figure composition remain available with server compilation
+- **AND** previously saved true (High) or false (Low) preferences retain their meaning
 - **AND** the current document's older saved choice is restored before registering a Worker when no newer viewer choice exists
+
+#### Scenario: The user changes the device workload
+- **WHEN** the user swipes, taps or uses the keyboard to choose Low or High
+- **THEN** the native two-position slider exposes the selected value and explains its computation scope
+- **AND** High enables the existing foreground browser compiler and Low terminates it and releases its current lease
+- **AND** the committed choice survives reload while an untouched default is not saved as an explicit choice
+- **AND** Low disables device diagnostic actions and explains that they require High
+- **AND** changing workload does not change the accepted revision or server-owned publication and source-write guards
 
 #### Scenario: A compiler discovers another input
 - **WHEN** a task needs a file absent from its immutable input bundle

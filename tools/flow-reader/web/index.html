@@ -114,9 +114,28 @@
           <button id="reader-highlight-results-clear" type="button" hidden>
             확인한 요청 결과 지우기
           </button>
-          <label
-            ><input id="reader-compiler-enabled" type="checkbox" /> 이 기기로 문서 계산 돕기</label
-          >
+          <div class="reader-compute-setting">
+            <div class="reader-compute-heading">
+              <label for="reader-compute-level">이 기기 계산 부하</label>
+              <output id="reader-compute-value" for="reader-compute-level">Low</output>
+            </div>
+            <input
+              id="reader-compute-level"
+              type="range"
+              min="0"
+              max="1"
+              step="1"
+              value="0"
+              aria-valuetext="Low"
+              aria-describedby="reader-compute-description"
+            />
+            <div class="reader-compute-labels" aria-hidden="true">
+              <span>Low</span><span>High</span>
+            </div>
+            <p id="reader-compute-description">
+              문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.
+            </p>
+          </div>
           <p id="reader-compiler-status" role="status"></p>
           <details id="reader-compiler-diagnostics">
             <summary>이 기기 계산 확인</summary>

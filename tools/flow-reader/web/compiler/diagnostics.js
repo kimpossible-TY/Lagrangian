@@ -3,7 +3,7 @@ const terminationReasons = {
     "화면이 백그라운드로 전환되어 계산을 중단했습니다. 앱 전환·화면 잠금은 구분할 수 없습니다.",
   "page-exit": "페이지를 떠나거나 다시 불러와 계산을 중단했습니다.",
   offline: "브라우저가 오프라인 상태를 감지했습니다.",
-  disabled: "이 기기 계산 돕기를 꺼서 중단했습니다.",
+  disabled: "이 기기를 Low로 설정해 로컬 컴파일을 중단했습니다.",
   disposed: "Reader가 계산 연결을 정리했습니다.",
   "transport-error":
     "서버 통신 요청에 실패했습니다. 네트워크 단절과 서버 응답 오류는 추가 확인이 필요합니다.",
@@ -119,7 +119,9 @@ export function compilerDiagnostics(client, preferences) {
     const device = client.device;
     document.querySelector("#reader-device-identity").textContent = device
       ? `이 기기: ${device.name} · ${device.id} · 진단 ${device.diagnosticsVersion || 0}`
-      : "계산 돕기를 켜고 이 화면에서 기기 준비가 끝날 때까지 기다려 주세요.";
+      : client.enabled
+        ? "High에서 기기 계산을 준비하고 있습니다. 이 화면을 열어 두세요."
+        : "Low에서는 로컬 컴파일러를 사용하지 않습니다. 기기 검사는 High에서 할 수 있습니다.";
     const event = status.history.find((item) => item.id === testID);
     running = event?.status === "running";
     for (const button of buttons)
@@ -152,7 +154,9 @@ export function compilerDiagnostics(client, preferences) {
             ? reasons["client-update-required"]
             : device
               ? "준비됐습니다. ‘1. 간단 검사’를 눌러 주세요."
-              : "기기 연결을 기다리고 있습니다.";
+              : client.enabled
+                ? "기기 연결을 기다리고 있습니다."
+                : "Low · 기기 검사를 하려면 계산 부하를 High로 선택해 주세요.";
     }
     const list = (selector, rows) => {
       document.querySelector(selector).replaceChildren(

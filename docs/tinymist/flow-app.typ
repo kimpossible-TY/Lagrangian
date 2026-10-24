@@ -72,11 +72,14 @@ to download newer source changes. Browser storage can be removed by the device, 
 which case reconnect to download the document again.
 
 Supported mathematical decorations and native figure labels adapt to reading width
-and font size on the viewing device. If the server provides a browser compiler,
-*Help compute this document on this device* (이 기기로 문서 계산 돕기) offers that
-browser as a temporary worker while its page is visible and connected. Participation
-starts on unless you previously turned it off; that saved choice survives reloads.
-Closing or hiding the page releases its work; the server validates and
+and font size on the viewing device. Reading settings provide a two-position
+*Device computation load* (이 기기 계산 부하) slider. New viewers start at *Low*:
+document compilation stays on the server and local math and figure layout remain active.
+*High* offers the browser's local compiler as a temporary worker while its page is
+visible and connected, if the server provides a browser compiler. Swipe, tap or use
+the keyboard to choose a level. Explicit saved choices survive reloads; previous on/off
+choices become High/Low. Selecting Low, closing or hiding the page releases its work;
+the server validates and
 adopts results for every viewer. Large documents can use substantial memory and battery,
 so enable this only on a device suitable for the document.
 
