@@ -902,3 +902,8 @@ diagnostics, without treating native fallback as successful device execution.
 - **WHEN** its registration lacks the current diagnostics evidence version
 - **THEN** the server rejects the diagnostic before dispatch and the current UI instructs updating the cached reader
 - **AND** ordinary compilation compatibility is preserved
+
+#### Scenario: Native Reader fallback shares a busy host
+- **WHEN** the Reader invokes its native CLI executor
+- **THEN** compilation uses one parallel job with the original inputs, deadline, acceptance and source freshness guards
+- **AND** this does not change parallelism in the separate paged preview service

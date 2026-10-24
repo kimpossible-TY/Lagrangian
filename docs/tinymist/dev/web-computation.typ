@@ -315,3 +315,11 @@ Compiler registration declares diagnosticsVersion. The server rejects explicit
 checks without the current version before dispatch; ordinary compilation remains
 compatible. The diagnostic panel shows *진단 1* when the current evidence contract
 is registered, making cache delivery visible before another large test.
+
+
+During cached-shell rollout verification, native Reader compilation repeatedly
+exceeded its 90-second invocation bound under concurrent host work. An isolated
+base compile with one parallel job passed the content gate in 58.446 seconds. The
+Reader CLI executor therefore bounds native compilation to one job; request
+inputs, deadlines and publication/source guards are unchanged. This neither
+measures an isolated speedup nor changes the separate paged preview service.
