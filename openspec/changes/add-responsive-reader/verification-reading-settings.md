@@ -54,4 +54,14 @@ The fixtures use disposable documents and API responses. They do not establish
 physical iPhone/iPad, VoiceOver, native text-scaling, device rendering performance
 or real WASM diagnostic execution coverage. Reduced-transparency and increased-
 contrast treatments were reviewed in CSS; they were not separately emulated.
-No service installation, restart or deployment was performed.
+
+## Rollout deployment
+
+- Clean immutable release installed via `tools/flow-reader/install.py`:
+  `0f581f493f13db327c43805abc8d7c533c19120d-wasm-6a194fad0b95c8b4`.
+- Running service `typst-pde-reader` verified on port 23627 (PID 78210).
+- Local loopback and public Tailscale HTTPS endpoints confirmed serving redesigned
+  HTML and CSS (`reader-settings-group`, `reader-settings-status-card`, `reader-compute-section`).
+- Document compilation verified healthy (`contentGatePassed: true`, exit code 0,
+  67 canvases, 15 graphics, 171 decorations).
+- Detailed verification metadata recorded in `verification-reading-settings-rollout.json`.

@@ -437,3 +437,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Redesign the complete settings layout and material with primary typography/appearance controls and organized operational details, preserving existing actions and preference contracts.
 - [x] Connect responsive panel placement, keyboard dismissal and focus return to the final layout, retaining native controls and the older-browser fallback.
 - [x] Verify actual Chromium/WebKit interactions, narrow/large viewports, light/dark themes, text scaling, interruption and accessibility fallbacks; record checked and unverified scenarios in `verification-reading-settings.md`.
+- [x] Deploy clean immutable Reader release with redesigned reading settings, verify HTTPS/local delivery, and record rollout evidence.
