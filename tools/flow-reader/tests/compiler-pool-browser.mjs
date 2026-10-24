@@ -93,6 +93,18 @@ try {
       const errors = [];
       first.on("pageerror", (error) => errors.push(error.message));
       await first.goto(origin);
+      await first.waitForFunction(() => document.querySelector("#reader-compiler-enabled"));
+      assert.equal(await first.locator("#reader-compiler-enabled").isChecked(), false);
+      assert.equal(
+        (await status()).workers,
+        0,
+        "A fresh viewer does not offer compilation automatically",
+      );
+      await first.evaluate(() => {
+        const toggle = document.querySelector("#reader-compiler-enabled");
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event("change"));
+      });
       await until(status, (s) => s.workers === 1, "first Worker readiness");
       const before = await status();
       await writeFile(entry, `Shared browser output ${engine} $y^2$.\n`);
@@ -115,6 +127,12 @@ try {
       });
       second.on("pageerror", (error) => errors.push(error.message));
       await second.goto(origin);
+      assert.equal(await second.locator("#reader-compiler-enabled").isChecked(), false);
+      await second.evaluate(() => {
+        const toggle = document.querySelector("#reader-compiler-enabled");
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event("change"));
+      });
       await until(status, (s) => s.workers === 2, "second Worker readiness");
       // Hold the first result, terminate its page, then let the other device take its lease.
       let heldPage;

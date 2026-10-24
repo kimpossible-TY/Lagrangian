@@ -774,6 +774,11 @@ server-owned normalization, acceptance, source correspondence and final source w
 - **AND** late, duplicate or mismatched lease results cannot publish
 - **AND** all viewers continue to receive the same server-adopted revision
 
+#### Scenario: A new viewer has not offered compilation
+- **WHEN** the Reader opens without a saved enabled preference
+- **THEN** browser compilation remains disabled until the user explicitly enables it
+- **AND** previously saved true or false preferences retain their meaning
+
 #### Scenario: A compiler discovers another input
 - **WHEN** a task needs a file absent from its immutable input bundle
 - **THEN** it cannot read that file from a newer live workspace under the old task identity
