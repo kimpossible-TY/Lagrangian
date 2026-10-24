@@ -1,0 +1,106 @@
+{
+  "implementationCommit": "e75d534a9797c32982aac0fe2b5ec792eb37fc0b",
+  "physicalIPhone": {
+    "documentFailure": {
+      "id": "4919991d449f",
+      "at": 1792809029.112573,
+      "executor": "diagnostic",
+      "purpose": "document",
+      "status": "failed",
+      "device": {
+        "id": "7b8f7f48",
+        "name": "iPhone"
+      },
+      "stage": "device",
+      "snapshot": "20c7d191c756",
+      "termination": {
+        "status": "disconnected",
+        "reason": "heartbeat-lost",
+        "elapsedSeconds": 23.487
+      },
+      "reason": "device-did-not-finish",
+      "errorType": "ValueError",
+      "elapsedSeconds": 23.653
+    },
+    "userObserved": "white flash or automatic page reload",
+    "cause": "unconfirmed",
+    "newInstrumentationTestedOnIPhone": false
+  },
+  "validation": {
+    "pythonServiceTests": 237,
+    "optionalSkipped": 53,
+    "poolTests": 16,
+    "clientTests": 2,
+    "engines": [
+      "Chrome",
+      "desktop WebKit"
+    ],
+    "progressOrdering": true,
+    "reloadRecovery": true,
+    "checks": [
+      "ESLint zero warnings",
+      "Prettier",
+      "architecture",
+      "strict OpenSpec",
+      "docs generation",
+      "two Typst guides compiled"
+    ]
+  },
+  "delivery": {
+    "release": "e75d534a9797c32982aac0fe2b5ec792eb37fc0b-wasm-6a194fad0b95c8b4",
+    "runtimeFilesVerified": 581,
+    "acceptedRevision": "b20dd4033aa2ed748507fbb9eb665b5824804c424d67b1a080502b3aaa06144c",
+    "contentGatePassed": true,
+    "profilesPreserved": true,
+    "serviceSettingsPreserved": true
+  },
+  "liveRecovery": {
+    "event": {
+      "id": "98bdd31e9854",
+      "at": 1792809674.6765811,
+      "executor": "diagnostic",
+      "purpose": "quick",
+      "status": "failed",
+      "device": {
+        "id": "3f7fa935",
+        "name": "컴퓨터 브라우저"
+      },
+      "stage": "device",
+      "snapshot": "840d77f3104d",
+      "termination": {
+        "status": "disconnected",
+        "reason": "page-exit",
+        "elapsedSeconds": 0.524,
+        "lastProgress": {
+          "phase": "sending-result",
+          "phaseSequence": 7,
+          "wasmMemoryBytes": 20971520,
+          "roundTripMs": 27
+        },
+        "lastHeartbeatAgeSeconds": 0.013,
+        "phaseAgeSeconds": 0.013,
+        "heartbeatTimeoutSeconds": 8
+      },
+      "reason": "device-did-not-finish",
+      "errorType": "ValueError",
+      "elapsedSeconds": 0.525,
+      "recovery": {
+        "previousDevice": "3f7fa935",
+        "mode": "page-restart",
+        "reason": "page-exit",
+        "progress": {
+          "phase": "sending-result",
+          "phaseSequence": 7,
+          "wasmMemoryBytes": 20971520,
+          "roundTripMs": 5
+        },
+        "device": {
+          "id": "dca0bcc6",
+          "name": "컴퓨터 브라우저"
+        }
+      }
+    },
+    "text": "미통과 — 간단 검사: 페이지를 떠나거나 다시 불러와 계산을 중단했습니다. 마지막 단계: 결과 전송. 당시 WASM 할당 20.0MiB (최대값·기기 전체 메모리가 아님). 마지막 응답 이후 0.013초. 페이지가 다시 시작되어 재연결됐습니다. 자동·수동 새로고침 여부는 이 기록만으로 구분하지 못합니다.",
+    "publicationUnchanged": true
+  }
+}
