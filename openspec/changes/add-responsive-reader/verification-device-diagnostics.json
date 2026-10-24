@@ -14,9 +14,13 @@
       "passed": 4
     },
     "readerServices": {
-      "tests": 232,
+      "tests": 233,
       "skipped": 53,
       "result": "pass; optional unrelated compiler/editor prerequisites absent"
+    },
+    "dependencyRetirement": {
+      "tests": 1,
+      "passed": 1
     }
   },
   "browsers": {
@@ -39,7 +43,8 @@
       "pagehide reassignment",
       "competing edits",
       "highlight writes",
-      "dynamic rendering"
+      "dynamic rendering",
+      "obsolete installed dependency paths retired before browser adoption"
     ]
   },
   "checks": [
@@ -61,6 +66,69 @@
     "success": "Device result matches native reference from identical captured inputs; no fallback or publication"
   },
   "delivery": {
-    "status": "pending"
-  }
+    "release": "2c66e08ae6ecd82980f799153043186bd5c7ff95-wasm-6a194fad0b95c8b4",
+    "runtimeFilesVerified": 580,
+    "acceptedRevision": "020e07bfa33b2275a18a20374618523e4972be5afcff9634691cd8a841998103",
+    "contentGatePassed": true,
+    "profilesPreserved": true,
+    "serviceSettingsPreserved": true,
+    "routes": [
+      {
+        "origin": "http://127.0.0.1:23627",
+        "routesVerified": 5,
+        "statusEndpoint": true
+      },
+      {
+        "origin": "https://example-host.tailnet.ts.net:23627",
+        "routesVerified": 5,
+        "statusEndpoint": true
+      }
+    ],
+    "httpsManifestMatchesState": true
+  },
+  "actualPDEChromeChecks": [
+    {
+      "mode": "quick",
+      "text": "통과 — 간단 검사: 컴퓨터 브라우저 · 119a2892가 직접 계산했고 서버 기준 결과와 일치합니다. 기기 응답 0.252초.",
+      "event": {
+        "id": "ee02c5393660",
+        "at": 1792807947.2395148,
+        "executor": "diagnostic",
+        "purpose": "quick",
+        "status": "passed",
+        "device": {
+          "id": "119a2892",
+          "name": "컴퓨터 브라우저"
+        },
+        "stage": "complete",
+        "snapshot": "74280a5b51cd",
+        "deviceSeconds": 0.252,
+        "outputHash": "672a973e2ff4",
+        "elapsedSeconds": 0.264
+      },
+      "publicationUnchanged": true
+    },
+    {
+      "mode": "document",
+      "text": "통과 — 현재 문서 검사: 컴퓨터 브라우저 · 119a2892가 직접 계산했고 서버 기준 결과와 일치합니다. 기기 응답 19.835초.",
+      "event": {
+        "id": "9d209cd0c935",
+        "at": 1792807949.4225228,
+        "executor": "diagnostic",
+        "purpose": "document",
+        "status": "passed",
+        "device": {
+          "id": "119a2892",
+          "name": "컴퓨터 브라우저"
+        },
+        "stage": "complete",
+        "snapshot": "7bfde1c90fef",
+        "deviceSeconds": 19.835,
+        "outputHash": "38e9bcfa17b3",
+        "revision": "020e07bfa33b",
+        "elapsedSeconds": 41.014
+      },
+      "publicationUnchanged": true
+    }
+  ]
 }

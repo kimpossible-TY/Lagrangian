@@ -241,3 +241,13 @@ The expandable recent-work list distinguishes browser result receipt, server exe
 and final document publication. Names describe connections rather than authenticated
 hardware. History is bounded to 64 records and clears when the Reader service restarts.
 Physical-device results must be recorded separately from desktop Chrome/WebKit tests.
+
+The diagnostic rollout uses Reader commit 2c66e08a. It also retires obsolete
+dependency paths after a successful compiler discovery; retaining previous release
+package paths prevented portable snapshots after an update. The isolated upgrade
+fixture and device checks pass in Chrome and desktop WebKit. On the actual HTTPS PDE,
+Chrome's quick check passed in 0.252 seconds of device response, and the full document
+matched the native reference with 19.835 seconds of device response and 41.014 seconds
+total checking time. These are desktop measurements. Both checks left the accepted
+document unchanged. All 580 installed runtime hashes and the changed HTTP/HTTPS
+routes were verified. The physical iPhone check is awaiting the user's results.
