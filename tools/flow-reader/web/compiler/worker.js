@@ -2,12 +2,14 @@ import { SnapshotCompiler } from "./runtime.js";
 
 let compiler;
 let busy = false;
+let compilerOperation;
 globalThis.onmessage = async ({ data }) => {
   if (busy) {
     globalThis.postMessage({ id: data.id, error: "Compiler is busy" });
     return;
   }
   busy = true;
+  compilerOperation = data.id;
   try {
     if (data.type === "init") {
       const started = performance.now();
@@ -18,7 +20,9 @@ globalThis.onmessage = async ({ data }) => {
       const module = await import(moduleURL.href);
       await module.default({ module_or_path: wasmURL.href });
       compiler?.dispose();
-      compiler = new SnapshotCompiler(module, data.engine);
+      compiler = new SnapshotCompiler(module, data.engine, (progress) => {
+        globalThis.postMessage({ id: compilerOperation, type: "progress", ...progress });
+      });
       globalThis.postMessage({
         id: data.id,
         ready: true,

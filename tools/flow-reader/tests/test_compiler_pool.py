@@ -241,7 +241,55 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(event["status"], "failed")
         self.assertEqual(event["termination"]["reason"], "compile-error")
         self.assertEqual(event["termination"]["status"], "disconnected")
+        recovered = self.pool.register("engine", recovery={"previousDevice": event["device"]["id"],
+                                      "mode": "page-restart", "reason": "unreported",
+                                      "progress": {"phase": "evaluating", "wasmMemoryBytes": 1048576}})
+        updated = next(item for item in self.pool.status()["history"] if item["id"] == identifier)
+        self.assertEqual(updated["recovery"]["mode"], "page-restart")
+        self.assertEqual(updated["recovery"]["device"], recovered["device"])
+        self.assertEqual(updated["status"], "failed")
+        self.assertNotIn(recovered["worker"], json.dumps(updated))
         self.assertEqual(state.revision, "unchanged")
+
+    def test_silent_loss_preserves_last_phase_and_cannot_revive_expired_worker(self):
+        worker = self.worker()
+        outcome = {}
+        future = self.start(lambda: self.pool.execute(self.snapshot, 90, worker=worker, outcome=outcome))
+        self.pool.poll(worker)
+        self.pool.heartbeat(worker, {"phase": "files", "wasmMemoryBytes": 65536})
+        self.now += 2
+        self.pool.heartbeat(worker, {"phase": "evaluating", "wasmMemoryBytes": 1048576})
+        self.now += 1
+        self.pool.heartbeat(worker, {"phase": "evaluating", "wasmMemoryBytes": 1048576,
+                                    "roundTripMs": 120, "timerLagMs": 5, "private": "discard"})
+        self.now += 4
+        with self.assertRaisesRegex(ValueError, "expired"):
+            self.pool.heartbeat(worker, {"phase": "output"})
+        with self.pool.condition:
+            self.pool.condition.notify_all()
+        self.assertIsNone(future.result(2))
+        self.assertEqual(outcome["reason"], "heartbeat-lost")
+        self.assertEqual(outcome["lastHeartbeatAgeSeconds"], 4)
+        self.assertEqual(outcome["phaseAgeSeconds"], 5)
+        self.assertEqual(outcome["lastProgress"], {"phase": "evaluating", "wasmMemoryBytes": 1048576,
+                                                   "roundTripMs": 120, "timerLagMs": 5})
+        self.assertNotIn("private", json.dumps(self.pool.status()))
+
+    def test_progress_and_recovery_are_bounded_and_optional(self):
+        worker = self.worker()
+        for bad in ([], {"phase": []}, {"phase": "unknown"}, {"phase": "files", "wasmMemoryBytes": -1},
+                    {"phase": "files", "wasmMemoryBytes": 2 ** 32 + 1},
+                    {"phase": "files", "roundTripMs": True}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.pool.heartbeat(worker, bad)
+        for bad in ([], {"previousDevice": "private/path", "mode": "page-restart", "reason": "unreported"},
+                    {"previousDevice": "12345678", "mode": [], "reason": "unreported"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.pool.register("engine", recovery=bad)
+        self.pool.heartbeat(worker)
+        self.pool.heartbeat(worker, {"phase": "output", "phaseSequence": 3})
+        self.pool.heartbeat(worker, {"phase": "files", "phaseSequence": 2})
+        self.assertEqual(self.pool.status()["workers"][0]["lastProgress"]["phase"], "output")
 
     def test_http_registration_task_delivery_and_result_guards(self):
         state = SimpleNamespace(compiler_pool=self.pool, compiler_assets=None)

@@ -404,3 +404,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Record bounded termination causes, propagate pinned outcomes, and show Korean explanations.
 - [x] Verify release, silent heartbeat loss and browser lifecycle behavior; deploy and verify installed delivery.
+
+## Silent device loss follow-up
+
+- [x] Retain bounded worker phase, WASM allocation and heartbeat timing in pinned outcomes.
+- [x] Correlate optional tab-local recovery and render copyable failure evidence.
+- [ ] Test timing, telemetry bounds, storage failure, page restart and actual worker messages; deploy immutable delivery.

@@ -88,3 +88,8 @@ and pinned leases. compiler/diagnostics.py compares explicit device checks again
 native execution of identical immutable inputs without publication.
 web/compiler/diagnostics.js presents readiness, results and recovery in reading
 settings. Raw completion and server adoption remain distinct events.
+
+Device diagnosis also retains the latest bounded worker phase and heartbeat timing.
+client.js owns optional tab-local public-identity checkpoints; the pool correlates
+client-reported recovery with recent pinned failures. Runtime phase observations
+do not transfer publication authority or expose source bodies.

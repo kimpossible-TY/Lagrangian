@@ -13,8 +13,8 @@ async function decode(file) {
 }
 
 export class SnapshotCompiler {
-  constructor(module, engine) {
-    Object.assign(this, { module, engine });
+  constructor(module, engine, progress = () => {}) {
+    Object.assign(this, { module, engine, progress });
     this.files = new Map();
     this.compiler = null;
     this.fonts = null;
@@ -39,6 +39,7 @@ export class SnapshotCompiler {
       bytes += (file.data.length * 3) / 4;
       if (bytes > MAX_BYTES) throw new Error("Compiler input byte limit exceeded");
     }
+    this.progress({ phase: "fonts", wasmMemoryBytes: this.module.memory_bytes() });
     const fonts = JSON.stringify(snapshot.fonts.map((file) => [file.path, file.sha256]));
     if (fonts !== this.fonts) {
       this.compiler?.free();
@@ -48,6 +49,7 @@ export class SnapshotCompiler {
       for (const font of snapshot.fonts) this.compiler.add_font(await decode(font));
       this.fonts = fonts;
     }
+    this.progress({ phase: "files", wasmMemoryBytes: this.module.memory_bytes() });
     const wanted = new Set();
     for (const file of snapshot.files) {
       if (typeof file.path !== "string" || wanted.has(file.path))
@@ -64,6 +66,7 @@ export class SnapshotCompiler {
       }
     }
     const prepared = performance.now();
+    this.progress({ phase: "evaluating", wasmMemoryBytes: this.module.memory_bytes() });
     const result = this.compiler.compile(
       snapshot.entry,
       snapshot.target,
@@ -71,6 +74,7 @@ export class SnapshotCompiler {
       BigInt(snapshot.timestamp),
     );
     try {
+      this.progress({ phase: "output", wasmMemoryBytes: this.module.memory_bytes() });
       return {
         identity: snapshot.identity,
         returncode: result.ok() ? 0 : 1,

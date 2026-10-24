@@ -119,6 +119,9 @@ try {
         assert.equal(check.purpose, mode);
         assert.equal(check.status, "passed", JSON.stringify(check));
         assert.ok(check.outputHash);
+        const execution = diagnostics.history.find((item) => item.purpose === `test-${mode}`);
+        assert.equal(execution.lastProgress.phase, "sending-result");
+        assert.ok(execution.lastProgress.wasmMemoryBytes > 0);
         assert.equal(
           (await status()).revision,
           initialRevision,
@@ -126,6 +129,35 @@ try {
         );
         await first.screenshot({ path: join(evidence, `${engine}-${mode}-diagnostic.png`) });
       }
+      // Reload recovery keeps the pinned failure and adds the previous tab checkpoint.
+      let heldResult;
+      let resultReady;
+      const resultHeld = new Promise((resolve) => {
+        resultReady = resolve;
+      });
+      await first.route("**/api/compiler/result", (route) => {
+        heldResult = route;
+        resultReady();
+      });
+      await first.locator('[data-diagnostic="quick"]').click();
+      await resultHeld;
+      await first.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+      await heldResult.abort().catch(() => {});
+      await first.unroute("**/api/compiler/result");
+      await first.reload();
+      await until(status, (s) => s.workers === 1, "reloaded Worker readiness");
+      const recovered = await fetch(origin + "/api/compiler/status").then((r) => r.json());
+      const interrupted = recovered.history.find((item) => item.executor === "diagnostic");
+      assert.equal(interrupted.status, "failed");
+      assert.equal(interrupted.recovery.mode, "page-restart");
+      assert.equal(interrupted.recovery.progress.phase, "sending-result");
+      await first.locator("#reader-appearance-open").click();
+      await first.locator("#reader-compiler-diagnostics > summary").click();
+      await first.waitForFunction(() =>
+        document
+          .querySelector("#reader-diagnostic-result")
+          .textContent.includes("페이지가 다시 시작"),
+      );
       await first.locator(".reader-appearance-close").click();
       const before = await status();
       await writeFile(entry, `Shared browser output ${engine} $y^2$.\n`);

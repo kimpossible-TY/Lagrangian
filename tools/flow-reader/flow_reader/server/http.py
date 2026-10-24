@@ -46,7 +46,8 @@ def handler_for(state):
                     if not compiler_pool:
                         return self.respond(b"Browser compilation is disabled", "text/plain", 503)
                     if path == "/api/compiler/register":
-                        result = compiler_pool.register(request.get("engine"), request.get("name", "Browser"))
+                        result = compiler_pool.register(request.get("engine"), request.get("name", "Browser"),
+                                                        request.get("recovery"))
                     else:
                         worker = request.get("worker")
                         if not isinstance(worker, str) or len(worker) > 128:
@@ -56,7 +57,7 @@ def handler_for(state):
                         elif path == "/api/compiler/poll":
                             result = {"task": compiler_pool.poll(worker)}
                         elif path == "/api/compiler/heartbeat":
-                            compiler_pool.heartbeat(worker)
+                            compiler_pool.heartbeat(worker, request.get("progress"))
                             result = {"ok": True}
                         elif path == "/api/compiler/release":
                             compiler_pool.release(worker, request.get("reason", "released"))
