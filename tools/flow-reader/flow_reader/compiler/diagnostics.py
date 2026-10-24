@@ -11,7 +11,7 @@ from flow_reader.compiler.audit import normalize_content
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.execution import CompileRequest, local_compile
 from flow_reader.compiler.inputs import source_signature
-from flow_reader.compiler.snapshot import capture_snapshot
+from flow_reader.compiler.snapshot import capture_snapshot, SnapshotUnavailable
 
 
 def reference_compile(snapshot, compiler):
@@ -106,9 +106,10 @@ class CompilerDiagnostics:
         except Exception as error:
             known = {"device-not-ready", "document-not-ready", "source-changed", "device-did-not-finish",
                      "reference-failed", "output-mismatch", "content-rejected"}
-            reason = str(error) if str(error) in known else "check-failed"
+            reason = ("snapshot-unavailable" if isinstance(error, SnapshotUnavailable) else
+                      str(error) if str(error) in known else "check-failed")
             with pool.condition:
-                event.update(status="failed", reason=reason)
+                event.update(status="failed", reason=reason, errorType=type(error).__name__)
         finally:
             with pool.condition:
                 event["elapsedSeconds"] = round(time.monotonic() - started, 3)

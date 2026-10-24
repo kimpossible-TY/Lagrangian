@@ -1,4 +1,5 @@
 const reasons = {
+  "snapshot-unavailable": "기기에 보낼 문서 입력을 준비하지 못했습니다. 결과를 복사해 알려 주세요.",
   "device-not-ready": "이 기기가 준비되지 않았거나 다른 계산 중입니다. 잠시 후 다시 눌러 주세요.",
   "test-already-running": "다른 검사가 진행 중입니다. 완료 후 다시 눌러 주세요.",
   "document-not-ready": "문서 컴파일이 끝난 뒤 다시 검사해 주세요.",

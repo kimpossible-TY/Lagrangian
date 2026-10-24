@@ -397,3 +397,5 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Implement simple and current-document checks with immutable native-reference comparison and Korean result/recovery UI.
 - [x] Verify lease isolation, disconnects, output mismatch and unchanged publication in Python and actual Chromium/WebKit fixtures.
 - [ ] Deploy the immutable Reader, verify HTTPS delivery, and provide physical iPhone steps and expected results. Physical iPhone outcomes remain user-supplied evidence.
+
+- [x] Retire obsolete dependency paths after successful discovery and cover an installed-release transition before browser adoption.
