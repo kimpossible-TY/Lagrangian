@@ -431,3 +431,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Verify history lifetime and full-history equivalence for output, warnings/errors and tracing across converging and nonconverging fixtures.
 - [x] Build native/WASM consumers, run warning-free checks and compare frozen PDE Worker output, timing and memory against the baseline.
 - [x] Document measured effects, ownership and remaining physical-device limitations.
+
+## Reading settings redesign
+
+- [x] Redesign the complete settings layout and material with primary typography/appearance controls and organized operational details, preserving existing actions and preference contracts.
+- [x] Connect responsive panel placement, keyboard dismissal and focus return to the final layout, retaining native controls and the older-browser fallback.
+- [x] Verify actual Chromium/WebKit interactions, narrow/large viewports, light/dark themes, text scaling, interruption and accessibility fallbacks; record checked and unverified scenarios in `verification-reading-settings.md`.

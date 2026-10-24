@@ -562,6 +562,24 @@ content, quotations, mathematical structure and reading position.
 - **AND** removing a paint value or changing it to none, a resource URL or currentColor preserves the resulting authored cascade
 - **AND** subsequent appearance changes and clones retain the edited source without drift or observer feedback
 
+### Requirement: Reading settings hierarchy and responsive access
+The HTML Reader SHALL present theme previews and font controls together before
+operational settings, with separate offline/highlight status and device-computation
+groups. Existing preferences and actions SHALL retain their meaning.
+
+#### Scenario: Find reading controls before operational details
+- **WHEN** a reader opens reading settings
+- **THEN** appearance and font size are available in the first group
+- **AND** an available shell-update action, offline reading and highlight request status remain accessible below it
+- **AND** the Low/High range and current computation scope remain available, with diagnostics and connection history in native disclosures
+
+#### Scenario: Resize or enlarge settings text
+- **WHEN** the panel is opened or resized on a narrow, landscape or large viewport, including with 200% text sizing
+- **THEN** its preferred CSS width is bounded to the visual viewport and all controls remain reachable through vertical scrolling
+- **AND** expanded diagnostic actions and their content do not require horizontal panning or conceal controls beyond the panel edge
+- **AND** native popover and fallback placement use the same viewport/trigger relationship
+- **AND** Escape or the close button returns focus to the settings trigger without moving the reading document
+
 ### Requirement: Explicit Save for Codex context
 The HTML Reader SHALL replace the former local quotation library with Save for Codex. An explicit action SHALL atomically save the service's latest bounded selection on the preview host, with document identity, rendered and accepted revisions, viewer and process identity, logical HTML endpoints, exact text and verified source context where available. Saving SHALL neither compile nor edit source nor send a Codex message.
 

@@ -68,35 +68,6 @@
         control.dispatchEvent(new Event("change", { bubbles: true }));
       });
     }
-    const positionPanel = () => {
-      const bounds = trigger.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const left = viewport?.offsetLeft ?? 0;
-      const top = viewport?.offsetTop ?? 0;
-      const width = viewport?.width ?? document.documentElement.clientWidth;
-      const height = viewport?.height ?? window.innerHeight;
-      const panelWidth = Math.min(320, width - 24);
-      const panelTop = Math.max(top + 12, bounds.bottom + 8);
-      panel.style.width = `${panelWidth}px`;
-      panel.style.left = `${Math.max(left + 12, Math.min(bounds.right - panelWidth, left + width - panelWidth - 12))}px`;
-      panel.style.top = `${panelTop}px`;
-      panel.style.maxHeight = `${Math.max(0, top + height - panelTop - 12)}px`;
-    };
-    panel.addEventListener("beforetoggle", (event) => {
-      trigger.setAttribute("aria-expanded", String(event.newState === "open"));
-      if (event.newState === "open") positionPanel();
-    });
-    const reposition = () => {
-      if (panel.matches(":popover-open")) positionPanel();
-    };
-    window.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("scroll", reposition);
-    // Text zoom and toolbar changes can move the anchor without a window resize.
-    if (typeof ResizeObserver === "function") {
-      const observer = new ResizeObserver(reposition);
-      observer.observe(trigger.closest(".reader-toolbar"));
-    }
     updateAppearance();
     control.hidden = true;
     panel.hidden = false;
