@@ -67,7 +67,7 @@ const browserCompiler = new BrowserCompilerClient({
     }[state];
   },
 });
-compilerToggle.checked = preferences.read("compiler-enabled") !== false;
+compilerToggle.checked = preferences.read("compiler-enabled") === true;
 compilerToggle.addEventListener("change", () => {
   preferences.write("compiler-enabled", compilerToggle.checked);
   browserCompiler.setEnabled(compilerToggle.checked);
