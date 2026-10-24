@@ -1,0 +1,107 @@
+{
+  "implementationCommits": [
+    "d1b4751eabe0fbca7e103c471def78884e741f23",
+    "46c78df181fe8b240932c417329a0a19e9215715"
+  ],
+  "physicalIPhone": {
+    "failedCheck": {
+      "id": "d44c99fc5bbb",
+      "at": 1792809820.7860239,
+      "executor": "diagnostic",
+      "purpose": "document",
+      "status": "failed",
+      "device": {
+        "id": "6827a28b",
+        "name": "iPhone"
+      },
+      "stage": "device",
+      "snapshot": "69c3097c48fe",
+      "termination": {
+        "status": "disconnected",
+        "reason": "heartbeat-lost",
+        "elapsedSeconds": 24.806,
+        "lastHeartbeatAgeSeconds": 8.357,
+        "heartbeatTimeoutSeconds": 8
+      },
+      "reason": "device-did-not-finish",
+      "errorType": "ValueError",
+      "elapsedSeconds": 24.983
+    },
+    "evidence": "Legacy execution: preceding quick check completed without progress; subsequent connection had ready-phase telemetry.",
+    "newDiagnosticVersionOnIPhone": "awaiting user cache migration; no full-document success claimed"
+  },
+  "verification": {
+    "serviceWorkerUpgradeEngines": [
+      "Chrome",
+      "desktop WebKit"
+    ],
+    "legacyReloadReproduced": true,
+    "explicitUpdatePreservesSelection": true,
+    "offlineRestartAfterUpdate": true,
+    "productionReaderOfflineEngines": [
+      "Chrome",
+      "desktop WebKit"
+    ],
+    "compilerPoolBrowserEngines": [
+      "Chrome",
+      "desktop WebKit"
+    ],
+    "pythonServices": 238,
+    "optionalSkipped": 53,
+    "executionTests": 8,
+    "sourceMappingTestsWithTypstPackages": 15,
+    "offlineNodeTests": 8,
+    "checks": [
+      "Reader ESLint zero warnings",
+      "Prettier",
+      "architecture",
+      "strict OpenSpec",
+      "docs generation",
+      "two Typst guide compiles"
+    ]
+  },
+  "nativeRecovery": {
+    "isolatedOneJobProbe": {
+      "exitCode": 0,
+      "contentGatePassed": true,
+      "elapsedSeconds": 58.446,
+      "revision": "7f1a3fd62c01def89717c86406b4444a9cf643c3d0bc37c4d350a9ab1a21895f",
+      "totalSeconds": 58.499793584000145
+    },
+    "firstAttempt": "240-second readiness rollback",
+    "secondAttempt": "native default-parallel invocations repeatedly exceeded 90 seconds; deployment waiter interrupted before bounded-native retry",
+    "finalTimeoutPolicy": "Per-invocation deadlines unchanged; readiness verification allows up to 900 seconds"
+  },
+  "delivery": {
+    "release": "46c78df181fe8b240932c417329a0a19e9215715-wasm-6a194fad0b95c8b4",
+    "runtimeFilesVerified": 582,
+    "acceptedRevision": "3a168ed2a61da09e2b38be8c4e96b6e2882b6378dfe05d580599f26187441c23",
+    "contentGatePassed": true,
+    "profilesPreserved": true,
+    "serviceSettingsPreserved": true
+  },
+  "actualHTTPS": {
+    "identity": "이 기기: 컴퓨터 브라우저 · c2aeaea4 · 진단 1",
+    "quick": {
+      "id": "ce9df96c8c62",
+      "at": 1792811589.728211,
+      "executor": "diagnostic",
+      "purpose": "quick",
+      "status": "passed",
+      "device": {
+        "id": "c2aeaea4",
+        "name": "컴퓨터 브라우저",
+        "diagnosticsVersion": 1
+      },
+      "stage": "complete",
+      "snapshot": "c346edf43868",
+      "deviceSeconds": 0.189,
+      "outputHash": "57c516dbb112",
+      "elapsedSeconds": 0.332
+    },
+    "legacyRejected": "client-update-required",
+    "publicationUnchanged": true
+  },
+  "sourceMappingStatus": "partial; source actions retain existing freshness and verified-range guards",
+  "legacyProductionMigrationAttempt": "Cached legacy reload reproduced; subsequent readiness assertion hit 90-second bound while native startup was incomplete. Close/reopen path was verified in isolated real Service Worker tests; installed fresh version and rejection were verified over HTTPS."
+}
