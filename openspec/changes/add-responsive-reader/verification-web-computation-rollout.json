@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-24",
+  "version": "0.1.32",
+  "sourceRevision": "e300473833f0f499ec8463df5d915e83f5dbafea",
+  "sourceDirty": false,
+  "appSigningCertificateSHA256": "1de2d9bd2a9497ff7fd686977fd969ba5b245cef295555af147c4b6eec35ddf5",
+  "engineSHA256": "e0e7164a869b89403ef7947796b1e07b157da42edafc0660330527eaca1cfb2f",
+  "existingNativeEnginePreserved": true,
+  "readerRelease": "e300473833f0f499ec8463df5d915e83f5dbafea-wasm-6a194fad0b95c8b4",
+  "browserCompiler": "6a194fad0b95c8b456b7ba237a45c61e66d21fdf7b946e86e05e49d9409b7f2c",
+  "browserCompilationOptIn": true,
+  "extraFontFiles": 4,
+  "parentProfileBytesPreserved": true,
+  "signingConfigurationBytesPreserved": true,
+  "serviceRunning": {
+    "typst-pde": true,
+    "typst-ewald": false,
+    "typst-pde-reader": true
+  },
+  "sourceSequence": 130,
+  "authoredSourceHistoryPreserved": true,
+  "preflight": {
+    "contentGatePassed": true,
+    "sourceMapCount": 3434,
+    "sourceNavigationMapCount": 307,
+    "textMatchesInstalled": true,
+    "elapsedSeconds": 86.38134441700095,
+    "sourceFingerprint": "01d112c53ce4018df0495f83b10b4cf6399a209120b5f739ca90b7646e77b08a",
+    "compilerLossWarnings": []
+  },
+  "installed": {
+    "revision": "8c8dde44b9045ff9794391a90a44f632ed92e6f089f173d9a4bc49aefbaf0225",
+    "contentGatePassed": true,
+    "immutableFiles": 577,
+    "assetRoutesPerOrigin": 68,
+    "localAndRegisteredHttpsBytesAgree": true,
+    "documentHash": "b10951c51dab8043b9706d4f9a71bc03e9978bbb4fad950b430f9055ba431c0d",
+    "documentBytes": 8985168
+  },
+  "browsers": [
+    {
+      "engine": "chromium",
+      "httpsAccepted": true,
+      "completeOfflineSnapshot": true,
+      "initialCompilerDisabled": true,
+      "workerRegistered": true,
+      "workerDisabledAfterCheck": true,
+      "offlineReload": true,
+      "bounds": {
+        "body": 390,
+        "viewport": 390
+      },
+      "pageErrors": []
+    },
+    {
+      "engine": "webkit",
+      "httpsAccepted": true,
+      "completeOfflineSnapshot": true,
+      "initialCompilerDisabled": true,
+      "workerRegistered": true,
+      "workerDisabledAfterCheck": true,
+      "offlineReload": false,
+      "bounds": {
+        "body": 390,
+        "viewport": 390
+      },
+      "pageErrors": []
+    }
+  ],
+  "pagedDocumentFrames": {
+    "light": {
+      "bytes": 18376664,
+      "hash": "5a4bbdfc7b7708f5ebe325a2075ce4cc607ca6fab4c766d2ef23d5ba1dd7148f",
+      "kind": "new"
+    },
+    "dark": {
+      "bytes": 18432752,
+      "hash": "95cff947797338912dc78a99e84a87b8d5742aef0c6d3bd2de712e2f34a48bec",
+      "kind": "new"
+    }
+  },
+  "checks": {
+    "readerManager": 15,
+    "isolatedInstaller": 1,
+    "nativeAppSuite": 83,
+    "nativeAppOptionalSigningSkipCoveredBySeparateSignedRun": true,
+    "signedBundleChecks": 3,
+    "compilerPoolBrowsers": ["Chrome", "WebKit"]
+  },
+  "recovery": "Original and pre-correction configuration/launcher snapshots, signed app backups, receipts and screenshots under dist/web-computation-rollout; immutable prior Reader releases retained",
+  "coverageLimits": [
+    "Desktop Chrome/WebKit; no physical iPhone",
+    "Actual PDE offline reload checked in Chrome; WebKit actual PDE cache and online rendering checked",
+    "Production verification did not edit source or submit a highlight"
+  ]
+}

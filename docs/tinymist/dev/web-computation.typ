@@ -165,3 +165,39 @@ build, documentation checks and strict OpenSpec validation passed. Installation 
 used a temporary clean commit and verified every allowlisted module in the archived
 HTTP layout; no user service was installed or restarted. The measurement JSON retains
 the immutable benchmark corpus identity separately from these integration checks.
+
+= Managed rollout (2026-10-24)
+
+Flow `0.1.32` and its immutable HTML Reader are installed from clean commit
+`e3004738`, with compiler identity `6a194fad0b95c8b4`. The existing compatible
+native engine, signing certificate and designated requirement are retained. The
+menu-bar app is relaunched, and its bundled PDF includes the offline/device-compute
+instructions. Browser participation requires a saved true preference or an explicit
+toggle; a fresh viewer does not register a compiler automatically.
+
+Reader-only supplementary fonts supply the four installed Arial variants alongside
+the inherited project fonts. The isolated actual PDE preflight passes the content
+gate with unchanged textual content, 3,434 source correspondences and 307 navigation
+ranges. Its authored source files and common edit sequence 130 remain unchanged.
+Project/signing configuration bytes are preserved. PDE and Reader resume running;
+Ewald remains stopped. Both focus records were empty before installation and remain
+empty; verification does not create a selection or modify source.
+
+All 577 immutable runtime files match their hashes. The 68 first-party/compiler
+routes and accepted HTML match disk bytes over loopback and the registered HTTPS
+origin. Chrome and desktop WebKit each confirm accepted PDE rendering, a complete
+offline snapshot, default-disabled browser computation, explicit WASM Worker readiness
+and no horizontal page overflow or page errors. Chrome additionally passes actual
+PDE offline reload and reconnect. WebKit's actual PDE offline reload and physical
+iPhone behavior are not claimed. The original paged service delivers complete light
+and dark document frames through its configured-origin protocol.
+
+The rollout runs 15 Reader manager tests, the isolated immutable installer test and
+83 native app tests. The native suite's optional persistent-signing case is covered
+by a separate three-test run with the configured certificate. The opt-in compiler
+pool regression passes in Chrome and WebKit. Deployment receipts, pre-install and
+pre-correction configuration/launcher snapshots, screenshots and signed app outputs
+are in `dist/web-computation-rollout/`; previous app bundles and immutable Reader
+releases remain available. The tracked rollout verification JSON records identities,
+checks and coverage limits. Existing reader tabs should reload once to adopt the
+updated app shell.
