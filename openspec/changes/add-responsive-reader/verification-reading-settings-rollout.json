@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-24",
+  "sourceRevision": "0f581f493f13db327c43805abc8d7c533c19120d",
+  "commitSubject": "feat(reader): redesign reading settings",
+  "serviceId": "typst-pde-reader",
+  "parentProfile": "typst-pde",
+  "readerRelease": "0f581f493f13db327c43805abc8d7c533c19120d-wasm-6a194fad0b95c8b4",
+  "browserCompilerAssetHash": "6a194fad0b95c8b4",
+  "port": 23627,
+  "publicURL": "https://kimtaeyoungs-macbook-air-daemon.tail8adc61.ts.net:23627/",
+  "localURL": "http://127.0.0.1:23627/",
+  "serviceRunning": {
+    "typst-pde-reader": true,
+    "pid": 78210,
+    "managedByApp": true
+  },
+  "preflight": {
+    "exitCode": 0,
+    "contentGatePassed": true,
+    "unsupported": {},
+    "compilerLossWarnings": [],
+    "elapsedSeconds": 38.271,
+    "documentID": "ad6c30a51d2a7b3145fa4492",
+    "compiling": false,
+    "canvasesCount": 67,
+    "graphicsCount": 15,
+    "decorationsCount": 171
+  },
+  "endpointDelivery": {
+    "localHttpAccepted": true,
+    "httpsAccepted": true,
+    "redesignedMarkupDelivered": true,
+    "verifiedClasses": [
+      "reader-settings-group",
+      "reader-settings-status-card",
+      "reader-compute-section"
+    ]
+  },
+  "preservedState": {
+    "focusPreserved": true,
+    "backupDirectory": "dist/reader-settings-rollout-backup",
+    "untrackedAssetsPreserved": true,
+    "priorReleasesPreserved": true
+  }
+}
