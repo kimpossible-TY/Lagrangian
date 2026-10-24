@@ -389,4 +389,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 ## Default-enabled browser computation
 
 - [x] Enable compilation for new viewers, preserve saved false/true preferences and verify both browsers' worker lifecycle.
-- [ ] Update the guide and deploy a clean immutable Reader plus signed Flow 0.1.33, preserving settings and service states; verify actual HTTPS defaults and document delivery.
+- [x] Update the guide and deploy a clean immutable Reader plus signed Flow 0.1.33, preserving settings and service states; verify actual HTTPS defaults and document delivery.

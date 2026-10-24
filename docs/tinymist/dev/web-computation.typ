@@ -202,3 +202,21 @@ are in `dist/web-computation-rollout/`; previous app bundles and immutable Reade
 releases remain available. The tracked rollout verification JSON records identities,
 checks and coverage limits. Existing reader tabs should reload once to adopt the
 updated app shell.
+
+== Default-enabled update
+
+At the user's request, Flow `0.1.33` and Reader commit `8ffcbd29` enable browser
+participation for viewers without a saved choice. Explicit viewer true/false choices
+survive reloads. Older document-scoped choices are restored before Worker registration
+when no newer viewer choice exists, fixing their previous reload behavior. Capacity
+still requires the accepted document, a visible page and a connection.
+
+Chrome and desktop WebKit pass isolated compiler-pool checks for automatic readiness,
+legacy disabled-choice recovery, saved choices and the existing compilation/lifecycle
+contracts. The actual HTTPS Reader confirms automatic registration and saved false/true
+across reloads in both engines. All 577 runtime hashes and 68 asset routes per origin
+match; the accepted PDE and original paged light/dark document frames are delivered.
+Project/signing settings, source sequence 130 and previous running/stopped services are
+preserved. The signed app and bundled guide are updated and the menu-bar app is
+relaunched. Physical iPhone behavior remains unmeasured. Receipts and recovery snapshots
+are in `dist/default-on-rollout/`.
