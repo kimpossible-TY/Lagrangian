@@ -145,12 +145,13 @@ class ReaderState:
                 before = source_signature(self.project, self.dependencies)
                 report = compile_project(self.project, self.output)
                 discovered = set(report.get("dependencies", []))
-                new_dependencies = discovered - self.dependencies
-                self.dependencies.update(discovered)
-                if new_dependencies and report["exitCode"] == 0:
-                    # Discover the dependency graph once, then compile against a
-                    # measured before/after snapshot of every newly found input.
+                if report["exitCode"] == 0 and discovered != self.dependencies:
+                    # A successful compiler owns the complete dependency graph.
+                    # Retire removed imports and paths from previous installed
+                    # releases before capturing portable browser snapshots.
+                    self.dependencies = discovered
                     continue
+                self.dependencies.update(discovered)
                 after = source_signature(self.project, self.dependencies)
                 self.watch_stamp = before
                 if before != after:

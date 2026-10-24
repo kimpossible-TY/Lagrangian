@@ -26,9 +26,12 @@ from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
 root = Path(sys.argv[1])
 project = Project(root, Path('main.typ'), Path(os.environ['FLOW_READER_PACKAGES']))
+(root / 'output').mkdir()
+(root / 'output/report.json').write_text(json.dumps(dict(dependencies=[str(root.parent / 'retired-release/package.typ')])))
 state = ReaderState(project, root / 'output', '', False, browser_compiler=sys.argv[2])
 state.compile()
 assert state.revision, state.report
+assert str(root.parent / 'retired-release/package.typ') not in state.accepted_dependencies
 class Handler(handler_for(state)):
     def do_GET(self):
         if self.path == '/test/status':

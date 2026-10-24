@@ -1201,3 +1201,8 @@ records; server restart clears history and the UI asks for another test. Display
 names as text. Exclude source bodies, host paths and authorization tokens from status.
 Desktop browser evidence does not claim physical iPhone coverage; the user performs
 the same two buttons on the actual device.
+
+A managed-release regression retained dependencies from the previous runtime forever.
+After a successful compile, replace the discovered dependency set and measure another
+compile against it; failed compilation retains previous watch inputs. This prevents
+retired package paths from making all portable snapshots unrepresentable after updates.
