@@ -409,4 +409,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Retain bounded worker phase, WASM allocation and heartbeat timing in pinned outcomes.
 - [x] Correlate optional tab-local recovery and render copyable failure evidence.
-- [ ] Test timing, telemetry bounds, storage failure, page restart and actual worker messages; deploy immutable delivery.
+- [x] Test timing, telemetry bounds, storage failure, page restart and actual worker messages; deploy immutable delivery.
