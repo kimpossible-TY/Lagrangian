@@ -181,3 +181,5 @@ small-document and current-document checks pinned to the requesting browser. Com
 its output with a native reference using the same captured bytes; fallback never counts
 as device-test success. Provide Korean progress, recovery instructions and copyable
 results for physical iPhone verification. Deploy through the existing Flow Reader service.
+
+Record explicit browser termination signals and distinguish unreported heartbeat loss from deadlines.

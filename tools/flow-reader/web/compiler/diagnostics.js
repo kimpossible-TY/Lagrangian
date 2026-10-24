@@ -1,17 +1,45 @@
+const terminationReasons = {
+  "page-hidden":
+    "화면이 백그라운드로 전환되어 계산을 중단했습니다. 앱 전환·화면 잠금은 구분할 수 없습니다.",
+  "page-exit": "페이지를 떠나거나 다시 불러와 계산을 중단했습니다.",
+  offline: "브라우저가 오프라인 상태를 감지했습니다.",
+  disabled: "이 기기 계산 돕기를 꺼서 중단했습니다.",
+  disposed: "Reader가 계산 연결을 정리했습니다.",
+  "transport-error":
+    "서버 통신 요청에 실패했습니다. 네트워크 단절과 서버 응답 오류는 추가 확인이 필요합니다.",
+  "worker-error": "계산 Worker에서 오류가 발생했습니다. 메모리 부족 여부는 확인되지 않았습니다.",
+  "compile-error": "기기 컴파일러가 계산 오류를 보고했습니다.",
+  "client-timeout": "기기 계산의 제한 시간이 지났습니다.",
+  "heartbeat-lost":
+    "기기의 주기적 응답이 끊겼습니다. 브라우저 종료·네트워크·메모리 부족 중 원인은 확인되지 않았습니다.",
+  released: "기기가 연결을 종료했습니다. 상세 원인은 보고되지 않았습니다.",
+};
+function terminationText(event) {
+  const end = event.termination;
+  if (!end) return "";
+  return (
+    terminationReasons[end.reason] ||
+    (end.status === "timeout"
+      ? "검사 제한 시간이 지났습니다."
+      : end.status === "invalid-result"
+        ? "서버가 기기 계산 결과를 거절했습니다."
+        : "계산 연결이 종료됐으나 상세 원인은 확인되지 않았습니다.")
+  );
+}
 const reasons = {
   "snapshot-unavailable": "기기에 보낼 문서 입력을 준비하지 못했습니다. 결과를 복사해 알려 주세요.",
   "device-not-ready": "이 기기가 준비되지 않았거나 다른 계산 중입니다. 잠시 후 다시 눌러 주세요.",
   "test-already-running": "다른 검사가 진행 중입니다. 완료 후 다시 눌러 주세요.",
   "document-not-ready": "문서 컴파일이 끝난 뒤 다시 검사해 주세요.",
   "source-changed": "검사 중 문서가 바뀌었습니다. 편집을 멈춘 뒤 다시 검사해 주세요.",
-  "device-did-not-finish":
-    "기기가 제한 시간 안에 결과를 보내지 못했습니다. 이 화면을 열어 두고 다시 검사해 주세요.",
+  "device-did-not-finish": "기기 계산 결과를 받지 못했습니다. 종료 기록을 복사해 알려 주세요.",
   "reference-failed": "서버 기준 결과를 만들지 못했습니다. 결과를 복사해 알려 주세요.",
   "output-mismatch": "기기와 서버의 결과가 달랐습니다. 결과를 복사해 알려 주세요.",
   "content-rejected": "문서 내용 검증을 통과하지 못했습니다. 결과를 복사해 알려 주세요.",
   "check-failed": "검사를 완료하지 못했습니다. 결과를 복사해 알려 주세요.",
 };
 const purposes = {
+  connection: "계산 연결",
   "dynamic-warm": "그림 계산 준비",
   quick: "간단 검사",
   document: "문서",
@@ -69,7 +97,7 @@ export function compilerDiagnostics(client, preferences) {
         event.status === "passed"
           ? `통과 — ${name}: ${who}가 직접 계산했고 서버 기준 결과와 일치합니다. 기기 응답 ${event.deviceSeconds}초.`
           : event.status === "failed"
-            ? `미통과 — ${name}: ${reasons[event.reason] || reasons["check-failed"]}`
+            ? `미통과 — ${name}: ${terminationText(event) || reasons[event.reason] || reasons["check-failed"]}`
             : event.stage === "reference"
               ? "기기 계산 완료. 서버 기준 결과와 비교하고 있습니다."
               : "검사 중 — 이 화면을 열어 두세요. 기기의 계산 결과를 기다리고 있습니다.";
@@ -113,7 +141,7 @@ export function compilerDiagnostics(client, preferences) {
           : item.executor === "publication"
             ? "서버 검증"
             : "서버";
-        const reason = fallbackReasons[item.reason];
+        const reason = terminationReasons[item.reason] || fallbackReasons[item.reason];
         return `${new Date(item.at * 1000).toLocaleTimeString()} · ${owner} · ${purposes[item.purpose] || item.purpose}: ${statuses[item.status] || item.status}${reason ? ` (${reason})` : ""}${item.elapsedSeconds !== undefined ? ` · ${item.elapsedSeconds}초` : ""}${item.revision ? ` · 문서 ${item.revision}` : ""}`;
       }),
     );

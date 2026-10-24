@@ -1206,3 +1206,5 @@ A managed-release regression retained dependencies from the previous runtime for
 After a successful compile, replace the discovered dependency set and measure another
 compile against it; failed compilation retains previous watch inputs. This prevents
 retired package paths from making all portable snapshots unrepresentable after updates.
+
+Termination evidence uses an allow-listed reason on the existing release endpoint. The pool records connection loss and copies the pinned job outcome into the diagnostic result. Missing heartbeats remain unknown-cause evidence; neither worker errors nor silent termination prove memory exhaustion. Public evidence contains no raw exception text. Lifecycle signals distinguish hidden, page exit, offline, disabled and disposal; runtime errors distinguish transport, worker, compile and client deadline.

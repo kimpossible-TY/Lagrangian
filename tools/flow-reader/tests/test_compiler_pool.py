@@ -161,6 +161,28 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(self.native, [])
         self.assertEqual(self.pool.status()["history"][0]["status"], "disconnected")
 
+    def test_pinned_termination_evidence_distinguishes_release_and_silence(self):
+        for reason in ("page-hidden", "worker-error", "transport-error", "heartbeat-lost"):
+            with self.subTest(reason=reason):
+                worker = self.worker()
+                outcome = {}
+                future = self.start(lambda: self.pool.execute(
+                    self.snapshot, 90, worker=worker, outcome=outcome))
+                self.pool.poll(worker)
+                if reason == "heartbeat-lost":
+                    with self.pool.condition:
+                        self.now += 4
+                        self.pool.status()
+                        self.pool.condition.notify_all()
+                else:
+                    self.pool.release(worker, reason)
+                self.assertIsNone(future.result(2))
+                self.assertEqual(outcome["status"], "disconnected")
+                self.assertEqual(outcome["reason"], reason)
+                self.assertNotIn(worker, json.dumps(self.pool.status()))
+        with self.assertRaises(ValueError):
+            self.pool.release("unknown", "unbounded private error text")
+
     def test_status_has_bounded_history_and_no_worker_credentials(self):
         worker = self.pool.register("engine", "My iPhone")["worker"]
         future = self.start()
@@ -202,6 +224,25 @@ class PoolTests(unittest.TestCase):
                 self.assertEqual(self.native, [])
                 self.pool.release(worker)
 
+    def test_diagnostic_copy_retains_termination_reason(self):
+        worker = self.worker()
+        state = SimpleNamespace(compiler_pool=self.pool, project=self.project,
+                                lock=threading.RLock(), accepted_dependencies=set(),
+                                revision="unchanged", source_stamp=None, compiling=False)
+        diagnostic = CompilerDiagnostics(state)
+        identifier = diagnostic.start(worker, "quick")["id"]
+        with self.pool.condition:
+            self.assertTrue(self.pool.condition.wait_for(lambda: bool(self.pool.jobs), 2))
+        self.pool.poll(worker)
+        self.pool.release(worker, "compile-error")
+        self.assertTrue(diagnostic.lock.acquire(timeout=2))
+        diagnostic.lock.release()
+        event = next(item for item in self.pool.status()["history"] if item["id"] == identifier)
+        self.assertEqual(event["status"], "failed")
+        self.assertEqual(event["termination"]["reason"], "compile-error")
+        self.assertEqual(event["termination"]["status"], "disconnected")
+        self.assertEqual(state.revision, "unchanged")
+
     def test_http_registration_task_delivery_and_result_guards(self):
         state = SimpleNamespace(compiler_pool=self.pool, compiler_assets=None)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(state))
@@ -231,7 +272,8 @@ class PoolTests(unittest.TestCase):
         self.assertTrue(post("result", body)["accepted"])
         self.assertEqual(future.result(2).artifact, b"HTTP browser")
         self.assertFalse(post("result", body)["accepted"])
-        post("release", {"worker": worker})
+        post("release", {"worker": worker, "reason": "page-hidden"})
+        self.assertEqual(self.pool.status()["history"][0]["reason"], "page-hidden")
         with self.assertRaises(HTTPError) as error:
             post("heartbeat", {"worker": worker})
         self.assertEqual(error.exception.code, 400)
