@@ -20,7 +20,7 @@ def handler_for(state):
     compiler_pool = getattr(state, "compiler_pool", None)
     compiler_assets = getattr(state, "compiler_assets", None)
     compiler_actions = {"/api/compiler/" + action for action in
-                        ("register", "heartbeat", "poll", "release", "result")}
+                        ("register", "heartbeat", "poll", "release", "result", "diagnose")}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -46,12 +46,14 @@ def handler_for(state):
                     if not compiler_pool:
                         return self.respond(b"Browser compilation is disabled", "text/plain", 503)
                     if path == "/api/compiler/register":
-                        result = compiler_pool.register(request.get("engine"))
+                        result = compiler_pool.register(request.get("engine"), request.get("name", "Browser"))
                     else:
                         worker = request.get("worker")
                         if not isinstance(worker, str) or len(worker) > 128:
                             raise ValueError("Invalid worker identity")
-                        if path == "/api/compiler/poll":
+                        if path == "/api/compiler/diagnose":
+                            result = state.compiler_diagnostics.start(worker, request.get("mode"))
+                        elif path == "/api/compiler/poll":
                             result = {"task": compiler_pool.poll(worker)}
                         elif path == "/api/compiler/heartbeat":
                             compiler_pool.heartbeat(worker)
@@ -98,6 +100,9 @@ def handler_for(state):
         def do_GET(self):
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
+            if path == "/api/compiler/status":
+                result = compiler_pool.status() if compiler_pool else {"workers": [], "history": []}
+                return self.respond(json.dumps(result).encode(), "application/json")
             if path == "/api/compiler/config":
                 config = compiler_assets.config() if compiler_assets else {"enabled": False}
                 return self.respond(json.dumps(config).encode(), "application/json")

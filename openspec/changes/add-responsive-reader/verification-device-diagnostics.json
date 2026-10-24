@@ -1,0 +1,66 @@
+{
+  "scope": "Pinned browser diagnostics and bounded execution evidence",
+  "python": {
+    "poolAndDiagnostics": {
+      "tests": 12,
+      "passed": 12
+    },
+    "execution": {
+      "tests": 8,
+      "passed": 8
+    },
+    "dynamic": {
+      "tests": 4,
+      "passed": 4
+    },
+    "readerServices": {
+      "tests": 232,
+      "skipped": 53,
+      "result": "pass; optional unrelated compiler/editor prerequisites absent"
+    }
+  },
+  "browsers": {
+    "engines": [
+      "Chrome",
+      "desktop WebKit"
+    ],
+    "viewport": [
+      390,
+      844
+    ],
+    "passed": [
+      "quick check",
+      "current document reference comparison",
+      "unchanged accepted revision",
+      "source-change rejection",
+      "WASM initialization failure feedback",
+      "default-on and persisted preferences",
+      "real worker adoption and source carriers",
+      "pagehide reassignment",
+      "competing edits",
+      "highlight writes",
+      "dynamic rendering"
+    ]
+  },
+  "checks": [
+    "ESLint zero warnings",
+    "Prettier",
+    "reader architecture tests",
+    "strict OpenSpec validation",
+    "Typst technical guides compiled",
+    "generated documentation check"
+  ],
+  "physicalIPhone": {
+    "status": "pending user execution",
+    "steps": [
+      "Reload HTTPS Reader on iPhone",
+      "Reading settings > 이 기기 계산 확인",
+      "Run 1. 간단 검사; keep page visible; copy result",
+      "Run 2. 현재 문서 검사; keep page visible; copy result"
+    ],
+    "success": "Device result matches native reference from identical captured inputs; no fallback or publication"
+  },
+  "delivery": {
+    "status": "pending"
+  }
+}

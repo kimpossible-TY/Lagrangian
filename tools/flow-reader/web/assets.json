@@ -3,6 +3,7 @@
   "app-icon-512.png": "app-icon-512.png",
   "apple-touch-icon.png": "apple-touch-icon.png",
   "compiler/client.js": "compiler/client.js",
+  "compiler/diagnostics.js": "compiler/diagnostics.js",
   "compiler/runtime.js": "compiler/runtime.js",
   "compiler/worker.js": "compiler/worker.js",
   "favicon.ico": "favicon.ico",

@@ -1178,3 +1178,26 @@ the parent profile remains unchanged. `install.py --font-path` supplies files/di
 and omission preserves installed supplementary paths. Validate all paths before changing
 the installed configuration or launcher. The PDE rollout supplies its existing project
 fonts plus four Arial variants already installed on this Mac.
+
+## Device diagnostics and execution evidence
+
+compiler/pool.py owns bounded recent execution records and public connection IDs,
+distinct from secret worker/lease tokens. Record raw-result receipt separately from
+ReaderState's final publication event; native execution records explain fallback.
+Client-provided names identify a connection, not authenticated hardware attestation.
+
+compiler/diagnostics.py owns one explicit check at a time. Quick checks compile a
+fresh nonce and arithmetic; document checks reuse compile_project in temporary output
+with source mapping disabled. Both pin the lease to the requesting worker, disallow
+reassignment/fallback and compare normalized HTML with a native reference reconstructed
+from the exact snapshot files, fonts, inputs and timestamp. The reference never
+substitutes for a missing device result. Document checks retain content gates and
+reject source/revision changes without publishing or editing. Device execution and
+reference compilation each retain a 90-second bound. Disconnects fail pinned checks.
+
+web/compiler/diagnostics.js owns the reading-settings panel, foreground-only status
+polling, two test buttons and copyable Korean results. Keep at most 64 in-memory
+records; server restart clears history and the UI asks for another test. Display device
+names as text. Exclude source bodies, host paths and authorization tokens from status.
+Desktop browser evidence does not claim physical iPhone coverage; the user performs
+the same two buttons on the actual device.

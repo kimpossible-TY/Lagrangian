@@ -860,3 +860,24 @@ of final source saving and conflict decisions.
 - **WHEN** the Reader cannot durably store a new highlight request
 - **THEN** it reports the storage failure without dispatching or claiming queued work
 - **AND** independent tabs do not overwrite one another's pending requests
+
+### Requirement: Verifiable device computation
+The Reader SHALL expose bounded device and execution status and explicit browser-pinned
+diagnostics, without treating native fallback as successful device execution.
+
+#### Scenario: The user checks this device
+- **WHEN** a ready foreground browser starts a quick or current-document check
+- **THEN** only that browser may execute its diagnostic lease
+- **AND** success requires its result to match a native reference using the same immutable inputs
+- **AND** current-document checks preserve the accepted document and source and reject concurrent changes
+
+#### Scenario: The diagnostic device disappears or returns different output
+- **WHEN** its lease is released, expires, times out or its output differs from the reference
+- **THEN** the check cannot succeed through another browser or native fallback
+- **AND** the UI gives a clear failure and recovery instruction with a copyable result
+
+#### Scenario: A reader inspects execution evidence
+- **WHEN** the user opens device diagnostics in reading settings
+- **THEN** connection IDs, readiness, recent execution outcomes and native fallback reasons are visible
+- **AND** raw result receipt is distinguished from final document publication
+- **AND** records exclude credentials and source content, are bounded, and reset on service restart

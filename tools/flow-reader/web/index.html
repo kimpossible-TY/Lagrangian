@@ -117,6 +117,35 @@
             ><input id="reader-compiler-enabled" type="checkbox" /> 이 기기로 문서 계산 돕기</label
           >
           <p id="reader-compiler-status" role="status"></p>
+          <details id="reader-compiler-diagnostics">
+            <summary>이 기기 계산 확인</summary>
+            <p>
+              1. 간단 검사를 누르고 이 화면을 열어 두세요. 2. 통과하면 현재 문서 검사를 진행하세요.
+            </p>
+            <p id="reader-device-identity"></p>
+            <div class="reader-diagnostic-actions">
+              <button type="button" data-diagnostic="quick" disabled>1. 간단 검사</button>
+              <button type="button" data-diagnostic="document" disabled>2. 현재 문서 검사</button>
+            </div>
+            <p>
+              현재 문서 검사는 수 분 걸릴 수 있습니다. 결과를 비교하며 원본과 읽는 문서는 바꾸지
+              않습니다.
+            </p>
+            <p id="reader-diagnostic-result" role="status" aria-live="polite">
+              기기 연결을 확인하고 있습니다.
+            </p>
+            <button type="button" id="reader-diagnostic-copy">결과 복사</button>
+            <p id="reader-diagnostic-copy-status" role="status"></p>
+            <details>
+              <summary>연결된 기기와 최근 작업</summary>
+              <p>
+                계산 결과 수신과 최종 문서 반영은 별도로 표시됩니다. 기록은 서버 재시작 시
+                초기화됩니다.
+              </p>
+              <ul id="reader-compiler-devices"></ul>
+              <ol id="reader-compiler-history"></ol>
+            </details>
+          </details>
           <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
             <option value="system">자동</option>
             <option value="light">라이트</option>

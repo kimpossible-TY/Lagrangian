@@ -40,7 +40,8 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
         request = CompileRequest(
             compiler=project.compiler, root=root, packages=work / "packages", target="html",
             source=wrapper, fonts=tuple((root / font).resolve() for font in project.fonts),
-            inputs=tuple(inputs))
+            inputs=tuple(inputs), purpose="graphics" if geometry is not None else
+            "canvases" if canvases is not None else "decorations" if decorations is not None else "document")
         result = project.execute(request)
         (output / "compile.log").write_text(result.stderr)
         report = {

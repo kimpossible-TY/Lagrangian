@@ -11,6 +11,40 @@
   scroll-padding-top: 88px;
   overflow-anchor: none;
 }
+#reader-compiler-diagnostics {
+  border-block-start: 1px solid var(--line);
+  padding-block: 12px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+#reader-compiler-diagnostics summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+.reader-diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#reader-compiler-diagnostics button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+#reader-compiler-diagnostics button:disabled {
+  opacity: 0.5;
+}
+#reader-diagnostic-result[data-status="passed"] {
+  color: var(--accent);
+}
+#reader-diagnostic-result[data-status="failed"] {
+  color: var(--warning);
+}
 :root {
   color-scheme: light;
   --paper: #faf9f6;

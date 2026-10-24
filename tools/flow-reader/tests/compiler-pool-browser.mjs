@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -13,6 +13,8 @@ assert.ok(process.env.FLOW_READER_PACKAGES, "Set FLOW_READER_PACKAGES");
 const root = fileURLToPath(new URL("../", import.meta.url));
 const assets = resolve(process.env.FLOW_COMPILER_ASSETS || "dist/reader-compiler");
 const work = await mkdtemp(join(tmpdir(), "flow-browser-pool-"));
+const evidence = resolve("dist/device-diagnostics-browser");
+await mkdir(evidence, { recursive: true });
 const entry = join(work, "main.typ");
 await writeFile(entry, "Initial shared document $x^2$.\n");
 const script = `
@@ -96,8 +98,45 @@ try {
       await first.waitForFunction(() => document.querySelector("#reader-compiler-enabled"));
       assert.equal(await first.locator("#reader-compiler-enabled").isChecked(), true);
       await until(status, (s) => s.workers === 1, "first Worker readiness");
+      const initialRevision = (await status()).revision;
+      await first.locator("#reader-appearance-open").click();
+      await first.locator("#reader-compiler-diagnostics > summary").click();
+      for (const mode of ["quick", "document"]) {
+        await first.locator(`[data-diagnostic="${mode}"]`).click();
+        await first.waitForFunction(
+          () =>
+            ["passed", "failed"].includes(
+              document.querySelector("#reader-diagnostic-result").dataset.status,
+            ),
+          null,
+          { timeout: 90000 },
+        );
+        const diagnostics = await fetch(origin + "/api/compiler/status").then((r) => r.json());
+        const check = diagnostics.history.find((item) => item.executor === "diagnostic");
+        assert.equal(check.purpose, mode);
+        assert.equal(check.status, "passed", JSON.stringify(check));
+        assert.ok(check.outputHash);
+        assert.equal(
+          (await status()).revision,
+          initialRevision,
+          "checks cannot publish a document",
+        );
+        await first.screenshot({ path: join(evidence, `${engine}-${mode}-diagnostic.png`) });
+      }
+      await first.locator(".reader-appearance-close").click();
       const before = await status();
       await writeFile(entry, `Shared browser output ${engine} $y^2$.\n`);
+      await first.locator("#reader-appearance-open").click();
+      await first.locator('[data-diagnostic="document"]').click();
+      await first.waitForFunction(
+        () => document.querySelector("#reader-diagnostic-result").dataset.status === "failed",
+      );
+      assert.match(
+        await first.locator("#reader-diagnostic-result").textContent(),
+        /문서가 바뀌었습니다/,
+      );
+      assert.equal((await status()).revision, before.revision);
+      await first.locator(".reader-appearance-close").click();
       const accepted = await compile();
       assert.equal(accepted.report.contentGatePassed, true);
       assert.notEqual(accepted.revision, before.revision);
@@ -165,6 +204,20 @@ try {
         "A migrated disabled choice cannot register another Worker",
       );
       await legacy.close();
+      const unavailable = await browser.newPage({ serviceWorkers: "block" });
+      unavailable.on("pageerror", (error) => errors.push(error.message));
+      await unavailable.route("**/compiler-assets/compiler.js", (route) => route.abort());
+      await unavailable.goto(origin);
+      await unavailable.locator("#reader-appearance-open").click();
+      await unavailable.locator("#reader-compiler-diagnostics > summary").click();
+      await unavailable.waitForFunction(() =>
+        document
+          .querySelector("#reader-diagnostic-result")
+          .textContent.includes("준비하지 못했습니다"),
+      );
+      assert.equal(await unavailable.locator('[data-diagnostic="quick"]').isDisabled(), true);
+      assert.equal((await status()).workers, 2, "failed initialization cannot offer capacity");
+      await unavailable.close();
       // Hold the first result, terminate its page, then let the other device take its lease.
       let heldPage;
       let releaseResult;

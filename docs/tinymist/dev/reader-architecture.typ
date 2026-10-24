@@ -80,3 +80,11 @@ lifetime, annotation anchors and server fallback. Point/em units stay explicit
 until the current reading font is known. Unsupported callbacks and styles retain
 `flow_reader/rendering/decorations.py` and its validated dynamic compiler/cache.
 This HTML-specific drawing code does not enter reader-common or the paged reader.
+
+= Device computation verification
+
+HTML compiler/pool.py owns public connection identities, bounded execution evidence
+and pinned leases. compiler/diagnostics.py compares explicit device checks against
+native execution of identical immutable inputs without publication.
+web/compiler/diagnostics.js presents readiness, results and recovery in reading
+settings. Raw completion and server adoption remain distinct events.
