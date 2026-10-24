@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-24",
+  "version": "0.1.33",
+  "sourceRevision": "8ffcbd2929eb3e66e643b5c1f1d48fc018e6d0f7",
+  "sourceDirty": false,
+  "readerRelease": "8ffcbd2929eb3e66e643b5c1f1d48fc018e6d0f7-wasm-6a194fad0b95c8b4",
+  "defaultEnabled": true,
+  "savedViewerChoicesPreserved": true,
+  "legacyDocumentChoiceRestoredBeforeRegistration": true,
+  "browserCompiler": "6a194fad0b95c8b456b7ba237a45c61e66d21fdf7b946e86e05e49d9409b7f2c",
+  "runtimeImmutableFiles": 577,
+  "matchingAssetRoutesPerOrigin": 68,
+  "localAndHttpsDocumentBytesAgree": true,
+  "documentHash": "b10951c51dab8043b9706d4f9a71bc03e9978bbb4fad950b430f9055ba431c0d",
+  "acceptedRevision": "425dda78a4daee181bd5fd71145593702345de6225d26c30a642c129798d7799",
+  "contentGatePassed": true,
+  "parentProfileBytesPreserved": true,
+  "signingSettingsPreserved": true,
+  "serviceRunning": {
+    "typst-pde": true,
+    "typst-ewald": false,
+    "typst-pde-reader": true
+  },
+  "authoredSourceSequencePreserved": 130,
+  "sourceEditedByVerification": false,
+  "browsers": [
+    {
+      "engine": "chromium",
+      "defaultEnabled": true,
+      "automaticWorkerRegistration": true,
+      "disabledChoiceSurvivesReload": true,
+      "enabledChoiceSurvivesReload": true,
+      "sourceEdited": false,
+      "pageErrors": [],
+      "bounds": [390, 390]
+    },
+    {
+      "engine": "webkit",
+      "defaultEnabled": true,
+      "automaticWorkerRegistration": true,
+      "disabledChoiceSurvivesReload": true,
+      "enabledChoiceSurvivesReload": true,
+      "sourceEdited": false,
+      "pageErrors": [],
+      "bounds": [390, 390]
+    }
+  ],
+  "isolatedCompilerPoolBrowsers": ["Chrome", "WebKit"],
+  "pagedDocumentFrames": {
+    "light": {
+      "bytes": 18376720,
+      "hash": "9046fa7ca547b9f910f8856ece34bbf56ef290048e5c5dd36b14eca57a9326ab"
+    },
+    "dark": {
+      "bytes": 18433000,
+      "hash": "bc8a815d743ea9c2c8cd2c9dda09aa5b1819d4709328eaea40d5412c09f5fb34"
+    }
+  },
+  "checks": [
+    "ESLint zero warnings",
+    "Prettier",
+    "Generated Markdown check",
+    "Typst guide and computation document compilation",
+    "Signed native bundle and installed manifest verification",
+    "Strict OpenSpec validation"
+  ],
+  "physicalIPhoneTested": false,
+  "recovery": "Previous signed app and immutable Reader releases retained; snapshots and receipts in dist/default-on-rollout"
+}
