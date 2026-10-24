@@ -779,6 +779,12 @@ server-owned normalization, acceptance, source correspondence and final source w
 - **THEN** it cannot read that file from a newer live workspace under the old task identity
 - **AND** the server captures another validated bundle before retrying
 
+#### Scenario: A managed Reader needs a system font for portable compilation
+- **WHEN** a Reader service adds explicit supplementary font files or directories
+- **THEN** its launch plan combines them with the current parent font paths without changing the parent profile
+- **AND** an update with omitted font options preserves those supplementary paths
+- **AND** invalid configuration or missing font inputs fail before replacing the installed configuration or launcher
+
 ### Requirement: Recoverable offline web reading
 The Reader SHALL provide a web app with cached static assets and complete accepted
 snapshots, preserving a recoverable last-complete document when refresh fails.

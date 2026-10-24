@@ -166,3 +166,7 @@ measure the actual PDE corpus in a Worker, lease shared jobs to visible phones w
 server fallback, and queue revision-bound offline highlight requests for guarded
 reconnection. This work does not require a native iPhone app or deployment to the
 user's running services.
+
+The user-requested rollout packages the matching browser compiler, preserves explicit
+Reader-only font inputs, updates the signed Flow app and bundled guide, and verifies
+actual PDE delivery over the existing local and HTTPS routes with recovery snapshots.

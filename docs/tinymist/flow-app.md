@@ -48,6 +48,14 @@ Use remote reading when the preview runs on your Mac and you want to read on ano
 
 The HTML Reader shows a small notice below the toolbar while saved changes compile, load and appear on screen, including when you have scrolled down. It disappears after the accepted content is displayed. If text selection pauses an update, **Clear selection and update** (선택 해제 후 갱신) releases it explicitly. Open notes, the outline and reading gestures also delay updates until they end. Connection, compilation and loading errors remain visible while the previous document stays readable; mathematics and figures retain their own local composition feedback.
 
+### HTML Reader offline reading and device computation
+
+For a configured HTML Reader, open its Reader HTTPS address. In Reader settings, wait until the offline status confirms that the document is available offline. You may add the page to the phone’s Home Screen using the browser’s share menu. Reopening without the server restores the last complete saved document; an online connection is required to download newer source changes. Browser storage can be removed by the device, in which case reconnect to download the document again.
+
+Supported mathematical decorations and native figure labels adapt to reading width and font size on the viewing device. If the server provides a browser compiler, **Help compute this document on this device** (이 기기로 문서 계산 돕기) offers that browser as a temporary worker while its page is visible and connected. Participation starts off. Closing or hiding the page releases its work; the server validates and adopts results for every viewer. Large documents can use substantial memory and battery, so enable this only on a device suitable for the document.
+
+When using Highlight offline, the Reader first stores an explicit request on the device. It has not yet saved the source. After reconnecting, the server checks the original revision and source before saving; changed or uncertain requests require checking the latest document and selecting again. Reader settings show pending and review-needed counts. Repeated delivery of the same request cannot repeat its source edit, and an older result cannot dismiss a newer selection.
+
 ## Select and copy text
 
 Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device’s Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Highlight, Save for Codex, and Red strike.

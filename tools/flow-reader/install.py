@@ -46,10 +46,16 @@ def install(args):
         semantic_canvases = getattr(args, "semantic_canvases", None)
         if semantic_canvases is None:
             semantic_canvases = previous.get("semanticCanvases", False)
+        extra_fonts = getattr(args, "extra_fonts", None)
+        if extra_fonts is None:
+            extra_fonts = previous.get("extraFonts", [])
+        else:
+            extra_fonts = [str(Path(path).expanduser().resolve()) for path in extra_fonts]
         services = [service for service in config["services"] if service["id"] != identifier]
         services.append({"id": identifier, "parentID": args.profile, "port": args.port,
                          "publicURL": args.public_url, "development": args.development,
                          "semanticCanvases": semantic_canvases,
+                         **({"extraFonts": extra_fonts} if extra_fonts else {}),
                          **({"focusFile": previous["focusFile"]} if "focusFile" in previous else {})})
         config["services"] = services
         # Resolve the live parent profile and validate its inputs before touching
@@ -121,6 +127,8 @@ def main():
     parser.add_argument("--python", type=Path, default=Path(shutil.which("python3") or "/missing/python3"))
     parser.add_argument("--compiler", type=Path, default=Path(shutil.which("typst") or "/missing/typst"))
     parser.add_argument("--engine", type=Path, help="Flow engine supporting shared source history (otherwise use the Flow app engine)")
+    parser.add_argument("--font-path", dest="extra_fonts", type=Path, action="append",
+                        help="Add a Reader-only font file or directory; repeat as needed (omission preserves installed paths)")
     browser = parser.add_mutually_exclusive_group()
     browser.add_argument("--browser-compiler", type=Path, help="Package generated WASM compiler assets in this immutable release")
     browser.add_argument("--no-browser-compiler", action="store_true", help="Disable browser compilation; omission preserves the setting")

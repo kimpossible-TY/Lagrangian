@@ -67,20 +67,26 @@ else:
                                       public_url="", development=True, flow_manager=flow,
                                       python=Path(sys.executable), compiler=Path(sys.executable), engine=engine, start=False)
             args.semantic_canvases = True
+            extra_font = (work / "explicit Arial fixture.ttf").resolve()
+            extra_font.write_bytes(b"font fixture")
+            args.extra_fonts = [extra_font]
             with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"):
                 result = installer.install(args)
                 manager = Path(result["manager"])
                 profiles = json.loads(subprocess.check_output([manager, "--profiles"], text=True))
                 self.assertEqual(profiles["profiles"][0]["root"], str(project))
                 self.assertTrue(profiles["profiles"][0]["semanticCanvases"])
+                self.assertEqual(profiles["profiles"][0]["fonts"], [str(extra_font)])
                 release = args.data / "releases" / result["revision"] / "tools/flow-reader"
                 self.verify_installed_delivery(release, engine)
                 plan = json.loads(subprocess.check_output([manager, "--launch-plan", result['id']], text=True))
                 self.assertEqual(Path(plan['arguments'][plan['arguments'].index('--engine') + 1]), engine.resolve())
                 self.assertEqual(Path(plan['arguments'][plan['arguments'].index('--change-file') + 1]), change_file.resolve())
                 args.semantic_canvases = None
+                args.extra_fonts = None
                 installer.install(args)
                 self.assertTrue(json.loads((args.data / "config.json").read_text())["services"][0]["semanticCanvases"])
+                self.assertEqual(json.loads((args.data / "config.json").read_text())["services"][0]["extraFonts"], [str(extra_font)])
                 config = (args.data / "config.json").read_bytes()
                 launcher = manager.read_bytes()
                 marker.write_text("uncommitted source")

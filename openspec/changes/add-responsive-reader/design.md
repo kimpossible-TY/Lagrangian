@@ -1158,3 +1158,18 @@ marks and available browser/device memory telemetry with explicit metric limits;
 sampled JS heap value is not total iPhone process memory. Test physical iPhone foreground,
 hide/resume and worker loss when hardware access is available. Desktop WebKit results
 must never be labeled as iPhone measurements. Deployment remains a separate user action.
+
+## User-requested rollout of browser computation
+
+Package the verified compiler as immutable Reader assets and rebuild the signed Flow
+app with its compatible existing native engine. Preserve project profiles, service
+states, public origins and saved selection/history records, with recovery copies before
+stopping services. Keep browser participation opt-in. Validate the actual PDE and every
+installed asset route before treating the rollout as complete.
+
+Portable execution needs explicit fonts even when native fallback performs the work.
+Reader services may add a bounded `extraFonts` list to the inherited parent font paths;
+the parent profile remains unchanged. `install.py --font-path` supplies files/directories,
+and omission preserves installed supplementary paths. Validate all paths before changing
+the installed configuration or launcher. The PDE rollout supplies its existing project
+fonts plus four Arial variants already installed on this Mac.
