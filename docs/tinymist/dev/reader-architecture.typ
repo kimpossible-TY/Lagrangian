@@ -56,6 +56,13 @@ Changing a file path requires checking imports, test fixtures, build inputs, sta
 
 `crates/tinymist-project/src/compiler.rs` is the public facade. `compiler/artifact.rs`, `report.rs`, `coordinator.rs`, `instance.rs` and `execution.rs` own compile data, reports, event coordination, instance state and execution respectively. Existing `scheduling.rs` and `eviction.rs` retain task lifetime and cache policy. Private tests live under `compiler/tests/`, including lifecycle, cache, filesystem and matrix fixtures.
 
+The pinned `vendor/typst/` core owns layout convergence. Its `src/history.rs`
+retains shared HTML/paged introspectors between attempts, releasing previous output
+containers; other output types preserve their original lifetime. All introspection
+iterations remain available for failure diagnostics. This is independent of the
+process-wide memoization eviction policy. See `vendor/typst/FLOW-PATCH.md` for
+upstream provenance and #link("layout-history.typ")[layout history verification].
+
 Keep public crate APIs and revision/handler ordering stable. A completion belongs to its original task ticket; moving tests must not require public implementation fields.
 
 = Native application

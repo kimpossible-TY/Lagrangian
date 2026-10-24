@@ -424,3 +424,10 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Replace the compiler checkbox with an accessible Low/High range control, default Low, preserving saved choices and existing local rendering.
 - [x] Verify touch, drag, keyboard, reload, worker release and native geometry fallback in Chromium/WebKit with isolated inputs.
 - [x] Document the levels and deploy the clean immutable Reader; verify HTTPS delivery and preserved project/service state.
+
+## Layout iteration history optimization
+
+- [x] Vendor the pinned Typst core with provenance and compact HTML/paged introspector history, preserving unknown Output behavior.
+- [x] Verify history lifetime and full-history equivalence for output, warnings/errors and tracing across converging and nonconverging fixtures.
+- [x] Build native/WASM consumers, run warning-free checks and compare frozen PDE Worker output, timing and memory against the baseline.
+- [x] Document measured effects, ownership and remaining physical-device limitations.
