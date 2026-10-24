@@ -3,6 +3,7 @@ import base64
 from collections import deque
 from dataclasses import dataclass, replace
 import secrets
+import re
 import threading
 import time
 
@@ -11,6 +12,38 @@ from flow_reader.compiler.snapshot import capture_snapshot, SnapshotUnavailable
 
 RELEASE_REASONS = {"page-hidden", "page-exit", "offline", "disabled", "disposed",
                    "transport-error", "worker-error", "compile-error", "client-timeout", "released"}
+
+PROGRESS_PHASES = {"ready", "received", "fonts", "files", "evaluating", "output", "sending-result"}
+
+
+def checked_progress(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("phase"), str) or value["phase"] not in PROGRESS_PHASES:
+        raise ValueError("Invalid compiler progress")
+    result = {"phase": value["phase"]}
+    for key, limit in (("phaseSequence", 2 ** 31 - 1), ("wasmMemoryBytes", 2 ** 32), ("roundTripMs", 300000), ("timerLagMs", 300000)):
+        if key in value:
+            number = value[key]
+            if type(number) is not int or not 0 <= number <= limit:
+                raise ValueError("Invalid compiler metric")
+            result[key] = number
+    return result
+
+
+def checked_recovery(value):
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or not isinstance(value.get("previousDevice"), str)
+            or not re.fullmatch(r"[0-9a-f]{8}", value["previousDevice"])
+            or not isinstance(value.get("mode"), str) or value["mode"] not in {"same-page", "page-restart"}
+            or not isinstance(value.get("reason"), str) or value["reason"] not in RELEASE_REASONS | {"unreported"}):
+        raise ValueError("Invalid compiler recovery")
+    result = {key: value[key] for key in ("previousDevice", "mode", "reason")}
+    if value.get("progress") is not None:
+        result["progress"] = checked_progress(value["progress"])
+    return result
+
 
 MAX_OUTPUT = 64 * 1024 * 1024
 
@@ -48,6 +81,7 @@ class BrowserCompilePool:
         self.completed = 0
         self.fallbacks = 0
         self.worker_info = {}
+        self.worker_progress = {}
         self.history = deque(maxlen=64)
 
     def record(self, **values):
@@ -61,7 +95,8 @@ class BrowserCompilePool:
             self._expire()
             return {"workers": [dict(self.worker_info[token],
                                      lastSeenSeconds=round(self.clock() - seen, 1),
-                                     busy=any(job.worker == token for job in self.jobs.values()))
+                                     busy=any(job.worker == token for job in self.jobs.values()),
+                                     **self._evidence(token))
                                 for token, seen in self.workers.items()],
                     "history": [dict(event) for event in reversed(self.history)]}
 
@@ -72,17 +107,28 @@ class BrowserCompilePool:
                 raise ValueError("device-not-ready")
             return dict(self.worker_info[worker])
 
+    def _evidence(self, token):
+        result = {"heartbeatTimeoutSeconds": self.heartbeat_timeout}
+        if token in self.workers:
+            result["lastHeartbeatAgeSeconds"] = round(self.clock() - self.workers[token], 3)
+        if token in self.worker_progress:
+            progress, changed = self.worker_progress[token]
+            result.update(lastProgress=dict(progress), phaseAgeSeconds=round(self.clock() - changed, 3))
+        return result
+
     def _remove_worker(self, token, reason="heartbeat-lost"):
         device = self.worker_info.get(token)
+        evidence = self._evidence(token)
         if device:
             self.record(executor="browser", purpose="connection", status="disconnected",
-                        device=dict(device), reason=reason)
+                        device=dict(device), reason=reason, **evidence)
         self.workers.pop(token, None)
         self.worker_info.pop(token, None)
+        self.worker_progress.pop(token, None)
         for job in self.jobs.values():
             if job.target == token:
                 job.failed = True
-                job.record.update(status="disconnected", reason=reason)
+                job.record.update(status="disconnected", reason=reason, **evidence)
             if job.worker == token:
                 job.worker = job.lease = None
 
@@ -101,7 +147,8 @@ class BrowserCompilePool:
             self._expire()
             return not self.closed and bool(self._available())
 
-    def register(self, engine, name="Browser"):
+    def register(self, engine, name="Browser", recovery=None):
+        recovery = checked_recovery(recovery)
         with self.condition:
             self._expire()
             if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40 or any(ord(c) < 32 for c in name):
@@ -111,16 +158,31 @@ class BrowserCompilePool:
             token = secrets.token_urlsafe(24)
             self.workers[token] = self.clock()
             self.worker_info[token] = {"id": secrets.token_hex(4), "name": name.strip()}
+            if recovery:
+                evidence = {**recovery, "device": dict(self.worker_info[token])}
+                for event in self.history:
+                    if (event.get("executor") == "diagnostic" and "termination" in event
+                            and event.get("device", {}).get("id") == recovery["previousDevice"]):
+                        event["recovery"] = evidence
+                self.record(executor="browser", purpose="connection", status="reconnected", **evidence)
             self.condition.notify_all()
             return {"worker": token, "device": dict(self.worker_info[token]),
                     "heartbeatSeconds": self.heartbeat_timeout / 3}
 
-    def heartbeat(self, worker):
+    def heartbeat(self, worker, progress=None):
+        progress = checked_progress(progress)
         with self.condition:
             self._expire()
             if worker not in self.workers:
                 raise ValueError("Compiler worker lease expired")
             self.workers[worker] = self.clock()
+            old = self.worker_progress.get(worker)
+            if progress is not None and (old is None or progress.get("phaseSequence", 0) >= old[0].get("phaseSequence", 0)):
+                changed = self.clock() if old is None or old[0]["phase"] != progress["phase"] else old[1]
+                self.worker_progress[worker] = (progress, changed)
+                for job in self.jobs.values():
+                    if job.worker == worker:
+                        job.record.update(self._evidence(worker))
             self.condition.notify_all()
 
     def release(self, worker, reason="released"):
@@ -139,7 +201,10 @@ class BrowserCompilePool:
                 if (job.worker is None and job.result is None and not job.failed and
                         job.deadline > self.clock() and job.target in (None, worker)):
                     job.worker, job.lease = worker, secrets.token_urlsafe(24)
-                    job.record.update(status="working", device=dict(self.worker_info[worker]))
+                    for key in ("lastProgress", "lastHeartbeatAgeSeconds", "phaseAgeSeconds", "heartbeatTimeoutSeconds"):
+                        job.record.pop(key, None)
+                    job.record.update(status="working", device=dict(self.worker_info[worker]),
+                                      **self._evidence(worker))
                     return {"job": identifier, "lease": job.lease, "snapshot": job.snapshot.wire(),
                             "timeoutMs": max(1, int((job.deadline - self.clock()) * 1000))}
             return None
@@ -246,4 +311,5 @@ class BrowserCompilePool:
             self.closed = True
             self.workers.clear()
             self.worker_info.clear()
+            self.worker_progress.clear()
             self.condition.notify_all()

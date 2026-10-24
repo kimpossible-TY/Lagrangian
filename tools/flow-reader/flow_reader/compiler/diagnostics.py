@@ -77,7 +77,8 @@ class CompilerDiagnostics:
                 if result is None:
                     with pool.condition:
                         event["termination"] = {key: outcome[key] for key in
-                                                ("status", "reason", "elapsedSeconds") if key in outcome}
+                                                ("status", "reason", "elapsedSeconds", "lastProgress",
+                                                 "lastHeartbeatAgeSeconds", "phaseAgeSeconds", "heartbeatTimeoutSeconds") if key in outcome}
                     raise ValueError("device-did-not-finish")
                 with pool.condition:
                     event.update(stage="reference", deviceSeconds=round(result.elapsed_seconds, 3))

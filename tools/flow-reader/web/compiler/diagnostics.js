@@ -14,6 +14,36 @@ const terminationReasons = {
     "기기의 주기적 응답이 끊겼습니다. 브라우저 종료·네트워크·메모리 부족 중 원인은 확인되지 않았습니다.",
   released: "기기가 연결을 종료했습니다. 상세 원인은 보고되지 않았습니다.",
 };
+const phases = {
+  ready: "준비 완료",
+  received: "입력 수신",
+  fonts: "글꼴 준비",
+  files: "입력 파일 준비",
+  evaluating: "Typst 계산",
+  output: "출력 추출",
+  "sending-result": "결과 전송",
+};
+function executionEvidence(event) {
+  const end = event.termination;
+  const progress = end?.lastProgress || event.recovery?.progress;
+  const details = [];
+  if (progress) {
+    details.push(`마지막 단계: ${phases[progress.phase] || progress.phase}.`);
+    if (progress.wasmMemoryBytes !== undefined)
+      details.push(
+        `당시 WASM 할당 ${(progress.wasmMemoryBytes / 1048576).toFixed(1)}MiB (최대값·기기 전체 메모리가 아님).`,
+      );
+  }
+  if (end?.lastHeartbeatAgeSeconds !== undefined)
+    details.push(`마지막 응답 이후 ${end.lastHeartbeatAgeSeconds}초.`);
+  if (event.recovery)
+    details.push(
+      event.recovery.mode === "page-restart"
+        ? "페이지가 다시 시작되어 재연결됐습니다. 자동·수동 새로고침 여부는 이 기록만으로 구분하지 못합니다."
+        : "같은 페이지에서 계산 연결만 다시 만들었습니다.",
+    );
+  return details.join(" ");
+}
 function terminationText(event) {
   const end = event.termination;
   if (!end) return "";
@@ -57,6 +87,7 @@ const statuses = {
   "result-received": "계산 결과 수신",
   timeout: "시간 초과",
   disconnected: "연결 종료",
+  reconnected: "재연결",
   "invalid-result": "결과 거절",
   failed: "실패",
   passed: "검사 통과",
@@ -93,7 +124,7 @@ export function compilerDiagnostics(client, preferences) {
     if (event) {
       const name = event.purpose === "quick" ? "간단 검사" : "현재 문서 검사";
       const who = `${event.device.name} · ${event.device.id}`;
-      const text =
+      const baseText =
         event.status === "passed"
           ? `통과 — ${name}: ${who}가 직접 계산했고 서버 기준 결과와 일치합니다. 기기 응답 ${event.deviceSeconds}초.`
           : event.status === "failed"
@@ -101,6 +132,7 @@ export function compilerDiagnostics(client, preferences) {
             : event.stage === "reference"
               ? "기기 계산 완료. 서버 기준 결과와 비교하고 있습니다."
               : "검사 중 — 이 화면을 열어 두세요. 기기의 계산 결과를 기다리고 있습니다.";
+      const text = [baseText, executionEvidence(event)].filter(Boolean).join(" ");
       if (result.textContent !== text) result.textContent = text;
       result.dataset.status = event.status;
       report = `Flow 기기 계산 검사\n${text}\n${JSON.stringify(event, null, 2)}`;

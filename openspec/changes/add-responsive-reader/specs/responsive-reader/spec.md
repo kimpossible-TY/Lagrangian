@@ -886,3 +886,9 @@ diagnostics, without treating native fallback as successful device execution.
 - **WHEN** the browser reports a lifecycle or execution termination, or its heartbeat expires
 - **THEN** the copied check result and history distinguish reported termination from unreported response loss and deadline expiry
 - **AND** unknown termination never claims memory exhaustion or a timeout
+
+#### Scenario: A page restarts after silent calculation loss
+- **WHEN** a later browser registration supplies an optional valid tab-local checkpoint
+- **THEN** the recent failed check includes the reported same-page retry or new-page recovery and last bounded computation observations
+- **AND** recovery or memory observations never claim a confirmed crash, automatic reload, total memory use or out-of-memory cause
+- **AND** unavailable storage does not prevent compilation and telemetry cannot refresh an expired lease

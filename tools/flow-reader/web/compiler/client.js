@@ -11,6 +11,14 @@ export class BrowserCompilerClient {
     this.disposed = false;
     this.session = null;
     this.retry = null;
+    this.journalKey = `flow-reader:${new URL("../", import.meta.url).pathname}:compiler-session`;
+    this.recoveryMode = "page-restart";
+    try {
+      this.previous = JSON.parse(globalThis.sessionStorage?.getItem(this.journalKey) || "null");
+      if (!/^[0-9a-f]{8}$/.test(this.previous?.previousDevice)) this.previous = null;
+    } catch {
+      this.previous = null;
+    }
     this.update = () => {
       if (!this.enabled || document.visibilityState !== "visible" || !navigator.onLine)
         this.stop(
@@ -37,6 +45,7 @@ export class BrowserCompilerClient {
   }
 
   async post(session, action, body = {}) {
+    const started = performance.now();
     const response = await fetch(new URL(`../api/compiler/${action}`, import.meta.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,6 +53,7 @@ export class BrowserCompilerClient {
       signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(15000)]),
       cache: "no-store",
     });
+    session.roundTripMs = Math.min(300000, Math.round(performance.now() - started));
     if (!response.ok) {
       const detail = await response.json().catch(() => null);
       throw new Error(detail?.error || `Compiler connection ${response.status}`);
@@ -90,9 +100,14 @@ export class BrowserCompilerClient {
   async heartbeat(session, seconds) {
     try {
       while (this.session === session) {
+        const before = performance.now();
         await this.wait(session, seconds * 1000);
+        session.timerLagMs = Math.min(
+          300000,
+          Math.max(0, Math.round(performance.now() - before - seconds * 1000)),
+        );
         if (this.session !== session) return;
-        await this.post(session, "heartbeat");
+        await this.post(session, "heartbeat", { progress: this.progress(session) });
       }
     } catch (error) {
       this.fail(session, error);
@@ -119,6 +134,14 @@ export class BrowserCompilerClient {
       session.worker = new Worker(new URL("worker.js", import.meta.url), { type: "module" });
       session.worker.onmessage = ({ data }) => {
         if (data.id !== session.sequence) return;
+        if (data.type === "progress") {
+          this.setProgress(session, { phase: data.phase, wasmMemoryBytes: data.wasmMemoryBytes });
+          if (session.token)
+            void this.post(session, "heartbeat", { progress: this.progress(session) }).catch(
+              (error) => this.fail(session, error),
+            );
+          return;
+        }
         const pending = session.pending;
         session.pending = null;
         if (pending)
@@ -154,10 +177,15 @@ export class BrowserCompilerClient {
           : /Android/.test(navigator.userAgent)
             ? "Android"
             : "컴퓨터 브라우저";
-      const registration = await this.post(session, "register", { engine: config.engine, name });
+      const registration = await this.post(session, "register", {
+        engine: config.engine,
+        name,
+        ...(this.previous ? { recovery: { ...this.previous, mode: this.recoveryMode } } : {}),
+      });
       session.token = registration.worker;
       session.device = registration.device;
       this.lastError = null;
+      this.setProgress(session, { phase: "ready" });
       if (this.session !== session) {
         this.release(session);
         return;
@@ -172,6 +200,7 @@ export class BrowserCompilerClient {
           continue;
         }
         this.changed("working");
+        this.setProgress(session, { phase: "received" });
         let result;
         try {
           result = await this.request(
@@ -199,6 +228,8 @@ export class BrowserCompilerClient {
           throw error;
         }
         if (this.session !== session) return;
+        this.setProgress(session, { ...session.progress, phase: "sending-result" });
+        await this.post(session, "heartbeat", { progress: this.progress(session) });
         // Chunk conversion avoids spreading a large artifact onto the JS stack.
         const chunks = [];
         for (let index = 0; index < result.artifact.length; index += 32768)
@@ -208,9 +239,35 @@ export class BrowserCompilerClient {
           lease: task.lease,
           result: { ...result, artifact: btoa(chunks.join("")) },
         });
+        this.setProgress(session, { ...session.progress, phase: "ready" });
       }
     } catch (error) {
       this.fail(session, error);
+    }
+  }
+
+  setProgress(session, value) {
+    session.progress = { ...value, phaseSequence: (session.progress?.phaseSequence || 0) + 1 };
+    this.remember(session);
+  }
+
+  progress(session) {
+    return {
+      phase: "ready",
+      ...session.progress,
+      ...(session.roundTripMs === undefined ? {} : { roundTripMs: session.roundTripMs }),
+      ...(session.timerLagMs === undefined ? {} : { timerLagMs: session.timerLagMs }),
+    };
+  }
+
+  remember(session, reason = "unreported") {
+    if (!session.device) return;
+    this.previous = { previousDevice: session.device.id, reason, progress: this.progress(session) };
+    this.recoveryMode = "same-page";
+    try {
+      globalThis.sessionStorage?.setItem(this.journalKey, JSON.stringify(this.previous));
+    } catch {
+      /* Storage is optional. */
     }
   }
 
@@ -246,6 +303,7 @@ export class BrowserCompilerClient {
     const session = this.session;
     this.session = null;
     if (session) {
+      this.remember(session, reason);
       session.controller.abort();
       session.pending?.reject(new Error("Compiler session ended"));
       session.pending = null;

@@ -183,3 +183,5 @@ as device-test success. Provide Korean progress, recovery instructions and copya
 results for physical iPhone verification. Deploy through the existing Flow Reader service.
 
 Record explicit browser termination signals and distinguish unreported heartbeat loss from deadlines.
+
+After silent iPhone document-check loss and an observed automatic page reload, retain last execution phase, bounded WASM allocation and heartbeat timing, plus optional tab-local recovery correlation.

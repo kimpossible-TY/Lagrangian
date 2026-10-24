@@ -266,3 +266,26 @@ enter public execution history; raw exceptions and source content do not.
 Physical iPhone evidence on 2026-10-24 confirmed the quick check (0.592 seconds).
 The full document lost its connection after 28.835 seconds, before the 90-second
 limit. This predates termination instrumentation and its cause remains unknown.
+
+
+== Silent loss and page recovery observations
+
+The next physical iPhone quick check passed in 0.772 seconds, but the document
+check lost heartbeats after 23.487 seconds. The user observed a white flash or
+automatic page reload. This narrows the symptom to a page execution interruption,
+but it does not identify the underlying cause. These failures remain separate from
+the successful desktop PDE check.
+
+Worker progress now records font preparation, file preparation, synchronous Typst
+computation, output extraction and result transmission. The latest observation,
+server-observed heartbeat age, phase age, previous request round-trip time and
+foreground timer delay are bounded and copied with a pinned failure. Observed WASM
+allocation is the value at that phase boundary, not a peak or total process memory.
+
+An optional per-tab sessionStorage checkpoint retains only the public connection ID,
+termination reason and bounded progress. It contains no lease tokens or source text.
+A later registration correlates same-page connection retries versus a new page
+instance with recent failed checks. Storage denial does not block compilation.
+New-page recovery cannot distinguish an automatic reload from a manual reload.
+The eight-second connection lease and ninety-second document-check deadline are
+unchanged; a late observation cannot revive an expired lease.
