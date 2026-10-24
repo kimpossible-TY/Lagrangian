@@ -95,6 +95,10 @@ class ReaderManager:
             semantic_canvases = service.get("semanticCanvases", False)
             if type(semantic_canvases) is not bool:
                 raise ValueError("Reader semanticCanvases must be a boolean")
+            extra_fonts = service.get("extraFonts", [])
+            if (not isinstance(extra_fonts, list) or len(extra_fonts) > 32
+                    or any(not isinstance(font, str) or not font.strip() for font in extra_fonts)):
+                raise ValueError("Reader extraFonts must contain at most 32 font paths")
             if parent_id not in change_files:
                 plan = json.loads(run([config["flowManager"], "--launch-plan", parent_id]))
                 if not isinstance(plan, dict) or ("environment" in plan and not isinstance(plan["environment"], dict)):
@@ -112,7 +116,8 @@ class ReaderManager:
                        "label": LABEL_PREFIX + identifier, "publicURL": url,
                        "originalURL": parent.get("publicURL") or f"http://127.0.0.1:{parent['port']}/",
                        "development": bool(service.get("development", False)),
-                       "semanticCanvases": semantic_canvases}
+                       "semanticCanvases": semantic_canvases,
+                       "fonts": list(dict.fromkeys([*parent["fonts"], *extra_fonts]))}
             if change_files[parent_id]:
                 profile["changeFile"] = change_files[parent_id]
             result.append(profile)

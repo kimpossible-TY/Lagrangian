@@ -140,6 +140,26 @@ class ReaderManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "boolean"):
             self.resolve()
 
+    def test_additional_fonts_are_reader_only_validated_and_preserve_inheritance(self):
+        font = self.root / "Arial fixture.ttf"
+        font.write_bytes(b"fixture")
+        self.config["services"][0]["extraFonts"] = [str(font), "fonts"]
+        self.save()
+        profile = self.resolve()
+        self.assertEqual(profile["fonts"], ["fonts", str(font)])
+        self.assertEqual(self.parent["fonts"], ["fonts"])
+        arguments = self.manager.arguments(profile)
+        self.assertEqual([arguments[i + 1] for i, value in enumerate(arguments) if value == "--font-path"],
+                         ["fonts", str(font)])
+        font.unlink()
+        with self.assertRaisesRegex(ValueError, "font directory is missing"):
+            self.manager.arguments(profile)
+        for invalid in ("fonts", [None], [""], [" "], ["fonts"] * 33):
+            self.config["services"][0]["extraFonts"] = invalid
+            self.save()
+            with self.assertRaisesRegex(ValueError, "extraFonts"):
+                self.resolve()
+
     def test_explicit_engine_and_flow_sibling_reach_the_owned_reader(self):
         profile = self.resolve()
         self.config['engine'] = sys.executable

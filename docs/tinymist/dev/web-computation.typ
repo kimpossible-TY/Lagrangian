@@ -41,6 +41,12 @@ revision and compiler hash. Omission preserves the installed compiler setting;
 `--no-browser-compiler` disables it. Installation is separate from development
 validation. Tests use isolated directories and never restart user services.
 
+Managed Readers inherit their parent profile's fonts. Add Reader-only files or folders
+with repeated `install.py --font-path PATH` options when portable compilation also needs
+fonts previously discovered from the system. Omission preserves installed supplementary
+paths; explicitly supplying paths replaces that supplementary set. Parent paged profile
+settings remain unchanged. All configured paths are validated before installation.
+
 Dynamic geometry uses available browser capacity, retains native incremental
 compilation when no browser is available, and keeps the existing output and
 revision checks. The browser is a temporary compute resource; the server owns the
