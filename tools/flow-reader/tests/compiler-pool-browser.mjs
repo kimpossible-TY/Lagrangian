@@ -94,17 +94,7 @@ try {
       first.on("pageerror", (error) => errors.push(error.message));
       await first.goto(origin);
       await first.waitForFunction(() => document.querySelector("#reader-compiler-enabled"));
-      assert.equal(await first.locator("#reader-compiler-enabled").isChecked(), false);
-      assert.equal(
-        (await status()).workers,
-        0,
-        "A fresh viewer does not offer compilation automatically",
-      );
-      await first.evaluate(() => {
-        const toggle = document.querySelector("#reader-compiler-enabled");
-        toggle.checked = true;
-        toggle.dispatchEvent(new Event("change"));
-      });
+      assert.equal(await first.locator("#reader-compiler-enabled").isChecked(), true);
       await until(status, (s) => s.workers === 1, "first Worker readiness");
       const before = await status();
       await writeFile(entry, `Shared browser output ${engine} $y^2$.\n`);
@@ -127,13 +117,54 @@ try {
       });
       second.on("pageerror", (error) => errors.push(error.message));
       await second.goto(origin);
+      assert.equal(await second.locator("#reader-compiler-enabled").isChecked(), true);
+      await until(status, (s) => s.workers === 2, "second default-enabled Worker readiness");
+      await second.evaluate(() => {
+        const toggle = document.querySelector("#reader-compiler-enabled");
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event("change"));
+      });
+      await until(status, (s) => s.workers === 1, "explicit disabling releases the Worker");
+      await second.reload();
+      await second.waitForFunction(() =>
+        document.querySelector("#reader-document [data-reader-key]"),
+      );
       assert.equal(await second.locator("#reader-compiler-enabled").isChecked(), false);
+      assert.equal(
+        (await status()).workers,
+        1,
+        "Reload preserves the explicit disabled preference",
+      );
       await second.evaluate(() => {
         const toggle = document.querySelector("#reader-compiler-enabled");
         toggle.checked = true;
         toggle.dispatchEvent(new Event("change"));
       });
       await until(status, (s) => s.workers === 2, "second Worker readiness");
+      assert.equal(
+        await second.evaluate(() => localStorage.getItem("flow-reader:/:compiler-enabled")),
+        "true",
+      );
+      const legacy = await browser.newPage({ serviceWorkers: "block" });
+      const identity = await fetch(origin + "/api/state").then((response) => response.json());
+      await legacy.addInitScript((id) => {
+        localStorage.setItem(`flow-reader:${id}:compiler-enabled`, "false");
+      }, identity.documentID);
+      await legacy.goto(origin);
+      await legacy.waitForFunction(() =>
+        document.querySelector("#reader-document [data-reader-key]"),
+      );
+      assert.equal(await legacy.locator("#reader-compiler-enabled").isChecked(), false);
+      assert.equal(
+        await legacy.evaluate(() => localStorage.getItem("flow-reader:/:compiler-enabled")),
+        "false",
+      );
+      assert.equal(
+        (await status()).workers,
+        2,
+        "A migrated disabled choice cannot register another Worker",
+      );
+      await legacy.close();
       // Hold the first result, terminate its page, then let the other device take its lease.
       let heldPage;
       let releaseResult;

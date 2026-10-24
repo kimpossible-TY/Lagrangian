@@ -776,8 +776,9 @@ server-owned normalization, acceptance, source correspondence and final source w
 
 #### Scenario: A new viewer has not offered compilation
 - **WHEN** the Reader opens without a saved enabled preference
-- **THEN** browser compilation remains disabled until the user explicitly enables it
+- **THEN** browser compilation is enabled by default while the visible page is connected
 - **AND** previously saved true or false preferences retain their meaning
+- **AND** the current document's older saved choice is restored before registering a Worker when no newer viewer choice exists
 
 #### Scenario: A compiler discovers another input
 - **WHEN** a task needs a file absent from its immutable input bundle

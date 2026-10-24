@@ -1164,7 +1164,12 @@ must never be labeled as iPhone measurements. Deployment remains a separate user
 Package the verified compiler as immutable Reader assets and rebuild the signed Flow
 app with its compatible existing native engine. Preserve project profiles, service
 states, public origins and saved selection/history records, with recovery copies before
-stopping services. Keep browser participation opt-in. Validate the actual PDE and every
+stopping services. Browser participation starts enabled unless the viewer previously
+saved an explicit false preference. Preserve both saved true and false values and the
+foreground/online lifetime. Compiler participation uses a stable viewer preference,
+separate from mutable document reading preferences. Before registering capacity,
+restore the current document's legacy boolean choice if no viewer choice exists;
+an explicit viewer choice always wins. Validate the actual PDE and every
 installed asset route before treating the rollout as complete.
 
 Portable execution needs explicit fonts even when native fallback performs the work.
