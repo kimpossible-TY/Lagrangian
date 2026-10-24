@@ -382,6 +382,6 @@ remote publication and physical-device/VoiceOver checks were not performed.
 ## Deploy browser computation and offline reading
 
 - [x] Support explicit Reader-only supplementary font paths and preserve them during updates, without changing the parent paged profile.
-- [ ] Update the bundled guide, build and verify signed Flow 0.1.32 with the existing compatible engine from a clean source commit.
-- [ ] Preflight the actual PDE with the portable font set and stage the matching immutable Reader/WASM release with configuration/context recovery snapshots.
-- [ ] Install both releases, preserve running/stopped project states and saved context, and verify local/HTTPS document, PWA and new asset delivery in real browsers.
+- [x] Update the bundled guide, build and verify signed Flow 0.1.32 with the existing compatible engine from a clean source commit.
+- [x] Preflight the actual PDE with the portable font set and stage the matching immutable Reader/WASM release with configuration/context recovery snapshots.
+- [x] Install both releases, preserve running/stopped project states and saved context, and verify local/HTTPS document, PWA and new asset delivery in real browsers.
