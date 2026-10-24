@@ -323,3 +323,30 @@ base compile with one parallel job passed the content gate in 58.446 seconds. Th
 Reader CLI executor therefore bounds native compilation to one job; request
 inputs, deadlines and publication/source guards are unchanged. This neither
 measures an isolated speedup nor changes the separate paged preview service.
+
+
+== Current-protocol physical evaluation failure
+
+A physical iPhone current-document check using diagnosticsVersion 1 reached Typst
+calculation and lost its heartbeat after 20.004 seconds. The last phase boundary
+reported 33,357,824 WASM bytes (31.8 MiB); its last response had been 8.023 seconds
+earlier. A new page instance recovered an unreported-stop checkpoint still marked
+evaluating. This records page recovery, but cannot distinguish manual and automatic
+reload or establish an iOS memory termination reason. The same connection passed
+the quick check in 0.320 seconds.
+
+A subsequent desktop Chrome check on the same accepted document passed the exact
+native-reference comparison without changing publication. WASM allocation at the
+evaluation boundary was 32,833,536 bytes (31.3 MiB); by output extraction it was
+2,370,830,336 bytes, and the returned metrics reported 2,379,874,304 bytes (about
+2.22 GiB). WASM computation took 20.868 seconds, device response 27.446 seconds and
+full comparison 77.914 seconds. These are allocated linear-memory observations on
+the Mac, not physical iPhone memory measurements. The earlier 3.23 GiB corpus
+benchmark used different captured inputs and should not replace this current run.
+
+The low iPhone boundary value therefore does not rule out memory growth after
+entering computation. Memory pressure is the next hypothesis to investigate, not a
+confirmed termination cause. Further physical whole-document repetition should
+follow measured reductions or bounds in the WASM runtime. Smaller delegated tasks
+need independently measured memory use; splitting an output alone does not avoid
+Typst evaluation of shared document state.
