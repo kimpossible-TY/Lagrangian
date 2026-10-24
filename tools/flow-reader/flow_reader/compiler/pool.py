@@ -9,6 +9,9 @@ import time
 from flow_reader.compiler.execution import CompileResult, local_compile
 from flow_reader.compiler.snapshot import capture_snapshot, SnapshotUnavailable
 
+RELEASE_REASONS = {"page-hidden", "page-exit", "offline", "disabled", "disposed",
+                   "transport-error", "worker-error", "compile-error", "client-timeout", "released"}
+
 MAX_OUTPUT = 64 * 1024 * 1024
 
 
@@ -69,13 +72,17 @@ class BrowserCompilePool:
                 raise ValueError("device-not-ready")
             return dict(self.worker_info[worker])
 
-    def _remove_worker(self, token):
+    def _remove_worker(self, token, reason="heartbeat-lost"):
+        device = self.worker_info.get(token)
+        if device:
+            self.record(executor="browser", purpose="connection", status="disconnected",
+                        device=dict(device), reason=reason)
         self.workers.pop(token, None)
         self.worker_info.pop(token, None)
         for job in self.jobs.values():
             if job.target == token:
                 job.failed = True
-                job.record["status"] = "disconnected"
+                job.record.update(status="disconnected", reason=reason)
             if job.worker == token:
                 job.worker = job.lease = None
 
@@ -116,9 +123,11 @@ class BrowserCompilePool:
             self.workers[worker] = self.clock()
             self.condition.notify_all()
 
-    def release(self, worker):
+    def release(self, worker, reason="released"):
+        if not isinstance(reason, str) or reason not in RELEASE_REASONS:
+            raise ValueError("Invalid release reason")
         with self.condition:
-            self._remove_worker(worker)
+            self._remove_worker(worker, reason)
             self.condition.notify_all()
 
     def poll(self, worker):
@@ -165,7 +174,7 @@ class BrowserCompilePool:
             self.condition.notify_all()
             return {"accepted": not job.failed}
 
-    def execute(self, snapshot, timeout, *, worker=None, purpose="compile"):
+    def execute(self, snapshot, timeout, *, worker=None, purpose="compile", outcome=None):
         with self.condition:
             self._expire()
             if worker is not None:
@@ -194,6 +203,8 @@ class BrowserCompilePool:
                 return None
             finally:
                 event["elapsedSeconds"] = round(self.clock() - started, 3)
+                if outcome is not None:
+                    outcome.update(event)
                 del self.jobs[identifier]
                 self.condition.notify_all()
 

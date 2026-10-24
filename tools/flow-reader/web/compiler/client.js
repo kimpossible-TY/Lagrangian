@@ -12,13 +12,17 @@ export class BrowserCompilerClient {
     this.session = null;
     this.retry = null;
     this.update = () => {
-      if (!this.enabled || document.visibilityState !== "visible" || !navigator.onLine) this.stop();
+      if (!this.enabled || document.visibilityState !== "visible" || !navigator.onLine)
+        this.stop(
+          false,
+          !this.enabled ? "disabled" : !navigator.onLine ? "offline" : "page-hidden",
+        );
       else if (!this.session && !this.disposed) {
         clearTimeout(this.retry);
         void this.start();
       }
     };
-    this.hide = () => this.stop();
+    this.hide = () => this.stop(false, "page-exit");
     document.addEventListener("visibilitychange", this.update);
     window.addEventListener("online", this.update);
     window.addEventListener("offline", this.update);
@@ -51,7 +55,9 @@ export class BrowserCompilerClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         session.pending = null;
-        reject(new Error("Compiler deadline exceeded"));
+        reject(
+          Object.assign(new Error("Compiler deadline exceeded"), { termination: "client-timeout" }),
+        );
       }, timeout);
       session.pending = {
         resolve(value) {
@@ -115,12 +121,18 @@ export class BrowserCompilerClient {
         if (data.id !== session.sequence) return;
         const pending = session.pending;
         session.pending = null;
-        if (pending) data.error ? pending.reject(new Error(data.error)) : pending.resolve(data);
+        if (pending)
+          data.error
+            ? pending.reject(Object.assign(new Error(data.error), { termination: "compile-error" }))
+            : pending.resolve(data);
       };
       session.worker.onerror = (error) => {
         session.pending?.reject(new Error(error.message));
         session.pending = null;
-        this.fail(session, error);
+        this.fail(
+          session,
+          Object.assign(new Error(error.message), { termination: "worker-error" }),
+        );
       };
       const base = new URL("../", import.meta.url);
       await this.request(
@@ -168,6 +180,10 @@ export class BrowserCompilerClient {
             task.timeoutMs,
           );
         } catch (error) {
+          if (this.session === session && error.termination) {
+            this.fail(session, error);
+            throw error;
+          }
           if (this.session === session)
             await this.post(session, "result", {
               job: task.job,
@@ -201,15 +217,15 @@ export class BrowserCompilerClient {
   fail(session, error) {
     if (this.session !== session) return;
     this.lastError = String(error.message || error).slice(0, 240);
-    this.stop(true);
+    this.stop(true, error.termination || "transport-error");
   }
 
-  release(session) {
+  release(session, reason = "released") {
     if (!session.token) return;
     void fetch(new URL("../api/compiler/release", import.meta.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ worker: session.token }),
+      body: JSON.stringify({ worker: session.token, reason }),
       keepalive: true,
     }).catch(() => {});
     session.token = null;
@@ -225,7 +241,7 @@ export class BrowserCompilerClient {
     return this.post(session, "diagnose", { mode });
   }
 
-  stop(retry = false) {
+  stop(retry = false, reason = "released") {
     clearTimeout(this.retry);
     const session = this.session;
     this.session = null;
@@ -234,7 +250,7 @@ export class BrowserCompilerClient {
       session.pending?.reject(new Error("Compiler session ended"));
       session.pending = null;
       session.worker?.terminate();
-      this.release(session);
+      this.release(session, reason);
     }
     this.changed(retry ? "retrying" : "idle");
     if (retry && this.enabled && !this.disposed) this.retry = setTimeout(this.update, 5000);
@@ -242,7 +258,7 @@ export class BrowserCompilerClient {
 
   dispose() {
     this.disposed = true;
-    this.stop();
+    this.stop(false, "disposed");
     document.removeEventListener("visibilitychange", this.update);
     window.removeEventListener("online", this.update);
     window.removeEventListener("offline", this.update);

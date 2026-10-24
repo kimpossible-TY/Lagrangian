@@ -72,8 +72,12 @@ class CompilerDiagnostics:
                                             dependencies if mode == "document" else (), pool.engine)
                 with pool.condition:
                     event.update(stage="device", snapshot=snapshot.identity[:12])
-                result = pool.execute(snapshot, 90, worker=worker, purpose="test-" + mode)
+                outcome = {}
+                result = pool.execute(snapshot, 90, worker=worker, purpose="test-" + mode, outcome=outcome)
                 if result is None:
+                    with pool.condition:
+                        event["termination"] = {key: outcome[key] for key in
+                                                ("status", "reason", "elapsedSeconds") if key in outcome}
                     raise ValueError("device-did-not-finish")
                 with pool.condition:
                     event.update(stage="reference", deviceSeconds=round(result.elapsed_seconds, 3))

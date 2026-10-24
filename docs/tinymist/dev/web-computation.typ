@@ -251,3 +251,18 @@ matched the native reference with 19.835 seconds of device response and 41.014 s
 total checking time. These are desktop measurements. Both checks left the accepted
 document unchanged. All 580 installed runtime hashes and the changed HTTP/HTTPS
 routes were verified. The physical iPhone check is awaiting the user's results.
+
+
+= Device termination evidence
+
+Device checks retain the pinned job termination in their copied result. Explicit
+browser signals distinguish hidden pages, page exit, offline state, disabled
+computation, disposal, transport errors, worker errors, compiler errors and client
+deadlines. Missing heartbeats mean unreported response loss; they do not prove a
+browser crash or memory exhaustion. Screen locking and switching apps both may
+hide a page and cannot be distinguished by that signal. Only bounded reason codes
+enter public execution history; raw exceptions and source content do not.
+
+Physical iPhone evidence on 2026-10-24 confirmed the quick check (0.592 seconds).
+The full document lost its connection after 28.835 seconds, before the 90-second
+limit. This predates termination instrumentation and its cause remains unknown.

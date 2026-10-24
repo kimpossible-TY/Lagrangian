@@ -881,3 +881,8 @@ diagnostics, without treating native fallback as successful device execution.
 - **THEN** connection IDs, readiness, recent execution outcomes and native fallback reasons are visible
 - **AND** raw result receipt is distinguished from final document publication
 - **AND** records exclude credentials and source content, are bounded, and reset on service restart
+
+#### Scenario: A device check stops before its deadline
+- **WHEN** the browser reports a lifecycle or execution termination, or its heartbeat expires
+- **THEN** the copied check result and history distinguish reported termination from unreported response loss and deadline expiry
+- **AND** unknown termination never claims memory exhaustion or a timeout

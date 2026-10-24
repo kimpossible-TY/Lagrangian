@@ -399,3 +399,8 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Deploy the immutable Reader, verify HTTPS delivery, and provide physical iPhone steps and expected results. Physical iPhone outcomes remain user-supplied evidence.
 
 - [x] Retire obsolete dependency paths after successful discovery and cover an installed-release transition before browser adoption.
+
+## Device termination evidence
+
+- [x] Record bounded termination causes, propagate pinned outcomes, and show Korean explanations.
+- [ ] Verify release, silent heartbeat loss and browser lifecycle behavior; deploy and verify installed delivery.

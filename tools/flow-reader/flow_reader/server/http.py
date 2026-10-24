@@ -59,7 +59,7 @@ def handler_for(state):
                             compiler_pool.heartbeat(worker)
                             result = {"ok": True}
                         elif path == "/api/compiler/release":
-                            compiler_pool.release(worker)
+                            compiler_pool.release(worker, request.get("reason", "released"))
                             result = {"ok": True}
                         else:
                             job, lease = request.get("job"), request.get("lease")
