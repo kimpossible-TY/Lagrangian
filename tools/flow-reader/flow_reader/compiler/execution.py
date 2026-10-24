@@ -25,6 +25,7 @@ class CompileRequest:
     timeout: float = 90
     system_fonts: bool = True
     timestamp: int | None = None
+    purpose: str = "compile"
 
     def __post_init__(self):
         if (self.entry is None) == (self.source is None):

@@ -220,3 +220,24 @@ Project/signing settings, source sequence 130 and previous running/stopped servi
 preserved. The signed app and bundled guide are updated and the menu-bar app is
 relaunched. Physical iPhone behavior remains unmeasured. Receipts and recovery snapshots
 are in `dist/default-on-rollout/`.
+
+== Verify computation on an actual iPhone
+
+Open the HTTPS Reader on the iPhone and reload once after updating. Open reading
+settings, expand *이 기기 계산 확인*, and keep *이 기기로 문서 계산 돕기* enabled.
+The panel identifies this connection with its device name and short ID.
+
+Tap *1. 간단 검사* and keep this page visible until *통과* appears. Then tap
+*2. 현재 문서 검사* with source editing paused. This can take several minutes.
+Success means this device returned a result matching the server's reference from
+the same captured inputs. The reference does not replace failed device execution.
+Neither test edits source or publishes its temporary document. A small-test success
+alone does not demonstrate that the full PDE fits the physical device's memory.
+
+Use *결과 복사* and paste the result into the Codex conversation after each check.
+Failures display recovery instructions; connection loss, time limits, source changes
+and differing output cannot silently become success through another executor.
+The expandable recent-work list distinguishes browser result receipt, server execution
+and final document publication. Names describe connections rather than authenticated
+hardware. History is bounded to 64 records and clears when the Reader service restarts.
+Physical-device results must be recorded separately from desktop Chrome/WebKit tests.

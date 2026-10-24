@@ -7,6 +7,7 @@ import { ReaderRecovery, sameSnapshot, sameSession } from "./features/session/re
 import { ReaderTransport } from "./features/session/transport.js";
 import { OfflineReader } from "./features/session/offline.js";
 import { BrowserCompilerClient } from "./compiler/client.js";
+import { compilerDiagnostics } from "./compiler/diagnostics.js";
 import { createReadingPosition } from "./features/navigation/reading-position.js";
 import { MathDecorations } from "./rendering/math/decorations.js";
 import { GraphicalAnnotations } from "./rendering/graphics/annotations.js";
@@ -69,6 +70,7 @@ const browserCompiler = new BrowserCompilerClient({
   },
 });
 compilerToggle.checked = compilerPreferences.read("compiler-enabled", true) !== false;
+const diagnostics = compilerDiagnostics(browserCompiler, compilerPreferences);
 compilerToggle.addEventListener("change", () => {
   compilerPreferences.write("compiler-enabled", compilerToggle.checked);
   browserCompiler.setEnabled(compilerToggle.checked);
@@ -696,6 +698,7 @@ window.addEventListener("pagehide", (event) => {
   if (!event.persisted) {
     disposed = true;
     browserCompiler.dispose();
+    diagnostics.dispose();
     gestures.dispose();
     clearTimeout(saveTimer);
     recovery.dispose();

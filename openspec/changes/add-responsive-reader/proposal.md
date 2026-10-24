@@ -173,3 +173,11 @@ actual PDE delivery over the existing local and HTTPS routes with recovery snaps
 
 At the user's request, enable browser computation for viewers without a saved choice,
 while preserving explicitly disabled preferences and the existing foreground leases.
+
+## Verifiable device computation
+
+Show device connections and bounded execution history in reading settings. Add explicit
+small-document and current-document checks pinned to the requesting browser. Compare
+its output with a native reference using the same captured bytes; fallback never counts
+as device-test success. Provide Korean progress, recovery instructions and copyable
+results for physical iPhone verification. Deploy through the existing Flow Reader service.

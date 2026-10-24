@@ -31,7 +31,7 @@ def compile_source_map(project, dependencies, request, baseline, work):
     sources = {path: value for path, value in sources.items() if value is not None}
     shadow = work / "source-root"
     shadow_sources(root, shadow, sources)
-    result = project.execute(replace(request, root=shadow, timeout=60))
+    result = project.execute(replace(request, root=shadow, timeout=60, purpose="source-map"))
     if result.returncode or unhandled_warnings(diagnostic_warnings(result.stderr)):
         return {"sourceMap": {}, "sourceMapStatus": "compiler-rejected"}
     annotated = carriers.normalize(result.artifact.decode("utf-8"))

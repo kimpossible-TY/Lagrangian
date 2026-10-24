@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.dynamic import DynamicCompiler
 from flow_reader.compiler.inputs import source_signature
@@ -36,7 +37,7 @@ class DynamicRenderer:
             if self.closed or self.dynamic_revision == self.state.revision:
                 return
             try:
-                self.dynamic(self.state.revision).compile()
+                self.compile_dynamic(self.state.revision, "dynamic-warm")
             except (OSError, ValueError, TimeoutError):
                 self.reset_dynamic()
 
@@ -45,6 +46,24 @@ class DynamicRenderer:
             self.dynamic_compiler.close()
             self.dynamic_compiler = None
         self.dynamic_revision = None
+
+    def compile_dynamic(self, revision, purpose, **arguments):
+        pool = self.state.compiler_pool
+        event = pool.record(executor="server", purpose=purpose, status="working",
+                            reason="no-ready-device") if pool else None
+        started = time.monotonic()
+        try:
+            result = self.dynamic(revision).compile(**arguments)
+            if event is not None:
+                event["status"] = "result-received"
+            return result
+        except Exception:
+            if event is not None:
+                event["status"] = "failed"
+            raise
+        finally:
+            if event is not None:
+                event["elapsedSeconds"] = round(time.monotonic() - started, 3)
 
     def dynamic(self, revision):
         if self.closed:
@@ -103,7 +122,7 @@ class DynamicRenderer:
                 content = None
                 if not (self.state.compiler_pool and self.state.compiler_pool.available()):
                     try:
-                        content = self.dynamic(revision).compile(**arguments)
+                        content = self.compile_dynamic(revision, kind, **arguments)
                     except (OSError, ValueError, TimeoutError):
                         self.reset_dynamic()
                 if content is None:

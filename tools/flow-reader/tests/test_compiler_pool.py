@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flow_reader.compiler.execution import CompileRequest, CompileResult
+from flow_reader.compiler.diagnostics import CompilerDiagnostics
 from flow_reader.compiler.pool import BrowserCompilePool
 from flow_reader.compiler.project import Project
 from flow_reader.compiler.snapshot import capture_snapshot
@@ -148,6 +149,58 @@ class PoolTests(unittest.TestCase):
             self.worker()
         with self.assertRaises(ValueError):
             self.worker()
+
+    def test_pinned_check_cannot_reassign_or_fall_back(self):
+        first, second = self.worker(), self.worker()
+        future = self.start(lambda: self.pool.execute(self.snapshot, 30, worker=first, purpose="test-quick"))
+        self.assertIsNone(self.pool.poll(second))
+        task = self.pool.poll(first)
+        self.pool.release(first)
+        self.assertIsNone(future.result(2))
+        self.assertFalse(self.result(first, task)["accepted"])
+        self.assertEqual(self.native, [])
+        self.assertEqual(self.pool.status()["history"][0]["status"], "disconnected")
+
+    def test_status_has_bounded_history_and_no_worker_credentials(self):
+        worker = self.pool.register("engine", "My iPhone")["worker"]
+        future = self.start()
+        task = self.pool.poll(worker)
+        self.result(worker, task)
+        future.result(2)
+        status = self.pool.status()
+        self.assertEqual(status["history"][0]["device"]["name"], "My iPhone")
+        self.assertNotIn(worker, json.dumps(status))
+        self.assertNotIn(task["lease"], json.dumps(status))
+        for _ in range(100):
+            self.pool.record(status="test")
+        self.assertEqual(len(self.pool.status()["history"]), 64)
+
+    def test_diagnostic_requires_matching_output_and_preserves_publication(self):
+        for matching in (True, False):
+            with self.subTest(matching=matching):
+                worker = self.worker()
+                state = SimpleNamespace(compiler_pool=self.pool, project=self.project,
+                                        lock=threading.RLock(), accepted_dependencies=set(),
+                                        revision="unchanged", source_stamp=None, compiling=False)
+                reference = b"browser" if matching else b"different"
+                diagnostic = CompilerDiagnostics(state, reference=lambda snapshot, compiler:
+                                                  CompileResult(0, "", reference, (), 0))
+                identifier = diagnostic.start(worker, "quick")["id"]
+                with self.pool.condition:
+                    self.assertTrue(self.pool.condition.wait_for(lambda: bool(self.pool.jobs), 2))
+                with self.assertRaisesRegex(ValueError, "test-already-running"):
+                    diagnostic.start(worker, "quick")
+                task = self.pool.poll(worker)
+                self.result(worker, task, identity=task["snapshot"]["identity"], dependencies=[])
+                self.assertTrue(diagnostic.lock.acquire(timeout=2))
+                diagnostic.lock.release()
+                event = next(item for item in self.pool.status()["history"] if item["id"] == identifier)
+                self.assertEqual(event["status"], "passed" if matching else "failed")
+                if not matching:
+                    self.assertEqual(event["reason"], "output-mismatch")
+                self.assertEqual(state.revision, "unchanged")
+                self.assertEqual(self.native, [])
+                self.pool.release(worker)
 
     def test_http_registration_task_delivery_and_result_guards(self):
         state = SimpleNamespace(compiler_pool=self.pool, compiler_assets=None)

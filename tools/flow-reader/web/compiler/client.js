@@ -1,7 +1,12 @@
 /** Foreground capacity only. Server leases own tasks and accepted publication. */
 export class BrowserCompilerClient {
   constructor({ changed = () => {} } = {}) {
-    this.changed = changed;
+    this.state = "idle";
+    this.lastError = null;
+    this.changed = (state) => {
+      this.state = state;
+      changed(state);
+    };
     this.enabled = false;
     this.disposed = false;
     this.session = null;
@@ -23,6 +28,7 @@ export class BrowserCompilerClient {
 
   setEnabled(enabled) {
     this.enabled = enabled;
+    if (!enabled) this.lastError = null;
     this.update();
   }
 
@@ -34,7 +40,10 @@ export class BrowserCompilerClient {
       signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(15000)]),
       cache: "no-store",
     });
-    if (!response.ok) throw new Error(`Compiler connection ${response.status}`);
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null);
+      throw new Error(detail?.error || `Compiler connection ${response.status}`);
+    }
     return response.json();
   }
 
@@ -79,8 +88,8 @@ export class BrowserCompilerClient {
         if (this.session !== session) return;
         await this.post(session, "heartbeat");
       }
-    } catch {
-      if (this.session === session) this.stop(true);
+    } catch (error) {
+      this.fail(session, error);
     }
   }
 
@@ -111,7 +120,7 @@ export class BrowserCompilerClient {
       session.worker.onerror = (error) => {
         session.pending?.reject(new Error(error.message));
         session.pending = null;
-        if (this.session === session) this.stop(true);
+        this.fail(session, error);
       };
       const base = new URL("../", import.meta.url);
       await this.request(
@@ -125,8 +134,18 @@ export class BrowserCompilerClient {
         90000,
       );
       if (this.session !== session) return;
-      const registration = await this.post(session, "register", { engine: config.engine });
+      const name = /iPhone/.test(navigator.userAgent)
+        ? "iPhone"
+        : /iPad/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+          ? "iPad"
+          : /Android/.test(navigator.userAgent)
+            ? "Android"
+            : "컴퓨터 브라우저";
+      const registration = await this.post(session, "register", { engine: config.engine, name });
       session.token = registration.worker;
+      session.device = registration.device;
+      this.lastError = null;
       if (this.session !== session) {
         this.release(session);
         return;
@@ -174,9 +193,15 @@ export class BrowserCompilerClient {
           result: { ...result, artifact: btoa(chunks.join("")) },
         });
       }
-    } catch {
-      if (this.session === session) this.stop(true);
+    } catch (error) {
+      this.fail(session, error);
     }
+  }
+
+  fail(session, error) {
+    if (this.session !== session) return;
+    this.lastError = String(error.message || error).slice(0, 240);
+    this.stop(true);
   }
 
   release(session) {
@@ -188,6 +213,16 @@ export class BrowserCompilerClient {
       keepalive: true,
     }).catch(() => {});
     session.token = null;
+  }
+
+  get device() {
+    return this.session?.device;
+  }
+
+  async diagnose(mode) {
+    const session = this.session;
+    if (!session?.token) throw new Error("device-not-ready");
+    return this.post(session, "diagnose", { mode });
   }
 
   stop(retry = false) {
