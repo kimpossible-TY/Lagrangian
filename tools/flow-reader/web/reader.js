@@ -56,24 +56,38 @@ let serverState = null;
 let disposed = false;
 let awaitingEntryChange = false;
 const transport = new ReaderTransport();
-const compilerToggle = document.querySelector("#reader-compiler-enabled");
+const compilerLevel = document.querySelector("#reader-compute-level");
+const showCompilerLevel = () => {
+  const high = compilerLevel.value === "1";
+  const name = high ? "High" : "Low";
+  document.querySelector("#reader-compute-value").value = name;
+  compilerLevel.setAttribute("aria-valuetext", name);
+  document.querySelector("#reader-compute-description").textContent = high
+    ? "이 기기의 로컬 컴파일러로 문서 계산을 돕습니다. 큰 문서는 메모리와 배터리를 많이 사용할 수 있습니다."
+    : "문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.";
+};
 const browserCompiler = new BrowserCompilerClient({
   changed(state) {
-    document.querySelector("#reader-compiler-status").textContent = {
-      loading: "이 기기의 문서 계산을 준비하고 있습니다.",
-      ready: "이 화면이 열려 있는 동안 문서 계산을 도울 수 있습니다.",
-      working: "이 기기에서 문서를 계산하고 있습니다.",
-      retrying: "문서 계산 연결을 다시 시도합니다.",
-      unavailable: "서버에서 기기 계산을 사용하도록 설정하지 않았습니다.",
-      idle: "이 기기의 문서 계산이 쉬고 있습니다.",
-    }[state];
+    document.querySelector("#reader-compiler-status").textContent = !browserCompiler.enabled
+      ? "Low · 이 기기의 로컬 컴파일러를 사용하지 않습니다."
+      : {
+          loading: "이 기기의 문서 계산을 준비하고 있습니다.",
+          ready: "이 화면이 열려 있는 동안 문서 계산을 도울 수 있습니다.",
+          working: "이 기기에서 문서를 계산하고 있습니다.",
+          retrying: "문서 계산 연결을 다시 시도합니다.",
+          unavailable: "서버에서 기기 계산을 사용하도록 설정하지 않았습니다.",
+          idle: "이 기기의 문서 계산이 쉬고 있습니다.",
+        }[state];
   },
 });
-compilerToggle.checked = compilerPreferences.read("compiler-enabled", true) !== false;
+compilerLevel.value = compilerPreferences.read("compiler-enabled", false) === true ? "1" : "0";
+showCompilerLevel();
 const diagnostics = compilerDiagnostics(browserCompiler, compilerPreferences);
-compilerToggle.addEventListener("change", () => {
-  compilerPreferences.write("compiler-enabled", compilerToggle.checked);
-  browserCompiler.setEnabled(compilerToggle.checked);
+compilerLevel.addEventListener("input", () => {
+  showCompilerLevel();
+  const high = compilerLevel.value === "1";
+  compilerPreferences.write("compiler-enabled", high);
+  browserCompiler.setEnabled(high);
 });
 const updateButton = document.querySelector("#reader-apply-update");
 const offline = new OfflineReader({
@@ -449,8 +463,9 @@ function renderDocument(html, nextManifest, section, options) {
     typeof legacyCompilerChoice === "boolean"
   )
     compilerPreferences.write("compiler-enabled", legacyCompilerChoice);
-  compilerToggle.checked = compilerPreferences.read("compiler-enabled", true) !== false;
-  browserCompiler.setEnabled(compilerToggle.checked);
+  compilerLevel.value = compilerPreferences.read("compiler-enabled", false) === true ? "1" : "0";
+  showCompilerLevel();
+  browserCompiler.setEnabled(compilerLevel.value === "1");
   sections.reset(manifest, section, html);
   indexDocument();
   mathematics.sync();

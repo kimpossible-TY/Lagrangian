@@ -1164,9 +1164,16 @@ must never be labeled as iPhone measurements. Deployment remains a separate user
 Package the verified compiler as immutable Reader assets and rebuild the signed Flow
 app with its compatible existing native engine. Preserve project profiles, service
 states, public origins and saved selection/history records, with recovery copies before
-stopping services. Browser participation starts enabled unless the viewer previously
-saved an explicit false preference. Preserve both saved true and false values and the
-foreground/online lifetime. Compiler participation uses a stable viewer preference,
+stopping services. The two-position native range control in reading settings starts
+at Low for a viewer without a saved choice. Low retains browser-local math, decoration
+and figure composition, and uses server-side raw compilation without initializing
+the WASM compiler. High offers the local WASM compiler within its foreground/online
+lifetime. Drag/touch and keyboard operation share the native range semantics; input
+updates its value/description and immediately applies and saves the choice, including
+WebKit touch input that does not emit change. Selecting Low terminates
+the current worker and releases its lease through BrowserCompilerClient.setEnabled.
+Preserve both saved true (High) and false (Low) values; do not save an untouched
+default as an explicit choice. Compiler participation uses a stable viewer preference,
 separate from mutable document reading preferences. Before registering capacity,
 restore the current document's legacy boolean choice if no viewer choice exists;
 an explicit viewer choice always wins. Validate the actual PDE and every

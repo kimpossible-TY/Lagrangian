@@ -24,7 +24,14 @@ python3 tools/flow-reader/build-browser-compiler.py
 
 Pass `--browser-compiler /absolute/path/to/dist/reader-compiler` to `serve.py`
 to enable the protocol. The Reader settings control whether this browser offers
-capacity. A visible, online page registers only after its WASM Worker initializes.
+capacity through *이 기기 계산 부하*, a two-position Low/High slider. New viewers
+start at Low: raw document compilation stays on the server while existing local
+math, decorations and figure composition remain active. High offers the local WASM
+compiler. Saved true/false choices map to High/Low, including legacy document choices
+when no newer viewer choice exists. An untouched default is not saved as a choice.
+The slider supports swiping, tapping and keyboard operation. Selecting Low terminates
+an active compiler and releases its lease without changing the accepted document.
+A visible, online High page registers only after its WASM Worker initializes.
 Hiding, leaving or disabling it terminates computation and releases its lease;
 lost heartbeats also expire. Late results cannot satisfy a reassigned lease.
 
@@ -227,7 +234,8 @@ Open the HTTPS Reader on the iPhone. If reading settings shows *업데이트 적
 apply it to activate the complete waiting shell and reload. For a legacy Reader
 without this button, close all Reader tabs and the home-screen app before reopening
 so its waiting Service Worker can activate. Expand *이 기기 계산 확인* and confirm
-*진단 1* next to this device before checking. Keep *이 기기로 문서 계산 돕기* enabled.
+*진단 1* next to this device before checking. Select *High* under *이 기기 계산 부하*.
+Low keeps device diagnostic actions disabled and explains how to enable them.
 The panel identifies this connection with its device name and short ID.
 
 Tap *1. 간단 검사* and keep this page visible until *통과* appears. Then tap
@@ -236,6 +244,8 @@ Success means this device returned a result matching the server's reference from
 the same captured inputs. The reference does not replace failed device execution.
 Neither test edits source or publishes its temporary document. A small-test success
 alone does not demonstrate that the full PDE fits the physical device's memory.
+For the iPhone 15 that restarted during full-document checks, use Low for reading;
+the slider does not change the document's compilation memory requirements in High.
 
 Use *결과 복사* and paste the result into the Codex conversation after each check.
 Failures display recovery instructions; connection loss, time limits, source changes

@@ -418,3 +418,9 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Reproduce stale reloads with real Service Workers, verify offline update recovery, and deploy.
 
 - [x] Bound native CLI parallelism and verify content acceptance during deployment recovery under host contention.
+
+## Device workload slider
+
+- [x] Replace the compiler checkbox with an accessible Low/High range control, default Low, preserving saved choices and existing local rendering.
+- [x] Verify touch, drag, keyboard, reload, worker release and native geometry fallback in Chromium/WebKit with isolated inputs.
+- [ ] Document the levels and deploy the clean immutable Reader; verify HTTPS delivery and preserved project/service state.
