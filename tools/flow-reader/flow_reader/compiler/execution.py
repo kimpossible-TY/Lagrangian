@@ -69,7 +69,8 @@ def local_compile(request: CompileRequest) -> CompileResult:
         work = Path(temporary)
         output = work / ("document." + request.target)
         dependencies = work / "dependencies.json"
-        command = [request.compiler, "compile", "--root", str(request.root),
+        # Keep the Reader fallback within one CPU job alongside the native preview.
+        command = [request.compiler, "compile", "--jobs", "1", "--root", str(request.root),
                    "--package-path", str(request.packages), "--deps", str(dependencies)]
         if request.target == "html":
             command.extend(["--features", "html"])
