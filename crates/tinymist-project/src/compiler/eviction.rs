@@ -54,6 +54,15 @@ fn retention_payload_budget(pressure: MemoryPressure) -> usize {
     }
 }
 
+fn unused_age_limit(pressure: MemoryPressure) -> usize {
+    match pressure {
+        MemoryPressure::Critical => 0,
+        MemoryPressure::Normal | MemoryPressure::Warning | MemoryPressure::Unknown => {
+            MAX_UNUSED_AGE
+        }
+    }
+}
+
 fn maintenance_work_class(pressure: MemoryPressure) -> WorkClass {
     match pressure {
         // Reclaiming memory becomes interactive work when the system is under
@@ -78,14 +87,15 @@ pub(super) fn schedule() {
                 let work_class = maintenance_work_class(pressure);
                 let _qos = QosGuard::enter(work_class);
                 let payload_budget = retention_payload_budget(pressure);
+                let max_age = unused_age_limit(pressure);
                 comemo::set_retention_limits::<StrResult<Bytes>>(
                     PROTECTED_ENTRIES,
                     payload_budget,
                 );
-                comemo::evict(MAX_UNUSED_AGE);
+                comemo::evict(max_age);
                 let retained = comemo::retention_stats();
                 log::debug!(
-                    "ProjectCompiler: evict comemo cache in {:?} (max_age={MAX_UNUSED_AGE}, protected_entries={}, protected_payload_bytes={}, protected_hits={}, expensive_compute_count={}, expensive_compute_time={:?}, payload_budget={payload_budget}, memory_pressure={pressure:?}, work_class={work_class:?})",
+                    "ProjectCompiler: evict comemo cache in {:?} (max_age={max_age}, protected_entries={}, protected_payload_bytes={}, protected_hits={}, expensive_compute_count={}, expensive_compute_time={:?}, payload_budget={payload_budget}, memory_pressure={pressure:?}, work_class={work_class:?})",
                     start.elapsed(), retained.entries, retained.payload_bytes, retained.hits,
                     retained.expensive_compute_count, retained.expensive_compute_time,
                 );
@@ -171,6 +181,10 @@ mod tests {
             retention_payload_budget(MemoryPressure::Unknown),
             64 * 1024 * 1024
         );
+        assert_eq!(unused_age_limit(MemoryPressure::Normal), MAX_UNUSED_AGE);
+        assert_eq!(unused_age_limit(MemoryPressure::Warning), MAX_UNUSED_AGE);
+        assert_eq!(unused_age_limit(MemoryPressure::Unknown), MAX_UNUSED_AGE);
+        assert_eq!(unused_age_limit(MemoryPressure::Critical), 0);
     }
 
     #[test]

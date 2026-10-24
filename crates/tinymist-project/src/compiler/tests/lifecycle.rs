@@ -49,6 +49,47 @@ fn dark_only_preview_keeps_one_active_cache_maintenance_owner() {
 }
 
 #[test]
+fn dual_theme_preview_sweeps_once_after_final_demanded_project_commits() {
+    let mut harness = ProjectCompilerHarness::new(&[(MAIN, "#let value = 1")]);
+    let entry = harness.compiler.primary.verse.entry_state();
+    let dark = harness.compiler.restart_dedicate("dark", entry).unwrap();
+    harness
+        .compiler
+        .process(Interrupt::Compile(ProjectInsId::PRIMARY));
+    let handler = harness.compiler.handler.clone();
+
+    // Both primary and dark have pending work at revision 2.
+    assert!(
+        !harness
+            .compiler
+            .maintains_shared_cache(&ProjectInsId::PRIMARY)
+    );
+    assert!(!harness.compiler.maintains_shared_cache(&dark));
+
+    let (_, primary_work) = harness
+        .compiler
+        .primary
+        .may_compile_latest(&handler)
+        .unwrap();
+    let primary_art = primary_work().artifact.unwrap();
+    // Primary finishes while dark is still uncommitted, so it must not sweep early.
+    assert!(
+        !harness
+            .compiler
+            .maintains_shared_cache(&ProjectInsId::PRIMARY)
+    );
+    harness.compiler.process(Interrupt::Compiled(primary_art));
+
+    let (_, dark_work) = harness.compiler.dedicates[0]
+        .may_compile_latest(&handler)
+        .unwrap();
+    let dark_art = dark_work().artifact.unwrap();
+    // Dark finishes after primary has already committed, so dark runs the sweep.
+    assert!(harness.compiler.maintains_shared_cache(&dark));
+    harness.compiler.process(Interrupt::Compiled(dark_art));
+}
+
+#[test]
 fn superseded_queued_compile_skips_execution_and_latest_compiles() {
     let mut harness = ProjectCompilerHarness::new(&[(MAIN, "#let value = 1")]);
     harness

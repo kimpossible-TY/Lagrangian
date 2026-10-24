@@ -1672,6 +1672,61 @@ mod incr_cache_tests {
             10
         );
     }
+
+    #[test]
+    fn rev_cache_gc_evicts_superseded_entries_with_unchanged_source_revision() {
+        use std::num::NonZeroUsize;
+        use std::sync::Arc;
+
+        use super::{AnalysisRevCache, DETACHED_ENTRY, RevisionManagerLike, TypeInfo};
+
+        let fid = *DETACHED_ENTRY;
+        let mut cache = AnalysisRevCache::default();
+
+        let mut weak_old = Vec::new();
+        for slot_rev in 1..=4usize {
+            let rev = NonZeroUsize::new(slot_rev).unwrap();
+            let mut lock = cache.manager.lock_estimated();
+            lock.access(rev);
+            let default_slot = &cache.default_slot;
+            let slot = cache.manager.find_revision(rev, |slot_base| {
+                slot_base
+                    .map(|slot| slot.data.crawl(rev.get()))
+                    .unwrap_or_else(|| default_slot.crawl(rev.get()))
+            });
+            let mut info = TypeInfo::default();
+            info.valid = true;
+            info.fid = Some(fid);
+            // Unedited importer keeps its original source-expression revision (1)
+            // while dependency fingerprints change across slot revisions 1..=4.
+            info.revision = 1;
+            let arc_info = Arc::new(info);
+            if slot_rev < 4 {
+                weak_old.push(Arc::downgrade(&arc_info));
+            }
+            slot.type_check.publish(slot_rev as u128, arc_info);
+            drop(slot);
+            if let Some(gc_rev) = cache.manager.unlock(&mut lock) {
+                cache.gc(gc_rev);
+            }
+        }
+
+        let retained: Vec<_> = cache
+            .default_slot
+            .type_check
+            .global
+            .lock()
+            .iter()
+            .map(|r| (*r.key(), r.0, r.1.revision))
+            .collect();
+        assert_eq!(retained, vec![(4, 4, 1)]);
+        for weak in weak_old {
+            assert!(
+                weak.upgrade().is_none(),
+                "superseded TypeInfo must be released from both global and prev caches"
+            );
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1765,36 +1820,41 @@ pub struct AnalysisRevCache {
 impl RevisionManagerLike for AnalysisRevCache {
     fn gc(&mut self, rev: usize) {
         self.manager.gc(rev);
+        if self.manager.is_unlocked() {
+            for slot in self.manager.slots() {
+                slot.release_previous();
+            }
+        }
 
         // todo: the following code are time consuming.
         {
             let mut max_ei = FxHashMap::default();
             let es = self.default_slot.expr_stage.global.lock();
             for r in es.iter() {
-                let rev: &mut usize = max_ei.entry(r.1.fid).or_default();
-                *rev = (*rev).max(r.1.revision);
+                let rev: &mut (usize, usize) = max_ei.entry(r.1.fid).or_default();
+                *rev = (*rev).max((r.0, r.1.revision));
             }
-            es.retain(|_, r| r.1.revision == *max_ei.get(&r.1.fid).unwrap_or(&0));
+            es.retain(|_, r| (r.0, r.1.revision) == *max_ei.get(&r.1.fid).unwrap_or(&(0, 0)));
         }
 
         {
             let mut max_ti = FxHashMap::default();
             let ts = self.default_slot.type_check.global.lock();
             for r in ts.iter() {
-                let rev: &mut usize = max_ti.entry(r.1.fid).or_default();
-                *rev = (*rev).max(r.1.revision);
+                let rev: &mut (usize, usize) = max_ti.entry(r.1.fid).or_default();
+                *rev = (*rev).max((r.0, r.1.revision));
             }
-            ts.retain(|_, r| r.1.revision == *max_ti.get(&r.1.fid).unwrap_or(&0));
+            ts.retain(|_, r| (r.0, r.1.revision) == *max_ti.get(&r.1.fid).unwrap_or(&(0, 0)));
         }
 
         {
             let mut max_li = FxHashMap::default();
             let ts = self.default_slot.lint.global.lock();
             for r in ts.iter() {
-                let rev: &mut usize = max_li.entry(r.1.fid).or_default();
-                *rev = (*rev).max(r.1.revision);
+                let rev: &mut (usize, usize) = max_li.entry(r.1.fid).or_default();
+                *rev = (*rev).max((r.0, r.1.revision));
             }
-            ts.retain(|_, r| r.1.revision == *max_li.get(&r.1.fid).unwrap_or(&0));
+            ts.retain(|_, r| (r.0, r.1.revision) == *max_li.get(&r.1.fid).unwrap_or(&(0, 0)));
         }
     }
 }
@@ -1861,6 +1921,12 @@ impl AnalysisRevSlot {
             type_check: self.type_check.crawl(revision),
             lint: self.lint.crawl(revision),
         }
+    }
+
+    fn release_previous(&self) {
+        self.expr_stage.prev.lock().clear();
+        self.type_check.prev.lock().clear();
+        self.lint.prev.lock().clear();
     }
 }
 
