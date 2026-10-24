@@ -1,5 +1,12 @@
 # Responsive mobile reader alongside the paged preview
 
+Redesign the complete HTML Reader reading-settings surface around immediate
+access to typography and appearance, with a clear hierarchy for offline reading,
+queued highlight requests and optional device computation. Preserve existing
+preferences, reading position and every operational action. Adapt the surface
+to narrow and large viewports with semantic controls, restrained materials,
+interruptible feedback and accessible solid/reduced-motion treatments.
+
 Show source highlights immediately in both paged and HTML readers, including
 the terminal Reader's shared browser surface. Keep existing feedback text while
 verification and compilation run in the background, then replace temporary

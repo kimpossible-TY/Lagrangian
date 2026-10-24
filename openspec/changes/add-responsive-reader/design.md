@@ -116,6 +116,35 @@ already observed token. Without a valid edit, existing reading restoration appli
 
 ## Reader appearance
 
+### Reading settings hierarchy and presentation
+
+Keep theme previews and the font stepper together as the first settings group.
+Place a pending shell-update action immediately after that group, followed by
+an offline/highlight status group and a separate device-computation group.
+Keep the native two-position workload range and its current scope/status visible
+within that last group; diagnostics and connection/history details use nested
+native disclosures. Every existing action, status ID and preference key retains
+its behavior. The older-browser path uses a labeled native theme select.
+
+Retain Flow's paper/charcoal palette. Use one frosted floating surface with
+opaque tonal groups inside it, without independently blurred child cards.
+CSS owns the preferred width (`21.5rem`); the settings controller bounds it to
+the visual viewport with 12px gutters, anchors it below the toolbar trigger and
+limits its scrolling height. Native and fallback presentations share that
+placement owner in `features/appearance/reading-settings.js`; `theme.js` retains
+early theme application, storage and theme-control synchronization. Toolbar and
+visual-viewport changes reposition an open panel. Escape and the close button
+return focus to the trigger without scrolling the article. Native popover light
+dismissal remains available, and rapid reopening must not lose current state.
+
+Use native semantic activation with brief transform/opacity feedback and a
+solid baseline enhanced by a static backdrop filter. These are locally tuned
+web approximations, not native Liquid Glass optics or Apple's shipped constants.
+Reduced motion removes spatial feedback; reduced transparency/increased contrast
+uses an opaque surface, and forced colors uses system colors and visible focus.
+Expanded diagnostics, text scaling and landscape layouts retain vertical access
+to every control without clipping or horizontal panning.
+
 ### Minimal navigation and direct reading gestures
 
 The toolbar has two 44px icon buttons: outline and reading settings, with Flow

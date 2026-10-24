@@ -90,7 +90,7 @@
                 viewBox="0 0 16 16"
                 fill="none"
                 stroke="currentColor"
-                stroke-width="1.5"
+                stroke-width="1.6"
                 stroke-linecap="round"
                 aria-hidden="true"
               >
@@ -98,110 +98,140 @@
               </svg>
             </button>
           </div>
-          <div class="reader-font-setting">
-            <span>본문 크기</span>
-            <div class="reader-type-controls" role="group" aria-label="본문 글자 크기">
-              <button id="reader-smaller" type="button" aria-label="글자 작게">A−</button>
-              <output id="reader-size" aria-label="글자 크기">13</output>
-              <button id="reader-larger" type="button" aria-label="글자 크게" autofocus>A+</button>
+          <div class="reader-settings-group" role="group" aria-label="화면 및 글자 크기">
+            <fieldset class="reader-appearance-options">
+              <legend class="reader-visually-hidden">화면 모드 선택</legend>
+              <span class="reader-appearance-indicator" aria-hidden="true"></span>
+              <label class="reader-appearance-option">
+                <input type="radio" name="reader-appearance" value="system" checked />
+                <span class="reader-appearance-sample" data-preview="system" aria-hidden="true"
+                  ><span>Aa</span><i></i><i></i
+                ></span>
+                <span class="reader-visually-hidden">자동</span>
+                <span class="reader-appearance-check" aria-hidden="true">✓</span>
+              </label>
+              <label class="reader-appearance-option">
+                <input type="radio" name="reader-appearance" value="light" />
+                <span class="reader-appearance-sample" data-preview="light" aria-hidden="true"
+                  ><span>Aa</span><i></i><i></i
+                ></span>
+                <span class="reader-visually-hidden">라이트</span>
+                <span class="reader-appearance-check" aria-hidden="true">✓</span>
+              </label>
+              <label class="reader-appearance-option">
+                <input type="radio" name="reader-appearance" value="dark" />
+                <span class="reader-appearance-sample" data-preview="dark" aria-hidden="true"
+                  ><span>Aa</span><i></i><i></i
+                ></span>
+                <span class="reader-visually-hidden">다크</span>
+                <span class="reader-appearance-check" aria-hidden="true">✓</span>
+              </label>
+            </fieldset>
+            <div class="reader-theme-fallback">
+              <label for="reader-theme">화면 테마</label>
+              <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
+                <option value="system">자동</option>
+                <option value="light">라이트</option>
+                <option value="dark">다크</option>
+              </select>
+            </div>
+            <div class="reader-font-setting">
+              <span class="reader-setting-label">본문 크기</span>
+              <div class="reader-type-controls" role="group" aria-label="본문 글자 크기">
+                <button id="reader-smaller" type="button" aria-label="글자 작게">A−</button>
+                <output id="reader-size" aria-label="글자 크기">13</output>
+                <button id="reader-larger" type="button" aria-label="글자 크게" autofocus>
+                  A+
+                </button>
+              </div>
             </div>
           </div>
-          <button id="reader-apply-update" type="button" hidden>업데이트 적용</button>
-          <p id="reader-offline-status" role="status">오프라인 읽기를 준비하고 있습니다.</p>
-          <p id="reader-highlight-queue-status" role="status">
-            대기 중인 하이라이트 요청이 없습니다.
-          </p>
-          <button id="reader-highlight-results-clear" type="button" hidden>
-            확인한 요청 결과 지우기
-          </button>
-          <div class="reader-compute-setting">
-            <div class="reader-compute-heading">
-              <label for="reader-compute-level">이 기기 계산 부하</label>
-              <output id="reader-compute-value" for="reader-compute-level">Low</output>
-            </div>
-            <input
-              id="reader-compute-level"
-              type="range"
-              min="0"
-              max="1"
-              step="1"
-              value="0"
-              aria-valuetext="Low"
-              aria-describedby="reader-compute-description"
-            />
-            <div class="reader-compute-labels" aria-hidden="true">
-              <span>Low</span><span>High</span>
-            </div>
-            <p id="reader-compute-description">
-              문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.
-            </p>
-          </div>
-          <p id="reader-compiler-status" role="status"></p>
-          <details id="reader-compiler-diagnostics">
-            <summary>이 기기 계산 확인</summary>
-            <p>
-              1. 간단 검사를 누르고 이 화면을 열어 두세요. 2. 통과하면 현재 문서 검사를 진행하세요.
-            </p>
-            <p id="reader-device-identity"></p>
-            <div class="reader-diagnostic-actions">
-              <button type="button" data-diagnostic="quick" disabled>1. 간단 검사</button>
-              <button type="button" data-diagnostic="document" disabled>2. 현재 문서 검사</button>
-            </div>
-            <p>
-              현재 문서 검사는 수 분 걸릴 수 있습니다. 결과를 비교하며 원본과 읽는 문서는 바꾸지
-              않습니다.
-            </p>
-            <p id="reader-diagnostic-result" role="status" aria-live="polite">
-              기기 연결을 확인하고 있습니다.
-            </p>
-            <button type="button" id="reader-diagnostic-copy">결과 복사</button>
-            <p id="reader-diagnostic-copy-status" role="status"></p>
-            <details>
-              <summary>연결된 기기와 최근 작업</summary>
-              <p>
-                계산 결과 수신과 최종 문서 반영은 별도로 표시됩니다. 기록은 서버 재시작 시
-                초기화됩니다.
-              </p>
-              <ul id="reader-compiler-devices"></ul>
-              <ol id="reader-compiler-history"></ol>
-            </details>
-          </details>
-          <select id="reader-theme" aria-label="화면 테마" title="화면 테마">
-            <option value="system">자동</option>
-            <option value="light">라이트</option>
-            <option value="dark">다크</option>
-          </select>
-          <fieldset class="reader-appearance-options">
-            <legend class="reader-visually-hidden">화면 모드 선택</legend>
-            <span class="reader-appearance-indicator" aria-hidden="true"></span>
-            <label class="reader-appearance-option">
-              <input type="radio" name="reader-appearance" value="system" checked />
-              <span class="reader-appearance-sample" data-preview="system" aria-hidden="true"
-                ><span>Aa</span><i></i><i></i
-              ></span>
-              <span class="reader-visually-hidden">자동</span>
-              <span class="reader-appearance-check" aria-hidden="true">✓</span>
-            </label>
-            <label class="reader-appearance-option">
-              <input type="radio" name="reader-appearance" value="light" />
-              <span class="reader-appearance-sample" data-preview="light" aria-hidden="true"
-                ><span>Aa</span><i></i><i></i
-              ></span>
-              <span class="reader-visually-hidden">라이트</span>
-              <span class="reader-appearance-check" aria-hidden="true">✓</span>
-            </label>
-            <label class="reader-appearance-option">
-              <input type="radio" name="reader-appearance" value="dark" />
-              <span class="reader-appearance-sample" data-preview="dark" aria-hidden="true"
-                ><span>Aa</span><i></i><i></i
-              ></span>
-              <span class="reader-visually-hidden">다크</span>
-              <span class="reader-appearance-check" aria-hidden="true">✓</span>
-            </label>
-          </fieldset>
           <p id="reader-appearance-status" class="reader-visually-hidden" role="status">
             기기 설정에 맞춰 자동으로 전환합니다.
           </p>
+          <button id="reader-apply-update" type="button" hidden>업데이트 적용</button>
+          <div
+            class="reader-settings-status-card"
+            role="group"
+            aria-label="오프라인 및 하이라이트 상태"
+          >
+            <div class="reader-status-item">
+              <span class="reader-status-title">오프라인 읽기</span>
+              <p id="reader-offline-status" role="status">오프라인 읽기를 준비하고 있습니다.</p>
+            </div>
+            <div class="reader-status-item">
+              <span class="reader-status-title">하이라이트 동기화</span>
+              <p id="reader-highlight-queue-status" role="status">
+                대기 중인 하이라이트 요청이 없습니다.
+              </p>
+              <button id="reader-highlight-results-clear" type="button" hidden>
+                확인한 요청 결과 지우기
+              </button>
+            </div>
+          </div>
+          <div class="reader-compute-section" role="group" aria-label="기기 계산 및 진단">
+            <div class="reader-compute-setting">
+              <div class="reader-compute-heading">
+                <label for="reader-compute-level">이 기기 계산 부하</label>
+                <output id="reader-compute-value" for="reader-compute-level">Low</output>
+              </div>
+              <input
+                id="reader-compute-level"
+                type="range"
+                min="0"
+                max="1"
+                step="1"
+                value="0"
+                aria-valuetext="Low"
+                aria-describedby="reader-compute-description"
+              />
+              <div class="reader-compute-labels" aria-hidden="true">
+                <span>Low</span><span>High</span>
+              </div>
+              <p id="reader-compute-description">
+                문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.
+              </p>
+              <p id="reader-compiler-status" role="status"></p>
+            </div>
+            <details id="reader-compiler-diagnostics">
+              <summary>이 기기 계산 확인</summary>
+              <div class="reader-diagnostics-body">
+                <p class="reader-diagnostic-note">
+                  1. 간단 검사를 누르고 이 화면을 열어 두세요. 2. 통과하면 현재 문서 검사를
+                  진행하세요.
+                </p>
+                <p id="reader-device-identity"></p>
+                <div class="reader-diagnostic-actions">
+                  <button type="button" data-diagnostic="quick" disabled>1. 간단 검사</button>
+                  <button type="button" data-diagnostic="document" disabled>
+                    2. 현재 문서 검사
+                  </button>
+                </div>
+                <p class="reader-diagnostic-note">
+                  현재 문서 검사는 수 분 걸릴 수 있습니다. 결과를 비교하며 원본과 읽는 문서는 바꾸지
+                  않습니다.
+                </p>
+                <p id="reader-diagnostic-result" role="status" aria-live="polite">
+                  기기 연결을 확인하고 있습니다.
+                </p>
+                <div class="reader-diagnostic-copy-row">
+                  <button type="button" id="reader-diagnostic-copy">결과 복사</button>
+                  <p id="reader-diagnostic-copy-status" role="status"></p>
+                </div>
+                <details class="reader-compiler-log-details">
+                  <summary>연결된 기기와 최근 작업</summary>
+                  <div class="reader-compiler-log-body">
+                    <p class="reader-diagnostic-note">
+                      계산 결과 수신과 최종 문서 반영은 별도로 표시됩니다. 기록은 서버 재시작 시
+                      초기화됩니다.
+                    </p>
+                    <ul id="reader-compiler-devices"></ul>
+                    <ol id="reader-compiler-history"></ol>
+                  </div>
+                </details>
+              </div>
+            </details>
+          </div>
         </div>
       </div>
     </header>
