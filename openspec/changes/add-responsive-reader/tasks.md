@@ -403,4 +403,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 ## Device termination evidence
 
 - [x] Record bounded termination causes, propagate pinned outcomes, and show Korean explanations.
-- [ ] Verify release, silent heartbeat loss and browser lifecycle behavior; deploy and verify installed delivery.
+- [x] Verify release, silent heartbeat loss and browser lifecycle behavior; deploy and verify installed delivery.

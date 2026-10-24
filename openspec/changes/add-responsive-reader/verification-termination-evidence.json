@@ -1,0 +1,63 @@
+{
+  "implementationCommit": "350d74cc9ba1ef9a7a7877922551de30394d0f58",
+  "python": {
+    "tests": 235,
+    "skipped": 53,
+    "passed": true
+  },
+  "terminationUnitTests": {
+    "python": 14,
+    "javascript": 1
+  },
+  "browserEngines": [
+    "Chrome",
+    "desktop WebKit"
+  ],
+  "checks": [
+    "ESLint zero warnings",
+    "Prettier",
+    "architecture tests",
+    "strict OpenSpec",
+    "documentation generation check",
+    "Typst technical guide compile"
+  ],
+  "delivery": {
+    "release": "350d74cc9ba1ef9a7a7877922551de30394d0f58-wasm-6a194fad0b95c8b4",
+    "runtimeFilesVerified": 581,
+    "acceptedRevision": "7355a7ee3664d1ac16f48c5e8f781a58685d137a1956edbbfb50df9593971307",
+    "contentGatePassed": true,
+    "profilesPreserved": true,
+    "serviceSettingsPreserved": true
+  },
+  "liveTermination": {
+    "event": {
+      "id": "4aba68feb382",
+      "at": 1792808932.164348,
+      "executor": "diagnostic",
+      "purpose": "quick",
+      "status": "failed",
+      "device": {
+        "id": "1bb5ecc3",
+        "name": "컴퓨터 브라우저"
+      },
+      "stage": "device",
+      "snapshot": "c86b625bf1b0",
+      "termination": {
+        "status": "disconnected",
+        "reason": "page-exit",
+        "elapsedSeconds": 0.391
+      },
+      "reason": "device-did-not-finish",
+      "errorType": "ValueError",
+      "elapsedSeconds": 0.4
+    },
+    "text": "미통과 — 간단 검사: 페이지를 떠나거나 다시 불러와 계산을 중단했습니다.",
+    "publicationUnchanged": true
+  },
+  "physicalIPhone": {
+    "quickPassedBeforeChange": true,
+    "documentDisconnectedSeconds": 28.835,
+    "historicalCause": "unknown",
+    "newInstrumentation": "awaiting device evidence"
+  }
+}
