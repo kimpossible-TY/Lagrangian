@@ -75,7 +75,8 @@ Supported mathematical decorations and native figure labels adapt to reading wid
 and font size on the viewing device. If the server provides a browser compiler,
 *Help compute this document on this device* (이 기기로 문서 계산 돕기) offers that
 browser as a temporary worker while its page is visible and connected. Participation
-starts off. Closing or hiding the page releases its work; the server validates and
+starts on unless you previously turned it off; that saved choice survives reloads.
+Closing or hiding the page releases its work; the server validates and
 adopts results for every viewer. Large documents can use substantial memory and battery,
 so enable this only on a device suitable for the document.
 

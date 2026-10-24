@@ -155,8 +155,9 @@ review-needed counts; clearing reviewed results does not discard pending request
 Browser storage loss still requires recovery from the current server document.
 
 An offline cached document does not itself authorize a source write. No installation
-or physical iPhone run is implied by the desktop validation above. The optional browser
-compiler should remain opt-in until the actual phone can sustain the PDE memory load.
+or physical iPhone run is implied by the desktop validation above. New viewers offer
+browser compilation by default at the user's request; a saved false preference remains
+disabled. Actual phone memory and sustained-use behavior still require device evidence.
 
 The final service suite ran 248 tests successfully with seven optional skips requiring
 the external source-history engine or companion Tail Hosting checkout. The HTML Node
@@ -172,8 +173,8 @@ Flow `0.1.32` and its immutable HTML Reader are installed from clean commit
 `e3004738`, with compiler identity `6a194fad0b95c8b4`. The existing compatible
 native engine, signing certificate and designated requirement are retained. The
 menu-bar app is relaunched, and its bundled PDF includes the offline/device-compute
-instructions. Browser participation requires a saved true preference or an explicit
-toggle; a fresh viewer does not register a compiler automatically.
+instructions. At this rollout, browser participation required a saved true preference
+or an explicit toggle; the subsequent default-enabled update changes that initial policy.
 
 Reader-only supplementary fonts supply the four installed Arial variants alongside
 the inherited project fonts. The isolated actual PDE preflight passes the content

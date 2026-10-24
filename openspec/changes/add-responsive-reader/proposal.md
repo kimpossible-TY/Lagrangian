@@ -170,3 +170,6 @@ user's running services.
 The user-requested rollout packages the matching browser compiler, preserves explicit
 Reader-only font inputs, updates the signed Flow app and bundled guide, and verifies
 actual PDE delivery over the existing local and HTTPS routes with recovery snapshots.
+
+At the user's request, enable browser computation for viewers without a saved choice,
+while preserving explicitly disabled preferences and the existing foreground leases.

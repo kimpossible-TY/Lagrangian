@@ -41,6 +41,7 @@ readingSettings(
 );
 let gestures = null;
 const preferences = new DocumentStorage(`flow-reader:${location.pathname}`);
+const compilerPreferences = new DocumentStorage(preferences.key);
 let revision = null;
 let pending = null;
 let blocks = [];
@@ -67,12 +68,11 @@ const browserCompiler = new BrowserCompilerClient({
     }[state];
   },
 });
-compilerToggle.checked = preferences.read("compiler-enabled") === true;
+compilerToggle.checked = compilerPreferences.read("compiler-enabled", true) !== false;
 compilerToggle.addEventListener("change", () => {
-  preferences.write("compiler-enabled", compilerToggle.checked);
+  compilerPreferences.write("compiler-enabled", compilerToggle.checked);
   browserCompiler.setEnabled(compilerToggle.checked);
 });
-browserCompiler.setEnabled(compilerToggle.checked);
 const offline = new OfflineReader({
   changed(state) {
     document.querySelector("#reader-offline-status").textContent = {
@@ -426,6 +426,16 @@ function renderDocument(html, nextManifest, section, options) {
     preferences.key = documentStorageKey;
     appearance.restore();
   }
+  // Older builds wrote this choice under the document key after mounting.
+  // Restore it before offering capacity; newer explicit viewer choices win.
+  const legacyCompilerChoice = preferences.read("compiler-enabled");
+  if (
+    compilerPreferences.read("compiler-enabled") === undefined &&
+    typeof legacyCompilerChoice === "boolean"
+  )
+    compilerPreferences.write("compiler-enabled", legacyCompilerChoice);
+  compilerToggle.checked = compilerPreferences.read("compiler-enabled", true) !== false;
+  browserCompiler.setEnabled(compilerToggle.checked);
   sections.reset(manifest, section, html);
   indexDocument();
   mathematics.sync();

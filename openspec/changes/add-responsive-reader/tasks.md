@@ -385,3 +385,8 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Update the bundled guide, build and verify signed Flow 0.1.32 with the existing compatible engine from a clean source commit.
 - [x] Preflight the actual PDE with the portable font set and stage the matching immutable Reader/WASM release with configuration/context recovery snapshots.
 - [x] Install both releases, preserve running/stopped project states and saved context, and verify local/HTTPS document, PWA and new asset delivery in real browsers.
+
+## Default-enabled browser computation
+
+- [x] Enable compilation for new viewers, preserve saved false/true preferences and verify both browsers' worker lifecycle.
+- [ ] Update the guide and deploy a clean immutable Reader plus signed Flow 0.1.33, preserving settings and service states; verify actual HTTPS defaults and document delivery.
