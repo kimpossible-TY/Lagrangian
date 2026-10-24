@@ -423,4 +423,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 - [x] Replace the compiler checkbox with an accessible Low/High range control, default Low, preserving saved choices and existing local rendering.
 - [x] Verify touch, drag, keyboard, reload, worker release and native geometry fallback in Chromium/WebKit with isolated inputs.
-- [ ] Document the levels and deploy the clean immutable Reader; verify HTTPS delivery and preserved project/service state.
+- [x] Document the levels and deploy the clean immutable Reader; verify HTTPS delivery and preserved project/service state.

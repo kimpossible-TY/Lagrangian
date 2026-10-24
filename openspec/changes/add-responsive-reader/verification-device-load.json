@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "feature": "device-workload-slider",
+  "sourceCommit": "7c96e42d1a1a5ae3b86ed7931d901a836b46a167",
+  "nativeAppVersion": "0.1.33 (unchanged)",
+  "default": "Low",
+  "preferences": "Saved true/false map to High/Low; viewer choice wins over legacy document choice.",
+  "delivery": {
+    "release": "7c96e42d1a1a5ae3b86ed7931d901a836b46a167-wasm-6a194fad0b95c8b4",
+    "runtimeFilesVerified": 582,
+    "acceptedRevision": "33540c847c5bacecfdbd6ee61fdcdfd74a18e6d19938c4f7900124ea1419eeea",
+    "contentGatePassed": true,
+    "profilesPreserved": true,
+    "serviceSettingsPreserved": true
+  },
+  "assets": {
+    "routesPerOrigin": 69,
+    "origins": 2,
+    "preservedContextFiles": 2,
+    "focusChanges": ["server_pid", "server_started_at_unix_ms"],
+    "focusBeforeEvidence": "byte-exact reconstruction verified by pre-install SHA-256",
+    "pagedProcessPreserved": true,
+    "normalizedContentHashPreserved": true,
+    "contentRevision": "7f1a3fd62c01def89717c86406b4444a9cf643c3d0bc37c4d350a9ab1a21895f",
+    "acceptedRevision": "33540c847c5bacecfdbd6ee61fdcdfd74a18e6d19938c4f7900124ea1419eeea",
+    "previousAcceptedRevision": "3a168ed2a61da09e2b38be8c4e96b6e2882b6378dfe05d580599f26187441c23"
+  },
+  "browsers": [
+    {
+      "engine": "chromium",
+      "default": "Low",
+      "lowWasmRequests": 0,
+      "keyboard": true,
+      "touchViewport": true,
+      "scaled320px": true,
+      "visibleFocus": true,
+      "quick": {
+        "id": "ba9fcd99d191",
+        "at": 1792814344.662466,
+        "executor": "diagnostic",
+        "purpose": "quick",
+        "status": "passed",
+        "device": {
+          "id": "f52bd452",
+          "name": "컴퓨터 브라우저",
+          "diagnosticsVersion": 1
+        },
+        "stage": "complete",
+        "snapshot": "7257b2c6a8ed",
+        "deviceSeconds": 0.748,
+        "outputHash": "7ca4b08a01a5",
+        "elapsedSeconds": 0.865
+      },
+      "workerReleased": true,
+      "savedLowRestored": true,
+      "publicationUnchanged": true
+    },
+    {
+      "engine": "webkit",
+      "default": "Low",
+      "lowWasmRequests": 0,
+      "keyboard": true,
+      "touchViewport": true,
+      "scaled320px": true,
+      "visibleFocus": true,
+      "quick": {
+        "id": "718ddbaeb829",
+        "at": 1792814374.6655302,
+        "executor": "diagnostic",
+        "purpose": "quick",
+        "status": "passed",
+        "device": {
+          "id": "c8491045",
+          "name": "컴퓨터 브라우저",
+          "diagnosticsVersion": 1
+        },
+        "stage": "complete",
+        "snapshot": "4e08dc852fc5",
+        "deviceSeconds": 0.436,
+        "outputHash": "c1595e85cb0c",
+        "elapsedSeconds": 0.474
+      },
+      "workerReleased": true,
+      "savedLowRestored": true,
+      "publicationUnchanged": true
+    }
+  ],
+  "isolatedChecks": {
+    "browserPool": ["chromium", "webkit"],
+    "readerNodeTests": 190,
+    "architectureTests": 2,
+    "installerTests": 1,
+    "eslint": "passed, no warnings",
+    "prettier": "passed",
+    "strictOpenSpec": "passed",
+    "documentation": "generated Markdown and both changed Typst documents compiled"
+  },
+  "coverageLimits": [
+    "Physical iPhone slider interaction and VoiceOver were not exercised.",
+    "High still uses the existing compiler and full-document memory requirements.",
+    "The initial native compile timed out under concurrent host builds; retry and dependency retirement completed acceptance."
+  ],
+  "evidenceDirectory": "dist/reader-load-rollout/"
+}

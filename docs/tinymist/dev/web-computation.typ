@@ -228,6 +228,36 @@ preserved. The signed app and bundled guide are updated and the menu-bar app is
 relaunched. Physical iPhone behavior remains unmeasured. Receipts and recovery snapshots
 are in `dist/default-on-rollout/`.
 
+== Low/High workload control rollout
+
+Reader `7c96e42d` replaces the compiler checkbox with the Low/High slider and
+starts new viewers at Low at the user's request. Explicit saved boolean choices
+retain their meaning. The native input event immediately updates the setting;
+desktop WebKit touch input changed the range value without emitting change, so
+waiting for change could leave a displayed High value with compilation still off.
+
+Isolated Chrome and desktop WebKit cover touch, drag, keyboard, saved High/Low,
+legacy false recovery, a busy diagnostic stopped by Low, source publication guards
+and native geometry fallback. Both actual HTTPS browsers confirm no WASM download
+in Low, a passing High quick check, released capacity, saved Low after reload and
+unchanged publication during those checks. The control remains usable at 320px
+with 200% root text scaling, reduced motion, dark appearance and visible keyboard
+focus; Chrome also covers forced colors. These are desktop browser measurements,
+not physical iPhone or VoiceOver verification.
+
+All 582 immutable runtime files and 69 static/compiler routes on both loopback and
+HTTPS match installed bytes. The PDE passes acceptance with the same normalized
+content hash `7f1a3fd62c01`; its accepted snapshot identity changes to `33540c847c5b`
+because it captures the new immutable package paths. Project/service settings,
+source edit history and the running paged process are preserved. The empty focus
+record changes only its service PID/start epoch. Native Flow remains `0.1.33`.
+
+During concurrent host builds the first native startup compile exceeds its existing
+90-second bound. Automatic retry and dependency retirement subsequently complete
+acceptance; the final compile report takes 109.042 seconds across its stages.
+This rollout changes the device workload choice, not High's full-document memory
+requirements. Receipts, checks and screenshots are in `dist/reader-load-rollout/`.
+
 == Verify computation on an actual iPhone
 
 Open the HTTPS Reader on the iPhone. If reading settings shows *업데이트 적용*,
