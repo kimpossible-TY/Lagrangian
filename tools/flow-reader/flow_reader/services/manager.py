@@ -12,8 +12,11 @@ import subprocess
 import sys
 import time
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 from flow_reader.resources import READER_ROOT as HERE
+from flow_reader.compiler.project import document_identity
+from flow_reader.services.editor_sync import EditorAttachments
 DEFAULT_DATA = Path.home() / "Library/Application Support/tinymist-flow/reader"
 LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
 
@@ -46,10 +49,18 @@ class ReaderManager:
         self.launcher = self.data / "bin/flow-reader"
 
     @contextmanager
-    def locked(self):
+    def locked(self, *, timeout=0):
         self.data.mkdir(parents=True, exist_ok=True)
         with (self.data / "control.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            deadline = time.monotonic() + timeout if timeout else None
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if deadline is None or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(.02)
             yield
 
     def config(self):
@@ -165,6 +176,67 @@ class ReaderManager:
             arguments.append("--semantic-canvases")
         return arguments
 
+    def match_document(self, root, entry, identifier=None):
+        root = Path(root).resolve()
+        entry = (root / entry).resolve()
+        entry.relative_to(root)
+        matches = [profile for profile in self.profiles()
+                   if Path(profile["root"]).resolve() == root
+                   and (Path(profile["root"]) / profile["entry"]).resolve() == entry
+                   and (identifier is None or profile["id"] == identifier)]
+        if not matches:
+            raise ValueError("No managed HTML Reader matches this project and entry; configure its HTML profile first")
+        if len(matches) != 1:
+            raise ValueError("Multiple HTML Readers match this document; select --reader-service ID")
+        return matches[0]
+
+    @staticmethod
+    def request(url, path, payload=None):
+        request = Request(url + path, None if payload is None else json.dumps(payload).encode(),
+                          {"Content-Type": "application/json"})
+        with urlopen(request, timeout=2) as response:
+            return json.loads(response.read(1024 * 1024))
+
+    def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
+               owner_pid=None, control_file=None):
+        """Reuse the normal HTML lifecycle/plan; never start a presentation-owned compiler."""
+        profile = self.match_document(root, entry, identifier)
+        if self.job_pid(profile) is None:
+            self.control("start", profile)
+        url = f"http://127.0.0.1:{profile['port']}/"
+        expected_document = document_identity(profile["root"], profile["entry"])
+        deadline = time.monotonic() + 15
+        while True:
+            pid = self.job_pid(profile)
+            try:
+                state = self.request(url, "api/state")
+                break
+            except (OSError, ValueError):
+                if time.monotonic() >= deadline:
+                    raise ValueError("The managed HTML Reader did not become reachable") from None
+                time.sleep(.1)
+        if not isinstance(state, dict):
+            raise ValueError("Invalid managed HTML Reader response")
+        service = state.get("service")
+        if (not pid or not isinstance(service, dict) or service.get("pid") != pid
+                or type(service.get("startedAt")) is not int or state.get("documentID") != expected_document):
+            raise ValueError("The HTML Reader port does not match the managed process and document")
+        plan = {"url": url, "documentID": expected_document, "service": service}
+        if editor_server:
+            if state.get("editorAttachments") != 1:
+                raise ValueError("The installed HTML Reader needs an upgrade for shared editor attachments; no separate Reader was started")
+            attachments = EditorAttachments(self.data / "documents" / profile["id"], expected_document, service)
+            with self.locked(timeout=2):
+                token, path = attachments.register(editor_server, nvim, owner_pid, control_file)
+            try:
+                if self.request(url, "api/editor-attachment", {"token": token}).get("connected") is not True:
+                    raise ValueError("The HTML Reader rejected the editor attachment")
+            except BaseException:
+                path.unlink(missing_ok=True)
+                raise
+            plan.update(editorAttachment=token, attachmentFile=str(path))
+        return plan
+
     def agent(self, profile):
         return {"Label": profile["label"], "ProgramArguments": [str(self.launcher), "--serve", profile["id"]],
                 "AssociatedBundleIdentifiers": ["io.github.kimpossible-ty.tinymist-flow"],
@@ -234,6 +306,21 @@ class ReaderManager:
 def main(argv=None):
     arguments = sys.argv[1:] if argv is None else argv
     manager = ReaderManager()
+    if arguments[:1] == ["--attach"]:
+        import argparse
+        parser = argparse.ArgumentParser(description="Attach presentation to the managed HTML Reader")
+        parser.add_argument("--root", required=True)
+        parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service")
+        parser.add_argument("--editor-server")
+        parser.add_argument("--nvim", default="nvim")
+        parser.add_argument("--owner-pid", type=int)
+        parser.add_argument("--control-file")
+        options = parser.parse_args(arguments[1:])
+        print(json.dumps(manager.attach(options.root, options.entry, identifier=options.reader_service,
+                                       editor_server=options.editor_server, nvim=options.nvim,
+                                       owner_pid=options.owner_pid, control_file=options.control_file)))
+        return
     if arguments == ["--profiles"]:
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))
         return

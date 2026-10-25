@@ -23,7 +23,8 @@ class SelectionActions:
                     or request.get("service") != self.state.focus.service):
                 return {"status": "stale", "revision": self.state.revision}
             return self.highlight(request.get("revision"), request.get("fragments"),
-                                  request.get("editorServer", UNSPECIFIED_EDITOR))
+                                  request.get("editorServer", UNSPECIFIED_EDITOR),
+                                  request.get("editorAttachment", UNSPECIFIED_EDITOR))
         with self.edit_lock:
             return self.receipts.run(request, self.state.focus.service, execute)
 
@@ -38,12 +39,21 @@ class SelectionActions:
                 raise RevisionChanged("The document revision has changed")
         return {"revision": revision, "locations": results}
 
-    def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR):
+    def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR,
+                  editor_attachment=UNSPECIFIED_EDITOR):
         with self.edit_lock:
+            attached = editor_attachment is not UNSPECIFIED_EDITOR
+            editor = (self.state.editor_attachments.resolve(editor_attachment) if attached
+                      else self.state.editor)
             def editor_matches():
+                if attached:
+                    current = self.state.editor_attachments.resolve(editor_attachment)
+                    return (editor is not None and current is not None
+                            and (current.address, current.executable) == (editor.address, editor.executable)
+                            and (expected_editor is UNSPECIFIED_EDITOR or expected_editor == editor.address))
                 return (expected_editor is UNSPECIFIED_EDITOR
-                        or isinstance(expected_editor, str) and bool(expected_editor)
-                        and expected_editor == self.state.editor_server and self.state.editor is not None)
+                         or isinstance(expected_editor, str) and bool(expected_editor)
+                         and expected_editor == self.state.editor_server and self.state.editor is not None)
             if not editor_matches():
                 return {"status": "editor-mismatch", "revision": self.state.revision}
             with self.state.lock:
@@ -54,11 +64,11 @@ class SelectionActions:
                 if not snapshot.current(self.state):
                     raise StaleSelection("The selected document or its sources have changed")
             writer = None
-            if self.state.editor is not None or expected_editor is not UNSPECIFIED_EDITOR:
+            if attached or editor is not None or expected_editor is not UNSPECIFIED_EDITOR:
                 def writer(path, original, updated):
-                    if not editor_matches() or self.state.editor is None:
+                    if not editor_matches() or editor is None:
                         return "editor-mismatch"
-                    return self.state.editor.write(path, original, updated)
+                    return editor.write(path, original, updated)
             try:
                 fresh()
                 result = apply_highlight(self.state.project, self.state.output, snapshot.bundle, snapshot.dependencies,

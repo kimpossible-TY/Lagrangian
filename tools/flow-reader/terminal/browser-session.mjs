@@ -54,10 +54,20 @@ export async function waitForReader(page, url, options = {}) {
   terminalURL.searchParams.set("terminal", "1");
   if (options["editor-server"])
     terminalURL.searchParams.set("terminalEditorServer", options["editor-server"]);
+  if (options["editor-attachment"])
+    terminalURL.searchParams.set("terminalEditorAttachment", options["editor-attachment"]);
   await page.goto(terminalURL.href, { waitUntil: "domcontentloaded", timeout: 60000 });
   if (options["editor-server"]) {
     const state = await (await page.request.get(new URL("api/state", terminalURL).href)).json();
-    if (state.editorServer !== options["editor-server"])
+    if (options["editor-attachment"]) {
+      const response = await page.request.post(new URL("api/editor-attachment", terminalURL).href, {
+        data: { token: options["editor-attachment"] },
+      });
+      if (state.editorAttachments !== 1 || !response.ok() || !(await response.json()).connected)
+        throw new Error(
+          "The shared HTML Reader editor attachment expired. Reopen the Reader view.",
+        );
+    } else if (state.editorServer !== options["editor-server"])
       throw new Error(
         "The Reader is not connected to this Neovim server. Restart it with matching --editor-server before enabling source highlights.",
       );

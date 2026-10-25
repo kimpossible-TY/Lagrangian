@@ -11,7 +11,7 @@ import {
   terminalSize,
 } from "../terminal/protocol.mjs";
 import { parseArguments, profileDefaults } from "../terminal/options.mjs";
-import { serverArguments } from "../terminal/service.mjs";
+import { attachmentArguments, startReader } from "../terminal/service.mjs";
 import { EditorBridge } from "../terminal/editor-bridge.mjs";
 import { TerminalReader } from "../terminal/host.mjs";
 import { NativeTransport } from "../terminal/native-transport.mjs";
@@ -194,27 +194,24 @@ test("argument validation prevents silent modes and preserves shell metacharacte
   const options = parseArguments([
     "--root",
     "/tmp/space ' $()",
-    "--compiler",
-    "/tmp/typst `$()`",
-    "--font-path",
-    "one",
-    "--font-path",
-    "two",
+    "--reader-service",
+    "reader ' $()",
   ]);
-  const args = serverArguments(options);
+  const args = attachmentArguments(options);
   assert.equal(args[args.indexOf("--root") + 1], "/tmp/space ' $()");
-  assert.equal(args[args.indexOf("--compiler") + 1], "/tmp/typst `$()`");
-  assert.deepEqual(args.slice(-4), ["--font-path", "one", "--font-path", "two"]);
+  assert.equal(args[args.indexOf("--reader-service") + 1], "reader ' $()");
+  assert.equal(args[1], "--attach");
 });
 
-test("project profiles and origin ports are stable and isolated by entrypoint", () => {
+test("browser profiles are stable and isolated by entrypoint without owning a service port", () => {
   const first = profileDefaults({ root: "/tmp/project", entry: "main.typ" });
   assert.deepEqual(first, profileDefaults({ root: "/tmp/project", entry: "main.typ" }));
   assert.notEqual(
     first.profile,
     profileDefaults({ root: "/tmp/project", entry: "other.typ" }).profile,
   );
-  assert.ok(first.port >= 45000 && first.port <= 59999);
+  assert.equal(first.port, undefined);
+  assert.equal(first.output, undefined);
 });
 
 test("one synchronized-update policy wraps only supported image frames", async () => {
@@ -491,16 +488,60 @@ test("accepted Reader actions clear an earlier terminal selection error", async 
   }
 });
 
-test("explicit common change history and engine reach the owned Reader service", () => {
-  const options = parseArguments([
-    "--root",
-    "/project",
-    "--change-file",
-    "/state/changes.json",
-    "--engine",
-    "/bin/flow-engine",
-  ]);
-  const args = serverArguments(options);
-  assert.equal(args[args.indexOf("--change-file") + 1], "/state/changes.json");
-  assert.equal(args[args.indexOf("--engine") + 1], "/bin/flow-engine");
+test("terminal hosts cannot override the managed HTML compilation or history plan", () => {
+  for (const key of [
+    "compiler",
+    "engine",
+    "package-path",
+    "output",
+    "port",
+    "original-url",
+    "change-file",
+  ])
+    assert.throws(
+      () => attachmentArguments({ root: "/project", [key]: "override" }),
+      /HTML Reader profile/,
+    );
+  assert.throws(
+    () => attachmentArguments({ root: "/project", fonts: ["fonts"] }),
+    /HTML Reader profile/,
+  );
+  const args = attachmentArguments({
+    root: "/project",
+    "editor-server": "editor ' $()",
+    nvim: "/app/nvim",
+  });
+  assert.equal(args[args.indexOf("--editor-server") + 1], "editor ' $()");
+  assert.equal(args[args.indexOf("--owner-pid") + 1], String(process.pid));
+});
+
+test("closing a managed attachment removes only its private lease, never the HTML service", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "flow-managed-attach-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const attachmentFile = path.join(directory, "attachment.json");
+  const interpreter = path.join(directory, "manager-python");
+  await writeFile(attachmentFile, "private");
+  const plan = { url: "http://127.0.0.1:23627/", editorAttachment: "a".repeat(64), attachmentFile };
+  await writeFile(
+    interpreter,
+    `#!${process.execPath}\nconsole.log(${JSON.stringify(JSON.stringify(plan))});\n`,
+    { mode: 0o700 },
+  );
+  const previous = process.env.PYTHON;
+  process.env.PYTHON = interpreter;
+  try {
+    const first = await startReader({ root: directory });
+    assert.equal(first.url, plan.url);
+    assert.equal(first.editorAttachment, plan.editorAttachment);
+    assert.equal(first.process, undefined);
+    await first.close();
+    await first.close();
+    await assert.rejects(readFile(attachmentFile), /ENOENT/);
+    const attachedURL = await startReader({ url: plan.url });
+    await attachedURL.close();
+    assert.equal(attachedURL.url, plan.url);
+  } finally {
+    if (previous === undefined) delete process.env.PYTHON;
+    else process.env.PYTHON = previous;
+  }
 });

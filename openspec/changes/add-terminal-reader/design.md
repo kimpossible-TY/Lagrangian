@@ -1,5 +1,17 @@
 # Design
 
+## Shared HTML service attachment (2026-10-25)
+
+Terminal presentation must not own a second compilation path. Project launches resolve exactly one managed HTML Reader through `ReaderManager` using canonical root/entry, with an optional exact Reader service ID for otherwise ambiguous matches. Reuse a running service; a stopped service starts only through its normal manager and launch plan. Missing/ambiguous configuration, identity mismatches and incompatible installed protocols fail explicitly, never falling back to a terminal-specific compiler. Terminal close does not stop the shared service. Explicit URL attachment remains supported.
+
+The manager retains all compiler, package, font, semantic-canvas, WASM, output and origin settings. Neovim passes document identity and presentation/editor settings, not a separate compiler configuration. Legacy terminal compiler overrides are rejected with a migration message.
+
+Managed services accept private editor attachments registered by the local manager in an owner-only directory under their existing output. Each opaque token binds the document, current service identity, fixed Neovim executable/address, host PID and optional editor control file. HTTP never selects an executable or registers an editor. The existing selection owner resolves the token and rechecks the same attachment immediately before invoking the existing Neovim verified writer. Invalid, revoked, dead-owner and previous-service attachments fail closed, including persisted highlight intents. Concurrent attachments do not change the global editor or each other. Host cleanup removes only its own attachment; process/control lifetime checks revoke interrupted hosts without a new daemon.
+
+The terminal browser receives its attachment token as opt-in page context, verifies the service capability before use and submits it through the existing HTML highlight action. Snapshot/content/source validation, receipts, source mapping, rendering and persistence keep their current owners. An older installed service requires an explicit normal release upgrade, not a hidden restart or a second server.
+
+Earlier owned-service sections below describe the prior implementation; this shared attachment lifecycle supersedes terminal-owned compiler/service launch and cleanup.
+
 ## Context
 
 The saved-file Reader uses semantic HTML, browser DOM selections, HTTP APIs and origin-local storage. It has no compiler source map or Neovim control channel. Source highlighting already verifies an isolated HTML and PDF compilation before replacing a file. The user uses iTerm2 and PowerShell.

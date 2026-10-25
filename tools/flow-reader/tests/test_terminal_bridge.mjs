@@ -16,6 +16,12 @@ test("terminal source writes require the configured editor while ordinary reader
   assert.equal(terminal.canHighlight(), false);
   terminal.update(undefined);
   assert.equal(terminal.canHighlight(), false);
+  const attached = new TerminalEditorConnection("own-editor", "private-attachment");
+  assert.equal(attached.canHighlight(), false);
+  attached.update(null, 1);
+  assert.equal(attached.canHighlight(), true);
+  attached.update("other-editor", 0);
+  assert.equal(attached.canHighlight(), false);
 });
 
 test("the browser bridge is opt-in and returns the existing canonical selection", () => {

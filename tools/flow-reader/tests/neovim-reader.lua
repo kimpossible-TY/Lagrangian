@@ -108,7 +108,11 @@ local function run()
   equal({ 'test-opener', '--', vim.fn.exepath('node'), 'runtime with spaces.mjs' }, vim.list_slice(launched.argv, 1, 4))
   equal('', launched.options.env.NVIM)
   equal(temporary, option('--root'))
-  equal(temporary .. '/engine with spaces', option('--engine'))
+  equal(nil, option('--engine'))
+  equal(nil, option('--compiler'))
+  equal(nil, option('--package-path'))
+  equal(nil, option('--output'))
+  equal(nil, option('--port'))
   equal(other, option('--entry'))
   local control = assert(option('--control-file'))
   equal(1, vim.fn.filereadable(control))
@@ -156,6 +160,11 @@ local function run()
   assert(reader.start())
   assert(option('--control-file') ~= completed_control)
   assert(reader.stop())
+
+  reader.setup { root = temporary, auto_open = false, compiler = 'terminal-only-typst' }
+  local override_ok, override_error = reader.start()
+  equal(false, override_ok)
+  assert(override_error:find('managed HTML profile', 1, true))
 
   -- A remote pane reuses the same source RPC and lifecycle without a Mac GUI.
   launched = nil

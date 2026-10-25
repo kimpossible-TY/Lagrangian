@@ -7,6 +7,7 @@ Read [the architecture source map](../../docs/tinymist/dev/reader-architecture.t
 ## Ownership
 
 - `lua/tinymist/reader.lua` owns setup/commands, launch lifecycle and bounded source RPC operations.
+- Project views attach through the HTML service manager using root/entry and optional `reader_service`. Compiler, package, fonts, output and service lifecycle stay with that manager; stopping a view revokes only its private editor attachment and presentation resources.
 - `lua/tinymist/reader_view.lua` owns the internal Reader window, raw browser input, positioned TUI frames, layout generations and disposal. `reader_terminal.lua` owns bounded `TermResponse` queries and protocol-specific cell geometry.
 - Source mapping, snapshot validation, verified source highlights and browser actions belong to the HTML Reader services/features. Reuse their policy.
 

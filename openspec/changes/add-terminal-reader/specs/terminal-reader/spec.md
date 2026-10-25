@@ -18,18 +18,37 @@ The terminal Reader SHALL execute the existing HTML Reader in a real browser doc
 - **THEN** the existing compiler verification determines whether source can be changed
 
 ### Requirement: Review state survives terminal restarts
-The terminal Reader SHALL use persistent document storage and a stable origin, and SHALL report a requested owned service port being unavailable rather than silently changing origins.
+The terminal Reader SHALL use persistent document storage and the HTML service's stable origin, and SHALL report an unavailable or mismatched managed service rather than silently changing origins.
 
 #### Scenario: Restart preserves local marks
 - **WHEN** the same document is reopened with the same configured profile and origin
 - **THEN** review strikes remain available; Save for Codex context remains in its service record and is freshly validated
 
 ### Requirement: Editor Reader views have an owned lifecycle
-The optional Neovim integration SHALL open the Reader in an internal right-hand view in the same terminal connection by default, SHALL retain explicit native pane and manual attachment modes, and SHALL provide start and stop actions that dispose owned subprocesses and restore the editor display.
+The optional Neovim integration SHALL open the Reader in an internal right-hand view in the same terminal connection by default, SHALL retain explicit native pane and manual attachment modes, and SHALL provide start and stop actions that dispose owned presentation resources and editor attachments and restore the editor display without stopping the shared HTML service.
 
 #### Scenario: Editor exits
 - **WHEN** the editor owning a terminal Reader exits
-- **THEN** its Reader host and any service it started stop without terminating an independently running Reader service
+- **THEN** its Reader host and private editor attachment are disposed without stopping the HTML Reader service or other views
+
+### Requirement: Terminal presentation uses the managed HTML service
+Project-based terminal launches SHALL resolve the existing HTML service manager by exact canonical project and entry identity and SHALL reuse its service and launch settings. A stopped service SHALL start only through its normal managed lifecycle. Terminal presentation SHALL NOT construct its own compiler launch plan or silently create a separate service.
+
+#### Scenario: Existing document is already available
+- **WHEN** a terminal view opens a document whose managed HTML Reader is running
+- **THEN** it connects to that service's current accepted document without starting another compiler or replacing compiler, font, package, semantic-canvas or browser-computation settings
+- **AND** closing and reopening the view preserves the service identity
+
+#### Scenario: Missing, ambiguous or incompatible service
+- **WHEN** no exact service matches, multiple services match without an explicit service ID, or the service cannot support the requested editor attachment
+- **THEN** startup explains the configuration or upgrade required without starting a terminal-specific fallback
+
+#### Scenario: Separate editor views share one Reader
+- **WHEN** two Neovim views attach to the same HTML service
+- **THEN** each has a private, service-bound editor attachment and verified writes reach only its own fixed editor
+- **AND** closing one view revokes only that attachment
+- **AND** revoked, dead-owner and prior-service tokens cannot authorize source writes, including at final write time
+- **AND** browser requests cannot register an editor or choose its executable or address
 
 #### Scenario: Unsupported terminal
 - **WHEN** the default view has no attached supported TUI, image protocol or supported protocol-specific cell geometry
@@ -63,7 +82,7 @@ The Neovim integration SHALL prepare an editor-owned terminal session when manua
 
 #### Scenario: Stop before or after attachment
 - **WHEN** the editor stops its prepared session or exits
-- **THEN** its manifest is removed and an attached host stops its owned service
+- **THEN** its manifest is removed and an attached host disposes only its presentation resources and private editor attachment
 - **AND** a command for that expired session cannot start a new Reader
 
 ### Requirement: Source navigation refuses uncertain positions

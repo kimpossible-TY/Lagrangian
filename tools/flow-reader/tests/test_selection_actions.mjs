@@ -4,7 +4,7 @@ import { SourceHighlightController } from "../web/features/source-highlight/cont
 import { CodexContextController } from "../web/features/codex-context/controller.js";
 import { OptimisticHighlights } from "../../reader-common/source-highlight/optimistic.js";
 
-function harness(kind, editorServer) {
+function harness(kind, editorServer, editorAttachment) {
   const selected = [{ key: "body", exact: "Selected", revision: "r1", service: { pid: 7 } }];
   const state = {
     document: { revision: "r1" },
@@ -22,6 +22,7 @@ function harness(kind, editorServer) {
   const view = {
     document: () => state.document,
     editorServer: () => editorServer,
+    editorAttachment: () => editorAttachment,
     selection: () => state.selection,
     sameSelection: (left, right) => JSON.stringify(left) === JSON.stringify(right),
     enabled: () => !controller.pending,
@@ -174,4 +175,14 @@ test("terminal highlights carry editor identity and ordinary highlights omit the
     assert.equal(h.state.selection, h.selected);
     assert.ok(h.state.messages.at(-1).includes("저장하지 않은"));
   }
+});
+
+test("shared editor highlights retain the private attachment through the HTML action", async () => {
+  const h = harness("highlight", "own-editor", "private-token");
+  const pending = h.controller.submit(h.selected);
+  assert.equal(h.requests[0][1].editorAttachment, "private-token");
+  h.resolve({ status: "editor-mismatch" });
+  await pending;
+  assert.equal(h.state.selection, h.selected);
+  assert.ok(h.state.messages.at(-1).includes("Neovim"));
 });

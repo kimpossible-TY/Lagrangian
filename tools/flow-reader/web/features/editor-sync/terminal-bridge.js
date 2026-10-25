@@ -1,14 +1,19 @@
 /** Match the configured editor before allowing terminal-origin source writes. */
 export class TerminalEditorConnection {
-  constructor(expected) {
+  constructor(expected, attachment = null) {
     this.expected = expected;
+    this.attachment = attachment;
+    this.supportsAttachments = false;
     this.connected = null;
   }
-  update(server) {
+  update(server, attachments = 0) {
     this.connected = server ?? null;
+    this.supportsAttachments = attachments === 1;
   }
   canHighlight() {
-    return !this.expected || this.expected === this.connected;
+    return this.attachment
+      ? this.supportsAttachments
+      : !this.expected || this.expected === this.connected;
   }
 }
 

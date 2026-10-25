@@ -185,13 +185,15 @@ finally:
             result = subprocess.check_output([node, str(release / "terminal.mjs"), "--help"],
                                              cwd=release.parent.parent.parent, text=True)
             self.assertIn("native terminal", result)
-            # The split service adapter must resolve the archived Python launcher.
-            script = ("const {serverArguments}=await import(process.argv[1]);"
-                      "console.log(JSON.stringify(serverArguments({root:process.cwd()})));")
+            # Presentation attaches through the archived HTML manager, never serve.py.
+            script = ("const {attachmentArguments}=await import(process.argv[1]);"
+                      "console.log(JSON.stringify(attachmentArguments({root:process.cwd()})));")
             arguments = json.loads(subprocess.check_output(
                 [node, "--input-type=module", "-e", script,
                  (release / "terminal/service.mjs").as_uri()], cwd=release, text=True))
-            self.assertEqual(Path(arguments[0]).resolve(), (release / "serve.py").resolve())
+            self.assertEqual(Path(arguments[0]).resolve(), (release / "manage.py").resolve())
+            self.assertEqual(arguments[1], '--attach')
+            subprocess.run([sys.executable, *arguments[:2], '--help'], capture_output=True, check=True)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-// Compose terminal-owned service, browser, input host and cleanup lifecycle.
+// Compose a shared HTML attachment, browser, input host and owned-view cleanup.
 import { access, open, unlink } from "node:fs/promises";
 import path from "node:path";
 import { parseArguments, help } from "./options.mjs";
@@ -55,7 +55,6 @@ async function runMain(options) {
   let browser;
   let terminal;
   let interrupted = false;
-  let readerFailure;
   const onSignal = () => {
     interrupted = true;
     if (terminal) terminal.stop();
@@ -63,14 +62,6 @@ async function runMain(options) {
       browser?.context.close().catch(() => {});
       reader?.close().catch(() => {});
     }
-  };
-  const onReaderExit = (code, signal) => {
-    if (interrupted) return;
-    const detail = signal ? `signal ${signal}` : `code ${code}`;
-    readerFailure = new Error(
-      `Reader service exited unexpectedly (${detail}). Check the compiler/service output and restart the Reader. ${reader?.errors?.() || ""}`.trim(),
-    );
-    onSignal();
   };
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   for (const signal of signals) process.on(signal, onSignal);
@@ -92,13 +83,8 @@ async function runMain(options) {
       : null;
   try {
     reader = await startReader(options);
-    if (reader.process) {
-      reader.process.once("exit", onReaderExit);
-      if (reader.process.exitCode !== null || reader.process.signalCode !== null)
-        onReaderExit(reader.process.exitCode, reader.process.signalCode);
-    }
+    options = { ...options, "editor-attachment": reader.editorAttachment };
     if (interrupted) {
-      if (readerFailure) throw readerFailure;
       return;
     }
     const size = terminalSize(
@@ -109,7 +95,6 @@ async function runMain(options) {
     );
     browser = await openReader(options, { width: size.width, height: size.height });
     if (interrupted) {
-      if (readerFailure) throw readerFailure;
       return;
     }
     await waitForReader(browser.page, reader.url, options);
@@ -130,11 +115,7 @@ async function runMain(options) {
       );
       await terminal.run();
     }
-    if (readerFailure) throw readerFailure;
-  } catch (error) {
-    throw readerFailure || error;
   } finally {
-    reader?.process?.off("exit", onReaderExit);
     clearInterval(ownerTimer);
     for (const signal of signals) process.off(signal, onSignal);
     try {

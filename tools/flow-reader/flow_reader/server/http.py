@@ -26,7 +26,7 @@ def handler_for(state):
         def do_POST(self):
             path = urlsplit(self.path).path
             if path not in compiler_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
-                            "/api/highlight", "/api/source", "/api/cursor", "/api/focus"}:
+                            "/api/highlight", "/api/source", "/api/cursor", "/api/focus", "/api/editor-attachment"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -67,6 +67,8 @@ def handler_for(state):
                             if not all(isinstance(value, str) and len(value) <= 128 for value in (job, lease)):
                                 raise ValueError("Invalid compiler lease")
                             result = compiler_pool.submit(worker, job, lease, request.get("result"))
+                elif path == "/api/editor-attachment":
+                    result = {"connected": state.editor_attachments.resolve(request.get("token")) is not None}
                 elif path == "/api/focus":
                     try:
                         result = state.save_focus(request.get("revision"), request.get("fragments"),
@@ -78,7 +80,8 @@ def handler_for(state):
                         result = state.highlight_intent(request)
                     else:
                         result = state.highlight(request.get("revision"), request.get("fragments"),
-                                                 expected_editor=request.get("editorServer", UNSPECIFIED_EDITOR))
+                                                 expected_editor=request.get("editorServer", UNSPECIFIED_EDITOR),
+                                                 editor_attachment=request.get("editorAttachment", UNSPECIFIED_EDITOR))
                 elif path == "/api/source":
                     result = state.source(request.get("revision"), request.get("fragments"))
                 elif path == "/api/cursor":

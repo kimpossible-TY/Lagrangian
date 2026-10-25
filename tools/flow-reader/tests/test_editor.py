@@ -3,6 +3,7 @@
 from http.server import ThreadingHTTPServer
 import json
 import hashlib
+import os
 from pathlib import Path
 import re
 import shutil
@@ -19,7 +20,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.project import Project
-from flow_reader.services.editor_sync import NeovimEditor, vim_string
+from flow_reader.services.editor_sync import EditorAttachments, NeovimEditor, vim_string
 from flow_reader.services.source_mapping import literal_blocks
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
@@ -239,6 +240,142 @@ class EditorNavigationTests(unittest.TestCase):
             self.assertEqual(result["status"], "editor-mismatch")
             write.assert_not_called()
         self.assertEqual(self.entry.read_text(), "Plain text.")
+
+    def attachment(self, state, address='attached-editor', control=None):
+        return state.editor_attachments.register(address, sys.executable, os.getpid(), control)
+
+    def test_separate_editor_attachments_do_not_replace_global_or_each_other(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        first, first_path = self.attachment(state, 'first-editor')
+        second, second_path = self.attachment(state, 'second-editor')
+        fragment = self.fragment(state, 'text')
+        def verified(*args, writer):
+            return writer(self.entry, b'Plain text.', b'Plain #highlight[text].')
+        def write(editor, *_args):
+            return 'modified' if editor.address == 'first-editor' else 'highlighted'
+        with patch('flow_reader.services.selection.apply_highlight', side_effect=verified), \
+                patch.object(NeovimEditor, 'write', autospec=True, side_effect=write):
+            self.assertEqual(state.highlight(state.revision, [fragment], editor_attachment=first)['status'], 'modified')
+            self.assertEqual(state.highlight(state.revision, [fragment], editor_attachment=second)['status'], 'highlighted')
+            first_path.unlink()
+            self.assertEqual(state.highlight(state.revision, [fragment], editor_attachment=first)['status'], 'editor-mismatch')
+            self.assertEqual(state.highlight(state.revision, [fragment], editor_attachment=second)['status'], 'highlighted')
+        self.assertIsNone(state.editor_server)
+        self.assertIsNone(state.editor)
+        self.assertTrue(second_path.is_file())
+
+    def test_revocation_during_verification_refuses_final_write(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        token, path = self.attachment(state)
+        fragment = self.fragment(state, 'text')
+        def verified(*args, writer):
+            path.unlink()
+            return writer(self.entry, b'Plain text.', b'changed')
+        with patch('flow_reader.services.selection.apply_highlight', side_effect=verified), \
+                patch.object(NeovimEditor, 'write') as write:
+            self.assertEqual(state.highlight(state.revision, [fragment], editor_attachment=token)['status'], 'editor-mismatch')
+            write.assert_not_called()
+
+    def test_attachments_reject_old_service_dead_control_and_arbitrary_http_editor(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        control = self.output / 'editor-control'
+        control.write_text('alive')
+        token, path = self.attachment(state, control=control)
+        registry = state.editor_attachments
+        self.assertEqual(registry.resolve(token).address, 'attached-editor')
+        restarted = EditorAttachments(self.output, state.document_id, {**state.focus.service, 'startedAt': 0})
+        self.assertIsNone(restarted.resolve(token))
+        control.unlink()
+        self.assertIsNone(registry.resolve(token))
+        for invalid in (None, '', '../escape', [], '0' * 64):
+            with patch('flow_reader.services.selection.apply_highlight') as apply:
+                result = state.highlight(state.revision, [self.fragment(state, 'text')], editor_attachment=invalid)
+                self.assertEqual(result['status'], 'editor-mismatch')
+                apply.assert_not_called()
+        self.assertIsNone(state.editor)
+        path.write_text('[]')
+        self.assertIsNone(registry.resolve(token))
+
+    def test_attachment_private_storage_permissions_and_owner_limits(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        token, path = self.attachment(state)
+        registry = state.editor_attachments
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+        path.chmod(0o644)
+        self.assertIsNone(registry.resolve(token))
+        path.chmod(0o600)
+        record = json.loads(path.read_text())
+        record['ownerPID'] = -1
+        path.write_text(json.dumps(record))
+        self.assertIsNone(registry.resolve(token))
+        with self.assertRaises(ValueError):
+            registry.register('editor', sys.executable, -1)
+        path.unlink()
+        outside = self.output / 'outside.json'
+        outside.write_text(json.dumps(record))
+        path.symlink_to(outside)
+        self.assertIsNone(registry.resolve(token))
+
+    def test_attachment_dead_host_pruning_and_bounded_registration(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        registry = state.editor_attachments
+        child = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'], stdin=subprocess.PIPE)
+        try:
+            token, path = registry.register('editor', sys.executable, child.pid)
+        finally:
+            child.communicate(timeout=5)
+        self.assertIsNone(registry.resolve(token))
+        entries = [self.attachment(state) for _ in range(32)]
+        self.assertFalse(path.exists(), 'New registration prunes the dead host record')
+        with self.assertRaisesRegex(ValueError, 'Too many'):
+            self.attachment(state)
+        entries[0][1].unlink()
+        self.attachment(state)
+
+    def test_persisted_intent_with_revoked_attachment_never_falls_back_to_disk(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        token, path = self.attachment(state)
+        path.unlink()
+        request = {'requestID': 'revoked-editor-intent', 'documentID': state.document_id,
+                   'service': state.focus.service, 'revision': state.revision,
+                   'fragments': [self.fragment(state, 'text')], 'editorAttachment': token}
+        with patch('flow_reader.services.selection.apply_highlight') as apply:
+            self.assertEqual(state.highlight_intent(request)['status'], 'editor-mismatch')
+            self.assertEqual(state.highlight_intent(request)['status'], 'editor-mismatch')
+            apply.assert_not_called()
+        self.assertEqual(self.entry.read_text(), 'Plain text.')
+
+    def test_http_only_resolves_private_attachment_and_cannot_register_an_editor(self):
+        state = self.state('Plain text.', '<p>Plain text.</p>')
+        token, path = self.attachment(state)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(state))
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        url = f'http://127.0.0.1:{server.server_port}/api/editor-attachment'
+        def request(payload, origin=None):
+            headers = {'Content-Type': 'application/json'}
+            if origin:
+                headers['Origin'] = origin
+            return Request(url, json.dumps(payload).encode(), headers)
+        try:
+            attempted = {'address': 'untrusted-editor', 'executable': '/untrusted/program'}
+            with urlopen(request(attempted)) as response:
+                self.assertEqual(json.load(response), {'connected': False})
+            with urlopen(request({**attempted, 'token': token})) as response:
+                self.assertEqual(json.load(response), {'connected': True})
+            self.assertEqual(state.editor_attachments.resolve(token).address, 'attached-editor')
+            with self.assertRaises(HTTPError) as wrong:
+                urlopen(request({'token': token}, 'https://other.test'))
+            self.assertEqual(wrong.exception.code, 403)
+            wrong.exception.close()
+            path.unlink()
+            with urlopen(request({'token': token})) as response:
+                self.assertEqual(json.load(response), {'connected': False})
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
 
 
 class NeovimWriterTests(unittest.TestCase):

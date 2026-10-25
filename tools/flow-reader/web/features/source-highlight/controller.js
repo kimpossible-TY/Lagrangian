@@ -43,7 +43,13 @@ export class SourceHighlightController {
     view.announce("하이라이트를 소스에 적용하는 중…");
     try {
       const editorServer = view.editorServer?.();
-      const payload = { revision, fragments: selected, ...(editorServer ? { editorServer } : {}) };
+      const editorAttachment = view.editorAttachment?.();
+      const payload = {
+        revision,
+        fragments: selected,
+        ...(editorServer ? { editorServer } : {}),
+        ...(editorAttachment ? { editorAttachment } : {}),
+      };
       const result = this.intents
         ? await this.intents.submit({
             ...payload,

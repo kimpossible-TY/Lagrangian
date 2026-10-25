@@ -11,7 +11,8 @@ Use [the architecture source map](../../docs/tinymist/dev/reader-architecture.ty
 - `services/` owns source validation/mapping, context records, navigation and service lifecycle. `accepted_snapshot.py` owns captured source-input freshness; callers retain lock ordering and action-specific responses. `server/` owns accepted publication, watcher, HTTP and static delivery.
 - `services/source_history.py` transports observations to the Rust project owner and disposes only its own engine helpers. Keep edit chronology out of Python. Compiler-verified navigation-only container ranges remain separate from selection/highlight mappings and served metadata.
 - `web/features/` owns semantic DOM adapters; `web/rendering/` owns HTML mathematics, figures and annotations. Keep executable Python launchers thin.
-- `terminal/` owns options, started service, browser, editor bridge, shared input/capture controller, native/editor transports and protocol. Neovim owns internal-view capability queries and layout. Keep `terminal.mjs` supported and reuse HTML actions/storage. `web/features/editor-sync/terminal-bridge.js` exposes opt-in editor capabilities; source-write checks remain in Python services.
+- `services/manager.py` owns exact managed HTML service resolution, launch settings and local editor registration. `services/editor_sync.py` owns private service-bound editor attachments and verified Neovim delivery. Terminal hosts never construct compiler launch plans or dispose shared services.
+- `terminal/` owns presentation options, manager attachment, browser, editor bridge, shared input/capture controller, native/editor transports and protocol. Neovim owns internal-view capability queries and layout. Keep `terminal.mjs` supported and reuse HTML actions/storage. `web/features/editor-sync/terminal-bridge.js` exposes opt-in editor capabilities; source-write checks remain in Python services.
 
 ## Contracts and delivery
 
