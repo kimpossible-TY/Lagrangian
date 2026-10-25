@@ -33,7 +33,7 @@ TEST_SHELL = shutil.which("zsh") or shutil.which("sh")
 
 class EditorTTY:
     def __init__(self, work, command=None, entry=None, address=None, reader_options=None, interactive_shell=True,
-                 first_frame_delay=0):
+                 first_frame_delay=0, environment=None):
         self.work = work
         self.output = bytearray()
         self.cell = (10, 20)
@@ -105,6 +105,7 @@ log({stopped:true});
         env["TERM"] = "xterm-256color"
         env["PYTHON"] = PYTHON
         env["XDG_STATE_HOME"] = str(work / "state")
+        env.update(environment or {})
         self.interactive_shell = interactive_shell
         argv = [NVIM, "-u", str(init), "-i", "NONE", "-n", "--listen", self.address, "--", str(self.source)]
         self.process = subprocess.Popen(

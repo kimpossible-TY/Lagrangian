@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import sys
 import tempfile
 import threading
@@ -46,7 +47,10 @@ def main():
                     for i in range(15)))
         project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
-        state = ReaderState(project, work / "output", "https://example.test/paged/", False,
+        managed = os.environ.get('FLOW_READER_MANAGED_FIXTURE') == '1'
+        data = work / 'managed'
+        output = data / 'documents' / 'fixture-reader' if managed else work / 'output'
+        state = ReaderState(project, output, "https://example.test/paged/", False,
                             editor_server=os.environ.get("FLOW_READER_EDITOR_SERVER"),
                             change_file=os.environ.get("FLOW_READER_CHANGE_FILE"))
         state.compile()
@@ -56,8 +60,32 @@ def main():
         thread = threading.Thread(target=watch, args=(state, stopped), daemon=True)
         thread.start()
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(state))
-        print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/", "entry": str(entry),
-                          "focusFile": str(state.focus.path)}), flush=True)
+        report = {"url": f"http://127.0.0.1:{server.server_port}/", "entry": str(entry),
+                  "focusFile": str(state.focus.path)}
+        if managed:
+            # Only the platform launchd lookup is substituted. The actual manager,
+            # profile matching, HTTP handshake, private registry and HTML service run.
+            flow = work / 'flow-profile'
+            parent = {'id': 'fixture', 'name': 'Fixture', 'root': str(root), 'entry': 'main.typ',
+                      'fonts': [], 'packages': str(project.packages), 'port': 25001}
+            flow.write_text(f'#!{sys.executable}\nimport json\nprint({json.dumps(json.dumps({"profiles": [parent]}))})\n')
+            flow.chmod(0o700)
+            (data / 'config.json').write_text(json.dumps({
+                'schemaVersion': 1, 'flowManager': str(flow), 'python': sys.executable,
+                'compiler': shutil.which(project.compiler), 'services': [{'id': 'fixture-reader', 'parentID': 'fixture',
+                                                          'port': server.server_port}]}))
+            interpreter = work / 'fixture-manager-python'
+            interpreter.write_text(f'#!{sys.executable}\n' +
+                'import os,sys\nfrom pathlib import Path\n' +
+                'if Path(sys.argv[1]).name != "manage.py": os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n' +
+                f'sys.path.insert(0, {str(ROOT)!r})\n' +
+                'from flow_reader.services.manager import ReaderManager, cli\n' +
+                f'ReaderManager.job_pid = lambda self, profile: {os.getpid()}\n' +
+                'def unexpected(*args): raise AssertionError("Attachment tried to restart the running HTML service")\n' +
+                'ReaderManager.control = unexpected\nsys.argv = sys.argv[1:]\nraise SystemExit(cli())\n')
+            interpreter.chmod(0o700)
+            report.update(managedData=str(data), managerPython=str(interpreter))
+        print(json.dumps(report), flush=True)
         try:
             server.serve_forever()
         finally:

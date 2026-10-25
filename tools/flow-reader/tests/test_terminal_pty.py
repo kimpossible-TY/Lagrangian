@@ -194,58 +194,30 @@ if (resizeCount < 2 || terminal.size.width !== 560 || viewport.width !== termina
             script=script, trigger=b"SNAPSHOT-START",
         )
 
-    def test_owned_service_cleanup_stops_a_compiler_which_ignores_sigterm(self):
-        with tempfile.TemporaryDirectory(prefix="terminal-process-group-") as temporary:
+    def test_attachment_close_preserves_the_shared_service_process(self):
+        with tempfile.TemporaryDirectory(prefix="terminal-shared-service-") as temporary:
             temporary = Path(temporary)
-            state = temporary / "processes.json"
-            child_ready = temporary / "compiler.pid"
-            interpreter = temporary / "fake-python"
-            compiler = "import os,signal,time; from pathlib import Path; signal.signal(signal.SIGTERM, signal.SIG_IGN); Path(os.environ['FLOW_TEST_COMPILER_PID']).write_text(str(os.getpid())); time.sleep(300)"
+            attachment = temporary / 'attachment.json'
+            attachment.write_text('private editor attachment')
+            interpreter = temporary / 'fake-manager-python'
             interpreter.write_text(
-                "#!" + shutil.which("python3") + "\n"
-                "import json,os,subprocess,sys,time\n"
-                "from pathlib import Path\n"
-                "child=subprocess.Popen([sys.executable,'-c'," + repr(compiler) + "])\n"
-                "ready=Path(os.environ['FLOW_TEST_COMPILER_PID'])\n"
-                "while not ready.exists(): time.sleep(0.01)\n"
-                "Path(os.environ['FLOW_TEST_PROCESS_STATE']).write_text(json.dumps({'parent':os.getpid(),'child':child.pid}))\n"
-                "print(json.dumps({'url':'http://127.0.0.1:23626/'}),flush=True)\n"
-                "time.sleep(300)\n"
-            )
+                '#!' + shutil.which('python3') + '\nimport json\nprint(' +
+                repr(json.dumps({'url': 'http://127.0.0.1:23626/', 'attachmentFile': str(attachment)})) + ')\n')
             interpreter.chmod(0o700)
-            environment = os.environ.copy()
-            environment.update({
-                "PYTHON": str(interpreter),
-                "FLOW_TEST_PROCESS_STATE": str(state),
-                "FLOW_TEST_COMPILER_PID": str(child_ready),
-            })
-            script = "const {startReader}=await import(process.argv[1]); const reader=await startReader({root:process.argv[2]}); await reader.close();"
-            processes = {}
+            shared = subprocess.Popen([shutil.which('python3'), '-c', 'import time; time.sleep(30)'])
             try:
+                script = "const {startReader}=await import(process.argv[1]); const reader=await startReader({root:process.argv[2]}); await reader.close(); await reader.close();"
                 result = subprocess.run(
-                    [NODE, "--input-type=module", "-e", script, SERVICE.as_uri(), str(temporary)],
-                    env=environment, capture_output=True, timeout=8,
-                )
+                    [NODE, '--input-type=module', '-e', script, SERVICE.as_uri(), str(temporary)],
+                    env={**os.environ, 'PYTHON': str(interpreter)}, capture_output=True, timeout=8)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                processes = json.loads(state.read_text())
-                deadline = time.monotonic() + 2
-                while time.monotonic() < deadline:
-                    status = subprocess.run(["ps", "-o", "stat=", "-p", str(processes["child"])], capture_output=True, text=True).stdout.strip()
-                    if not status or status.startswith("Z"):
-                        break
-                    time.sleep(0.05)
-                else:
-                    self.fail("Owned compiler must stop even when it ignores SIGTERM")
+                self.assertIsNone(shared.poll(), 'Closing presentation must not stop the shared service')
+                self.assertFalse(attachment.exists())
             finally:
-                if state.exists():
-                    processes = json.loads(state.read_text())
-                for pid in processes.values():
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                shared.terminate()
+                shared.wait(timeout=3)
 
-    def test_owned_service_exit_closes_browser_and_reports_the_failure(self):
+    def test_browser_startup_failure_closes_only_the_view_and_attachment(self):
         with tempfile.TemporaryDirectory(prefix="terminal-service-exit-") as temporary:
             temporary = Path(temporary)
             opened, closed = temporary / "opened", temporary / "closed"
@@ -254,28 +226,17 @@ if (resizeCount < 2 || terminal.size.width !== 560 || viewport.width !== termina
             interpreter = temporary / "fake-python"
             interpreter.write_text(
                 "#!" + shutil.which("python3") + "\n"
-                "import json,os,time\nfrom pathlib import Path\n"
-                "print(json.dumps({'url':'http://127.0.0.1:23626/'}),flush=True)\n"
-                "while not Path(os.environ['FLOW_TEST_BROWSER_OPENED']).exists(): time.sleep(0.01)\n"
-                "time.sleep(0.05)\n"
+                "import json,os\n"
+                "print(json.dumps({'url':'http://127.0.0.1:23626/', 'attachmentFile':os.environ['FLOW_TEST_ATTACHMENT']}))\n"
             )
             interpreter.chmod(0o700)
             browser = temporary / "playwright.mjs"
             browser.write_text("""
 import { writeFile } from 'node:fs/promises';
-let rejectNavigation;
-let keepAlive;
-const page = { async goto() {
-  await new Promise((_resolve, reject) => {
-    rejectNavigation = reject;
-    keepAlive = setInterval(() => {}, 100);
-  });
-} };
+const page = { async goto() { throw new Error('Shared Reader unreachable'); } };
 const context = {
   pages() { return [page]; }, on() {},
   async close() {
-    clearInterval(keepAlive);
-    rejectNavigation?.(new Error('Browser closed'));
     await writeFile(process.env.FLOW_TEST_BROWSER_CLOSED, 'closed');
   },
 };
@@ -285,10 +246,13 @@ export const chromium = { async launchPersistentContext() {
 } };
 """)
             environment = os.environ.copy()
+            attachment = temporary / 'attachment.json'
+            attachment.write_text('private')
             environment.update({
                 "PYTHON": str(interpreter),
                 "FLOW_TEST_BROWSER_OPENED": str(opened),
                 "FLOW_TEST_BROWSER_CLOSED": str(closed),
+                "FLOW_TEST_ATTACHMENT": str(attachment),
             })
             result = subprocess.run([
                 NODE, str(TERMINAL), "--root", str(temporary),
@@ -298,10 +262,11 @@ export const chromium = { async launchPersistentContext() {
                 "--control-file", str(control),
             ], env=environment, capture_output=True, timeout=5)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(b"Reader service exited unexpectedly", result.stderr)
+            self.assertIn(b"Shared Reader unreachable", result.stderr)
             self.assertTrue(opened.exists())
             self.assertTrue(closed.exists())
             self.assertFalse(control.exists())
+            self.assertFalse(attachment.exists())
 
     def test_startup_failure_removes_editor_control_file(self):
         with tempfile.TemporaryDirectory(prefix="terminal-owner-") as temporary:

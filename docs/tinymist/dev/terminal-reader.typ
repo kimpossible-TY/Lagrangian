@@ -16,9 +16,16 @@ This integration opens the Flow HTML Reader. It does not replace or configure
 Use Node.js 20 or newer, Python 3, a Typst compiler with HTML support, a Flow engine
 supporting `source-history`, Playwright, and an installed Google Chrome. The HTML
 compiler and source-history engine are separate executable settings. Select the
-engine with `--engine`, Lua `engine`, or `FLOW_ENGINE_PATH`; automatic discovery
+engine in the HTML profile with `--engine` or `FLOW_ENGINE_PATH`; automatic discovery
 uses the installed Flow engine and then `tinymist` on PATH. An explicit Chromium
 executable can replace Chrome.
+Project-based terminal views reuse an exact managed HTML Reader profile. Compiler,
+packages, fonts, semantic canvases, browser computation and accepted documents stay
+with that service; terminal presentation does not start another compiler. A stopped
+service starts through the normal HTML manager. Missing or ambiguous profiles fail
+explicitly; `reader_service` / `--reader-service` selects an exact match. The updated
+shared-editor protocol must be installed through the normal release workflow;
+changing this checkout never upgrades or restarts an installed service implicitly.
 The default internal view requires Neovim 0.12 or newer on the host, with its
 built-in TUI directly attached to the graphics terminal. Explicit native/manual
 modes retain the older `vim.fs`, `vim.json` and local RPC prerequisites.
@@ -169,7 +176,7 @@ with the updated module before using `:FlowReader start` again.
 Click the Reader or move into its window to read. `Ctrl-W h` returns to source;
 `Ctrl-W l` returns to the Reader when it is on the right. The usual
 `Ctrl-\` followed by `Ctrl-N` leaves terminal input mode for Neovim commands.
-`:FlowReader stop` or closing the Reader window stops its owned host and service.
+`:FlowReader stop` or closing the Reader window stops its owned host and editor attachment, not the shared service.
 Pressing `q` in the Reader also closes it when focus is outside an HTML text input.
 A later `:FlowReader start` opens a fresh view with the same persistent profile.
 Source cursor polling continues to use the source window while the Reader is
@@ -206,29 +213,25 @@ executables with `&`. Repeating start in manual mode repeats its command.
 Stopping the editor or Reader invalidates its manifest and stops an attached
 host. Only one host may attach to each prepared session.
 
-== Standalone Reader
+== Terminal presentation of the HTML Reader
 
 Replace every `/absolute/path` value with an existing path. Start an independent
-Reader for a saved project in a native graphics terminal pane:
+view of a saved project's managed HTML Reader in a native graphics terminal pane:
 
 ```sh
 node /absolute/path/tinymist-engine-mobile/tools/flow-reader/terminal.mjs \
   --root /absolute/path/project \
   --entry main.typ \
-  --package-path /absolute/path/typst/packages \
-  --compiler /absolute/path/to/typst \
-  --output /absolute/path/flow-reader-state/html \
-  --profile /absolute/path/flow-reader-state/chromium \
-  --port 23628
+  --profile /absolute/path/flow-reader-state/chromium
 ```
 
 These continuation characters are POSIX shell syntax. In PowerShell, put the
 same arguments on one line or use PowerShell's own continuation syntax.
-`--font-path` can be repeated for additional font directories. If
-`--package-path` is omitted, the bundled Reader package overlay is used; point
-it at the project's package directory when other local packages are needed.
-`--root` starts and owns a watched Python Reader service. Exiting this renderer
-also stops that service.
+Set compiler and font options in the existing HTML Reader profile, not this
+command. Legacy terminal compiler/output/history overrides are rejected instead
+of creating a divergent launch plan. `FLOW_READER_DATA_DIR` selects the HTML
+manager's existing configuration directory. Exiting this renderer leaves the
+managed service running for browser and other terminal views.
 
 To display an already running Flow Reader, supply its stable URL instead of
 `--root`:
@@ -259,8 +262,8 @@ whole-window pixel report is ignored because it includes other native panes.
 == Opt-in Neovim setup
 
 Place the following configuration in your own Neovim setup, replacing the
-absolute paths. This example starts a separate Reader for `main.typ`, uses a
-dedicated browser profile, and opens a right-hand native iTerm2 pane when a
+absolute paths. This example attaches to the managed HTML Reader for `main.typ`, uses a
+dedicated browser profile, and opens a right-hand internal view when a
 Typst buffer is opened. No user configuration file is edited automatically.
 
 ```lua
@@ -274,14 +277,10 @@ require("tinymist.reader").setup({
     "/absolute/path/to/node",
     "/absolute/path/tinymist-engine-mobile/tools/flow-reader/terminal.mjs",
   },
-  compiler = "/absolute/path/to/typst",
-  engine = "/absolute/path/to/flow-engine",
-  package_path = "/absolute/path/typst/packages",
   playwright_module =
     "/absolute/path/flow-reader-browser/node_modules/playwright/index.mjs",
   profile = "/absolute/path/flow-reader-state/chromium",
-  output = "/absolute/path/flow-reader-state/html",
-  port = 23628,
+  -- reader_service = "project-reader", -- only needed for ambiguous matches
   auto_open = true,
   restore_last_edit = true, -- restore the shared source edit when main.typ opens
 })
@@ -290,8 +289,8 @@ require("tinymist.reader").setup({
 Set `auto_open = false` for command-only startup. `:FlowReader start` opens the
 internal view by default,
 `:FlowReader sync` requests a saved-source cursor update, and `:FlowReader stop`
-stops only the renderer and service owned by this editor session. Quitting
-Neovim also stops them. After quitting the Reader with `q`, a later
+stops only this renderer and its private editor attachment. Quitting
+Neovim also disposes them; the shared HTML service stays running. After quitting the Reader with `q`, a later
 `:FlowReader start` can open it again.
 
 For automatic opening in a different compatible terminal, `open` must be a nonempty array containing
@@ -300,8 +299,14 @@ appends the renderer's executable and arguments as separate array entries.
 Configure that launcher's command boundary according to its own interface;
 the integration does not provide a shell-command-string opener.
 
-The optional `url` Lua setting connects an existing Reader instead of starting
-a new one. That Reader must have been started with `--editor-server` equal to
+Managed project attachment registers a private, service-bound editor capability
+through the local manager, never an HTTP-supplied executable. Multiple editor
+views share the HTML service without changing its global editor. Revocation,
+host/control-file lifetime and service restart invalidate the attachment; the
+existing verified writer rechecks it immediately before saving source.
+
+The optional `url` Lua setting connects an explicitly supplied Reader. For this
+legacy fixed-editor mode, that Reader must have been started with `--editor-server` equal to
 this Neovim instance's `v:servername`, and it must use the matching Neovim
 executable when needed. The host rejects a mismatched connection before source
 highlights are enabled. The ordinary project setup above supplies the RPC
@@ -322,8 +327,9 @@ HTML service invokes the engine's lightweight `source-history` command before
 compiling, including with no browser viewers. HTML, terminal and Neovim resolve
 the exact same root/entry in Flow's profiles. Without a matching profile, the
 engine derives one deterministic project record shared across output folders.
-`FLOW_DATA_DIR` selects a nondefault Flow data directory. Lua `change_file` or CLI
-`--change-file` selects an explicit record, matching the paged engine's
+`FLOW_DATA_DIR` selects a nondefault Flow data directory. Lua `change_file` and
+`engine` configure only the independent source restoration command. The HTML
+profile's `--change-file` selects its explicit record, matching the paged engine's
 `TINYMIST_PREVIEW_CHANGE_FILE` setting when used. The source restoration command
 discovers a standalone record with `--path-only` without changing it.
 Managed HTML services receive the parent's exact change-file path from its
@@ -380,7 +386,7 @@ source context. It does not send a message or start a Codex turn. Shortcuts pass
 through while typing in an input. Review strikes stay in browser storage; source
 highlighting is an explicit file change. Source navigation requires Neovim.
 
-For a terminal-owned service, read context with its explicit local URL:
+Read the shared HTML service's context with its explicit local URL:
 
 ```sh
 python3 tools/flow-reader/focus.py --url http://127.0.0.1:24002/
@@ -426,15 +432,15 @@ strikes, reading position and appearance. An origin includes
 the scheme, hostname and port: changing `127.0.0.1` to `localhost`, or changing
 the port, selects a different browser-storage origin even with the same profile.
 
-Without explicit values, standalone project mode derives a stable port and
-profile from its project identity. The Neovim integration stores its profile and
-HTML output under its own state directory unless configured otherwise. A busy
-owned-service port produces an error; startup does not silently choose another
-origin. Use different profiles for independent simultaneous browser instances.
+The managed HTML profile owns the stable service port and output directory.
+The Neovim integration stores only its browser profile under its own state directory
+unless configured otherwise. A conflicting process or document identity produces
+an error; startup does not silently choose another service or origin.
+Use different browser profiles for independent simultaneous browser instances.
 These terminal profiles do not share the installed app's browser state.
 
 The internal view restores the editor display and releases its input/window hooks
 on quit, stop and editor exit. Native hosts also restore raw input, mouse reporting
-and the previous terminal screen after normal quit or handled termination signals. The renderer closes its browser and any Reader
-service it started. A service supplied through `--url` remains independently
-owned.
+and the previous terminal screen after normal quit or handled termination signals.
+The renderer closes only its browser and private editor attachment. Managed and
+explicit-URL HTML services remain independently owned.

@@ -10,10 +10,14 @@ import { SelectionPress } from "../../reader-common/selection/press.js";
 export { textIndex } from "./dom-selection.js";
 
 export class ReaderSelectionActions {
-  constructor(article, { canHighlight = () => true, editorServer = null } = {}) {
+  constructor(
+    article,
+    { canHighlight = () => true, editorServer = null, editorAttachment = null } = {},
+  ) {
     this.article = article;
     this.canHighlight = canHighlight;
     this.editorServer = editorServer;
+    this.editorAttachment = editorAttachment;
     this.press = new SelectionPress();
     this.listeners = [];
     const listen = (target, type, listener) => {
@@ -36,6 +40,7 @@ export class ReaderSelectionActions {
       selection: () => this.selection,
       sameSelection: (left, right) => JSON.stringify(left) === JSON.stringify(right),
       editorServer: () => this.editorServer,
+      editorAttachment: () => this.editorAttachment,
       enabled: (action) => !(action === "save" ? this.saveButton : this.sourceButton).disabled,
       collapse: () => this.collapse(),
       releaseSelection: () => window.getSelection()?.removeAllRanges(),

@@ -6,6 +6,9 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 
 ## What Changes
 
+- Reuse the managed HTML Reader selected by exact project/entry identity. Terminal hosts do not construct compiler launch arguments or start a parallel Reader. Preserve managed compiler assets, fonts, semantic canvases, accepted documents and lifecycle.
+- Add private, service-bound editor attachments so multiple terminal views can use the same HTML service without replacing its global editor or weakening verified source writes.
+
 - Add a terminal host that renders the existing Reader through Chromium and sends PNG frames to iTerm2 or a compatible graphics terminal, with real browser input and persistent document storage.
 - Add an opt-in Neovim module that opens an owned native terminal pane and connects source navigation without changing the user's editor configuration.
 - Add conservative, revision-checked source navigation and route verified highlight writes through the connected editor so modified buffers remain protected.

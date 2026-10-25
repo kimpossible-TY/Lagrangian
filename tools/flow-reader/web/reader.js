@@ -49,7 +49,10 @@ let blocks = [];
 let manifest = null;
 let currentSection = null;
 const terminalParameters = new URL(location.href).searchParams;
-const terminalEditor = new TerminalEditorConnection(terminalParameters.get("terminalEditorServer"));
+const terminalEditor = new TerminalEditorConnection(
+  terminalParameters.get("terminalEditorServer"),
+  terminalParameters.get("terminalEditorAttachment"),
+);
 let loadSequence = 0;
 let shellRevision = null;
 let serverState = null;
@@ -259,6 +262,7 @@ import("./features/selection/controller.js")
     selectionActions = new ReaderSelectionActions(article, {
       canHighlight: () => terminalEditor.canHighlight(),
       editorServer: terminalEditor.expected,
+      editorAttachment: terminalEditor.attachment,
     });
     if (manifest && currentSection) selectionActions.onDocument(manifest, currentSection);
     if (serverState) selectionActions.connectionChanged(!serverState.offline);
@@ -795,7 +799,7 @@ async function refresh(signal, current) {
   // An identical revision can survive a service restart. New selections use
   // its new identity; already captured selections retain the old identity.
   if (sameSnapshot(manifest, state)) manifest.service = state.service;
-  terminalEditor.update(state.editorServer);
+  terminalEditor.update(state.editorServer, state.editorAttachments);
   selectionActions?.updateActions();
   if (
     sameSnapshot(state, manifest) &&

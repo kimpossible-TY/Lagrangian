@@ -335,6 +335,11 @@ function reader.start(manual)
     return true
   end
   if session then reader.stop() end
+  for _, key in ipairs { 'compiler', 'package_path', 'output', 'port' } do
+    if config[key] ~= nil then
+      return false, 'Flow Reader uses the managed HTML profile; remove the terminal-only ' .. key .. ' setting.'
+    end
+  end
   local directory = root()
   local directory_stat = directory and uv.fs_stat(directory)
   if not directory_stat or directory_stat.type ~= 'directory' then
@@ -368,8 +373,6 @@ function reader.start(manual)
   -- Native panes may start without the editor's PATH (including Homebrew binaries).
   local executable = type(argv[1]) == 'string' and vim.fn.exepath(argv[1]) or ''
   if executable ~= '' then argv[1] = executable end
-  local compiler = config.compiler or vim.fn.exepath('typst')
-  if compiler == '' then compiler = nil end
   local options = {
     { '--editor-server', server },
     { '--parent-pid', tostring(uv.os_getpid()) }, { '--control-file', control }, { '--sync-file', sync },
@@ -377,15 +380,11 @@ function reader.start(manual)
     { '--url', config.url },
     { '--playwright-module', config.playwright_module }, { '--browser-executable', config.browser_executable },
     { '--protocol', config.protocol },
-    { '--change-file', config.change_file and absolute(config.change_file, directory) },
   }
   if not config.url then
     vim.list_extend(options, {
       { '--root', directory }, { '--entry', entry },
-      { '--output', config.output and absolute(config.output, directory) or storage .. '/html' },
-      { '--package-path', config.package_path and absolute(config.package_path, directory) },
-      { '--compiler', compiler }, { '--port', config.port and tostring(config.port) },
-      { '--engine', config.engine and absolute(config.engine, directory) },
+      { '--reader-service', config.reader_service },
     })
   end
   for _, option in ipairs(options) do

@@ -11,15 +11,18 @@ from test_neovim_view import EditorTTY, NODE, ROOT
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("root", "entry", "address", "url"):
+    for name in ("root", "entry", "address"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument('--url')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="reader-browser-view-") as temporary:
         work = Path(temporary).resolve()
         editor = EditorTTY(
             work, command=[NODE, str(ROOT / "tools/flow-reader/terminal.mjs")],
             entry=Path(args.entry), address=args.address,
-            reader_options={"root": args.root, "url": args.url, "profile": str(work / "browser")},
+            reader_options={"root": args.root, "entry": args.entry, "profile": str(work / "browser"),
+                            **({"url": args.url} if args.url else {})},
+            environment={'PYTHON': os.environ.get('PYTHON', 'python3')},
         )
         try:
             result = editor.lua_rpc("{require('tinymist.reader').start()}")

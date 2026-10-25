@@ -15,6 +15,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.services.manager import ReaderManager, main
+from flow_reader.compiler.project import document_identity
 
 
 class ReaderManagerTests(unittest.TestCase):
@@ -54,6 +55,88 @@ class ReaderManagerTests(unittest.TestCase):
         second = self.resolve()
         self.assertEqual(second["entry"], "changed.typ")
         self.assertNotIn("root", self.config["services"][0])
+
+    def test_document_resolution_is_exact_canonical_and_refuses_ambiguity(self):
+        profile = self.resolve()
+        root = Path(profile['root'])
+        alias = self.root / 'project-alias'
+        alias.symlink_to(root, target_is_directory=True)
+        with patch.object(self.manager, 'profiles', return_value=[profile]):
+            self.assertEqual(self.manager.match_document(alias, root / 'main.typ'), profile)
+            for entry in ('other.typ', '../outside.typ'):
+                with self.assertRaises(ValueError):
+                    self.manager.match_document(root, entry)
+            with self.assertRaisesRegex(ValueError, 'No managed'):
+                self.manager.match_document(root, 'main.typ', 'other-reader')
+        second = {**profile, 'id': 'second-reader'}
+        with patch.object(self.manager, 'profiles', return_value=[profile, second]):
+            with self.assertRaisesRegex(ValueError, 'Multiple'):
+                self.manager.match_document(root, 'main.typ')
+            self.assertEqual(self.manager.match_document(root, 'main.typ', second['id']), second)
+
+    def attachment_state(self, profile):
+        return {'service': {'pid': os.getpid(), 'startedAt': 12345}, 'editorAttachments': 1,
+                'documentID': document_identity(profile['root'], profile['entry'])}
+
+    def test_running_html_service_is_reused_without_launch_or_compile_settings(self):
+        profile = self.resolve()
+        state = self.attachment_state(profile)
+        with patch.object(self.manager, 'match_document', return_value=profile), \
+                patch.object(self.manager, 'job_pid', return_value=os.getpid()), \
+                patch.object(self.manager, 'request', return_value=state), \
+                patch.object(self.manager, 'control') as control, \
+                patch.object(self.manager, 'arguments') as arguments:
+            first = self.manager.attach(profile['root'], profile['entry'])
+            self.assertEqual(first, self.manager.attach(profile['root'], profile['entry']))
+            self.assertEqual(first['url'], 'http://127.0.0.1:24002/')
+            self.assertEqual(first['service'], state['service'])
+            control.assert_not_called()
+            arguments.assert_not_called()
+
+    def test_stopped_service_starts_only_through_its_normal_manager(self):
+        profile = self.resolve()
+        with patch.object(self.manager, 'match_document', return_value=profile), \
+                patch.object(self.manager, 'job_pid', side_effect=[None, os.getpid()]), \
+                patch.object(self.manager, 'request', return_value=self.attachment_state(profile)), \
+                patch.object(self.manager, 'control') as control:
+            self.manager.attach(profile['root'], profile['entry'])
+            control.assert_called_once_with('start', profile)
+
+    def test_attachment_rejects_wrong_process_document_or_old_protocol_without_fallback(self):
+        profile = self.resolve()
+        valid = self.attachment_state(profile)
+        for state in ({**valid, 'documentID': 'wrong'},
+                      {**valid, 'service': {**valid['service'], 'pid': os.getpid() + 1}},
+                      {**valid, 'editorAttachments': None}):
+            with patch.object(self.manager, 'match_document', return_value=profile), \
+                    patch.object(self.manager, 'job_pid', return_value=os.getpid()), \
+                    patch.object(self.manager, 'request', return_value=state), \
+                    patch.object(self.manager, 'control') as control:
+                with self.assertRaisesRegex(ValueError, 'match|upgrade'):
+                    self.manager.attach(profile['root'], profile['entry'], editor_server='editor',
+                                        nvim=sys.executable, owner_pid=os.getpid())
+                control.assert_not_called()
+        self.assertFalse((self.manager.data / 'documents').exists())
+
+    def test_editor_attachment_is_confirmed_and_removed_on_handshake_failure(self):
+        profile = self.resolve()
+        state = self.attachment_state(profile)
+        with patch.object(self.manager, 'match_document', return_value=profile), \
+                patch.object(self.manager, 'job_pid', return_value=os.getpid()), \
+                patch.object(self.manager, 'request', side_effect=[state, {'connected': True}]):
+            plan = self.manager.attach(profile['root'], profile['entry'], editor_server='editor',
+                                       nvim=sys.executable, owner_pid=os.getpid())
+        path = Path(plan['attachmentFile'])
+        self.assertTrue(path.is_file())
+        self.assertEqual(json.loads(path.read_text())['service'], state['service'])
+        path.unlink()
+        with patch.object(self.manager, 'match_document', return_value=profile), \
+                patch.object(self.manager, 'job_pid', return_value=os.getpid()), \
+                patch.object(self.manager, 'request', side_effect=[state, {'connected': False}]):
+            with self.assertRaisesRegex(ValueError, 'rejected'):
+                self.manager.attach(profile['root'], profile['entry'], editor_server='editor',
+                                    nvim=sys.executable, owner_pid=os.getpid())
+        self.assertEqual(list(path.parent.iterdir()), [])
 
     def test_parent_launch_plan_pins_custom_record_independent_of_child_environment(self):
         data = self.root / 'custom Flow data'

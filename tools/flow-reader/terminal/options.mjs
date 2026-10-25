@@ -9,22 +9,16 @@ export const readerControls =
 export const help = `tinymist-flow HTML Reader in a native terminal pane
 
 node tools/flow-reader/terminal.mjs --url http://127.0.0.1:PORT/
-node tools/flow-reader/terminal.mjs --root PROJECT --entry main.typ --package-path PACKAGES
+node tools/flow-reader/terminal.mjs --root PROJECT --entry main.typ
 node tools/flow-reader/terminal.mjs --session PATH --protocol sixel
 
 Options:
   --url URL                 Existing stable Reader URL (HTTP or HTTPS)
-  --root PATH               Start an isolated Reader for this project
+  --root PATH               Resolve this project's managed HTML Reader
+  --reader-service ID       Select an exact HTML Reader when matches are ambiguous
   --session PATH            Attach using an editor-owned argument manifest
   --embedded                Internal Neovim view transport (versioned JSON pipes)
   --entry PATH              Project-relative entrypoint (default main.typ)
-  --package-path PATH       Existing Typst packages (default bundled Reader packages)
-  --compiler PATH           Typst compiler (default typst)
-  --engine PATH             Flow engine supporting shared source history
-  --font-path PATH          Additional font directory; repeat as needed
-  --output PATH             Generated Reader output directory
-  --port NUMBER             Stable loopback port (otherwise derived from project)
-  --original-url URL        Link to the paged preview
   --profile PATH            Dedicated persistent Chromium profile
   --playwright-module PATH  Playwright module path (or FLOW_READER_PLAYWRIGHT_MODULE)
   --browser-executable PATH Chromium executable (otherwise installed Chrome)
@@ -38,7 +32,6 @@ Options:
   --parent-pid NUMBER       Exit when the owning editor exits
   --control-file PATH       Exit when the editor removes this launch file
   --sync-file PATH          Cursor JSON written by :FlowReader sync
-  --change-file PATH        Common project edit history (otherwise match project identity)
   --check                   Print dependency/capability diagnosis and exit
   --snapshot PATH           Capture one real Reader PNG without requiring a terminal
   --help                    Show this help
@@ -46,6 +39,8 @@ Options:
 Controls: drag to select; h source highlight; s strike; u undo strike;
 X clear strikes; g selected text to code; j/k scroll; q quit. Tab/Enter and
 mouse operate the actual HTML controls. Shortcuts pass through while typing.
+Compiler, fonts, output, WASM and history settings come from the HTML Reader profile.
+Closing the terminal view never stops the shared HTML Reader service.
 Use Windows Terminal with SIXEL, iTerm2 or a Kitty graphics terminal outside tmux and
 Neovim :terminal. Browser, local marks, and layout remain the real HTML Reader.
 `;
@@ -56,6 +51,7 @@ export function parseArguments(argv) {
   const options = new Set([
     "url",
     "root",
+    "reader-service",
     "session",
     "entry",
     "package-path",
@@ -141,7 +137,5 @@ export function profileDefaults(options) {
   const directory = path.join(base, digest.toString("hex").slice(0, 20));
   return {
     profile: path.join(directory, "chromium"),
-    output: path.join(directory, "reader"),
-    port: 45000 + (digest.readUInt16BE(0) % 15000),
   };
 }

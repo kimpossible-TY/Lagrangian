@@ -12,6 +12,7 @@ import { openReader, waitForReader } from "../terminal/browser-session.mjs";
 import { EditorBridge } from "../terminal/editor-bridge.mjs";
 import { TerminalReader } from "../terminal/host.mjs";
 import { sixelSequence } from "../terminal/sixel.mjs";
+import { startReader } from "../terminal/service.mjs";
 
 const exec = promisify(execFile);
 const work = await mkdtemp(path.join(tmpdir(), "flow-terminal-test-"));
@@ -24,7 +25,7 @@ const fixture = spawn(
   {
     env: {
       ...process.env,
-      FLOW_READER_EDITOR_SERVER: address,
+      FLOW_READER_MANAGED_FIXTURE: "1",
       FLOW_READER_CHANGE_FILE: changeFile,
     },
     stdio: ["ignore", "pipe", "inherit"],
@@ -39,6 +40,9 @@ const fixtureReady = Promise.race([
 ]);
 let editor;
 let host;
+let reader;
+const priorPython = process.env.PYTHON;
+const priorData = process.env.FLOW_READER_DATA_DIR;
 let checks = 0;
 const check = (description, value) => {
   assert.ok(value, description);
@@ -62,7 +66,9 @@ async function stop(child) {
   await exited;
 }
 try {
-  const { url, entry, focusFile } = await fixtureReady;
+  const { url, entry, focusFile, managedData, managerPython } = await fixtureReady;
+  process.env.FLOW_READER_DATA_DIR = managedData;
+  process.env.PYTHON = managerPython;
   editor = spawn(
     process.env.NVIM || "nvim",
     [
@@ -98,7 +104,15 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  const options = { url, profile: path.join(work, "browser"), "editor-server": address };
+  const options = {
+    root: path.dirname(entry),
+    entry,
+    profile: path.join(work, "browser"),
+    "editor-server": address,
+  };
+  reader = await startReader(options);
+  options["editor-attachment"] = reader.editorAttachment;
+  check("Project presentation resolves the existing managed HTML service", reader.url === url);
   host = await openReader(options, { width: 760, height: 700 });
   const page = host.page;
   const errors = [];
@@ -278,19 +292,38 @@ try {
   const snapshot = path.join(repository, "dist/terminal-reader-check.png");
   await mkdir(path.dirname(snapshot), { recursive: true });
   await page.screenshot({ path: snapshot });
+  const savedFocus = page.waitForResponse(
+    (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+  );
   check(
     "Save for Codex uses the shared HTML action",
     await page.evaluate(() => globalThis.flowReaderTerminal.action("save")),
   );
-  await host.page.waitForFunction(() =>
-    document
-      .querySelector("#reader-highlight-message")
-      .textContent.includes("Codex용 텍스트 저장됨"),
+  check(
+    "Save for Codex acknowledges through the shared HTML service",
+    (await (await savedFocus).json()).status === "selected",
   );
+  const beforeReopen = await (await page.request.get(url + "api/state")).json();
   await host.context.close();
+  await reader.close();
+  const disconnected = await (
+    await fetch(url + "api/state", { signal: AbortSignal.timeout(5000) })
+  ).json();
+  check(
+    "Closing the terminal leaves the accepted HTML service available",
+    disconnected.revision === beforeReopen.revision,
+  );
+  reader = await startReader(options);
+  options["editor-attachment"] = reader.editorAttachment;
   host = await openReader(options, { width: 760, height: 700 });
   await waitForReader(host.page, url, options);
   await host.page.waitForFunction(() => document.querySelector(".reader-review-marks span"));
+  const afterReopen = await (await host.page.request.get(url + "api/state")).json();
+  check(
+    "Reopening the terminal preserves HTML service identity and does not compile",
+    JSON.stringify(beforeReopen.service) === JSON.stringify(afterReopen.service) &&
+      beforeReopen.compiledAt === afterReopen.compiledAt,
+  );
   check(
     "Persistent terminal browser restores review strikes",
     await host.page.locator(".reader-review-marks span").count(),
@@ -336,7 +369,9 @@ try {
   const rejected = await (await rejectedResponse).json();
   check(
     "Terminal highlights assert the configured editor identity in the real HTTP request",
-    (await rejectedResponse).request().postDataJSON().editorServer === address,
+    (await rejectedResponse).request().postDataJSON().editorServer === address &&
+      (await rejectedResponse).request().postDataJSON().editorAttachment ===
+        reader.editorAttachment,
   );
   check(
     "Dirty Neovim buffer rejects the verified source highlight",
@@ -383,6 +418,8 @@ try {
   check("Browser bridge produced no page errors", errors.length === 0);
   await host.context.close();
   host = null;
+  await reader.close();
+  reader = null;
   await stop(editor);
   editor = null;
   const { stdout: viewReport } = await exec(
@@ -395,8 +432,6 @@ try {
       entry,
       "--address",
       address,
-      "--url",
-      url,
     ],
     { timeout: 60000 },
   );
@@ -413,8 +448,13 @@ try {
   console.log(`Terminal Reader: ${checks} integration checks passed. Snapshot: ${snapshot}`);
 } finally {
   await host?.context.close().catch(() => {});
+  await reader?.close();
   await stop(editor);
   await stop(fixture);
   lines.close();
   await rm(work, { recursive: true, force: true });
+  if (priorPython === undefined) delete process.env.PYTHON;
+  else process.env.PYTHON = priorPython;
+  if (priorData === undefined) delete process.env.FLOW_READER_DATA_DIR;
+  else process.env.FLOW_READER_DATA_DIR = priorData;
 }

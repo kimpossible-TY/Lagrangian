@@ -8,11 +8,12 @@ import threading
 import time
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.inputs import input_fingerprint, source_signature
+from flow_reader.compiler.project import document_identity
 from flow_reader.document.sections import split_document
 from flow_reader.rendering.service import DynamicRenderer
 from flow_reader.services.codex_context import FocusStore
 from flow_reader.services.selection import SelectionActions
-from flow_reader.services.editor_sync import NeovimEditor, UNSPECIFIED_EDITOR
+from flow_reader.services.editor_sync import EditorAttachments, NeovimEditor, UNSPECIFIED_EDITOR
 from flow_reader.services.navigation import SavedSourceNavigation
 from flow_reader.services.edit_location import SharedEditLocation
 from flow_reader.services.source_history import source_snapshots
@@ -33,9 +34,9 @@ class ReaderState:
         self.allow_incomplete = allow_incomplete
         self.editor_server = editor_server
         self.editor = NeovimEditor(editor_server, executable=nvim) if editor_server else None
-        self.document_id = hashlib.sha256(
-            json.dumps([str(project.root), str(project.relative_entry())]).encode()).hexdigest()[:24]
+        self.document_id = document_identity(project.root, project.entry)
         self.focus = FocusStore(focus_file or output / "focus.json", project, self.document_id)
+        self.editor_attachments = EditorAttachments(output, self.document_id, self.focus.service)
         self.source_history = source_history
         self.shared_edit = (source_history.location if source_history else
                             SharedEditLocation(project.root, project.entry, change_file))
@@ -215,7 +216,8 @@ class ReaderState:
                   "documentID": self.document_id,
                   "changeToken": (self.bundle.manifest.get("lastChange") or {}).get("token") if self.bundle else None,
                   "service": self.focus.service,
-                  "editorServer": self.editor_server,
+                   "editorServer": self.editor_server,
+                   "editorAttachments": 1,
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "semanticCanvases": self.project.semantic_canvases,
                   "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
@@ -239,8 +241,9 @@ class ReaderState:
     def locate(self, revision, fragments):
         return self.selection.locate(revision, fragments)
 
-    def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR):
-        return self.selection.highlight(revision, fragments, expected_editor)
+    def highlight(self, revision, fragments, expected_editor=UNSPECIFIED_EDITOR,
+                  editor_attachment=UNSPECIFIED_EDITOR):
+        return self.selection.highlight(revision, fragments, expected_editor, editor_attachment)
 
     def highlight_intent(self, request):
         return self.selection.highlight_intent(request)
