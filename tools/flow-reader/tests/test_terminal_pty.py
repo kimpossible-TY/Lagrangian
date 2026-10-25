@@ -31,6 +31,9 @@ NODE = shutil.which("node")
 PAGE_STUB = """
 const { TerminalReader } = await import(process.argv[1]);
 const page = {
+  context() { return { async newCDPSession() { return {
+    on() {}, off() {}, async send() {}, async detach() {},
+  }; } }; },
   async setViewportSize() {},
   async evaluate() { return false; },
   async screenshot() {
@@ -99,6 +102,9 @@ class TerminalLifetimeTests(unittest.TestCase):
             browser = temporary / "playwright.mjs"
             browser.write_text("""
 const page = {
+  context() { return { async newCDPSession() { return {
+    on() {}, off() {}, async send() {}, async detach() {},
+  }; } }; },
   async goto() {}, async waitForFunction() {}, async evaluate() { return false; },
   async waitForTimeout() {}, async setViewportSize() {},
   request: { async get() { return { async json() { return { editorServer: 'editor.sock' }; } }; } },
@@ -131,6 +137,9 @@ const { TerminalReader } = await import(process.argv[1]);
 let viewport;
 let resizeCount = 0;
 const page = {
+  context() { return { async newCDPSession() { return {
+    on() {}, off() {}, async send() {}, async detach() {},
+  }; } }; },
   async setViewportSize(size) {
     const count = ++resizeCount;
     await new Promise(resolve => setTimeout(resolve, count === 1 ? 120 : 0));
@@ -159,6 +168,9 @@ const { TerminalReader } = await import(process.argv[1]);
 let viewport;
 let resizeCount = 0;
 const page = {
+  context() { return { async newCDPSession() { return {
+    on() {}, off() {}, async send() {}, async detach() {},
+  }; } }; },
   async setViewportSize(size) { resizeCount++; viewport = size; },
   async evaluate() { return false; },
   async screenshot() {

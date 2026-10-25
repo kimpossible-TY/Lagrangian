@@ -123,7 +123,7 @@ export class EditorTransport {
   }
 
   async present(frame, signal) {
-    if (signal.aborted) return;
+    if (signal.aborted) return 0;
     const message = {
       version: 1,
       type: "frame",
@@ -134,11 +134,13 @@ export class EditorTransport {
       status: frame.status,
       image: frame.image,
     };
+    const line = JSON.stringify(message) + "\n";
     // One outstanding frame bounds memory and network traffic even on a slow TUI.
     await new Promise((resolve) => {
       this.ack = resolve;
-      this.output.write(JSON.stringify(message) + "\n");
+      this.output.write(line);
     });
     this.ack = null;
+    return Buffer.byteLength(line);
   }
 }

@@ -31,7 +31,8 @@ Options:
   --protocol sixel|kitty|iterm2  Native image protocol (SIXEL for Windows Terminal)
   --cell-width NUMBER       Terminal cell width in pixels (otherwise queried)
   --cell-height NUMBER      Terminal cell height in pixels (otherwise queried)
-  --fps NUMBER              Capture rate, 1–20 (default 2 for SIXEL, otherwise 5)
+  --fps NUMBER              Minimum capture interval, 1–20 (default 2 for SIXEL, otherwise 5)
+  --metrics PATH            Append frame timing JSON Lines (or FLOW_READER_METRICS)
   --editor-server PATH      Neovim RPC server for code synchronization
   --nvim PATH               Neovim executable (default nvim)
   --parent-pid NUMBER       Exit when the owning editor exits
@@ -71,6 +72,7 @@ export function parseArguments(argv) {
     "cell-width",
     "cell-height",
     "fps",
+    "metrics",
     "editor-server",
     "nvim",
     "parent-pid",

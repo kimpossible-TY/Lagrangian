@@ -215,6 +215,65 @@ test("project profiles and origin ports are stable and isolated by entrypoint", 
   assert.ok(first.port >= 45000 && first.port <= 59999);
 });
 
+test("optional metrics record screenshot, encoding, bytes and unchanged signals", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "flow-metrics-"));
+  const file = path.join(directory, "frames.jsonl");
+  const png = Buffer.from("PNG-A");
+  const changed = Buffer.from("PNG-B");
+  const images = [png, png, changed];
+  let index = 0;
+  const page = {
+    async setViewportSize() {},
+    async evaluate() {
+      return false;
+    },
+    async screenshot() {
+      return images[Math.min(index++, images.length - 1)];
+    },
+  };
+  const frames = [];
+  const transport = {
+    dimensions() {
+      return [80, 24];
+    },
+    async open() {
+      return () => {};
+    },
+    async present(frame) {
+      frames.push(frame);
+      return frame.image ? Buffer.byteLength(frame.image) : 0;
+    },
+  };
+  const reader = new TerminalReader({ protocol: "kitty", metrics: file }, page, transport);
+  try {
+    reader.ready = true;
+    await reader.capture();
+    await reader.capture();
+    await reader.capture();
+  } finally {
+    await reader.metrics.close();
+  }
+  const records = (await readFile(file, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(records.length, 3);
+  assert.deepEqual(
+    records.map((record) => record.unchanged),
+    [false, true, false],
+  );
+  assert.deepEqual(
+    records.map((record) => record.unchangedTotal),
+    [0, 1, 1],
+  );
+  assert.ok(records[0].bytes > 0 && records[2].bytes > 0);
+  assert.equal(records[1].bytes, 0);
+  assert.equal(records[1].encodeMs, 0);
+  assert.ok(records.every((record) => typeof record.screenshotMs === "number"));
+  assert.ok(records.every((record) => typeof record.presentMs === "number"));
+  await rm(directory, { recursive: true, force: true });
+});
+
 test("cell geometry outranks full-window reports regardless of delivery order", async () => {
   const page = { async setViewportSize() {} };
   const cell = { type: "geometry", kind: 6, width: 9, height: 18 };

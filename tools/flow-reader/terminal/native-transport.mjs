@@ -64,10 +64,21 @@ export class NativeTransport {
   }
 
   async present(frame, signal) {
+    let bytes = 0;
     if (frame.image) {
-      if (frame.clear) process.stdout.write("\x1b[2J\x1b[H");
+      if (frame.clear) {
+        const clear = "\x1b[2J\x1b[H";
+        bytes += Buffer.byteLength(clear);
+        process.stdout.write(clear);
+      }
+      bytes += Buffer.byteLength(frame.image);
       if (!process.stdout.write(frame.image)) await once(process.stdout, "drain", { signal });
     }
-    if (!signal.aborted) process.stdout.write(statusSequence(frame.status, frame.size));
+    if (!signal.aborted) {
+      const status = statusSequence(frame.status, frame.size);
+      bytes += Buffer.byteLength(status);
+      process.stdout.write(status);
+    }
+    return bytes;
   }
 }
