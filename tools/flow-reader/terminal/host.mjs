@@ -10,9 +10,16 @@ import {
   terminalSize,
 } from "./protocol.mjs";
 import { EditorBridge } from "./editor-bridge.mjs";
+import { frameMetrics } from "./metrics.mjs";
 import { readerControls } from "./options.mjs";
+import { startScreencastSignals } from "./screencast.mjs";
 import { sixelSequence } from "./sixel.mjs";
 import { NativeTransport } from "./native-transport.mjs";
+
+// Frame metrics are diagnostic; keep sub-millisecond encoding visible.
+function elapsed(start) {
+  return Math.round((performance.now() - start) * 100) / 100;
+}
 
 export class TerminalReader {
   constructor(options, page, transport = new NativeTransport()) {
@@ -30,12 +37,22 @@ export class TerminalReader {
     this.mouseDown = false;
     this.message = readerControls;
     this.stopped = false;
+    this.ready = false;
     this.visible = true;
     this.frameHash = "";
     this.frameGeneration = 0;
     this.layoutGeneration = 0;
     this.clearBeforeFrame = false;
     this.outputAbort = new AbortController();
+    this.metrics = frameMetrics(options);
+    this.frameCount = 0;
+    this.unchangedTotal = 0;
+    this.captureInterval = 1000 / (options.fps || (this.protocol === "sixel" ? 2 : 5));
+    this.captureBusy = false;
+    this.capturePending = false;
+    this.captureTimer = null;
+    this.lastCaptureAt = 0;
+    this.stopWatching = null;
   }
 
   enqueue(action) {
@@ -44,9 +61,41 @@ export class TerminalReader {
         if (!this.stopped) await action();
       })
       .catch((error) => {
-        if (!this.stopped) this.message = error.message;
+        if (!this.stopped) this.setMessage(error.message);
       });
     return this.queue;
+  }
+
+  setMessage(message) {
+    if (this.message === message) return;
+    this.message = message;
+    // The statusline is part of a frame even when browser pixels do not change.
+    this.requestCapture();
+  }
+
+  requestCapture() {
+    if (this.stopped || !this.ready) return;
+    this.capturePending = true;
+    this.armCapture();
+  }
+
+  armCapture() {
+    if (
+      this.stopped ||
+      !this.ready ||
+      !this.capturePending ||
+      this.captureBusy ||
+      this.captureTimer
+    )
+      return;
+    // fps is the minimum spacing between captures, not a polling period.
+    const wait = Math.max(0, this.lastCaptureAt + this.captureInterval - Date.now());
+    this.captureTimer = setTimeout(() => {
+      this.captureTimer = null;
+      this.capture().finally(() => {
+        if (this.capturePending) this.armCapture();
+      });
+    }, wait);
   }
 
   async resize(layout) {
@@ -65,6 +114,7 @@ export class TerminalReader {
     await this.page.setViewportSize({ width: this.size.width, height: this.size.height });
     this.frameHash = "";
     this.clearBeforeFrame = true;
+    this.requestCapture();
   }
 
   async event(event) {
@@ -144,12 +194,12 @@ export class TerminalReader {
           (name) => window.flowReaderTerminal?.action(name),
           action,
         );
-        this.message = accepted ? readerControls : "Select text to use that action";
+        this.setMessage(accepted ? readerControls : "Select text to use that action");
         return;
       }
       if (value === "g") {
         await this.bridge.source();
-        this.message = "Source cursor synchronized";
+        this.setMessage("Source cursor synchronized");
         return;
       }
       if (value === "j" || value === "k") {
@@ -157,7 +207,7 @@ export class TerminalReader {
         return;
       }
       if (value === "?") {
-        this.message = readerControls;
+        this.setMessage(readerControls);
         return;
       }
     }
@@ -169,29 +219,57 @@ export class TerminalReader {
 
   stop() {
     this.stopped = true;
+    clearTimeout(this.captureTimer);
+    this.captureTimer = null;
     this.outputAbort.abort();
     this.resolveStop?.();
   }
 
   async capture() {
-    if (this.captureBusy || this.stopped || !this.visible) return;
+    if (this.stopped) return;
+    if (!this.visible) {
+      this.capturePending = false;
+      return;
+    }
+    if (this.captureBusy) {
+      this.capturePending = true;
+      return;
+    }
     this.captureBusy = true;
+    this.capturePending = false;
+    this.lastCaptureAt = Date.now();
+    const metric = { type: "frame", frame: ++this.frameCount, protocol: this.protocol };
     try {
       let captured;
       await this.enqueue(async () => {
         const generation = this.frameGeneration;
+        const screenshotStart = performance.now();
         const png = await this.page.screenshot({ type: "png", scale: "css", timeout: 10000 });
-        if (this.stopped || generation !== this.frameGeneration) return;
+        const screenshotMs = elapsed(screenshotStart);
+        if (this.stopped) return;
+        if (generation !== this.frameGeneration) {
+          captured = { discarded: "generation", screenshotMs };
+          return;
+        }
         const hash = createHash("sha256").update(png).digest("hex");
-        const image =
-          hash === this.frameHash
-            ? null
-            : this.protocol === "sixel"
+        const unchanged = hash === this.frameHash;
+        if (unchanged) this.unchangedTotal++;
+        let image = null;
+        let encodeMs = 0;
+        if (!unchanged) {
+          const encodeStart = performance.now();
+          image =
+            this.protocol === "sixel"
               ? sixelSequence(png)
               : pngSequence(png, this.size, this.protocol);
+          encodeMs = elapsed(encodeStart);
+        }
         captured = {
           hash,
           frameGeneration: generation,
+          screenshotMs,
+          encodeMs,
+          unchanged,
           frame: {
             image,
             size: this.size,
@@ -202,17 +280,31 @@ export class TerminalReader {
         };
       });
       // Slow presentation must not block browser input, resize or cancellation.
-      if (captured && !this.stopped) {
-        await this.transport.present(captured.frame, this.outputAbort.signal);
+      if (!captured) {
+        metric.discarded = this.stopped ? "stopped" : "queue";
+      } else if (captured.discarded) {
+        Object.assign(metric, captured);
+      } else if (!this.stopped) {
+        metric.screenshotMs = captured.screenshotMs;
+        metric.encodeMs = captured.encodeMs;
+        metric.unchanged = captured.unchanged;
+        const presentStart = performance.now();
+        metric.bytes = Number(
+          (await this.transport.present(captured.frame, this.outputAbort.signal)) || 0,
+        );
+        metric.presentMs = elapsed(presentStart);
         if (captured.frameGeneration === this.frameGeneration) {
           this.clearBeforeFrame = false;
           this.frameHash = captured.hash;
         }
       }
     } catch (error) {
-      if (!this.stopped) this.message = error.message;
+      if (!this.stopped) this.setMessage(error.message);
     } finally {
       this.captureBusy = false;
+      metric.unchangedTotal = this.unchangedTotal;
+      this.metrics.record(metric);
+      if (this.capturePending && !this.stopped) this.armCapture();
     }
   }
 
@@ -227,12 +319,9 @@ export class TerminalReader {
     try {
       close = await this.transport.open(this);
       if (this.stopped) return;
-      timers.push(
-        setInterval(
-          () => this.capture(),
-          1000 / (this.options.fps || (this.protocol === "sixel" ? 2 : 5)),
-        ),
-      );
+      this.ready = true;
+      // Browser changes are the capture signal; fps only bounds their frequency.
+      this.stopWatching = await startScreencastSignals(this.page, () => this.requestCapture());
       await this.capture();
       if (this.options["editor-server"] || this.options["sync-file"])
         timers.push(
@@ -242,7 +331,7 @@ export class TerminalReader {
             try {
               await this.bridge.cursor();
             } catch (error) {
-              this.message = error.message;
+              this.setMessage(error.message);
             } finally {
               cursorBusy = false;
             }
@@ -267,8 +356,11 @@ export class TerminalReader {
     } finally {
       this.stop();
       for (const timer of timers) clearInterval(timer);
+      await this.stopWatching?.();
+      this.stopWatching = null;
       await close?.();
       await this.queue;
+      await this.metrics.close();
     }
   }
 }

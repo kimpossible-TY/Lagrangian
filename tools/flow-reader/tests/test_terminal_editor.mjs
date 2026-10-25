@@ -40,7 +40,30 @@ function fixture() {
     }
   });
   const operations = [];
+  const screencast = { listeners: new Set(), acks: [], starts: 0, stops: 0, startParams: null };
   const page = {
+    context() {
+      return {
+        async newCDPSession() {
+          return {
+            on(event, listener) {
+              if (event === "Page.screencastFrame") screencast.listeners.add(listener);
+            },
+            off(event, listener) {
+              if (event === "Page.screencastFrame") screencast.listeners.delete(listener);
+            },
+            async send(method, params) {
+              if (method === "Page.startScreencast") {
+                screencast.starts++;
+                screencast.startParams = params;
+              } else if (method === "Page.stopScreencast") screencast.stops++;
+              else if (method === "Page.screencastFrameAck") screencast.acks.push(params.sessionId);
+            },
+            async detach() {},
+          };
+        },
+      };
+    },
     async setViewportSize(size) {
       operations.push(["viewport", size]);
     },
@@ -74,13 +97,18 @@ function fixture() {
       },
     },
   };
+  let frameSequence = 0;
+  page.emitScreencast = () => {
+    for (const listener of [...screencast.listeners])
+      listener({ sessionId: ++frameSequence, data: Buffer.from(`frame-${frameSequence}`) });
+  };
   const reader = new TerminalReader(
     { protocol: "kitty", fps: 20 },
     page,
     new EditorTransport(input, output),
   );
   const send = (message) => input.write(JSON.stringify({ version: 1, ...message }) + "\n");
-  return { reader, page, input, messages, operations, send };
+  return { reader, page, input, messages, operations, send, screencast };
 }
 
 test("editor layouts reject invalid, unbounded and ambiguous dimensions", () => {
@@ -123,6 +151,89 @@ test("editor frame acknowledgment bounds capture and resize generations stay ord
     assert.equal(f.reader.stopped, true);
   } finally {
     f.reader.stop();
+    await run;
+  }
+});
+
+test("screencast frames merge while a frame awaits acknowledgment", async () => {
+  const f = fixture();
+  const run = f.reader.run();
+  try {
+    f.send(layout(1));
+    await until(() => f.messages.some((m) => m.type === "frame"));
+    const first = f.messages.find((m) => m.type === "frame");
+    const captures = () => f.operations.filter(([op]) => op === "capture").length;
+    f.page.emitScreencast();
+    f.page.emitScreencast();
+    f.page.emitScreencast();
+    await delay(80);
+    assert.equal(captures(), 1, "signals wait for the outstanding frame");
+    f.send({ type: "ack", id: first.id });
+    await until(() => f.messages.filter((m) => m.type === "frame").length === 2);
+    await delay(150);
+    assert.equal(f.messages.filter((m) => m.type === "frame").length, 2);
+    assert.deepEqual(f.screencast.acks, [1, 2, 3]);
+    assert.equal(f.screencast.starts, 1);
+    assert.equal(
+      f.screencast.startParams.maxWidth,
+      undefined,
+      "full-viewport signals keep Chromium's capture surface warm",
+    );
+  } finally {
+    f.input.end();
+    await run;
+  }
+  assert.equal(f.screencast.stops, 1);
+  assert.equal(f.screencast.listeners.size, 0);
+});
+
+test("hidden layouts do not capture and showing the view forces a frame", async () => {
+  const f = fixture();
+  const run = f.reader.run();
+  try {
+    f.send(layout(1));
+    await until(() => f.messages.some((m) => m.type === "frame"));
+    const first = f.messages.find((m) => m.type === "frame");
+    const captures = () => f.operations.filter(([op]) => op === "capture").length;
+    f.send({ type: "ack", id: first.id });
+    f.send(layout(2, { visible: false }));
+    await delay(120);
+    assert.equal(captures(), 1);
+    f.send(layout(3, { columns: 50 }));
+    await until(() => f.messages.some((m) => m.type === "frame" && m.generation === 3));
+    assert.equal(captures(), 2);
+    assert.equal(f.reader.size.width, 500);
+  } finally {
+    f.input.end();
+    await run;
+  }
+});
+
+test("a resize during a pending screenshot discards its obsolete frame", async () => {
+  const f = fixture();
+  let release;
+  let blocking = true;
+  f.page.screenshot = async () => {
+    f.operations.push(["capture"]);
+    if (blocking) {
+      blocking = false;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+    }
+    return Buffer.from("PNG");
+  };
+  const run = f.reader.run();
+  try {
+    f.send(layout(1));
+    await until(() => f.operations.some(([op]) => op === "capture"));
+    await f.reader.resize(layout(2, { columns: 50 }));
+    release();
+    await until(() => f.messages.some((m) => m.type === "frame"));
+    assert.equal(f.messages.find((m) => m.type === "frame").generation, 2);
+    assert.equal(f.reader.size.width, 500);
+  } finally {
+    f.input.end();
     await run;
   }
 });

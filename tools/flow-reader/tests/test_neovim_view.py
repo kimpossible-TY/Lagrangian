@@ -68,6 +68,9 @@ const options = parseArguments(process.argv.slice(2));
 const log = data => appendFileSync(LOG, JSON.stringify(data)+'\\n');
 let firstFrameDelay = DELAY;
 const page = {
+  context() { return { async newCDPSession() { return {
+    on() {}, off() {}, async send() {}, async detach() {},
+  }; } }; },
   async setViewportSize(size) { log({viewport:size}); },
   async evaluate() { return false; },
   async screenshot() {
