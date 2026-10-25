@@ -3,6 +3,7 @@ import { once } from "node:events";
 import {
   TerminalInput,
   queryCellSize,
+  synchronizedOutput,
   terminalStart,
   terminalFinish,
   statusSequence,
@@ -71,8 +72,9 @@ export class NativeTransport {
         bytes += Buffer.byteLength(clear);
         process.stdout.write(clear);
       }
-      bytes += Buffer.byteLength(frame.image);
-      if (!process.stdout.write(frame.image)) await once(process.stdout, "drain", { signal });
+      const image = frame.sync ? synchronizedOutput(frame.image) : frame.image;
+      bytes += Buffer.byteLength(image);
+      if (!process.stdout.write(image)) await once(process.stdout, "drain", { signal });
     }
     if (!signal.aborted) {
       const status = statusSequence(frame.status, frame.size);

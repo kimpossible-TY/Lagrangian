@@ -461,6 +461,25 @@ class NeovimViewTests(unittest.TestCase):
         e.answer_attributes = True
         self.start()
 
+    def test_kitty_image_synchronized_update_does_not_nest_neovim_redraw(self):
+        e = self.editor
+        e.attributes = b"\x1b[?62c"
+        e.kitty = True
+        e.lua_rpc("(function() vim.o.termsync=true; return true end)()")
+        self.assertEqual(e.lua_rpc("{require('tinymist.reader').start()}"), [True])
+        e.pump_until(lambda: b"\x1b_Ga=T" in e.output)
+        e.lua_rpc("(function() vim.cmd('redraw!'); return true end)()")
+        e.pump(0.3)
+        data = bytes(e.output)
+        marker = b"\x1b[?2026h\x1b_G"
+        self.assertIn(marker, data)
+        start = data.find(marker)
+        ending = data.find(b"\x1b[?2026l", start)
+        self.assertGreater(ending, start)
+        self.assertNotIn(b"\x1b[?2026h", data[start + len(marker):ending])
+        self.assertIn(b"\x1b_Ga=T", data[start:ending])
+        self.assertEqual(data[ending:ending + 10], b"\x1b[?2026l\x1b8")
+
     def test_kitty_reply_uses_scaled_logical_viewport(self):
         e = self.editor
         e.attributes = b"\x1b[?62c"

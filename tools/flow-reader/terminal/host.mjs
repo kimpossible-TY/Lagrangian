@@ -272,6 +272,9 @@ export class TerminalReader {
           unchanged,
           frame: {
             image,
+            // SIXEL output remains unchanged until its synchronized-update
+            // behavior is verified in a physical Windows Terminal.
+            sync: this.protocol !== "sixel",
             size: this.size,
             status: this.message,
             generation: this.layoutGeneration,

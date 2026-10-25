@@ -6,6 +6,7 @@ import {
   mousePosition,
   pngSequence,
   statusSequence,
+  synchronizedOutput,
   TerminalInput,
   terminalSize,
 } from "../terminal/protocol.mjs";
@@ -13,6 +14,7 @@ import { parseArguments, profileDefaults } from "../terminal/options.mjs";
 import { serverArguments } from "../terminal/service.mjs";
 import { EditorBridge } from "../terminal/editor-bridge.mjs";
 import { TerminalReader } from "../terminal/host.mjs";
+import { NativeTransport } from "../terminal/native-transport.mjs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -215,6 +217,34 @@ test("project profiles and origin ports are stable and isolated by entrypoint", 
   assert.ok(first.port >= 45000 && first.port <= 59999);
 });
 
+test("one synchronized-update policy wraps only supported image frames", async () => {
+  assert.equal(synchronizedOutput("IMG"), "\x1b[?2026hIMG\x1b[?2026l");
+  const writes = [];
+  const write = process.stdout.write;
+  process.stdout.write = (chunk) => {
+    writes.push(String(chunk));
+    return true;
+  };
+  try {
+    const size = terminalSize(80, 24);
+    await new NativeTransport().present(
+      { image: "IMG", sync: true, clear: true, status: "ready", size },
+      new AbortController().signal,
+    );
+    assert.equal(writes[0], "\x1b[2J\x1b[H");
+    assert.equal(writes[1], "\x1b[?2026hIMG\x1b[?2026l");
+    assert.equal(writes[2], statusSequence("ready", size));
+    writes.length = 0;
+    await new NativeTransport().present(
+      { image: "SIXEL", sync: false, clear: false, status: "ready", size },
+      new AbortController().signal,
+    );
+    assert.equal(writes[0], "SIXEL");
+  } finally {
+    process.stdout.write = write;
+  }
+});
+
 test("optional metrics record screenshot, encoding, bytes and unchanged signals", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "flow-metrics-"));
   const file = path.join(directory, "frames.jsonl");
@@ -271,7 +301,45 @@ test("optional metrics record screenshot, encoding, bytes and unchanged signals"
   assert.equal(records[1].encodeMs, 0);
   assert.ok(records.every((record) => typeof record.screenshotMs === "number"));
   assert.ok(records.every((record) => typeof record.presentMs === "number"));
+  assert.deepEqual(
+    frames.map((frame) => frame.sync),
+    [true, true, true],
+  );
   await rm(directory, { recursive: true, force: true });
+});
+
+test("SIXEL frames stay unwrapped until physical terminal verification", async () => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const frames = [];
+  const reader = new TerminalReader(
+    { protocol: "sixel" },
+    {
+      async setViewportSize() {},
+      async evaluate() {
+        return false;
+      },
+      async screenshot() {
+        return png;
+      },
+    },
+    {
+      dimensions: () => [80, 24],
+      async open() {
+        return () => {};
+      },
+      async present(frame) {
+        frames.push(frame);
+        return frame.image.length;
+      },
+    },
+  );
+  reader.ready = true;
+  await reader.capture();
+  assert.equal(frames[0].sync, false);
+  assert.ok(frames[0].image.startsWith('\x1b[H\x1bP0;1;0q"1;1;'));
 });
 
 test("cell geometry outranks full-window reports regardless of delivery order", async () => {
