@@ -58,6 +58,16 @@ fallbacks and system forced colors. Press feedback uses native activation and
 does not deform under reduced motion. Measure after applying the visual
 viewport's width so wrapping never pushes controls below its safe bottom edge.
 
+## Generated reference source ranges
+
+The HTML compile-only source-carrier pass also brackets supported computed
+`#(s.ref)(...)` calls. Their generated display text is compiler-verified against
+the accepted block, but is not textually equal to the source expression, so the
+range is explicitly typed as generated reference output. Source mapping accepts
+that range only when the selection covers the entire generated output; partial
+reference selections remain unmapped. Source hashes, same-file ordering,
+accepted-block identity and unchanged delivered HTML remain required.
+
 Copy is a selection action with one policy owner in the HTML selection feature.
 Semantic capture keeps prose in displayed order while complete mathematical
 views become formula segments carrying their captured block endpoints. Touch

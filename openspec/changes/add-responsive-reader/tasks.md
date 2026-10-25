@@ -225,6 +225,7 @@ other services, and the mobile default are preserved.
 - [x] Share accepted range resolution between Saved for Codex and bidirectional Sync Editor, preserving snapshot and ambiguity checks.
 - [x] Verify real compiler/browser flows, Unicode, repeated/cross-file/unsupported and stale sources; update ownership and canonical documentation.
 - [x] Install the clean immutable Reader release, restore the exact saved context and verify unified lookup, bidirectional navigation and registered HTTPS delivery.
+- [x] Add complete-output mapping for supported computed references, rejecting partial generated-text selections.
 
 ## Visible HTML document activity
 
