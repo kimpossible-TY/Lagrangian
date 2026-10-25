@@ -148,7 +148,7 @@ def source_position(source, offset):
 
 
 def mapped_source_range(project, dependencies, bundle, clean):
-    """Resolve fully covered, ordered selections to verified source offsets."""
+    """Resolve covered ordered text/math/reference ranges to source offsets."""
     passages = {part["key"]: part for part in bundle.passages}
     if not any(passages.get(part["key"], {}).get("source_ranges") for part in clean):
         return None
@@ -188,7 +188,8 @@ def mapped_source_range(project, dependencies, bundle, clean):
                     return {"status": "unmapped"}
                 source_end = source_start + offsets[last - span["text_start"] - 1] + 1
                 source_start += offsets[first - span["text_start"]]
-            elif (span["kind"] != "math" or first != span["text_start"] or last != span["text_end"]):
+            elif (span["kind"] not in {"math", "reference"}
+                  or first != span["text_start"] or last != span["text_end"]):
                 return {"status": "unmapped"}
             selected.append((path, source_start, source_end, span["kind"]))
             covered.update(range(first, last))

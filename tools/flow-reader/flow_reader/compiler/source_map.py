@@ -41,7 +41,7 @@ def compile_source_map(project, dependencies, request, baseline, work):
 
 
 def markup_ranges(source, *, invocations=False):
-    """Recognize prose/content calls and whole equations, excluding code/raw.
+    """Recognize prose/content calls, computed references and whole equations.
 
     Unknown hash expressions are skipped through their line and balanced code
     delimiters. Content arguments of direct calls such as #proof[...] recurse
@@ -50,6 +50,7 @@ def markup_ranges(source, *, invocations=False):
     """
     length = len(source)
     call_pattern = re.compile(r"#[\w-]+(?:\.[\w-]+)*")
+    reference_pattern = re.compile(r"#\s*\(\s*s\.ref\s*\)\s*\(")
 
     def opaque(position, closing=None):
         while position < length:
@@ -171,6 +172,12 @@ def markup_ranges(source, *, invocations=False):
                     yield position, end + 1, "math"
                 position = min(length, end + 1)
             elif character == "#":
+                reference = reference_pattern.match(source, position)
+                if reference:
+                    end = opaque(reference.end(), ")")
+                    yield position, end, "reference"
+                    position = end
+                    continue
                 invocation_start = position
                 call = call_pattern.match(source, position)
                 if not call:

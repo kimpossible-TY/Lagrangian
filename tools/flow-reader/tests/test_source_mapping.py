@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.build import Project, compile_project
-from flow_reader.compiler.source_map import SourceCarriers
+from flow_reader.compiler.source_map import SourceCarriers, markup_ranges
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
@@ -25,6 +25,12 @@ from flow_reader.services.source_mapping import edit_location
 
 
 class CarrierAcceptanceTests(unittest.TestCase):
+    def test_computed_reference_calls_are_one_source_range(self):
+        source = 'See #(s.ref)("interval-images") now.'
+        ranges = list(markup_ranges(source))
+        self.assertIn(('#(s.ref)("interval-images")', 'reference'),
+                      [(source[start:end], kind) for start, end, kind in ranges])
+
     def navigation_for(self, body):
         carriers = SourceCarriers()
         carriers.navigation_sources['0'] = {'path': '/unused.typ', 'source_hash': 'unused',
@@ -285,6 +291,39 @@ class CompiledSourceMappingTests(unittest.TestCase):
         self.assertEqual(chapter.read_bytes(), source.encode())
         self.assertNotIn(b"data-flow-source-", state.document)
         self.assertNotIn("source_ranges", json.dumps(state.bundle.manifest))
+
+    def test_computed_reference_output_maps_only_as_a_complete_generated_range(self):
+        source = ('#let s = (ref: name => [Equation (3.4.28)],)\n'
+                  'We verify $alpha + beta$ by the image series '
+                  '#(s.ref)("interval-images") before continuing.\n')
+        state = self.state(source)
+        plain = compile_project(self.project, self.work / 'plain', map_sources=False)
+        self.assertTrue(plain['contentGatePassed'])
+        self.assertEqual(state.document, (self.work / 'plain/document.html').read_bytes())
+        paragraph = next(part for part in state.bundle.passages
+                         if part['text'].startswith('We verify'))
+        fragment = self.fragment(state, paragraph['text'])
+        location = state.source(state.revision, [fragment])
+        saved = state.save_focus(state.revision, [fragment], state.focus.service, 42)
+        reference = next(span for span in paragraph['source_ranges']
+                         if span['kind'] == 'reference')
+        self.assertEqual(location['status'], 'located', location)
+        self.assertEqual(saved['status'], 'selected')
+        self.assertEqual(saved['source']['filepath'], str(self.entry))
+        self.assertEqual(saved['source']['range']['start']['line'], 2)
+        self.assertEqual(saved['source']['range']['start']['column'], 1)
+        self.assertEqual(saved['source']['range']['end']['column'], len(source.splitlines()[1]) + 1)
+        self.assertEqual(reference['start'], source.index('#(s.ref)'))
+        self.assertEqual(source[reference['start']:reference['end']],
+                         '#(s.ref)("interval-images")')
+
+        output = paragraph['text'][reference['text_start']:reference['text_end']]
+        selected = output[:max(1, len(output) // 2)]
+        start = paragraph['text'].index(selected)
+        partial = {'key': paragraph['key'], 'exact': selected,
+                   'prefix': paragraph['text'][:start][-64:],
+                   'suffix': paragraph['text'][start + len(selected):][:64]}
+        self.assertEqual(state.source(state.revision, [partial])['status'], 'unmapped')
 
     def test_distinct_duplicate_paragraphs_and_repeated_includes_are_not_guessed(self):
         state = self.state('Same paragraph.\n\nSame paragraph.')

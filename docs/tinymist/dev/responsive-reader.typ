@@ -1108,14 +1108,19 @@ workspace source or appear in served sections. Unmatched blocks keep the existin
 literal fallback. Repeated signatures require the complete block sequence to
 agree before their occurrence numbers can identify a source.
 
+Supported computed `#(s.ref)(...)` calls also carry their generated display text
+to the original expression. That correspondence is accepted only when a selection
+covers the complete generated reference output; partial reference text remains
+unmapped.
+
 Saved for Codex and bidirectional Sync Editor use this same accepted map. Saves
 retain their original source/excerpt fields and add an exclusive source range
 with Unicode columns; editor requests use UTF-8 byte columns. Selections spanning
-ordered blocks in one file can resolve together. Partial formulas, unsupported
-generated text, cross-file ranges and ambiguous reverse mappings remain
-unmapped. Service, revision and source fingerprint checks still reject stale
-work. Saving and navigating do not compile; the extra verification belongs to
-document compilation.
+ordered blocks in one file can resolve together. Partial formulas, partial
+generated references, unsupported generated text, cross-file ranges and ambiguous
+reverse mappings remain unmapped. Service, revision and source fingerprint checks
+still reject stale work. Saving and navigating do not compile; the extra
+verification belongs to document compilation.
 
 == Managed installation
 
