@@ -251,6 +251,9 @@ class ReaderState:
     def source(self, revision, fragments):
         return self.navigation.source(revision, fragments)
 
+    def source_text(self, revision, fragments):
+        return self.navigation.source_text(revision, fragments)
+
     def cursor(self, revision, path, line, column):
         return self.navigation.cursor(revision, path, line, column)
 

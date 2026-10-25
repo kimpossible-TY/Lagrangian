@@ -1,6 +1,7 @@
 """Compiler-carried ranges must agree for saved context and editor navigation."""
 
 import hashlib
+from http.server import ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -8,8 +9,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -17,6 +20,7 @@ from flow_reader.compiler.build import Project, compile_project
 from flow_reader.compiler.source_map import SourceCarriers
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
+from flow_reader.server.http import handler_for
 from flow_reader.services.source_mapping import edit_location
 
 
@@ -125,6 +129,51 @@ class CompiledSourceMappingTests(unittest.TestCase):
         return {"key": passage["key"], "exact": exact,
                 "prefix": passage["text"][:start][-64:],
                 "suffix": passage["text"][start + len(exact):][:64]}
+
+    def mathematics_fragment(self, state, source, marker):
+        for passage in state.bundle.passages:
+            for span in passage.get("source_ranges", []):
+                if span["kind"] != "math" or not source[span["start"]:span["end"]].startswith(marker):
+                    continue
+                exact = passage["text"][span["text_start"]:span["text_end"]]
+                return {
+                    "key": passage["key"],
+                    "exact": exact,
+                    "prefix": passage["text"][:span["text_start"]][-64:],
+                    "suffix": passage["text"][span["text_end"]:][:64],
+                }
+        self.fail(f"No mathematical source range starts with {marker}")
+
+    def test_complete_mathematics_exports_verified_typst_for_copying(self):
+        source = ('Before $alpha^2 + beta$ after.\n\n'
+                  'A labeled formula $x + y$ <named-equation>\n\n'
+                  'Ordinary prose stays prose.')
+        state = self.state(source)
+        formula = self.mathematics_fragment(state, source, "$alpha^2 + beta$")
+        result = state.source_text(state.revision, [formula])
+        self.assertEqual(result["status"], "located")
+        self.assertEqual(result["text"], "$alpha^2 + beta$")
+        labeled = self.mathematics_fragment(state, source, "$x + y$")
+        self.assertEqual(state.source_text(state.revision, [labeled])["text"], "$x + y$")
+        partial = {**formula, "exact": formula["exact"][:-1],
+                   "suffix": formula["exact"][-1] + formula["suffix"]}
+        self.assertEqual(state.source_text(state.revision, [partial])["status"], "unmapped")
+        prose = self.fragment(state, "Ordinary prose")
+        self.assertEqual(state.source_text(state.revision, [prose])["status"], "unmapped")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(state))
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            payload = json.dumps({"revision": state.revision, "fragments": [formula]}).encode()
+            request = Request(f"http://127.0.0.1:{server.server_port}/api/source-text", payload,
+                              {"Content-Type": "application/json"})
+            with urlopen(request) as response:
+                self.assertEqual(json.load(response)["text"], "$alpha^2 + beta$")
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
 
     def test_callout_title_and_unwrapped_body_map_only_to_navigation_container(self):
         source = ('#import "@local/math-blocks:0.2.0": note\n'

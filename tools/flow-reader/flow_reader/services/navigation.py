@@ -1,6 +1,6 @@
 """Bidirectional saved-source navigation against the accepted document snapshot."""
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
-from flow_reader.services.source_mapping import source_location, cursor_location
+from flow_reader.services.source_mapping import source_location, source_excerpt, cursor_location
 
 
 class SavedSourceNavigation:
@@ -25,6 +25,9 @@ class SavedSourceNavigation:
 
     def source(self, revision, fragments):
         return self.resolve(revision, source_location, fragments)
+
+    def source_text(self, revision, fragments):
+        return self.resolve(revision, source_excerpt, fragments)
 
     def cursor(self, revision, path, line, column):
         return self.resolve(revision, cursor_location, path, line, column)

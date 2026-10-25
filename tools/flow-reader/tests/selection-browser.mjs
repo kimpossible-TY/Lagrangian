@@ -26,13 +26,39 @@ const check = (name, result) => {
 };
 
 async function verify(browser, viewport) {
-  const page = await browser.newPage({ viewport, locale: "ko-KR" });
+  // Request interception does not see Service Worker fetches. This fixture
+  // exercises selection actions against controlled failures, so block the
+  // offline worker; offline delivery has its own fixtures.
+  const context = await browser.newContext({
+    viewport,
+    locale: "ko-KR",
+    serviceWorkers: "block",
+  });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    window.__copied = null;
+    const clipboard = {
+      writeText: async (text) => {
+        window.__copied = text;
+      },
+    };
+    for (const target of [navigator, Navigator.prototype]) {
+      try {
+        Object.defineProperty(target, "clipboard", { configurable: true, value: clipboard });
+        break;
+      } catch {
+        /* The other prototype may accept the stub. */
+      }
+    }
+  });
   const errors = [];
   let highlights = 0;
   let codexSaves = 0;
+  let sourceTexts = 0;
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("request", (request) => {
     if (request.url().endsWith("/api/highlight")) highlights++;
+    if (request.url().endsWith("/api/source-text")) sourceTexts++;
     if (request.method() === "POST" && request.url().endsWith("/api/focus")) codexSaves++;
   });
   const ready = () =>
@@ -74,6 +100,41 @@ async function verify(browser, viewport) {
     await page.waitForTimeout(100);
   };
   const click = (id) => page.locator(id).evaluate((node) => node.click());
+  const copyReady = () =>
+    page.waitForFunction(() => {
+      const button = document.querySelector("#reader-copy");
+      return button && !button.hidden && !button.disabled;
+    });
+  const selectMathGlyph = (marker = null) =>
+    page.evaluate(async (marker) => {
+      const { logicalTextIndex, rangesFor } = await import("/rendering/math/identity.js");
+      const block = marker
+        ? [...document.querySelectorAll("#reader-document [data-reader-key]")].find((node) =>
+            logicalTextIndex(node).text.includes(marker),
+          )
+        : document.querySelector("#reader-document .flow-equation");
+      const math = block?.querySelector(".flow-math-view");
+      if (!math) throw new Error(`Missing mathematics for ${marker ?? "display"}`);
+      block.scrollIntoView();
+      const index = logicalTextIndex(math);
+      const ranges = rangesFor(index, 0, 1);
+      const range = document.createRange();
+      range.setStart(ranges[0].startContainer, ranges[0].startOffset);
+      range.setEnd(ranges.at(-1).endContainer, ranges.at(-1).endOffset);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      return index.text;
+    }, marker);
+  const nativeCopy = () =>
+    page.evaluate(() => {
+      const data = new DataTransfer();
+      document
+        .querySelector("#reader-document")
+        .dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }));
+      return data.getData("text/plain");
+    });
+  const copied = () => page.waitForFunction(() => window.__copied !== null);
   const strikeCount = () => page.locator(".reader-review-marks span").count();
   const accepted = async (previous) => {
     const deadline = Date.now() + 15000;
@@ -98,6 +159,111 @@ async function verify(browser, viewport) {
         toolbar.x + toolbar.width <= viewport.width + 1 &&
         toolbar.y + toolbar.height <= viewport.height,
     );
+
+    await page.waitForFunction(
+      () => document.querySelector(".flow-equation .flow-math-view"),
+    );
+    const firstSourceRequests = sourceTexts;
+    await selectMathGlyph();
+    await page.waitForTimeout(400);
+    await copyReady();
+    const copyBox = await page.locator("#reader-copy").boundingBox();
+    check(
+      "Copy offers a named 44px action target",
+      copyBox.width >= 44 &&
+        copyBox.height >= 44 &&
+        (await page.locator("#reader-copy span").textContent()) === "복사",
+    );
+    await click("#reader-copy");
+    await copied();
+    check(
+      "Copy expands a partial formula to its verified Typst source",
+      (await page.evaluate(() => window.__copied)) === "$ alpha^2 + beta + 1 $" &&
+        sourceTexts === firstSourceRequests + 1,
+    );
+
+    await selectMathGlyph();
+    await page.waitForTimeout(400);
+    await copyReady();
+    await page.evaluate(() => {
+      window.__copied = null;
+    });
+    await click("#reader-copy");
+    await copied();
+    check(
+      "A repeated selection reuses the verified excerpt",
+      sourceTexts === firstSourceRequests + 1 &&
+        (await page.evaluate(() => window.__copied)) === "$ alpha^2 + beta + 1 $",
+    );
+
+    await page.evaluate(async () => {
+      const { logicalTextIndex, rangesFor } = await import("/rendering/math/identity.js");
+      const block = [...document.querySelectorAll("#reader-document [data-reader-key]")].find(
+        (node) => logicalTextIndex(node).text.includes("Complete mathematics"),
+      );
+      const index = logicalTextIndex(block);
+      const ranges = rangesFor(index, 0, index.text.length);
+      const range = document.createRange();
+      range.setStart(ranges[0].startContainer, ranges[0].startOffset);
+      range.setEnd(ranges.at(-1).endContainer, ranges.at(-1).endOffset);
+      block.scrollIntoView();
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      return index.text;
+    });
+    await page.waitForTimeout(400);
+    await copyReady();
+    const nativeMixed = await nativeCopy();
+    check(
+      "Native copy keeps prose and replaces the complete formula with Typst",
+      nativeMixed.includes("Complete mathematics") &&
+        nativeMixed.includes("$alpha^2 + beta$") &&
+        nativeMixed.includes("remains selectable") &&
+        !nativeMixed.includes("𝛼"),
+    );
+
+    await page.waitForFunction(
+      () => document.querySelector(".flow-equation .flow-math-view"),
+    );
+    await page.evaluate(() => {
+      window.__copied = null;
+      document
+        .querySelector("#reader-document")
+        .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    });
+    await selectMathGlyph();
+    await page.waitForTimeout(700);
+    check(
+      "A touch selection settles on the complete expression",
+      await page.evaluate(() => {
+        const text = getSelection().toString();
+        return text.includes("\u{1D6FD}") && text.includes("1");
+      }),
+    );
+
+    await page.evaluate(() => {
+      window.__copied = null;
+    });
+    await selectMathGlyph("\u{1D6FE}");
+    await page.waitForTimeout(400);
+    await copyReady();
+    await click("#reader-copy");
+    await copied();
+    await page.waitForFunction(() =>
+      document.querySelector("#reader-highlight-message").textContent.includes("화면에 표시된 글자"),
+    );
+    check(
+      "An unverified expression falls back to displayed text with a notice",
+      !(await page.evaluate(() => window.__copied)).startsWith("$") &&
+        (await page.evaluate(() => window.__copied)).includes("\u{1D6FE}") &&
+        (await page.locator("#reader-highlight-message").textContent()).includes(
+          "화면에 표시된 글자",
+        ),
+    );
+    await click("#reader-selection-cancel");
+
+    await select("Trailing paragraph 7");
     await page.locator("#reader-strike").click();
     await page.waitForFunction(() => document.querySelector(".reader-review-marks span"));
     check(
@@ -433,7 +599,7 @@ async function verify(browser, viewport) {
     assert.deepEqual(errors, []);
     console.log(`PASS ${viewport.width}×${viewport.height}`);
   } finally {
-    await page.close();
+    await context.close();
   }
 }
 

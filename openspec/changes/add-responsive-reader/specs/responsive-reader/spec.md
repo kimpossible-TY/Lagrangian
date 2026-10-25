@@ -649,13 +649,35 @@ The HTML Reader SHALL replace the former local quotation library with Save for C
 - **AND** existing localStorage quotations remain untouched and are never automatically sent to Codex
 - **AND** source Highlight and browser-local Red strike remain separate explicit actions
 
+### Requirement: Copyable mathematics
+The HTML Reader SHALL let touch and pointer users select complete mathematical expressions and copy them as Typst source, without requiring zooming or an equation view. Copy SHALL preserve displayed prose, replace each complete formula with its compiler-verified `$...$` source, and never invent source for unverified or partial content.
+
+#### Scenario: Long-press inside a formula
+- **WHEN** a touch selection starts or ends inside a rendered mathematical expression
+- **THEN** the settled selection expands to the complete mathematical view at that boundary
+- **AND** equation numbers, labels and adjacent prose stay outside the selected expression
+- **AND** prose selections and selections spanning several formulas remain otherwise intact
+
+#### Scenario: Copy a formula or mixed passage
+- **WHEN** the user copies a selection containing at least one complete formula
+- **THEN** each complete formula is replaced by its compiler-verified Typst source including delimiters
+- **AND** surrounding prose keeps its displayed canonical text and separate blocks are joined with one newline
+- **AND** the native copy event and the explicit Copy action produce the same result
+- **AND** a formula selection that collapsed before the action still copies the retained range
+
+#### Scenario: Unverified or pending source
+- **WHEN** selected mathematics has no unique accepted source mapping, is partial, or its verified excerpt has not arrived
+- **THEN** the explicit action waits briefly or is disabled while the excerpt is pending
+- **AND** a selection that cannot be verified copies its displayed text with an explicit notice rather than a guessed formula
+- **AND** an obsolete response or disabled codex/source action cannot alter the copied selection
+
 ### Requirement: Source highlights and temporary review strikes
 The Reader SHALL provide Highlight and Red strike alongside Save for Codex, with keyboard-accessible controls that preserve native text
 selection and fit the visible safe area.
 
 #### Scenario: Floating selection actions
 - **WHEN** a passage is selected on a narrow reading screen
-- **THEN** Highlight, Save for Codex and Red strike appear with visible icons and labels in a floating capsule with at least 44px action targets and a named close control
+- **THEN** Copy, Highlight, Save for Codex and Red strike appear with visible icons and labels in a floating capsule with at least 44px action targets and a named close control
 - **AND** undo and clear occupy a separate review capsule while red strikes exist, including after selection ends
 - **AND** controls remain inside the visual viewport with safe-area spacing after wrapping or resizing
 - **AND** dark appearance, reduced motion/transparency, increased contrast and forced colors retain readable controls and keyboard focus

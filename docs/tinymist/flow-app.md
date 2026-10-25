@@ -58,11 +58,13 @@ When using Highlight offline, the Reader first stores an explicit request on the
 
 ## Select and copy text
 
-Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device’s Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Highlight, Save for Codex, and Red strike.
+Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device’s Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Copy, Highlight, Save for Codex, and Red strike.
+
+If a selection starts or ends inside a formula, it expands to the complete expression after the selection settles. Formula numbering, attached labels and nearby prose stay outside that expression. **Copy** (복사) writes complete formulas as Typst source including `$...$`, keeps surrounding prose as displayed, and separates copied blocks with one newline. If a formula has no verified source, Copy uses the displayed text and reports that the Typst source could not be confirmed.
 
 ![Reading demo with a selected sentence and the Highlight, Save for Codex, and Red strike actions](images/mobile-selection.png)
 
-**Result:** The selection stays on the rendered revision while you use it. Preview updates wait during an active text selection on desktop and touch devices; dismiss the selection to apply pending edits. Copying covers the currently populated preview pages, rather than an arbitrary range across the whole document.
+**Result:** The selection stays on the rendered revision while you use it. Preview updates wait during an active text selection on desktop and touch devices; dismiss the selection to apply pending edits. On a touch device, wait for the formula selection handles to settle before copying so the whole expression is included.
 
 Dragging or long-pressing does not save a Codex source location. Use **Save for Codex** to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
 

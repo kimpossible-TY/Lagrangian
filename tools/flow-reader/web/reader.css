@@ -1689,6 +1689,7 @@ math svg {
   min-width: 72px;
   min-height: 58px;
 }
+#reader-copy svg,
 #reader-source-highlight svg {
   color: var(--accent);
 }
@@ -1739,6 +1740,7 @@ math svg {
     backdrop-filter: none;
   }
   #reader-strike,
+  #reader-copy svg,
   #reader-source-highlight svg,
   #reader-selection #reader-selection-cancel {
     color: ButtonText;

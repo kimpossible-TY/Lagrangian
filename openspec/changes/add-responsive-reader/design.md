@@ -58,6 +58,23 @@ fallbacks and system forced colors. Press feedback uses native activation and
 does not deform under reduced motion. Measure after applying the visual
 viewport's width so wrapping never pushes controls below its safe bottom edge.
 
+Copy is a selection action with one policy owner in the HTML selection feature.
+Semantic capture keeps prose in displayed order while complete mathematical
+views become formula segments carrying their captured block endpoints. Touch
+release, settled selection changes and the copy action expand only boundaries
+that fall inside a mathematical view, so equation numbers, attached labels and
+adjacent prose stay outside a formula. The server exposes a read-only verified
+excerpt from the accepted source mapping for exactly one complete mathematical
+segment; it never compiles, edits or guesses during copy. The page prefetches
+those excerpts after capture and caches them by revision, block and range.
+Explicit Copy expands the captured range at activation, preserves prose, joins
+separate blocks with one newline, and writes `$...$` Typst source for every
+verified formula. The native copy event applies the same composition to the
+current range. Pending excerpts briefly disable the explicit action, while an
+unverified or unmapped formula falls back to its displayed text with a Korean
+notice. Desktop readers keep ordinary copy behavior until copy-time expansion;
+they do not snap a live selection.
+
 ## Return from an internal reference
 
 The HTML navigation adapter captures `reading-position`'s semantic anchor and

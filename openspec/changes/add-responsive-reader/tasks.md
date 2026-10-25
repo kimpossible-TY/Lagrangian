@@ -195,6 +195,9 @@ other services, and the mobile default are preserved.
 - [x] Verify source edit rejection/success and browser selection, reflow, reload and review controls; install and verify actual Reader delivery.
 - [x] Replace the selection card with compact floating action/review capsules, retaining labels, native selection, pending feedback and accessible material fallbacks.
 - [x] Verify capsule layout and actions in narrow light/dark browsers, install the clean Reader commit, and verify actual HTTPS delivery.
+- [x] Add Copy with compiler-verified Typst excerpts for complete formulas, displayed prose for mixed passages, and explicit pending/unmapped fallbacks without compiling during the action.
+- [x] Snap touch long-press boundaries to complete mathematical views and retain the captured range through native selection collapse for both the explicit action and the native copy event.
+- [x] Verify source-excerpt mapping, Node copy/snap policy and Chromium/WebKit copy, pending, unmapped and 44px target behavior; physical iPhone and VoiceOver checks remain separate coverage.
 
 ## Codex context instead of local quotations
 
