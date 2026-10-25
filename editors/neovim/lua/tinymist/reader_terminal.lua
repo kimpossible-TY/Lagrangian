@@ -21,20 +21,27 @@ local function supported_tui()
   return uis[1].chan
 end
 
+-- Feature set of a level-61 DA1 reply, as emitted by Windows consoles.
+local function windows_features(attributes)
+  if not attributes then return nil end
+  local values = vim.split(attributes, ';', { plain = true })
+  if values[1] ~= '61' then return nil end
+  local features = {}
+  for index = 2, #values do
+    local feature = tonumber(values[index])
+    if not feature then return nil end
+    features[feature] = true
+  end
+  return features
+end
+
 local function windows_sixel(attributes)
   -- Windows Terminal's default SIXEL grid is virtual 10x20, independent of
   -- physical font pixels and SSH ioctl dimensions. Do not assume other SIXEL
   -- terminals use that grid. Compare required features, allowing reordered or
   -- additional capabilities such as the optional clipboard feature 52.
-  if not attributes then return false end
-  local values = vim.split(attributes, ';', { plain = true })
-  if values[1] ~= '61' then return false end
-  local features = {}
-  for index = 2, #values do
-    local feature = tonumber(values[index])
-    if not feature then return false end
-    features[feature] = true
-  end
+  local features = windows_features(attributes)
+  if not features then return false end
   for _, feature in ipairs { 4, 6, 7, 14, 21, 22, 23, 24, 28, 32, 42 } do
     if not features[feature] then return false end
   end
@@ -104,10 +111,14 @@ function Terminal.measure(protocol)
   end
   if not ok then return nil, 'Flow Reader terminal query failed: ' .. tostring(result) end
   if not result then
+    local features = windows_features(attributes)
     return nil, 'Flow Reader terminal query timed out or reported unsupported cell geometry (' .. attempts
       .. ' attempts, up to 4s). Received DA1=' .. (attributes or 'none')
       .. ', Kitty=' .. (kitty and vim.inspect(kitty:sub(1, 100)) or 'none')
       .. ', cell=' .. (logical and (logical[1] .. 'x' .. logical[2]) or 'none') .. '.'
+      .. ((features and not features[4])
+        and ' This Windows console did not advertise SIXEL (DA1 feature 4); use Windows Terminal 1.22 or newer'
+          .. ' rather than an older release or the legacy console host.' or '')
   end
   if result.protocol == 'sixel' then windows_ui = ui end
   return result
