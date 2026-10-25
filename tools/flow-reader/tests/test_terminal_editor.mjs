@@ -135,7 +135,7 @@ test("editor frame acknowledgment bounds capture and resize generations stay ord
     await until(() => f.messages.some((m) => m.type === "frame"));
     const first = f.messages.find((m) => m.type === "frame");
     assert.equal(first.generation, 1);
-    assert.ok(first.image.startsWith("\x1b[H\x1b_G"));
+    assert.ok(first.image.startsWith("\x1b[?2026h\x1b[H\x1b_G"));
     await delay(140);
     assert.equal(f.operations.filter(([op]) => op === "capture").length, 1);
     f.send(layout(2, { columns: 50 }));

@@ -3,6 +3,15 @@ import { StringDecoder } from "node:string_decoder";
 
 const ESC = "\x1b";
 
+// One owner for the terminal synchronized-update policy shared by native and
+// editor transports. Unknown terminals ignore DECSET 2026.
+export const synchronizedStart = `${ESC}[?2026h`;
+export const synchronizedFinish = `${ESC}[?2026l`;
+
+export function synchronizedOutput(sequence) {
+  return `${synchronizedStart}${sequence}${synchronizedFinish}`;
+}
+
 export function graphicsProtocol(environment = process.env) {
   if (environment.WT_SESSION || environment.TERM_PROGRAM === "Windows_Terminal") return "sixel";
   // Current iTerm2 supports Kitty graphics without OSC file-display prompts.

@@ -1,5 +1,5 @@
 // Versioned, bounded editor job pipes. The editor owns positioning and TUI modes.
-import { TerminalInput } from "./protocol.mjs";
+import { synchronizedOutput, TerminalInput } from "./protocol.mjs";
 
 export function editorLayout(message) {
   if (message?.type !== "resize" || typeof message.visible !== "boolean")
@@ -132,7 +132,8 @@ export class EditorTransport {
       columns: frame.size.columns,
       rows: frame.size.imageRows,
       status: frame.status,
-      image: frame.image,
+      sync: Boolean(frame.sync),
+      image: frame.image && frame.sync ? synchronizedOutput(frame.image) : frame.image,
     };
     const line = JSON.stringify(message) + "\n";
     // One outstanding frame bounds memory and network traffic even on a slow TUI.

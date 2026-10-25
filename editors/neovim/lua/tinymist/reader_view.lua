@@ -69,10 +69,23 @@ function View:paint()
   self.painting = true
   vim.cmd.redraw()
   self.painting = false
+  local image, begin_sync, end_sync = self.frame, '', ''
+  local position = esc .. '[H'
+  if self.frame_sync then
+    local prefix = esc .. '[?2026h' .. position
+    begin_sync, end_sync = esc .. '[?2026h', esc .. '[?2026l'
+    if image:sub(1, #prefix) ~= prefix or image:sub(-#end_sync) ~= end_sync then
+      error('Invalid synchronized Reader image')
+    end
+    image = image:sub(#prefix + 1, -#end_sync - 1)
+  else
+    if image:sub(1, #position) ~= position then error('Invalid Reader image position') end
+    image = image:sub(#position + 1)
+  end
   local sixel = self.measurement.protocol == 'sixel'
   vim.api.nvim_ui_send(esc .. '7' .. esc .. '[' .. self.rect.top .. ';' .. self.rect.left .. 'H'
     .. (sixel and esc .. '[?80l' or '')
-    .. self.frame:sub(4) -- Remove only the encoder's initial CSI H.
+    .. begin_sync .. image .. end_sync
     .. esc .. '8')
   self.painted = self.rect
   self.repaint = false
@@ -149,8 +162,8 @@ function View:receive(message)
       and message.columns == self.rect.columns and message.rows == self.rect.rows - 1 then
       local image = type(message.image) == 'string' and message.image or nil
       if image then
-        if image:sub(1, 3) ~= esc .. '[H' then error('Invalid Reader image position') end
         self.frame = image
+        self.frame_sync = message.sync == true
         self.loading_since = nil
       end
       self:status(message.status)
