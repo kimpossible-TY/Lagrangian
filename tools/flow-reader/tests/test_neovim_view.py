@@ -561,7 +561,22 @@ class NeovimViewTests(unittest.TestCase):
         result = e.lua_rpc("{require('tinymist.reader').start()}")
         self.assertEqual(result[0], False)
         self.assertIn("DA1=61;6;7;14;21;22;23;24;28;32;42", result[1])
+        self.assertIn("did not advertise SIXEL", result[1])
         self.assertEqual(len(e.lua_rpc("vim.api.nvim_list_wins()")), 1)
+
+    def test_pre_sixel_windows_terminal_reports_upgrade_hint(self):
+        e = self.editor
+        e.attributes = b"\x1b[?61;6;7;21;22;23;24;28;32;42c"
+        result = e.lua_rpc("{require('tinymist.reader').start()}")
+        self.assertEqual(result[0], False)
+        self.assertIn("Windows Terminal 1.22 or newer", result[1])
+
+    def test_unknown_profile_has_no_windows_hint(self):
+        e = self.editor
+        e.attributes = b"\x1b[?62;22c"
+        result = e.lua_rpc("{require('tinymist.reader').start()}")
+        self.assertEqual(result[0], False)
+        self.assertNotIn("SIXEL", result[1])
 
     def test_explicit_iterm_cell_response_does_not_need_da1(self):
         e = self.editor
