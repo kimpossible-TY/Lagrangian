@@ -186,15 +186,18 @@ impl tinymist_preview::CompileView for PreviewCompileView {
             }
             let source = world.source(id).ok()?;
             let hash = format!("{:032x}", tinymist_std::hash::hash128(&source.text()));
-            if hash != edit.source_hash || edit.range.end > source.text().len() {
+            if hash != edit.source_hash
+                || edit
+                    .changed_ranges()
+                    .iter()
+                    .any(|range| range.end > source.text().len())
+            {
                 return None;
             }
             let mut edits = SourceEdits::default();
-            collect_edit_spans(
-                LinkedNode::new(source.root()),
-                &edit.range,
-                &mut edits.spans,
-            );
+            for range in edit.changed_ranges() {
+                collect_edit_spans(LinkedNode::new(source.root()), range, &mut edits.spans);
+            }
             let Some(TypstDocument::Paged(document)) = self.doc() else {
                 return None;
             };

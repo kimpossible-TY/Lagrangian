@@ -23,6 +23,7 @@ def document(step):
                f'A fundamental solution is also called a Green function (version {min(step, 6)}).\n'
                ']\n\n') if step >= 5 else ''
     return ('#import "@local/math-blocks:0.2.0": note\n'
+            + ('#import "figures.typ": marker\n' if step >= 1 else '') +
             '#set heading(numbering: "1")\n'
             '= First chapter <first>\n\n'
             'Return to #link(<last>)[the last chapter].\n\n' +
@@ -46,6 +47,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="reader-last-change-") as temporary:
         work = Path(temporary)
         entry = work / "main.typ"
+        (work / "figures.typ").write_text('#let marker = 1\n')
         entry.write_text(document(0))
         project = Project(work, Path("main.typ"), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))

@@ -203,6 +203,12 @@ Readers and Neovim SHALL share one project/entry source edit owned by the common
 - **THEN** HTML navigation metadata updates without compiling or replacing the accepted document
 - **AND** active selections, recent gestures and explicit named destinations retain their existing navigation priority
 
+#### Scenario: Import and distant body changes in the same save
+- **WHEN** a saved source edit adds an import and changes a distant body passage or figure
+- **THEN** common history retains the separate changed hunks and both readers exclude unchanged content between them from source-edit mapping
+- **AND** HTML skips the unmapped import and navigates to the mapped body change instead of its unchanged section heading
+- **AND** legacy records with only one range remain readable, while trivia-only saves rebase precise ranges without advancing the edit sequence
+
 #### Scenario: Wrong, ambiguous or stale history
 - **WHEN** a record belongs to another project, profiles are ambiguous, source bytes differ, or the saved range is invalid
 - **THEN** no guessed shared position is opened

@@ -321,6 +321,41 @@ class SharedSourceHistoryIntegrationTests(unittest.TestCase):
         self.assertEqual(state.revision, previous_revision)
         self.assertNotEqual(state.shared_edit.read()['token'], edit['token'])
 
+    def test_actual_import_and_body_save_navigates_past_unchanged_heading(self):
+        packages = os.environ.get('FLOW_READER_PACKAGES')
+        compiler = os.environ.get('FLOW_READER_TYPST') or shutil.which('typst')
+        if not packages or not compiler:
+            self.skipTest('Set FLOW_READER_PACKAGES and optionally FLOW_READER_TYPST')
+        self.project = replace(self.project, packages=Path(packages), compiler=compiler)
+        (self.root / 'figures.typ').write_text('#let before = 0\n#let diagram() = rect()\n')
+        source = ('#import "figures.typ": before\n\n== Unchanged heading\n\n'
+                  'Unchanged introduction.\n\nOld body.\n\nUnchanged ending.')
+        self.part.write_text(source)
+        state = self.state('separate-hunks-output')
+        state.compile()
+        self.assertTrue(state.report['contentGatePassed'], state.report)
+        self.part.write_text(source.replace(': before', ': before, diagram').replace('Old body', '새로운 body'))
+        state.compile()
+        self.assertTrue(state.report['contentGatePassed'], state.report)
+        edit = state.shared_edit.read()
+        self.assertEqual(len(edit['ranges']), 2, edit)
+        hint = state.bundle.manifest['lastChange']
+        self.assertIsNotNone(hint, edit)
+        passage = next(p for p in state.bundle.passages if p['id'] == hint['target'])
+        self.assertEqual(passage['text'], '새로운 body.')
+        token = hint['token']
+        self.part.write_text('// 앞 주석\n' + self.part.read_text().replace('Unchanged introduction.',
+                                                                 'Unchanged introduction.\n// 중간 주석'))
+        state.compile()
+        self.assertTrue(state.report['contentGatePassed'], state.report)
+        self.assertEqual(state.bundle.manifest['lastChange']['token'], token)
+        restarted = self.state('restarted-hunks-output')
+        restarted.compile()
+        self.assertTrue(restarted.report['contentGatePassed'], restarted.report)
+        hint = restarted.bundle.manifest['lastChange']
+        self.assertEqual(hint['token'], token)
+        self.assertEqual(next(p['text'] for p in restarted.bundle.passages if p['id'] == hint['target']), '새로운 body.')
+
     def test_actual_html_only_note_insertion_body_and_title_edits_publish_container(self):
         packages = os.environ.get('FLOW_READER_PACKAGES')
         compiler = os.environ.get('FLOW_READER_TYPST') or shutil.which('typst')
