@@ -213,3 +213,32 @@
 - Signed-engine history 12, native source-navigation 3, compiler source-mapping 15 and WebKit change-navigation 16 checks pass. The final Reader suite runs 217 with one optional companion-source skip. Physical-device interaction is not repeated.
 - Both HTTPS browsers restore the real shared edit in section 55 without page errors or horizontal overflow. WebKit displays the 324-page PDF in light/dark themes. Source sequence 129, all 46 tracked source snapshots, both palette positions and the exact saved 35-character context are preserved; context is source-verified and usable without reselection.
 - All 540 immutable runtime files and all 54 first-party HTTP asset routes match. Loopback/HTTPS deliver the same accepted document/revision. Profiles, signing certificate and Reader service settings remain intact; PDE is running and Ewald remains stopped. The normal app backup plus original Reader launcher/configuration support paired recovery. Receipts and screenshots remain in `dist/source-history-rollout/`.
+
+## 18. Change-driven frames, metrics and synchronized output
+
+- [x] 18.1 Replace fixed screenshot polling with CDP screencast change signals; acknowledge every frame, ignore screenshot echoes, coalesce pending changes and reinterpret `--fps` as the minimum capture interval.
+- [x] 18.2 Add opt-in JSON Lines frame metrics for screenshot, encoding, presentation, bytes and unchanged captures; reject interactive stderr and keep stdout and the terminal image stream untouched.
+- [x] 18.3 Wrap Kitty/iTerm2 image frames in `DECSET 2026` from one protocol owner, preserve the wrapper in the Neovim view, and leave SIXEL unwrapped pending physical verification.
+- [x] 18.4 Cover signal coalescing, forced visible capture, hidden silence, stale-generation discard, synchronized wrapping, SIXEL non-wrapping and metrics in Node, PTY and Neovim tests.
+- [x] 18.5 Update the canonical terminal guide and this change; run scoped Node/PTY/Neovim and real Chromium integration checks and record measurements.
+
+### Frame pipeline verification, 2026-10-25
+
+Measured against the running PDE Reader fixture (720x414, Kitty, headless Chrome) with the same harness before and after the change. Each latency trial changed the page after an 8 s idle period; values are milliseconds.
+
+| Observation | Fixed 200 ms polling | Screencast change signals |
+| --- | --- | --- |
+| Screenshots during 8 s idle | 40 | 0 |
+| Process-tree CPU while idle | 12.5–15.5% | 0.9–1.6% |
+| Host process CPU while idle | 1.7–2.3% | 0.1–0.4% |
+| Change latency, median | 94–97 | 42–49 |
+| Change latency, maximum | 103–107 | 56–105 |
+| First change after 20–30 s idle | n/a (continuous polling) | 40–105 |
+| Transmitted frame bytes | 42,878 | 42,878 |
+| Continuous scroll, tree CPU (`--fps 5`) | 27.6% | 38.6% |
+| Continuous scroll, latency median | 111 | 115 |
+
+- A 1x1 screencast signal let Chromium discard the full-size capture surface, so the first screenshot after idle took 0.5–2 s. A full-viewport, quality-1 signal keeps that surface warm; the signal frames are hashed, discarded and never reach the terminal. The extra browser-side JPEG work explains the higher continuous-scroll CPU; idle cost is still an order of magnitude below polling.
+- Real Chromium/Neovim integration: 29 checks passed, including same-connection SIXEL frames, divider resize, source navigation and verified highlights. Node terminal suites: 36 passed. POSIX PTY lifecycle: 9 passed. Neovim view suite: 33 passed, including the new synchronized-update nesting check.
+- `--metrics` output observed sub-millisecond Kitty encoding (0.03–0.15 ms) and 21–99 ms screenshots; one unchanged capture at startup is skipped and counted. Measurements are local observations on this Mac, not a transport benchmark.
+- SIXEL synchronized output, physical Windows Terminal rendering and Devtunnel forwarding remain unverified. Metrics and change-driven capture do not alter SIXEL pixels or its palette.
