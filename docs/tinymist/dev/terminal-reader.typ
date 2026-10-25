@@ -35,9 +35,22 @@ terminal directly; standalone native hosts can select the protocol explicitly.
 SIXEL derives its palette from each browser screenshot, with up to 216 colors
 and 40 grayscale levels for text. The shared HTML theme still owns highlight
 colors; the terminal conversion keeps dominant colors close to the screenshot.
-Its default capture rate is 2 frames per second; `--fps 1` reduces traffic on
-slower links.
 Image output, scrolling and selections still use the same real HTML document.
+
+Frames are captured when the browser document changes, not on a fixed timer.
+`--fps` is the maximum capture rate (the minimum interval between captures): 2
+for SIXEL and 5 otherwise by default. `--fps 1` further reduces traffic on
+slower links. Changes that arrive while a frame is still being encoded or
+presented are coalesced into one later capture. Resizing, layout changes,
+visibility changes, statusline changes and the first frame always request a
+capture.
+
+Kitty and iTerm2 image output is wrapped in terminal synchronized-update mode
+(`DECSET 2026`); terminals that do not implement it ignore the markers. A
+supporting terminal presents one complete image instead of a partially drawn
+one. The internal Neovim view keeps that wrapper around the positioned image.
+SIXEL output remains unwrapped until its synchronized-update behavior is
+verified in a physical Windows Terminal.
 
 With explicit `open = "native"`, iTerm2 on macOS is the automatic native pane launcher. The renderer selects
 Kitty PNG graphics when `TERM_PROGRAM` is `iTerm.app`; this requires an iTerm2
@@ -233,6 +246,11 @@ the Flow Reader APIs required by this host.
 `--snapshot /absolute/path/check.png` captures a real Reader image without a
 terminal. This is useful for checking document delivery and browser rendering;
 it does not validate a physical terminal's image display or mouse handling.
+`--metrics /absolute/path/frames.jsonl` (or `FLOW_READER_METRICS`) appends one
+JSON object per capture with screenshot, encoding and presentation times,
+transmitted bytes and the count of unchanged screenshots skipped. Metrics are
+off by default and do not change capture behavior. An interactive `stderr` is
+rejected because JSON Lines would corrupt the Reader image; use a file path.
 `--cell-width` and `--cell-height` override automatic terminal cell-size queries
 when a terminal reports incorrect dimensions. iTerm2's cell report supplies
 logical points, which map to browser CSS pixels even on a Retina display. Its

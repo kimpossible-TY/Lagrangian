@@ -215,3 +215,49 @@ Readers and Neovim SHALL share one project/entry source edit owned by the common
 - **WHEN** the Reader closes or startup is interrupted while an owned source-history helper is running
 - **THEN** it terminates and reaps that helper within a bounded shutdown period
 - **AND** a disposed client cannot start another observation or mutate the record later
+
+### Requirement: Frame capture follows browser changes
+The terminal host SHALL capture frames when the browser document changes instead of polling a fixed interval, SHALL coalesce changes that arrive while a frame is pending, and SHALL still capture the first frame and changes caused by resize, layout, visibility or statusline updates.
+
+#### Scenario: Idle Reader
+- **WHEN** the browser document does not change
+- **THEN** the host takes no screenshots after the initial frame
+- **AND** an interactive terminal receives no periodic image traffic
+
+#### Scenario: Changes during a pending frame
+- **WHEN** several browser changes occur while a screenshot, encoding or presentation is still in progress
+- **THEN** the host acknowledges every browser signal and captures the latest state once the pending frame completes
+- **AND** `--fps` bounds the minimum interval between captures instead of adding a polling timer
+
+#### Scenario: Forced capture
+- **WHEN** the Reader window is resized, its layout generation changes, it becomes visible, or its statusline message changes
+- **THEN** a capture is requested even if browser pixels did not change
+- **AND** a frame from an obsolete layout generation is not presented
+
+### Requirement: Frame timing is opt-in and isolated
+The terminal host SHALL record per-frame screenshot, encoding and presentation timings, transmitted bytes and skipped unchanged frames only when metrics are enabled, and SHALL never write metrics into the native image stream.
+
+#### Scenario: Metrics enabled
+- **WHEN** `--metrics PATH` or `FLOW_READER_METRICS` names a file
+- **THEN** each capture appends one JSON Lines record with its timings, byte count and unchanged count
+- **AND** capture scheduling and image output are unchanged
+
+#### Scenario: Interactive stderr
+- **WHEN** metrics are configured for `stderr` while stderr is an interactive terminal
+- **THEN** startup rejects the destination instead of corrupting the Reader display
+
+### Requirement: Image frames are synchronized
+Kitty and iTerm2 image frames SHALL be wrapped in terminal synchronized-update mode by one protocol owner used by both the native and Neovim editor transports, while SIXEL output SHALL remain unwrapped until its synchronized behavior is verified.
+
+#### Scenario: Native Kitty frame
+- **WHEN** the native transport presents a Kitty or iTerm2 frame
+- **THEN** the image sequence is surrounded by `CSI ?2026h` and `CSI ?2026l`
+- **AND** the statusline write remains outside the image update
+
+#### Scenario: Neovim frame
+- **WHEN** the editor transport presents a frame with synchronized output enabled
+- **THEN** the editor receives the wrapped image and the internal view paints it without nesting another synchronized-update sequence around the editor redraw
+
+#### Scenario: SIXEL verification pending
+- **WHEN** the host presents SIXEL output
+- **THEN** the frame is not wrapped until a physical Windows Terminal check confirms the behavior

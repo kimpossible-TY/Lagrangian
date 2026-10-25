@@ -18,6 +18,12 @@ Use an optional Playwright Chromium runtime and a dedicated browser profile. Scr
 
 Use Kitty graphics by default on compatible terminals, including the verified iTerm2 3.7.4. Legacy iTerm2 inline images remain an explicit backend; their file-display confirmations are not appropriate for automatic live frames. Query iTerm2 logical cell points through ReportCellSize rather than its whole-window pixel response, or accept cell-size overrides. Keep browser and image geometry equal, discard obsolete frames on resize, and restore terminal modes on exit. A native iTerm2 split avoids tmux passthrough and Neovim terminal-emulator limitations. Process arguments are arrays; PowerShell is a shell, and the containing terminal must support the chosen image protocol.
 
+### Capture on browser changes, not a fixed timer
+
+Use Chromium's screencast frames as the change signal and keep `page.screenshot()` as the only source of displayed pixels. Request a full-viewport, lowest-quality JPEG screencast: a scaled-down screencast lets Chromium discard the full-size capture surface, so the first screenshot after an idle period can take seconds, while the full-viewport signal keeps that surface warm. Acknowledge every frame, hash its bytes to ignore the identical frame Chromium emits after the host's own screenshot, and coalesce signals while a frame is pending. `--fps` bounds capture frequency instead of driving a polling timer. Resize, layout, visibility, statusline changes and the first frame request a capture directly. This removes idle screenshots without weakening frame generations or stale-frame rejection.
+
+Frame timing is opt-in (`--metrics` or `FLOW_READER_METRICS`) and writes JSON Lines to a file or non-interactive stderr; it never shares the native image stream. Kitty and iTerm2 frames are wrapped in `DECSET 2026` by one protocol owner shared by the native and editor transports, and the Neovim view preserves that wrapper around its positioned paint. SIXEL output stays unwrapped until a physical terminal confirms its synchronized-update behavior.
+
 ### Preserve storage identity and lifecycle
 
 Connect to a configured stable Reader URL or start an owned Reader process at an explicit stable port. Never migrate to an arbitrary available port silently, because localStorage belongs to an origin. Use a dedicated persistent browser profile, never the user's normal Chrome profile. Editor shutdown and explicit stop terminate owned processes; connecting to an existing Reader does not stop it.
@@ -37,6 +43,7 @@ An optional CLI-configured Neovim server receives a verified edit only after exi
 ## Risks / Trade-offs
 
 - Frame encoding and transport can be expensive → cap redraw rate, avoid overlapping captures, and skip unchanged frames.
+- Full-viewport change signals keep the capture surface warm at the cost of discarded low-quality JPEG work on each change → coalesce signals, bound capture frequency, and keep the signal out of terminal output.
 - Mouse cell coordinates limit selection precision → use measured geometry and forward real selection gestures; retain browser toolbar and keyboard controls.
 - No compiler source map → report navigation coverage explicitly and test ambiguity, Unicode and stale snapshots.
 - Reader processes can race external edits → retain source freshness checks and use editor-owned final mutation.

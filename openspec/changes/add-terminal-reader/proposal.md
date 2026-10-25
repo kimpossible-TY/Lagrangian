@@ -19,6 +19,8 @@ Neovim users need to read and annotate the existing HTML Reader alongside their 
 
 - Share the paged engine's project-scoped saved source edit with HTML/terminal Readers and opt-in Neovim source restoration. Resolve one exact project/entry and validate saved source before navigation.
 - Move source-edit observation and persistence into the common Rust project service. HTML-only sessions use the same bounded source policy and serialized record transactions as paged previews, including failed compilations and concurrent processes.
+- Capture frames when the browser document changes instead of polling a fixed interval, coalescing changes and treating `--fps` as the maximum capture rate.
+- Add opt-in frame timing metrics and wrap Kitty/iTerm2 image frames in terminal synchronized-update mode, leaving SIXEL unwrapped until physical verification.
 
 ## Capabilities
 
