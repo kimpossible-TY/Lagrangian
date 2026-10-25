@@ -21,8 +21,18 @@ export function sourceSegments(index, start, end) {
   }
   return groups.map((group) => {
     const text = index.text.slice(group.start, group.end);
+    const prefix = index.text.slice(Math.max(0, group.start - 64), group.start).trim();
+    const suffix = index.text.slice(group.end, group.end + 64).trim();
     if (!group.math) return { text };
     const whole = logicalTextIndex(group.math).text;
-    return { text, math: true, complete: text.trim() === whole.trim() };
+    return {
+      text,
+      math: true,
+      complete: text.trim() === whole.trim(),
+      start: group.start,
+      end: group.end,
+      prefix,
+      suffix,
+    };
   });
 }

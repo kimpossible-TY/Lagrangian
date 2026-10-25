@@ -1,4 +1,4 @@
-import { MathIdentity, logicalTextIndex, selectedIntervals } from "./identity.js";
+import { MathIdentity } from "./identity.js";
 import {
   mathOverflow,
   prepareNativeDecorations,
@@ -62,8 +62,8 @@ function accessibleLinks(root) {
 }
 
 export class ResponsiveMath {
-  constructor(article, { preserve, changed, selectionActive }) {
-    Object.assign(this, { article, preserve, changed, selectionActive });
+  constructor(article, { preserve, changed, selectionActive, copyText = null }) {
+    Object.assign(this, { article, preserve, changed, selectionActive, copyText });
     this.records = new Set();
     this.generation = 0;
     this.work = new RenderScheduler({
@@ -451,30 +451,20 @@ export class ResponsiveMath {
   }
 
   copy(event) {
+    if (!event.clipboardData || !this.copyText) return;
     const selection = window.getSelection();
     if (
-      !event.clipboardData ||
       !selection?.rangeCount ||
       selection.isCollapsed ||
       !this.article.contains(selection.anchorNode) ||
       !this.article.contains(selection.focusNode)
     )
       return;
-    const range = selection.getRangeAt(0);
-    if (
-      ![...this.records].some(
-        (record) =>
-          record.view.isConnected && record.model.bound && range.intersectsNode(record.view),
-      )
-    )
-      return;
-    const index = logicalTextIndex(this.article, { includeNested: true, includeNotes: true });
-    const text = selectedIntervals(index, range)
-      .map(([start, end]) => index.text.slice(start, end))
-      .join("");
-    if (text) {
-      event.clipboardData.setData("text/plain", text);
-      event.preventDefault();
-    }
+    // The selection action owns formula snapping and verified Typst excerpts.
+    // A prose-only result leaves the browser's ordinary copy untouched.
+    const result = this.copyText(selection.getRangeAt(0).cloneRange());
+    if (!result?.math || !result.text) return;
+    event.clipboardData.setData("text/plain", result.text);
+    event.preventDefault();
   }
 }

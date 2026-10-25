@@ -5,8 +5,7 @@ const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets]";
 export const textIndex = logicalTextIndex;
 
 /** Resolve browser ranges to semantic blocks without exposing DOM state to shared policy. */
-export function selectedReaderText(article, manifest, selection) {
-  const range = selection.getRangeAt(0);
+export function selectedReaderText(article, manifest, range) {
   const fragments = [];
   for (const block of article.querySelectorAll("[data-reader-key]")) {
     if (block.closest(excluded) || !range.intersectsNode(block)) continue;

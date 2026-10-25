@@ -409,10 +409,20 @@ The reader supports native text selection, a heading outline, font size changes,
 width-aware equations, visible inline annotations and reading anchors.
 Updates wait for an active selection or any reader dialog to close.
 
-Selected passages expose Highlight, Save for Codex and Red strike in a floating
-capsule with labeled icons and a close control. Undo and clear appear in a
-separate review capsule while strikes exist. The controls follow the visible
-viewport above its bottom safe area, with solid accessibility fallbacks.
+Selected passages expose Copy, Highlight, Save for Codex and Red strike in a
+floating capsule with labeled icons and a close control. Undo and clear appear
+in a separate review capsule while strikes exist. The controls follow the
+visible viewport above its bottom safe area, with solid accessibility fallbacks.
+Copy expands a selection boundary that falls inside a formula to the complete
+mathematical view, excluding its equation number, attached label and adjacent
+prose. Complete formulas copy as compiler-verified Typst source including
+`$...$`; surrounding prose keeps its displayed text and separate blocks join
+with one newline. The native copy event applies the same composition, and the
+captured range remains available when the native toolbar collapses it. Pending
+excerpts briefly disable the explicit action. Unverified, partial or unmapped
+formulas copy their displayed text with a Korean notice instead of a guessed
+source. Desktop readers expand only at copy time rather than snapping a live
+selection.
 Highlight saves a real `#highlighted[...]` call in the original source when the
 document provides that math-aware helper, or standard `#highlight[...]` for
 ordinary literal text. The service verifies an isolated marked candidate and

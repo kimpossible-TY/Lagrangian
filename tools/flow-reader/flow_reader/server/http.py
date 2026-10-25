@@ -26,7 +26,7 @@ def handler_for(state):
         def do_POST(self):
             path = urlsplit(self.path).path
             if path not in compiler_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
-                            "/api/highlight", "/api/source", "/api/cursor", "/api/focus", "/api/editor-attachment"}:
+                            "/api/highlight", "/api/source", "/api/source-text", "/api/cursor", "/api/focus", "/api/editor-attachment"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
@@ -84,6 +84,8 @@ def handler_for(state):
                                                  editor_attachment=request.get("editorAttachment", UNSPECIFIED_EDITOR))
                 elif path == "/api/source":
                     result = state.source(request.get("revision"), request.get("fragments"))
+                elif path == "/api/source-text":
+                    result = state.source_text(request.get("revision"), request.get("fragments"))
                 elif path == "/api/cursor":
                     result = state.cursor(request.get("revision"), request.get("path"),
                                           request.get("line"), request.get("column"))

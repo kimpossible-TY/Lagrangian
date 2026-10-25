@@ -2967,3 +2967,40 @@ loopback Reader; no managed service was installed or restarted:
 Browser reports and screenshots are under
 `dist/reader-annotation-grouping/{chromium,webkit}/`. Physical iPhone, VoiceOver,
 full PDE-document and installed-service checks were not run for this change.
+
+## Copyable mathematics — 2026-10-25
+
+The HTML Reader now offers Copy beside the existing selection actions. Complete
+mathematical views copy as compiler-verified Typst source including `$...$`
+delimiters; mixed selections keep their displayed prose and separate blocks are
+joined with one newline. Touch release and settled touch selections expand a
+formula boundary to the whole mathematical view without including equation
+numbers, attached labels or adjacent prose. The explicit action expands the
+captured range at activation, so a native toolbar tap that collapses the
+selection can still copy the intended formula. The server returns excerpts from
+the accepted source mapping only; copy never compiles, edits or guesses source.
+
+- `FLOW_READER_PACKAGES=$PWD/tools/flow-reader/packages python3 -m unittest
+  tools.flow-reader.tests.test_source_mapping.CompiledSourceMappingTests.test_complete_mathematics_exports_verified_typst_for_copying`
+  passed, including the `/api/source-text` HTTP response, labeled formula,
+  partial segment and ordinary prose rejection. Unrelated pre-existing
+  `Sources changed during compilation` failures reproduce identically in a
+  clean baseline worktree when the packages path is relative; the absolute path
+  and the focused test pass.
+- `node --test tools/flow-reader/tests/test_selection_copy.mjs
+  tools/flow-reader/tests/test_selection_actions.mjs
+  tools/flow-reader/tests/test_math_identity.mjs` passed 18 checks. The copy
+  policy composes verified formulas, keeps prose, rejects partial-formula
+  composition and resolves touch targets through excluded assistive MathML.
+- `selection-browser.mjs` passed 200 checks across Chromium and WebKit at
+  320×740, 390×844 and 768×600. Coverage includes the 44px Copy target, partial
+  selection expansion to `$ alpha^2 + beta + 1 $`, excerpt cache reuse, native
+  copy of mixed prose and formula, touch settling to the complete expression,
+  and an explicitly unmapped generated formula falling back to displayed text
+  with a Korean notice. The fixture blocks Service Workers so Playwright can
+  intercept controlled failures; offline delivery retains its own fixtures.
+- Reader ESLint, Python byte-compilation and the related Node suites passed with
+  zero warnings.
+
+Physical iPhone Safari home-screen and VoiceOver verification remain separate
+manual coverage. The browser fixture uses phone viewports, not a physical device.

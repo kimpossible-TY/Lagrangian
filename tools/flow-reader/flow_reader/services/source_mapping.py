@@ -147,8 +147,8 @@ def source_position(source, offset):
             "column": len(source[line_start:offset].encode("utf-8"))}
 
 
-def mapped_source_location(project, dependencies, bundle, clean):
-    """Resolve fully covered, ordered selections using compiler-carried ranges."""
+def mapped_source_range(project, dependencies, bundle, clean):
+    """Resolve fully covered, ordered selections to verified source offsets."""
     passages = {part["key"]: part for part in bundle.passages}
     if not any(passages.get(part["key"], {}).get("source_ranges") for part in clean):
         return None
@@ -190,19 +190,30 @@ def mapped_source_location(project, dependencies, bundle, clean):
                 source_start += offsets[first - span["text_start"]]
             elif (span["kind"] != "math" or first != span["text_start"] or last != span["text_end"]):
                 return {"status": "unmapped"}
-            selected.append((path, source_start, source_end))
+            selected.append((path, source_start, source_end, span["kind"]))
             covered.update(range(first, last))
         if any(not passage["text"][i].isspace() and i not in covered for i in range(start, end)):
             return {"status": "unmapped"}
-    if not selected or len({path for path, _, _ in selected}) != 1:
+    if not selected or len({path for path, _, _, _ in selected}) != 1:
         return {"status": "unmapped"}
     if any(left[2] > right[1] for left, right in zip(selected, selected[1:])):
         return {"status": "ambiguous"}
     path = selected[0][0]
     source, digest = sources[path]
-    end_position = source_position(source, selected[-1][2])
-    return {"status": "located", "path": str(path), "source_hash": digest,
-            **source_position(source, selected[0][1]),
+    return {"status": "located", "path": path, "source": source, "source_hash": digest,
+            "spans": [(kind, start, end) for _, start, end, kind in selected]}
+
+
+def mapped_source_location(project, dependencies, bundle, clean):
+    """Resolve fully covered, ordered selections using compiler-carried ranges."""
+    mapped = mapped_source_range(project, dependencies, bundle, clean)
+    if mapped is None or mapped.get("status") != "located":
+        return mapped
+    source, spans = mapped["source"], mapped["spans"]
+    end_position = source_position(source, spans[-1][2])
+    return {"status": "located", "path": str(mapped["path"]),
+            "source_hash": mapped["source_hash"],
+            **source_position(source, spans[0][1]),
             "end_line": end_position["line"], "end_column": end_position["column"]}
 
 
@@ -238,6 +249,34 @@ def source_location(project, dependencies, bundle, fragments):
     return {"status": "located", "path": str(block["path"]),
             "source_hash": hashlib.sha256(block["source"].encode("utf-8")).hexdigest(),
             **source_position(block["source"], offset)}
+
+
+ATTACHED_LABEL = re.compile(r"\s*<[\w.:-]+>\s*$")
+
+
+def source_excerpt(project, dependencies, bundle, fragments):
+    """Return one complete expression's verified Typst slice for copying."""
+    clean = validate_fragments(fragments)
+    if len(clean) != 1:
+        return {"status": "unmapped"}
+    mapped = mapped_source_range(project, dependencies, bundle, clean)
+    if mapped is None:
+        return {"status": "unmapped"}
+    if mapped.get("status") != "located":
+        return mapped
+    spans = mapped["spans"]
+    if len(spans) != 1 or spans[0][0] != "math":
+        return {"status": "unmapped"}
+    _, start, end = spans[0]
+    text = mapped["source"][start:end]
+    closing = text.rfind("$")
+    # A verified equation range may carry its attached label. Copying the
+    # expression keeps it reusable without duplicating the author's label.
+    if closing >= 0 and ATTACHED_LABEL.fullmatch(text[closing + 1:]):
+        text = text[:closing + 1]
+    if not text.startswith("$") or not text.endswith("$") or len(text) > 20000:
+        return {"status": "unmapped"}
+    return {"status": "located", "text": text}
 
 
 def cursor_location(project, dependencies, bundle, path, line, column):

@@ -212,6 +212,7 @@ const mathematics = new ResponsiveMath(article, {
     annotations.schedule();
   },
   selectionActive: textSelectionActive,
+  copyText: (range) => selectionActions?.copyTextFor(range) ?? null,
 });
 const annotations = new TextAnnotations(article, {
   async loadFootnote(target) {

@@ -42,7 +42,9 @@ def main():
             'Numbered example.\n\n$ alpha^2 + beta + 1 $\n\n'
             'Another independent selection remains available during a pending request.\n\n'
             '#let repeated() = [Shared macro words]\n'
-            '#repeated()\n\n#repeated()\n\n' +
+            '#repeated()\n\n#repeated()\n\n'
+            '#let generated-equation() = $gamma + delta$\n'
+            '#generated-equation()\n\n' +
             ''.join(f'Trailing paragraph {i} permits ordinary vertical reading.\n\n'
                     for i in range(15)))
         project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
