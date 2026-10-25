@@ -334,6 +334,15 @@ def cursor_location(project, dependencies, bundle, path, line, column):
 
 
 def edit_location(project, dependencies, bundle, edit):
+    """Skip unmapped hunks without treating unchanged intervening output as edited."""
+    for bounds in edit.get("ranges") or [edit]:
+        result = _edit_location_range(project, dependencies, bundle, {**edit, **bounds})
+        if result["status"] != "unmapped":
+            return result
+    return {"status": "unmapped"}
+
+
+def _edit_location_range(project, dependencies, bundle, edit):
     """Map the earliest covered part of one shared edit, rejecting repeated output."""
     path = Path(edit["path"])
     if path not in set(source_paths(project, dependencies)):

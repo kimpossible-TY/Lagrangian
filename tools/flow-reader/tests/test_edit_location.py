@@ -97,6 +97,37 @@ class SharedEditTests(unittest.TestCase):
         bundle.passages[0]['source_ranges'] = [span]
         self.assertEqual(edit_location(self.project, [str(self.part)], bundle, edit)['status'], 'ambiguous')
 
+    def test_precise_hunks_skip_import_and_unchanged_heading_with_unicode_crlf(self):
+        self.source = '#import "figures.typ": old, diagram\r\n\r\n== Unchanged heading\r\n\r\n새로운 body.\r\n'
+        self.part.write_bytes(self.source.encode())
+        saved = self.source.encode()
+        bounds = [{'start': saved.index(b', diagram'), 'end': saved.index(b', diagram') + 9},
+                  {'start': saved.index('새로운'.encode()), 'end': saved.index('새로운'.encode()) + 9}]
+        latest = self.record['source_history']['latest']
+        latest.update(range={'start': bounds[0]['start'], 'end': bounds[1]['end']}, ranges=bounds)
+        self.record['source_history']['sources'][str(self.part)] = self.source
+        self.save()
+        edit = self.reader.read()
+        self.assertEqual(edit['status'], 'located')
+        self.assertEqual(edit['ranges'][1]['line'], 5)
+        self.assertEqual(self.source[edit['ranges'][1]['start']:edit['ranges'][1]['end']], '새로운')
+        bundle = split_document('<html><body><h2 id="heading">Unchanged heading</h2>'
+                                '<p id="changed">새로운 body.</p></body></html>', 'r')
+        for passage, marker in zip(bundle.passages, ['Unchanged heading', '새로운 body.']):
+            offset = self.source.index(marker)
+            passage['source_ranges'] = [{'path': str(self.part), 'source_hash': edit['source_hash'],
+                                         'start': offset, 'end': offset + len(marker)}]
+        legacy = {key: value for key, value in edit.items() if key != 'ranges'}
+        self.assertEqual(edit_location(self.project, [str(self.part)], bundle, legacy)['key'], bundle.passages[0]['key'])
+        self.assertEqual(edit_location(self.project, [str(self.part)], bundle, edit)['key'], bundle.passages[1]['key'])
+        bundle.passages[0]['source_ranges'] = bundle.passages[1]['source_ranges']
+        self.assertEqual(edit_location(self.project, [str(self.part)], bundle, edit)['status'], 'ambiguous')
+        for ranges in (None, [bounds[1], bounds[0]], [{'start': bounds[1]['start'] + 1, 'end': bounds[1]['end']}],
+                       [bounds[0]] * 257, [{'start': True, 'end': 3}], [{'start': 0, 'end': 2}]):
+            latest['ranges'] = ranges
+            self.save()
+            self.assertEqual(self.reader.read()['status'], 'invalid', ranges)
+
     def test_relative_and_symlinked_profile_storage_resolve_one_canonical_record(self):
         data = self.root / 'flow-data'
         (data / 'changes').mkdir(parents=True)

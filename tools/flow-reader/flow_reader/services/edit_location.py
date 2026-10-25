@@ -134,6 +134,21 @@ class SharedEditLocation:
                 raise ValueError("Invalid source range")
             prefix = saved[:start].decode("utf-8")
             selected = saved[start:end].decode("utf-8")
+            ranges = edit.get("ranges", [])
+            if not isinstance(ranges, list) or len(ranges) > 256:
+                raise ValueError("Invalid source hunks")
+            positions = []
+            previous = start
+            for bounds in ranges:
+                first, last = bounds["start"], bounds["end"]
+                if (type(first) is not int or type(last) is not int
+                        or not previous <= first <= last <= end):
+                    raise ValueError("Invalid source hunk")
+                offset = len(saved[:first].decode("utf-8"))
+                length = len(saved[first:last].decode("utf-8"))
+                positions.append({"start": offset, "end": offset + length,
+                                  **source_position(source, offset)})
+                previous = first
             with path.open("rb") as stream:
                 current = stream.read(MAX_SOURCE_BYTES + 1)
             # Comparing exact source bytes also avoids depending on Rust's private hash algorithm.
@@ -143,7 +158,8 @@ class SharedEditLocation:
             return {"status": "located", "path": str(path.resolve()),
                     "source_hash": hashlib.sha256(saved).hexdigest(), "token": token,
                     "start": len(prefix), "end": len(prefix) + len(selected),
-                    **source_position(source, len(prefix))}
+                    **source_position(source, len(prefix)),
+                    **({"ranges": positions} if positions else {})}
         except FileNotFoundError:
             return {"status": "missing"}
         except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):

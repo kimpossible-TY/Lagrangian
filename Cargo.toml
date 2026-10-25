@@ -94,6 +94,7 @@ winit = "0.30.12"
 base64 = "0.22"
 regex = "1.12.2"
 strsim = "0.11"
+similar = "2.7"
 
 # Cryptography and data processing
 fastrand = "2.3.0"

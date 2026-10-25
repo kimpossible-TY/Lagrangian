@@ -197,6 +197,7 @@
 - [x] 17.5 Align canonical ownership/guides, review the full change and commit the verified work with a Conventional Commit, preserving unrelated files and live services.
 - [x] 17.6 Preserve computed-label attachment for referenced invocation carriers; reproduce the real PDE mapping failure and verify compiler/reference, source-selection and navigation regressions.
 - [x] 17.7 Install the compatible app/engine and immutable HTML runtime, preserve live project/context records, verify actual document/shared-edit delivery and record the confirmed local release.
+- [x] 17.8 Preserve separate authored hunks for combined import/body saves, consume precise ranges in both readers and verify unchanged-heading exclusion, UTF-8, trivia rebasing and legacy records in isolated fixtures.
 
 ### Project-owned history verification, 2026-10-23
 
@@ -213,6 +214,15 @@
 - Signed-engine history 12, native source-navigation 3, compiler source-mapping 15 and WebKit change-navigation 16 checks pass. The final Reader suite runs 217 with one optional companion-source skip. Physical-device interaction is not repeated.
 - Both HTTPS browsers restore the real shared edit in section 55 without page errors or horizontal overflow. WebKit displays the 324-page PDF in light/dark themes. Source sequence 129, all 46 tracked source snapshots, both palette positions and the exact saved 35-character context are preserved; context is source-verified and usable without reselection.
 - All 540 immutable runtime files and all 54 first-party HTTP asset routes match. Loopback/HTTPS deliver the same accepted document/revision. Profiles, signing certificate and Reader service settings remain intact; PDE is running and Ewald remains stopped. The normal app backup plus original Reader launcher/configuration support paired recovery. Receipts and screenshots remain in `dist/source-history-rollout/`.
+
+### Separate saved edit ranges verification, 2026-10-25
+
+- Read-only PDE diagnosis found source sequence 214 covering the line-2 import through the distant Gaussian-bound edit in `chapter 3/3.6.typ`. Mapping that enclosing range selected the section-54 introduction; mapping the separate edited regions selected the heat-equation verification paragraph in section 55. Git fallback was not involved.
+- The Rust owner now persists bounded separate authored ranges, retaining the enclosing legacy range. HTML skips unmapped import hunks, and paged mapping collects only actual changed spans. Legacy records, exact saved bytes, UTF-8, LF/CRLF/CR line boundaries, deletions and trivia rebasing remain covered. Existing records cannot recover discarded hunk boundaries retroactively.
+- Warning-denying Rust checks passed: project 45 tests, preview 25 and engine preview 26; project all-target and engine-library Clippy, final CLI build and workspace formatting passed. Shared/HTML Node tests passed 234, paged frontend 98 and DOM 37. Compiler source-mapping tests passed 18 and edit-location tests passed nine.
+- The 290-test service run passed 282 initially; eight failed because the test command pointed at a CLI that had not yet been built. With the final CLI, all affected tests passed in the focused 13-test source-history and one-test installed-layout reruns, with no skipped coverage. These include the real combined import/body save, comment-only rebasing, restart restoration and archived runtime delivery.
+- WebKit change navigation passed all 16 checks with no page errors, including the combined import/body fixture, reload, named links, gestures, selection, failed compilation and note changes. The loading-race fixture now holds requests for the new accepted revision instead of assuming one fixed section request, and its wait is bounded. Inspected the final 390px screenshot; scoped ESLint/Prettier, strict OpenSpec validation and diff whitespace checks passed.
+- No installed app/Reader release, user project source, history record, configuration or live service was changed or restarted. Physical-device coverage was not repeated.
 
 ## 18. Change-driven frames, metrics and synchronized output
 

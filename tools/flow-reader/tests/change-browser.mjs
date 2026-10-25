@@ -173,26 +173,29 @@ try {
   check("appearance and font changes do not replay an observed edit");
 
   // The reader must recheck gestures after the remote target was requested.
+  const previousRevision = (await page.request.get(url + "api/manifest").then((r) => r.json()))
+    .revision;
+  const sectionRoute = "**/api/sections/*?*";
   let release;
-  let fetched;
-  const requested = new Promise((resolve) => {
-    fetched = resolve;
+  const held = new Promise((resolve) => {
+    release = resolve;
   });
-  await page.route("**/api/sections/section-15?*", async (route) => {
-    fetched();
-    await new Promise((resolve) => {
-      release = resolve;
-    });
+  const newSection = (request) =>
+    new URL(request.url()).pathname.startsWith("/api/sections/") &&
+    new URL(request.url()).searchParams.get("revision") !== previousRevision;
+  await page.route(sectionRoute, async (route) => {
+    if (newSection(route.request())) await held;
     await route.continue();
   });
   await page.waitForTimeout(2700);
+  const requested = page.waitForRequest(newSection, { timeout: 15000 });
   await edit(3);
   await requested;
   await page.evaluate(() => document.dispatchEvent(new WheelEvent("wheel", { bubbles: true })));
   release();
   await page.locator("#reader-change-jump").waitFor({ state: "visible", timeout: 15000 });
   assert.ok(await page.locator("#first").isVisible());
-  await page.unroute("**/api/sections/section-15?*");
+  await page.unroute(sectionRoute);
   await page.locator("#reader-change-jump").click();
   await aligned("a gesture during target loading defers the pending jump");
 
