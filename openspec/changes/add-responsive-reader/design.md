@@ -179,7 +179,19 @@ centered between them. Both use plain 21px icons without a persistent background
 border or shadow; retain their 44px targets and keyboard focus indicators.
 Font steppers, the existing appearance previews, and saved
 highlights live in reading settings. Keep semantic button/radio alternatives to
-all gestures, and keep names available to assistive input. The outline is a native
+all gestures, and keep names available to assistive input. One tap on the reading
+surface hides the toolbar and a second tap restores it. The bar stays sticky and
+moves only through transform (`translateY(-100%)`) and opacity, so hiding cannot
+reflow the article, change scroll padding or jump the reading position; the
+transition is 260ms transform and 180ms opacity. A hidden bar becomes inert,
+`aria-hidden` and non-interactive for pointers, so it cannot hold focus or swallow
+taps. Escape, focus reaching the bar, and the outline becoming visible all reveal
+it; Escape also returns focus to the control that held it before hiding. The
+outline publishes that visibility from its own open path so its scrim never covers
+a hidden bar. Drags beyond 10px, presses longer than 500ms, multi-touch, modifier
+keys, non-primary buttons, interactive targets, active selections and open
+dialogs or popovers leave the bar unchanged. Reduced motion applies the change
+without the transition. The outline is a native
 modal dialog with an independently scrolling nav, close control, outside dismissal,
 Escape and native focus return; navigating a heading focuses the article.
 Present the outline as a floating capsule below the toolbar, inset at least 16px
