@@ -72,6 +72,7 @@ in `verification.md`; VoiceOver speech is explicitly deferred to follow-up.
 - [x] Reduce navigation to two icons, consolidate reading settings, and add a semantic, interruptible outline drawer.
 - [x] Implement article pinch-to-font reflow and directional outline swipes with cancellation, selection/scroll guards and reduced-motion handling.
 - [x] Verify gesture classification, real browser wiring, keyboard/focus and narrow layouts; install and verify managed HTTPS delivery.
+- [x] Hide the toolbar on a single document tap and restore it by a second tap, Escape, focus or outline opening, keeping the hidden bar inert without reflow, scroll movement or motion under reduced motion.
 - [x] Remove the healthy-document status caption and its spacing; retain diagnostics and verify the installed Reader.
 - [x] Match the reading-settings icon to the plain outline icon, retaining its touch target; install and verify the result.
 - [x] Replace the edge-to-edge outline sheet with a floating capsule, preserving hierarchy, scrolling, gesture travel and accessible dismissal; verify and install it.

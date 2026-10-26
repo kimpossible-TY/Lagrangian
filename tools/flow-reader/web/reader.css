@@ -819,6 +819,14 @@ button:disabled {
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 14px;
+  transition:
+    transform 260ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 180ms ease;
+}
+.reader-toolbar[data-hidden="true"] {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
 }
 .reader-brand {
   font-weight: 650;
@@ -996,6 +1004,7 @@ button:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   #reader-navigation,
+  .reader-toolbar,
   .reader-toolbar-icon {
     transition: none;
   }

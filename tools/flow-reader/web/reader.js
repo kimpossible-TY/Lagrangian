@@ -26,6 +26,7 @@ import {
 import { ReaderChangeNavigation } from "./features/navigation/change-navigation.js";
 import { ReferenceReturn } from "./reader-common/navigation/reference-return.js";
 import { OutlineDrawer, ReaderGestures } from "./features/navigation/reading-navigation.js";
+import { createToolbarVisibility } from "./features/navigation/toolbar-visibility.js";
 
 const article = document.querySelector("#reader-document");
 const headingSelector = 'h1,h2,h3,h4,h5,h6,[role="heading"][aria-level]';
@@ -33,8 +34,11 @@ new DrawingTheme(article);
 const status = document.querySelector("#reader-status");
 const outline = document.querySelector("#reader-outline");
 const menu = document.querySelector("#reader-menu");
+let toolbarVisibility = null;
 const drawer = new OutlineDrawer(document.querySelector("#reader-navigation"), menu, {
   beforeOpen: () => outlineNavigation.updateLocation(),
+  // The drawer's scrim covers the reading surface; keep its trigger visible.
+  onVisible: () => toolbarVisibility?.reveal(),
 });
 readingSettings(
   document.querySelector("#reader-appearance-panel"),
@@ -705,6 +709,10 @@ gestures = new ReaderGestures(article, drawer, {
   preview: document.querySelector("#reader-font-preview"),
   announce: document.querySelector("#reader-gesture-message"),
 });
+toolbarVisibility = createToolbarVisibility({
+  toolbar: document.querySelector(".reader-toolbar"),
+  readingSurface: article,
+});
 let saveTimer;
 history.scrollRestoration = "manual";
 function savePosition() {
@@ -734,6 +742,7 @@ window.addEventListener("pagehide", (event) => {
     offline.dispose();
     diagnostics.dispose();
     gestures.dispose();
+    toolbarVisibility.dispose();
     clearTimeout(saveTimer);
     recovery.dispose();
     transport.dispose();

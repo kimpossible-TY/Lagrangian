@@ -77,7 +77,11 @@ export class OutlineDrawer {
   constructor(
     dialog,
     trigger,
-    { reducedMotion = matchMedia("(prefers-reduced-motion: reduce)"), beforeOpen = () => {} } = {},
+    {
+      reducedMotion = matchMedia("(prefers-reduced-motion: reduce)"),
+      beforeOpen = () => {},
+      onVisible = () => {},
+    } = {},
   ) {
     this.dialog = dialog;
     this.trigger = trigger;
@@ -93,6 +97,7 @@ export class OutlineDrawer {
     document.body.append(this.visual);
     this.reduced = reducedMotion;
     this.beforeOpen = beforeOpen;
+    this.onVisible = onVisible;
     this.travel = Math.min(352, document.documentElement.clientWidth - 32) + 40;
     this.position = -this.travel;
     this.target = false;
@@ -179,6 +184,9 @@ export class OutlineDrawer {
     if (window.scrollX !== readingX || window.scrollY !== readingY)
       window.scrollTo(readingX, readingY);
     if (modal) this.beforeOpen();
+    // Announces both a modal open and the swipe preview, whose scrim would
+    // otherwise cover a still-hidden toolbar.
+    this.onVisible();
   }
 
   settle(open, velocity, playful = false) {
@@ -254,6 +262,16 @@ const point = (touch) => ({ x: touch.clientX, y: touch.clientY });
 const distance = (touches) =>
   Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
 
+// `:popover-open` is an unknown pseudo-class to engines without the Popover API,
+// and one unknown pseudo-class rejects the whole selector list. Probe for the API
+// before naming it, and never hand this selector to an engine that cannot parse it.
+export function overlayOpen(doc = document) {
+  return Boolean(
+    doc.querySelector("dialog[open], [data-fallback]:not([hidden])") ||
+      (typeof doc.body?.showPopover === "function" && doc.querySelector("[popover]:popover-open")),
+  );
+}
+
 export class ReaderGestures {
   constructor(article, drawer, { getFont, setFont, previewFont, cancelFont, preview, announce }) {
     Object.assign(this, {
@@ -319,11 +337,7 @@ export class ReaderGestures {
   }
 
   overlayOpen() {
-    return (
-      document.querySelector("dialog[open], [data-fallback]:not([hidden])") ||
-      (typeof this.article.showPopover === "function" &&
-        document.querySelector("[popover]:popover-open"))
-    );
+    return overlayOpen(document);
   }
 
   start(event) {

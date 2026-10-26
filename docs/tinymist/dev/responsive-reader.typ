@@ -63,6 +63,17 @@ gesture instructions or explanatory helper paragraphs.
 The original paged view is available through the Dashboard and its
 existing address; the Reader toolbar has no page-view link.
 
+A single tap on the article hides the toolbar, and a second tap restores it.
+The bar stays sticky and changes only transform and opacity, so hiding never
+reflows the page, moves the reading position or changes scroll padding. A hidden
+bar is inert, hidden from assistive technology and cannot receive pointer input.
+Escape, focus reaching a toolbar control or opening the outline reveals it;
+Escape returns focus to the control that held it before hiding. Drags beyond
+10px, presses longer than 500ms, multi-touch, modifier keys, non-primary buttons,
+links and other controls, active text selections and open dialogs or popovers
+leave the bar unchanged. Reduced motion removes the transition and applies the
+change immediately.
+
 Reading settings offer 자동, 라이트 and 다크. 자동 follows the
 device's current appearance and reacts when it changes. Explicit choices persist
 in the current browser across reloads and documents on the same origin. The

@@ -504,6 +504,39 @@ in reading settings through semantic keyboard-accessible controls.
 - **AND** a following heading below the reading threshold does not become current early
 - **AND** previous manual outline scrolling is replaced by the current location without moving the article, including with reduced motion
 
+#### Scenario: Tap the reading surface to hide the toolbar
+- **GIVEN** the toolbar is visible above the article
+- **WHEN** a reader taps or clicks once on article content without an active selection or overlay
+- **THEN** the toolbar moves above the viewport edge with its 260ms transform and 180ms opacity transition
+- **AND** the hidden toolbar is inert, hidden from assistive technology and cannot receive pointer input
+
+#### Scenario: Restore a hidden toolbar
+- **GIVEN** the toolbar is hidden
+- **WHEN** a reader taps the article again
+- **THEN** the toolbar returns in place and its controls are interactive again
+- **AND** the reading position does not move
+
+#### Scenario: Recover the toolbar without tapping
+- **GIVEN** the toolbar is hidden
+- **WHEN** the reader presses Escape, focus reaches a toolbar control, or the outline drawer becomes visible
+- **THEN** the toolbar is revealed
+- **AND** Escape returns focus to the control that held it before the toolbar hid
+
+#### Scenario: Tap-like gestures leave the toolbar alone
+- **WHEN** a document tap moves more than 10px, lasts longer than 500ms, uses more than one touch, carries a modifier key or a non-primary button, targets a link or another control, occurs with an active text selection, or happens while a dialog or popover is open
+- **THEN** the toolbar keeps its current visibility
+- **AND** that gesture's own scrolling, selection, link or dismissal behavior is unchanged
+
+#### Scenario: Reduced motion removes the toolbar transition
+- **WHEN** the device requests reduced motion
+- **THEN** hiding and revealing apply immediately without a transform or opacity transition
+- **AND** taps, Escape and focus recovery behave identically
+
+#### Scenario: Hiding the toolbar keeps the document still
+- **WHEN** the toolbar hides or reveals at any scroll position
+- **THEN** it remains sticky and changes only transform and opacity, so no layout reflows
+- **AND** the article's scroll offset and scroll padding stay unchanged
+
 ### Requirement: Explicit reading appearance
 The Reader SHALL expose Automatic, Light and Dark appearances and persist the
 choice in browser-local storage. Automatic SHALL follow device appearance changes.

@@ -19,6 +19,7 @@
   "features/navigation/outline.js": "features/navigation/outline.js",
   "features/navigation/reading-navigation.js": "features/navigation/reading-navigation.js",
   "features/navigation/reading-position.js": "features/navigation/reading-position.js",
+  "features/navigation/toolbar-visibility.js": "features/navigation/toolbar-visibility.js",
   "features/review-strikes/renderer.js": "features/review-strikes/renderer.js",
   "features/review-strikes/store.js": "features/review-strikes/store.js",
   "features/selection/controller.js": "features/selection/controller.js",
