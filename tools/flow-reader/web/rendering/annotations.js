@@ -222,7 +222,10 @@ export class TextAnnotations {
       let record = notes.get(target);
       const source = reference.closest("mtext") ?? reference;
       // Let MathIdentity bind HTML footnote markers inside composed mathematics.
-      if (source.closest("math")) source.dataset.flowMark = `footnote-${section}-${++count}`;
+      if (source.closest("math")) {
+        source.dataset.flowMark = `footnote-${section}-${++count}`;
+        source.dataset.flowSelectionIgnore = "footnote";
+      }
       if (!record) {
         const note = document.createElement("div");
         note.className = "flow-note";

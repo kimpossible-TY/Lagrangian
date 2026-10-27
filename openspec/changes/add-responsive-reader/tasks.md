@@ -198,6 +198,8 @@ other services, and the mobile default are preserved.
 - [x] Verify capsule layout and actions in narrow light/dark browsers, install the clean Reader commit, and verify actual HTTPS delivery.
 - [x] Add Copy with compiler-verified Typst excerpts for complete formulas, displayed prose for mixed passages, and explicit pending/unmapped fallbacks without compiling during the action.
 - [x] Snap touch long-press boundaries to complete mathematical views and retain the captured range through native selection collapse for both the explicit action and the native copy event.
+- [ ] Verify numbered-equation selection and backward touch snapping in browser fixtures and on a physical iPhone.
+- [ ] Verify numbered equations, footnote references and marked `dots_space` in native selection across MathJax composition and on a physical iPhone.
 - [x] Verify source-excerpt mapping, Node copy/snap policy and Chromium/WebKit copy, pending, unmapped and 44px target behavior; physical iPhone and VoiceOver checks remain separate coverage.
 
 ## Codex context instead of local quotations

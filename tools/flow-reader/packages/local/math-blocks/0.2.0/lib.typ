@@ -239,8 +239,13 @@
 }
 
 // Helper spacer/dots pattern for equations.
-#let dots_space = {
-  $& wide dots.h.c thin$
+#let dots_space = context {
+  if target() == "html" {
+    html.elem("mrow", attrs: ("data-flow-selection-ignore": "dots-space"),
+      $& wide dots.h.c thin$)
+  } else {
+    $& wide dots.h.c thin$
+  }
 }
 
 // Renders a centered block container with a solid outline matching the active theme's rule color.

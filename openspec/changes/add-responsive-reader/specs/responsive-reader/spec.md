@@ -696,6 +696,9 @@ The HTML Reader SHALL let touch and pointer users select complete mathematical e
 - **THEN** the settled selection expands to the complete mathematical view at that boundary
 - **AND** equation numbers, labels and adjacent prose stay outside the selected expression
 - **AND** prose selections and selections spanning several formulas remain otherwise intact
+- **AND** expanding a backward selection preserves its anchor and focus direction
+- **AND** displayed equation numbers are not native selection targets
+- **AND** footnote reference numbers and explicitly marked `dots_space` presentation are not native selection targets, while footnote links remain operable
 
 #### Scenario: Copy a formula or mixed passage
 - **WHEN** the user copies a selection containing at least one complete formula
