@@ -353,6 +353,8 @@ export class ReaderSelectionActions {
     )
       return false;
     const current = selection.getRangeAt(0);
+    const backward =
+      selection.anchorNode === current.endContainer && selection.anchorOffset === current.endOffset;
     const range = current.cloneRange();
     if (!snapRangeToMath(range, this.article)) return false;
     if (
@@ -364,10 +366,10 @@ export class ReaderSelectionActions {
       return false;
     try {
       selection.setBaseAndExtent(
-        range.startContainer,
-        range.startOffset,
-        range.endContainer,
-        range.endOffset,
+        backward ? range.endContainer : range.startContainer,
+        backward ? range.endOffset : range.startOffset,
+        backward ? range.startContainer : range.endContainer,
+        backward ? range.startOffset : range.endOffset,
       );
     } catch {
       return false;
