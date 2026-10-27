@@ -89,7 +89,11 @@ export class MathIdentity {
     const tokenNodes = [];
     for (const node of [math, ...math.querySelectorAll("*")]) {
       if (node.closest("svg")) continue;
-      if (node.hasAttribute("data-flow-mark") || node.hasAttribute("data-flow-decoration")) {
+      if (
+        node.hasAttribute("data-flow-mark") ||
+        node.hasAttribute("data-flow-decoration") ||
+        node.hasAttribute("data-flow-selection-ignore")
+      ) {
         const id = `${prefix}-mark-${this.marks.length}`;
         node.dataset.flowMarkInstance = id;
         const mark = { id, source: node, model: this };
@@ -185,7 +189,11 @@ export class MathIdentity {
     // A rejected candidate must not invalidate the currently readable view.
     if (!errors.length) {
       for (const [token, points] of bindings) token.points = points;
-      for (const [mark, nodes] of fragments) mark.fragments = nodes;
+      for (const [mark, nodes] of fragments) {
+        mark.fragments = nodes;
+        const ignore = mark.source.dataset.flowSelectionIgnore;
+        if (ignore) for (const node of nodes) node.dataset.flowSelectionIgnore = ignore;
+      }
       this.bound = true;
       this.view = view;
       models.set(view, this);

@@ -279,6 +279,41 @@ async function verify(browser, viewport) {
       }),
     );
 
+    await page.evaluate(() => getSelection().removeAllRanges());
+    await page.waitForFunction(() => {
+      const equation = document.querySelector(
+        '.flow-equation:has([data-flow-selection-ignore="dots-space"])',
+      );
+      return equation?.querySelector('.flow-math-view[data-math-state="ready"]') &&
+        equation.querySelector('.flow-math-view [data-flow-selection-ignore="footnote"]');
+    });
+    const ignoredMarkers = await page.evaluate(() => {
+      const equation = document.querySelector(
+        '.flow-equation:has([data-flow-selection-ignore="dots-space"])',
+      );
+      const view = equation.querySelector(".flow-math-view");
+      const dots = view.querySelector('[data-flow-selection-ignore="dots-space"]');
+      const footnote = view.querySelector('[data-flow-selection-ignore="footnote"]');
+      const range = document.createRange();
+      range.selectNodeContents(equation);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      return {
+        text: getSelection().toString(),
+        number: equation.querySelector(".flow-equation-number").textContent.trim(),
+        dots: getComputedStyle(dots).userSelect,
+        footnote: getComputedStyle(footnote).userSelect,
+        link: Boolean(footnote.querySelector('a[href^="#"]')),
+      };
+    });
+    check(
+      "Selection across an equation excludes its generated markers",
+      ignoredMarkers.dots === "none" && ignoredMarkers.footnote === "none" &&
+        !ignoredMarkers.text.includes(ignoredMarkers.number) &&
+        !ignoredMarkers.text.includes("⋯") && !ignoredMarkers.text.includes("1") &&
+        ignoredMarkers.link,
+    );
+
     await page.evaluate(() => {
       window.__copied = null;
     });

@@ -1162,11 +1162,15 @@ button:disabled {
 .flow-equation > math {
   width: 100%;
 }
+.flow-equation-number,
+[role="doc-noteref"],
+[data-flow-selection-ignore] {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .flow-equation-number {
   grid-area: 1 / 2;
   display: block;
-  -webkit-user-select: none;
-  user-select: none;
   white-space: nowrap;
   text-align: end;
   font-size: 0.85em;

@@ -85,6 +85,17 @@ unverified or unmapped formula falls back to its displayed text with a Korean
 notice. Desktop readers keep ordinary copy behavior until copy-time expansion;
 they do not snap a live selection.
 
+Displayed equation numbers remain readable but are not native selection targets.
+When touch snapping expands a backward selection, retain its anchor and focus
+direction so the handle being adjusted remains at the mathematical boundary.
+Physical iOS handle behavior requires device verification.
+
+Footnote reference numbers and the math-blocks `dots_space` presentation marker
+also remain outside native text selection. Mark the spacer in HTML at its
+owner, and carry that marker and mathematical footnote identities through
+MathJax composition. Footnote links remain operable. Do not infer a spacer from
+ordinary mathematical ellipses.
+
 ## Return from an internal reference
 
 The HTML navigation adapter captures `reading-position`'s semantic anchor and
