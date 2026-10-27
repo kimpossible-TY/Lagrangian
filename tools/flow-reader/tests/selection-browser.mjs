@@ -242,6 +242,43 @@ async function verify(browser, viewport) {
       }),
     );
 
+    const backwardAnchor = await page.evaluate(async () => {
+      const { logicalTextIndex, rangesFor } = await import("/rendering/math/identity.js");
+      const equation = document.querySelector("#reader-document .flow-equation");
+      const number = equation.querySelector(".flow-equation-number");
+      const prose = [...document.querySelectorAll("#reader-document [data-reader-key]")].find(
+        (node) => logicalTextIndex(node).text.includes("Another independent selection"),
+      );
+      const mathIndex = logicalTextIndex(equation.querySelector(".flow-math-view"));
+      const proseIndex = logicalTextIndex(prose);
+      const glyph = rangesFor(mathIndex, 0, 1)[0];
+      const end = rangesFor(proseIndex, 0, 10).at(-1);
+      getSelection().setBaseAndExtent(
+        end.endContainer,
+        end.endOffset,
+        glyph.startContainer,
+        glyph.startOffset,
+      );
+      document.dispatchEvent(new Event("selectionchange"));
+      return getComputedStyle(number).userSelect;
+    });
+    await page.waitForTimeout(700);
+    check("Equation numbers are not selectable", backwardAnchor === "none");
+    check(
+      "Snapping an upward selection preserves its anchor and expands the formula",
+      await page.evaluate(() => {
+        const selection = getSelection();
+        const math = document.querySelector("#reader-document .flow-equation .flow-math-view");
+        return (
+          selection.anchorNode?.parentElement
+            ?.closest("[data-reader-key]")
+            ?.textContent.includes("Another independent selection") &&
+          selection.focusNode === math &&
+          selection.focusOffset === 0
+        );
+      }),
+    );
+
     await page.evaluate(() => {
       window.__copied = null;
     });
