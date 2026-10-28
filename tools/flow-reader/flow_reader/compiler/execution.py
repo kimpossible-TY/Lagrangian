@@ -43,6 +43,7 @@ class CompileResult:
     artifact: bytes | None
     dependencies: tuple[str, ...]
     elapsed_seconds: float
+    executor: Literal["browser", "server"] | None = None
 
 
 class CompileExecutor(Protocol):

@@ -123,6 +123,17 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(len(self.native), 4)
         self.assertTrue(all(not request.system_fonts for request in self.native))
 
+    def test_content_rejection_native_fallback_is_recorded(self):
+        request = self.pool.prepare_request(self.request)
+        result = self.pool.fallback_after_rejection(request)
+        self.assertEqual(result.artifact, b"native")
+        self.assertEqual(self.native, [request])
+        self.assertEqual(self.pool.fallbacks, 1)
+        event, = self.pool.status()["history"]
+        self.assertEqual(event["executor"], "server")
+        self.assertEqual(event["reason"], "browser-output-rejected")
+        self.assertEqual(event["status"], "result-received")
+
     def test_no_workers_uses_native_without_wait_and_close_cancels_without_fallback(self):
         self.assertEqual(self.pool(self.request).artifact, b"native")
         self.worker()

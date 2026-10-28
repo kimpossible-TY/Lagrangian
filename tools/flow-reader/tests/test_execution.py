@@ -40,6 +40,44 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(report["missingLinkTargets"], ["missing"])
         self.assertEqual(len(self.requests), 1)
 
+    def test_rejected_browser_output_retries_native_before_server_acceptance(self):
+        class BrowserExecutor:
+            def __init__(inner):
+                inner.requests = []
+
+            def prepare_request(inner, request):
+                return replace(request, system_fonts=False, timestamp=123)
+
+            def __call__(inner, request):
+                inner.requests.append(request)
+                return replace(self.result(request), artifact=b'<a href="#missing">Browser</a>',
+                               executor="browser")
+
+            def fallback_after_rejection(inner, request):
+                inner.requests.append(request)
+                return replace(self.result(request), artifact=b'<p>Native</p>', executor="server")
+
+        executor = BrowserExecutor()
+        report = compile_project(self.project(executor), self.root / "output", map_sources=False)
+        self.assertTrue(report["contentGatePassed"], report)
+        self.assertEqual(report["missingLinkTargets"], [])
+        self.assertEqual(len(executor.requests), 2)
+        self.assertEqual(executor.requests[0], executor.requests[1])
+        self.assertEqual(executor.requests[0].timestamp, 123)
+        self.assertIn("Native", (self.root / "output" / "document.html").read_text())
+
+    def test_browser_result_that_passes_gate_does_not_use_native_retry(self):
+        class BrowserExecutor:
+            def __call__(inner, request):
+                return replace(self.result(request), executor="browser")
+
+            def fallback_after_rejection(inner, request):
+                raise AssertionError("accepted browser result must not retry")
+
+        report = compile_project(self.project(BrowserExecutor()), self.root / "output", map_sources=False)
+        self.assertTrue(report["contentGatePassed"], report)
+        self.assertIn("Hello", (self.root / "output" / "document.html").read_text())
+
     def test_server_rejects_unhandled_warning_from_any_executor(self):
         def execute(request):
             return replace(self.result(request), stderr="warning: unknown content dropped\n")

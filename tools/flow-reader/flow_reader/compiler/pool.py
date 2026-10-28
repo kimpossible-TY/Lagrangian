@@ -234,7 +234,8 @@ class BrowserCompilePool:
                 if len(data) > MAX_OUTPUT or code != 0 or not data:
                     raise ValueError("Compilation failed or result too large")
                 dependencies = job.snapshot.dependencies(names)
-                job.result = CompileResult(code, diagnostics, data, dependencies, 0)
+                job.result = CompileResult(code, diagnostics, data, dependencies, 0,
+                                           executor="browser")
             except (ValueError, TypeError, SnapshotUnavailable):
                 job.failed = True
                 job.record["status"] = "invalid-result"
@@ -277,8 +278,7 @@ class BrowserCompilePool:
 
     def __call__(self, request):
         # All executors share this portable environment, including native fallback.
-        request = replace(request, system_fonts=False,
-                          timestamp=request.timestamp if request.timestamp is not None else int(time.time()))
+        request = self.prepare_request(request)
         with self.condition:
             if self.closed:
                 raise OSError("Browser compiler pool is closing")
@@ -293,6 +293,26 @@ class BrowserCompilePool:
             except (OSError, SnapshotUnavailable):
                 reason = "snapshot-unavailable"
             self.fallbacks += 1
+        with self.condition:
+            if self.closed:
+                raise OSError("Browser compiler pool is closing")
+        return self._execute_fallback(request, reason)
+
+    @staticmethod
+    def prepare_request(request):
+        """Freeze portable inputs once so a rejected result retries identically."""
+        return replace(request, system_fonts=False,
+                       timestamp=request.timestamp if request.timestamp is not None else int(time.time()))
+
+    def fallback_after_rejection(self, request):
+        """Retry a browser result rejected by Python's authoritative content gate."""
+        with self.condition:
+            if self.closed:
+                raise OSError("Browser compiler pool is closing")
+            self.fallbacks += 1
+        return self._execute_fallback(request, "browser-output-rejected")
+
+    def _execute_fallback(self, request, reason):
         with self.condition:
             if self.closed:
                 raise OSError("Browser compiler pool is closing")

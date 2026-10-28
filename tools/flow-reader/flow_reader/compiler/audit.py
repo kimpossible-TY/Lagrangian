@@ -33,6 +33,21 @@ def audit_content(content):
     return audit.report()
 
 
+def audit_compiled_html(content, diagnostic):
+    """Apply the one normalization and acceptance policy to a compiler result."""
+    content = normalize_content(content)
+    report = audit_content(content)
+    # Typst may exit successfully after dropping unsupported HTML; only known
+    # page furniture and PDF-structure warnings have no HTML counterpart.
+    losses = unhandled_warnings(
+        line.removeprefix("warning: ") for line in diagnostic.splitlines()
+        if line.startswith("warning:")
+    )
+    report["compilerLossWarnings"] = ["warning: " + warning for warning in losses]
+    report["contentGatePassed"] &= not losses
+    return content, report
+
+
 def validate_content(content, diagnostic):
     if (unhandled_warnings(diagnostic_warnings(diagnostic))
             or re.search(r"(?:^|\n).*?error: ", diagnostic)):
