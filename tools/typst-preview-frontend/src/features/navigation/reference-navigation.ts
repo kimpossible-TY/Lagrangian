@@ -4,26 +4,31 @@ export interface ReferenceOrigin {
   page: number;
   x: number;
   y: number;
+  /** The point's vertical position within the scrollport before navigation. */
+  viewportY?: number;
 }
 
 /** Capture the viewport relative to a page, independent of preview scale. */
 export function captureReferenceOrigin(
   scroller: HTMLElement,
   root: HTMLElement,
+  viewportY = 0,
 ): ReferenceOrigin | undefined {
   const viewport = scroller.getBoundingClientRect();
+  const referenceY = viewport.top + (Number.isFinite(viewportY) ? viewportY : 0);
   let nearest: { origin: ReferenceOrigin; distance: number } | undefined;
   for (const page of root.querySelectorAll<SVGRectElement>(".typst-page-inner")) {
     const rect = page.getBoundingClientRect();
     const pageNumber = Number(page.getAttribute("data-page-number"));
     if (rect.width <= 0 || rect.height <= 0 || !Number.isSafeInteger(pageNumber)) continue;
-    const distance = Math.max(rect.top - viewport.top, viewport.top - rect.bottom, 0);
+    const distance = Math.max(rect.top - referenceY, referenceY - rect.bottom, 0);
     if (!nearest || distance < nearest.distance) {
       nearest = {
         origin: {
           page: pageNumber,
           x: (viewport.left - rect.left) / rect.width,
-          y: (viewport.top - rect.top) / rect.height,
+          y: (referenceY - rect.top) / rect.height,
+          viewportY: Number.isFinite(viewportY) ? viewportY : 0,
         },
         distance,
       };
@@ -45,8 +50,9 @@ export function restoreReferenceOrigin(
   const rect = page.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return false;
   const viewport = scroller.getBoundingClientRect();
+  const viewportY = Number.isFinite(origin.viewportY) ? origin.viewportY! : 0;
   scroller.scrollTo({
-    top: scroller.scrollTop + rect.top - viewport.top + origin.y * rect.height,
+    top: scroller.scrollTop + rect.top - viewport.top + origin.y * rect.height - viewportY,
     left: scroller.scrollLeft + rect.left - viewport.left + origin.x * rect.width,
     behavior: "instant",
   });
@@ -89,7 +95,8 @@ export class ReferenceNavigation {
       this.references.consume(origin);
     });
     actions.appendChild(this.button);
-    this.navigate = (element, page, x, y) => {
+    this.navigate = (element, page, x, y, targetViewportY) => {
+      let destinationY = targetViewportY;
       if (
         root.contains(element) &&
         Number.isSafeInteger(page) &&
@@ -98,14 +105,17 @@ export class ReferenceNavigation {
         Number.isFinite(y) &&
         root.querySelector(`.typst-page-inner[data-page-number="${page - 1}"]`)
       ) {
-        const origin = captureReferenceOrigin(scroller, root);
+        const viewportY =
+          element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        destinationY = viewportY;
+        const origin = captureReferenceOrigin(scroller, root, viewportY);
         if (origin) {
           this.finishRestore();
           this.references.remember(origin);
           onNavigate();
         }
       }
-      this.previous(element, page, x, y);
+      this.previous(element, page, x, y, destinationY);
     };
     window.handleTypstLocation = this.navigate;
   }

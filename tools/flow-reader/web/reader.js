@@ -488,7 +488,14 @@ function renderDocument(html, nextManifest, section, options) {
   requestAnimationFrame(() => {
     if (disposed || !sameSnapshot(manifest, nextManifest) || sequence !== loadSequence) return;
     if (options.target) {
-      document.getElementById(options.target)?.scrollIntoView();
+      const target = document.getElementById(options.target);
+      if (Number.isFinite(options.referenceViewportY) && target) {
+        scrollTargetTo(target, options.referenceViewportY);
+        const anchor = readingPosition.capture(options.referenceViewportY);
+        if (anchor) readingPosition.hold(anchor);
+      } else {
+        target?.scrollIntoView();
+      }
       if (options.changeToken) readingPosition.hold(readingAnchor());
     } else if (options.anchor && (!options.update || changes.lastGesture === gestureAtMount)) {
       const restored = options.referenceReturn
@@ -627,12 +634,19 @@ function sectionFor(nextManifest, anchor, target) {
   );
 }
 
-async function navigateAnchor(target, push = true, reference = false) {
+function scrollTargetTo(target, viewportY) {
+  const rect = target.getBoundingClientRect();
+  window.scrollBy({ top: rect.top - viewportY, behavior: "instant" });
+}
+
+async function navigateAnchor(target, push = true, reference = false, source = null) {
   if (!manifest) return;
   readingPosition.release();
   const section = manifest.anchors[target];
   const local = annotations.footnote(target) ?? document.getElementById(target);
-  const origin = reference ? readingAnchor() : null;
+  const sourceY = source?.getBoundingClientRect().top;
+  const viewportY = Number.isFinite(sourceY) ? sourceY : 90;
+  const origin = reference ? readingPosition.capture(viewportY) : null;
   if (local && article.contains(local)) {
     // A newer local jump must supersede an earlier remote jump still fetching.
     activity.state.cancel(loadSequence);
@@ -640,11 +654,22 @@ async function navigateAnchor(target, push = true, reference = false) {
     activity.refresh();
     article.setAttribute("aria-busy", "false");
     if (push) navigationHistory(section ?? currentSection, target);
+    if (reference) {
+      scrollTargetTo(local, viewportY);
+      const anchor = readingPosition.capture(viewportY);
+      if (anchor) readingPosition.hold(anchor);
+    } else {
+      local.scrollIntoView();
+    }
     references.remember(origin);
-    local.scrollIntoView();
     if (local.dataset.noteKind === "footnote") local.focus({ preventScroll: true });
   } else if (section) {
-    await loadSection(manifest, section, { target, history: push, referenceOrigin: origin });
+    await loadSection(manifest, section, {
+      target,
+      history: push,
+      referenceOrigin: origin,
+      referenceViewportY: reference ? viewportY : undefined,
+    });
   }
 }
 
@@ -675,7 +700,7 @@ article.addEventListener("click", (event) => {
     !event.altKey
   ) {
     event.preventDefault();
-    navigateAnchor(decodeURIComponent(link.getAttribute("href").slice(1)), true, true);
+    navigateAnchor(decodeURIComponent(link.getAttribute("href").slice(1)), true, true, link);
     return;
   }
 });

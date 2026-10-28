@@ -55,7 +55,13 @@ interface TypstPosition {
 export interface TypstDomWindowElement extends HTMLElement {
   initTypstSvg(docRoot: SVGElement, onLayout?: () => void): void;
   currentPosition(elem: Element): TypstPosition | undefined;
-  handleTypstLocation(elem: Element, page: number, x: number, y: number): void;
+  handleTypstLocation(
+    elem: Element,
+    page: number,
+    x: number,
+    y: number,
+    targetViewportY?: number,
+  ): void;
   documents: any[];
   typstWebsocket: Sendable;
   /// Optional handler for sharing an explicit selection with a local assistant.
