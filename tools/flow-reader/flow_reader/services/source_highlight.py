@@ -1,6 +1,7 @@
 """Prove an explicit source highlight against the complete compiled HTML body."""
 
 from dataclasses import replace
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,7 @@ from flow_reader.compiler.execution import CompileRequest
 from flow_reader.compiler.inputs import shadow_sources, source_paths
 from flow_reader.document.passages import PassageIndex, locate_passages, normalized, normalized_offsets, occurrences, validate_fragments
 from flow_reader.document.sections import assign_block_ids, split_document
+from flow_reader.services.source_mapping import mapped_source_range
 
 
 class StaleSelection(ValueError):
@@ -177,7 +179,30 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh, wri
     math_text = "".join(part["text"] for fragment in fragments
                         for part in fragment.get("segments", []) if part.get("math"))
     hint = math_hint(math_text)
-    for candidate in source_candidates(project, dependencies, pattern):
+    # Rendered references (for example, "Equation (3.4.25)") do not appear
+    # literally in Typst source. Prefer the compiler-carried source intervals
+    # when they cover this exact selection, then keep the same isolated compile
+    # proof below before writing anything.
+    mapped = mapped_source_range(project, dependencies, bundle, clean)
+    mapped_candidate = None
+    if mapped and mapped.get("status") == "located":
+        path = mapped["path"]
+        spans = mapped["spans"]
+        raw = path.read_bytes()
+        source = raw.decode("utf-8")
+        if hashlib.sha256(raw).hexdigest() != mapped["source_hash"]:
+            return "stale"
+        start = min(span[1] for span in spans)
+        end = max(span[2] for span in spans)
+        if 0 <= start < end <= len(source):
+            mapped_candidate = (path, raw, source, start, end)
+
+    candidates_to_check = (
+        [mapped_candidate]
+        if mapped_candidate is not None
+        else source_candidates(project, dependencies, pattern)
+    )
+    for candidate in candidates_to_check:
         _, _, source, start, end = candidate
         before, _ = normalized_offsets(source[max(0, start - 256):start], True)
         after, _ = normalized_offsets(source[end:end + 256], True)

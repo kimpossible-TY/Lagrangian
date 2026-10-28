@@ -109,6 +109,15 @@ scroll-anchoring holds. Publish that origin only after successful navigation. Ea
 replaces it; external links, footnote popovers, history, editor and visual-change
 navigation do not create or replace it.
 
+For a body reference, capture the top edge's vertical coordinate in the reader
+viewport and use that same CSS-pixel coordinate for the destination anchor. The
+HTML semantic anchor stores this viewport offset with its native position; the
+paged adapter captures the page-relative point at that offset and passes it to
+the renderer's native scroll operation. Returning therefore places the original
+reference at the same screen coordinate. An outline action without an in-document
+source reference uses the existing 90px reading line in HTML. Keep page and
+semantic coordinates native to their readers.
+
 Returning first restores a still-mounted origin directly, retaining its composed
 mathematics and annotations. Only an unmounted origin uses the current manifest's
 section lookup and existing guarded section loading. Restoration replaces the URL with its
@@ -1079,8 +1088,12 @@ source files nor served HTML are modified by carriers.
 Translate carried intervals into normalized passage offsets and persist them in
 the compile report, including the original file, source hash and exclusive range.
 Publication binds these maps to the same accepted bundle and source fingerprint.
-`services/source_mapping.py` remains the one owner of mapping policy for Codex
-and editor navigation. It requires coverage of every selected non-space
+`services/source_mapping.py` remains the one owner of mapping policy for Codex,
+editor navigation and source Highlight candidate ranges. Highlight uses a
+compiler-carried range when it covers the full selection, then retains its
+isolated compile proof before writing. This lets generated references such as
+"Equation (3.4.25)" connect to their Typst expressions even though their
+rendered labels do not occur literally in source. It requires coverage of every selected non-space
 character, maps full math to its complete source expression, and combines ordered
 same-file ranges. Literal text retains precise Unicode-to-UTF-8 offsets. Reverse
 navigation returns ambiguity when a source range occurs in multiple blocks.
@@ -1173,9 +1186,13 @@ stale rejection, and reassignment. A result belongs to its original task and cap
 inputs; outputs arriving after expiration cannot publish. A foreground client offers
 capacity only after the matching WASM compiler is ready; hidden/terminated clients
 release capacity, and lost heartbeats expire. Failed mobile compilation can be retried
-locally without erasing the accepted document. Do not hold the publication lock while
-waiting for HTTP clients or compiler work. Source operations retain their freshness
-checks before final writes; external filesystem edits are not an atomic transaction.
+locally without erasing the accepted document. A browser result that exits successfully
+but fails Python normalization, the content audit or compiler-loss checks is also
+retried natively with the identical prepared request; the same server gate remains
+authoritative for either result. Record that fallback without publishing rejected
+device output. Do not hold the publication lock while waiting for HTTP clients or
+compiler work. Source operations retain their freshness checks before final writes;
+external filesystem edits are not an atomic transaction.
 
 ## Offline accepted snapshots and requests
 

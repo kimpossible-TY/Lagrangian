@@ -141,6 +141,13 @@ was updated, and physical-device/VoiceOver checks were not performed.
 
 - [x] Move the single-origin/action lifecycle to reader-common and compose both reader adapters with their native capture/restore effects.
 - [x] Move policy tests to the shared owner, update asset/ownership contracts and verify both readers, types, preview bundle and installed asset delivery.
+- [x] Align HTML and paged reference destinations with the clicked reference's viewport Y coordinate, restore the source at that coordinate, and add regression coverage.
+
+2026-10-26 viewport-alignment implementation: HTML semantic anchors and paged
+page-relative origins now retain the clicked reference's viewport Y, and both
+reader adapters align the destination to it. Node shared/HTML tests passed;
+frontend Vitest, browser, type-check and preview-build validation remain
+unverified because Yarn and Playwright are unavailable in this environment.
 
 2026-10-20 shared ownership correction: `reader-common/navigation/reference-return.js`
 now owns the origin and action lifetime for both readers. The HTML-only controller
@@ -192,6 +199,8 @@ other services, and the mobile default are preserved.
 ## Selection review actions
 
 - [x] Add compiler-verified, revision-bound source highlights for selected prose and complete mathematics without changing ambiguous or stale sources.
+- [x] Resolve source Highlight candidates from accepted compiler ranges when selected output includes generated references; retain isolated compile verification before writes.
+- [ ] Verify mixed prose, complete mathematics and generated references can be highlighted from one source selection, including the mobile selection shown in the issue.
 - [x] Add red strike, undo and clear controls with document-scoped persistence and layout-aware repainting; preserve Codex context and pending selections.
 - [x] Verify source edit rejection/success and browser selection, reflow, reload and review controls; install and verify actual Reader delivery.
 - [x] Replace the selection card with compact floating action/review capsules, retaining labels, native selection, pending feedback and accessible material fallbacks.
@@ -380,6 +389,7 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Capture bounded immutable input bundles with compiler/font/package/settings identities and tested missing-input handling.
 - [x] Build and package the matching HTML/PDF WASM compiler and Worker with persistent incremental state and explicit lifecycle.
 - [x] Add server-owned foreground worker leases, deadlines, stale/duplicate rejection and local fallback; connect base and dynamic compilation.
+- [x] Retry successful browser output rejected by Python content acceptance with the identical prepared native request; verify accepted output and bounded fallback history.
 - [x] Add versioned PWA shell/static caching and transactional complete accepted-document snapshots with offline recovery UI.
 - [x] Extend local math decoration and figure composition with measured output parity and reduced server requests.
 - [x] Add persistent revision-bound highlight intents, idempotent reconnect handling and conflict/reselection feedback through existing source validation.

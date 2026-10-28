@@ -51,6 +51,34 @@ class SourceHighlightTests(unittest.TestCase):
                 "prefix": passage["text"][:start][-64:],
                 "suffix": passage["text"][start + len(exact):][:64]}
 
+    def test_generated_reference_and_prose_highlight_the_verified_source(self):
+        source = ('#let s = (ref: name => [Equation (3.4.28)],)\n'
+                  'We verify the image series #(s.ref)("interval-images") before continuing.\n')
+        state = self.compile(source)
+        fragment = self.fragment(state, "the image series Equation (3.4.28) before continuing")
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
+        self.assertIn('#highlight[the image series #(s.ref)("interval-images") before continuing]',
+                      self.entry.read_text())
+
+    def test_mixed_prose_math_and_generated_reference_highlights_verified_source(self):
+        source = ('#import "@local/text-utils:0.1.2": highlighted\n'
+                  '#let s = (ref: name => [Equation (3.4.28)],)\n'
+                  'We verify $alpha + beta$ by the image series '
+                  '#(s.ref)("interval-images") before continuing.\n')
+        state = self.compile(source)
+        passage = next(part for part in state.bundle.passages if part["text"].startswith("We verify"))
+        exact = passage["text"]
+        math_end = exact.index(" by the image series")
+        fragment = self.fragment(state, exact)
+        fragment["segments"] = [
+            {"text": exact[:10]},
+            {"text": exact[10:math_end], "math": True, "complete": True},
+            {"text": exact[math_end:]},
+        ]
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
+        self.assertIn('#highlighted[We verify $alpha + beta$ by the image series '
+                      '#(s.ref)("interval-images") before continuing.]', self.entry.read_text())
+
     def test_literal_highlight_changes_source_and_preserves_permissions(self):
         state = self.compile("Before selected ordinary text after.")
         self.entry.chmod(0o640)
