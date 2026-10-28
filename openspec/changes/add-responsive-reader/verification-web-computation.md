@@ -86,3 +86,19 @@ persistence/idempotency and combined final verification remain unchecked tasks.
 Physical iPhone lifecycle/memory/thermal measurements remain unavailable. Desktop
 WebKit is not an iPhone measurement, and open-page computation does not imply
 background execution. The active goal remains incomplete.
+
+## Acceptance-aware native fallback (2026-10-27)
+
+Successful browser output that fails Python normalization/content acceptance or
+compiler-loss checks now retries natively with the same prepared request, including
+its fixed timestamp and explicit portable-font policy. The native output still has
+to pass the unchanged server gate; a failed retry does not replace the accepted
+document. Execution history records `browser-output-rejected` without retaining
+source content.
+
+- `test_execution.py`: 10 passed, including rejected-browser-output retry and the
+  no-retry path for accepted browser output.
+- `test_compiler_pool.py`: 18 passed, including bounded fallback-history evidence
+  and unchanged pinned diagnostics behavior.
+- Physical iPhone reproduction remains unverified; desktop benchmark memory numbers
+  do not establish iPhone memory availability or an out-of-memory cause.

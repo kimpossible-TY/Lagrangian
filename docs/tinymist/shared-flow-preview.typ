@@ -2,14 +2,14 @@
 #set text(size: 10pt)
 = Shared Flow preview in VS Code
 
-Use the running tinymist-flow service to read the same saved document on a phone
+Use the running Lagrangian service to read the same saved document on a phone
 and in VS Code. With Code Tunnel, the extension runs on the Mac hosting Flow;
 Windows displays the reader. Install an engine and extension containing these
 options before enabling them.
 
 == Configure
 
-Start the document in tinymist-flow, then set these workspace options:
+Start the document in Lagrangian, then set these workspace options:
 
 ```json
 {
@@ -28,7 +28,7 @@ Remote connections, including Code Tunnel, use VS Code port forwarding so the
 client does not need access to the phone's private HTTPS address. Local sessions
 use the profile's HTTPS address when available, otherwise port forwarding.
 The reader header includes an *Open in Browser* button using the same address. The extension reads profiles on the host from
-`~/Library/Application Support/tinymist-flow/profiles.json`, or `FLOW_DATA_DIR`
+`~/Library/Application Support/Lagrangian/profiles.json`, or `FLOW_DATA_DIR`
 when that host environment variable is set. Untrusted workspaces cannot use this
 integration. A stopped service produces an error; start it in Flow and retry.
 

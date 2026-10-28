@@ -87,7 +87,7 @@ export function selectFlowProfile(
   if (!matching.length) {
     throw new Error(
       l10nMsg(
-        "No Flow profile contains this document. Configure and start its project in tinymist-flow.",
+        "No Flow profile contains this document. Configure and start its project in Lagrangian.",
       ),
     );
   }
@@ -103,7 +103,7 @@ export function selectFlowProfile(
 
 async function resolveProfile(documentPath: string): Promise<FlowPreviewProfile> {
   const support =
-    process.env.FLOW_DATA_DIR || path.join(homedir(), "Library/Application Support/tinymist-flow");
+    process.env.FLOW_DATA_DIR || path.join(homedir(), "Library/Application Support/Lagrangian");
   const settings = JSON.parse(await readFile(path.join(support, "profiles.json"), "utf8"));
   const profiles = parseFlowProfiles(settings);
   const canonicalDocument = await realpath(documentPath);
@@ -337,7 +337,7 @@ export async function openSharedFlowPreview(
       } catch {
         throw new Error(
           l10nMsg(
-            "The shared Flow preview is unavailable. Start this project in tinymist-flow and try again.",
+            "The shared Flow preview is unavailable. Start this project in Lagrangian and try again.",
           ),
         );
       }

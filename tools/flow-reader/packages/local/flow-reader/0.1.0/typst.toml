@@ -2,6 +2,6 @@
 name = "flow-reader"
 version = "0.1.0"
 entrypoint = "lib.typ"
-authors = ["tinymist-flow contributors"]
+authors = ["Lagrangian contributors"]
 license = "Apache-2.0"
 description = "Semantic HTML profile for the Flow mobile reader"

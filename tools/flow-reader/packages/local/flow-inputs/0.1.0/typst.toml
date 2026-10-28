@@ -2,6 +2,6 @@
 name = "flow-inputs"
 version = "0.1.0"
 entrypoint = "lib.typ"
-authors = ["tinymist-flow contributors"]
+authors = ["Lagrangian contributors"]
 license = "Apache-2.0"
 description = "Private dynamic geometry transport for Flow Reader"

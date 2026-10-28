@@ -32,7 +32,7 @@ struct ProjectService {
       fonts: fileManager.fileExists(atPath: root.appendingPathComponent("fonts").path)
         ? ["fonts"] : [],
       packages: userHome.appendingPathComponent("Library/Application Support/typst/packages").path,
-      port: port, publicURL: "", label: FlowIdentity.bundleID + ".preview." + id)
+      port: port, publicURL: "", label: LagrangianIdentity.bundleID + ".preview." + id)
     var next = settings
     next.profiles.append(profile)
     next.selectedID = id

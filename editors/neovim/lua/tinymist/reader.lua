@@ -1,4 +1,4 @@
--- Optional editor integration for the existing tinymist-flow HTML Reader.
+-- Optional editor integration for Lagrangian's managed HTML Reader.
 local reader = {}
 local uv = vim.uv or vim.loop
 local config = {}

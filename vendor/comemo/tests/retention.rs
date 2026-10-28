@@ -1,4 +1,4 @@
-//! Regression coverage for tinymist-flow's opt-in retention and detached drops.
+//! Regression coverage for Lagrangian's opt-in retention and detached drops.
 
 use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

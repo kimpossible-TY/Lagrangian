@@ -2,11 +2,11 @@
 #set text(size: 10pt)
 #if sys.inputs.at("x-target", default: "pdf") != "md" [
   #align(center)[
-    #image("../../assets/branding/tinymist-flow.png", width: 25mm, alt: "tinymist-flow app icon")
+    #image("../../assets/branding/lagrangian.png", width: 25mm, alt: "Lagrangian app icon")
   ]
 ]
 
-= tinymist-flow user guide
+= Lagrangian user guide
 
 #set heading(numbering: "1.")
 
@@ -16,7 +16,7 @@ Read and review live Typst documents on your Mac, phone, or tablet. This guide c
 
 Use Flow to manage a document's live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see *First installation* below.
 
-+ Open `~/Applications/tinymist-flow.app`. The Flow menu appears in the menu bar.
++ Open `~/Applications/Lagrangian.app`. The Flow menu appears in the menu bar.
 + Click *Add Project* (프로젝트 추가…) and select the document's `.typ` entry file. The #link("examples/reading-demo.typ")[reading demo] is a small document for trying selection, highlights, references, and themes.
 + Check *Project folder* (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
 + Add any required font or package folders, then click *Save settings* (설정 저장).
@@ -135,10 +135,10 @@ a newer tap-only location in another reader does not hide the saved text.
 Flow writes selection records on the Mac running the preview. Codex needs a local skill or tool that reads the correct project's record and checks it against the current service and source. Flow does not install that reader automatically. List profile details, including each `focusFile`, with:
 
 ```sh
-~/Applications/tinymist-flow.app/Contents/MacOS/tinymist-flow --profiles
+~/Applications/Lagrangian.app/Contents/MacOS/Lagrangian --profiles
 ```
 
-Configure your reader for the selected project's `focusFile`, stored under `~/Library/Application Support/tinymist-flow/focus/<profile-id>.json`. It should identify the project, check the saved selection's status and source against the current document, and request a fresh selection if the context is stale. After a service restart, tap or select the passage again before asking about it.
+Configure your reader for the selected project's `focusFile`, stored under `~/Library/Application Support/Lagrangian/focus/<profile-id>.json`. It should identify the project, check the saved selection's status and source against the current document, and request a fresh selection if the context is stale. After a service restart, tap or select the passage again before asking about it.
 
 If your project is registered with the existing Tail Hosting focus reader, a local Codex tool or skill can invoke it with the project root:
 
@@ -251,9 +251,9 @@ The Git fallback considers staged, unstaged, and nonignored new source files use
 
 = Files and ownership
 
-- App and installed engine: `~/Applications/tinymist-flow.app`
-- Profiles and explicit selection records: `~/Library/Application Support/tinymist-flow/`
-- Logs: `~/Library/Logs/tinymist-flow/`
+- App and installed engine: `~/Applications/Lagrangian.app`
+- Profiles and explicit selection records: `~/Library/Application Support/Lagrangian/`
+- Logs: `~/Library/Logs/Lagrangian/`
 - Previous app bundles: Application Support's `releases/` folder
 - LaunchAgents: `~/Library/LaunchAgents/`
 
@@ -264,12 +264,12 @@ Flow manages engine execution, project profiles and preview lifecycle. Tail Host
 On a fresh Mac, use macOS 13 or newer with Git, the Swift compiler, Python 3, Node.js, Yarn, and the workspace Rust toolchain from `rust-toolchain.toml`. Build the maintained preview frontend and engine before installing:
 
 ```sh
-git clone https://github.com/kimpossible-TY/tinymist-flow.git
-cd tinymist-flow
+git clone https://github.com/kimpossible-TY/Lagrangian.git
+cd Lagrangian
 yarn install --immutable
 node scripts/build.mjs build:preview
 python3 scripts/flow-app.py build --build-engine --jobs 2
-python3 scripts/flow-app.py install dist/tinymist-flow.app
+python3 scripts/flow-app.py install dist/Lagrangian.app
 ```
 
 Open the installed app and follow *Open your first preview*. If macOS requests access to the document's folder, complete that prompt on the Mac.
@@ -278,57 +278,59 @@ If you already have a compatible `flow-engine` from a Flow bundle, package it wi
 
 ```sh
 python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine
-python3 scripts/flow-app.py install dist/tinymist-flow.app
+python3 scripts/flow-app.py install dist/Lagrangian.app
 ```
 
-External engine selection uses `--engine`, then `FLOW_ENGINE_PATH`, then the engine in the current installed app. A fresh machine without such an engine needs the native build above. The build checks required preview CLI support and copies the engine into the new app. AppKit and Foundation are the app runtime dependencies; packaging uses the Swift compiler and Python 3. The installed engine stays independent of build output.
+External engine selection uses `--engine`, then `FLOW_ENGINE_PATH`, then the engine in the current `Lagrangian.app` or former `tinymist-flow.app` installation. A fresh machine without such an engine needs the native build above. The build checks required preview CLI support and copies the engine into the new app. AppKit and Foundation are the app runtime dependencies; packaging uses the Swift compiler and Python 3. The installed engine stays independent of build output.
 
 The native engine build uses the `flow-release` profile with ThinLTO. Its target, profile, Rust flags and any LTO override are recorded in `engineBuild` alongside the engine version and hashes. Use a native ARM Python environment on Apple Silicon. The build copies its result into the staged app and preserves an existing output bundle if packaging fails.
 
 Managed previews compile the light and dark variants when viewers connect to them. Source updates are retained while a variant has no viewers; reconnecting requests its current document. Multiple viewers of the same palette share one compilation. The host classifies interactive CPU work and cache maintenance separately for macOS scheduling.
 
-The app keeps the upstream engine protocol and VS Code configuration names. For the installed engine, set `tinymist.serverPath` to the absolute path ending in `tinymist-flow.app/Contents/MacOS/flow-engine`. Remote VS Code settings must refer to the remote host's installed path.
+The app keeps the upstream engine protocol and VS Code configuration names. For the installed engine, set `tinymist.serverPath` to the absolute path ending in `Lagrangian.app/Contents/MacOS/flow-engine`. Remote VS Code settings must refer to the remote host's installed path.
 
 = Signing and macOS consent
 
-The app has a stable bundle ID: `io.github.kimpossible-ty.tinymist-flow`. Configure a persistent code-signing identity or set `FLOW_SIGN_IDENTITY`. Without either, the build is signed ad hoc. macOS can require Documents access again after an ad-hoc update. The app name and icon identify the request, but do not replace OS consent. Administrator authentication must be completed by the user when macOS requires it.
+The app bundle ID is `io.github.kimpossible-ty.lagrangian`. Configure a persistent code-signing identity or set `FLOW_SIGN_IDENTITY`. Without either, the build is signed ad hoc. Because macOS treats the renamed app as a new identity, it may request Documents access again; approve that request in macOS when prompted. The app name and icon identify the request, but do not replace OS consent. Administrator authentication must be completed by the user when macOS requires it.
 
 For repeated personal builds, create one code-signing certificate using Keychain Access's Certificate Assistant or use an existing Apple signing identity. Retain the certificate and its private key in Keychain, then save its identity once:
 
 ```sh
-python3 scripts/flow-app.py configure-signing --identity "tinymist-flow Local Signing"
+python3 scripts/flow-app.py configure-signing --identity "Lagrangian Local Signing"
 python3 scripts/flow-app.py build --version 0.1.9
 ```
 
 The first signing probe may ask for Keychain access. Complete authentication locally and select Always Allow for `/usr/bin/codesign` to reuse this key. Configuration is saved only after the probe succeeds; cancelling leaves the previous configuration intact.
 
-The saved configuration is `~/Library/Application Support/tinymist-flow/signing.json`; it contains the public certificate identifier, not a private key or password. Builds choose `--identity`, then `FLOW_SIGN_IDENTITY`, then the saved identity. A missing configured identity stops the build instead of falling back to ad-hoc signing. Both the app and bundled engine use the same certificate; the release manifest records its SHA-256 fingerprint, which bundle verification checks for both signatures. A personal self-signed certificate establishes a local identity; it does not provide Apple notarization or public distribution approval.
+The saved configuration is `~/Library/Application Support/Lagrangian/signing.json`; it contains the public certificate identifier, not a private key or password. The first Lagrangian launch migrates the former `tinymist-flow` support and log directories and leaves symlinks at the old locations for existing services. Builds choose `--identity`, then `FLOW_SIGN_IDENTITY`, then the saved identity. A missing configured identity stops the build instead of falling back to ad-hoc signing. Both the app and bundled engine use the same certificate; the release manifest records its SHA-256 fingerprint, which bundle verification checks for both signatures. A personal self-signed certificate establishes a local identity; it does not provide Apple notarization or public distribution approval.
 
 The initial switch from ad-hoc signing may require one new Documents approval. Keep the same certificate for later builds. Verify document delivery after a subsequent installed build before treating permission continuity as confirmed. Certificate replacement or loss may require consent again.
 
 = Update and recover
 
-To update an app that already exists at `~/Applications/tinymist-flow.app`, rebuild with its engine and install the new bundle:
+When moving from `tinymist-flow.app`, install `Lagrangian.app` alongside it. The installer does not delete the former app or stop its services. On first launch, Lagrangian moves the old Application Support and Logs directories to the new names and leaves compatibility symlinks so existing services can continue using their recorded paths. Do not remove the old app until you have opened Lagrangian, verified your profiles and previews, and disabled or updated its legacy login item. To transfer a running preview to Lagrangian, use its Restart control; this preserves the existing profile and LaunchAgent label while updating the executable path. macOS may request document access again because the bundle identifier changed.
+
+The former bundle remains available at `~/Applications/tinymist-flow.app` until you remove it yourself. After the first Lagrangian installation, subsequent updates use the recovery-aware replacement flow below:
 
 ```sh
 python3 scripts/flow-app.py build
-python3 scripts/flow-app.py install dist/tinymist-flow.app
+python3 scripts/flow-app.py install dist/Lagrangian.app
 ```
 
 This reuses the installed engine and its preview features. For engine or preview changes, rebuild the frontend with `node scripts/build.mjs build:preview` and pass `--build-engine --jobs 2` to the build. For a confirmed release, use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit with an explicit `--version`.
 
-The installer checks the bundle signature, engine hash and version before replacing anything, waits for running profiles to stop, backs up the old app, restarts those profiles, and checks HTTP startup. If startup fails, it restores the old bundle. Verify document rendering after installation; HTTP alone does not establish document health.
+The installer checks the bundle signature, engine hash and version before replacing anything, waits for managed profiles to stop, backs up the prior Lagrangian app, restarts those profiles, and checks HTTP startup. If startup fails, it restores the previous Lagrangian bundle. Verify document rendering after installation; HTTP alone does not establish document health.
 
 An ad-hoc update can wait for macOS Documents consent before opening its HTTP listener. To allow time for that prompt, defer live health verification during the single installation:
 
 ```sh
-python3 scripts/flow-app.py install dist/tinymist-flow.app --defer-health-check
+python3 scripts/flow-app.py install dist/Lagrangian.app --defer-health-check
 ```
 
 This option retains the new bundle while consent is pending. Bundle validation, backups, and recovery from replacement or service-control errors still apply. After completing consent, verify the running profile, its HTTP endpoint, and delivery of the rendered document. The installer reports that this live verification remains pending.
 
 ```sh
-python3 scripts/flow-app.py verify ~/Applications/tinymist-flow.app
+python3 scripts/flow-app.py verify ~/Applications/Lagrangian.app
 python3 scripts/flow-app.py rollback
 ```
 
@@ -352,4 +354,4 @@ The restore command reinstates the old registry, launcher and preview LaunchAgen
 
 Use this repository for the app, engine, preview frontend, branding, packaging, tests, and documentation. Keep app work in `apps/macos`, branding in `assets/branding`, and behavior contracts in OpenSpec. Package a compatible external engine or build the maintained engine sources. Both paths supply mobile selection, assistant focus, device themes, change restoration, selected text actions, and preview activity status. Small local fixes can stay lightweight. Preserve upstream copyright, Apache License 2.0, and applicable third-party notices.
 
-Test a replacement engine for compatibility before bundling it, and keep its version and hash alongside the Flow source revision. App work does not require rebuilding or maintaining the language server. The source repository is `kimpossible-TY/tinymist-flow`. Engine and preview implementations are maintained in this tree; the earlier independent repository is retained as `kimpossible-TY/tinymist-flow-archive`.
+Test a replacement engine for compatibility before bundling it, and keep its version and hash alongside the Lagrangian source revision. App work does not require rebuilding or maintaining the language server. The private production repository is `kimpossible-TY/Lagrangian`. Engine and preview implementations are maintained in this tree; Tinymist crate, CLI and protocol identifiers remain unchanged.

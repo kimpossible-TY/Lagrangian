@@ -1,6 +1,6 @@
-= Flow development guide
+= Lagrangian development guide
 
-This repository owns the native tinymist-flow app, project profiles, preview lifecycle, packaging, and documentation. Compilation and preview rendering are supplied by the maintained tinymist engine or a compatible external executable.
+This repository owns the native Lagrangian app, project profiles, preview lifecycle, packaging, and documentation. Compilation and preview rendering are supplied by the maintained tinymist engine or a compatible external executable.
 
 = Layout
 
@@ -11,7 +11,7 @@ This repository owns the native tinymist-flow app, project profiles, preview lif
 - `tests/flow-app/`: app and packaging tests.
 - `assets/branding/`: app branding.
 - `docs/tinymist/`: canonical Typst sources.
-- `openspec/changes/package-tinymist-flow-app/`: current app contracts and work items.
+- `openspec/changes/rename-product-lagrangian/`: current product identity and migration work.
 - `crates/`: engine implementations and supporting libraries.
 - `tools/reader-common/`: renderer-independent feature policy and state.
 - `tools/typst-preview-frontend/` and `tools/typst-dom/`: paged reader adapters and document rendering.
@@ -63,7 +63,7 @@ of SOLID compliance.
 
 = Engine input
 
-Keep engine executables outside the managed source tree. Packaging chooses `--engine` first, then `FLOW_ENGINE_PATH`, then `~/Applications/tinymist-flow.app/Contents/MacOS/flow-engine`. The build copies and signs the supplied executable; use `--build-engine --jobs 2` to build the engine from this workspace before packaging instead. The engine version and input hash identify the dependency independently of the Flow source commit.
+Keep engine executables outside the managed source tree. Packaging chooses `--engine` first, then `FLOW_ENGINE_PATH`, then `~/Applications/Lagrangian.app/Contents/MacOS/flow-engine` (falling back to the former `tinymist-flow.app` while migrating). The build copies and signs the supplied executable; use `--build-engine --jobs 2` to build the engine from this workspace before packaging instead. The engine version and input hash identify the dependency independently of the Lagrangian source commit.
 
 A compatible engine supports document preview, device theme variants, `TINYMIST_PREVIEW_FOCUS_FILE`, `TINYMIST_PREVIEW_CHANGE_FILE`, and `TINYMIST_ALLOWED_ORIGINS`. The CLI probe requires `--follow-system-theme`; retain the current installed Flow engine when preserving these features. A different engine needs compatibility verification before use.
 
@@ -80,7 +80,7 @@ macOS, the Swift compiler, and Python 3 are required for the app. AppKit and Fou
 ```sh
 python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine
 python3 -m unittest discover -s tests/flow-app -v
-python3 scripts/flow-app.py verify dist/tinymist-flow.app
+python3 scripts/flow-app.py verify dist/Lagrangian.app
 ```
 
 Tests compile the current Swift sources with warnings treated as errors. Test profiles and update-recovery fixtures use temporary directories. Optional packaging and preview integration tests use `FLOW_TEST_ENGINE` to select an external executable.
@@ -89,18 +89,73 @@ Build into `dist`; use the installer for an installed app. Keep installed engine
 
 = Engine and preview development
 
-Use the workspace Rust toolchain and Yarn dependencies for engine and preview work:
+Use Yarn dependencies for frontend work and the workspace Rust toolchain in the
+execution environment described under *Remote Rust builds*. With the formatter
+already installed, formatting checks can run locally:
 
 ```sh
 yarn install --immutable
 node scripts/build.mjs build:preview
-python3 scripts/flow-app.py build --build-engine --jobs 2
 cargo fmt --check --all
-cargo test -p typst-preview
 yarn workspace typst-preview-frontend test run
 ```
 
-The native engine build uses the locked `flow-release` profile with ThinLTO. The app manifest records its target, profile, Rust flags and any LTO override in addition to engine version and hashes. On Apple Silicon, use a native ARM Python environment.
+The native engine build uses the locked `flow-release` profile with ThinLTO.
+`python3 scripts/flow-app.py build --build-engine --jobs 2` compiles Rust and
+requires a macOS build host. Running it on the local Mac requires an explicit
+local-build instruction. The app manifest records its target, profile, Rust flags
+and any LTO override in addition to engine version and hashes. On Apple Silicon,
+use a native ARM Python environment.
+
+= Remote Rust builds
+
+Agent-run Rust compilation requires a Cloud environment explicitly configured
+for the private `kimpossible-TY/Lagrangian` repository. The former published
+`tinymist-flow` environment targeted a deleted repository and is not a valid
+source of truth unless it is reconfigured and its checkout is verified. A request
+to build or validate Rust authorizes delegating that work to a verified
+environment, inspecting its progress and retrieving its results. This policy includes Cargo build, check, test,
+Clippy, bench, doc, run and source-based tool installation, and scripts that
+invoke Rust compilation, including native engine and browser compiler builders.
+Local Rust compilation requires an explicit instruction to build locally for
+that run. If Cloud access is unavailable, report the missing connection and keep
+the build pending; do not silently fall back to the local Mac.
+
+Use connected task tools to find a matching Cloud build task for Lagrangian.
+Reuse it only when idle and safe to update; otherwise start an isolated task in
+the verified environment. Where task tools are unavailable, configure a Cloud
+environment for the private repository before dispatch. A local task can continue editing
+source and delegate just its Rust validation. These instructions guide agents;
+they do not redirect a manually entered terminal `cargo build` command.
+
+Before dispatch, identify the requested commit and any uncommitted source that
+must be included. Transfer that exact source through an authorized path. Do not
+commit or push unrelated changes, discard local changes, or claim that an older
+GitHub checkout validates newer local source. The Cloud task must verify its
+checkout SHA, preserve Rust toolchain and lockfile requirements, prepare assets
+with the saved environment setup, and run the smallest affected checks.
+
+In the prepared Cloud checkout, the basic engine verification is:
+
+```sh
+. /workspace/.cloud-tools/env.sh
+git rev-parse HEAD
+RUSTFLAGS=-Dwarnings cargo build --locked --bin tinymist
+RUSTFLAGS=-Dwarnings cargo test --locked -p tinymist-preview --lib
+RUSTFLAGS=-Dwarnings cargo test --locked -p tinymist-std --no-default-features --lib
+target/debug/tinymist --version
+```
+
+Retain dependency and build caches in Cloud. Await the actual job result and
+report the checked SHA, commands, exit statuses and test results; submission alone
+is not a successful build. Local Git operations, source inspection, preinstalled
+formatters, JavaScript checks and prebuilt Typst/typlite tools can still run
+locally without rebuilding Rust caches.
+
+The configured Cloud environment produces Linux binaries. A Linux build does
+not validate or supply a macOS executable. Native macOS artifacts require a
+remote macOS runner; local app packaging can reuse an existing compatible engine
+with `--engine` instead of `--build-engine`.
 
 = Documentation
 

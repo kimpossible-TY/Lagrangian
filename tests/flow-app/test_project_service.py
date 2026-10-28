@@ -96,6 +96,9 @@ class ProjectServices(unittest.TestCase):
     def test_settings_store_uses_isolated_paths_and_private_permissions(self):
         self.scenario('settings-store')
 
+    def test_legacy_data_migration_is_safe_idempotent_and_compatible(self):
+        self.scenario('data-migration')
+
 
 if __name__ == '__main__':
     unittest.main()

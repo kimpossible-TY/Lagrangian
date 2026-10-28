@@ -1,6 +1,7 @@
 {
   "core": [
     "AppEnvironment.swift",
+    "AppDataMigration.swift",
     "Profiles.swift",
     "SettingsStore.swift",
     "CommandRunner.swift",

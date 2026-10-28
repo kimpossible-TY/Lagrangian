@@ -143,7 +143,7 @@ enum ProjectServiceTests {
         created.id.range(of: "^project-[0-9a-f]{8}$", options: .regularExpression) != nil,
         "New projects must retain the UUID-based ID format")
       try require(
-        created.label == FlowIdentity.bundleID + ".preview." + created.id,
+        created.label == LagrangianIdentity.bundleID + ".preview." + created.id,
         "LaunchAgent labels must retain the app and project identity")
       try require(
         created.name == root.lastPathComponent && created.root == root.path
@@ -197,7 +197,7 @@ enum ProjectServiceTests {
     case "agent-update-delayed-exit", "agent-restart-delayed-exit", "agent-shutdown-timeout":
       let environment = AppEnvironment(
         variables: ["FLOW_DATA_DIR": root.appendingPathComponent("data").path],
-        userHome: root, executable: root.appendingPathComponent("tinymist-flow"))
+        userHome: root, executable: root.appendingPathComponent("Lagrangian"))
       var launchAgents = LaunchAgentService(environment: environment)
       let timesOut = CommandLine.arguments[1] == "agent-shutdown-timeout"
       launchAgents.shutdownTimeout = timesOut ? 0.02 : 1
@@ -269,7 +269,7 @@ enum ProjectServiceTests {
     case "agent-ownership":
       let environment = AppEnvironment(
         variables: ["FLOW_DATA_DIR": root.appendingPathComponent("data").path],
-        userHome: root, executable: root.appendingPathComponent("tinymist-flow"))
+        userHome: root, executable: root.appendingPathComponent("Lagrangian"))
       let launchAgents = LaunchAgentService(environment: environment)
       let plist = environment.agents.appendingPathComponent("\(profile.label).plist")
       try require(!launchAgents.managedByApp(profile), "A missing job must not be app-owned")
@@ -362,7 +362,7 @@ enum ProjectServiceTests {
           "FLOW_DATA_DIR": root.appendingPathComponent("data").path,
           "FLOW_LOG_DIR": root.appendingPathComponent("logs").path,
         ],
-        userHome: root, executable: root.appendingPathComponent("tinymist-flow")
+        userHome: root, executable: root.appendingPathComponent("Lagrangian")
       )
       let disk = SettingsStore(directory: environment.support)
       try require(try disk.load().profiles.isEmpty, "Missing settings must start empty")
@@ -378,6 +378,74 @@ enum ProjectServiceTests {
       try require(
         environment.agents == root.appendingPathComponent("Library/LaunchAgents"),
         "LaunchAgents must use the supplied home")
+    case "data-migration":
+      let home = root.appendingPathComponent("migration-home")
+      let oldSupport = home.appendingPathComponent(AppDataMigration.legacySupportPath)
+      let newSupport = home.appendingPathComponent("Library/Application Support/Lagrangian")
+      let oldLogs = home.appendingPathComponent(AppDataMigration.legacyLogPath)
+      let newLogs = home.appendingPathComponent("Library/Logs/Lagrangian")
+      try FileManager.default.createDirectory(at: oldSupport, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: oldLogs, withIntermediateDirectories: true)
+      try Data("profiles".utf8).write(to: oldSupport.appendingPathComponent("profiles.json"))
+      try Data("log".utf8).write(to: oldLogs.appendingPathComponent("service.log"))
+
+      try AppDataMigration.migrateDefaults(home: home, variables: [:])
+      try require(
+        try String(contentsOf: newSupport.appendingPathComponent("profiles.json"), encoding: .utf8)
+          == "profiles",
+        "Support files must move intact")
+      try require(
+        try String(contentsOf: newLogs.appendingPathComponent("service.log"), encoding: .utf8)
+          == "log",
+        "Log files must move intact")
+      try require(
+        try FileManager.default.destinationOfSymbolicLink(atPath: oldSupport.path)
+          == newSupport.path,
+        "The legacy support path must remain a compatibility symlink")
+      try require(
+        try FileManager.default.destinationOfSymbolicLink(atPath: oldLogs.path) == newLogs.path,
+        "The legacy log path must remain a compatibility symlink")
+      try AppDataMigration.migrateDefaults(home: home, variables: [:])
+
+      let overrideHome = root.appendingPathComponent("override-home")
+      let overrideLegacy = overrideHome.appendingPathComponent(AppDataMigration.legacySupportPath)
+      try FileManager.default.createDirectory(at: overrideLegacy, withIntermediateDirectories: true)
+      try AppDataMigration.migrateDefaults(
+        home: overrideHome, variables: ["FLOW_DATA_DIR": root.appendingPathComponent("custom").path])
+      try require(
+        FileManager.default.fileExists(atPath: overrideLegacy.path),
+        "Explicit data overrides must leave the default directory untouched")
+
+      let collisionHome = root.appendingPathComponent("collision-home")
+      let collisionOld = collisionHome.appendingPathComponent(AppDataMigration.legacySupportPath)
+      let collisionNew = collisionHome.appendingPathComponent("Library/Application Support/Lagrangian")
+      let collisionOldLogs = collisionHome.appendingPathComponent(AppDataMigration.legacyLogPath)
+      let collisionNewLogs = collisionHome.appendingPathComponent("Library/Logs/Lagrangian")
+      try FileManager.default.createDirectory(at: collisionOld, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: collisionNew, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: collisionOldLogs, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: collisionNewLogs, withIntermediateDirectories: true)
+      try Data("old".utf8).write(to: collisionOld.appendingPathComponent("old.txt"))
+      try Data("new".utf8).write(to: collisionNew.appendingPathComponent("new.txt"))
+      try Data("old log".utf8).write(to: collisionOldLogs.appendingPathComponent("old.log"))
+      try Data("new log".utf8).write(to: collisionNewLogs.appendingPathComponent("new.log"))
+      var collisionError: FlowError?
+      do {
+        try AppDataMigration.migrateDefaults(home: collisionHome, variables: [:])
+      } catch let error as FlowError {
+        collisionError = error
+      }
+      try require(collisionError != nil, "Conflicting data directories must fail")
+      try require(
+        collisionError!.message.contains(collisionOld.path)
+          && collisionError!.message.contains(collisionNew.path),
+        "The collision error must identify both paths")
+      try require(
+        FileManager.default.fileExists(atPath: collisionOld.appendingPathComponent("old.txt").path)
+          && FileManager.default.fileExists(atPath: collisionNew.appendingPathComponent("new.txt").path)
+          && FileManager.default.fileExists(atPath: collisionOldLogs.appendingPathComponent("old.log").path)
+          && FileManager.default.fileExists(atPath: collisionNewLogs.appendingPathComponent("new.log").path),
+        "A collision must leave both directories unchanged")
     default:
       throw FlowError(message: "Unknown test scenario")
     }

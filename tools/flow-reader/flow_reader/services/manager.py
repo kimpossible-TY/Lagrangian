@@ -17,8 +17,9 @@ from urllib.request import Request, urlopen
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.compiler.project import document_identity
 from flow_reader.services.editor_sync import EditorAttachments
-DEFAULT_DATA = Path.home() / "Library/Application Support/tinymist-flow/reader"
-LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
+DEFAULT_DATA = Path.home() / "Library/Application Support/Lagrangian/reader"
+LABEL_PREFIX = "io.github.kimpossible-ty.lagrangian.reader."
+LEGACY_LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
 
 
 def run(arguments, *, check=True):
@@ -124,7 +125,7 @@ class ReaderManager:
             profile = {**parent, "id": identifier, "parentID": parent_id,
                        "name": parent["name"] + " · Reader", "port": port,
                        "focusFile": str(focus_file.resolve()),
-                       "label": LABEL_PREFIX + identifier, "publicURL": url,
+                       "label": self.reader_label(identifier), "publicURL": url,
                        "originalURL": parent.get("publicURL") or f"http://127.0.0.1:{parent['port']}/",
                        "development": bool(service.get("development", False)),
                        "semanticCanvases": semantic_canvases,
@@ -135,6 +136,12 @@ class ReaderManager:
             ids.add(identifier)
             ports.add(port)
         return result
+
+    def reader_label(self, identifier):
+        """Retain a legacy launchd identity only when its persisted job exists."""
+        legacy = self.agents / (LEGACY_LABEL_PREFIX + identifier + ".plist")
+        prefix = LEGACY_LABEL_PREFIX if legacy.exists() else LABEL_PREFIX
+        return prefix + identifier
 
     def profile(self, identifier):
         return next((profile for profile in self.profiles() if profile["id"] == identifier), None)
@@ -239,7 +246,7 @@ class ReaderManager:
 
     def agent(self, profile):
         return {"Label": profile["label"], "ProgramArguments": [str(self.launcher), "--serve", profile["id"]],
-                "AssociatedBundleIdentifiers": ["io.github.kimpossible-ty.tinymist-flow"],
+                "AssociatedBundleIdentifiers": ["io.github.kimpossible-ty.lagrangian"],
                 "WorkingDirectory": str(self.data), "RunAtLoad": True, "KeepAlive": True,
                 "ThrottleInterval": 10, "ProcessType": "Interactive",
                 "EnvironmentVariables": {"FLOW_READER_DATA_DIR": str(self.data), "PYTHONDONTWRITEBYTECODE": "1"},

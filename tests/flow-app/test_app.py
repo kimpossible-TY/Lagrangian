@@ -19,7 +19,7 @@ class Profiles(unittest.TestCase):
     def setUpClass(cls):
         if sys.platform != 'darwin': raise unittest.SkipTest('Native app tests require macOS')
         temp = tempfile.TemporaryDirectory(prefix='flow-app-tests-'); cls.addClassCleanup(temp.cleanup)
-        cls.app = Path(temp.name) / 'tinymist-flow'
+        cls.app = Path(temp.name) / 'Lagrangian'
         subprocess.run(['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
                         *package.swift_sources(), '-o', cls.app], check=True)
     def setUp(self):
@@ -84,7 +84,7 @@ class EngineInput(unittest.TestCase):
             self.assertEqual(package.resolve_engine()[0], binary)
 
     def test_invalid_engine_keeps_previous_output(self):
-        output = self.root / 'tinymist-flow.app'; output.mkdir(); marker = output / 'previous'; marker.write_text('preserved')
+        output = self.root / 'Lagrangian.app'; output.mkdir(); marker = output / 'previous'; marker.write_text('preserved')
         args = argparse.Namespace(engine=self.root / 'missing', output=output)
         with self.assertRaisesRegex(ValueError, 'external engine'): package.build(args)
         self.assertEqual(marker.read_text(), 'preserved')
@@ -94,7 +94,7 @@ class EngineInput(unittest.TestCase):
         self.assertEqual(marker.read_text(), 'preserved')
 
     def test_failed_bundle_build_keeps_previous_output(self):
-        output = self.root / 'tinymist-flow.app'; output.mkdir(); marker = output / 'previous'; marker.write_text('preserved')
+        output = self.root / 'Lagrangian.app'; output.mkdir(); marker = output / 'previous'; marker.write_text('preserved')
         args = argparse.Namespace(engine=self.engine, output=output)
         with patch.object(package, 'resolve_engine', return_value=(self.engine, 'tinymist test')), patch.object(package, 'build_bundle', side_effect=RuntimeError('build failed')):
             with self.assertRaisesRegex(RuntimeError, 'build failed'): package.build(args)
@@ -124,7 +124,7 @@ class Signing(unittest.TestCase):
 
     def test_missing_identity_stops_build_without_replacing_output(self):
         self.save()
-        output = self.root / 'tinymist-flow.app'; output.mkdir()
+        output = self.root / 'Lagrangian.app'; output.mkdir()
         marker = output / 'previous'; marker.write_text('preserved')
         args = argparse.Namespace(engine=self.root / 'engine', output=output, identity=None)
         with patch.object(package, 'resolve_engine', return_value=(args.engine, 'fixture')), \
@@ -161,8 +161,8 @@ class Signing(unittest.TestCase):
         self.assertEqual((self.root / 'signing.json').read_bytes(), original)
 
     def test_verification_rejects_other_signer_before_running_executable(self):
-        app = self.root / 'tinymist-flow.app'; resources = app / 'Contents/Resources'; resources.mkdir(parents=True)
-        (app / 'Contents/Info.plist').write_bytes(package.plistlib.dumps({'CFBundleIdentifier': package.APP_ID, 'CFBundleExecutable': 'tinymist-flow'}))
+        app = self.root / 'Lagrangian.app'; resources = app / 'Contents/Resources'; resources.mkdir(parents=True)
+        (app / 'Contents/Info.plist').write_bytes(package.plistlib.dumps({'CFBundleIdentifier': package.APP_ID, 'CFBundleExecutable': 'Lagrangian'}))
         (resources / 'release.json').write_text(json.dumps({'signingCertificateSHA256': 'expected'}))
         for certificates in ([{'sha256': 'other'}], [{'sha256': 'expected'}, None]):
             with self.subTest(certificates=certificates), patch.object(package, 'run'), \
@@ -178,7 +178,7 @@ class InstallRecovery(unittest.TestCase):
             self.assertEqual(package.running(Path('/fake/app')), ['test'])
     def test_failed_update_restores_previous_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); old = root / 'Applications/tinymist-flow.app'; incoming = root / 'new/tinymist-flow.app'
+            root = Path(tmp); old = root / 'Applications/Lagrangian.app'; incoming = root / 'new/Lagrangian.app'
             for path, text in [(old, 'old'), (incoming, 'new')]:
                 package.executable(path).parent.mkdir(parents=True); package.executable(path).write_text(text)
             settings = root / 'data/profiles.json'; settings.parent.mkdir(); settings.write_text('preserved')
@@ -188,7 +188,7 @@ class InstallRecovery(unittest.TestCase):
             self.assertEqual(settings.read_text(), 'preserved')
     def test_update_waits_for_asynchronous_stop_before_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); old = root / 'Applications/tinymist-flow.app'; incoming = root / 'new/tinymist-flow.app'
+            root = Path(tmp); old = root / 'Applications/Lagrangian.app'; incoming = root / 'new/Lagrangian.app'
             for path, text in [(old, 'old'), (incoming, 'new')]:
                 package.executable(path).parent.mkdir(parents=True); package.executable(path).write_text(text)
             states = iter([True, False])
@@ -210,7 +210,7 @@ class InstallRecovery(unittest.TestCase):
                 package.wait_stopped(Path('/fake/app'), ['test'])
     def test_successful_update_keeps_recovery_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); old = root / 'Applications/tinymist-flow.app'; incoming = root / 'new/tinymist-flow.app'
+            root = Path(tmp); old = root / 'Applications/Lagrangian.app'; incoming = root / 'new/Lagrangian.app'
             for path, text in [(old, 'old'), (incoming, 'new')]:
                 package.executable(path).parent.mkdir(parents=True); package.executable(path).write_text(text)
             with patch.object(package, 'validate', return_value={'version': 'test'}), patch.object(package, 'running', return_value=[]):
@@ -222,7 +222,7 @@ class InstallRecovery(unittest.TestCase):
 class NativeBuild(unittest.TestCase):
     def test_native_packaging_failure_preserves_previous_output(self):
         with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / 'tinymist-flow.app'; output.mkdir()
+            output = Path(tmp) / 'Lagrangian.app'; output.mkdir()
             marker = output / 'previous'; marker.write_text('preserved')
             engine = Path(tmp) / 'native-engine'
             metadata = {'profile': 'flow-release', 'target': 'aarch64-apple-darwin'}

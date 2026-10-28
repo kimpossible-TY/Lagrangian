@@ -37,12 +37,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let activity = NSProgressIndicator()
   var controls: [Selector: NSButton] = [:]
   var fields: [String: NSTextField] = [:]
-  let login = NSButton(checkboxWithTitle: "로그인 시 tinymist-flow 앱 열기", target: nil, action: nil)
+  let login = NSButton(checkboxWithTitle: "로그인 시 Lagrangian 앱 열기", target: nil, action: nil)
   var active: Profile? { settings.profiles.first { $0.id == settings.selectedID } }
   func applicationDidFinishLaunching(_ note: Notification) {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     statusItem.button?.image = NSImage(
-      systemSymbolName: "wind", accessibilityDescription: "tinymist-flow")
+      systemSymbolName: "wind", accessibilityDescription: "Lagrangian")
     statusItem.button?.title = " Flow"
     statusItem.button?.imagePosition = .imageLeading
     buildMenu()
@@ -80,7 +80,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   func buildMenu() {
     let menu = NSMenu()
     for (title, selector, key) in [
-      ("tinymist-flow 열기…", #selector(showWindow), ","),
+      ("Lagrangian 열기…", #selector(showWindow), ","),
       ("읽기 시작", #selector(openPreview), "o"),
       ("선택한 프로젝트 시작", #selector(start), ""),
       ("선택한 프로젝트 중지", #selector(stop), ""),
@@ -120,7 +120,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 700, height: 720),
       styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-    window.title = FlowIdentity.appName
+    window.title = LagrangianIdentity.appName
     window.isReleasedWhenClosed = false
     window.center()
     let content = NSStackView()
@@ -139,7 +139,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     icon.image = NSImage(named: NSImage.applicationIconName)
     icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
     icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
-    let title = NSTextField(labelWithString: "tinymist-flow")
+    let title = NSTextField(labelWithString: LagrangianIdentity.appName)
     title.font = .systemFont(ofSize: 26, weight: .semibold)
     let sub = NSTextField(labelWithString: "문서에서 프리뷰까지, 한 흐름으로.")
     sub.textColor = .secondaryLabelColor
@@ -421,7 +421,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   @objc func about() {
     NSApp.orderFrontStandardAboutPanel(options: [
-      .applicationName: FlowIdentity.appName,
+      .applicationName: LagrangianIdentity.appName,
       .credits: NSAttributedString(
         string:
           "Personal Typst workspace. Powered by Tinymist and Typst. Apache License 2.0.\nInstalled releases and recovery: see the bundled User Guide."

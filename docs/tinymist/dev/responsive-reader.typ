@@ -40,7 +40,7 @@ explicitly deferred by the user. Offline reload is not implemented.
 The Reader serves Flow's blue document-ribbon branding as a multi-size ICO
 (16–64px), a 64px PNG favicon, and an opaque 180px Apple touch icon. Its HTML
 declares all three with a versioned URL to refresh existing browser icon caches.
-Regenerate these assets from `assets/branding/tinymist-flow.png` using
+Regenerate these assets from `assets/branding/lagrangian.png` using
 `python3 tools/flow-reader/generate-icons.py` (requires Pillow).
 
 == Reading appearance

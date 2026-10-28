@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  Product: tinymist-flow, a native macOS app built with Swift/AppKit and Python packaging.
+  Product: Lagrangian, a native macOS app built with Swift/AppKit and Python packaging.
   Scope: native app, maintained Rust engine, paged/HTML readers, editor integrations, packaging, branding, tests and documentation.
   Compilation and rendering use the maintained engine or a compatible external executable. Shared reader policy belongs in tools/reader-common; renderer geometry and transport remain concrete.
   Preserve existing preview CLI and environment contracts and Apache License 2.0 notices.

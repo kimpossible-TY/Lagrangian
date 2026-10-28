@@ -14,7 +14,12 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from flow_reader.services.manager import ReaderManager, main
+from flow_reader.services.manager import (
+    LEGACY_LABEL_PREFIX,
+    LABEL_PREFIX,
+    ReaderManager,
+    main,
+)
 from flow_reader.compiler.project import document_identity
 
 
@@ -212,6 +217,15 @@ class ReaderManagerTests(unittest.TestCase):
         self.assertTrue(agent["KeepAlive"])
         self.assertEqual(agent["ProgramArguments"], [str(self.manager.launcher), "--serve", "parent-reader"])
         self.assertNotEqual(agent["Label"], self.parent["label"])
+        self.assertEqual(agent["AssociatedBundleIdentifiers"], ["io.github.kimpossible-ty.lagrangian"])
+
+    def test_reader_label_uses_new_identity_unless_legacy_job_exists(self):
+        profile = self.resolve()
+        self.assertEqual(profile["label"], LABEL_PREFIX + "parent-reader")
+        legacy_job = self.manager.agents / (LEGACY_LABEL_PREFIX + "parent-reader.plist")
+        legacy_job.parent.mkdir(parents=True, exist_ok=True)
+        legacy_job.touch()
+        self.assertEqual(self.resolve()["label"], LEGACY_LABEL_PREFIX + "parent-reader")
 
     def test_native_figure_setting_is_reader_only_and_boolean(self):
         self.config["services"][0]["semanticCanvases"] = True
@@ -250,7 +264,7 @@ class ReaderManagerTests(unittest.TestCase):
         arguments = self.manager.arguments(profile)
         self.assertEqual(arguments[arguments.index('--engine') + 1], sys.executable)
         del self.config['engine']
-        flow = self.root / 'app' / 'tinymist-flow'
+        flow = self.root / 'app' / 'Lagrangian'
         flow.parent.mkdir()
         flow.write_text('fixture')
         flow.chmod(0o755)

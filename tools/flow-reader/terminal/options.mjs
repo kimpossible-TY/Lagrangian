@@ -6,7 +6,7 @@ import path from "node:path";
 export const readerControls =
   "drag select · h highlight · s strike · u undo · X clear · g code · j/k scroll · q quit";
 
-export const help = `tinymist-flow HTML Reader in a native terminal pane
+export const help = `Lagrangian HTML Reader in a native terminal pane
 
 node tools/flow-reader/terminal.mjs --url http://127.0.0.1:PORT/
 node tools/flow-reader/terminal.mjs --root PROJECT --entry main.typ
@@ -128,10 +128,10 @@ export function profileDefaults(options) {
   const digest = createHash("sha256").update(projectIdentity(options)).digest();
   const base =
     process.platform === "darwin"
-      ? path.join(homedir(), "Library", "Application Support", "tinymist-flow", "terminal")
+      ? path.join(homedir(), "Library", "Application Support", "Lagrangian", "terminal")
       : path.join(
           process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"),
-          "tinymist-flow",
+          "tinymist-flow", // Keep the XDG browser profile stable across product renames.
           "terminal",
         );
   const directory = path.join(base, digest.toString("hex").slice(0, 20));

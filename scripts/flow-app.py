@@ -19,9 +19,14 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_ID = 'io.github.kimpossible-ty.tinymist-flow'
-DEFAULT_APP = Path.home() / 'Applications/tinymist-flow.app'
-DATA = Path.home() / 'Library/Application Support/tinymist-flow'
+APP_ID = 'io.github.kimpossible-ty.lagrangian'
+APP_NAME = 'Lagrangian'
+APP_BUNDLE = 'Lagrangian.app'
+APP_EXECUTABLE = 'Lagrangian'
+DEFAULT_APP = Path.home() / 'Applications/Lagrangian.app'
+LEGACY_APP = Path.home() / 'Applications/tinymist-flow.app'
+DATA = Path.home() / 'Library/Application Support/Lagrangian'
+LEGACY_DATA = Path.home() / 'Library/Application Support/tinymist-flow'
 
 def swift_sources(include_app=True):
     """Use one explicit source manifest for app builds and isolated core tests."""
@@ -50,7 +55,11 @@ def write_json(path, value):
         Path(tmp).unlink(missing_ok=True)
 
 def executable(app):
-    return app / 'Contents/MacOS/tinymist-flow'
+    return app / 'Contents/MacOS' / APP_EXECUTABLE
+
+def signing_data_directory():
+    """Use the existing data root until the new app migrates it on first launch."""
+    return DATA if DATA.exists() or not LEGACY_DATA.exists() else LEGACY_DATA
 
 def signing_identities():
     output = capture(['/usr/bin/security', 'find-identity', '-p', 'codesigning'])
@@ -59,7 +68,7 @@ def signing_identities():
 def resolve_signing_identity(requested=None):
     override = requested or os.environ.get('FLOW_SIGN_IDENTITY')
     if override: return override
-    path = DATA / 'signing.json'
+    path = signing_data_directory() / 'signing.json'
     if not path.exists(): return '-'
     config = json.loads(path.read_text())
     if not isinstance(config, dict):
@@ -96,15 +105,15 @@ def configure_signing(args):
         certificate = signing_certificate(probe)
         if not certificate or certificate['sha1'] != identity:
             raise ValueError('Signing probe did not use the selected certificate')
-    path = DATA / 'signing.json'
+    path = signing_data_directory() / 'signing.json'
     write_json(path, {'schemaVersion': 1, 'identity': identity, 'name': identities[identity]})
     path.chmod(0o600)
     print('Signing identity saved: ' + identities[identity] + ' (' + identity + ')')
 
 def validate(app):
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-    if info.get('CFBundleIdentifier') != APP_ID or info.get('CFBundleExecutable') != 'tinymist-flow':
-        raise ValueError('Not a tinymist-flow app bundle')
+    if info.get('CFBundleIdentifier') != APP_ID or info.get('CFBundleExecutable') != APP_EXECUTABLE:
+        raise ValueError('Not a Lagrangian app bundle')
     run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app], capture_output=True)
     manifest = json.loads((app / 'Contents/Resources/release.json').read_text())
     certificate_hash = manifest.get('signingCertificateSHA256')
@@ -115,13 +124,17 @@ def validate(app):
                 raise ValueError('Signing certificate mismatch: ' + str(path))
     if digest(app / 'Contents/MacOS/flow-engine') != manifest['engineSHA256']:
         raise ValueError('Bundled engine hash mismatch')
-    if capture([executable(app), '--version']) != 'tinymist-flow ' + manifest['version']:
+    if capture([executable(app), '--version']) != APP_NAME + ' ' + manifest['version']:
         raise ValueError('Version mismatch')
     run([app / 'Contents/MacOS/flow-engine', '--version'], stdout=subprocess.DEVNULL)
     return manifest
 
 def resolve_engine(requested=None):
-    selected = requested or os.environ.get('FLOW_ENGINE_PATH') or DEFAULT_APP / 'Contents/MacOS/flow-engine'
+    selected = requested or os.environ.get('FLOW_ENGINE_PATH')
+    if selected is None:
+        preferred = DEFAULT_APP / 'Contents/MacOS/flow-engine'
+        legacy = LEGACY_APP / 'Contents/MacOS/flow-engine'
+        selected = preferred if preferred.is_file() or not legacy.is_file() else legacy
     engine = Path(selected).expanduser().resolve()
     if not engine.is_file() or not os.access(engine, os.X_OK):
         raise ValueError('A compatible external engine is required. Pass --engine /path/to/flow-engine '
@@ -138,7 +151,7 @@ def build(args):
         args.engine, engine_build = build_native_engine(args.jobs)
     engine, engine_version = resolve_engine(args.engine)
     app = args.output.expanduser().resolve()
-    if app.name != 'tinymist-flow.app': raise ValueError('Unexpected output app name')
+    if app.name != APP_BUNDLE: raise ValueError('Unexpected output app name')
     app.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.flow-build-', dir=app.parent) as tmp:
         staged = Path(tmp) / app.name
@@ -155,25 +168,25 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     engine_input_hash = digest(engine)
     shutil.copy2(engine, mac / 'flow-engine')
     run(['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors', '-O',
-         *swift_sources(), '-o', mac / 'tinymist-flow'])
+         *swift_sources(), '-o', mac / APP_EXECUTABLE])
     with tempfile.TemporaryDirectory() as tmp:
         iconset = Path(tmp) / 'Flow.iconset'; iconset.mkdir()
         for size in (16, 32, 128, 256, 512):
             for scale in (1, 2):
                 filename = f'icon_{size}x{size}' + ('@2x' if scale == 2 else '') + '.png'
-                run(['/usr/bin/sips', '-z', size * scale, size * scale, ROOT / 'assets/branding/tinymist-flow.png', '--out', iconset / filename], stdout=subprocess.DEVNULL)
+                run(['/usr/bin/sips', '-z', size * scale, size * scale, ROOT / 'assets/branding/lagrangian.png', '--out', iconset / filename], stdout=subprocess.DEVNULL)
         run(['/usr/bin/iconutil', '-c', 'icns', iconset, '-o', resources / 'Flow.icns'])
     version = args.version
     if not __import__('re').fullmatch(r'\d+\.\d+\.\d+', version): raise ValueError('Version must be X.Y.Z')
     info = {
-        'CFBundleIdentifier': APP_ID, 'CFBundleName': 'tinymist-flow', 'CFBundleDisplayName': 'tinymist-flow',
-        'CFBundleExecutable': 'tinymist-flow', 'CFBundleIconFile': 'Flow', 'CFBundlePackageType': 'APPL',
+        'CFBundleIdentifier': APP_ID, 'CFBundleName': APP_NAME, 'CFBundleDisplayName': APP_NAME,
+        'CFBundleExecutable': APP_EXECUTABLE, 'CFBundleIconFile': 'Flow', 'CFBundlePackageType': 'APPL',
         'CFBundleShortVersionString': version, 'CFBundleVersion': version, 'LSMinimumSystemVersion': '13.0',
         'LSUIElement': True, 'NSHighResolutionCapable': True,
         'NSDocumentsFolderUsageDescription': '선택한 Typst 프로젝트와 글꼴을 읽고 실시간 프리뷰를 제공합니다.',
         'NSDesktopFolderUsageDescription': '선택한 Typst 프로젝트를 읽고 실시간 프리뷰를 제공합니다.',
         'NSDownloadsFolderUsageDescription': '선택한 Typst 프로젝트를 읽고 실시간 프리뷰를 제공합니다.',
-        'NSHumanReadableCopyright': 'Tinymist contributors and tinymist-flow contributors. Apache License 2.0.',
+        'NSHumanReadableCopyright': 'Tinymist contributors and Lagrangian contributors. Apache License 2.0.',
     }
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     shutil.copy2(ROOT / 'LICENSE', resources / 'LICENSE')
@@ -265,7 +278,14 @@ def healthy(app, ids, timeout=30):
         if pending: time.sleep(.5)
     if pending: raise RuntimeError('Preview startup failed; inspect Documents consent and logs: ' + ', '.join(pending))
 
-def replace_app(source, destination, data_dir=DATA, check_health=True):
+def replace_app(source, destination, data_dir=None, check_health=True):
+    if data_dir is None:
+        # Validate before touching user data, then let the candidate's native,
+        # tested migration owner move legacy directories before recovery files
+        # create the new data root.
+        validate(source)
+        run([executable(source), '--migrate-data'])
+        data_dir = DATA
     data_dir.mkdir(parents=True, exist_ok=True)
     with (data_dir / 'install.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -277,9 +297,9 @@ def _replace_app(source, destination, data_dir, check_health):
     destination.parent.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     releases = data_dir / 'releases'; releases.mkdir(parents=True, exist_ok=True)
-    backup = releases / stamp / 'tinymist-flow.app'
+    backup = releases / stamp / APP_BUNDLE
     active = running(destination)
-    stage = Path(tempfile.mkdtemp(prefix='.flow-install-', dir=destination.parent)) / 'tinymist-flow.app'
+    stage = Path(tempfile.mkdtemp(prefix='.lagrangian-install-', dir=destination.parent)) / APP_BUNDLE
     shutil.copytree(source, stage, symlinks=True)
     validate(stage)
     stopped = []
@@ -375,7 +395,7 @@ def restore_hosting(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest='command', required=True)
-    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed app by default)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/tinymist-flow.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Signing identity (FLOW_SIGN_IDENTITY or saved configure-signing identity by default)'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2, help='Cargo workers when building the engine'); b.set_defaults(func=build)
+    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
     s = sub.add_parser('configure-signing'); s.add_argument('--identity', required=True, help='Existing Keychain code-signing certificate name or SHA-1'); s.set_defaults(func=configure_signing)
     i = sub.add_parser('install'); i.add_argument('source', type=Path); i.add_argument('--app', type=Path, default=DEFAULT_APP); i.add_argument('--defer-health-check', action='store_true', help='Defer the live HTTP deadline while macOS consent is pending; keep bundle validation and backup'); i.set_defaults(func=install)
     r = sub.add_parser('rollback'); r.add_argument('--app', type=Path, default=DEFAULT_APP); r.set_defaults(func=rollback)

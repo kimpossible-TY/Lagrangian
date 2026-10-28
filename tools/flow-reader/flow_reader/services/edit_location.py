@@ -19,7 +19,7 @@ def resolve_engine(requested=None):
     """Resolve the source-history executable separately from the HTML compiler."""
     selected = requested or os.environ.get("FLOW_ENGINE_PATH")
     candidates = ([selected] if selected else [
-        Path.home() / "Applications/tinymist-flow.app/Contents/MacOS/flow-engine", "tinymist"])
+            Path.home() / "Applications/Lagrangian.app/Contents/MacOS/flow-engine", "tinymist"])
     for candidate in candidates:
         executable = shutil.which(str(Path(candidate).expanduser()))
         if executable:
@@ -48,7 +48,7 @@ class SharedEditLocation:
             self.discovery = "invalid"
         elif self.path is None:
             support = Path(data or os.environ.get("FLOW_DATA_DIR") or
-                           Path.home() / "Library/Application Support/tinymist-flow")
+                           Path.home() / "Library/Application Support/Lagrangian")
             try:
                 settings = read_json(support / "profiles.json")
                 if settings.get("schemaVersion") != 1 or not isinstance(settings.get("profiles"), list):

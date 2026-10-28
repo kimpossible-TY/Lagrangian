@@ -63,7 +63,7 @@ class ExternalEngineBundle(unittest.TestCase):
         # The external engine treats /var and /private/var as different project roots.
         temp = tempfile.TemporaryDirectory(prefix='.flow-bundle-tests-', dir=Path.home()); cls.addClassCleanup(temp.cleanup)
         cls.root = Path(temp.name).resolve()
-        cls.app = cls.root / 'built/tinymist-flow.app'
+        cls.app = cls.root / 'built/Lagrangian.app'
         cls.engine = Path(os.environ['FLOW_TEST_ENGINE']).expanduser().resolve()
         cls.input_hash = package.digest(cls.engine)
         cls.env = {'FLOW_DATA_DIR': str(cls.root / 'data'), 'FLOW_LOG_DIR': str(cls.root / 'logs')}
@@ -76,7 +76,7 @@ class ExternalEngineBundle(unittest.TestCase):
             self.assertEqual(manifest['engineSource'], 'external')
             self.assertEqual(manifest['engineInputSHA256'], self.input_hash)
             self.assertEqual(manifest['engineVersion'], package.capture([self.engine, '--version']))
-            destination = self.root / 'installed/tinymist-flow.app'
+            destination = self.root / 'installed/Lagrangian.app'
             package.replace_app(self.app, destination, self.root / 'install-data')
             self.assertEqual(package.validate(destination)['engineSHA256'], manifest['engineSHA256'])
         self.assertEqual(package.digest(self.engine), self.input_hash)
@@ -120,7 +120,7 @@ class ExternalEngineBundle(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('FLOW_TEST_SIGN_IDENTITY'), 'Set FLOW_TEST_SIGN_IDENTITY for persistent-certificate checks')
     def test_changed_bundle_reuses_saved_identity_and_designated_requirements(self):
         identity = os.environ['FLOW_TEST_SIGN_IDENTITY']
-        changed = self.root / 'updated/tinymist-flow.app'
+        changed = self.root / 'updated/Lagrangian.app'
         with patch.object(package, 'DATA', self.root / 'signing-data'), patch.dict(os.environ, FLOW_SIGN_IDENTITY=''):
             package.configure_signing(argparse.Namespace(identity=identity))
             configured_identity = package.resolve_signing_identity()

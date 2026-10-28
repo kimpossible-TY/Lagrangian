@@ -1,0 +1,4 @@
+- [x] 1. Add the Lagrangian product identity and safe, idempotent legacy data/log migration with tests.
+- [x] 2. Update app packaging, reader integrations, paths, and current canonical product documentation while retaining compatibility contracts.
+- [ ] 3. Regenerate runtime locales with the Rust-backed generator in a verified remote environment; app, reader, docs, and OpenSpec checks are verified.
+- [x] 4. Record the manual first-install/consent and legacy-data migration steps; do not run them without an explicit install request.
