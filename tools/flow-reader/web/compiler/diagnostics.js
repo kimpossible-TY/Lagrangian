@@ -100,6 +100,7 @@ const fallbackReasons = {
   "no-ready-device": "준비된 기기가 없거나 작업 중",
   "browser-unfinished": "기기 계산 미완료",
   "snapshot-unavailable": "기기에 보낼 입력 준비 불가",
+  "browser-output-rejected": "기기 결과가 서버 콘텐츠 검증을 통과하지 못함",
 };
 
 export function compilerDiagnostics(client, preferences) {

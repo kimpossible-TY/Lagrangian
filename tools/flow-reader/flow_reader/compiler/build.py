@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
-from flow_reader.compiler.audit import audit_content, normalize_content, unhandled_warnings
+from flow_reader.compiler.audit import audit_compiled_html
 from flow_reader.compiler.project import Project
 from flow_reader.compiler.execution import CompileRequest
 from flow_reader.compiler.packages import prepare_packages
@@ -42,7 +42,20 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             source=wrapper, fonts=tuple((root / font).resolve() for font in project.fonts),
             inputs=tuple(inputs), purpose="graphics" if geometry is not None else
             "canvases" if canvases is not None else "decorations" if decorations is not None else "document")
+        prepare_request = getattr(project.execute, "prepare_request", None)
+        if callable(prepare_request):
+            request = prepare_request(request)
         result = project.execute(request)
+        if result.returncode == 0 and result.executor == "browser":
+            retry = getattr(project.execute, "fallback_after_rejection", None)
+            if callable(retry):
+                try:
+                    _, candidate = audit_compiled_html(result.artifact.decode("utf-8"), result.stderr)
+                    accepted = candidate["contentGatePassed"]
+                except (AttributeError, UnicodeDecodeError, ValueError, RecursionError):
+                    accepted = False
+                if not accepted:
+                    result = retry(request)
         (output / "compile.log").write_text(result.stderr)
         report = {
             "schemaVersion": 1,
@@ -73,16 +86,9 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             dependencies.add(str(path.resolve()))
         report["dependencies"] = sorted(dependencies)
         if result.returncode == 0:
-            content = normalize_content(result.artifact.decode("utf-8"))
+            content, audit = audit_compiled_html(result.artifact.decode("utf-8"), result.stderr)
             (work / "document.html").write_text(content)
-            report.update(audit_content(content))
-            # Typst can successfully exit after dropping unsupported elements.
-            # Page furniture and PDF structure tags have no HTML representation;
-            # all other warnings block promotion until reviewed or fixed.
-            report["compilerLossWarnings"] = [
-                "warning: " + warning for warning in
-                unhandled_warnings(line.removeprefix("warning: ") for line in report["warnings"])]
-            report["contentGatePassed"] &= not report["compilerLossWarnings"]
+            report.update(audit)
             if map_sources and report["contentGatePassed"] and all(
                     value is None for value in (geometry, canvases, decorations)):
                 try:
