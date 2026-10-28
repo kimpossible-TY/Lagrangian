@@ -3,6 +3,6 @@
 import { main } from "./terminal/cli.mjs";
 
 main().catch((error) => {
-  process.stderr.write(`tinymist-flow Reader: ${error.message}\n`);
+  process.stderr.write(`Lagrangian Reader: ${error.message}\n`);
   process.exitCode = 1;
 });

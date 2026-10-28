@@ -18,9 +18,10 @@ struct FlowCLI {
   }
 
   func run(_ arguments: [String]) throws {
+    if arguments.first == "--migrate-data" { return }
     if arguments.first == "--version" {
       print(
-        "tinymist-flow \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "dev")"
+        "Lagrangian \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "dev")"
       )
       return
     }
@@ -67,7 +68,7 @@ struct FlowCLI {
     default:
       throw FlowError(
         message:
-          "명령: --version, --profiles, --check-config, --control, --status, --launch-plan, --agent-plist, --login"
+          "명령: --version, --migrate-data, --profiles, --check-config, --control, --status, --launch-plan, --agent-plist, --login"
       )
     }
   }

@@ -1,4 +1,4 @@
-# tinymist-flow contributor entrypoint
+# Lagrangian contributor entrypoint
 
 This repository maintains the native Flow app, tinymist engine, Typst readers and editor integrations. Preserve upstream crate/protocol identifiers and license notices.
 
@@ -17,6 +17,7 @@ Keep identical policy and invariants with one owner. Reuse existing implementati
 ## Working rules
 
 - Continue on the current branch; create a branch only when explicitly requested.
+- Follow [remote Rust builds](docs/dev-guide.md#remote-rust-builds) for Rust compilation, checks, tests and Clippy. Use a Cloud environment verified against the private `kimpossible-TY/Lagrangian` checkout; local Rust compilation requires an explicit instruction to build locally for that run.
 - Preserve unrelated user changes. Keep edits scoped and avoid dependency pins, version metadata and release files unless required.
 - Edit canonical sources. Regenerate files marked as generated, including Markdown via `node scripts/link-docs.mjs` and `tinymist.lock` artifacts via their owning generator.
 - Use OpenSpec for new features, observable behavior/contract changes and refactors that move responsibility across boundaries. Small local fixes and documentation-only edits may skip a new change when existing contracts suffice. Continue a matching active change and keep its proposal, design, tasks and deltas aligned; archives are prior art.

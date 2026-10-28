@@ -52,7 +52,7 @@ fn path_for_project(project: &str) -> io::Result<PathBuf> {
         Some(path) => PathBuf::from(path),
         None => dirs::data_dir()
             .ok_or_else(|| io::Error::other("missing application data directory"))?
-            .join("tinymist-flow"),
+            .join("Lagrangian"),
     };
     let support = if support.is_absolute() {
         support

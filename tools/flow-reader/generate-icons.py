@@ -2,7 +2,7 @@
 """Regenerate Reader browser icons from the Flow branding PNG (requires Pillow).
 
 Run `python3 tools/flow-reader/generate-icons.py` from the repository checkout.
-The web icons are generated artifacts; edit assets/branding/tinymist-flow.png
+The web icons are generated artifacts; edit assets/branding/lagrangian.png
 to change their artwork.
 """
 
@@ -16,7 +16,7 @@ WEB = Path(__file__).resolve().parent / "web"
 
 
 def main():
-    with Image.open(ROOT / "assets/branding/tinymist-flow.png") as source:
+    with Image.open(ROOT / "assets/branding/lagrangian.png") as source:
         source = source.convert("RGBA")
         source.resize((64, 64), Image.Resampling.LANCZOS).save(WEB / "favicon.png")
         source.save(WEB / "favicon.ico", format="ICO",

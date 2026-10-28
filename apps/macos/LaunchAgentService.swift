@@ -37,7 +37,7 @@ struct LaunchAgentService: ProjectControlling {
     [
       "Label": profile.label,
       "ProgramArguments": programArguments(for: profile),
-      "AssociatedBundleIdentifiers": [FlowIdentity.bundleID],
+      "AssociatedBundleIdentifiers": [LagrangianIdentity.bundleID],
       "RunAtLoad": true,
       "KeepAlive": true,
       "ThrottleInterval": 10,
@@ -125,13 +125,17 @@ struct LaunchAgentService: ProjectControlling {
   }
 
   func loginEnabled() -> Bool {
-    fileManager.fileExists(
-      atPath: environment.agents.appendingPathComponent("\(FlowIdentity.bundleID).login.plist").path
-    )
+    fileManager.fileExists(atPath: environment.agents
+      .appendingPathComponent("\(LagrangianIdentity.legacyLoginAgentLabel).plist").path)
+      || fileManager.fileExists(atPath: environment.agents
+        .appendingPathComponent("\(LagrangianIdentity.bundleID).login.plist").path)
   }
 
   func setLogin(_ enabled: Bool) throws {
-    let label = "\(FlowIdentity.bundleID).login"
+    let legacyLabel = LagrangianIdentity.legacyLoginAgentLabel
+    let currentLabel = "\(LagrangianIdentity.bundleID).login"
+    let legacyFile = environment.agents.appendingPathComponent("\(legacyLabel).plist")
+    let label = enabled && fileManager.fileExists(atPath: legacyFile.path) ? legacyLabel : currentLabel
     let file = environment.agents.appendingPathComponent("\(label).plist")
     if enabled {
       try fileManager.createDirectory(at: environment.agents, withIntermediateDirectories: true)
@@ -139,7 +143,7 @@ struct LaunchAgentService: ProjectControlling {
         "Label": label,
         "ProgramArguments": [environment.executable.path, "--background"],
         "RunAtLoad": true,
-        "AssociatedBundleIdentifiers": [FlowIdentity.bundleID],
+        "AssociatedBundleIdentifiers": [LagrangianIdentity.bundleID],
       ]
       try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0).write(
         to: file, options: .atomic)
@@ -147,6 +151,10 @@ struct LaunchAgentService: ProjectControlling {
     } else {
       try commands.run("/bin/launchctl", ["disable", "gui/\(userID)/\(label)"])
       if fileManager.fileExists(atPath: file.path) { try fileManager.removeItem(at: file) }
+      let otherLabel = label == legacyLabel ? currentLabel : legacyLabel
+      let otherFile = environment.agents.appendingPathComponent("\(otherLabel).plist")
+      try commands.run("/bin/launchctl", ["disable", "gui/\(userID)/\(otherLabel)"])
+      if fileManager.fileExists(atPath: otherFile.path) { try fileManager.removeItem(at: otherFile) }
     }
   }
 }

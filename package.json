@@ -1,5 +1,5 @@
 {
-  "name": "tinymist-flow",
+  "name": "lagrangian",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -21,7 +21,7 @@
   "scripts": {
     "flow:build": "python3 scripts/flow-app.py build",
     "flow:test": "python3 -m unittest discover -s tests/flow-app -v",
-    "flow:install": "python3 scripts/flow-app.py install dist/tinymist-flow.app",
+    "flow:install": "python3 scripts/flow-app.py install dist/Lagrangian.app",
     "fmt": "cargo fmt --all && npx prettier --write tools/**/*.{js,mjs,cjs,ts,mts,cts} editors/vscode/**/*.{js,mjs,cjs,ts,mts,cts}",
     "fmt:check": "cargo fmt --check --all && prettier --check tools/**/*.{js,mjs,cjs,ts,mts,cts} editors/vscode/**/*.{js,mjs,cjs,ts,mts,cts}",
     "prelaunch:vscode": "node scripts/build.mjs prelaunch:vscode",

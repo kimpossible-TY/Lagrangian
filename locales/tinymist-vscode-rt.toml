@@ -106,8 +106,8 @@ zh = "无效的页码范围：{range}"
 ["Multiple Flow profiles use this project root. Use a unique project root for shared preview."]
 en = "Multiple Flow profiles use this project root. Use a unique project root for shared preview."
 
-["No Flow profile contains this document. Configure and start its project in tinymist-flow."]
-en = "No Flow profile contains this document. Configure and start its project in tinymist-flow."
+["No Flow profile contains this document. Configure and start its project in Lagrangian."]
+en = "No Flow profile contains this document. Configure and start its project in Lagrangian."
 
 ["Open in Browser"]
 en = "Open in Browser"
@@ -206,8 +206,8 @@ en = "The Flow entrypoint must be inside its project root."
 ["The Flow public URL must be an HTTPS origin."]
 en = "The Flow public URL must be an HTTPS origin."
 
-["The shared Flow preview is unavailable. Start this project in tinymist-flow and try again."]
-en = "The shared Flow preview is unavailable. Start this project in tinymist-flow and try again."
+["The shared Flow preview is unavailable. Start this project in Lagrangian and try again."]
+en = "The shared Flow preview is unavailable. Start this project in Lagrangian and try again."
 
 ["Tinymist server is not available. Some features like auto-formatting on Enter may not work. Try restarting the server."]
 en = "Tinymist server is not available. Some features like auto-formatting on Enter may not work. Try restarting the server."
@@ -216,9 +216,9 @@ zh = "Tinymist 服务器不可用。某些功能（如回车时的自动格式�
 ["Unsupported Flow profile configuration."]
 en = "Unsupported Flow profile configuration."
 
-["Update tinymist-flow to use shared editor synchronization."]
-en = "Update tinymist-flow to use shared editor synchronization."
-ko = "공유 미리보기의 편집기 동기화를 사용하려면 tinymist-flow를 업데이트해 주세요."
+["Update Lagrangian to use shared editor synchronization."]
+en = "Update Lagrangian to use shared editor synchronization."
+ko = "공유 미리보기의 편집기 동기화를 사용하려면 Lagrangian을 업데이트해 주세요."
 
 ["VS Code could not open the shared Flow preview URL."]
 en = "VS Code could not open the shared Flow preview URL."

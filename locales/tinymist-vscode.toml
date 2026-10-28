@@ -1721,5 +1721,5 @@ en = "Shared Flow Preview"
 ko = "Flow 미리보기 공유"
 
 [extension.tinymist.config.tinymist.preview.sharedFlow.desc]
-en = "Reuse a running tinymist-flow project on the extension host for saved-document preview. Matches the document against Flow profile roots and opens one shared reader per profile without starting an LSP preview. Requires a trusted workspace and a configured running Flow service. Unsaved edits and editor cursor synchronization are not shown. Enable compileOnSave separately to reduce automatic typing compilation."
-ko = "확장 호스트에서 실행 중인 tinymist-flow 프로젝트로 저장된 문서의 미리보기를 공유합니다. 문서에 해당하는 Flow 프로필을 찾아 별도 LSP 미리보기 없이 공유 뷰어를 엽니다. 신뢰하는 작업 공간과 실행 중인 Flow 서비스가 필요합니다. 저장 전 편집 내용과 편집기 커서 동기화는 표시하지 않습니다. 입력 중 자동 컴파일을 줄이려면 compileOnSave도 켜세요."
+en = "Reuse a running Lagrangian project on the extension host for saved-document preview. Matches the document against Flow profile roots and opens one shared reader per profile without starting an LSP preview. Requires a trusted workspace and a configured running Flow service. Unsaved edits and editor cursor synchronization are not shown. Enable compileOnSave separately to reduce automatic typing compilation."
+ko = "확장 호스트에서 실행 중인 Lagrangian 프로젝트로 저장된 문서의 미리보기를 공유합니다. 문서에 해당하는 Flow 프로필을 찾아 별도 LSP 미리보기 없이 공유 뷰어를 엽니다. 신뢰하는 작업 공간과 실행 중인 Flow 서비스가 필요합니다. 저장 전 편집 내용과 편집기 커서 동기화는 표시하지 않습니다. 입력 중 자동 컴파일을 줄이려면 compileOnSave도 켜세요."

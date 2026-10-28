@@ -49,7 +49,7 @@ final class NativeReadingEnvironment {
         self.onNetwork()
       }
     }
-    network.start(queue: DispatchQueue(label: "tinymist-flow.network", qos: .utility))
+    network.start(queue: DispatchQueue(label: "lagrangian.network", qos: .utility))
     updatePower()
   }
 

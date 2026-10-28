@@ -57,7 +57,7 @@ export async function createBrowserEditorBridge(
       socket = undefined;
       if (!ready) {
         initialReject(
-          new Error(l10nMsg("Update tinymist-flow to use shared editor synchronization.")),
+          new Error(l10nMsg("Update Lagrangian to use shared editor synchronization.")),
         );
         return;
       }

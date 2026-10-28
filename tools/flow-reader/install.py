@@ -123,7 +123,7 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--public-url", default="")
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
-    parser.add_argument("--flow-manager", type=Path, default=Path.home() / "Applications/tinymist-flow.app/Contents/MacOS/tinymist-flow")
+    parser.add_argument("--flow-manager", type=Path, default=Path.home() / "Applications/Lagrangian.app/Contents/MacOS/Lagrangian")
     parser.add_argument("--python", type=Path, default=Path(shutil.which("python3") or "/missing/python3"))
     parser.add_argument("--compiler", type=Path, default=Path(shutil.which("typst") or "/missing/typst"))
     parser.add_argument("--engine", type=Path, help="Flow engine supporting shared source history (otherwise use the Flow app engine)")

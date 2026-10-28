@@ -1,8 +1,9 @@
 import Foundation
 
-enum FlowIdentity {
-  static let bundleID = "io.github.kimpossible-ty.tinymist-flow"
-  static let appName = "tinymist-flow"
+enum LagrangianIdentity {
+  static let bundleID = "io.github.kimpossible-ty.lagrangian"
+  static let appName = "Lagrangian"
+  static let legacyLoginAgentLabel = "io.github.kimpossible-ty.tinymist-flow.login"
 }
 
 /// Paths are captured once and can be replaced for isolated service tests.
@@ -23,10 +24,10 @@ struct AppEnvironment {
     self.executable = executable
     support =
       variables["FLOW_DATA_DIR"].map { URL(fileURLWithPath: $0) }
-      ?? userHome.appendingPathComponent("Library/Application Support/tinymist-flow")
+      ?? userHome.appendingPathComponent("Library/Application Support/Lagrangian")
     logRoot =
       variables["FLOW_LOG_DIR"].map { URL(fileURLWithPath: $0) }
-      ?? userHome.appendingPathComponent("Library/Logs/tinymist-flow")
+      ?? userHome.appendingPathComponent("Library/Logs/Lagrangian")
     agents = userHome.appendingPathComponent("Library/LaunchAgents")
   }
 
