@@ -7,28 +7,32 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
   let anchorWidth = document.documentElement.clientWidth;
   let holding = false;
   const textOf = (node) => logicalTextIndex(node).text;
-  function capture() {
+  function capture(viewportY = 90) {
+    const referenceY = Number.isFinite(viewportY) ? viewportY : 90;
     // Explicit returns keep their intended anchor through asynchronous composition.
     if (holding) return stableAnchor;
     const parked = [...article.querySelectorAll('[data-section-state="parked"]')].find((node) => {
       const rect = node.getBoundingClientRect();
-      return rect.top <= 90 && rect.bottom > 90;
+      return rect.top <= referenceY && rect.bottom > referenceY;
     });
     if (parked) {
       const rect = parked.getBoundingClientRect();
       return {
         section: parked.dataset.readerSection,
-        fraction: (90 - rect.top) / rect.height,
+        fraction: (referenceY - rect.top) / rect.height,
+        viewportY: referenceY,
         url: location.href,
       };
     }
     for (const canvas of article.querySelectorAll("[data-flow-canvas-model]")) {
       const area = canvas.getBoundingClientRect();
-      if (area.top > 90 || area.bottom <= 90) continue;
+      if (area.top > referenceY || area.bottom <= referenceY) continue;
       const labels = readBlocks()
         .filter((node) => node.closest("[data-flow-canvas-model]") === canvas)
         .map((node) => ({ node, rect: node.getBoundingClientRect() }))
-        .filter(({ rect }) => rect.height > 0 && rect.top <= 90 && rect.bottom > 90)
+        .filter(
+          ({ rect }) => rect.height > 0 && rect.top <= referenceY && rect.bottom > referenceY,
+        )
         .sort((a, b) => a.rect.left - b.rect.left);
       if (labels.length) {
         const { node, rect } = labels[0];
@@ -36,7 +40,8 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
           key: node.dataset.readerKey,
           canvasIdentity: canvas.dataset.flowCanvasIdentity,
           text: textOf(node).slice(0, 180),
-          offset: Math.round(rect.top) - 90,
+          offset: Math.round(rect.top) - referenceY,
+          viewportY: referenceY,
           id: node.id,
           url: location.href,
           section: node.closest("[data-reader-section]")?.dataset.readerSection ?? readSection(),
@@ -47,11 +52,12 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
       );
       const rect = geometry?.getBoundingClientRect();
       const plane = canvas.querySelector(":scope > .flow-canvas-stage")?.getBoundingClientRect();
-      if (rect?.height > 0 && plane?.top <= 90 && plane.bottom > 90) {
+      if (rect?.height > 0 && plane?.top <= referenceY && plane.bottom > referenceY) {
         return {
           canvas: canvas.id,
           canvasIdentity: canvas.dataset.flowCanvasIdentity,
-          canvasFraction: (90 - rect.top) / rect.height,
+          canvasFraction: (referenceY - rect.top) / rect.height,
+          viewportY: referenceY,
           text: logicalTextIndex(canvas, { includeNested: true }).text.slice(0, 180),
           section: canvas.closest("[data-reader-section]")?.dataset.readerSection ?? readSection(),
           id: canvas.id,
@@ -59,14 +65,15 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
         };
       }
     }
-    const block = readBlocks().find((node) => node.getBoundingClientRect().bottom > 90);
+    const block = readBlocks().find((node) => node.getBoundingClientRect().bottom > referenceY);
     if (!block) return null;
     return {
       key: block.dataset.readerKey,
       text: textOf(block).slice(0, 180),
       // CSS scroll positions are rounded. Keep one pixel target so hundreds of
       // automatic label publications cannot accumulate fractional scroll errors.
-      offset: Math.round(block.getBoundingClientRect().top) - 90,
+      offset: Math.round(block.getBoundingClientRect().top) - referenceY,
+      viewportY: referenceY,
       section: block.closest("[data-reader-section]")?.dataset.readerSection ?? readSection(),
       id: block.id,
       url: location.href,
@@ -74,6 +81,7 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
   }
   function restore(anchor) {
     if (!anchor) return false;
+    const referenceY = Number.isFinite(anchor.viewportY) ? anchor.viewportY : 90;
     if (anchor.canvas && Number.isFinite(anchor.canvasFraction)) {
       const matchesText = (node) =>
         node?.hasAttribute("data-flow-canvas-model") &&
@@ -98,7 +106,7 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
         ?.querySelector(":scope > .flow-canvas-stage > svg:not(.flow-canvas-leaders)")
         ?.getBoundingClientRect();
       if (rect?.height > 0) {
-        window.scrollBy(0, rect.top + rect.height * anchor.canvasFraction - 90);
+        window.scrollBy(0, rect.top + rect.height * anchor.canvasFraction - referenceY);
         if (document.documentElement.clientWidth === anchorWidth) {
           stableAnchor = anchor;
           stableScrollY = scrollY;
@@ -113,7 +121,7 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
       );
       if (section) {
         const rect = section.getBoundingClientRect();
-        window.scrollBy(0, rect.top + rect.height * anchor.fraction - 90);
+        window.scrollBy(0, rect.top + rect.height * anchor.fraction - referenceY);
         if (document.documentElement.clientWidth === anchorWidth) {
           stableAnchor = anchor;
           stableScrollY = scrollY;
@@ -135,7 +143,10 @@ export function createReadingPosition(article, { readBlocks, readSection }) {
     if (block) {
       // Match capture's integer target. Fractional scrollBy values are rounded
       // differently by engines and otherwise drift at every recovery render.
-      window.scrollBy(0, Math.round(block.getBoundingClientRect().top) - 90 - anchor.offset);
+      window.scrollBy(
+        0,
+        Math.round(block.getBoundingClientRect().top) - referenceY - anchor.offset,
+      );
       if (document.documentElement.clientWidth === anchorWidth) {
         stableAnchor = anchor;
         stableScrollY = scrollY;

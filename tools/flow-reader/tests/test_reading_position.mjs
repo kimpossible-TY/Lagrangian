@@ -108,3 +108,58 @@ test("a stable block key cannot restore an anchor after its text changes", (t) =
   assert.equal(position.restore(anchor), true, "a unique text match remains a valid fallback");
   assert.equal(y, 60);
 });
+
+test("reference anchors retain their viewport-relative vertical position", (t) => {
+  const document = Object.assign(new EventTarget(), {
+    documentElement: { clientWidth: 390 },
+    fonts: new EventTarget(),
+  });
+  let y = 0;
+  let blockTop = 160;
+  const window = Object.assign(new EventTarget(), {
+    scrollBy: (_x, delta) => {
+      y += delta;
+      globalThis.scrollY = y;
+    },
+  });
+  const block = {
+    nodeType: 1,
+    childNodes: [{ nodeType: 3, data: "Referenced passage" }],
+    dataset: { readerKey: "passage:1" },
+    matches: () => false,
+    hasAttribute: () => false,
+    closest: () => null,
+    getBoundingClientRect: () => ({
+      top: blockTop - y,
+      bottom: blockTop - y + 400,
+      height: 400,
+    }),
+  };
+  const previousGlobals = new Map();
+  for (const [name, value] of Object.entries({
+    document,
+    window,
+    Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
+    scrollY: 0,
+    location: { href: "https://reader/" },
+  })) {
+    previousGlobals.set(name, globalThis[name]);
+    globalThis[name] = value;
+  }
+  const position = createReadingPosition(
+    { querySelectorAll: () => [] },
+    { readBlocks: () => [block], readSection: () => "section-0" },
+  );
+  t.after(() => {
+    position.dispose();
+    for (const [name, value] of previousGlobals) globalThis[name] = value;
+  });
+
+  const origin = position.capture(240);
+  assert.equal(origin.viewportY, 240);
+  assert.equal(origin.offset, -80);
+  blockTop = 230;
+  assert.equal(position.restore(origin), true);
+  assert.equal(block.getBoundingClientRect().top, 160);
+  assert.equal(block.getBoundingClientRect().top, origin.viewportY + origin.offset);
+});

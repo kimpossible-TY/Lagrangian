@@ -39,7 +39,9 @@ function fixture() {
       height: 1000 * scale,
     }),
   }));
-  const link = {} as Element;
+  const link = {
+    getBoundingClientRect: () => ({ top: viewport.top + 220 }),
+  } as Element;
   const root = {
     contains: (element: Element) => element === link,
     querySelectorAll: () => pages.slice(0, count),
@@ -51,9 +53,14 @@ function fixture() {
   const button = Object.assign(new EventTarget(), { hidden: false, remove: vi.fn() });
   vi.stubGlobal("document", { createElement: () => button });
   vi.stubGlobal("navigator", { language: "ko-KR" });
-  const previous = vi.fn((_element: Element, page: number) => {
-    if (page >= 1 && page <= count) scroller.scrollTop = (page - 1) * 1000 * scale;
-  });
+  const previous = vi.fn(
+    (_element: Element, page: number, _x?: number, y = 0, targetViewportY?: number) => {
+      if (page < 1 || page > count) return;
+      scroller.scrollTop = Number.isFinite(targetViewportY)
+        ? (page - 1) * 1000 * scale + y * scale - targetViewportY!
+        : (page - 1) * 1000 * scale;
+    },
+  );
   vi.stubGlobal("window", { handleTypstLocation: previous });
   let frame: FrameRequestCallback | undefined;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -73,6 +80,7 @@ function fixture() {
   return {
     scroller,
     root: root as unknown as HTMLElement,
+    link,
     button,
     previous,
     navigation,
@@ -97,7 +105,12 @@ describe("return from an internal reference", () => {
     const view = fixture();
     expect(view.button.hidden).toBe(true);
     view.follow(4);
-    expect(view.scroller.scrollTop).toBe(3000);
+    expect(view.scroller.scrollTop).toBe(2800);
+    expect(view.previous.mock.calls[0]).toEqual([view.link, 4, 10, 20, 220]);
+    const destination = view.root.querySelector<SVGRectElement>(
+      '.typst-page-inner[data-page-number="3"]',
+    )!;
+    expect(destination.getBoundingClientRect().top + 20 - 30).toBe(220);
     expect(view.button.hidden).toBe(false);
     expect(view.onNavigate).toHaveBeenCalledOnce();
     view.return();
@@ -129,7 +142,7 @@ describe("return from an internal reference", () => {
     view.follow(4);
     view.resize(1.5);
     view.return();
-    expect(view.scroller.scrollTop).toBeCloseTo(1260);
+    expect(view.scroller.scrollTop).toBeCloseTo(1370);
     expect(view.scroller.scrollLeft).toBeCloseTo(120);
   });
 

@@ -399,7 +399,13 @@ windowElem.currentPosition = function (elem: Element) {
   return result;
 };
 
-windowElem.handleTypstLocation = function (elem: Element, pageNo: number, x: number, y: number) {
+windowElem.handleTypstLocation = function (
+  elem: Element,
+  pageNo: number,
+  x: number,
+  y: number,
+  targetViewportY?: number,
+) {
   const docRoot = findAncestor(elem, "typst-doc");
   if (!docRoot) {
     console.warn("no typst-doc found", elem);
@@ -408,9 +414,14 @@ windowElem.handleTypstLocation = function (elem: Element, pageNo: number, x: num
 
   // scrollTo(pageRect: ScrollRect, pageNo: number, innerLeft: number, innerTop: number)
 
-  const scrollTo = (pageWidth: number, pageNo: number, innerLeft: number, innerTop: number) => {
+  const scrollTo = (
+    pageWidth: number,
+    pageNo: number,
+    innerLeft: number,
+    innerTop: number,
+  ) => {
     for (const doc of windowElem.documents) {
-      doc.impl.scrollTo(pageWidth, pageNo, innerLeft, innerTop);
+      doc.impl.scrollTo(pageWidth, pageNo, innerLeft, innerTop, targetViewportY);
     }
   };
 

@@ -243,7 +243,13 @@ export function provideDebugJumpDoc<TBase extends GConstructor<TypstDocumentCont
       }
     }
 
-    scrollTo(pageWidth: number, pageNo: number, innerLeft: number, innerTop: number) {
+    scrollTo(
+      pageWidth: number,
+      pageNo: number,
+      innerLeft: number,
+      innerTop: number,
+      targetViewportY?: number,
+    ) {
       const scrollElem = this.hookedElem.parentElement!;
 
       if (this.previewMode === PreviewMode.Slide) {
@@ -259,7 +265,7 @@ export function provideDebugJumpDoc<TBase extends GConstructor<TypstDocumentCont
       const ph = this.windowElem.clientHeight * 0.01;
 
       const xOffsetInnerFix = 7 * pw;
-      const yOffsetInnerFix = 38.2 * ph;
+      const yOffsetInnerFix = targetViewportY ?? 38.2 * ph;
 
       const xOffset = left - xOffsetInnerFix;
       const yOffset = top - yOffsetInnerFix;

@@ -68,24 +68,25 @@ async function verify(browser, viewport, reducedMotion) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const back = page.locator("#reader-reference-back");
+  const locate = (target) => page.locator(target.startsWith("#") ? target : `#${target}`);
   const follow = (id, selector) =>
     page.locator(`#${id} ${selector}`).evaluate((node) => node.click());
   const settle = () => page.waitForTimeout(350);
-  const position = async (id) => {
-    await page
-      .locator(`#${id}`)
-      .evaluate((node) => scrollBy(0, node.getBoundingClientRect().top - 55));
+  const screenTop = (target) =>
+    locate(target).evaluate((node) => node.getBoundingClientRect().top);
+  const position = async (target) => {
+    await locate(target).evaluate((node) =>
+      scrollBy({ top: node.getBoundingClientRect().top - 55, behavior: "instant" }),
+    );
     await settle();
-    return page.locator(`#${id}`).evaluate((node) => node.getBoundingClientRect().top);
+    return screenTop(target);
   };
-  const returned = async (id, top, href) => {
+  const returned = async (target, top, href) => {
     await back.click();
     await back.waitFor({ state: "hidden" });
     await settle();
-    const actual = await page
-      .locator(`#${id}`)
-      .evaluate((node) => node.getBoundingClientRect().top);
-    assert.ok(Math.abs(actual - top) <= 3, JSON.stringify({ id, top, actual }));
+    const actual = await screenTop(target);
+    assert.ok(Math.abs(actual - top) <= 3, JSON.stringify({ target, top, actual }));
     assert.equal(page.url(), href);
     assert.equal(
       await page.locator("#reader-document").evaluate((node) => node === document.activeElement),
@@ -98,7 +99,7 @@ async function verify(browser, viewport, reducedMotion) {
     await settle();
     assert.equal(await back.isHidden(), true);
     const href = page.url();
-    const top = await position("passage-0-4");
+    await position("passage-0-4");
     await follow("passage-0-4", ".invalid");
     assert.equal(await back.isHidden(), true);
     await page
@@ -110,33 +111,38 @@ async function verify(browser, viewport, reducedMotion) {
     assert.equal(await back.isHidden(), true);
 
     // Local and remote links both remember the viewport before activation.
+    const localTop = await position("#passage-0-4 .local");
     await follow("passage-0-4", ".local");
     await back.waitFor({ state: "visible" });
+    assert.ok(Math.abs((await screenTop("passage-0-20")) - localTop) <= 3);
     const mountedOrigin = await page.locator("#passage-0-4").elementHandle();
-    await returned("passage-0-4", top, href);
+    await returned("#passage-0-4 .local", localTop, href);
     assert.equal(
       await mountedOrigin.evaluate((node) => node.isConnected),
       true,
       "a local return retains the mounted section and its composed mathematics",
     );
     await mountedOrigin.dispose();
+    const remoteTop = await position("#passage-0-4 .remote");
     await follow("passage-0-4", ".remote");
     await page.locator("#heading-7").waitFor();
     await back.waitFor({ state: "visible" });
+    assert.ok(Math.abs((await screenTop("heading-7")) - remoteTop) <= 3);
     assert.equal(await page.locator("#passage-0-4").count(), 0, "origin section is unmounted");
     await page.evaluate(() => {
       for (let i = 0; i < 7; i++) document.querySelector("#reader-larger").click();
     });
     await page.setViewportSize({ width: viewport.width + 40, height: viewport.height });
-    await returned("passage-0-4", top, href);
+    await returned("#passage-0-4 .remote", remoteTop, href);
 
     // A later reference replaces the single destination without a stack.
     await follow("passage-0-4", ".remote");
     await back.waitFor({ state: "visible" });
     const latestURL = page.url();
-    const latestTop = await position("passage-7-4");
+    const latestTop = await position("#passage-7-4 .local");
     await follow("passage-7-4", ".local");
-    await returned("passage-7-4", latestTop, latestURL);
+    assert.ok(Math.abs((await screenTop("passage-7-20")) - latestTop) <= 3);
+    await returned("#passage-7-4 .local", latestTop, latestURL);
     await page.locator("#reader-reference-back").evaluate((node) => node.click());
     assert.equal(page.url(), latestURL);
 
@@ -172,7 +178,7 @@ async function verify(browser, viewport, reducedMotion) {
     await settle();
     assert.equal(await back.isVisible(), true);
     await page.unroute("**/api/sections/section-7?*");
-    await returned("passage-7-4", latestTop, latestURL);
+    await returned("#passage-7-4 .local", latestTop, latestURL);
 
     // A local link supersedes a remote request and owns the latest origin.
     let pendingRoute;
@@ -189,7 +195,7 @@ async function verify(browser, viewport, reducedMotion) {
       assert.ok(Date.now() < deadline, "remote request reaches the section loader");
       await page.waitForTimeout(10);
     }
-    const interruptedTop = await position("passage-7-4");
+    const interruptedTop = await position("#passage-7-4 .local");
     await follow("passage-7-4", ".local");
     await pendingRoute.fulfill({
       status: 200,
@@ -199,7 +205,7 @@ async function verify(browser, viewport, reducedMotion) {
     await page.unroute("**/api/sections/section-0?*");
     await settle();
     assert.equal(await page.locator("#heading-0").count(), 0);
-    await returned("passage-7-4", interruptedTop, latestURL);
+    await returned("#passage-7-4 .local", interruptedTop, latestURL);
 
     // Deferred visual changes do not replace a reference origin or overlap it.
     await follow("passage-7-4", ".local");
