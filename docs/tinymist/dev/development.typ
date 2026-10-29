@@ -160,8 +160,9 @@ runner. Local app packaging reuses that executable with `--engine`.
 
 `.github/workflows/flow-engine.yml` runs for `workflow_dispatch` and for pushes
 to `main` or pull requests that change the engine, its lockfile, the preview
-frontend, or the workflow. It checks out full git history so the engine version
-can embed `git describe`, installs the toolchain from `rust-toolchain.toml`, and
+frontend, or the workflow. It checks out that branch head with full git history
+so the engine version can embed `git describe` and `release.json` records that
+commit. It installs the toolchain from `rust-toolchain.toml`, and
 caches the Cargo registry and target directory under the shared key
 `flow-release-aarch64-apple-darwin`. Pull requests restore that cache; pushes to
 `main` and manual runs save it, including workspace crate artifacts. The job

@@ -55,6 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # pull_request's default SHA is an ephemeral merge commit. Build the
+          # branch head so release.json sourceRevision stays on that branch.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Require Apple Silicon
