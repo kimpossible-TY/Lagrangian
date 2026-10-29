@@ -1,6 +1,8 @@
 """Configuration contract and failed-update recovery, without touching live jobs."""
 import argparse
+import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -249,5 +251,195 @@ class NativeBuild(unittest.TestCase):
         self.assertIn('--locked', command)
         self.assertEqual(command[command.index('--profile') + 1], 'flow-release')
         self.assertEqual(command[command.index('--jobs') + 1], '2')
+
+class EngineArtifact(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.engine = self.root / 'target/aarch64-apple-darwin/flow-release/tinymist'
+        self.engine.parent.mkdir(parents=True)
+        self.engine.write_bytes(b'native-engine')
+        self.engine.chmod(0o755)
+        self.digest = hashlib.sha256(b'native-engine').hexdigest()
+        self.app = self.root / 'dist/Lagrangian.app'
+        (self.app / 'Contents').mkdir(parents=True)
+        (self.app / 'Contents/Info.plist').write_text('app')
+        self.manifest = {
+            'engineInputSHA256': self.digest,
+            'engineVersion': 'tinymist test',
+            'engineBuild': {'profile': 'flow-release', 'target': 'aarch64-apple-darwin', 'configuredLto': 'thin'},
+        }
+        self.manifest_path = self.root / 'dist/release.json'
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.output = self.root / 'artifact'
+
+    def capture(self, args, **kwargs):
+        if args[0] == 'cargo':
+            return json.dumps({'target_directory': str(self.root / 'target')})
+        if args[-1] == '--version':
+            return 'tinymist test'
+        if args[-2:] == ['preview', '--help']:
+            return 'Options:\n --follow-system-theme\n'
+        raise AssertionError(args)
+
+    def test_stage_copies_unsigned_engine_checksum_manifest_and_app(self):
+        args = argparse.Namespace(app=self.app, manifest=self.manifest_path, output=self.output)
+        with patch.object(package, 'capture', side_effect=self.capture):
+            package.stage_engine_artifact(args)
+        staged = self.output / 'flow-engine'
+        self.assertEqual(staged.read_bytes(), b'native-engine')
+        self.assertTrue(staged.stat().st_mode & 0o111)
+        self.assertEqual((self.output / 'flow-engine.sha256').read_text(), self.digest + '  flow-engine\n')
+        self.assertEqual(json.loads((self.output / 'release.json').read_text())['engineInputSHA256'], self.digest)
+        self.assertEqual((self.output / 'Lagrangian.app/Contents/Info.plist').read_text(), 'app')
+
+    def test_stage_rejects_other_targets_before_probing_the_binary(self):
+        self.manifest['engineBuild']['target'] = 'x86_64-apple-darwin'
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        args = argparse.Namespace(app=self.app, manifest=self.manifest_path, output=self.output)
+        with patch.object(package, 'capture', side_effect=AssertionError('probed')):
+            with self.assertRaisesRegex(ValueError, 'aarch64-apple-darwin'):
+                package.stage_engine_artifact(args)
+
+    def test_stage_rejects_hash_mismatch_before_version_probe(self):
+        self.manifest['engineInputSHA256'] = '0' * 64
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        args = argparse.Namespace(app=self.app, manifest=self.manifest_path, output=self.output)
+        def capture(cmd, **kwargs):
+            self.assertEqual(cmd[0], 'cargo')
+            return json.dumps({'target_directory': str(self.root / 'target')})
+        with patch.object(package, 'capture', side_effect=capture):
+            with self.assertRaisesRegex(ValueError, 'engineInputSHA256'):
+                package.stage_engine_artifact(args)
+
+    def test_stage_rejects_engine_without_flow_preview_support(self):
+        def capture(cmd, **kwargs):
+            if cmd[0] == 'cargo':
+                return json.dumps({'target_directory': str(self.root / 'target')})
+            if cmd[-1] == '--version':
+                return 'tinymist test'
+            return 'standard preview'
+        args = argparse.Namespace(app=self.app, manifest=self.manifest_path, output=self.output)
+        with patch.object(package, 'capture', side_effect=capture):
+            with self.assertRaisesRegex(ValueError, '--follow-system-theme'):
+                package.stage_engine_artifact(args)
+        self.assertFalse(self.output.exists())
+
+class FetchEngine(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.dest = self.root / 'engines' / '42'
+        self.digest = hashlib.sha256(b'native-engine').hexdigest()
+        self.calls = []
+
+    def manifest(self, **overrides):
+        value = {
+            'engineInputSHA256': self.digest,
+            'engineBuild': {'profile': 'flow-release', 'target': 'aarch64-apple-darwin'},
+        }
+        value.update(overrides)
+        return value
+
+    def write_artifact(self, directory, checksum=None, manifest=None, body=b'native-engine'):
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / 'flow-engine').write_bytes(body)
+        (directory / 'flow-engine.sha256').write_text((checksum or self.digest) + '  flow-engine\n')
+        (directory / 'release.json').write_text(json.dumps(manifest or self.manifest()))
+        app = directory / 'Lagrangian.app/Contents'
+        app.mkdir(parents=True)
+        (app / 'Info.plist').write_text('app')
+
+    def gh(self, args, **kwargs):
+        self.calls.append(list(map(str, args)))
+        if args[:3] == ['gh', 'repo', 'view']:
+            return 'kimpossible-TY/Lagrangian'
+        if args[:3] == ['gh', 'run', 'list']:
+            return json.dumps([{'databaseId': 42, 'url': 'https://example.test/runs/42', 'headSha': 'abc', 'conclusion': 'success'}])
+        if args[:3] == ['gh', 'run', 'download']:
+            dest = Path(args[args.index('--dir') + 1])
+            root = dest / 'flow-engine-darwin-arm64' if self.layout == 'nested' else dest
+            self.write_artifact(root, checksum=self.checksum, manifest=self.payload_manifest, body=self.body)
+            return ''
+        if args[:2] == ['/usr/bin/xattr', '-dr']:
+            return ''
+        raise AssertionError(args)
+
+    def fetch(self, platform='linux', run_id=None, branch='main', checksum=None, manifest=None, body=b'native-engine', layout='nested'):
+        self.layout = layout
+        self.checksum = checksum or hashlib.sha256(body).hexdigest()
+        self.body = body
+        self.digest = self.checksum
+        self.payload_manifest = manifest or self.manifest()
+        stdout = io.StringIO()
+        args = argparse.Namespace(branch=branch, run_id=run_id, dest=self.dest)
+        with patch.object(package.shutil, 'which', return_value='/usr/bin/gh'), \
+                patch.object(package.sys, 'platform', platform), \
+                patch.object(package, 'capture', side_effect=self.gh), \
+                patch.object(package, 'run', side_effect=self.gh), \
+                patch.object(package, 'resolve_engine', return_value=(self.dest / 'flow-engine', 'tinymist test')) as resolve, \
+                patch('sys.stdout', stdout):
+            package.fetch_engine(args)
+        self.resolve = resolve
+        return stdout.getvalue().strip()
+
+    def test_latest_successful_run_is_verified_outside_target(self):
+        printed = self.fetch()
+        self.assertEqual(printed, str(self.dest / 'flow-engine'))
+        self.assertEqual((self.dest / 'flow-engine').read_bytes(), b'native-engine')
+        self.assertTrue(any(call[:3] == ['gh', 'run', 'list'] and '--branch' in call and 'main' in call for call in self.calls))
+        self.assertFalse(any(call[0] == 'cargo' for call in self.calls))
+        self.assertFalse(package.path_inside(self.dest, package.ROOT / 'target'))
+        self.resolve.assert_not_called()
+
+    def test_explicit_run_skips_the_branch_lookup(self):
+        printed = self.fetch(run_id='42', layout='flat')
+        self.assertEqual(printed, str(self.dest / 'flow-engine'))
+        self.assertEqual((self.dest / 'Lagrangian.app/Contents/Info.plist').read_text(), 'app')
+        self.assertFalse(any(call[:3] == ['gh', 'run', 'list'] for call in self.calls))
+
+    def test_checksum_parser_accepts_shasum_lines(self):
+        digest = 'ab' * 32
+        for text in (digest, digest + '  flow-engine\n', digest.upper() + ' *flow-engine\n'):
+            self.assertEqual(package.parse_engine_checksum(text), digest)
+        with self.assertRaisesRegex(ValueError, 'one SHA-256'):
+            package.parse_engine_checksum(digest + '\n' + digest + '\n')
+        with self.assertRaisesRegex(ValueError, 'does not contain'):
+            package.parse_engine_checksum('nope  flow-engine\n')
+
+    def test_darwin_clears_quarantine_and_probes_preview_support(self):
+        self.fetch(platform='darwin', run_id='42')
+        self.assertTrue(any(call[:3] == ['/usr/bin/xattr', '-dr', 'com.apple.quarantine'] for call in self.calls))
+        self.resolve.assert_called_once()
+        self.assertFalse(any(call[0] == 'cargo' for call in self.calls))
+
+    def test_checksum_mismatch_keeps_the_destination_absent(self):
+        with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
+            self.fetch(run_id='42', checksum='ab' * 32)
+        self.assertFalse(self.dest.exists())
+
+    def test_manifest_mismatch_and_wrong_target_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'engineInputSHA256'):
+            self.fetch(run_id='42', manifest=self.manifest(engineInputSHA256='cd' * 32))
+        self.assertFalse(self.dest.exists())
+        with self.assertRaisesRegex(ValueError, 'flow-release'):
+            self.fetch(run_id='42', manifest=self.manifest(engineBuild={'profile': 'release', 'target': 'aarch64-apple-darwin'}))
+
+    def test_missing_run_and_target_directory_and_gh_are_rejected(self):
+        with patch.object(package.shutil, 'which', return_value=None):
+            with self.assertRaisesRegex(ValueError, 'does not compile Rust'):
+                package.fetch_engine(argparse.Namespace(branch='main', run_id=None, dest=self.dest))
+        with patch.object(package.shutil, 'which', return_value='/usr/bin/gh'), \
+                patch.object(package, 'capture', return_value='[]'), \
+                patch.object(package, 'run', side_effect=AssertionError('downloaded')):
+            with self.assertRaisesRegex(ValueError, 'No successful'):
+                package.fetch_engine(argparse.Namespace(branch='main', run_id=None, dest=self.dest))
+        with patch.object(package.shutil, 'which', return_value='/usr/bin/gh'), \
+                patch.object(package, 'run', side_effect=AssertionError('downloaded')):
+            with self.assertRaisesRegex(ValueError, 'target directory'):
+                package.fetch_engine(argparse.Namespace(branch='main', run_id='42', dest=package.ROOT / 'target' / 'engine'))
+
+    def test_default_cache_is_outside_the_repository_target(self):
+        self.assertFalse(package.path_inside(package.engine_cache_dir('42'), package.ROOT / 'target'))
 
 if __name__ == '__main__': unittest.main()

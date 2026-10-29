@@ -74,7 +74,7 @@ cargo fmt --check --all
 yarn workspace typst-preview-frontend test run
 ```
 
-The native engine build uses the locked `flow-release` profile with ThinLTO. `python3 scripts/flow-app.py build --build-engine --jobs 2` compiles Rust and requires a macOS build host. Running it on the local Mac requires an explicit local-build instruction. The app manifest records its target, profile, Rust flags and any LTO override in addition to engine version and hashes. On Apple Silicon, use a native ARM Python environment.
+The native engine build uses the locked `flow-release` profile with ThinLTO. `python3 scripts/flow-app.py build --build-engine --jobs 2` compiles Rust and requires a macOS build host. The `flow-engine` GitHub Actions workflow is that host; see **Remote Rust builds**. Running the command on the local Mac requires an explicit local-build instruction. The app manifest records its target, profile, Rust flags and any LTO override in addition to engine version and hashes. On Apple Silicon, use a native ARM Python environment.
 
 ## Remote Rust builds
 
@@ -97,7 +97,32 @@ target/debug/tinymist --version
 
 Retain dependency and build caches in Cloud. Await the actual job result and report the checked SHA, commands, exit statuses and test results; submission alone is not a successful build. Local Git operations, source inspection, preinstalled formatters, JavaScript checks and prebuilt Typst/typlite tools can still run locally without rebuilding Rust caches.
 
-The configured Cloud environment produces Linux binaries. A Linux build does not validate or supply a macOS executable. Native macOS artifacts require a remote macOS runner; local app packaging can reuse an existing compatible engine with `--engine` instead of `--build-engine`.
+The configured Cloud environment produces Linux binaries. A Linux build does not validate or supply a macOS executable. Native macOS artifacts are built by the `flow-engine` GitHub Actions workflow on an Apple Silicon `macos-latest` runner. Local app packaging reuses that executable with `--engine`.
+
+`.github/workflows/flow-engine.yml` runs for `workflow_dispatch` and for pushes to `main` or pull requests that change the engine, its lockfile, the preview frontend, or the workflow. It checks out full git history so the engine version can embed `git describe`, installs the toolchain from `rust-toolchain.toml`, and caches the Cargo registry and target directory under the shared key `flow-release-aarch64-apple-darwin`. Pull requests restore that cache; pushes to `main` and manual runs save it, including workspace crate artifacts. The job builds the gitignored preview page, copies the committed `locales/tinymist-rt.toml` localization catalog, and runs `python3 scripts/flow-app.py build --build-engine --jobs 2` with `RUSTFLAGS=-Dwarnings`. That is the only Rust compilation in the job, and it uses the locked `flow-release` profile with ThinLTO. The runner must be `arm64`. Staging checks `tinymist --version` and `preview --help` for `--follow-system-theme`, then uploads `flow-engine-darwin-arm64` for 30 days. The artifact contains the unsigned `flow-engine`, `flow-engine.sha256`, `release.json` (including `engineBuild`), and `Lagrangian.app`. A manual run accepts a `jobs` input; the default is 2.
+
+On the Mac, download a successful run and package with the printed engine path. `fetch-engine` only downloads, verifies, and prints that path:
+
+```sh
+gh auth status
+engine=$(python3 scripts/flow-app.py fetch-engine --branch main)
+python3 scripts/flow-app.py build --engine "$engine"
+```
+
+`fetch-engine` uses `gh` to select the latest successful `flow-engine.yml` run on the branch. Pass `--run-id <id>` to select one run. The download is stored in `~/Library/Caches/Lagrangian/engines/<run-id>/`, outside the repository `target/` directory. The command checks the SHA-256 against `flow-engine.sha256` and `release.json`, clears the macOS quarantine attribute, probes `--version` and `--follow-system-theme`, and prints the absolute engine path. Pass that path to `--engine`. The same directory also contains `release.json` and the ad-hoc signed `Lagrangian.app` from the runner; local packaging uses the printed `flow-engine` so the installed app keeps the Mac signing identity.
+
+```sh
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id 123456789)
+python3 scripts/flow-app.py build --engine "$engine"
+```
+
+After the workflow file is on the default branch, dispatch a build for the current branch with:
+
+```sh
+gh workflow run flow-engine.yml --ref "$(git branch --show-current)"
+```
+
+A pull request that changes the workflow runs it from the pull request head.
 
 ## Documentation
 
