@@ -81,6 +81,8 @@ jobs:
       - run: cargo doc --workspace --no-deps
       - run: yarn build:typlite
       - run: node ./scripts/link-docs.mjs --check
+        env:
+          TYPLITE_BIN: target/debug/typlite
       - name: Generate completions
         run: |
           mkdir -p completions/{zsh,bash,fish/vendor_completions.d,elvish/lib,nushell/vendor/autoload,powershell}/
