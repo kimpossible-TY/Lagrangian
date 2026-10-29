@@ -1,0 +1,7 @@
+# cargo-dist splices this list into build-local-artifacts before `dist build`.
+# It is not a workflow. The path is relative to `.github/workflows/`.
+- name: Download tinymist assets
+  uses: actions/download-artifact@v8
+  with:
+    name: tinymist-assets
+    path: crates/tinymist-assets/src
