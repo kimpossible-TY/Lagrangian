@@ -72,6 +72,67 @@ impl Git {
     }
 }
 
+fn git_text_line(bytes: &[u8]) -> Option<&str> {
+    std::str::from_utf8(bytes)
+        .ok()
+        .map(|text| text.trim_end_matches(['\r', '\n']))
+}
+
+/// Git pathspecs use `/`. Windows `canonicalize` uses a `\\?\` prefix and `\`.
+fn normalize_git_path(path: &str) -> String {
+    path.strip_prefix(r"\\?\")
+        .unwrap_or(path)
+        .replace('\\', "/")
+}
+
+fn starts_with_git_path(path: &str, prefix: &str) -> bool {
+    let path = path.trim_end_matches('/');
+    let prefix = prefix.trim_end_matches('/');
+    if prefix.is_empty() || path.len() < prefix.len() {
+        return false;
+    }
+    let (head, tail) = path.split_at(prefix.len());
+    let same = if cfg!(windows) {
+        head.eq_ignore_ascii_case(prefix)
+    } else {
+        head == prefix
+    };
+    same && (tail.is_empty() || tail.starts_with('/'))
+}
+
+fn git_relative_utf8(path: &str, root: &str, git_root: &str) -> Option<String> {
+    let path = normalize_git_path(path);
+    let root = normalize_git_path(root);
+    let git_root = normalize_git_path(git_root);
+    if !starts_with_git_path(&path, &root) || !starts_with_git_path(&path, &git_root) {
+        return None;
+    }
+    let path = path.trim_end_matches('/');
+    let git_root = git_root.trim_end_matches('/');
+    if path.len() == git_root.len() {
+        Some(String::new())
+    } else {
+        Some(path[git_root.len() + 1..].to_string())
+    }
+}
+
+fn git_relative(path: &Path, root: &Path, git_root: &Path) -> Option<String> {
+    if let (Some(path_text), Some(root_text), Some(git_root_text)) =
+        (path.to_str(), root.to_str(), git_root.to_str())
+    {
+        if path_text.contains('\\') || root_text.contains('\\') || git_root_text.contains('\\') {
+            return git_relative_utf8(path_text, root_text, git_root_text);
+        }
+    }
+    if !path.starts_with(root) {
+        return None;
+    }
+    path.strip_prefix(git_root)
+        .ok()
+        .and_then(Path::to_str)
+        .map(|relative| relative.replace('\\', "/"))
+}
+
 /// Return ranges only for disk sources identical to the compiled snapshot.
 pub(super) fn changed_ranges(
     root: &Path,
@@ -81,8 +142,8 @@ pub(super) fn changed_ranges(
         root: root.to_owned(),
         deadline: Instant::now() + Duration::from_secs(3),
     };
-    let repo = git.read(&["rev-parse".as_ref(), "--show-toplevel".as_ref()])?;
-    let repo = std::str::from_utf8(&repo).ok()?.strip_suffix('\n')?;
+    let repo_bytes = git.read(&["rev-parse".as_ref(), "--show-toplevel".as_ref()])?;
+    let repo = git_text_line(&repo_bytes)?;
     git.root = PathBuf::from(repo);
     let (head, _) = git.run(&["rev-parse".as_ref(), "--verify".as_ref(), "HEAD".as_ref()])?;
     if !head.success() {
@@ -135,10 +196,10 @@ pub(super) fn changed_ranges(
     let modified: HashSet<_> = modified.split(|byte| *byte == 0).collect();
     let mut candidates = Vec::new();
     for (index, (path, source)) in sources.iter().enumerate() {
-        if !path.starts_with(root) || source.is_empty() || source.len() as u64 > MAX_OUTPUT {
+        if source.is_empty() || source.len() as u64 > MAX_OUTPUT {
             continue;
         }
-        let Some(relative) = path.strip_prefix(&git.root).ok().and_then(Path::to_str) else {
+        let Some(relative) = git_relative(path, root, &git.root) else {
             continue;
         };
         let is_added = added.contains(relative.as_bytes());
@@ -313,5 +374,33 @@ mod tests {
         )
         .unwrap();
         assert!(changed_ranges(&root, &source).is_none());
+    }
+
+    #[test]
+    fn git_toplevel_trims_crlf() {
+        assert_eq!(git_text_line(b"C:\\repo\r\n").unwrap(), r"C:\repo");
+        assert_eq!(git_text_line(b"/repo\n").unwrap(), "/repo");
+    }
+
+    #[test]
+    fn windows_verbatim_paths_match_git_root_with_forward_slashes() {
+        let root = r"\\?\C:\repo";
+        let inside = r"\\?\C:\repo\dir\tracked [한].typ";
+        assert_eq!(
+            git_relative_utf8(inside, root, r"C:\repo").as_deref(),
+            Some("dir/tracked [한].typ")
+        );
+        assert_eq!(
+            git_relative_utf8(inside, root, "C:/repo").as_deref(),
+            Some("dir/tracked [한].typ")
+        );
+        assert_eq!(
+            git_relative_utf8(r"\\?\C:\other\file.typ", root, r"C:\repo"),
+            None
+        );
+        assert_eq!(
+            git_relative_utf8(r"\\?\C:\repository\file.typ", root, r"C:\repo"),
+            None
+        );
     }
 }
