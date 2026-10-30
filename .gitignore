@@ -27,3 +27,8 @@ refs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# local logs and secrets
+*.log
+error.log
+.env*
