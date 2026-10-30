@@ -74,7 +74,7 @@ cargo fmt --check --all
 yarn workspace typst-preview-frontend test run
 ```
 
-The native engine build uses the locked `flow-release` profile with ThinLTO. `python3 scripts/flow-app.py build --build-engine --jobs 2` compiles Rust and requires a macOS build host. Running it on the local Mac requires an explicit local-build instruction. The app manifest records its target, profile, Rust flags and any LTO override in addition to engine version and hashes. On Apple Silicon, use a native ARM Python environment.
+The native engine build uses the locked `flow-release` profile with ThinLTO. `python3 scripts/flow-app.py build --build-engine --jobs 2` compiles Rust and requires a macOS build host. The `flow-engine` GitHub Actions workflow is that host; see **Remote Rust builds**. Running the command on the local Mac requires an explicit local-build instruction. The app manifest records its target, profile, Rust flags and any LTO override in addition to engine version and hashes. On Apple Silicon, use a native ARM Python environment.
 
 ## Remote Rust builds
 
@@ -97,7 +97,32 @@ target/debug/tinymist --version
 
 Retain dependency and build caches in Cloud. Await the actual job result and report the checked SHA, commands, exit statuses and test results; submission alone is not a successful build. Local Git operations, source inspection, preinstalled formatters, JavaScript checks and prebuilt Typst/typlite tools can still run locally without rebuilding Rust caches.
 
-The configured Cloud environment produces Linux binaries. A Linux build does not validate or supply a macOS executable. Native macOS artifacts require a remote macOS runner; local app packaging can reuse an existing compatible engine with `--engine` instead of `--build-engine`.
+The configured Cloud environment produces Linux binaries. A Linux build does not validate or supply a macOS executable. Native macOS artifacts are built by the `flow-engine` GitHub Actions workflow on an Apple Silicon `macos-latest` runner. Local app packaging reuses that executable with `--engine`.
+
+`.github/workflows/flow-engine.yml` is the only GitHub Actions workflow. It runs when someone dispatches it (`workflow_dispatch`) and does not run on push or pull request. Dispatch it on the same ref that `fetch-engine --branch` will search: a run started with `--ref main` is a successful run for `--branch main`. It checks out that ref with full git history so the engine version can embed `git describe` and `release.json` records that commit. It installs the toolchain from `rust-toolchain.toml` and caches the Cargo registry and target directory under the shared key `flow-release-aarch64-apple-darwin`, including workspace crate artifacts. After `yarn install --frozen-lockfile`, the job runs `node scripts/stage-tinymist-assets.mjs` with no arguments. That prepares the gitignored preview page and copies the committed localization catalog without compiling Rust. The job then runs `python3 scripts/flow-app.py build --build-engine --jobs 2` with `RUSTFLAGS=-Dwarnings`. That is the only Rust compilation in the job, and it uses the locked `flow-release` profile with ThinLTO. The runner must be `arm64`. Staging checks `tinymist --version` and `preview --help` for `--follow-system-theme`, then uploads `flow-engine-darwin-arm64` for 30 days. The artifact contains the unsigned `flow-engine`, `flow-engine.sha256`, `release.json` (including `engineBuild`), and `Lagrangian.app`. The dispatch accepts a `jobs` input; the default is 2. A later dispatch of the same ref cancels the older in-progress run. The job token keeps `actions: write` because publishing the artifact and saving the Cargo cache both require it.
+
+The minimum supported Rust is `rust-version` in `Cargo.toml`. The workflow installs `channel` from `rust-toolchain.toml`. Keep them on the same release: channel `1.92` matches `rust-version = "1.92"`. `yarn check-msrv` used to compare `rust-version` with the `# check-min-version` toolchain pin in `ci.yml`. That workflow and script are gone, so compare the two files directly. This check does not compile Rust.
+
+On the Mac, download a successful run and package with the printed engine path. `fetch-engine` only downloads, verifies, and prints that path:
+
+```sh
+gh auth status
+engine=$(python3 scripts/flow-app.py fetch-engine --branch main)
+python3 scripts/flow-app.py build --engine "$engine"
+```
+
+`fetch-engine` uses `gh run list` for the latest successful `flow-engine.yml` run on that branch. Manual runs are included because `workflow_dispatch` is recorded on the ref given to `--ref`. Pass `--run-id <id>` to select one run. The download is stored in `~/Library/Caches/Lagrangian/engines/<run-id>/`, outside the repository `target/` directory. The command checks the SHA-256 against `flow-engine.sha256` and `release.json`, clears the macOS quarantine attribute, probes `--version` and `--follow-system-theme`, and prints the absolute engine path. Pass that path to `--engine`. The same directory also contains `release.json` and the ad-hoc signed `Lagrangian.app` from the runner; local packaging uses the printed `flow-engine` so the installed app keeps the Mac signing identity.
+
+```sh
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id 123456789)
+python3 scripts/flow-app.py build --engine "$engine"
+```
+
+`gh workflow run` requires this file on the default branch. The `--ref` argument is the branch `fetch-engine --branch` searches:
+
+```sh
+gh workflow run flow-engine.yml --ref main
+```
 
 ## Documentation
 
@@ -129,12 +154,12 @@ Commands below run from the repository root. Start with the affected scope and w
 
 - Rust: `RUSTFLAGS=-Dwarnings cargo test -p <crate> --locked`, crate Clippy and `cargo fmt --check --all`. Public facade changes also compile consumers. Broad changes use workspace tests/Clippy; feature combinations use `scripts/feature-testing.sh`. Preserve workspace documentation and safety lints. Inspect analyzer snapshot diffs before explicitly accepting expected changes.
 - JavaScript/TypeScript: `yarn lint` aggregates `lint:vscode` and `lint:readers`. Reader lint rejects warnings and separates browser globals from Node globals; vendor/generated files are excluded. Existing VS Code rules retain their baseline until warnings are separately assessed. Use affected project type checks and formatting checks as well.
-- Reader boundaries: `yarn test:architecture`. Shared policy changes: `yarn test:readers` includes shared/HTML Node tests, Python services, paged frontend and DOM tests. The macOS CI reader job runs the same commands, including installed-layout tests. Build changes also require `yarn build:preview`.
+- Reader boundaries: `yarn test:architecture`. Shared policy changes: `yarn test:readers` includes shared/HTML Node tests, Python services, paged frontend, DOM tests, and installed-layout tests. Build changes also require `yarn build:preview`.
 - Python: `yarn test:reader-services` runs the existing service/install suite. Compiler fixtures need `FLOW_READER_PACKAGES` and optionally `FLOW_READER_TYPST`. `yarn test:reader-integration` requires the package directory and rejects all skipped tests; use macOS with Neovim and set `TAIL_HOSTING_SOURCE` to the companion source checkout for the complete suite. Python lint adoption requires a separate baseline assessment.
 - Native app: `yarn flow:test` compiles Swift with warnings as errors and exercises service recovery/packaging. Set `FLOW_TEST_ENGINE` for external-engine coverage.
 - VS Code: use the scoped instructions for unit, LSP integration and system/web bundle checks. Grammar changes use `yarn test:grammar`.
 - Documentation: regenerate with `node scripts/link-docs.mjs`, then run `yarn docs:check` and compile the changed Typst source.
 
-CI and local development use the same package scripts. The base reader suite can report skipped optional compiler/editor fixtures; it does not prove browser or physical-device coverage. Required integration runs must provision prerequisites and fail rather than silently skip. Browser fixtures assert their own compiler and Playwright prerequisites; native terminal and physical-device checks remain separate. When moving assets, verify imports, build inputs, static routes and the installed layout, then generate new release artifacts without rewriting immutable releases.
+Local checks use these package scripts. The base reader suite can report skipped optional compiler/editor fixtures; it does not prove browser or physical-device coverage. Required integration runs must provision prerequisites and fail rather than silently skip. Browser fixtures assert their own compiler and Playwright prerequisites; native terminal and physical-device checks remain separate. When moving assets, verify imports, build inputs, static routes and the installed layout, then generate new release artifacts without rewriting immutable releases.
 
 Report checks actually run and skipped coverage. Do not broaden testing after relevant checks pass unless the change or new evidence warrants it.

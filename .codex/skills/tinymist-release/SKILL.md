@@ -56,14 +56,13 @@ If the version is missing, ask for the exact version before doing anything else.
    - `scripts/draft-release.mjs`
 
    When the target is nightly, also read:
-   - `.github/workflows/release-nightly.yml`
    - `scripts/nightly-utils.mjs`
 
-   When the target is a regular or release-candidate build, prefer the repository's existing release path:
+   When the target is a regular or release-candidate build, prefer the repository's existing local release path:
    - `scripts/release.mjs`
-   - `.github/workflows/release-asset-crate.yml`
-   - `.github/workflows/auto-tag.yml`
-   - `.github/workflows/announce.yml`
+   - `scripts/draft-release.mjs`
+
+   The repository does not contain `release-nightly.yml`, `release-asset-crate.yml`, `auto-tag.yml`, or `announce.yml`. The only GitHub Actions workflow is the manual `.github/workflows/flow-engine.yml` engine build.
 
 4. Report inspection results before making edits
 

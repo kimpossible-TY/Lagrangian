@@ -747,10 +747,7 @@ function buildHandoffCommands({
   releaseNotes: releaseNotesInfo,
 }) {
   if (releaseType === "nightly") {
-    return [
-      "gh workflow run release-nightly.yml -f release_type=nightly",
-      "gh workflow run release-nightly.yml -f release_type=canary",
-    ];
+    return [];
   }
 
   return [releaseNotesInfo.command, `yarn release ${targetVersionValue}`].filter(Boolean);
@@ -765,13 +762,7 @@ function buildReleaseEntryPoints({
     return [
       {
         path: "scripts/nightly-utils.mjs",
-        command: "gh workflow run release-nightly.yml -f release_type=nightly",
-        description: "Nightly release helper logic and workflow dispatch.",
-        requiresApproval: true,
-      },
-      {
-        path: ".github/workflows/release-nightly.yml",
-        description: "Nightly/canary workflow entry point.",
+        description: "Local nightly and canary helper. There is no release-nightly workflow.",
       },
     ];
   }
@@ -780,7 +771,7 @@ function buildReleaseEntryPoints({
     {
       path: "scripts/release.mjs",
       command: `yarn release ${targetVersionValue}`,
-      description: "Create the release PR and dispatch the assets publish workflow.",
+      description: "Create the release PR. The assets publish workflow is not in the repository, so scripts/release.mjs stops before that dispatch.",
       requiresApproval: true,
     },
   ];

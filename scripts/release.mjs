@@ -95,47 +95,10 @@ function spawn(id, cmd, options = {}) {
   });
 }
 
-const releaseAssetId = "release-asset-crate.yml";
-const currentBranch = (await spawn("current-branch", "git rev-parse --abbrev-ref HEAD"))
-  .toString()
-  .trim();
-
-async function findWorkflowRunId(workflowId, branch) {
-  const runs = JSON.parse(
-    await spawn(
-      "workflow-run-list",
-      `gh run list -w ${workflowId} ${REPO_PARAM} --json headBranch,databaseId`,
-    ),
-  );
-
-  console.log(runs, branch);
-  const run = runs.find((run) => run.headBranch === branch);
-  return run?.databaseId;
-}
-
-async function tryFindWorkflowRunId(workflowId, branch) {
-  for (let i = 0; i < 10; i++) {
-    const runId = await findWorkflowRunId(workflowId, branch);
-    if (runId) {
-      return runId;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-  }
-  throw new Error(`Workflow run ${workflowId} for branch ${branch} not found`);
-}
-
 async function createReleaseAsset() {
-  await spawn(
-    `workflow-run`,
-    `gh workflow run ${releaseAssetId} ${REPO_PARAM} -r ${currentBranch.toString().trim()}`,
+  throw new Error(
+    "release-asset-crate.yml was removed from .github/workflows. GitHub Actions no longer publishes tinymist-assets.",
   );
-
-  // get and wait last run id
-  const runId = await tryFindWorkflowRunId(releaseAssetId, currentBranch);
-
-  console.log(`Workflow run ${runId} started`);
-  // watch and print runs
-  await spawn(`workflow-run-watch`, `gh run watch ${runId}`);
 }
 
 await spawn(

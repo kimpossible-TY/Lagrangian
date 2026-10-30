@@ -12,6 +12,7 @@ Flow needs a stable branded macOS installation, project settings, visible previe
 - Document app maintenance, external engine compatibility, deployment, and recovery.
 - Align the development repository name and documentation with tinymist-flow, retaining the earlier independent repository as tinymist-flow-archive.
 - Maintain the app, engine, preview frontend and supporting workspace sources together; accept an external engine or build a native engine with recorded ThinLTO settings.
+- Build the Apple Silicon flow-release engine on a manual GitHub Actions macOS runner, then download and verify that artifact for local packaging without compiling Rust.
 - Preserve staged packaging, external engine provenance, freshly compiled app tests, and the repository naming changes when integrating preview work.
 - Persist a user-selected signing certificate for app and engine builds, reject missing configured identities instead of falling back to ad-hoc signing, and verify certificate provenance.
 - Wait for asynchronous preview shutdown before replacing a bundle and restarting profiles during update or recovery.
@@ -29,4 +30,4 @@ Flow needs a stable branded macOS installation, project settings, visible previe
 
 ## Impact
 
-Maintained sources include the app, branding, packaging, tests, Typst documentation, engine crates, preview frontend, supporting editor workspaces and the Tail Hosting adapter. Packaging accepts compatible external engines or builds the maintained engine sources; installed engines remain independent of development outputs.
+Maintained sources include the app, branding, packaging, tests, Typst documentation, engine crates, preview frontend, supporting editor workspaces and the Tail Hosting adapter. Packaging accepts compatible external engines or builds the maintained engine sources; installed engines remain independent of development outputs. A manual macOS Actions run is the remote host for the native engine. `fetch-engine` verifies that artifact and passes it to `--engine`.

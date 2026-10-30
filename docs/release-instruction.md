@@ -38,9 +38,9 @@ In the external actions phase, Codex must stop and ask for explicit maintainer a
 
 The current repository entry points remain the source of truth for those external steps:
 
-- `scripts/release.mjs` creates the release PR, dispatches `tinymist::assets::publish`, updates the `tinymist-assets` pin in `Cargo.toml`, commits, and pushes.
-- `scripts/draft-release.mjs` and `.github/workflows/announce.yml` generate release announcement content and the GitHub release draft.
-- `.github/workflows/release-nightly.yml` and `scripts/nightly-utils.mjs` remain the nightly and canary release path.
+- `scripts/release.mjs` creates the release PR. It then stops, because `.github/workflows/release-asset-crate.yml` is not in the repository and GitHub Actions no longer publishes `tinymist-assets`.
+- `scripts/draft-release.mjs` generates release announcement content. There is no announce workflow.
+- `scripts/nightly-utils.mjs` is the local nightly and canary helper. There is no nightly workflow.
 
 If tooling, authentication, or permissions are missing, Codex should stop, report the blocker, and provide the exact manual shell command needed next.
 
@@ -73,7 +73,7 @@ Tinymist’s versions follow the [Semantic Versioning](https://semver.org/) sche
 
 ### Updating Version String in Codebase
 
-Update Version String in Codebase other than that of `tinymist-assets`, which will be released in the `tinymist::assets::publish` CI. You can `grep` the version number in the repository to check if all the version numbers in the `Cargo.toml` and `package.json` files are updated. Some CI script will also assert failing to help you catch the issue.
+Update Version String in Codebase other than that of `tinymist-assets`. You can `grep` the version number in the repository to check if all the version numbers in the `Cargo.toml` and `package.json` files are updated.
 
 Release-sensitive non-manifest files should be reviewed as well, especially `editors/neovim/bootstrap.sh` and `editors/neovim/samples/lazyvim-dev/Dockerfile`.
 
@@ -81,7 +81,7 @@ After the version-bearing source files are updated, refresh generated docs with 
 
 ### Updating the Changelog
 
-All released version must be documented in the changelog. The changelog is located at `editors/vscode/CHANGELOG.md`. Please ensure the correct format otherwise CI will fail.
+All released version must be documented in the changelog. The changelog is located at `editors/vscode/CHANGELOG.md`. Please ensure the correct format.
 
 You can make it with following steps:
 
@@ -170,7 +170,7 @@ You can make it with following steps:
 
 ### Publishing the tinymist-assets crate
 
-Run the `tinymist::assets::publish` CI to release the `tinymist-assets` crate. Ensure that the `tinymist-assets` crate is published to the registry. Please see `Cargo.lock` to check the released crate is used correctly.
+Publish the `tinymist-assets` crate outside GitHub Actions. The `tinymist::assets::publish` workflow is not in this repository. Ensure that the `tinymist-assets` crate is published to the registry. Please see `Cargo.lock` to check the released crate is used correctly.
 
 If Codex is assisting with the release, this is an approval boundary. Codex should stop and ask for explicit approval before dispatching this workflow directly or via `scripts/release.mjs`.
 
@@ -187,4 +187,4 @@ $ git push --tag
 
 If Codex is assisting with the release, this is also an approval boundary because it mutates the remote repository and triggers the release pipeline.
 
-This step will trigger the `ci.yml` CI to build and publish the VS Code extensions to the marketplace.
+Pushing the tag does not start a GitHub Actions workflow. The only workflow in this repository is the manual macOS engine build, `.github/workflows/flow-engine.yml`.

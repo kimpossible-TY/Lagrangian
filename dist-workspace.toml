@@ -7,8 +7,10 @@ members = ["cargo:."]
 cargo-dist-version = "0.32.0-tinymist.5"
 # A URL to use to install `cargo-dist` (with the installer script)
 cargo-dist-url-override = "https://github.com/Myriad-Dreamin/cargo-dist/releases/download/v0.32.0-tinymist.5"
-# CI backends to support
-ci = "github"
+# CI backends to support. Empty keeps `dist generate` / `yarn generate-ci`
+# from writing .github/workflows/release.yml. The only workflow is the
+# hand-maintained .github/workflows/flow-engine.yml.
+ci = []
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # The archive format to use for windows builds (defaults .zip)
@@ -61,9 +63,6 @@ install-updater = false
 install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 # Whether to cache builds
 cache-builds = true
-
-global-artifacts-jobs = ["./build-vscode", "./ci-check-e2e"]
-github-custom-job-permissions = { "build-vscode" = { contents = "write" } }
 
 [dist.github-custom-runners]
 global = "ubuntu-22.04"

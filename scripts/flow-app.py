@@ -20,6 +20,10 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_ID = 'io.github.kimpossible-ty.lagrangian'
+ENGINE_WORKFLOW = 'flow-engine.yml'
+ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
+ENGINE_TARGET = 'aarch64-apple-darwin'
+ENGINE_PROFILE = 'flow-release'
 APP_NAME = 'Lagrangian'
 APP_BUNDLE = 'Lagrangian.app'
 APP_EXECUTABLE = 'Lagrangian'
@@ -214,6 +218,13 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     validate(app)
     return manifest
 
+def cargo_metadata():
+    return json.loads(capture(['cargo', 'metadata', '--locked', '--format-version=1', '--no-deps',
+                               '--manifest-path', ROOT / 'Cargo.toml'], cwd=ROOT))
+
+def flow_release_engine_path(target_directory, target):
+    return Path(target_directory) / target / 'flow-release' / 'tinymist'
+
 def build_native_engine(jobs):
     """Build a portable native Mac engine with a recorded ThinLTO profile."""
     if sys.platform != 'darwin':
@@ -226,20 +237,172 @@ def build_native_engine(jobs):
                                     capture_output=True, text=True)
         if translated.stdout.strip() == '1':
             raise ValueError('Run the build with a native ARM Python or terminal on Apple Silicon')
-    target = {'arm64': 'aarch64-apple-darwin', 'x86_64': 'x86_64-apple-darwin'}.get(machine)
+    target = {'arm64': ENGINE_TARGET, 'x86_64': 'x86_64-apple-darwin'}.get(machine)
     if target is None:
         raise ValueError('Unsupported macOS host architecture')
-    metadata = json.loads(capture(['cargo', 'metadata', '--locked', '--format-version=1', '--no-deps',
-                                   '--manifest-path', ROOT / 'Cargo.toml'], cwd=ROOT))
-    run(['cargo', 'build', '--locked', '--profile', 'flow-release', '--target', target,
+    metadata = cargo_metadata()
+    run(['cargo', 'build', '--locked', '--profile', ENGINE_PROFILE, '--target', target,
          '--bin', 'tinymist', '--jobs', str(jobs)], cwd=ROOT)
-    path = Path(metadata['target_directory']) / target / 'flow-release/tinymist'
-    settings = {'profile': 'flow-release', 'target': target, 'configuredLto': 'thin',
+    path = flow_release_engine_path(metadata['target_directory'], target)
+    settings = {'profile': ENGINE_PROFILE, 'target': target, 'configuredLto': 'thin',
                 'rustflags': os.environ.get('RUSTFLAGS', ''),
                 'encodedRustflags': os.environ.get('CARGO_ENCODED_RUSTFLAGS', '')}
     if 'CARGO_PROFILE_FLOW_RELEASE_LTO' in os.environ:
         settings['profileLtoOverride'] = os.environ['CARGO_PROFILE_FLOW_RELEASE_LTO']
     return path, settings
+
+def stage_engine_artifact(args):
+    """Collect the unsigned Apple Silicon engine, checksum, manifest, and app for upload."""
+    app = args.app.expanduser().resolve()
+    manifest_path = (args.manifest or (app.parent / 'release.json')).expanduser().resolve()
+    manifest = json.loads(manifest_path.read_text())
+    build = manifest.get('engineBuild')
+    if not isinstance(build, dict) or build.get('target') != ENGINE_TARGET or build.get('profile') != ENGINE_PROFILE:
+        raise ValueError('Engine artifact requires an aarch64-apple-darwin flow-release engineBuild')
+    if not app.is_dir():
+        raise ValueError('App bundle is missing: ' + str(app))
+    engine = flow_release_engine_path(cargo_metadata()['target_directory'], ENGINE_TARGET)
+    if not engine.is_file():
+        raise ValueError('Native engine output is missing: ' + str(engine))
+    actual = digest(engine)
+    if actual != manifest.get('engineInputSHA256'):
+        raise ValueError('Unsigned engine hash does not match release.json engineInputSHA256')
+    version = capture([engine, '--version'])
+    if not version:
+        raise ValueError('Engine --version produced no output')
+    if '--follow-system-theme' not in capture([engine, 'preview', '--help']):
+        raise ValueError('The engine must support Flow preview features, including --follow-system-theme')
+    output = args.output.expanduser().resolve()
+    if output.exists(): shutil.rmtree(output)
+    output.mkdir(parents=True)
+    shutil.copy2(engine, output / 'flow-engine')
+    (output / 'flow-engine').chmod(0o755)
+    (output / 'flow-engine.sha256').write_text(actual + '  flow-engine\n')
+    shutil.copy2(manifest_path, output / 'release.json')
+    shutil.copytree(app, output / app.name, symlinks=True)
+    print(output)
+
+def path_inside(child, parent):
+    resolved = child.expanduser().resolve()
+    root = parent.resolve()
+    return resolved == root or root in resolved.parents
+
+def ensure_outside_target(path):
+    if path_inside(path, ROOT / 'target'):
+        raise ValueError('Refusing to store the engine inside the repository target directory. '
+                         'The download is the built executable; choose a path outside target/.')
+
+def engine_cache_dir(run_id):
+    base = Path.home() / 'Library/Caches/Lagrangian/engines' if sys.platform == 'darwin' else Path.home() / '.cache/lagrangian/engines'
+    return base / str(run_id)
+
+def github_repo():
+    return capture(['gh', 'repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd=ROOT).strip().strip('"')
+
+def latest_engine_run(repo, branch):
+    # A workflow_dispatch run is listed under the ref it was started with.
+    # --branch main therefore finds `gh workflow run flow-engine.yml --ref main`.
+    # Do not add --event; that would hide a successful run of another event.
+    raw = capture(['gh', 'run', 'list', '--repo', repo, '--workflow', ENGINE_WORKFLOW,
+                   '--branch', branch, '--status', 'success', '--limit', '1',
+                   '--json', 'databaseId,url,headSha,conclusion'], cwd=ROOT)
+    try:
+        runs = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError('gh run list did not return JSON') from error
+    if not isinstance(runs, list) or not runs or not runs[0].get('databaseId'):
+        raise ValueError('No successful ' + ENGINE_WORKFLOW + ' run for branch ' + branch + '. '
+                         'Dispatch one with: gh workflow run ' + ENGINE_WORKFLOW + ' --ref ' + branch)
+    return str(runs[0]['databaseId'])
+
+def parse_engine_checksum(text):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise ValueError('Engine checksum file must contain one SHA-256 line')
+    token = lines[0].split()[0]
+    if not re.fullmatch(r'[0-9a-fA-F]{64}', token):
+        raise ValueError('Engine checksum file does not contain a SHA-256 digest')
+    return token.lower()
+
+def engine_payload_dir(download):
+    candidates = []
+    for checksum in download.rglob('flow-engine.sha256'):
+        if (checksum.parent / 'flow-engine').is_file() and (checksum.parent / 'release.json').is_file():
+            candidates.append(checksum.parent)
+    if len(candidates) != 1:
+        raise ValueError('The downloaded artifact must contain one flow-engine, flow-engine.sha256, and release.json')
+    return candidates[0]
+
+def verify_engine_payload(payload):
+    engine = payload / 'flow-engine'
+    actual = digest(engine)
+    expected = parse_engine_checksum((payload / 'flow-engine.sha256').read_text())
+    if actual != expected:
+        raise ValueError('Engine SHA-256 mismatch: expected ' + expected + ', got ' + actual)
+    manifest = json.loads((payload / 'release.json').read_text())
+    recorded = str(manifest.get('engineInputSHA256', '')).lower()
+    if recorded != actual:
+        raise ValueError('Engine SHA-256 does not match release.json engineInputSHA256')
+    build = manifest.get('engineBuild')
+    if not isinstance(build, dict) or build.get('target') != ENGINE_TARGET or build.get('profile') != ENGINE_PROFILE:
+        raise ValueError('release.json must record an aarch64-apple-darwin flow-release engineBuild')
+    return actual
+
+def clear_quarantine(path):
+    if sys.platform != 'darwin':
+        return
+    try:
+        run(['/usr/bin/xattr', '-dr', 'com.apple.quarantine', path])
+    except subprocess.CalledProcessError as error:
+        if error.returncode != 1:
+            raise
+
+def install_engine_payload(repo, run_id, dest):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    incoming = dest.parent / ('.incoming-' + dest.name)
+    if incoming.exists(): shutil.rmtree(incoming)
+    installed = False
+    try:
+        with tempfile.TemporaryDirectory(prefix='flow-engine-download-') as tmp:
+            download = Path(tmp) / 'artifact'
+            download.mkdir()
+            run(['gh', 'run', 'download', run_id, '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', download])
+            payload = engine_payload_dir(download)
+            verify_engine_payload(payload)
+            shutil.copytree(payload, incoming, symlinks=True)
+        engine = incoming / 'flow-engine'
+        engine.chmod(0o755)
+        clear_quarantine(incoming)
+        if sys.platform == 'darwin':
+            resolve_engine(engine)
+        if dest.exists(): shutil.rmtree(dest)
+        os.replace(incoming, dest)
+        installed = True
+    finally:
+        if not installed and incoming.exists(): shutil.rmtree(incoming, ignore_errors=True)
+
+def fetch_engine(args):
+    """Download a verified macOS arm64 engine artifact. This does not compile Rust."""
+    if shutil.which('gh') is None:
+        raise ValueError('gh is required to download the macOS engine from GitHub Actions. '
+                         'Authenticate it for this repository. This command does not compile Rust.')
+    if args.dest is not None:
+        ensure_outside_target(args.dest)
+    run_id = str(args.run_id) if args.run_id else None
+    if run_id is not None and not re.fullmatch(r'\d+', run_id):
+        raise ValueError('Run id must be the numeric GitHub Actions run id')
+    repo = github_repo()
+    if run_id is None:
+        branch = (args.branch or '').strip()
+        if not branch:
+            raise ValueError('Pass --branch or --run-id')
+        run_id = latest_engine_run(repo, branch)
+    dest = (args.dest or engine_cache_dir(run_id)).expanduser()
+    ensure_outside_target(dest)
+    install_engine_payload(repo, run_id, dest)
+    engine = dest / 'flow-engine'
+    print('Verified flow-engine run ' + run_id + ' SHA-256 ' + digest(engine), file=sys.stderr)
+    print(engine)
 
 def profiles(app):
     if not executable(app).exists(): return []
@@ -396,6 +559,16 @@ def restore_hosting(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest='command', required=True)
     b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
+    fetch = sub.add_parser('fetch-engine', help='Download a macOS arm64 engine built by GitHub Actions without compiling Rust')
+    fetch.add_argument('--branch', default='main', help='Branch whose latest successful flow-engine run is downloaded')
+    fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run')
+    fetch.add_argument('--dest', type=Path, help='Directory outside the repository target/ (default: a small user cache keyed by run id)')
+    fetch.set_defaults(func=fetch_engine)
+    stage = sub.add_parser('stage-engine-artifact', help='Collect the unsigned Apple Silicon engine and app manifest for upload')
+    stage.add_argument('--app', type=Path, required=True)
+    stage.add_argument('--manifest', type=Path)
+    stage.add_argument('--output', type=Path, required=True)
+    stage.set_defaults(func=stage_engine_artifact)
     s = sub.add_parser('configure-signing'); s.add_argument('--identity', required=True, help='Existing Keychain code-signing certificate name or SHA-1'); s.set_defaults(func=configure_signing)
     i = sub.add_parser('install'); i.add_argument('source', type=Path); i.add_argument('--app', type=Path, default=DEFAULT_APP); i.add_argument('--defer-health-check', action='store_true', help='Defer the live HTTP deadline while macOS consent is pending; keep bundle validation and backup'); i.set_defaults(func=install)
     r = sub.add_parser('rollback'); r.add_argument('--app', type=Path, default=DEFAULT_APP); r.set_defaults(func=rollback)

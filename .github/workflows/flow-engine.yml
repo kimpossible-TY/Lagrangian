@@ -1,0 +1,106 @@
+name: Flow engine
+
+# Builds the Apple Silicon flow engine on a GitHub-hosted macOS runner.
+# Manual dispatch only. This is the only GitHub Actions workflow in the repo.
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: Cargo jobs for the locked flow-release build
+        required: false
+        default: "2"
+        type: string
+
+permissions:
+  contents: read
+  # actions: write is required. actions/upload-artifact cannot publish
+  # flow-engine-darwin-arm64 with actions: read, and the Cargo cache save
+  # (setup-rust-toolchain / rust-cache) also needs actions: write.
+  # actions: read can only restore a cache or download an existing artifact.
+  actions: write
+
+# A later dispatch of the same ref cancels the older in-progress run.
+concurrency:
+  group: flow-engine-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: macOS arm64 flow-release
+    runs-on: macos-latest
+    timeout-minutes: 360
+    env:
+      FLOW_ENGINE_JOBS: ${{ github.event.inputs.jobs || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_dispatch checks out the selected ref. Full history lets
+          # the engine version embed git describe.
+          fetch-depth: 0
+
+      - name: Require Apple Silicon
+        run: |
+          uname -m
+          sw_vers
+          df -h /
+          test "$(uname -m)" = arm64
+
+      - name: Free disk for the ThinLTO target directory
+        run: |
+          # Hosted macOS images keep simulator runtimes on a small disk.
+          # The flow-release target directory needs that space. Xcode stays installed.
+          sudo rm -rf /Library/Developer/CoreSimulator/Volumes/* || true
+          sudo rm -rf "$HOME/Library/Developer/CoreSimulator/Caches" || true
+          sudo rm -rf "$HOME/Library/Developer/CoreSimulator/Devices" || true
+          df -h /
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Install frontend dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Prepare embedded preview and localization assets
+        run: node scripts/stage-tinymist-assets.mjs
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: -Dwarnings
+          cache-shared-key: flow-release-aarch64-apple-darwin
+          cache-on-failure: true
+          cache-targets: true
+          cache-all-crates: true
+          cache-save-if: "true"
+
+      - name: Build the native engine and app
+        run: |
+          case "$FLOW_ENGINE_JOBS" in
+            ''|*[!0-9]*|0) echo "jobs must be a positive integer" >&2; exit 1 ;;
+          esac
+          python3 scripts/flow-app.py build --build-engine --jobs "$FLOW_ENGINE_JOBS"
+
+      - name: Stage the engine artifact
+        run: |
+          python3 scripts/flow-app.py stage-engine-artifact \
+            --app dist/Lagrangian.app \
+            --output dist/flow-engine-darwin-arm64
+          du -sh dist/flow-engine-darwin-arm64 dist/flow-engine-darwin-arm64/flow-engine dist/flow-engine-darwin-arm64/Lagrangian.app
+          {
+            echo "### flow-engine-darwin-arm64"
+            echo
+            echo "- Staged directory: \`$(du -sh dist/flow-engine-darwin-arm64 | awk '{print $1}')\`"
+            echo "- Engine file: \`$(du -sh dist/flow-engine-darwin-arm64/flow-engine | awk '{print $1}')\`"
+            echo "- SHA-256: \`$(awk '{print $1}' dist/flow-engine-darwin-arm64/flow-engine.sha256)\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Apple Silicon flow engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-engine-darwin-arm64
+          path: dist/flow-engine-darwin-arm64
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 6
