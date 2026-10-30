@@ -8,16 +8,12 @@ on:
 jobs:
   auto-tag:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: read
-      issues: write
-
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.REPO_TOKEN || github.token }}
+        token: ${{ secrets.REPO_TOKEN }}
         fetch-depth: 0
     
     - name: Get merged PR info

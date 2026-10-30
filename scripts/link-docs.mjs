@@ -1,27 +1,9 @@
 import { resolve, relative, dirname } from "node:path";
-import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..");
-
-function resolveConverter() {
-  if (process.env.TYPLITE_BIN) {
-    return process.env.TYPLITE_BIN;
-  }
-  const ext = process.platform === "win32" ? ".exe" : "";
-  const candidates = [
-    resolve(root, `target/debug/typlite${ext}`),
-    resolve(root, `target/release/typlite${ext}`),
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return "typlite";
-}
-
-const converter = resolveConverter();
+const converter = process.env.TYPLITE_BIN || "typlite";
 const check = process.argv.includes("--check");
 const readmeOnly = process.argv.includes("--readme-only");
 const dry = process.argv.includes("--dry");

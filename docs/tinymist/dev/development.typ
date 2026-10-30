@@ -159,7 +159,7 @@ with `--engine` instead of `--build-engine`.
 
 = Documentation
 
-Edit Typst sources, then regenerate the Markdown outputs. The generator uses `TYPLITE_BIN` when it is set, otherwise `target/debug/typlite` or `target/release/typlite` when that binary exists, and otherwise `typlite` on PATH. Prebuilt typlite executables are available from the #link("https://github.com/Myriad-Dreamin/tinymist/releases")[Tinymist releases]. Node.js supports this generator, and Node.js with Yarn is required for preview frontend and editor work.
+Edit Typst sources, then regenerate the Markdown outputs. The generator uses an external `typlite` executable from PATH or `TYPLITE_BIN`. Prebuilt typlite executables are available from the #link("https://github.com/Myriad-Dreamin/tinymist/releases")[Tinymist releases]. Node.js supports this generator, and Node.js with Yarn is required for preview frontend and editor work.
 
 ```sh
 node scripts/link-docs.mjs

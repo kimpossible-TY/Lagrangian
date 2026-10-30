@@ -107,11 +107,6 @@ jobs:
         with:
           cache-read-only: true
 
-      # Reuse the CI artifact when this workflow is called from tinymist::ci.
-      # A standalone dispatch builds the same assets in this job.
-      - name: Stage tinymist assets
-        uses: ./.github/actions/stage-tinymist-assets
-
       # Build the language server executable used by IntelliJ LSP integration tests
       - name: Build Tinymist executable
         run: cargo build --bin tinymist --locked

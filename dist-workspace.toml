@@ -62,13 +62,6 @@ install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 # Whether to cache builds
 cache-builds = true
 
-# Gitignored preview HTML and runtime translations have to exist before
-# `dist build`. The plan job stages them once on Ubuntu, including when this
-# workflow is dispatched on its own. Platform jobs, including the manylinux
-# containers, only download the artifact.
-plan-jobs = ["./stage-tinymist-assets"]
-github-build-setup = "../tinymist-assets-setup.yml"
-
 global-artifacts-jobs = ["./build-vscode", "./ci-check-e2e"]
 github-custom-job-permissions = { "build-vscode" = { contents = "write" } }
 

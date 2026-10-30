@@ -121,17 +121,12 @@ jobs:
           name: artifacts-plan-dist-manifest
           path: plan-dist-manifest.json
 
-  custom-stage-tinymist-assets:
-    uses: ./.github/workflows/stage-tinymist-assets.yml
-    secrets: inherit
-
   # Build and packages all the platform-specific things
   build-local-artifacts:
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
     # Let the initial task tell us to not run (currently very blunt)
     needs:
       - plan
-      - custom-stage-tinymist-assets
     if: ${{ fromJson(needs.plan.outputs.artifacts_matrix).include != null && fromJson(needs.plan.outputs.artifacts_matrix).include[0] != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' || inputs.tag == 'dry-run' || (inputs.targets != '' && inputs.targets != 'all')) }}
     strategy:
       fail-fast: false
@@ -166,11 +161,6 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
-      - name: "Download tinymist assets"
-        uses: "actions/download-artifact@v8"
-        with:
-          "name": "tinymist-assets"
-          "path": "crates/tinymist-assets/src"
       - uses: swatinem/rust-cache@v2
         with:
           shared-key: ${{ join(matrix.targets, '-') }}
