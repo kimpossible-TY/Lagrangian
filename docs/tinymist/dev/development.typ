@@ -166,8 +166,10 @@ It checks out that ref with full git history so the engine version can embed
 `git describe` and `release.json` records that commit. It installs the
 toolchain from `rust-toolchain.toml` and caches the Cargo registry and target
 directory under the shared key `flow-release-aarch64-apple-darwin`, including
-workspace crate artifacts. The job builds the gitignored preview page, copies
-the committed `locales/tinymist-rt.toml` localization catalog, and runs
+workspace crate artifacts. After `yarn install --frozen-lockfile`, the job
+runs `node scripts/stage-tinymist-assets.mjs` with no arguments. That prepares
+the gitignored preview page and copies the committed localization catalog
+without compiling Rust. The job then runs
 `python3 scripts/flow-app.py build --build-engine --jobs 2` with
 `RUSTFLAGS=-Dwarnings`. That is the only Rust compilation in the job, and it
 uses the locked `flow-release` profile with ThinLTO. The runner must be

@@ -63,15 +63,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Prepare embedded preview and localization assets
-        run: |
-          # The preview page is generated and gitignored. locales/tinymist-rt.toml
-          # is the committed catalog embedded by the l10n feature; copying it avoids
-          # a second Rust profile. yarn build:l10n would compile tinymist-l10n with
-          # the release profile before the locked flow-release engine build.
-          yarn build:preview
-          cp locales/tinymist-rt.toml crates/tinymist-assets/src/tinymist-rt.toml
-          test -s crates/tinymist-assets/src/typst-preview.html
-          test -s crates/tinymist-assets/src/tinymist-rt.toml
+        run: node scripts/stage-tinymist-assets.mjs
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:

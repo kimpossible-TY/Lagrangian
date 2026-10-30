@@ -52,4 +52,4 @@
 - [x] 9.1 Dispatch the arm64 flow-release engine from `flow-engine.yml`, cancel an older run for the same ref, and upload the verified artifact.
 - [x] 9.2 Download that artifact with `fetch-engine`, verify it outside `target/`, and package with `--engine` without compiling Rust.
 - [x] 9.3 Document manual dispatch, the file-to-file MSRV comparison, and regenerate the development guide.
-- [x] 9.4 Validate this change and the Linux fetch/packaging tests. Record the existing Actions artifact. Leave asset preparation inline until `scripts/stage-tinymist-assets.mjs` merges.
+- [x] 9.4 Validate this change and the Linux fetch/packaging tests. Record the existing Actions artifact. Prepare embedded assets with `node scripts/stage-tinymist-assets.mjs`.
