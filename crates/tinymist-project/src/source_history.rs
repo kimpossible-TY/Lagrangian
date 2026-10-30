@@ -308,6 +308,17 @@ fn has_content(source: &Source, range: &Range<usize>) -> bool {
 mod tests {
     use super::*;
 
+    /// Fixture paths must be absolute. A leading `/` is absolute on Unix only.
+    fn absolute_fixture(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(name);
+        assert!(
+            path.is_absolute(),
+            "temporary directory is not absolute: {}",
+            path.display()
+        );
+        path
+    }
+
     #[test]
     fn import_and_distant_body_edits_exclude_the_unchanged_heading() {
         let temporary = tempfile::tempdir().unwrap();
@@ -362,8 +373,11 @@ mod tests {
     #[test]
     fn legacy_ranges_and_invalid_precise_ranges() {
         let text = "한글 body";
-        let value = serde_json::json!({"filepath": "/main.typ", "source_hash": source_hash(text),
-                                     "range": {"start": 0, "end": text.len()}});
+        let value = serde_json::json!({
+            "filepath": absolute_fixture("main.typ"),
+            "source_hash": source_hash(text),
+            "range": {"start": 0, "end": text.len()}
+        });
         let edit: SourceEdit = serde_json::from_value(value).unwrap();
         assert_eq!(edit.changed_ranges().len(), 1);
         assert_eq!(edit.changed_ranges()[0], 0..text.len());
@@ -573,7 +587,7 @@ mod tests {
 
     #[test]
     fn source_budget_and_stale_palettes_do_not_replace_a_baseline() {
-        let path = PathBuf::from("/example.typ");
+        let path = absolute_fixture("example.typ");
         let mut history = SourceHistory::default();
         assert!(history.seed(vec![SourceFile {
             filepath: path.clone(),
@@ -584,7 +598,7 @@ mod tests {
             text: "older".into()
         }]));
         assert!(!history.seed(vec![SourceFile {
-            filepath: PathBuf::from("/too-large.typ"),
+            filepath: absolute_fixture("too-large.typ"),
             text: "x".repeat(MAX_SOURCE_BYTES)
         }]));
         assert_eq!(history.sources[&path], "current");
