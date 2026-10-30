@@ -79,12 +79,14 @@ fn git_text_line(bytes: &[u8]) -> Option<&str> {
 }
 
 /// Git pathspecs use `/`. Windows `canonicalize` uses a `\\?\` prefix and `\`.
+#[cfg(any(windows, test))]
 fn normalize_git_path(path: &str) -> String {
     path.strip_prefix(r"\\?\")
         .unwrap_or(path)
         .replace('\\', "/")
 }
 
+#[cfg(any(windows, test))]
 fn starts_with_git_path(path: &str, prefix: &str) -> bool {
     let path = path.trim_end_matches('/');
     let prefix = prefix.trim_end_matches('/');
@@ -100,6 +102,7 @@ fn starts_with_git_path(path: &str, prefix: &str) -> bool {
     same && (tail.is_empty() || tail.starts_with('/'))
 }
 
+#[cfg(any(windows, test))]
 fn git_relative_utf8(path: &str, root: &str, git_root: &str) -> Option<String> {
     let path = normalize_git_path(path);
     let root = normalize_git_path(root);
@@ -117,6 +120,9 @@ fn git_relative_utf8(path: &str, root: &str, git_root: &str) -> Option<String> {
 }
 
 fn git_relative(path: &Path, root: &Path, git_root: &Path) -> Option<String> {
+    // A backslash is a separator only on Windows. Elsewhere it is a file name
+    // character, so `std::path` must keep it.
+    #[cfg(windows)]
     if let (Some(path_text), Some(root_text), Some(git_root_text)) =
         (path.to_str(), root.to_str(), git_root.to_str())
     {
@@ -130,7 +136,7 @@ fn git_relative(path: &Path, root: &Path, git_root: &Path) -> Option<String> {
     path.strip_prefix(git_root)
         .ok()
         .and_then(Path::to_str)
-        .map(|relative| relative.replace('\\', "/"))
+        .map(str::to_string)
 }
 
 /// Return ranges only for disk sources identical to the compiled snapshot.
@@ -401,6 +407,17 @@ mod tests {
         assert_eq!(
             git_relative_utf8(r"\\?\C:\repository\file.typ", root, r"C:\repo"),
             None
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn unix_backslash_remains_part_of_the_file_name() {
+        let root = Path::new("/repo");
+        let path = Path::new("/repo/dir\\file.typ");
+        assert_eq!(
+            git_relative(path, root, root).as_deref(),
+            Some("dir\\file.typ")
         );
     }
 }
