@@ -30,7 +30,7 @@ runs:
       if: inputs.use-existing != 'true' || steps.download.outcome != 'success'
       shell: bash
       run: |
-        yarn install --immutable
+        yarn install --frozen-lockfile
         node scripts/stage-tinymist-assets.mjs
 
     - name: Upload tinymist assets
