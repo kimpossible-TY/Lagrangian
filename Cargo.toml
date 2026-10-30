@@ -7,7 +7,8 @@ readme = "README.md"
 license = "Apache-2.0"
 homepage = "https://github.com/Myriad-Dreamin/tinymist"
 repository = "https://github.com/Myriad-Dreamin/tinymist"
-# Keep this aligned with rust-toolchain.toml.
+# MSRV. Keep this on the same release as channel in rust-toolchain.toml.
+# Compare the two files directly. yarn check-msrv and ci.yml are gone.
 rust-version = "1.92"
 
 [workspace]

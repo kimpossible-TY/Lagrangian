@@ -128,3 +128,11 @@ services verify successfully; Ewald remains stopped. Full receipts and limits
 are recorded in the responsive-reader change's
 `verification-optimistic-highlights.md` and
 `dist/optimistic-highlight-rollout/verified-rollout.json`.
+
+## Remote Apple Silicon engine artifact
+
+- `.github/workflows/flow-engine.yml` is manual `workflow_dispatch` only. It cancels an older in-progress run for the same ref. `actions: write` stays because artifact upload and the Cargo cache save require it.
+- Successful run https://github.com/kimpossible-TY/Lagrangian/actions/runs/40874149546 uploaded `flow-engine-darwin-arm64` (66,275,034 bytes) for head `d820314477186d58adccbbf35cc85fb648f7e597`. SHA-256 `51541f6744f0caaf5048ff6de76228c298fc2e49f765734c3049c9e8c5d41628`. `release.json` records that commit, target `aarch64-apple-darwin`, and profile `flow-release`.
+- `python3 -m unittest discover -s tests/flow-app -v` on Linux covers fetch, checksum, manifest target, quarantine clearing, and `--engine` packaging with a mocked `gh`. macOS Swift and external-engine tests skip on Linux. Quarantine clearing and `fetch-engine` were not run on a Mac. This review follow-up did not start a macOS build.
+- Asset preparation in the workflow remains `yarn build:preview` and a copy of `locales/tinymist-rt.toml`. It switches to `scripts/stage-tinymist-assets.mjs` after that script merges from `cursor/preview-assets-windows-git-3c34`. The script was not copied here.
+- MSRV is checked by comparing `Cargo.toml` `rust-version` with `rust-toolchain.toml` `channel`. Both are `1.92`.

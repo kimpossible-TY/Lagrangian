@@ -13,8 +13,13 @@ on:
 
 permissions:
   contents: read
+  # actions: write is required. actions/upload-artifact cannot publish
+  # flow-engine-darwin-arm64 with actions: read, and the Cargo cache save
+  # (setup-rust-toolchain / rust-cache) also needs actions: write.
+  # actions: read can only restore a cache or download an existing artifact.
   actions: write
 
+# A later dispatch of the same ref cancels the older in-progress run.
 concurrency:
   group: flow-engine-${{ github.ref }}
   cancel-in-progress: true

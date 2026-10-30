@@ -175,7 +175,16 @@ uses the locked `flow-release` profile with ThinLTO. The runner must be
 `--follow-system-theme`, then uploads `flow-engine-darwin-arm64` for 30 days.
 The artifact contains the unsigned `flow-engine`, `flow-engine.sha256`,
 `release.json` (including `engineBuild`), and `Lagrangian.app`. The dispatch
-accepts a `jobs` input; the default is 2.
+accepts a `jobs` input; the default is 2. A later dispatch of the same ref
+cancels the older in-progress run. The job token keeps `actions: write`
+because publishing the artifact and saving the Cargo cache both require it.
+
+The minimum supported Rust is `rust-version` in `Cargo.toml`. The workflow
+installs `channel` from `rust-toolchain.toml`. Keep them on the same release:
+channel `1.92` matches `rust-version = "1.92"`. `yarn check-msrv` used to
+compare `rust-version` with the `# check-min-version` toolchain pin in
+`ci.yml`. That workflow and script are gone, so compare the two files
+directly. This check does not compile Rust.
 
 On the Mac, download a successful run and package with the printed engine path.
 `fetch-engine` only downloads, verifies, and prints that path:

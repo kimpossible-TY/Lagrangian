@@ -47,3 +47,9 @@
 - [x] 8.5 Preserve HTML reader position and selection across interruption and service restart with bounded requests and document/source freshness guards.
 - [x] 8.6 Update canonical user/developer documentation and source ownership, regenerate Markdown, and validate OpenSpec.
 - [x] 8.7 Run native, reader, type/lint, preview build and isolated end-to-end interruption/readiness checks; inspect evidence for every continuity requirement and record remaining physical-device coverage.
+
+## 9. Remote Apple Silicon engine artifact
+- [x] 9.1 Dispatch the arm64 flow-release engine from `flow-engine.yml`, cancel an older run for the same ref, and upload the verified artifact.
+- [x] 9.2 Download that artifact with `fetch-engine`, verify it outside `target/`, and package with `--engine` without compiling Rust.
+- [x] 9.3 Document manual dispatch, the file-to-file MSRV comparison, and regenerate the development guide.
+- [x] 9.4 Validate this change and the Linux fetch/packaging tests. Record the existing Actions artifact. Leave asset preparation inline until `scripts/stage-tinymist-assets.mjs` merges.
