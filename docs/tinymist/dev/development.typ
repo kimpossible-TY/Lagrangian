@@ -158,23 +158,23 @@ not validate or supply a macOS executable. Native macOS artifacts are built by
 the `flow-engine` GitHub Actions workflow on an Apple Silicon `macos-latest`
 runner. Local app packaging reuses that executable with `--engine`.
 
-`.github/workflows/flow-engine.yml` runs for `workflow_dispatch` and for pushes
-to `main` or pull requests that change the engine, its lockfile, the preview
-frontend, or the workflow. It checks out that branch head with full git history
-so the engine version can embed `git describe` and `release.json` records that
-commit. It installs the toolchain from `rust-toolchain.toml`, and
-caches the Cargo registry and target directory under the shared key
-`flow-release-aarch64-apple-darwin`. Pull requests restore that cache; pushes to
-`main` and manual runs save it, including workspace crate artifacts. The job
-builds the gitignored preview page, copies the committed
-`locales/tinymist-rt.toml` localization catalog, and runs
+`.github/workflows/flow-engine.yml` is the only GitHub Actions workflow. It
+runs when someone dispatches it (`workflow_dispatch`) and does not run on push
+or pull request. Dispatch it on the same ref that `fetch-engine --branch` will
+search: a run started with `--ref main` is a successful run for `--branch main`.
+It checks out that ref with full git history so the engine version can embed
+`git describe` and `release.json` records that commit. It installs the
+toolchain from `rust-toolchain.toml` and caches the Cargo registry and target
+directory under the shared key `flow-release-aarch64-apple-darwin`, including
+workspace crate artifacts. The job builds the gitignored preview page, copies
+the committed `locales/tinymist-rt.toml` localization catalog, and runs
 `python3 scripts/flow-app.py build --build-engine --jobs 2` with
 `RUSTFLAGS=-Dwarnings`. That is the only Rust compilation in the job, and it
 uses the locked `flow-release` profile with ThinLTO. The runner must be
 `arm64`. Staging checks `tinymist --version` and `preview --help` for
 `--follow-system-theme`, then uploads `flow-engine-darwin-arm64` for 30 days.
 The artifact contains the unsigned `flow-engine`, `flow-engine.sha256`,
-`release.json` (including `engineBuild`), and `Lagrangian.app`. A manual run
+`release.json` (including `engineBuild`), and `Lagrangian.app`. The dispatch
 accepts a `jobs` input; the default is 2.
 
 On the Mac, download a successful run and package with the printed engine path.
@@ -186,8 +186,10 @@ engine=$(python3 scripts/flow-app.py fetch-engine --branch main)
 python3 scripts/flow-app.py build --engine "$engine"
 ```
 
-`fetch-engine` uses `gh` to select the latest successful `flow-engine.yml` run
-on the branch. Pass `--run-id <id>` to select one run. The download is stored
+`fetch-engine` uses `gh run list` for the latest successful `flow-engine.yml`
+run on that branch. Manual runs are included because `workflow_dispatch` is
+recorded on the ref given to `--ref`. Pass `--run-id <id>` to select one run.
+The download is stored
 in `~/Library/Caches/Lagrangian/engines/<run-id>/`, outside the repository
 `target/` directory. The command checks the SHA-256 against `flow-engine.sha256`
 and `release.json`, clears the macOS quarantine attribute, probes `--version`
@@ -201,14 +203,12 @@ engine=$(python3 scripts/flow-app.py fetch-engine --run-id 123456789)
 python3 scripts/flow-app.py build --engine "$engine"
 ```
 
-After the workflow file is on the default branch, dispatch a build for the
-current branch with:
+`gh workflow run` requires this file on the default branch. The `--ref` argument
+is the branch `fetch-engine --branch` searches:
 
 ```sh
-gh workflow run flow-engine.yml --ref "$(git branch --show-current)"
+gh workflow run flow-engine.yml --ref main
 ```
-
-A pull request that changes the workflow runs it from the pull request head.
 
 = Documentation
 
@@ -268,8 +268,8 @@ widen for consumers when shared contracts change:
   and formatting checks as well.
 - Reader boundaries: `yarn test:architecture`. Shared policy changes:
   `yarn test:readers` includes shared/HTML Node tests, Python services, paged
-  frontend and DOM tests. The macOS CI reader job runs the same commands, including
-  installed-layout tests. Build changes also require `yarn build:preview`.
+  frontend, DOM tests, and installed-layout tests. Build changes also require
+  `yarn build:preview`.
 - Python: `yarn test:reader-services` runs the existing service/install suite.
   Compiler fixtures need `FLOW_READER_PACKAGES` and optionally `FLOW_READER_TYPST`.
   `yarn test:reader-integration` requires the package directory and rejects all
@@ -283,7 +283,7 @@ widen for consumers when shared contracts change:
 - Documentation: regenerate with `node scripts/link-docs.mjs`, then run
   `yarn docs:check` and compile the changed Typst source.
 
-CI and local development use the same package scripts. The base reader suite can
+Local checks use these package scripts. The base reader suite can
 report skipped optional compiler/editor fixtures; it does not prove browser or
 physical-device coverage. Required integration runs must provision prerequisites
 and fail rather than silently skip. Browser fixtures assert their own compiler and

@@ -7,7 +7,7 @@ readme = "README.md"
 license = "Apache-2.0"
 homepage = "https://github.com/Myriad-Dreamin/tinymist"
 repository = "https://github.com/Myriad-Dreamin/tinymist"
-# also change in ci.yml
+# Keep this aligned with rust-toolchain.toml.
 rust-version = "1.92"
 
 [workspace]

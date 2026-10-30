@@ -53,7 +53,6 @@
     "test:grammar": "cd syntaxes/textmate && yarn run test",
     "build:typlite": "cargo build --bin typlite",
     "typlite": "target/debug/typlite",
-    "check-msrv": "node scripts/check-msrv.mjs",
     "generate-ci": "dist generate",
     "generate-nix": "nix run github:cargo2nix/cargo2nix --locked",
     "project-build-script:ps1": "cargo run --bin tinymist -- generate-script -o ./scripts/project-build.ps1",

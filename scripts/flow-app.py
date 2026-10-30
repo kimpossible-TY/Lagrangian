@@ -300,6 +300,9 @@ def github_repo():
     return capture(['gh', 'repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd=ROOT).strip().strip('"')
 
 def latest_engine_run(repo, branch):
+    # A workflow_dispatch run is listed under the ref it was started with.
+    # --branch main therefore finds `gh workflow run flow-engine.yml --ref main`.
+    # Do not add --event; that would hide a successful run of another event.
     raw = capture(['gh', 'run', 'list', '--repo', repo, '--workflow', ENGINE_WORKFLOW,
                    '--branch', branch, '--status', 'success', '--limit', '1',
                    '--json', 'databaseId,url,headSha,conclusion'], cwd=ROOT)
