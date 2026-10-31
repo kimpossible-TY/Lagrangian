@@ -11,10 +11,7 @@ name: Flow engine
 # flow-engine-input-<hash>.
 on:
   push:
-    # ci/flow-engine-on-push is temporary so this branch can prove a miss and
-    # a hit. The Cursor GitHub App token cannot call workflow_dispatch
-    # (actions=write). Remove this branch before the pull request is final.
-    branches: [main, ci/flow-engine-on-push]
+    branches: [main]
     paths-ignore:
       - "docs/**"
       - "openspec/**"
