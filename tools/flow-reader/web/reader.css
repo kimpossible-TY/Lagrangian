@@ -828,16 +828,6 @@ button:disabled {
   opacity: 0;
   pointer-events: none;
 }
-.reader-brand {
-  font-weight: 650;
-  min-width: 0;
-  text-align: center;
-  white-space: nowrap;
-}
-.reader-brand span {
-  font-weight: 400;
-  color: var(--muted);
-}
 .reader-toolbar-icon {
   display: grid;
   place-items: center;
@@ -1861,9 +1851,6 @@ math svg {
   }
 }
 @media (max-width: 360px) {
-  .reader-brand span {
-    display: none;
-  }
   .reader-toolbar {
     gap: 0;
   }
@@ -1902,4 +1889,191 @@ math svg {
 }
 .flow-decoration-notice:empty {
   display: none;
+}
+
+/* Approved B mark: 85% of the 51 × 44px prototype, with a full touch target. */
+#reader-logo {
+  justify-self: center;
+}
+.reader-brand {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 64px;
+  min-height: 44px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.reader-brand::-webkit-details-marker {
+  display: none;
+}
+.reader-logo-mark {
+  width: 43.35px;
+  height: 37.4px;
+  overflow: visible;
+  color: var(--ink);
+}
+.reader-logo-mark path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.reader-logo-base {
+  stroke-width: 11;
+  opacity: 0.9;
+}
+.reader-logo-beam,
+.reader-logo-halo {
+  display: none;
+  stroke-dasharray: 8 92;
+}
+.reader-logo-beam {
+  stroke-width: 8;
+}
+.reader-logo-halo {
+  stroke-width: 15;
+  opacity: 0.3;
+  filter: blur(2px);
+}
+.reader-logo-badge {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 12px;
+  color: var(--ink);
+}
+#reader-logo:is(
+    [data-phase="waiting"],
+    [data-phase="loading"],
+    [data-phase="rendering"],
+    [data-phase="compiling"]
+  )
+  .reader-logo-mark {
+  color: var(--accent);
+}
+#reader-logo:is(
+    [data-phase="waiting"],
+    [data-phase="loading"],
+    [data-phase="rendering"],
+    [data-phase="compiling"]
+  )
+  .reader-logo-base {
+  opacity: 0.62;
+}
+#reader-logo:is(
+    [data-phase="waiting"],
+    [data-phase="loading"],
+    [data-phase="rendering"],
+    [data-phase="compiling"]
+  )
+  :is(.reader-logo-beam, .reader-logo-halo) {
+  display: block;
+  animation: reader-logo-flow 3.2s infinite;
+}
+#reader-logo[data-phase="reconnecting"] .reader-logo-base {
+  stroke-dasharray: 5 3;
+  animation: reader-logo-connect 3s ease-in-out infinite;
+}
+#reader-logo[data-phase="offline"] .reader-logo-base {
+  stroke-dasharray: 5 3;
+  opacity: 0.5;
+}
+#reader-logo[data-phase$="error"] .reader-logo-mark {
+  color: var(--review-ink);
+}
+#reader-logo[data-phase="sync"] .reader-logo-mark,
+#reader-logo[data-phase$="held"] .reader-logo-mark {
+  color: var(--warning);
+}
+#reader-logo[data-completed] .reader-logo-mark {
+  animation: reader-logo-completed 1.6s ease-out both;
+}
+@keyframes reader-logo-flow {
+  0% {
+    stroke-dashoffset: 0;
+    animation-timing-function: cubic-bezier(0.1, 0, 0.8, 0.65);
+  }
+  64% {
+    stroke-dashoffset: -100;
+    animation-timing-function: cubic-bezier(0.5, 0, 0.55, 1);
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes reader-logo-connect {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes reader-logo-completed {
+  0%,
+  45% {
+    color: var(--accent);
+  }
+  100% {
+    color: var(--ink);
+  }
+}
+.reader-logo-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(21.5rem, calc(100vw - 24px));
+  max-height: calc(100dvh - 100px);
+  overflow: auto;
+  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 10px 30px #0002;
+}
+.reader-logo-close {
+  float: right;
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 22px;
+}
+.reader-logo-label {
+  font-weight: 600;
+  margin: 4px 32px 8px 0;
+}
+.reader-logo-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.reader-logo-release {
+  margin: 8px 0;
+}
+.reader-settings-advanced > summary {
+  cursor: pointer;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Keep urgent notices/actions visible; routine work is represented by the mark. */
+:root[data-reader-logo] #reader-activity[data-busy="true"] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-logo-mark,
+  .reader-logo-mark path {
+    animation: none !important;
+    filter: none;
+  }
+  #reader-logo :is(.reader-logo-beam, .reader-logo-halo) {
+    display: none !important;
+  }
+  #reader-logo .reader-logo-base {
+    opacity: 0.9;
+  }
 }

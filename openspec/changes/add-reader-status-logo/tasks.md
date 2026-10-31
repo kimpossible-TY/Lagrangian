@@ -1,0 +1,3 @@
+- [x] 1. Add approved B mark and status disclosure, preserve existing detail IDs and compact reading settings.
+- [x] 2. Connect HTML activity presentation, guarded selection release, offline/completion and reduced motion.
+- [x] 3. Verify focused behavior, browser interactions, lint, architecture and installed delivery.

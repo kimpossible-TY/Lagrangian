@@ -2,6 +2,7 @@ import { readingSettings } from "./features/appearance/reading-settings.js";
 import { createOutline } from "./features/navigation/outline.js";
 import { createFontSize } from "./features/appearance/font-size.js";
 import { DocumentStorage } from "./features/session/document-storage.js";
+import { StatusLogo } from "./features/session/status-logo.js";
 import { ReaderActivity } from "./features/session/activity.js";
 import { ReaderRecovery, sameSnapshot, sameSession } from "./features/session/recovery.js";
 import { ReaderTransport } from "./features/session/transport.js";
@@ -796,6 +797,7 @@ function articleSelection() {
 }
 
 const activity = new ReaderActivity(document.querySelector("#reader-activity"), {
+  logo: new StatusLogo(document.querySelector("#reader-logo")),
   held: () =>
     !window.getSelection()?.isCollapsed
       ? "selection-held"

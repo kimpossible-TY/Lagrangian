@@ -110,7 +110,8 @@ try {
         });
       await page.goto(url);
       await phase("compiling");
-      assert.equal(await page.locator("#reader-activity").isVisible(), true);
+      assert.equal(await page.locator("#reader-activity").isVisible(), false);
+      assert.equal(await page.locator("#reader-logo").getAttribute("data-phase"), "compiling");
       let releaseSection;
       sectionGate = new Promise((resolve) => (releaseSection = resolve));
       Object.assign(state, { revision: "r1", compiling: false });
@@ -127,9 +128,9 @@ try {
         for (const width of [320, 390, 768]) {
           await page.setViewportSize({ width, height: 844 });
           await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
-          const bounds = await page.locator("#reader-activity").boundingBox();
+          const bounds = await page.locator(".reader-brand").boundingBox();
           assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
-          assert.ok(bounds.y >= 50 && bounds.y + bounds.height <= 844);
+          assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 844);
         }
       }
       await page.setViewportSize({ width: 390, height: 844 });
@@ -140,6 +141,18 @@ try {
           .evaluate((node) => getComputedStyle(node).animationName),
         "none",
       );
+
+      assert.equal(
+        await page
+          .locator(".reader-logo-beam")
+          .evaluate((node) => getComputedStyle(node).animationName),
+        "none",
+      );
+      await page.locator(".reader-brand").click();
+      const logoBounds = await page.locator(".reader-logo-panel").boundingBox();
+      assert.ok(logoBounds.x >= 0 && logoBounds.x + logoBounds.width <= 390);
+      assert.equal(await page.locator("#reader-offline-status").isVisible(), true);
+      await page.keyboard.press("Escape");
 
       // A real native selection survives polling and a WebKit touch tap releases it.
       await selectPassage();
@@ -155,7 +168,11 @@ try {
             path: `${process.env.FLOW_READER_ACTIVITY_SCREENSHOTS}/${engine}-${theme}.png`,
           });
         }
-      await page.locator("#reader-activity button").tap();
+      await page.locator(".reader-brand").tap();
+      assert.ok(await page.evaluate(() => !getSelection().isCollapsed));
+      assert.equal(await page.locator(".reader-logo-panel").isVisible(), true);
+      await page.locator(".reader-logo-release").tap();
+      await page.keyboard.press("Escape");
       await ready("r2");
       assert.equal(await page.evaluate(() => getSelection().isCollapsed), true);
 
