@@ -1,11 +1,21 @@
 name: Flow engine
 
 # Builds the Apple Silicon flow engine on a GitHub-hosted macOS runner.
-# Runs on every push to main and on manual dispatch. This is the only GitHub
-# Actions workflow in the repo.
+# Runs on pushes to main, except documentation-only changes, and on manual
+# dispatch. This is the only GitHub Actions workflow in the repo.
+#
+# fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
+# requires sibling files flow-engine, flow-engine.sha256, and release.json
+# (plus Lagrangian.app from this job). Do not rename that artifact or add
+# files inside it. The engine-input hash lives in a separate artifact named
+# flow-engine-input-<hash>.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "openspec/**"
+      - "**/*.md"
   workflow_dispatch:
     inputs:
       jobs:
@@ -19,10 +29,10 @@ permissions:
   # actions: write is required. actions/upload-artifact cannot publish
   # flow-engine-darwin-arm64 with actions: read, and the Cargo cache save
   # (setup-rust-toolchain / rust-cache) also needs actions: write.
-  # actions: read can only restore a cache or download an existing artifact.
+  # Downloading a previous run's artifact needs actions: read, which write includes.
   actions: write
 
-# A later dispatch of the same ref cancels the older in-progress run.
+# A later run of the same ref cancels the older in-progress run.
 concurrency:
   group: flow-engine-${{ github.ref }}
   cancel-in-progress: true
@@ -38,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # workflow_dispatch checks out the selected ref. Full history lets
-          # the engine version embed git describe.
+          # a cache-miss build embed git describe in the engine version.
           fetch-depth: 0
 
       - name: Require Apple Silicon
@@ -48,7 +58,31 @@ jobs:
           df -h /
           test "$(uname -m)" = arm64
 
+      - name: Hash engine inputs
+        id: engine_inputs
+        run: |
+          set -euo pipefail
+          os_name="$(uname -s)"
+          arch_name="$(uname -m)"
+          test "$os_name" = Darwin
+          test "$arch_name" = arm64
+          hash="$(python3 scripts/engine-input-hash.py --os "$os_name" --arch "$arch_name")"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "Engine input hash: $hash" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reuse a published engine when inputs match
+        id: engine_cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE_INPUT_HASH: ${{ steps.engine_inputs.outputs.hash }}
+          # main is the Mac updater's branch. The current ref is included so a
+          # second dispatch of this branch can reuse the artifact it just built.
+          # Duplicate names are ignored by the script.
+          ENGINE_REUSE_BRANCHES: main ${{ github.ref_name }}
+        run: python3 scripts/reuse-engine-artifact.py
+
       - name: Free disk for the ThinLTO target directory
+        if: steps.engine_cache.outputs.hit != 'true'
         run: |
           # Hosted macOS images keep simulator runtimes on a small disk.
           # The flow-release target directory needs that space. Xcode stays installed.
@@ -58,19 +92,26 @@ jobs:
           df -h /
 
       - uses: actions/setup-node@v4
+        if: steps.engine_cache.outputs.hit != 'true'
         with:
           node-version: 24
           cache: yarn
 
       - name: Install frontend dependencies
+        if: steps.engine_cache.outputs.hit != 'true'
         run: yarn install --frozen-lockfile
 
       - name: Prepare embedded preview and localization assets
+        if: steps.engine_cache.outputs.hit != 'true'
         run: node scripts/stage-tinymist-assets.mjs
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: steps.engine_cache.outputs.hit != 'true'
         with:
           rustflags: -Dwarnings
+          # Swatinem/rust-cache (via setup-rust-toolchain). The shared key
+          # namespaces the flow-release Apple Silicon target; the action also
+          # keys on the toolchain and Cargo.lock.
           cache-shared-key: flow-release-aarch64-apple-darwin
           cache-on-failure: true
           cache-targets: true
@@ -78,6 +119,7 @@ jobs:
           cache-save-if: "true"
 
       - name: Build the native engine and app
+        if: steps.engine_cache.outputs.hit != 'true'
         run: |
           case "$FLOW_ENGINE_JOBS" in
             ''|*[!0-9]*|0) echo "jobs must be a positive integer" >&2; exit 1 ;;
@@ -85,16 +127,30 @@ jobs:
           python3 scripts/flow-app.py build --build-engine --jobs "$FLOW_ENGINE_JOBS"
 
       - name: Stage the engine artifact
+        if: steps.engine_cache.outputs.hit != 'true'
         run: |
           python3 scripts/flow-app.py stage-engine-artifact \
             --app dist/Lagrangian.app \
             --output dist/flow-engine-darwin-arm64
           du -sh dist/flow-engine-darwin-arm64 dist/flow-engine-darwin-arm64/flow-engine dist/flow-engine-darwin-arm64/Lagrangian.app
+
+      - name: Record the published engine
+        env:
+          ENGINE_INPUT_HASH: ${{ steps.engine_inputs.outputs.hash }}
+          ENGINE_CACHE_HIT: ${{ steps.engine_cache.outputs.hit }}
+          ENGINE_SOURCE_RUN: ${{ steps.engine_cache.outputs.source_run }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/engine-input-marker
+          printf '%s\n' "$ENGINE_INPUT_HASH" > dist/engine-input-marker/engine-input.sha256
           {
             echo "### flow-engine-darwin-arm64"
             echo
-            echo "- Staged directory: \`$(du -sh dist/flow-engine-darwin-arm64 | awk '{print $1}')\`"
-            echo "- Engine file: \`$(du -sh dist/flow-engine-darwin-arm64/flow-engine | awk '{print $1}')\`"
+            echo "- Engine input hash: \`$ENGINE_INPUT_HASH\`"
+            echo "- Cache: \`$ENGINE_CACHE_HIT\`"
+            if [ "$ENGINE_CACHE_HIT" = true ]; then
+              echo "- Reused run: \`$ENGINE_SOURCE_RUN\`"
+            fi
             echo "- SHA-256: \`$(awk '{print $1}' dist/flow-engine-darwin-arm64/flow-engine.sha256)\`"
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -104,6 +160,15 @@ jobs:
         with:
           name: flow-engine-darwin-arm64
           path: dist/flow-engine-darwin-arm64
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload engine input hash
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-engine-input-${{ steps.engine_inputs.outputs.hash }}
+          path: dist/engine-input-marker
           retention-days: 30
           if-no-files-found: error
           compression-level: 6

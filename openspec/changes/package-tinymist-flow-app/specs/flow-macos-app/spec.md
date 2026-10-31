@@ -113,34 +113,57 @@ Packaging SHALL support --build-engine using the locked flow-release profile and
 - **AND** engine build metadata accompanies the app source revision and engine hashes
 - **AND** development builds do not replace the installed app or its running engine
 
-### Requirement: Manual Apple Silicon engine artifact
-The repository SHALL publish the native Apple Silicon flow engine from `.github/workflows/flow-engine.yml` only on `workflow_dispatch`. Push and pull request events SHALL NOT start that job.
+### Requirement: Apple Silicon engine artifact
+The repository SHALL publish the native Apple Silicon flow engine from `.github/workflows/flow-engine.yml` on a push to `main` and on `workflow_dispatch`. A push that only changes `docs/**`, `openspec/**`, or Markdown SHALL NOT start that job. Pull request events SHALL NOT start that job.
+
+#### Scenario: Push engine inputs to main
+- **WHEN** a commit pushed to `main` changes an engine input
+- **THEN** `flow-engine.yml` starts for that commit
+
+#### Scenario: Push documentation only
+- **WHEN** a commit pushed to `main` changes only `docs/**`, `openspec/**`, or Markdown
+- **THEN** `flow-engine.yml` does not start
 
 #### Scenario: Dispatch an engine build
 - **WHEN** a maintainer dispatches `flow-engine.yml` for a ref
-- **THEN** the runner builds that ref with the locked flow-release profile and `rust-toolchain.toml`
-- **AND** `release.json` records that ref as the source revision
+- **THEN** the runner publishes `flow-engine-darwin-arm64` for that ref
+- **AND** a cache miss builds that ref with the locked flow-release profile and `rust-toolchain.toml`
+- **AND** the `release.json` inside a newly built artifact records that ref as the source revision
 
-#### Scenario: Push or pull request
-- **WHEN** commits are pushed or a pull request changes engine sources
+#### Scenario: Pull request
+- **WHEN** a pull request changes engine sources
 - **THEN** `flow-engine.yml` does not start
 
+### Requirement: Reuse an identical engine artifact
+When the engine-input hash matches a retained successful artifact from `main`, or from the current ref when that ref is not `main`, the job SHALL upload that `flow-engine-darwin-arm64` artifact unchanged and SHALL NOT run Cargo. The hash SHALL be recorded in a separate `flow-engine-input-<hash>` artifact. `fetch-engine` SHALL continue to download `flow-engine-darwin-arm64` and verify `flow-engine`, `flow-engine.sha256`, and `release.json`.
+
+#### Scenario: Cache hit
+- **WHEN** a retained successful run already published the current engine-input hash
+- **THEN** the job uploads that engine artifact's bytes again
+- **AND** the engine SHA-256 matches the earlier artifact
+- **AND** the job does not run Cargo
+
+#### Scenario: Cache miss
+- **WHEN** no retained artifact carries the current engine-input hash
+- **THEN** the job builds the engine and uploads a new `flow-engine-darwin-arm64` artifact
+- **AND** the miss build caches Cargo with the flow-release Apple Silicon key
+
 ### Requirement: Engine artifact contents and cancellation
-The dispatched job SHALL run on an arm64 macOS host, reject an engine that fails `--version` or lacks `--follow-system-theme`, and upload `flow-engine`, `flow-engine.sha256`, `release.json` including `engineBuild`, and `Lagrangian.app`. A later dispatch of the same ref SHALL cancel the older in-progress run.
+The job SHALL run on an arm64 macOS host, reject an engine that fails `--version` or lacks `--follow-system-theme`, and upload `flow-engine`, `flow-engine.sha256`, `release.json` including `engineBuild`, and `Lagrangian.app` under the artifact name `flow-engine-darwin-arm64`. A later run for the same ref SHALL cancel the older in-progress run.
 
 #### Scenario: Reject an engine that fails the preview probe
 - **WHEN** the built engine fails `--version` or `preview --help` lacks `--follow-system-theme`
 - **THEN** the job does not upload the artifact
 
-#### Scenario: Dispatch again for the same ref
-- **WHEN** a second dispatch starts for the same ref while an earlier run is in progress
+#### Scenario: Run again for the same ref
+- **WHEN** a second run starts for the same ref while an earlier run is in progress
 - **THEN** the earlier run is cancelled
 
 ### Requirement: Fetch a verified engine without compiling Rust
-`fetch-engine` SHALL select the latest successful `flow-engine.yml` run for a branch, including a manual dispatch of that ref, or the run named by `--run-id`. It SHALL NOT invoke Cargo or the Rust compiler.
+`fetch-engine` SHALL select the latest successful `flow-engine.yml` run for a branch, including a push or a manual dispatch of that ref, or the run named by `--run-id`. It SHALL NOT invoke Cargo or the Rust compiler.
 
-#### Scenario: Fetch the latest manual run for a branch
-- **WHEN** the latest successful run on a branch was dispatched with that branch as its ref
+#### Scenario: Fetch the latest run for a branch
+- **WHEN** the latest successful run on a branch was a push or a dispatch of that ref
 - **THEN** `fetch-engine --branch` for that branch downloads the run
 - **AND** stdout is only the absolute `flow-engine` path
 

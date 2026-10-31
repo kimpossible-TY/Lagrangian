@@ -53,3 +53,4 @@
 - [x] 9.2 Download that artifact with `fetch-engine`, verify it outside `target/`, and package with `--engine` without compiling Rust.
 - [x] 9.3 Document manual dispatch, the file-to-file MSRV comparison, and regenerate the development guide.
 - [x] 9.4 Validate this change and the Linux fetch/packaging tests. Record the existing Actions artifact. Prepare embedded assets with `node scripts/stage-tinymist-assets.mjs`.
+- [x] 9.5 Skip documentation-only pushes to `main`, republish a retained `flow-engine-darwin-arm64` artifact when engine inputs match, and cache Rust on a miss without changing the `fetch-engine` artifact name, layout, or SHA-256 check.
