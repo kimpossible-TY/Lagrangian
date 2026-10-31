@@ -16,7 +16,7 @@ Keep identical policy and invariants with one owner. Reuse existing implementati
 
 ## Working rules
 
-- Continue on the current branch; create a branch only when explicitly requested.
+- Branching: use a branch + PR + review for Rust/engine code, changes to the Mac's live state (launchd, app, data migrations) and hard-to-revert work; small reversible changes (docs, config, tests, small scripts/workflows) may go directly to `main`. Otherwise continue on the current branch.
 - Follow [remote Rust builds](docs/dev-guide.md#remote-rust-builds) for Rust compilation, checks, tests and Clippy. Use a Cloud environment verified against the private `kimpossible-TY/Lagrangian` checkout; local Rust compilation requires an explicit instruction to build locally for that run.
 - Preserve unrelated user changes. Keep edits scoped and avoid dependency pins, version metadata and release files unless required.
 - Edit canonical sources. Regenerate files marked as generated, including Markdown via `node scripts/link-docs.mjs` and `tinymist.lock` artifacts via their owning generator.
@@ -25,6 +25,15 @@ Keep identical policy and invariants with one owner. Reuse existing implementati
 - Run the smallest meaningful checks listed by the development guide and scoped instructions; widen for affected consumers. Keep changed code warning-free and review snapshot diffs before accepting them.
 - Summarize behavior, verification and any unverified coverage. Development tests/builds use isolated data and must not install or restart the user's services.
 - Use Conventional Commits per work item. PR content lists modified features and issue operations; omit execution logs. Record intentionally imported upstream commits.
+
+## CI/CD (how changes reach the Mac)
+
+Never compile the engine locally to "check" or "deploy" a change; the pipeline builds it.
+
+1. A push or merge to `main` triggers `.github/workflows/flow-engine.yml` on a macOS runner (`docs/**`, `openspec/**` and `*.md` are ignored). Newer pushes cancel older in-progress runs.
+2. The workflow hashes the engine inputs. On a hit it republishes the cached `flow-engine-darwin-arm64` artifact in about 20 s; on a miss it runs a full cached Rust build (about 13 min).
+3. On the MacBook, launchd job `dev.lagrangian.engine-autoupdate` (every 15 min) picks the newest successful run on `main`, then fetches, packages and installs `Lagrangian.app`, restarts the background app and refreshes the reader engine. It writes per-stage status to `~/Library/Application Support/Lagrangian/pipeline-status.json` (shown in Tail_dashboard) and logs to `~/Library/Logs/lagrangian-engine-autoupdate.log`.
+4. Agents must not install, restart or replace the user's app, reader or launchd jobs by hand; to verify a change, push it (or open a PR for a cloud build) and watch the run. Engine/Rust verification before merge follows [remote Rust builds](docs/dev-guide.md#remote-rust-builds).
 
 ## Maintaining instructions
 
