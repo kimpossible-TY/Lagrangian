@@ -1,4 +1,8 @@
-"""Engine-input hash and retained-artifact selection. These tests do not compile Rust."""
+"""Engine-input hash and retained-artifact selection. These tests do not compile Rust.
+
+A comment-only edit of this file is outside the engine-input hash, so a later
+flow-engine run can republish the previous artifact without running Cargo.
+"""
 
 import importlib.util
 import json
