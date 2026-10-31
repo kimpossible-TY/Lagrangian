@@ -288,7 +288,10 @@ widen for consumers when shared contracts change:
   source checkout for the complete suite. Python lint adoption requires a separate
   baseline assessment.
 - Native app: `yarn flow:test` compiles Swift with warnings as errors and exercises
-  service recovery/packaging. Set `FLOW_TEST_ENGINE` for external-engine coverage.
+  service recovery, packaging, and isolated `migrate-tail-hosting` / `restore-tail-hosting`
+  round-trips for `typst-always-preview`, `typst-reader`, and background-manager
+  LaunchAgents (including `--dry-run`, SHA-256 verification, and port-conflict checks).
+  Set `FLOW_TEST_ENGINE` for external-engine coverage.
 - VS Code: use the scoped instructions for unit, LSP integration and system/web
   bundle checks. Grammar changes use `yarn test:grammar`.
 - Documentation: regenerate with `node scripts/link-docs.mjs`, then run
