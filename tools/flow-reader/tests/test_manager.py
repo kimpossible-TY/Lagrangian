@@ -301,6 +301,37 @@ class ReaderManagerTests(unittest.TestCase):
                 self.manager.control("stop", profile)
             command.assert_not_called()
 
+    def test_reader_owns_agent_across_compatibility_symlink_but_rejects_other_reader(self):
+        profile = self.resolve()
+        self.manager.agents.mkdir(exist_ok=True)
+        (self.manager.launcher.parent).mkdir(parents=True, exist_ok=True)
+        self.manager.launcher.write_text("#!/bin/sh\n")
+        self.manager.launcher.chmod(0o755)
+        legacy_root = self.root / "legacy-reader"
+        legacy_root.symlink_to(self.manager.data, target_is_directory=True)
+        plist_path = self.manager.agents / (profile["label"] + ".plist")
+        plist_path.write_bytes(plistlib.dumps({
+            "Label": profile["label"],
+            "ProgramArguments": [str(legacy_root / "bin/flow-reader"), "--serve", profile["id"]],
+        }))
+        self.assertTrue(self.manager.owns_agent(profile))
+        with patch.object(self.manager, "job_pid", return_value=123), \
+                patch("flow_reader.services.manager.run", return_value=""):
+            self.manager.control("restart", profile)
+        self.assertEqual(
+            plistlib.loads(plist_path.read_bytes())["ProgramArguments"],
+            [str(self.manager.launcher), "--serve", profile["id"]],
+        )
+        separate_root = self.root / "separate-reader/bin"
+        separate_root.mkdir(parents=True)
+        separate_launcher = separate_root / "flow-reader"
+        separate_launcher.write_text("#!/bin/sh\n")
+        plist_path.write_bytes(plistlib.dumps({
+            "Label": profile["label"],
+            "ProgramArguments": [str(separate_launcher), "--serve", profile["id"]],
+        }))
+        self.assertFalse(self.manager.owns_agent(profile))
+
     def test_stop_waits_for_launchd_to_remove_the_terminating_job(self):
         profile = self.resolve()
         target = f"gui/{os.getuid()}/{profile['label']}"

@@ -263,7 +263,17 @@ class ReaderManager:
         if not path.exists():
             return False
         agent = plistlib.loads(path.read_bytes())
-        return agent.get("ProgramArguments") == self.agent(profile)["ProgramArguments"]
+        arguments = agent.get("ProgramArguments") if isinstance(agent, dict) else None
+        expected = self.agent(profile)["ProgramArguments"]
+        if (not isinstance(arguments, list) or len(arguments) != len(expected)
+                or arguments[1:] != expected[1:] or not isinstance(arguments[0], str)):
+            return False
+        if arguments[0] == expected[0]:
+            return True
+        try:
+            return Path(arguments[0]).resolve() == Path(expected[0]).resolve()
+        except (OSError, RuntimeError):
+            return False
 
     def wait_unloaded(self, target):
         # bootout can return while launchd still reports the terminating job.

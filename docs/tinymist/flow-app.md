@@ -301,16 +301,18 @@ Rollback restores the previous app while preserving profiles and source files. K
 ## Tail Hosting migration
 
 ```sh
+python3 scripts/flow-app.py migrate-tail-hosting --dry-run /path/to/Tail_hosting
 python3 scripts/flow-app.py migrate-tail-hosting /path/to/Tail_hosting
 ```
 
-This imports project settings, backs up the old registry and launcher, and installs a small lifecycle adapter. Existing labels and ports remain usable by status and focus readers. Activate the imported profile using Restart in Flow. Inspect macOS consent and verify HTTPS document delivery before considering migration complete.
+This imports `typst-always-preview` profiles and migrates `typst-reader` services after `Lagrangian --migrate-data` has moved reader data. It verifies SHA-256 hashes of `reader/{engines,releases}` in place, checks reader backend ports for conflicts, and updates `reader/config.json` and `reader/bin/flow-reader` through `tools/flow-reader/install.py`. A running reader keeps its legacy launchd label, and that installer refuses to replace a release while the job is running. Migrate checks that the plist serves this reader and that its launcher path resolves to the installed `flow-reader`, stops the job with `launchctl bootout`, waits until it is unloaded, installs the new release, then starts it again with `flow-reader --control restart`. If that restart fails, migrate prints the command and the reader’s current state. A failed install bootstraps the previous plist again. It updates an existing background login LaunchAgent to `Lagrangian.app`, backs up the prior registry, launcher, configs and plists, and installs lifecycle adapters when they are not already present. `--dry-run` checks the same preflight, including a clean Reader checkout, that each reader is stopped or will be stopped, and that the service id is the parent profile id plus `-reader`, then prints the plan. Restore puts the previous preview services, reader plists, and `tinymist-flow.app` background manager back. It restarts a reader that was running with `launchctl bootout`, a wait until the job is unloaded, then `enable` and `bootstrap` of the restored plist, because that release matches its launcher path exactly. Inspect macOS consent and verify HTTPS document delivery before considering migration complete.
 
 ```sh
+python3 scripts/flow-app.py restore-tail-hosting --dry-run
 python3 scripts/flow-app.py restore-tail-hosting
 ```
 
-The restore command reinstates the old registry, launcher and preview LaunchAgent from the migration backup. Unrelated hosted services are preserved. The adapter does not create or change Tailscale Serve routes.
+The restore command reinstates the old registry, launcher, preview and reader LaunchAgents, reader configuration, and `tinymist-flow.app` background manager from the migration backup. Unrelated hosted services are preserved. The adapter does not create or change Tailscale Serve routes.
 
 ## Maintaining the Flow app
 
