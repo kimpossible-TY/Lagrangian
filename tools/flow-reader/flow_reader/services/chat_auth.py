@@ -5,6 +5,7 @@ signature operations are injected for isolated protocol tests, never via HTTP.
 """
 import base64
 import hashlib
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -96,6 +97,7 @@ class ChatAuth:
         self.open_browser = open_browser
         self.lock = threading.RLock()
         self.pending = None
+        self.generation = 0
         self.notice = ""
 
     def credentials(self):
@@ -103,7 +105,7 @@ class ChatAuth:
                                      "active": None, "registrations": {}})
 
     def status(self):
-        with self.lock, file_lock(self.directory / "auth.lock"):
+        with file_lock(self.directory / "auth.lock"), self.lock:
             data = self.credentials()
             account = data["registrations"].get(data["active"], {})
             return {"signedIn": bool(account.get("access_token")),
@@ -126,19 +128,21 @@ class ChatAuth:
         return metadata
 
     def login(self, registration=None):
+        generation = self.close()
+        metadata = self.discovery()
+        with file_lock(self.directory / "auth.lock"):
+            data = self.credentials()
+            previous = data["registrations"].get(registration) if registration else None
+            if registration and not previous:
+                raise ValueError("Unknown ChatGPT registration")
+            write_json(self.path, data)  # Stable host ID exists before authorization.
         with self.lock:
-            self.cancel()
-            metadata = self.discovery()
-            with file_lock(self.directory / "auth.lock"):
-                data = self.credentials()
-                previous = data["registrations"].get(registration) if registration else None
-                if registration and not previous:
-                    raise ValueError("Unknown ChatGPT registration")
-                write_json(self.path, data)  # Stable host ID exists before authorization.
+            if generation != self.generation:
+                raise ChatProviderError("Sign-in was cancelled")
             verifier = secrets.token_urlsafe(48)
             attempt = {"state": secrets.token_urlsafe(32), "nonce": secrets.token_urlsafe(32),
                        "verifier": verifier, "previous": previous, "metadata": metadata,
-                       "registration": registration, "expires": time.monotonic() + 300}
+                       "registration": registration, "generation": generation, "expires": time.monotonic() + 300}
             owner = self
             class Callback(BaseHTTPRequestHandler):
                 def do_GET(self):
@@ -176,92 +180,103 @@ class ChatAuth:
             # Deliberately omit ID-token hints: credentials never enter a browser URL.
             self.notice = "Complete sign-in in this Mac's browser. No question is sent automatically."
             url = metadata["authorization_endpoint"] + "?" + urlencode(params)
-            if self.open_browser:
-                self.open_browser(url)
-            return {"authUrl": url}
+        if self.open_browser:
+            self.open_browser(url)
+        return {"authUrl": url}
 
-    def expire(self, attempt):
-        with self.lock:
-            if self.pending is attempt:
-                self.notice = "Sign-in expired. Try again."
-                self.cancel()
-
-    def cancel(self):
-        attempt, self.pending = self.pending, None
+    @staticmethod
+    def dispose_attempt(attempt):
         if attempt:
             attempt["timer"].cancel()
             attempt["server"].shutdown()
             attempt["server"].server_close()
 
+    def expire(self, attempt):
+        with self.lock:
+            if self.pending is not attempt:
+                return
+            self.pending = None
+            self.generation += 1
+            self.notice = "Sign-in expired. Try again."
+        self.dispose_attempt(attempt)
+
     def callback(self, attempt, query):
         with self.lock:
             if (self.pending is not attempt or time.monotonic() > attempt["expires"] or
-                    query.get("state") != [attempt["state"]]):
+                    len(query.get("state", [])) != 1 or
+                    not hmac.compare_digest(query["state"][0].encode(), attempt["state"].encode())):
                 return False
             # Consume the attempt before network work; callbacks are one-use.
             self.pending = None
             attempt["timer"].cancel()
-            try:
-                if query.get("error") or len(query.get("code", [])) != 1:
-                    raise ChatProviderError("Sign-in was declined")
-                client = attempt["registration"]
-                returned = query.get("client_id", [client])
-                if (len(returned) != 1 or not returned[0] or returned[0] == "dynamic_agent_client"
-                        or client and returned[0] != client):
-                    raise ChatProviderError("Registration did not match")
-                client = returned[0]
-                tokens = self.request(attempt["metadata"]["token_endpoint"], {
-                    "grant_type": "authorization_code", "client_id": client,
-                    "code": query["code"][0], "code_verifier": attempt["verifier"],
-                    "redirect_uri": attempt["redirect"], "resource": RESOURCE})
-                keys = self.request(attempt["metadata"]["jwks_uri"])["keys"]
-                claims = self.verify(tokens["id_token"], keys)
-                now = time.time()
-                audience = claims.get("aud", [])
-                audience = [audience] if isinstance(audience, str) else audience
-                if (claims.get("iss") != self.issuer or client not in audience
-                        or len(audience) > 1 and claims.get("azp") != client
-                        or not isinstance(claims.get("sub"), str) or not claims["sub"]
-                        or claims.get("nonce") != attempt["nonce"]
-                        or not isinstance(claims.get("exp"), (int, float)) or claims["exp"] < now - 5
-                        or not isinstance(claims.get("iat"), (int, float)) or claims["iat"] > now + 5
-                        or claims.get("nbf", 0) > now + 5
-                        or attempt["previous"] and claims["sub"] != attempt["previous"]["subject"]):
-                    raise ChatProviderError("OpenAI identity claims did not match")
-                with file_lock(self.directory / "auth.lock"):
-                    data = self.credentials()
-                    record = {"subject": claims["sub"], "email": claims.get("email", ""),
-                              "client_id": client, "issuer": self.issuer}
-                    self.update_tokens(record, tokens)
-                    data["registrations"][client] = record
-                    data["active"] = client
-                    write_json(self.path, data)
+        try:
+            if query.get("error") or len(query.get("code", [])) != 1:
+                raise ChatProviderError("Sign-in was declined")
+            client = attempt["registration"]
+            returned = query.get("client_id", [client])
+            if (len(returned) != 1 or not returned[0] or returned[0] == "dynamic_agent_client"
+                    or client and returned[0] != client):
+                raise ChatProviderError("Registration did not match")
+            client = returned[0]
+            tokens = self.request(attempt["metadata"]["token_endpoint"], {
+                "grant_type": "authorization_code", "client_id": client,
+                "code": query["code"][0], "code_verifier": attempt["verifier"],
+                "redirect_uri": attempt["redirect"], "resource": RESOURCE})
+            keys = self.request(attempt["metadata"]["jwks_uri"])["keys"]
+            claims = self.verify(tokens["id_token"], keys)
+            now = time.time()
+            audience = claims.get("aud", [])
+            audience = [audience] if isinstance(audience, str) else audience
+            if (claims.get("iss") != self.issuer or client not in audience
+                    or len(audience) > 1 and claims.get("azp") != client
+                    or not isinstance(claims.get("sub"), str) or not claims["sub"]
+                    or not isinstance(claims.get("nonce"), str)
+                    or not hmac.compare_digest(claims["nonce"].encode(), attempt["nonce"].encode())
+                    or not isinstance(claims.get("exp"), (int, float)) or claims["exp"] < now - 5
+                    or not isinstance(claims.get("iat"), (int, float)) or claims["iat"] > now + 5
+                    or claims.get("nbf", 0) > now + 5
+                    or attempt["previous"] and claims["sub"] != attempt["previous"]["subject"]):
+                raise ChatProviderError("OpenAI identity claims did not match")
+            with file_lock(self.directory / "auth.lock"), self.lock:
+                if self.generation != attempt["generation"]:
+                    return False
+                data = self.credentials()
+                record = {"subject": claims["sub"], "email": claims.get("email", ""),
+                          "client_id": client, "issuer": self.issuer}
+                self.update_tokens(record, tokens)
+                data["registrations"][client] = record
+                data["active"] = client
+                write_json(self.path, data)
                 self.notice = "Signed in. Select a model before sending your question."
-                return True
-            except (ChatProviderError, KeyError, ValueError, TypeError):
-                self.notice = "Sign-in failed or identity could not be verified. Try again."
-                return False
-            finally:
-                # Shutdown waits on serve_forever, never on this callback thread.
-                attempt["server"].shutdown()
-                attempt["server"].server_close()
+            return True
+        except (ChatProviderError, KeyError, ValueError, TypeError):
+            with self.lock:
+                if self.generation == attempt["generation"]:
+                    self.notice = "Sign-in failed or identity could not be verified. Try again."
+            return False
+        finally:
+            # Shutdown waits on serve_forever, never on this callback thread.
+            attempt["server"].shutdown()
+            attempt["server"].server_close()
 
     @staticmethod
     def update_tokens(record, tokens):
+        refresh_token = tokens.get("refresh_token") or record.get("refresh_token")
         if (tokens.get("token_type", "").lower() != "bearer" or
-                not all(isinstance(tokens.get(key), str) and tokens[key]
-                        for key in ("access_token", "refresh_token")) or
+                not isinstance(tokens.get("access_token"), str) or not tokens["access_token"] or
+                not isinstance(refresh_token, str) or not refresh_token or
                 not isinstance(tokens.get("expires_in"), (int, float)) or tokens["expires_in"] <= 0):
             raise ChatProviderError("Incomplete OAuth token response")
-        record.update({key: tokens[key] for key in ("access_token", "refresh_token", "token_type")})
-        if "id_token" in tokens:
-            record["id_token"] = tokens["id_token"]
+        record.update({key: tokens[key] for key in ("access_token", "token_type")})
+        record["refresh_token"] = refresh_token
+        # Identity is verified at login; refreshed ID tokens are never used or retained.
+        record.pop("id_token", None)
         record["expires_at"] = time.time() + tokens["expires_in"]
         record["scopes"] = tokens.get("scope", " ".join(record.get("scopes", []))).split()
 
     def access_token(self):
         # Cross-process lock covers the entire rotating refresh transaction.
-        with self.lock, file_lock(self.directory / "auth.lock"):
+        with file_lock(self.directory / "auth.lock"):
             data = self.credentials()
             record = data["registrations"].get(data["active"], {})
             if not record.get("access_token"):
@@ -288,8 +303,8 @@ class ChatAuth:
             record.pop(key, None)
 
     def logout(self):
-        with self.lock, file_lock(self.directory / "auth.lock"):
-            self.cancel()
+        self.close()
+        with file_lock(self.directory / "auth.lock"):
             data = self.credentials()
             record = data["registrations"].get(data["active"], {})
             confirmed = not record.get("refresh_token")
@@ -309,10 +324,15 @@ class ChatAuth:
                     pass
             self.clear_tokens(record)
             write_json(self.path, data)
-            self.notice = ("Signed out." if confirmed else
-                "Signed out locally. Remote revocation was not confirmed; disconnect the app in ChatGPT Settings.")
-            return {"notice": self.notice, "revocationConfirmed": confirmed}
+            with self.lock:
+                self.notice = ("Signed out." if confirmed else
+                    "Signed out locally. Remote revocation was not confirmed; disconnect the app in ChatGPT Settings.")
+                return {"notice": self.notice, "revocationConfirmed": confirmed}
 
     def close(self):
         with self.lock:
-            self.cancel()
+            self.generation += 1
+            generation = self.generation
+            attempt, self.pending = self.pending, None
+        self.dispose_attempt(attempt)
+        return generation

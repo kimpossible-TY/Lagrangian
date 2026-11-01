@@ -55,7 +55,7 @@ $$x_{\text{left}} = x_e - \frac{w}{3}, \qquad x_{\text{right}} = x_e + \frac{2w}
 - **지시선 유지**: 유의미한 연결 지시선(accent leader with target dot)은 유지하되, 대화 말풍선에는 연결선을 그리지 않는다.
 - **짧은 mannot 표기**: 수식 인근의 근접 라벨 표시(개념 3)를 그대로 유지하며 대화가 이 자리를 침범하지 않는다.
 - **표준 본문 보존**: 기존의 정규 본문 내용, 번호 체계, 앵커 ID, 텍스트 복사 동작, 컴팩트 팝오버는 그대로 보존된다.
-- 현재 accepted specs에는 `responsive-reader`가 없으므로 Modified Capabilities는 `none`이지만, 두 활성 변경 간의 통합 조정(reconciliation)을 구현 및 아카이브 전에 완료해야 한다.
+- `specs/responsive-reader/spec.md`의 MODIFIED delta가 전체 Adaptive authored text annotations 요구사항과 두 시나리오의 변경을 소유한다. `add-responsive-reader` 원본은 수정하지 않으며, 아카이브 시 기반 변경을 먼저 병합하고 이 delta를 적용한다.
 
 ### 4. 지속 대화 기록, 신원 및 앵커 재부착
 
@@ -121,3 +121,11 @@ Focused Python/Node tests and a synthetic accepted-document real-browser fixture
 Reopening a different subpassage in the same uniquely attached paragraph updates the current composer quote/context and its optimistic version while retaining the conversation ID. Each user message freezes a deep copy of its own verified selection, source evidence and accepted revision. Provider history pairs each user question with that message's original document context; the current turn uses the newest user message's frozen context. The UI refreshes its blockquote on reopening and displays each historical question's selected passage and revision. A changed selection is rejected while the conversation is streaming; users must wait or explicitly interrupt, then reselect. The active run never observes a replacement composer context.
 
 Send message identities are deduplicated against stored questions before optimistic view-version checks, after service/document/revision validation. Reusing an identity for different question text is rejected. A failed acknowledgment triggers an authoritative history read; if the original message exists, the view recovers it without another send. A completed recovered question clears only its matching local draft, preserving any newer text. Python and Chromium regressions cover reselection, immutable history, running-context protection and a completed host turn whose HTTP acknowledgment is deliberately lost.
+
+## Review hardening
+
+Every GET/POST requires an exact Host allowlist: the bound 127.0.0.1/localhost port or the explicitly configured HTTPS Reader publicURL passed by the manager via --public-url (never the paged originalURL). Account login/logout/cancel additionally reject Forwarded, X-Forwarded-For, X-Forwarded-Host and every Tailscale-* header. A random per-start host capability is written only to a 0600 local file in the private chat directory and removed on normal shutdown. HTTP never returns the capability, including to requests that forge local Host/Origin and hide forwarding headers. The local account status names the file; the host user explicitly pastes its capability value into the account password field, retained only in controller memory. Comparisons use hmac.compare_digest. Capabilities and OAuth tokens never enter logs or browser storage.
+
+OAuth callback exchange and signature verification run outside the state mutex. A generation check prevents an in-flight callback from saving credentials after cancellation, logout or a newer login. Cross-process credential transactions still serialize rotating refresh; an omitted or empty refreshed refresh_token retains the prior refresh token. ID tokens are verified for login and then discarded, including unverified refresh ID tokens. Cancellation closes the upstream Responses response, waking a blocked SSE socket before close so provider work is released promptly.
+
+The unused HTML CodexContextController and public asset are removed. GET/POST /api/focus and services/codex_context.py remain a compatibility protocol for external saved-focus clients and existing focus-file consumers; they are not invoked by Ask or authoritative chat history. The route's storage failure message uses reader-focus terminology.

@@ -35,6 +35,8 @@ class FakeOpenAI:
         self.refreshes = 0
         self.revocations = 0
         self.requests = []
+        self.stream_started = threading.Event()
+        self.stream_closed = threading.Event()
         owner = self
         class Handler(BaseHTTPRequestHandler):
             def reply(self, result, status=200):
@@ -80,6 +82,15 @@ class FakeOpenAI:
                 def emit(value):
                     self.wfile.write(("data: " + json.dumps(value) + "\n\n").encode())
                     self.wfile.flush()
+                if owner.mode == "stall":
+                    emit({"type": "response.in_progress"})
+                    owner.stream_started.set()
+                    self.connection.settimeout(5)
+                    try:
+                        self.connection.recv(1)  # Cancellation must close the upstream socket.
+                    finally:
+                        owner.stream_closed.set()
+                    return
                 if owner.mode == "disconnect":
                     emit({"type": "response.output_text.delta", "delta": "Incomplete "})
                     return

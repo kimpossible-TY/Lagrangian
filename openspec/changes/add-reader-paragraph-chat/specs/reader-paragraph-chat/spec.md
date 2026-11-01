@@ -286,3 +286,22 @@ The host MUST retain each user question's original verified selection/context/re
 - **WHEN** the host accepts a question but its HTTP acknowledgment is lost
 - **THEN** the view recovers the original message identity from authoritative local history
 - **AND** a completed question is not resent or duplicated, even if the original request has an older view version
+
+### Requirement: Host and authentication request boundaries
+
+The Reader MUST enforce a Host allowlist for GET/POST. Authentication management MUST require a per-start random capability, compared with hmac.compare_digest, and non-proxied loopback access. The capability MUST be delivered only through a 0600 host-local file, never HTTP, and explicitly entered by the host user. Tokens MUST NOT enter logs or persistent browser storage.
+
+#### Scenario: Forged same-origin or proxied authentication
+
+- **WHEN** a client forges matching Origin and Host, supplies a forwarding header, or omits the correct current host capability
+- **THEN** disallowed Host receives 421 and authentication management without the required host proof receives 403
+- **AND** HTTP never returns the capability, even with forged local headers and no forwarding headers
+- **AND** the allowlist contains only the bound 127.0.0.1/localhost port and explicitly configured HTTPS Reader address
+- **AND** Forwarded, X-Forwarded-For, X-Forwarded-Host and any Tailscale-* header, even empty, disqualify login/logout/cancel
+
+#### Scenario: Refresh and cancellation lifetimes
+
+- **WHEN** OAuth refresh omits a refresh token or a user interrupts an SSE response
+- **THEN** refresh retains the previous refresh token, updates expiry and discards unverified ID tokens
+- **AND** interruption closes the upstream response even when its reader is waiting for more bytes
+- **AND** OAuth exchange and identity verification do not hold the state mutex, and an invalidated callback cannot save credentials

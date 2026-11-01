@@ -1,5 +1,8 @@
 """Direct SIWC Responses SSE with an explicit current-document function loop."""
+from contextlib import contextmanager
 import json
+import socket
+import threading
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
@@ -46,6 +49,34 @@ def events(response):
             data.append(line[5:].strip())
 
 
+@contextmanager
+def cancellable_response(response, cancelled):
+    """Close a cancelled upstream even while its SSE reader is waiting for bytes."""
+    stopped = threading.Event()
+    def watch():
+        while not stopped.wait(0.05):
+            if cancelled():
+                # HTTPResponse.close alone can wait on BufferedReader's read lock.
+                # Wake a blocked urllib read before closing the response itself.
+                raw = getattr(getattr(response, "fp", None), "raw", None)
+                connection = getattr(raw, "_sock", None)
+                if connection is not None:
+                    try:
+                        connection.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                response.close()
+                return
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        yield response
+    finally:
+        stopped.set()
+        response.close()
+        watcher.join()
+
+
 class ResponsesProvider:
     def __init__(self, auth, *, open_response=open_private, request=request_json, resource=RESOURCE):
         self.auth, self.open_response, self.request, self.resource = auth, open_response, request, resource
@@ -76,7 +107,7 @@ class ResponsesProvider:
             completed = None
             received_text = False
             try:
-                with self.open_response(request, timeout=45) as response:
+                with cancellable_response(self.open_response(request, timeout=45), cancelled) as response:
                     for event in events(response):
                         if cancelled():
                             raise ChatProviderError("Response interrupted")

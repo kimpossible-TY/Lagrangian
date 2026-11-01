@@ -344,8 +344,6 @@ The Reader SHALL shade annotated terms without cloning their equations. Short ma
 - **THEN** subsequent layout measurements keep that popover open and retain focus
 - **AND** repeated touch activation and explicit dismissal remain usable
 
-The HTML/terminal paragraph-chat layout in `add-reader-paragraph-chat` supersedes the side-column placement and divider aspects below while active: long notes and footnotes use local left whitespace and a narrow left margin, the divider is absent, and meaningful leaders and short nearby labels remain. The paged adapter is unaffected.
-
 #### Scenario: Viewport and text-size changes
 - **WHEN** a viewport is at least 960px wide with aspect ratio at least 1.15 and an annotated host can fit a readable body and side note separated by 20px
 - **THEN** longer mannot explanations and ordinary footnotes occupy a side column inside that host and stack without overlap

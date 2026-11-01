@@ -1,6 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { bubblePosition } from "../web/features/paragraph-chat/geometry.js";
+import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
+
+test("account mutations require an explicitly entered local host capability", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (path, options) => {
+    requests.push({ path, ...options });
+    return { ok: true, json: async () => ({ signedIn: true }) };
+  });
+  const controller = { identity: () => ({ revision: "r1" }) };
+  for (const operation of ["login", "logout", "cancel"])
+    await assert.rejects(
+      ParagraphChatController.prototype.auth.call(controller, operation),
+      /local host authorization token/,
+    );
+  assert.equal(requests.length, 0);
+  controller.hostCapability = "locally-entered-capability";
+  for (const operation of ["login", "logout", "cancel", "status", "models"])
+    await ParagraphChatController.prototype.auth.call(controller, operation);
+  assert.deepEqual(
+    requests.map((request) => request.headers["X-Reader-Host-Capability"]),
+    [
+      controller.hostCapability,
+      controller.hostCapability,
+      controller.hostCapability,
+      undefined,
+      undefined,
+    ],
+  );
+  assert.ok(requests.every((request) => !request.body.includes("capability")));
+});
 
 test("summary crosses exactly one third of an empty reading edge and searches nearby rows", () => {
   const geometry = {

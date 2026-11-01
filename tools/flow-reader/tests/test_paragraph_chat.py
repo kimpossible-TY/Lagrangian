@@ -12,6 +12,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
+from unittest.mock import patch
 
 from chat_fixture import FakeOpenAI, SyntheticReader
 from flow_reader.errors import RevisionChanged
@@ -215,7 +216,7 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(cancelled["draft"], "One request")
 
     def test_http_origin_identity_stream_and_host_auth_boundary(self):
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state, public_url="https://reader.example"))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
@@ -228,14 +229,17 @@ class ParagraphChatTests(unittest.TestCase):
         for bad_origin in (None, "https://attacker.invalid"):
             with self.assertRaises(HTTPError) as error: post("open", self.reader.request(fragments=self.reader.fragments("First")), bad_origin)
             self.assertEqual(error.exception.code, 403)
+            self.addCleanup(error.exception.close)
         with self.assertRaises(HTTPError) as error:
-            post("auth", self.reader.request(operation="login"), "http://remote.invalid", "remote.invalid")
+            post("auth", self.reader.request(operation="login"), "https://reader.example", "reader.example")
         self.assertEqual(error.exception.code, 403)
-        with post("auth", self.reader.request(operation="status"), "http://remote.invalid", "remote.invalid") as response:
+        self.addCleanup(error.exception.close)
+        with post("auth", self.reader.request(operation="status"), "https://reader.example", "reader.example") as response:
             status = json.load(response)
             self.assertTrue(status["signedIn"])
             self.assertNotIn("accounts", status)
-        with post("auth", self.reader.request(operation="models"), "http://remote.invalid", "remote.invalid") as response:
+            self.assertNotIn("hostCapabilityFile", status)
+        with post("auth", self.reader.request(operation="models"), "https://reader.example", "reader.example") as response:
             self.assertEqual(json.load(response)["models"][0]["id"], "fixture-model")
         record = self.open()
         self.send(record)
@@ -244,6 +248,111 @@ class ParagraphChatTests(unittest.TestCase):
             self.assertIn("text/event-stream", response.headers["Content-Type"])
             self.assertIn('"status": "completed"', frames)
             self.assertNotIn("fixture-access", frames)
+
+    def serve(self):
+        self.capability_path = self.work / ("host-capability-" + os.urandom(8).hex() + ".json")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state,
+            public_url="https://reader.example", host_capability_path=self.capability_path))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
+        return f"http://127.0.0.1:{server.server_port}"
+
+    def test_host_allowlist_blocks_rebinding_for_state_list_and_send(self):
+        origin = self.serve()
+        for host in ("attacker.invalid", "127.0.0.1:1", "localhost", "reader.example.attacker.invalid"):
+            for action in ("state", "chat/list", "chat/send"):
+                with self.subTest(host=host, action=action):
+                    body = None if action == "state" else json.dumps(self.reader.request()).encode()
+                    request = Request(origin + "/api/" + action, body,
+                        {"Host": host, "Origin": "http://" + host, "Content-Type": "application/json"})
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(request)
+                    self.assertEqual(error.exception.code, 421)
+                    self.addCleanup(error.exception.close)
+        for host in (urlsplit(origin).netloc, "localhost:" + str(urlsplit(origin).port), "reader.example"):
+            with urlopen(Request(origin + "/api/state", headers={"Host": host})) as response:
+                self.assertEqual(response.status, 200)
+
+    def test_host_capability_is_local_unproxied_ephemeral_and_required_for_auth(self):
+        origin = self.serve()
+        endpoint = origin + "/api/chat/host-capability"
+        capability = read_json(self.capability_path, {})["capability"]
+        self.assertEqual(stat.S_IMODE(self.capability_path.stat().st_mode), 0o600)
+        other_origin = self.serve()
+        self.assertNotEqual(read_json(self.capability_path, {})["capability"], capability)
+        with self.assertRaises(HTTPError) as error:
+            urlopen(Request(other_origin + "/api/chat/auth",
+                json.dumps(self.reader.request(operation="login")).encode(),
+                {"Origin": other_origin, "Content-Type": "application/json", "X-Reader-Host-Capability": capability}))
+        self.assertEqual(error.exception.code, 403)
+        self.addCleanup(error.exception.close)
+        # Even a proxy hiding every forwarding header cannot retrieve the token over HTTP.
+        with self.assertRaises(HTTPError) as error:
+            urlopen(endpoint)
+        self.assertEqual(error.exception.code, 404)
+        self.addCleanup(error.exception.close)
+        forwarded = ("X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "Tailscale-User-Login",
+                     "tAiLsCaLe-Arbitrary")
+        for header in forwarded:
+            with self.subTest(header=header):
+                for value in ("", "127.0.0.1"):
+                    for operation in ("login", "logout", "cancel"):
+                        with self.assertRaises(HTTPError) as error:
+                            urlopen(Request(origin + "/api/chat/auth",
+                                json.dumps(self.reader.request(operation=operation)).encode(),
+                                {"Origin": origin, "Content-Type": "application/json",
+                                 "X-Reader-Host-Capability": capability, header: value}))
+                        self.assertEqual(error.exception.code, 403)
+                        self.addCleanup(error.exception.close)
+        for headers in ({"Host": "reader.example"}, {"Origin": "https://attacker.invalid"}):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(endpoint, headers=headers))
+            self.assertEqual(error.exception.code, 404)
+            self.addCleanup(error.exception.close)
+        for operation in ("login", "logout", "cancel"):
+            for token in (None, "wrong-capability"):
+                headers = {"Origin": origin, "Content-Type": "application/json"}
+                if token is not None:
+                    headers["X-Reader-Host-Capability"] = token
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(Request(origin + "/api/chat/auth",
+                        json.dumps(self.reader.request(operation=operation)).encode(), headers))
+                self.assertEqual(error.exception.code, 403)
+                self.addCleanup(error.exception.close)
+            method = "close" if operation == "cancel" else operation
+            with patch.object(self.chat.auth, method, return_value={"ok": True}) as action:
+                with urlopen(Request(origin + "/api/chat/auth",
+                        json.dumps(self.reader.request(operation=operation)).encode(),
+                        {"Origin": origin, "Content-Type": "application/json", "X-Reader-Host-Capability": capability})) as response:
+                    self.assertEqual(response.status, 200)
+                action.assert_called_once()
+
+    def test_invalid_request_does_not_echo_exception_secrets(self):
+        origin = self.serve()
+        with patch.object(self.chat, "list", side_effect=ValueError("secret-value")):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(origin + "/api/chat/list", json.dumps(self.reader.request()).encode(),
+                    {"Origin": origin, "Content-Type": "application/json"}))
+            self.assertEqual(error.exception.code, 400)
+            self.addCleanup(error.exception.close)
+            self.assertEqual(json.load(error.exception), {"error": "Invalid reader request"})
+
+    def test_sse_client_cancel_closes_stalled_upstream_and_releases_host_job(self):
+        origin = self.serve()
+        self.fake.mode = "stall"
+        record = self.open()
+        sent = self.send(record)["conversations"][0]
+        self.assertTrue(self.fake.stream_started.wait(3))
+        job = self.chat.jobs[record["conversation_id"]]
+        with urlopen(Request(origin + "/api/chat/cancel",
+                json.dumps(self.reader.request(conversationID=record["conversation_id"], version=sent["version"])).encode(),
+                {"Origin": origin, "Content-Type": "application/json"})) as response:
+            self.assertEqual(response.status, 200)
+        self.assertTrue(self.fake.stream_closed.wait(2), "Upstream SSE socket was not released")
+        job["thread"].join(2)
+        self.assertFalse(job["thread"].is_alive(), "Cancelled provider kept waiting for upstream bytes")
+        self.assertEqual(self.wait(record["conversation_id"])["status"], "interrupted")
 
 
 class ChatAuthTests(unittest.TestCase):
@@ -254,7 +363,7 @@ class ChatAuthTests(unittest.TestCase):
         self.fake = FakeOpenAI()
         self.addCleanup(self.fake.close)
         self.auth = self.fake.auth(self.directory)
-        self.addCleanup(self.auth.close)
+        self.addCleanup(lambda: self.auth.close())
 
     def login(self):
         url = self.auth.login()["authUrl"]
@@ -292,10 +401,12 @@ class ChatAuthTests(unittest.TestCase):
 
     def test_bad_state_invalid_identity_and_jwt_signature_do_not_save_tokens(self):
         params, callback = self.login()
-        with self.assertRaises(HTTPError): urlopen(callback.replace(params["state"], "bad-state"))
+        with self.assertRaises(HTTPError) as error: urlopen(callback.replace(params["state"], "bad-state"))
+        self.addCleanup(error.exception.close)
         self.assertEqual(self.fake.requests, [])
         self.fake.nonce = "wrong-nonce"
-        with self.assertRaises(HTTPError): urlopen(callback)
+        with self.assertRaises(HTTPError) as error: urlopen(callback)
+        self.addCleanup(error.exception.close)
         self.assertFalse(self.auth.status()["signedIn"])
         token = self.fake.tokens()["id_token"]
         chunks = token.split(".")
@@ -310,11 +421,83 @@ class ChatAuthTests(unittest.TestCase):
         self.fake.mode = "revoked"
         with self.assertRaises(ChatProviderError): self.auth.access_token()
         self.assertFalse(self.auth.status()["signedIn"])
+
         self.fake.mode = "success"
         self.auth = self.fake.auth(self.directory, signed_in=True)
         self.fake.mode = "revoke-failure"
         self.assertFalse(self.auth.logout()["revocationConfirmed"])
         self.assertIn("not confirmed", self.auth.status()["notice"])
+        self.assertFalse(self.auth.status()["signedIn"])
+
+    def test_refresh_retains_missing_or_empty_refresh_token_updates_expiry_and_drops_id_token(self):
+        for replacement in (None, "", "omitted"):
+            with self.subTest(replacement=replacement):
+                self.auth = self.fake.auth(self.directory, signed_in=True)
+                data = read_json(self.auth.path, {})
+                record = data["registrations"]["oaiapp_fixture"]
+                previous = record["refresh_token"]
+                record.update(expires_at=0, id_token="old-id-token")
+                write_json(self.auth.path, data)
+                original = self.auth.request
+                def request(url, fields=None, **kwargs):
+                    tokens = original(url, fields, **kwargs)
+                    if fields and fields.get("grant_type") == "refresh_token":
+                        tokens.pop("refresh_token")
+                        if replacement != "omitted":
+                            tokens["refresh_token"] = replacement
+                        tokens.update(expires_in=120, id_token="unverified-refreshed-id-token")
+                    return tokens
+                before = time.time()
+                with patch.object(self.auth, "request", request):
+                    self.assertEqual(self.auth.access_token(), "fixture-access")
+                    refreshes = self.fake.refreshes
+                    self.assertEqual(self.auth.access_token(), "fixture-access")
+                    self.assertEqual(self.fake.refreshes, refreshes)
+                saved = read_json(self.auth.path, {})["registrations"]["oaiapp_fixture"]
+                self.assertEqual(saved["refresh_token"], previous)
+                self.assertGreaterEqual(saved["expires_at"], before + 120)
+                self.assertLessEqual(saved["expires_at"], time.time() + 120)
+                self.assertNotIn("id_token", saved)
+                for expiry in (0, -1, None):
+                    tokens = {"access_token": "new", "token_type": "Bearer", "expires_in": expiry}
+                    with self.assertRaises(ChatProviderError):
+                        self.auth.update_tokens(saved, tokens)
+                    self.assertEqual(saved["access_token"], "fixture-access")
+
+    def test_callback_exchange_and_verification_release_state_lock_and_cancel_invalidates_result(self):
+        for stage in ("request", "verify"):
+            with self.subTest(stage=stage):
+                entered, release = threading.Event(), threading.Event()
+                _params, callback = self.login()
+                original = getattr(self.auth, stage)
+                def blocked(*args, **kwargs):
+                    if stage == "verify" or args[0].endswith("/token"):
+                        entered.set()
+                        if not release.wait(5):
+                            raise AssertionError("Callback fixture was not released")
+                    return original(*args, **kwargs)
+                with patch.object(self.auth, stage, blocked), concurrent.futures.ThreadPoolExecutor(3) as pool:
+                    result = pool.submit(urlopen, callback)
+                    try:
+                        self.assertTrue(entered.wait(3))
+                        self.assertFalse(pool.submit(self.auth.status).result(timeout=1)["signedIn"])
+                        pool.submit(self.auth.close).result(timeout=1)
+                    finally:
+                        release.set()
+                    with self.assertRaises(HTTPError) as error:
+                        result.result(timeout=3)
+                    self.assertEqual(error.exception.code, 400)
+                    self.addCleanup(error.exception.close)
+                self.assertFalse(self.auth.status()["signedIn"])
+
+    def test_expired_oauth_attempt_does_not_exchange_or_save_credentials(self):
+        _params, callback = self.login()
+        self.auth.pending["expires"] = time.monotonic() - 1
+        with self.assertRaises(HTTPError) as error:
+            urlopen(callback)
+        self.assertEqual(error.exception.code, 400)
+        self.addCleanup(error.exception.close)
+        self.assertEqual(self.fake.requests, [])
         self.assertFalse(self.auth.status()["signedIn"])
 
 

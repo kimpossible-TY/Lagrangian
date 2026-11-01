@@ -4,7 +4,9 @@ import { createInterface } from "node:readline";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
-const { chromium } = await import(process.env.FLOW_READER_PLAYWRIGHT_MODULE || "playwright");
+const engines = await import(process.env.FLOW_READER_PLAYWRIGHT_MODULE || "playwright");
+const engine = process.env.ENGINE || process.env.BROWSER_ENGINE || process.argv[2] || "chromium";
+assert.ok(["chromium", "webkit"].includes(engine), "ENGINE must be chromium or webkit");
 const fixture = spawn(
   process.env.PYTHON || "python3",
   [fileURLToPath(new URL("./paragraph_chat_fixture.py", import.meta.url))],
@@ -15,10 +17,20 @@ const { url, token } = await new Promise((resolve, reject) => {
   lines.once("line", (line) => resolve(JSON.parse(line)));
   fixture.once("exit", (code) => reject(new Error(`Fixture exited: ${code}`)));
 });
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.CHROME_BIN ? { executablePath: process.env.CHROME_BIN } : {}),
-});
+let browser;
+try {
+  browser = await engines[engine].launch({
+    headless: true,
+    ...(engine === "chromium" && process.env.CHROME_BIN
+      ? { executablePath: process.env.CHROME_BIN }
+      : {}),
+  });
+} catch (error) {
+  fixture.kill("SIGTERM");
+  await once(fixture, "exit");
+  lines.close();
+  throw error;
+}
 let checks = 0;
 const check = (name, value) => {
   assert.ok(value, name);

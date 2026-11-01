@@ -322,6 +322,25 @@ export class ParagraphChatController {
     refresh.type = "button";
     refresh.addEventListener("click", () => this.loadAccount(true));
     node.account.replaceChildren(notice, picker, login, logout, refresh);
+    if (!this.account.hostOnly) {
+      const capability = element("input");
+      capability.type = "password";
+      capability.autocomplete = "off";
+      capability.setAttribute("aria-label", "Host authorization token");
+      capability.placeholder = "Paste the local host authorization token";
+      capability.value = this.hostCapability || "";
+      capability.addEventListener("input", () => {
+        this.hostCapability = capability.value;
+      });
+      node.account.append(capability);
+      if (this.account.hostCapabilityFile)
+        node.account.append(
+          element(
+            "p",
+            `For sign-in management, copy the capability value from this Mac's local file: ${this.account.hostCapabilityFile}`,
+          ),
+        );
+    }
     if (this.loginURL && this.account.pending) {
       const link = element("a", "Open ChatGPT sign-in in this Mac's browser");
       link.href = this.loginURL;
@@ -357,9 +376,14 @@ export class ParagraphChatController {
   }
 
   async auth(operation, extra = {}) {
+    const headers = { "Content-Type": "application/json" };
+    if (["login", "logout", "cancel"].includes(operation)) {
+      if (!this.hostCapability) throw new Error("Paste the local host authorization token first.");
+      headers["X-Reader-Host-Capability"] = this.hostCapability;
+    }
     const response = await fetch("api/chat/auth", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ ...this.identity(), operation, ...extra }),
     });
     const result = await response.json();

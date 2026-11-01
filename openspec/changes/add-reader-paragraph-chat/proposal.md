@@ -27,7 +27,7 @@ Saved for Codex는 선택 문맥을 저장만 하고 메시지를 보내지 않�
 
 ### Modified Capabilities
 
-- 없음 (`none`): 현재 accepted specs(`openspec/specs/`)에는 `responsive-reader`가 아직 병합되지 않아 형식상 수정할 accepted capability가 없다. 그러나 활성 변경인 `add-responsive-reader`와의 통합 요구사항이 존재하며, 문단 대화 레이아웃 활성화 시 `add-responsive-reader`의 'Connected local side columns' 및 'Viewport and text-size changes' 시나리오의 배치·구분선 측면을 대체한다(긴 주석/각주는 국소 여백 및 좁은 왼쪽 여백으로 이동, 구분선 제거, 기존 지시선 유지, 짧은 mannot 수식 근접 유지, 표준 본문/번호/ID/복사/컴팩트 팝오버 보존). 구현 및 아카이브 전 두 활성 변경 간 조정을 수행한다.
+- `responsive-reader`: `add-responsive-reader`의 Adaptive authored text annotations 요구사항을 MODIFIED delta로 명시한다. 기존 활성 변경은 그대로 유지하며, 아카이브 시 기반 변경을 먼저 병합한 후 문단 대화의 왼쪽 주석 배치와 구분선 제거를 적용한다.
 
 ## Impact
 

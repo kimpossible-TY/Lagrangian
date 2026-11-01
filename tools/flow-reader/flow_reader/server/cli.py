@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer
 import json
 from pathlib import Path
 import signal
+import secrets
 import threading
 from flow_reader.compiler.project import Project
 from flow_reader.server.state import ReaderState
@@ -25,6 +26,7 @@ def main():
     parser.add_argument("--semantic-canvases", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--original-url", required=True)
+    parser.add_argument("--public-url", help="Configured HTTPS Reader origin allowed by the HTTP Host guard")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--focus-file", type=Path, help="Absolute Codex context file (default OUTPUT/focus.json)")
@@ -50,7 +52,9 @@ def main():
                         focus_file=args.focus_file, editor_server=args.editor_server, nvim=args.nvim,
                         change_file=args.change_file, source_history=source_history,
                         browser_compiler=args.browser_compiler)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(state))
+    capability_path = state.paragraph_chat.directory / ("host-capability-" + secrets.token_hex(8) + ".json")
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(
+        state, public_url=args.public_url, host_capability_path=capability_path))
     state.prewarm = True
     stopped = threading.Event()
     def compile_and_watch():
@@ -68,3 +72,4 @@ def main():
         stopped.set()
         server.server_close()
         state.close()
+        capability_path.unlink(missing_ok=True)

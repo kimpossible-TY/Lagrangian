@@ -1,7 +1,9 @@
 """Reader HTTP protocol and explicit immutable asset delivery."""
 import gzip
+import hmac
 from http.server import BaseHTTPRequestHandler
 import json
+import secrets
 import time
 from urllib.parse import parse_qs, urlsplit
 from flow_reader.resources import READER_ROOT as HERE
@@ -10,9 +12,17 @@ from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.server.assets import reader_assets
 from flow_reader.server.offline import snapshot_inventory, worker_script
 from flow_reader.services.chat_auth import ChatProviderError
+from flow_reader.services.chat_storage import write_json
 
 
-def handler_for(state):
+def handler_for(state, *, public_url=None, host_capability_path=None):
+    public = urlsplit(public_url or "")
+    if public_url and (public.scheme != "https" or not public.hostname or public.username
+                       or public.password or public.path not in {"", "/"} or public.query or public.fragment):
+        raise ValueError("Reader public URL must be an HTTPS origin")
+    host_capability = secrets.token_urlsafe(32)
+    if host_capability_path:
+        write_json(host_capability_path, {"capability": host_capability})
     assets = reader_assets()
     vendor = HERE / "web/vendor/mathjax-4.1.3"
     vendor_files = json.loads((vendor / "manifest.json").read_text())["files"]
@@ -27,7 +37,22 @@ def handler_for(state):
                     ("list", "open", "draft", "send", "cancel", "events", "auth")}
 
     class Handler(BaseHTTPRequestHandler):
+        def allowed_host(self):
+            hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+            if public_url:
+                hosts.add(public.netloc)
+            return len(self.headers.get_all("Host", [])) == 1 and self.headers.get("Host") in hosts
+
+        def host_local(self):
+            forwarded = any(name.lower() in {"x-forwarded-for", "forwarded", "x-forwarded-host"}
+                            or name.lower().startswith("tailscale-") for name in self.headers)
+            return (not forwarded and self.client_address[0] == "127.0.0.1"
+                    and self.headers.get("Host") in {f"127.0.0.1:{self.server.server_port}",
+                                                     f"localhost:{self.server.server_port}"})
+
         def do_POST(self):
+            if not self.allowed_host():
+                return self.respond(b"Unrecognized reader host", "text/plain", 421)
             path = urlsplit(self.path).path
             if path not in compiler_actions | chat_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
                             "/api/highlight", "/api/source", "/api/source-text", "/api/cursor", "/api/focus", "/api/editor-attachment"}:
@@ -55,9 +80,12 @@ def handler_for(state):
                         chat.snapshot(request)
                         # Account actions belong to the physical host, not a
                         # remote document client or a forwarded/tailnet origin.
-                        host_local = (self.client_address[0] in {"127.0.0.1", "::1"}
-                                      and urlsplit(origin).hostname in {"127.0.0.1", "localhost", "::1"})
+                        host_local = self.host_local()
                         operation = request.get("operation", "status")
+                        if operation in {"login", "logout", "cancel"}:
+                            capability = self.headers.get("X-Reader-Host-Capability", "")
+                            if (not host_local or not hmac.compare_digest(capability.encode(), host_capability.encode())):
+                                return self.respond(b"Host authorization required", "text/plain", 403)
                         if not host_local:
                             if operation not in {"status", "models"}:
                                 return self.respond(b"Sign in from this Mac's loopback Reader", "text/plain", 403)
@@ -79,6 +107,8 @@ def handler_for(state):
                             result = {"models": chat.provider.models()}
                         elif operation == "status":
                             result = chat.auth.status()
+                            if host_capability_path:
+                                result["hostCapabilityFile"] = str(host_capability_path)
                         else:
                             raise ValueError("Unknown account operation")
                     elif action == "events":
@@ -121,7 +151,7 @@ def handler_for(state):
                         result = state.save_focus(request.get("revision"), request.get("fragments"),
                                                   request.get("service"), request.get("viewerID"))
                     except OSError:
-                        return self.respond(b"Could not save Codex context", "text/plain", 503)
+                        return self.respond(b"Could not save reader focus", "text/plain", 503)
                 elif path == "/api/highlight":
                     if "requestID" in request:
                         result = state.highlight_intent(request)
@@ -149,8 +179,8 @@ def handler_for(state):
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 409)
             except ChatProviderError as error:
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 503)
-            except (ValueError, TypeError) as error:
-                self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 400)
+            except (ValueError, TypeError):
+                self.respond(b'{"error": "Invalid reader request"}', "application/json", 400)
 
         def chat_events(self, chat, request):
             result = chat.list(request)  # Validate before sending stream headers.
@@ -180,6 +210,8 @@ def handler_for(state):
                 pass  # The host run and durable history outlive a disconnected view.
 
         def do_GET(self):
+            if not self.allowed_host():
+                return self.respond(b"Unrecognized reader host", "text/plain", 421)
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
             if path == "/api/compiler/status":
