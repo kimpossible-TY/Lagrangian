@@ -84,7 +84,7 @@ Reader는 대화 기록을 문서 단위로 소스 저장소 외부의 비공개
 
 ### Requirement: 모호하거나 사라진 앵커의 보존
 
-앵커가 모호하거나 사라졌을 때 Reader는 기록을 삭제하거나 다른 문단에 조용히 재배치해서는 안 된다(MUST NOT). 재부착되지 않은 대화는 미해결 상태로 보존되고 명시적으로 표시되어야 한다(SHALL). 삭제된 문단의 고아 대화를 살아남은 인접 문단 사이에 둘지 여부 등의 최종 배치는 미결로 유지한다.
+앵커가 모호하거나 사라졌을 때 Reader는 기록을 삭제하거나 다른 문단에 조용히 재배치해서는 안 된다(MUST NOT). 재부착되지 않은 대화는 미해결 상태로 보존되고 명시적으로 표시되어야 한다(SHALL). 미해결 대화는 별도의 접근 가능한 unresolved 영역에서 보존하고 열람할 수 있어야 한다(SHALL).
 
 #### Scenario: 모호한 앵커
 
@@ -96,7 +96,7 @@ Reader는 대화 기록을 문서 단위로 소스 저장소 외부의 비공개
 
 - **WHEN** 저장된 대화의 원본 문단이 문서 편집이나 삭제로 완전히 사라졌다
 - **THEN** Reader는 대화 기록을 보존하고 미해결(unresolved) 상태로 표시한다
-- **AND** 살아남은 인접 문단 사이 배치 등 구체적 고아 대화 UI는 사용자 결정 대기 상태로 유지되며 임의 재배치되지 않는다
+- **AND** 별도의 접근 가능한 unresolved 영역에서 기록을 열람할 수 있고 인접 문단에 임의 재배치되지 않는다
 
 ### Requirement: 문서·선택 안전 비동기 답변과 초안 보존
 
@@ -198,20 +198,33 @@ Reader는 대화 기록을 문서 단위로 소스 저장소 외부의 비공개
 - **WHEN** 사용자가 읽기 글자 크기를 바꾸거나 툴바를 사용한다
 - **THEN** 대화 표면은 본문 타이포그래피 체계를 따르고 기존 툴바 배치와 겹치지 않는다
 
-### Requirement: 로컬 기록의 권위와 Saved for Codex 분리
+### Requirement: 로컬 기록의 권위와 Ask 동작으로의 교체
 
-Reader의 로컬 대화 기록이 권위 있는 기록이어야 하며(SHALL), 기존 ChatGPT 대화나 메모리를 가져오지 않아야 한다(MUST NOT). Saved for Codex의 저장 전용 계약은 변경되지 않아야 한다(MUST).
+Reader의 로컬 대화 기록이 권위 있는 기록이어야 하며(SHALL), 기존 ChatGPT 대화나 메모리를 가져오지 않아야 한다(MUST NOT). HTML과 terminal의 Saved for Codex UI는 Ask로 교체되어야 한다(MUST). 기존 선택 캡처 및 승인 소스 검증은 재사용되어야 한다(SHALL). paged 어댑터는 명시적인 후속 범위이다.
 
 #### Scenario: 가져오기 없음
 
 - **WHEN** 사용자가 처음으로 문단 대화를 연다
 - **THEN** Reader는 외부 계정의 과거 대화나 메모리를 가져오지 않고 로컬 기록만 사용한다
 
-#### Scenario: 저장 전용 계약 유지
+#### Scenario: 명시적 Ask와 Send
 
-- **WHEN** 사용자가 Saved for Codex로 선택 문맥을 저장한다
-- **THEN** 메시지가 전송되지 않고 어시스턴트 턴이 시작되지 않는다
-- **AND** 문단 대화 기록은 그 저장 동작 때문에 생성되거나 변경되지 않는다
+- **WHEN** HTML 또는 terminal에서 기존 저장 액션 자리에 있는 Ask를 활성화한다
+- **THEN** 검증된 선택 문맥으로 문단당 하나의 대화를 열고 작성기를 표시한다
+- **AND** 사용자가 Send를 누르기 전에는 모델 턴을 시작하지 않는다
+- **AND** 기존 focus 프로토콜은 호환성으로 남아도 대화 기록을 대체하지 않는다
+
+#### Scenario: 필요한 추가 문맥 조회
+
+- **WHEN** 모델이 선택 외의 문서 문맥을 필요로 한다
+- **THEN** 승인된 현재 문서와 리비전에 한정된 search_current_document/read_passage 함수를 페이지 단위로 호출할 수 있다
+- **AND** 임의 파일 경로, 셸, 외부 문서, hosted MCP/file_search/tool_search는 제공되지 않는다
+
+#### Scenario: rename과 restart
+
+- **WHEN** 서비스만 재시작한다
+- **THEN** 같은 프로젝트 루트와 엔트리 경로의 대화는 복원된다
+- **AND** 경로 이름 변경이나 이동은 이전 문서 기록과 조용히 병합되지 않는다
 
 ### Requirement: 호스트 소유 자격 증명, 비공개 로컬 저장소 및 전송 경계
 
@@ -234,3 +247,42 @@ Reader의 로컬 대화 기록이 권위 있는 기록이어야 하며(SHALL), �
 - **WHEN** 구성된 호스트 provider가 적격한 OAuth 접근 권한을 확인하고 요청을 처리한다
 - **THEN** 요청된 질문은 선택된 전송 경로(직접 Responses API 또는 Codex app-server 중 하나, 두 전송 모두 구현할 의무는 없음)와 Reader 소유의 로컬 대화 기록을 사용한다
 - **AND** 인증이나 모델을 사용할 수 없는 경우 가짜 답변을 생성하거나 기존 대화 기록을 지우지 않고 실패 상태를 눈에 띄게 표시한다
+
+### Requirement: 단일 전송과 호스트 인증 관리
+
+1차 구현은 직접 SIWC OAuth PKCE 및 Responses SSE를 사용해야 한다(SHALL). 호스트는 서명/issuer/audience/nonce/만료를 검증한 뒤 자격 증명을 0600 파일에 저장하고 회전 갱신을 직렬화해야 한다(MUST). 인증 관리 동작은 호스트 루프백에서 사용자가 명시적으로 시작해야 한다(MUST).
+
+#### Scenario: 로그인과 로그아웃
+
+- **WHEN** 사용자가 호스트 Reader에서 Continue with ChatGPT를 누른다
+- **THEN** 별도 127.0.0.1 콜백 리스너와 새 state/nonce/PKCE가 시작되고 시스템 브라우저가 열린다
+- **AND** 다른 계정/클라이언트의 자격 증명을 덮어쓰지 않고 검증된 등록만 활성화한다
+- **AND** 로그아웃은 원격 refresh-token 폐기를 시도하고 미확인 시 이를 표시하며 로컬 토큰 사용을 중단한다
+
+#### Scenario: 원격 문서 뷰의 인증 관리 거부
+
+- **WHEN** 호스트 루프백 이외의 Reader origin이 로그인이나 로그아웃을 요청한다
+- **THEN** 호스트는 동작을 거부하고 Mac에서 로그인하도록 표시한다
+- **AND** 문서 대화 요청의 기존 origin 및 승인 문서/서비스/리비전 검증을 유지한다
+
+### Requirement: Immutable question context and safe reselection
+
+The host MUST retain each user question's original verified selection/context/revision independently of the current composer selection. Reopening a different subpassage in the same paragraph SHALL reuse the conversation and update the current blockquote. Provider history MUST associate each prior question with its original context and the current question with its newest accepted context.
+
+#### Scenario: Two selections in the same paragraph
+
+- **WHEN** a completed question about one subpassage is followed by Ask on another subpassage of that paragraph
+- **THEN** the same conversation opens with the newest selected quote
+- **AND** the first question retains its original selection while the new question captures the new selection
+
+#### Scenario: Reselection during streaming
+
+- **WHEN** a different subpassage is selected while a response is streaming
+- **THEN** changing that conversation's composer context is rejected until completion or explicit interruption
+- **AND** the active run's frozen question context is preserved
+
+#### Scenario: Lost send acknowledgment
+
+- **WHEN** the host accepts a question but its HTTP acknowledgment is lost
+- **THEN** the view recovers the original message identity from authoritative local history
+- **AND** a completed question is not resent or duplicated, even if the original request has an older view version
