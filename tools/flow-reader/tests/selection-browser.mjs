@@ -131,7 +131,9 @@ async function verify(browser, viewport) {
       const data = new DataTransfer();
       document
         .querySelector("#reader-document")
-        .dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }));
+        .dispatchEvent(
+          new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }),
+        );
       return data.getData("text/plain");
     });
   const copied = () => page.waitForFunction(() => window.__copied !== null);
@@ -160,9 +162,7 @@ async function verify(browser, viewport) {
         toolbar.y + toolbar.height <= viewport.height,
     );
 
-    await page.waitForFunction(
-      () => document.querySelector(".flow-equation .flow-math-view"),
-    );
+    await page.waitForFunction(() => document.querySelector(".flow-equation .flow-math-view"));
     const firstSourceRequests = sourceTexts;
     await selectMathGlyph();
     await page.waitForTimeout(400);
@@ -223,9 +223,7 @@ async function verify(browser, viewport) {
         !nativeMixed.includes("𝛼"),
     );
 
-    await page.waitForFunction(
-      () => document.querySelector(".flow-equation .flow-math-view"),
-    );
+    await page.waitForFunction(() => document.querySelector(".flow-equation .flow-math-view"));
     await page.evaluate(() => {
       window.__copied = null;
       document
@@ -284,8 +282,10 @@ async function verify(browser, viewport) {
       const equation = document.querySelector(
         '.flow-equation:has([data-flow-selection-ignore="dots-space"])',
       );
-      return equation?.querySelector('.flow-math-view[data-math-state="ready"]') &&
-        equation.querySelector('.flow-math-view [data-flow-selection-ignore="footnote"]');
+      return (
+        equation?.querySelector('.flow-math-view[data-math-state="ready"]') &&
+        equation.querySelector('.flow-math-view [data-flow-selection-ignore="footnote"]')
+      );
     });
     const ignoredMarkers = await page.evaluate(() => {
       const equation = document.querySelector(
@@ -308,9 +308,11 @@ async function verify(browser, viewport) {
     });
     check(
       "Selection across an equation excludes its generated markers",
-      ignoredMarkers.dots === "none" && ignoredMarkers.footnote === "none" &&
+      ignoredMarkers.dots === "none" &&
+        ignoredMarkers.footnote === "none" &&
         !ignoredMarkers.text.includes(ignoredMarkers.number) &&
-        !ignoredMarkers.text.includes("⋯") && !ignoredMarkers.text.includes("1") &&
+        !ignoredMarkers.text.includes("⋯") &&
+        !ignoredMarkers.text.includes("1") &&
         ignoredMarkers.link,
     );
 
@@ -323,7 +325,9 @@ async function verify(browser, viewport) {
     await click("#reader-copy");
     await copied();
     await page.waitForFunction(() =>
-      document.querySelector("#reader-highlight-message").textContent.includes("화면에 표시된 글자"),
+      document
+        .querySelector("#reader-highlight-message")
+        .textContent.includes("화면에 표시된 글자"),
     );
     check(
       "An unverified expression falls back to displayed text with a notice",
@@ -395,7 +399,8 @@ async function verify(browser, viewport) {
     );
     await select("Trailing paragraph 7");
     const savedResponse = page.waitForResponse(
-      (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     await click("#reader-chat-ask");
     const saved = (await (await savedResponse).json()).conversations[0];
@@ -417,23 +422,35 @@ async function verify(browser, viewport) {
 
     await select("Wrapped proof 한글", "block");
     const wrappedResponse = page.waitForResponse(
-      (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     await click("#reader-chat-ask");
     const wrapped = (await (await wrappedResponse).json()).conversations[0];
-    const navigation = await (await page.request.post(url + "api/source", {
-      data: { revision: state.revision, fragments: wrapped.context.fragments },
-    })).json();
-    const cursor = await (await page.request.post(url + "api/cursor", {
-      data: { revision: state.revision, path: navigation.path,
-              line: navigation.line, column: navigation.column },
-    })).json();
+    const navigation = await (
+      await page.request.post(url + "api/source", {
+        data: { revision: state.revision, fragments: wrapped.context.fragments },
+      })
+    ).json();
+    const cursor = await (
+      await page.request.post(url + "api/cursor", {
+        data: {
+          revision: state.revision,
+          path: navigation.path,
+          line: navigation.line,
+          column: navigation.column,
+        },
+      })
+    ).json();
     check(
       "A mixed math proof captures the same source range used by Sync Editor",
-      wrapped.status === "idle" && navigation.status === "located" &&
-        wrapped.context.source.filepath === navigation.path && wrapped.context.source.line === navigation.line &&
+      wrapped.status === "idle" &&
+        navigation.status === "located" &&
+        wrapped.context.source.filepath === navigation.path &&
+        wrapped.context.source.line === navigation.line &&
         wrapped.context.source.range.end.line === navigation.end_line &&
-        cursor.status === "located" && cursor.key === wrapped.context.fragments[0].key,
+        cursor.status === "located" &&
+        cursor.key === wrapped.context.fragments[0].key,
     );
     check(
       "Range mapping leaves workspace source and delivered HTML free of carriers",
@@ -446,7 +463,8 @@ async function verify(browser, viewport) {
     );
     await select("Trailing paragraph 8");
     const failedSave = page.waitForResponse(
-      (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     await page.locator("#reader-chat-ask").evaluate((button) => {
       button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
@@ -465,7 +483,8 @@ async function verify(browser, viewport) {
     );
     await page.unroute("**/api/chat/open");
     const retriedSave = page.waitForResponse(
-      (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     await click("#reader-chat-ask");
     check(
@@ -494,7 +513,8 @@ async function verify(browser, viewport) {
     );
     await select("Trailing paragraph 9");
     const delayedSave = page.waitForResponse(
-      (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     releaseCodex();
     await delayedSave;
@@ -536,7 +556,8 @@ async function verify(browser, viewport) {
         (await readFile(entry, "utf8")) === original,
     );
     const macroSavedResponse = page.waitForResponse(
-      (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     await click("#reader-chat-ask");
     const macroSaved = (await (await macroSavedResponse).json()).conversations[0];

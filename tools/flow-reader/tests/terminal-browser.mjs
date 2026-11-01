@@ -293,7 +293,8 @@ try {
   await mkdir(path.dirname(snapshot), { recursive: true });
   await page.screenshot({ path: snapshot });
   const savedFocus = page.waitForResponse(
-    (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
+    (response) =>
+      response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
   );
   check(
     "Ask uses the shared HTML action",

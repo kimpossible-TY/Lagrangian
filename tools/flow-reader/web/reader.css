@@ -1121,7 +1121,9 @@ button:disabled {
 .reader-chat-panel {
   padding-block: 0.6em 1em;
 }
-.reader-chat-panel[hidden] { display: none; }
+.reader-chat-panel[hidden] {
+  display: none;
+}
 .reader-chat-panel blockquote {
   margin: 0 0 0.8em;
   color: var(--muted);
@@ -1131,7 +1133,8 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.reader-chat-status, .reader-chat-account {
+.reader-chat-status,
+.reader-chat-account {
   color: var(--muted);
   font-size: 0.9em;
 }
@@ -1147,7 +1150,8 @@ button:disabled {
   border-radius: 0.4em;
   font: inherit;
 }
-.reader-chat button:not(.reader-chat-summary), .reader-chat select {
+.reader-chat button:not(.reader-chat-summary),
+.reader-chat select {
   margin: 0.25em 0.4em 0.25em 0;
   padding: 0.3em 0.6em;
   border: 1px solid var(--line);
@@ -1161,7 +1165,9 @@ button:disabled {
   margin: 2rem auto;
   padding-inline: 1rem;
 }
-#reader-document.reader-paragraph-chat .flow-side-divider { display: none; }
+#reader-document.reader-paragraph-chat .flow-side-divider {
+  display: none;
+}
 #reader-document.reader-paragraph-chat .flow-annotation-side {
   padding-inline-start: calc(var(--flow-side-width) + 20px);
   padding-inline-end: 0;
