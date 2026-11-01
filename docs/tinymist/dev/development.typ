@@ -94,7 +94,7 @@ execution environment described under *Remote Rust builds*. With the formatter
 already installed, formatting checks can run locally:
 
 ```sh
-yarn install --immutable
+yarn install --frozen-lockfile
 node scripts/build.mjs build:preview
 cargo fmt --check --all
 yarn workspace typst-preview-frontend test run
@@ -111,7 +111,7 @@ hashes. On Apple Silicon, use a native ARM Python environment.
 = Remote Rust builds
 
 Agent-run Rust compilation requires a Cloud environment explicitly configured
-for the private `kimpossible-TY/Lagrangian` repository. The former published
+for the `kimpossible-TY/Lagrangian` repository. The former published
 `tinymist-flow` environment targeted a deleted repository and is not a valid
 source of truth unless it is reconfigured and its checkout is verified. A request
 to build or validate Rust authorizes delegating that work to a verified
@@ -234,9 +234,10 @@ can observe two different runs if another success lands between them. A cache
 hit still republishes an engine whose `release.json` commit may be older than
 the reader's `headSha`; both artifacts still belong to the run you named.
 `fetch-engine` only downloads, verifies, and prints the engine path. The reader
-helper only verifies and prints a staging path. The Mac launchd updater is
-outside this repository and is pending; it still installs the reader from its
-local checkout.
+helper only verifies and prints a staging path. The Mac launchd updater
+(outside this repository) does this: it fetches the engine and reader bundle
+from the same successful `main` run and installs the reader from that verified
+bundle, not from a local checkout.
 
 ```sh
 gh auth status
@@ -312,7 +313,13 @@ The #link("../flow-app.md")[web user guide] describes the first preview and read
 
 = Workflow
 
-Continue on the current branch unless the user requests another. Use Conventional
+Use a branch, pull request and review for Rust/engine code, changes to the Mac's
+live state (launchd, app, data migrations) and hard-to-revert work. Small
+reversible changes (docs, config, tests, small scripts/workflows) may go directly
+to `main`. Otherwise continue on the current branch unless the user requests
+another. Only successful `main` runs of `flow-engine.yml` reach the Mac; a branch
+build needs `gh workflow run flow-engine.yml --ref <branch>` and is never
+installed. Use Conventional
 Commits per work item. Read `openspec/config.yaml`, accepted specs and matching
 active changes for new features, observable behavior/contract changes and
 refactors across responsibility boundaries. Continue matching active work and keep

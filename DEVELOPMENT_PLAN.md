@@ -6,7 +6,7 @@
 
 큰 수학 문서, CeTZ/Fletcher 및 로컬 패키지를 사용하는 편집에서 의미 색상을 유지하면서 분석 지연, 불필요한 컴파일, 요청 누적을 줄인다. 문서의 컴파일 의미는 유지한다.
 
-- Development repository: https://github.com/kimpossible-TY/typst-relay (`origin`, `main`).
+- Development repository: https://github.com/kimpossible-TY/Lagrangian (`origin`, `main`; formerly `kimpossible-TY/typst-relay`).
 - Historical repository: https://github.com/kimpossible-TY/tinymist-flow (no longer the development destination).
 - Upstream: https://github.com/Myriad-Dreamin/tinymist
 - 최초 개발 기준: 0.15.8 실행 파일의 소스 커밋 `32f908199ee17ea295512bbc27166e890c438175`.

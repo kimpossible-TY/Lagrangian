@@ -78,7 +78,7 @@ python3 scripts/flow-app.py build
 python3 scripts/flow-app.py install dist/Lagrangian.app
 ```
 
-Use `--build-engine --jobs 2` after rebuilding the preview frontend when you also need engine or preview changes. App-only rebuilds with the installed engine keep its existing preview features. The installer preserves the previous bundle for recovery. See the #link("flow-app.md#update-and-recover")[update and recovery guide] for verification, rollback, signing and macOS consent.
+Use `--build-engine --jobs 2` after rebuilding the preview frontend when you also need engine or preview changes. App-only rebuilds with the installed engine keep its existing preview features. The installer preserves the previous bundle for recovery. See the #link("flow-app.md#update-and-recover")[update and recovery guide] for verification, rollback, signing and macOS consent. On the maintainer's Mac, the `dev.lagrangian.engine-autoupdate` launchd job installs successful `main` builds of `flow-engine.yml` automatically; see the development guide's remote Rust builds section.
 
 = Development
 

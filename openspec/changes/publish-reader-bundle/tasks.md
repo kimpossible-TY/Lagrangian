@@ -5,4 +5,4 @@
 - [x] Install from the staged bundle with `install.py --engine` without a git checkout.
 - [x] Cover packaging and mocked-`gh` verification with Python unit tests.
 - [x] Document the bundle in `AGENTS.md` and the development guide.
-- [ ] Wire the Mac launchd updater (`dev.lagrangian.engine-autoupdate`) to `scripts/fetch-reader-bundle.py`. That integration is outside this repository and is pending. The job still installs the reader from its local checkout.
+- [x] Wire the Mac launchd updater (`dev.lagrangian.engine-autoupdate`) to `scripts/fetch-reader-bundle.py`. That integration is outside this repository. It passes one run id to `fetch-engine` and the helper and installs the reader from the verified bundle of the same successful `main` run (see `87e233c`).

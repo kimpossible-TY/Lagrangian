@@ -50,7 +50,7 @@ A failed compile retains the accepted document. Dynamic paint, selection actions
 
 = Asset and installation boundary
 
-`web/assets.json` is an explicit route-to-file allow-list for first-party browser code. MathJax retains its separately reviewed vendor manifest. The server does not expose arbitrary filesystem paths. `web/reader-common` links the shared source directory; immutable release archives include both `tools/flow-reader` and `tools/reader-common` so the same relative imports resolve after installation and behind the Reader origin.
+`web/assets.json` is an explicit route-to-file allow-list for first-party browser code. MathJax retains its separately reviewed vendor manifest. The server does not expose arbitrary filesystem paths. `web/reader-common` links the shared source directory; immutable release archives include both `tools/flow-reader` and `tools/reader-common` so the same relative imports resolve after installation and behind the Reader origin. `scripts/package-reader-bundle.py` and `scripts/reader_bundle.py` own the CI reader bundle (`reader-bundle.json`, per-file SHA-256, `bundleChecksum`); `scripts/fetch-reader-bundle.py` verifies and stages it, and `install.py` rechecks the copied trees against that manifest. The Mac updater installs the reader from that bundle, not from a local checkout.
 
 Changing a file path requires checking imports, test fixtures, build inputs, static routes and release packaging. Verify the installed layout with the installation test; source-tree success alone does not prove deployability.
 

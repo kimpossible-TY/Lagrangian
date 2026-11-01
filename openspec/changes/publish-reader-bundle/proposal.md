@@ -19,4 +19,4 @@ Reader web changes never reach the Mac. The engine-input hash excludes `tools/fl
 
 ## Impact
 
-The Mac launchd updater is outside this repository and is pending. It still installs the reader from its local checkout. When it is wired, it can pass one `--run-id` to `fetch-engine` and the helper, then run `install.py` from the printed directory. Engine cache behavior and the installed reader layout stay the same. A web-only reader change still skips Cargo and still publishes a new reader bundle.
+The Mac launchd updater is outside this repository. It passes one `--run-id` to `fetch-engine` and the helper, then installs the reader from the printed directory, so the reader comes from the verified bundle of the same successful `main` run rather than a local checkout. Engine cache behavior and the installed reader layout stay the same. A web-only reader change still skips Cargo and still publishes a new reader bundle.

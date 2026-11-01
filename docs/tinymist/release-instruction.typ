@@ -186,6 +186,6 @@ $ git tag v0.12.19
 $ git push --tag
 ```
 
-If Codex is assisting with the release, this is also an approval boundary because it mutates the remote repository and triggers the release pipeline.
+If Codex is assisting with the release, this is also an approval boundary because it mutates the remote repository.
 
-Pushing the tag does not start a GitHub Actions workflow. The only workflow in this repository is the manual macOS engine build, `.github/workflows/flow-engine.yml`.
+Pushing the tag does not start a GitHub Actions workflow. The only workflow in this repository is the macOS engine build, `.github/workflows/flow-engine.yml`, which runs on pushes to `main` (except documentation-only changes) and on manual dispatch.

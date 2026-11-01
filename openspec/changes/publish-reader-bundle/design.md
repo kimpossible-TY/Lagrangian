@@ -29,13 +29,13 @@
 
 ## Risks / Trade-offs
 
-- The helper and `install.py` must be new enough to understand the manifest. The Mac launchd updater is outside this repository and is still pending. After that wiring, later reader web changes come from the bundle.
+- The helper and `install.py` must be new enough to understand the manifest. The Mac launchd updater is outside this repository and is wired to the bundle, so reader web changes now come from the bundle.
 - Two artifact names store the same bytes for 30 days. The sha-named artifact identifies the commit; the stable name is what `--run-id` downloads if the sha name is missing.
 - A hit still republishes the older engine. `release.json` inside that engine artifact can name an older commit than the reader bundle's `headSha`. Callers pass the fetched engine as `--engine` and take the reader from the same run.
 
 ## Migration Plan
 
-Mac updater integration is outside this repository and is pending. This change does not install or restart `dev.lagrangian.engine-autoupdate`. When that job is wired, it should pass one `--run-id` to `fetch-engine` and `fetch-reader-bundle.py`, then run `install.py` from the printed directory with that `--engine`. No reader data migration is required. Rollback is the previous immutable release already stored by `install.py`.
+Mac updater integration is outside this repository. This change does not install or restart `dev.lagrangian.engine-autoupdate`. That job passes one `--run-id` to `fetch-engine` and `fetch-reader-bundle.py`, then runs the reader install from the printed directory with that `--engine`; it installs only successful `main` runs. No reader data migration is required. Rollback is the previous immutable release already stored by `install.py`.
 
 ## Open Questions
 
