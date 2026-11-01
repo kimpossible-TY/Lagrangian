@@ -97,10 +97,12 @@ compilerLevel.addEventListener("input", () => {
   compilerPreferences.write("compiler-enabled", high);
   browserCompiler.setEnabled(high);
 });
+let activity;
 const updateButton = document.querySelector("#reader-apply-update");
 const offline = new OfflineReader({
   updateAvailable(available) {
     updateButton.hidden = !available;
+    activity?.logo?.setUpdateWaiting?.(available);
   },
   changed(state) {
     document.querySelector("#reader-offline-status").textContent = {
@@ -796,8 +798,8 @@ function articleSelection() {
   );
 }
 
-const activity = new ReaderActivity(document.querySelector("#reader-activity"), {
-  logo: new StatusLogo(document.querySelector("#reader-logo")),
+activity = new ReaderActivity(document.querySelector("#reader-activity"), {
+  logo: new StatusLogo(document.querySelector("#reader-logo"), { offline }),
   held: () =>
     !window.getSelection()?.isCollapsed
       ? "selection-held"

@@ -1,7 +1,9 @@
 /** HTML presentation only: ActivityNotice retains labels and release policy. */
 export class StatusLogo {
-  constructor(element) {
+  constructor(element, { offline = null } = {}) {
     this.element = element;
+    this.offline = offline;
+    this.updateWaiting = false;
     this.trigger = element.querySelector("button");
     this.announcer = element.ownerDocument.querySelector("#reader-logo-announcement");
     this.label = element.ownerDocument.querySelector(".reader-logo-label");
@@ -11,8 +13,30 @@ export class StatusLogo {
     const { signal } = this.listeners;
     this.trigger.addEventListener(
       "click",
-      () => {
+      async () => {
         if (this.reloading) return;
+        if (this.hasWaitingUpdate && this.offline?.applyUpdate) {
+          this.reloading = true;
+          this.element.dataset.phase = "loading";
+          const korean = this.notice?.korean ?? true;
+          this.trigger.setAttribute("aria-label", korean ? "업데이트 적용 중" : "Applying update");
+          try {
+            const applied = await this.offline.applyUpdate();
+            if (applied) {
+              window.location.reload();
+            } else {
+              this.reloading = false;
+              if (this.notice) {
+                this.update(this.notice.phase, this.notice, Boolean(this.offlineMode));
+              } else {
+                delete this.element.dataset.phase;
+              }
+            }
+          } catch {
+            this.reloading = false;
+          }
+          return;
+        }
         this.reloading = true;
         this.element.dataset.phase = "loading";
         this.trigger.setAttribute("aria-label", "새로고침 중");
@@ -23,9 +47,36 @@ export class StatusLogo {
     document.documentElement.dataset.readerLogo = "true";
   }
 
+  get hasWaitingUpdate() {
+    return Boolean(this.offline?.registration?.waiting || this.updateWaiting);
+  }
+
+  setUpdateWaiting(waiting) {
+    this.updateWaiting = Boolean(waiting);
+    if (this.notice) {
+      this.update(this.notice.phase, this.notice, Boolean(this.offlineMode));
+    } else {
+      this.renderBadge();
+    }
+  }
+
+  renderBadge() {
+    const hasUpdate = this.hasWaitingUpdate;
+    if (hasUpdate) {
+      this.element.dataset.updateWaiting = "true";
+      this.badge.dataset.badge = "update";
+      if (!this.badge.textContent) this.badge.textContent = "↑";
+    } else {
+      delete this.element.dataset.updateWaiting;
+      delete this.badge.dataset.badge;
+      if (this.badge.textContent === "↑") this.badge.textContent = "";
+    }
+  }
+
   update(phase, notice, offline = false) {
     if (this.disposed) return;
     this.notice = notice;
+    this.offlineMode = offline;
     const korean = notice.korean;
     const queue = this.element.ownerDocument.querySelector("#reader-highlight-queue-status");
     const display =
@@ -48,6 +99,14 @@ export class StatusLogo {
     }
     this.phase = phase;
     this.element.dataset.phase = display;
+    const hasUpdate = this.hasWaitingUpdate;
+    if (hasUpdate) {
+      this.element.dataset.updateWaiting = "true";
+      this.badge.dataset.badge = "update";
+    } else {
+      delete this.element.dataset.updateWaiting;
+      delete this.badge.dataset.badge;
+    }
     const label =
       display === "sync"
         ? korean
@@ -63,7 +122,10 @@ export class StatusLogo {
               : "Connected · document up to date"
             : notice.label.textContent;
     if (this.label.textContent !== label) this.label.textContent = label;
-    this.trigger.setAttribute("aria-label", `${label} · ${korean ? "새로고침" : "Refresh"}`);
+    const actionLabel = hasUpdate
+      ? (korean ? "업데이트 적용" : "Apply update")
+      : (korean ? "새로고침" : "Refresh");
+    this.trigger.setAttribute("aria-label", `${label} · ${actionLabel}`);
     this.trigger.title = label;
     if (this.announcer.textContent !== label) this.announcer.textContent = label;
     const hint =
@@ -80,11 +142,13 @@ export class StatusLogo {
         ? "Ⅱ"
         : display === "reconnecting"
           ? "↻"
-          : display === "offline"
-            ? "⌁"
-            : display === "sync"
-              ? "•"
-              : "";
+          : hasUpdate
+            ? "↑"
+            : display === "offline"
+              ? "⌁"
+              : display === "sync"
+                ? "•"
+                : "";
   }
 
   dispose() {

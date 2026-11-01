@@ -1947,6 +1947,9 @@ math svg {
   font-size: 12px;
   color: var(--ink);
 }
+#reader-logo[data-update-waiting="true"] .reader-logo-badge {
+  color: var(--accent);
+}
 #reader-logo:is(
     [data-phase="waiting"],
     [data-phase="loading"],
