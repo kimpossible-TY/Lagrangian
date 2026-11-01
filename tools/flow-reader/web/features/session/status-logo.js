@@ -11,10 +11,27 @@ export class StatusLogo {
     this.badge = element.querySelector(".reader-logo-badge");
     this.listeners = new AbortController();
     const { signal } = this.listeners;
+    // Preserve native document selection until the explicit release action.
+    this.trigger.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
     this.trigger.addEventListener(
       "click",
       async () => {
         if (this.reloading) return;
+        if (
+          this.phase === "selection-held" ||
+          this.notice?.phase === "selection-held" ||
+          this.element.dataset.phase === "selection-held"
+        ) {
+          const releaseButton =
+            this.notice?.releaseButton ||
+            this.element.ownerDocument.querySelector(".reader-activity-release");
+          if (releaseButton && !releaseButton.hidden) {
+            releaseButton.focus();
+          }
+          if (this.notice?.hint) this.notice.hint.hidden = false;
+          if (this.hint) this.hint.hidden = false;
+          return;
+        }
         if (this.hasWaitingUpdate && this.offline?.applyUpdate) {
           this.reloading = true;
           this.element.dataset.phase = "loading";

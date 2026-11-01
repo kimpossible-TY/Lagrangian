@@ -17,6 +17,10 @@ The logo SHALL act as a keyboard-accessible refresh button and show loading feed
 - **WHEN** the reader activates the logo
 - **THEN** the logo shows loading feedback and the page reloads
 
+#### Scenario: Selection holds an update
+- **WHEN** the reader activates the logo during a held update
+- **THEN** selection is preserved until explicit release and queued publication resumes through the existing guarded action
+
 #### Scenario: Offline reading
 - **WHEN** an accepted saved document is read offline
 - **THEN** the logo identifies offline reading rather than claiming a live connection
