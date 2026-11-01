@@ -1936,6 +1936,10 @@ math svg {
   background: transparent;
   padding: 0;
   border-radius: 8px;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
 .reader-brand::-webkit-details-marker {
   display: none;

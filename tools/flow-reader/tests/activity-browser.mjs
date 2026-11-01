@@ -153,13 +153,22 @@ try {
       const brand = page.locator(".reader-brand");
       const brandLabel = await brand.getAttribute("aria-label");
       assert.ok(
-        brandLabel && brandLabel.includes("새로고침"),
-        "logo button exposes accessible name for refresh action",
+        brandLabel && (brandLabel.includes("연결됨") || brandLabel.includes("문서를")),
+        "logo button exposes accessible name for current state only",
       );
+      assert.equal(
+        await brand.getAttribute("aria-keyshortcuts"),
+        "Shift+Enter",
+        "logo button exposes Shift+Enter shortcut",
+      );
+      assert.equal(await brand.getAttribute("aria-expanded"), "false");
+      assert.equal(await brand.getAttribute("aria-controls"), "reader-logo-popover");
 
       await brand.click();
+      assert.equal(await brand.getAttribute("aria-expanded"), "true");
       assert.equal(await page.locator("#reader-logo-popover").isVisible(), true);
       await page.keyboard.press("Escape");
+      assert.equal(await brand.getAttribute("aria-expanded"), "false");
       assert.equal(await page.locator("#reader-logo-popover").isVisible(), false);
       // Shift+Enter invokes the deliberate refresh action.
       state.compiling = false;
@@ -241,8 +250,8 @@ try {
       });
       assert.equal(await page.locator(".reader-logo-badge").textContent(), "↑");
       assert.ok(
-        (await brand.getAttribute("aria-label")).includes("업데이트 적용"),
-        "accessible name reflects update action",
+        (await brand.getAttribute("aria-description")).includes("업데이트 적용"),
+        "accessible description reflects update action",
       );
       const logoBounds = await brand.boundingBox();
       await page.mouse.move(

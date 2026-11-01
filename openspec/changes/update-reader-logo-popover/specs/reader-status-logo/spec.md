@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 ### Requirement: Logo refreshes the reader
-The logo SHALL expose a deliberate keyboard-accessible refresh action. A pointer press held for approximately 500 ms or Shift+Enter SHALL show loading feedback and reload the page, applying a waiting service-worker update first. Movement beyond a small slop or releasing early SHALL cancel the long press. Errors and selection-held updates SHALL retain visible explanatory text and the existing explicit release action.
+The logo SHALL expose a deliberate keyboard-accessible refresh action. A pointer press held for approximately 500 ms or Shift+Enter SHALL show loading feedback and reload the page, applying a waiting service-worker update first. Movement beyond a small slop or releasing early SHALL cancel the long press. Status details, offline information and highlight state SHALL remain available in advanced settings. Errors and selection-held updates SHALL retain visible explanatory text and the existing explicit release action.
 
 #### Scenario: Reader requests refresh
 - **WHEN** the reader holds the logo for approximately 500 ms or presses Shift+Enter

@@ -13,7 +13,14 @@ export class StatusLogo {
     const { signal } = this.listeners;
     // Preserve native document selection until the explicit release action.
     this.trigger.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
+    this.trigger.addEventListener("contextmenu", (event) => event.preventDefault(), { signal });
     this.popover = element.querySelector("#reader-logo-popover");
+    this.trigger.setAttribute("aria-expanded", "false");
+    this.trigger.setAttribute("aria-controls", "reader-logo-popover");
+    this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
+    if (!this.trigger.getAttribute?.("aria-description")) {
+      this.trigger.setAttribute("aria-description", "길게 누르거나 Shift+Enter로 새로고침");
+    }
     this.trigger.addEventListener(
       "click",
       (event) => {
@@ -21,7 +28,7 @@ export class StatusLogo {
           this.suppressClick = false;
           return;
         }
-        this.popover.hidden = !this.popover.hidden;
+        this.setPopoverOpen(this.popover?.hidden);
       },
       { signal },
     );
@@ -81,18 +88,24 @@ export class StatusLogo {
     doc.addEventListener(
       "pointerdown",
       (event) => {
-        if (!element.contains(event.target)) this.popover.hidden = true;
+        if (!element.contains(event.target)) this.setPopoverOpen(false);
       },
       { signal },
     );
     doc.addEventListener(
       "keydown",
       (event) => {
-        if (event.key === "Escape") this.popover.hidden = true;
+        if (event.key === "Escape") this.setPopoverOpen(false);
       },
       { signal },
     );
     document.documentElement.dataset.readerLogo = "true";
+  }
+
+  setPopoverOpen(open) {
+    const isOpen = Boolean(open);
+    if (this.popover) this.popover.hidden = !isOpen;
+    this.trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
   }
 
   cancelPress() {
@@ -103,7 +116,7 @@ export class StatusLogo {
 
   async performAction() {
     if (this.reloading) return;
-    this.popover.hidden = true;
+    this.setPopoverOpen(false);
     if (
       this.phase === "selection-held" ||
       this.notice?.phase === "selection-held" ||
@@ -171,6 +184,15 @@ export class StatusLogo {
       delete this.badge.dataset.badge;
       if (this.badge.textContent === "↑") this.badge.textContent = "";
     }
+    const korean = this.notice?.korean ?? true;
+    const description = korean
+      ? hasUpdate
+        ? "길게 누르거나 Shift+Enter로 업데이트 적용"
+        : "길게 누르거나 Shift+Enter로 새로고침"
+      : hasUpdate
+        ? "Long-press or Shift+Enter to apply update"
+        : "Long-press or Shift+Enter to refresh";
+    this.trigger.setAttribute("aria-description", description);
   }
 
   update(phase, notice, offline = false) {
@@ -222,14 +244,16 @@ export class StatusLogo {
               : "Connected · document up to date"
             : notice.label.textContent;
     if (this.label.textContent !== label) this.label.textContent = label;
-    const actionLabel = hasUpdate
-      ? korean
-        ? "업데이트 적용"
-        : "Apply update"
-      : korean
-        ? "새로고침"
-        : "Refresh";
-    this.trigger.setAttribute("aria-label", `${label} · ${actionLabel}`);
+    this.trigger.setAttribute("aria-label", label);
+    this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
+    const description = korean
+      ? hasUpdate
+        ? "길게 누르거나 Shift+Enter로 업데이트 적용"
+        : "길게 누르거나 Shift+Enter로 새로고침"
+      : hasUpdate
+        ? "Long-press or Shift+Enter to apply update"
+        : "Long-press or Shift+Enter to refresh";
+    this.trigger.setAttribute("aria-description", description);
     this.popover.textContent = hasUpdate
       ? `${label} · ${korean ? "업데이트 대기 중" : "Update waiting"}`
       : label;
@@ -263,6 +287,7 @@ export class StatusLogo {
     this.cancelPress();
     this.listeners.abort();
     clearTimeout(this.reloadTimer);
+    this.setPopoverOpen(false);
     this.element.hidden = true;
     delete document.documentElement.dataset.readerLogo;
   }

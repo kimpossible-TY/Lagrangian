@@ -43,7 +43,15 @@
         </svg>
       </button>
       <div id="reader-logo" data-phase="waiting">
-        <button type="button" class="reader-brand" aria-describedby="reader-logo-popover" aria-label="문서를 기다리는 중 · 새로고침">
+        <button
+          type="button"
+          class="reader-brand"
+          aria-expanded="false"
+          aria-controls="reader-logo-popover"
+          aria-keyshortcuts="Shift+Enter"
+          aria-description="길게 누르거나 Shift+Enter로 새로고침"
+          aria-label="문서를 기다리는 중…"
+        >
           <svg class="reader-logo-mark" viewBox="0 0 240 220" aria-hidden="true">
             <path
               class="reader-logo-base"
@@ -63,7 +71,7 @@
           </svg>
           <span class="reader-logo-badge" aria-hidden="true"></span>
         </button>
-        <div id="reader-logo-popover" role="tooltip" hidden>문서를 기다리는 중…</div>
+        <div id="reader-logo-popover" hidden>문서를 기다리는 중…</div>
       </div>
       <div class="reader-appearance">
         <button
