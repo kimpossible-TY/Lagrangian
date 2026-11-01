@@ -792,9 +792,9 @@ function articleSelection() {
   const selection = window.getSelection();
   return Boolean(
     selection &&
-    !selection.isCollapsed &&
-    article.contains(selection.anchorNode) &&
-    article.contains(selection.focusNode),
+      !selection.isCollapsed &&
+      article.contains(selection.anchorNode) &&
+      article.contains(selection.focusNode),
   );
 }
 
