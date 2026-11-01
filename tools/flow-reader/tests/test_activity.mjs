@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ReaderActivity, ReaderActivityState } from "../web/features/session/activity.js";
+import { StatusLogo } from "../web/features/session/status-logo.js";
 
 const accepted = (revision, extra = {}) => ({
   revision,
@@ -168,4 +169,253 @@ test("an equal revision from another document cannot report the old content read
   assert.equal(state.phase("selection-held"), "selection-held");
   rendered(state, 2, "r1");
   assert.equal(state.phase(), "ready");
+});
+
+function createLogoHarness() {
+  const listeners = new Map();
+  const triggerAttrs = new Map([
+    ["aria-label", "문서를 기다리는 중… · 새로고침"],
+    ["type", "button"],
+  ]);
+  let focusedElement = null;
+
+  const trigger = {
+    setAttribute: (k, v) => triggerAttrs.set(k, v),
+    getAttribute: (k) => triggerAttrs.get(k) ?? null,
+    focus: () => {
+      focusedElement = trigger;
+    },
+    addEventListener: (event, handler) => {
+      const list = listeners.get(`trigger:${event}`) || [];
+      list.push(handler);
+      listeners.set(`trigger:${event}`, list);
+    },
+    removeEventListener: (event, handler) => {
+      const list = listeners.get(`trigger:${event}`) || [];
+      listeners.set(`trigger:${event}`, list.filter((h) => h !== handler));
+    },
+    dispatchEvent: (event) => {
+      const list = listeners.get(`trigger:${event.type}`) || [];
+      for (const h of list) h(event);
+      return !event.defaultPrevented;
+    },
+    click: () => {
+      const list = listeners.get("trigger:click") || [];
+      for (const h of list) h({ type: "click" });
+    },
+  };
+
+  const badge = { textContent: "", dataset: {} };
+  const announcer = { textContent: "" };
+  const label = { textContent: "" };
+  const hint = { textContent: "", hidden: true };
+  const releaseButton = {
+    textContent: "",
+    hidden: true,
+    focus: () => {
+      focusedElement = releaseButton;
+    },
+  };
+
+  const element = {
+    dataset: {},
+    ownerDocument: {
+      querySelector: (selector) => {
+        if (selector === "#reader-logo-announcement") return announcer;
+        if (selector === ".reader-logo-label") return label;
+        if (selector === ".reader-logo-hint") return hint;
+        if (selector === ".reader-activity-release") return releaseButton;
+        return null;
+      },
+    },
+    querySelector: (selector) => {
+      if (selector === "button") return trigger;
+      if (selector === ".reader-logo-badge") return badge;
+      return null;
+    },
+  };
+
+  return {
+    element,
+    trigger,
+    badge,
+    announcer,
+    label,
+    hint,
+    releaseButton,
+    listeners,
+    getFocused: () => focusedElement,
+  };
+}
+
+test("status logo accessible name reflects state, language, and update readiness", () => {
+  const previous = [globalThis.document, globalThis.window];
+  const harness = createLogoHarness();
+  globalThis.document = {
+    documentElement: { dataset: {} },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  globalThis.window = { location: { reload: () => {} } };
+  try {
+    const logo = new StatusLogo(harness.element);
+    assert.equal(
+      harness.trigger.getAttribute("aria-label"),
+      "문서를 기다리는 중… · 새로고침",
+      "initial accessible name indicates refresh",
+    );
+
+    const noticeKo = {
+      korean: true,
+      phase: "ready",
+      label: { textContent: "연결됨 · 최신 문서" },
+      hint: { textContent: "" },
+    };
+    logo.update("ready", noticeKo);
+    assert.equal(
+      harness.trigger.getAttribute("aria-label"),
+      "연결됨 · 최신 문서 · 새로고침",
+      "Korean accessible name",
+    );
+
+    const noticeEn = {
+      korean: false,
+      phase: "ready",
+      label: { textContent: "Connected · document up to date" },
+      hint: { textContent: "" },
+    };
+    logo.update("ready", noticeEn);
+    assert.equal(
+      harness.trigger.getAttribute("aria-label"),
+      "Connected · document up to date · Refresh",
+      "English accessible name",
+    );
+
+    logo.setUpdateWaiting(true);
+    assert.equal(
+      harness.trigger.getAttribute("aria-label"),
+      "Connected · document up to date · Apply update",
+      "accessible name reflects update action when waiting",
+    );
+    assert.equal(harness.badge.textContent, "↑", "shows update badge");
+
+    logo.dispose();
+  } finally {
+    [globalThis.document, globalThis.window] = previous;
+  }
+});
+
+test("status logo keyboard activation and waiting-SW apply path", async () => {
+  const previous = [globalThis.document, globalThis.window];
+  let reloadCalled = 0;
+  let updateApplied = 0;
+  const mockOffline = {
+    registration: { waiting: {} },
+    applyUpdate: async () => {
+      updateApplied++;
+      return true;
+    },
+  };
+  const harness = createLogoHarness();
+  globalThis.document = {
+    documentElement: { dataset: {} },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  globalThis.window = {
+    location: {
+      reload: () => {
+        reloadCalled++;
+      },
+    },
+  };
+  try {
+    const logo = new StatusLogo(harness.element, { offline: mockOffline });
+    const notice = {
+      korean: true,
+      phase: "ready",
+      label: { textContent: "연결됨 · 최신 문서" },
+      hint: { textContent: "" },
+    };
+    logo.update("ready", notice);
+    assert.equal(logo.hasWaitingUpdate, true);
+    assert.equal(harness.badge.textContent, "↑", "badge shows update symbol");
+    assert.equal(harness.element.dataset.updateWaiting, "true");
+
+    // Keyboard activation (Enter / Space) triggers click
+    harness.trigger.dispatchEvent({
+      type: "keydown",
+      key: "Enter",
+      isTrusted: false,
+      target: harness.trigger,
+    });
+    // Wait microtasks for async applyUpdate
+    await new Promise((resolve) => setTimeout(resolve, 15));
+
+    assert.equal(updateApplied, 1, "calls offline.applyUpdate() on logo activation");
+    assert.equal(reloadCalled, 1, "reloads after applyUpdate resolves");
+
+    logo.dispose();
+  } finally {
+    [globalThis.document, globalThis.window] = previous;
+  }
+});
+
+test("status logo held-state click behavior and mousedown preventDefault", () => {
+  const previous = [globalThis.document, globalThis.window];
+  let reloadCalled = 0;
+  const harness = createLogoHarness();
+  globalThis.document = {
+    documentElement: { dataset: {} },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  globalThis.window = {
+    location: {
+      reload: () => {
+        reloadCalled++;
+      },
+    },
+  };
+  try {
+    const logo = new StatusLogo(harness.element);
+    let preventDefaultCalled = false;
+    harness.trigger.dispatchEvent({
+      type: "mousedown",
+      preventDefault: () => {
+        preventDefaultCalled = true;
+      },
+    });
+    assert.equal(
+      preventDefaultCalled,
+      true,
+      "mousedown prevents default to keep document selection",
+    );
+
+    const notice = {
+      korean: true,
+      phase: "selection-held",
+      label: { textContent: "텍스트 선택 중 · 갱신 일시정지" },
+      hint: { textContent: "선택을 해제해야 새 내용이 표시됩니다.", hidden: true },
+      releaseButton: harness.releaseButton,
+    };
+    harness.releaseButton.hidden = false;
+    logo.update("selection-held", notice);
+
+    assert.equal(harness.badge.textContent, "Ⅱ", "shows held badge");
+
+    // Clicking logo while selection-held must NOT reload
+    harness.trigger.click();
+    assert.equal(reloadCalled, 0, "does not reload in held state");
+    assert.equal(
+      harness.getFocused(),
+      harness.releaseButton,
+      "focuses release button on logo click during selection-held",
+    );
+    assert.equal(harness.hint.hidden, false, "shows hint");
+
+    logo.dispose();
+  } finally {
+    [globalThis.document, globalThis.window] = previous;
+  }
 });

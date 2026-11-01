@@ -815,6 +815,7 @@ activity = new ReaderActivity(document.querySelector("#reader-activity"), {
     if (!textSelectionActive()) scheduleFontLayout();
   },
 });
+window.__readerLogo = activity.logo;
 
 function requestRefresh() {
   recovery.request();

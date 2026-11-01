@@ -14,6 +14,17 @@ export class StatusLogo {
     // Preserve native document selection until the explicit release action.
     this.trigger.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
     this.trigger.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          if (!event.isTrusted && typeof this.trigger.click === "function") {
+            this.trigger.click();
+          }
+        }
+      },
+      { signal },
+    );
+    this.trigger.addEventListener(
       "click",
       async () => {
         if (this.reloading) return;
