@@ -2,7 +2,7 @@
 
 ## Read
 
-Read [the architecture source map](../../docs/tinymist/dev/reader-architecture.typ), [the terminal guide](../../docs/tinymist/dev/terminal-reader.typ) and `openspec/changes/add-terminal-reader/` from the repository root.
+Read [the architecture source map](../../docs/tinymist/dev/reader-architecture.typ), [the terminal guide](../../docs/tinymist/dev/terminal-reader.typ) and `openspec/changes/archive/2026-11-01-add-terminal-reader/` from the repository root.
 
 ## Ownership
 
