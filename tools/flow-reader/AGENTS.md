@@ -18,7 +18,7 @@ Use [the architecture source map](../../docs/tinymist/dev/reader-architecture.ty
 
 - Failed compilation preserves the accepted document. Keep snapshot/source guards and lock ordering around source operations and asynchronous publication.
 - `web/assets.json` explicitly lists served first-party files. Vendor assets use their separate manifest. Never serve arbitrary filesystem paths or auto-discover public assets.
-- A verified reader bundle (`reader-bundle.json` beside `tools/flow-reader`) installs as release `headSha` with `--engine` and does not need a git checkout. `install.py` sets `sys.dont_write_bytecode` before importing `flow_reader`, then checks the copied trees against the manifest. `scripts/fetch-reader-bundle.py` verifies the bundle before that install and does not launch the reader. The Mac launchd updater is outside this repository and is pending.
+- A verified reader bundle (`reader-bundle.json` beside `tools/flow-reader`) installs as release `headSha` with `--engine` and does not need a git checkout. `install.py` sets `sys.dont_write_bytecode` before importing `flow_reader`, then checks the copied trees against the manifest. `scripts/fetch-reader-bundle.py` verifies the bundle before that install and does not launch the reader. The Mac launchd updater (outside this repository) installs the reader from this verified bundle for each successful `main` run.
 - `web/reader-common` links shared sources; `install.py` must package both trees with the same relative layout. Do not hand-edit vendor/generated bundles.
 
 ## Verification
