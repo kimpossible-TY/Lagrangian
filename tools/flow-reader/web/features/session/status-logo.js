@@ -111,8 +111,8 @@ export class StatusLogo {
       offline && ["ready", "reconnecting"].includes(phase)
         ? "offline"
         : phase === "ready" && Number(queue?.dataset.pending) > 0
-          ? "sync"
-          : phase;
+        ? "sync"
+        : phase;
     if (
       phase === "ready" &&
       ["compiling", "loading", "rendering", "waiting"].includes(this.phase) &&
@@ -141,18 +141,22 @@ export class StatusLogo {
           ? "하이라이트 동기화 대기"
           : "Highlights waiting to sync"
         : display === "offline"
-          ? korean
-            ? "오프라인 읽기"
-            : "Reading offline"
-          : phase === "ready"
-            ? korean
-              ? "연결됨 · 최신 문서"
-              : "Connected · document up to date"
-            : notice.label.textContent;
+        ? korean
+          ? "오프라인 읽기"
+          : "Reading offline"
+        : phase === "ready"
+        ? korean
+          ? "연결됨 · 최신 문서"
+          : "Connected · document up to date"
+        : notice.label.textContent;
     if (this.label.textContent !== label) this.label.textContent = label;
     const actionLabel = hasUpdate
-      ? (korean ? "업데이트 적용" : "Apply update")
-      : (korean ? "새로고침" : "Refresh");
+      ? korean
+        ? "업데이트 적용"
+        : "Apply update"
+      : korean
+      ? "새로고침"
+      : "Refresh";
     this.trigger.setAttribute("aria-label", `${label} · ${actionLabel}`);
     this.trigger.title = label;
     if (this.announcer.textContent !== label) this.announcer.textContent = label;
@@ -167,16 +171,16 @@ export class StatusLogo {
     this.badge.textContent = display.endsWith("error")
       ? "!"
       : display.endsWith("held")
-        ? "Ⅱ"
-        : display === "reconnecting"
-          ? "↻"
-          : hasUpdate
-            ? "↑"
-            : display === "offline"
-              ? "⌁"
-              : display === "sync"
-                ? "•"
-                : "";
+      ? "Ⅱ"
+      : display === "reconnecting"
+      ? "↻"
+      : hasUpdate
+      ? "↑"
+      : display === "offline"
+      ? "⌁"
+      : display === "sync"
+      ? "•"
+      : "";
   }
 
   dispose() {

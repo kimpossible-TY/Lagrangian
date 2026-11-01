@@ -192,7 +192,10 @@ function createLogoHarness() {
     },
     removeEventListener: (event, handler) => {
       const list = listeners.get(`trigger:${event}`) || [];
-      listeners.set(`trigger:${event}`, list.filter((h) => h !== handler));
+      listeners.set(
+        `trigger:${event}`,
+        list.filter((h) => h !== handler),
+      );
     },
     dispatchEvent: (event) => {
       const list = listeners.get(`trigger:${event.type}`) || [];
