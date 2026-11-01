@@ -45,7 +45,7 @@
 - [x] 5.2 Node 프론트엔드 정책 테스트: `node --test`로 요약 생성, 스트리밍 상태 전이, 키보드/터치 정책, 다중 문단 격리를 검증한다.
 - [x] 5.3 실제 브라우저 기하 및 레이아웃 검증: w/3 + 2w/3 측정, 인근 여백 탐색, 인라인 폴백, 잉크 비침범, 기존 주석 지시선 유지/구분선 제거를 확인한다.
 - [x] 5.4 기존 어노테이션 회귀 방지 테스트: 짧은 mannot 수식 근접 위치, 표준 복사/선택, ID/번호 보존이 깨지지 않음을 확인한다.
-- [x] 5.5 Reader 린트 및 아키텍처 게이트: `yarn lint:readers`, `yarn test:readers`, `yarn test:architecture`를 실행해 린트 통과와 기능 소유권 경계를 검증한다. 실행 완료: lint/architecture 통과, 전체 reader 서비스 검사는 Neovim RPC 오류 1건 및 sandbox의 ps 실행 거부 2건으로 실패(286개 중 58개 선택 통합 테스트 건너뜀); paged 98개/DOM 37개는 별도 통과. 전체 게이트 통과는 아직 미검증.
+- [ ] 5.5 Reader 린트 및 아키텍처 게이트: `yarn lint:readers`, `yarn test:readers`, `yarn test:architecture`를 실행해 린트 통과와 기능 소유권 경계를 검증한다. 실행 완료: lint/architecture 통과, 전체 reader 서비스 검사는 Neovim RPC 오류 1건 및 sandbox의 ps 실행 거부 2건으로 실패(286개 중 58개 선택 통합 테스트 건너뜀); paged 98개/DOM 37개는 별도 통과. 전체 게이트 통과는 live verification 대기 중(pending live verification).
 - [x] 5.6 문서 갱신 및 준비: canonical architecture/terminal Typst 문서에 소유권과 사용 흐름을 반영하고 컴파일한다. 해당 정본의 Markdown 생성 매핑은 없으며 관련 없는 생성물은 유지한다.
 
 ## 6. Explicit follow-up coverage
@@ -60,4 +60,4 @@ Focused fake OAuth/Python: 14 passed. Synthetic Chromium: 28 checks, zero browse
 
 Architecture and terminal Typst compile successfully. `yarn docs:check` reports the pre-existing unrelated README Markdown drift; README.md/docs/dev-guide.md were restored after the generator inspection and remain untouched. Compiler/source-history integration prerequisites are not provisioned, so the base reader gate's optional skips do not constitute actual compiler or device coverage. No repository commit/push, Rust build, live OAuth/inference or live service install/restart was performed.
 
-Final full-gate evidence: Node 270 passed; Python 279 ran with 58 optional skips and one unchanged Neovim timing assertion failure (`test_late_remote_capability_reply_starts_reader`, 3 capability queries vs expected 2). Its isolated retry passed (1/1). Changed chat tests all passed in the full run. Separately rerun paged Vitest 98 and DOM Vitest 37 passed. Item 5.5 remains unchecked for a fully green final aggregate run; its lint and architecture checks passed. No Neovim timing code/test was changed to mask the unrelated failure.
+Final full-gate evidence: Node 270 passed; Python 279 ran with 58 optional skips and one unchanged Neovim timing assertion failure (`test_late_remote_capability_reply_starts_reader`, 3 capability queries vs expected 2). Its isolated retry passed (1/1). Changed chat tests all passed in the full run. Separately rerun paged Vitest 98 and DOM Vitest 37 passed. Item 5.5 remains unchecked and pending live verification of a fully green final aggregate run; its lint and architecture checks passed. No Neovim timing code/test was changed to mask the unrelated failure.

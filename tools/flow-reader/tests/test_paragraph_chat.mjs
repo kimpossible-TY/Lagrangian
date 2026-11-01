@@ -3,6 +3,55 @@ import test from "node:test";
 import { bubblePosition } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 
+test("host capability input disables autofill and text transformations and stays in memory", (t) => {
+  const createElement = (tagName) =>
+    Object.assign(new EventTarget(), {
+      tagName,
+      children: [],
+      attributes: {},
+      setAttribute(name, value) {
+        this.attributes[name] = value;
+      },
+      append(...children) {
+        this.children.push(...children);
+        this.firstChild = this.children[0];
+      },
+      replaceChildren(...children) {
+        this.children = children;
+        this.firstChild = this.children[0];
+      },
+    });
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: { createElement },
+  });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "document", previous);
+    else delete globalThis.document;
+  });
+  const controller = { account: {}, models: [] };
+  const node = { account: createElement("section"), model: createElement("select") };
+  const render = () => ParagraphChatController.prototype.renderAccount.call(controller, node);
+  const input = () => node.account.children.find((child) => child.tagName === "input");
+  render();
+  assert.equal(input().type, "text");
+  assert.equal(input().autocomplete, "off");
+  assert.equal(input().spellcheck, false);
+  assert.equal(input().autocapitalize, "off");
+  assert.equal(input().className, "reader-chat-host-capability");
+  assert.equal(input().attributes["aria-label"], "Host authorization token");
+  input().value = "locally-entered-capability";
+  input().dispatchEvent(new Event("input"));
+  assert.equal(controller.hostCapability, "locally-entered-capability");
+  controller.account = { signedIn: true };
+  render();
+  assert.equal(input().value, controller.hostCapability);
+  controller.account = { hostOnly: true };
+  render();
+  assert.equal(input(), undefined);
+});
+
 test("account mutations require an explicitly entered local host capability", async (t) => {
   const requests = [];
   t.mock.method(globalThis, "fetch", async (path, options) => {

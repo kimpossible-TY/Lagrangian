@@ -31,6 +31,7 @@ Reader에서 긴 문서를 읽는 사용자는 특정 문단이나 수식의 도
 ### 1. 서비스 소유권과 주입 경계
 
 단일 만능 서비스(catch-all service)를 두지 않고 명확한 책임 경계를 설정한다.
+
 - 지속 대화 저장소 및 앵커 증거는 `flow_reader/services/paragraph_chat.py`가 소유한다.
 - Provider 인증 및 전송 경계는 서비스에 주입(injected)되며, 범용 프레임워크를 추가하지 않고 단일 인증/전송 브리지로 구성한다.
 - `server/http.py`는 오직 HTTP 요청 라우팅과 스트리밍 응답 전달만 담당한다.
@@ -50,12 +51,13 @@ $$x_{\text{left}} = x_e - \frac{w}{3}, \qquad x_{\text{right}} = x_e + \frac{2w}
 ### 3. 활성 변경 `add-responsive-reader`와의 관계 및 대체 규칙
 
 본 문단 대화 레이아웃이 활성화될 때, 활성 변경인 `add-responsive-reader`의 'Connected local side columns' 및 'Viewport and text-size changes' 시나리오에 정의된 배치 및 구분선 측면을 명시적으로 대체한다.
+
 - **긴 주석 및 각주**: 기존 국소 사이드 컬럼 대신 사용 가능한 국소 빈 공간과 좁은 **왼쪽** 여백으로 이동한다.
 - **구분선 제거**: 노트 영역을 본문 페이지와 나누던 세로 구분선을 제거하고, 페이지 전체와 좌우 여백에 동일한 `--paper` 배경을 유지한다.
 - **지시선 유지**: 유의미한 연결 지시선(accent leader with target dot)은 유지하되, 대화 말풍선에는 연결선을 그리지 않는다.
 - **짧은 mannot 표기**: 수식 인근의 근접 라벨 표시(개념 3)를 그대로 유지하며 대화가 이 자리를 침범하지 않는다.
 - **표준 본문 보존**: 기존의 정규 본문 내용, 번호 체계, 앵커 ID, 텍스트 복사 동작, 컴팩트 팝오버는 그대로 보존된다.
-- `specs/responsive-reader/spec.md`의 MODIFIED delta가 전체 Adaptive authored text annotations 요구사항과 두 시나리오의 변경을 소유한다. `add-responsive-reader` 원본은 수정하지 않으며, 아카이브 시 기반 변경을 먼저 병합하고 이 delta를 적용한다.
+- `specs/reader-paragraph-chat/spec.md`의 ADDED 요구사항이 활성 HTML/terminal 문단 대화의 주석 공존 규칙과 뷰포트/글꼴 변경 시나리오를 소유한다. `add-responsive-reader` 원본은 수정하지 않으며, paged 및 문단 대화가 비활성화된 Reader는 기존 주석 배치 계약을 유지한다.
 
 ### 4. 지속 대화 기록, 신원 및 앵커 재부착
 
@@ -73,6 +75,7 @@ Primary path: direct Sign in with ChatGPT public-client PKCE and Responses HTTP/
 Official app-server documentation and installed CLI 0.164.0 experimental JSON schemas were inspected. Built-in `account/login/start` with `type=chatgpt` delegates token persistence/refresh to Codex, but `dynamicTools` adds tools alongside the built-in harness. Its public thread protocol does not expose the extension-only startup `ToolPolicy.allowed_tools` ceiling. Read-only sandboxing still permits reads and shell execution; an instruction to avoid them is insufficient for this product. Rather than depend on internal model catalog overrides, direct Responses exposes exactly two namespace functions. No app-server or second transport is implemented.
 
 Official sources checked:
+
 - https://developers.openai.com/siwc/token-sharing-open-source/sign-in
 - https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
 - https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
@@ -124,7 +127,7 @@ Send message identities are deduplicated against stored questions before optimis
 
 ## Review hardening
 
-Every GET/POST requires an exact Host allowlist: the bound 127.0.0.1/localhost port or the explicitly configured HTTPS Reader publicURL passed by the manager via --public-url (never the paged originalURL). Account login/logout/cancel additionally reject Forwarded, X-Forwarded-For, X-Forwarded-Host and every Tailscale-* header. A random per-start host capability is written only to a 0600 local file in the private chat directory and removed on normal shutdown. HTTP never returns the capability, including to requests that forge local Host/Origin and hide forwarding headers. The local account status names the file; the host user explicitly pastes its capability value into the account password field, retained only in controller memory. Comparisons use hmac.compare_digest. Capabilities and OAuth tokens never enter logs or browser storage.
+Every GET/POST requires an exact Host allowlist: the bound 127.0.0.1/localhost port or the explicitly configured HTTPS Reader publicURL passed by the manager via --public-url (never the paged originalURL). Account login/logout/cancel additionally reject Forwarded, X-Forwarded-For, X-Forwarded-Host and every Tailscale-\* header. A random per-start host capability is written only to a 0600 local file in the private chat directory and removed on normal shutdown. HTTP never returns the capability, including to requests that forge local Host/Origin and hide forwarding headers. The local account status names the file; the host user explicitly pastes its capability value into a visually masked text field with autocomplete, spellcheck and autocapitalization disabled, retained only in controller memory. Comparisons use hmac.compare_digest. Capabilities and OAuth tokens never enter logs or browser storage.
 
 OAuth callback exchange and signature verification run outside the state mutex. A generation check prevents an in-flight callback from saving credentials after cancellation, logout or a newer login. Cross-process credential transactions still serialize rotating refresh; an omitted or empty refreshed refresh_token retains the prior refresh token. ID tokens are verified for login and then discarded, including unverified refresh ID tokens. Cancellation closes the upstream Responses response, waking a blocked SSE socket before close so provider work is released promptly.
 

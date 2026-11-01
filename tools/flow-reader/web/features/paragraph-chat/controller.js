@@ -323,9 +323,11 @@ export class ParagraphChatController {
     refresh.addEventListener("click", () => this.loadAccount(true));
     node.account.replaceChildren(notice, picker, login, logout, refresh);
     if (!this.account.hostOnly) {
-      const capability = element("input");
-      capability.type = "password";
+      const capability = element("input", "", "reader-chat-host-capability");
+      capability.type = "text";
       capability.autocomplete = "off";
+      capability.spellcheck = false;
+      capability.autocapitalize = "off";
       capability.setAttribute("aria-label", "Host authorization token");
       capability.placeholder = "Paste the local host authorization token";
       capability.value = this.hostCapability || "";

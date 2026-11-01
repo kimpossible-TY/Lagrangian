@@ -27,7 +27,7 @@ Saved for Codex는 선택 문맥을 저장만 하고 메시지를 보내지 않�
 
 ### Modified Capabilities
 
-- `responsive-reader`: `add-responsive-reader`의 Adaptive authored text annotations 요구사항을 MODIFIED delta로 명시한다. 기존 활성 변경은 그대로 유지하며, 아카이브 시 기반 변경을 먼저 병합한 후 문단 대화의 왼쪽 주석 배치와 구분선 제거를 적용한다.
+없음. 문단 대화가 활성화된 HTML/terminal의 주석 공존 규칙은 `reader-paragraph-chat`의 ADDED 요구사항으로 정의하며, `add-responsive-reader`는 수정하지 않는다.
 
 ## Impact
 

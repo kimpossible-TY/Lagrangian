@@ -165,12 +165,35 @@ Reader는 대화 기록을 문서 단위로 소스 저장소 외부의 비공개
 
 본 기능 레이아웃이 활성화될 때, 활성 변경인 `add-responsive-reader`의 'Connected local side columns' 및 'Viewport and text-size changes' 시나리오의 배치·구분선 측면을 대체해야 한다(SHALL). 계획된 긴 주석과 각주는 사용 가능한 국소 빈 공간과 좁은 왼쪽 여백으로 이동하고 노트 영역 구분선을 제거하되 유의미한 연결 지시선은 유지해야 한다(MUST). 짧은 mannot 표기는 수식 인근에 그대로 유지되고(MUST), 기존의 표준 본문 내용, 번호, ID, 복사 텍스트, 컴팩트 팝오버는 보존되어야 한다(MUST).
 
+이 규칙은 HTML/terminal의 활성 문단 대화 레이아웃에만 적용되어야 한다(SHALL). 주석의 viewport/host-space 적격성 검사는 유지되어야 하며(MUST), paged 및 문단 대화가 비활성화된 Reader의 기존 주석 동작은 변경되어서는 안 된다(MUST NOT).
+
 #### Scenario: responsive-reader 배치 및 구분선 대체
 
 - **WHEN** 문단 대화 레이아웃 기능이 활성화된 상태에서 문서를 렌더링한다
 - **THEN** `add-responsive-reader`의 사이드 컬럼 구분선이 제거되고 본문과 동일한 배경이 유지된다
 - **AND** 긴 주석과 각주는 국소 여백 및 좁은 왼쪽 여백으로 이동하되 대상과의 연결 지시선은 그대로 유지된다
 - **AND** 기존의 표준 본문 텍스트, 수식 번호, 앵커 ID, 복사 텍스트 및 컴팩트 팝오버는 변경 없이 보존된다
+
+#### Scenario: 활성 대화 레이아웃의 연결된 왼쪽 주석
+
+- **WHEN** HTML/terminal 문단 대화가 활성화된 넓은 화면에서 주석 또는 각주가 viewport/host-space 검사상 사이드 배치에 적격하다
+- **THEN** 긴 주석과 각주는 국소 왼쪽 빈 공간과 좁은 왼쪽 여백에 겹침 없이 쌓이고 세로 구분선을 표시하지 않는다
+- **AND** 강조 지시선과 대상 점은 수식 잉크와 짧은 라벨을 덮지 않고 주석을 대상에 연결한다
+- **AND** mannot과 각주 본문 및 그 수식은 본문 읽기 글꼴 크기의 80%를 사용하며 원래 번호, 언어, 링크와 서식을 보존한다
+- **AND** 지시선과 생성된 참조 UI는 정규 복사 텍스트에 포함되지 않고 컴팩트 모드에 남지 않는다
+
+#### Scenario: 활성 대화 레이아웃의 뷰포트 및 글자 크기 변경
+
+- **WHEN** HTML/terminal 문단 대화가 활성화된 상태에서 뷰포트 또는 읽기 글꼴이 바뀐다
+- **THEN** viewport/host-space 적격성을 다시 검사하고 적격한 긴 주석과 각주는 구분선 없는 왼쪽 공간에 재배치된다
+- **AND** 세로 화면, 좁은 폭 또는 큰 글꼴로 사이드 공간이 부족해지면 기존 라벨과 컴팩트 팝오버로 자동 전환된다
+- **AND** 맞는 짧은 mannot 이름은 별도 사이드 여백을 예약하지 않고 대상 인근 라벨로 남는다
+- **AND** 읽기 위치, 원본 수식, 번호, ID 및 선택/복사 텍스트를 보존한다
+
+#### Scenario: 문단 대화 레이아웃 밖의 주석
+
+- **WHEN** paged Reader 또는 문단 대화 레이아웃이 비활성화된 Reader에서 문서를 본다
+- **THEN** 기존 responsive-reader 주석 배치와 구분선, 라벨 및 팝오버 계약이 유지된다
 
 #### Scenario: 수식 옆 주석과 대화
 
@@ -297,7 +320,7 @@ The Reader MUST enforce a Host allowlist for GET/POST. Authentication management
 - **THEN** disallowed Host receives 421 and authentication management without the required host proof receives 403
 - **AND** HTTP never returns the capability, even with forged local headers and no forwarding headers
 - **AND** the allowlist contains only the bound 127.0.0.1/localhost port and explicitly configured HTTPS Reader address
-- **AND** Forwarded, X-Forwarded-For, X-Forwarded-Host and any Tailscale-* header, even empty, disqualify login/logout/cancel
+- **AND** Forwarded, X-Forwarded-For, X-Forwarded-Host and any Tailscale-\* header, even empty, disqualify login/logout/cancel
 
 #### Scenario: Refresh and cancellation lifetimes
 
