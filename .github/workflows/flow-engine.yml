@@ -9,9 +9,16 @@ name: Flow engine
 # (plus Lagrangian.app from this job). Do not rename that artifact or add
 # files inside it. The engine-input hash lives in a separate artifact named
 # flow-engine-input-<hash>.
+#
+# Every successful run also uploads the HTML Reader for this commit, on an
+# engine cache hit and on a miss. Those sibling artifacts are
+# reader-bundle-<headSha> and flow-reader-bundle. They are not engine inputs.
 on:
   push:
-    branches: [main]
+    # cursor/reader-bundle-bedd is temporary so this branch can prove a cache
+    # hit and a miss. The Cursor GitHub App token cannot call workflow_dispatch
+    # (actions=write). Remove this branch before the pull request is final.
+    branches: [main, cursor/reader-bundle-bedd]
     paths-ignore:
       - "docs/**"
       - "openspec/**"
@@ -57,6 +64,11 @@ jobs:
           sw_vers
           df -h /
           test "$(uname -m)" = arm64
+
+      - name: Package the reader bundle
+        # Runs on an engine cache hit and on a miss. Reader sources are not
+        # engine inputs, so a web-only change still publishes a new bundle.
+        run: python3 scripts/package-reader-bundle.py --head-sha "${{ github.sha }}" --output dist/reader-bundle
 
       - name: Hash engine inputs
         id: engine_inputs
@@ -152,6 +164,9 @@ jobs:
               echo "- Reused run: \`$ENGINE_SOURCE_RUN\`"
             fi
             echo "- SHA-256: \`$(awk '{print $1}' dist/flow-engine-darwin-arm64/flow-engine.sha256)\`"
+            echo "- Reader bundle: \`reader-bundle-${{ github.sha }}\` and \`flow-reader-bundle\`"
+            echo "- Reader headSha: \`$(python3 -c 'import json; print(json.load(open("dist/reader-bundle/reader-bundle.json"))["headSha"])')\`"
+            echo "- Reader bundleChecksum: \`$(python3 -c 'import json; print(json.load(open("dist/reader-bundle/reader-bundle.json"))["bundleChecksum"])')\`"
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -169,6 +184,24 @@ jobs:
         with:
           name: flow-engine-input-${{ steps.engine_inputs.outputs.hash }}
           path: dist/engine-input-marker
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload reader bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-bundle-${{ github.sha }}
+          path: dist/reader-bundle
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload stable reader bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-reader-bundle
+          path: dist/reader-bundle
           retention-days: 30
           if-no-files-found: error
           compression-level: 6
