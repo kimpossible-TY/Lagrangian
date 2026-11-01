@@ -23,7 +23,7 @@ Reader에서 긴 문서를 읽는 사용자는 특정 문단이나 수식의 도
 - 임의의 LLM provider를 수용하기 위한 범용 provider 추상화 프레임워크 구축 (YAGNI 원칙 준수).
 - 과거 ChatGPT 대화나 은퇴한 quote library의 데이터 마이그레이션 또는 임포트.
 - 소스 문서 원본(Typst/Markdown 등)의 변형(source mutation).
-- 제안서 단계에서의 실제 OAuth 인증 테스트, 비밀값 취급, 라이브 서비스 구동.
+- 자동 실계정 로그인, 외부 Codex 자격 증명 재사용, 유료 라이브 추론, 서비스 설치/재시작.
 - 모호하거나 삭제된 문단의 대화를 임의의 다른 문단으로 강제 자동 재배치.
 
 ## Decisions
@@ -63,21 +63,28 @@ $$x_{\text{left}} = x_e - \frac{w}{3}, \qquad x_{\text{right}} = x_e + \frac{2w}
 - **서비스 인스턴스와 문서 신원**: `service_id`는 일시적인 요청 메타데이터일 뿐 지속적인 문서 신원을 대체하지 않는다. 서비스 재시작 후에도 안정적인 문서 ID를 통해 대화 기록이 올바르게 복원된다.
 - **문단별 독립 기록**: 동일 문서 내 서로 다른 두 문단은 완전히 분리된 대화 기록을 가지며, 한 문단의 후속 질문이 다른 문단의 기록을 변경하거나 합쳐지지 않는다.
 - **결합 증거 기반 재부착**: 앵커 재부착은 단순 인용문 횟수가 아니라 문서 신원, 인용문, 사용 가능한 경우 문맥 및 소스 오프셋을 결합한 유일 증거를 통해 판정한다.
-- **모호/삭제된 앵커 보존**: 인용문, 문맥, 소스 위치, 문서 신원의 결합 증거로도 유일하게 위치를 확정하지 못하거나(모호성 발생) 문단이 삭제된 경우에만 고아(미해결) 대화로 남기며, 임의의 다른 문단으로 재배치하거나 삭제하지 않는다. 살아남은 인접 문단 사이 배치 등 구체적인 고아 대화 UI는 사용자 결정 대기 상태로 둔다.
+- **모호/삭제된 앵커 보존**: 인용문, 문맥, 소스 위치, 문서 신원의 결합 증거로도 유일하게 위치를 확정하지 못하거나(모호성 발생) 문단이 삭제된 경우에만 고아(미해결) 대화로 남기며, 임의의 다른 문단으로 재배치하거나 삭제하지 않는다. 미해결 기록은 문서 다음의 접근 가능한 별도 영역에서 열람한다. 인접 문단에 임의로 재배치하지 않는다.
 - **장애 시 초안 보존**: 인증 실패나 네트워크 단절 시에도 기존 기록과 작성 중인 초안은 안전하게 보존되며, 실패 상태를 사실대로 표시하고 가짜 답변을 생성하지 않는다.
 
-### 5. AI 후보 및 인증/전송 경계
+### 5. Approved transport decision (2026-11-01)
 
-AI 연동 후보는 **Sign in with ChatGPT OAuth** 기반이며, 호스트 서비스에서 전송을 처리하는 두 가지 택일 경로가 존재한다.
-- **직접 Responses API 전송**: 호스트가 OAuth 자격 증명으로 Responses API를 직접 호출.
-- **Codex app-server 전송**: 호스트가 로컬 Codex app-server를 중계하여 호출.
+Primary path: direct Sign in with ChatGPT public-client PKCE and Responses HTTP/SSE. `chat_auth.py` owns loopback authorization, protected 0600 credential registrations, stable host ID, signature/issuer/audience/nonce/time checks, serialized rotating refresh and best-effort remote revocation with honest local sign-out. Native Node crypto verifies JWKS signatures through a fixed stdin helper; Node.js is required for sign-in. No model tool can invoke that helper. Existing Codex credentials, API keys, shell environment secrets and browser cookies are never imported.
 
-공식 후보 문서:
-- <https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server>
-- <https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference>
-- <https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations>
+Official app-server documentation and installed CLI 0.164.0 experimental JSON schemas were inspected. Built-in `account/login/start` with `type=chatgpt` delegates token persistence/refresh to Codex, but `dynamicTools` adds tools alongside the built-in harness. Its public thread protocol does not expose the extension-only startup `ToolPolicy.allowed_tools` ceiling. Read-only sandboxing still permits reads and shell execution; an instruction to avoid them is insufficient for this product. Rather than depend on internal model catalog overrides, direct Responses exposes exactly two namespace functions. No app-server or second transport is implemented.
 
-자격 요건, 앱 등록, 사용자 동의, 토큰 갱신·폐기 책임, 실제 모델 접근 범위 및 쿼터 제한은 현재 명시적으로 **미검증(unverified)** 상태이다. 두 전송 경로 모두 단일 OAuth 인증을 기반으로 하며, 실제 선택은 미결 상태이다. 모든 사용자 계정에서 이를 지원한다는 규범적 단정은 하지 않는다.
+Official sources checked:
+- https://developers.openai.com/siwc/token-sharing-open-source/sign-in
+- https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
+- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
+- https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+- https://learn.chatgpt.com/docs/app-server
+- https://github.com/openai/codex/blob/main/codex-rs/ext/extension-api/src/tool_policy.rs
+
+Loopback is required only for starting/canceling login and signing out; same-origin remote Reader clients can read sanitized signed-in/plan-enabled status and current account model catalog, with account identifiers/emails and credential mutations kept host-only. It opens the Mac system browser and provides a link fallback for terminal/HTML clients. Remote Reader origins can use authorized document chat but cannot operate host authentication. A separate ephemeral 127.0.0.1 callback listener owns OAuth state; the normal Reader origin does not accept callback codes. Registration persists the issued client ID with the verified subject and supports saved registration selection. New credentials become active only after validation. Credentials never enter document history or browser storage; authorization URLs omit ID-token hints.
+
+Requests use `store:false`, `stream:true`, full local completed history and no `previous_response_id`. Tools are function tools grouped in the `current_document` namespace. Hosted MCP, file_search and tool_search are absent; app-server local MCP/functions are a distinct supported capability, not a hosted-MCP workaround. Model choices come from the signed-in account's `/v1/models`; catalog presence is not entitlement proof. Only a successful user-initiated live turn can verify plan/model access, which remains pending.
+
+`search_current_document` performs bounded literal accepted-passage search, and `read_passage` lists/reads accepted passage keys with pagination. Every call carries the accepted document/revision identity and checks the captured source fingerprint; neither accepts a path or command. Limits: 8000 selected/question characters, 20 search/list results, 8000 characters per passage page, 24 calls/96000 tool-output characters and eight model rounds per turn. Local history is authoritative; a 120000-character history budget rejects further turns honestly instead of deleting history. The initial excerpt is not the only accessible context.
 
 ### 6. 대화 요약과 사용자 인터랙션
 
@@ -91,27 +98,26 @@ AI 연동 후보는 **Sign in with ChatGPT OAuth** 기반이며, 호스트 서�
 - **OAuth 토큰 공유 및 모델 가용성**: 사용자 계정 유형이나 플랜 제한에 따라 토큰 공유 및 특정 모델 호출이 제한될 수 있으므로, 인증 실패 시 명확한 피드백과 안전한 폴백 처리가 필요하다.
 - **활성 변경 간 레이아웃 충돌**: `add-responsive-reader`와 병렬 개발되는 과정에서 CSS 토큰 및 측정 로직이 중복되거나 충돌할 위험이 있으므로 구현 전 통합 조정이 필수적이다.
 
-## Migration Plan
+## Delivery and validation
 
-- **현재 상태**: 라이브 서비스 없음, 소스 문서 변형 없음, 제안서(proposal) 단계.
-- **데이터 마이그레이션 대상 없음**: 과거 ChatGPT 대화 내역이나 은퇴한 quote library로부터의 마이그레이션/임포트는 일체 수행하지 않는다.
-- **단계적 롤아웃**: 사용자 검토 및 제안서 승인 후에만 구현 및 롤아웃을 개시한다.
-- **기능 비활성화 정책**: 사용자가 기능을 비활성화하더라도 소스 저장소 외부의 비공개 로컬 대화 기록은 유실 없이 보존된다. 특정 데이터 마이그레이션 포맷은 아직 선택되지 않았다.
-- **테스트 및 검증 계획**:
-  - Python 서비스 테스트 (`yarn test:reader-services`): 소스 저장소 외부 영속성, 문서/문단 간 격리, 서비스 재시작 후 복원, 비밀값 비노출, 리비전 불일치 가드 검증.
-  - Node 프론트엔드 정책 테스트 (`node --test ...`): 요약 상태 전이, 키보드/터치/선택 인터랙션, 비동기 응답 처리 정책 검증.
-  - 브라우저 기하 테스트: 실제 브라우저 fixture를 통한 $w/3 + 2w/3$ 기하 측정, 세로 국소 여백 탐색, 인라인 폴백, 기존 mannot 및 각주 지시선 유지/구분선 제거 검증.
-  - 현 제안서 단계에서는 OpenSpec 문서 유효성 검사 외의 런타임 테스트는 실행하지 않는다.
+Approval 1.1 is complete. HTML and terminal replace Saved for Codex with Ask, reuse selection capture and source verification, and share the same composer, host store and transport. Paged retains its legacy saved-context action until a follow-up adapter and remote Rust verification; no local Rust compilation is authorized.
 
-## Open Questions
+One conversation per uniquely resolved paragraph; UUID conversation IDs are independent from service IDs and DOM nodes. Existing project-root/entry-path hashing gives restart stability and deliberate rename/move isolation. SQLite transactions serialize host history, drafts, message states and optimistic view versions across processes; 0700 directories and 0600 files live under `~/Library/Application Support/Lagrangian/paragraph-chat`, outside the source project. A lost host turn remains interrupted, never silently retried. User drafts survive failed and interrupted responses; retry is explicit and local history retains failed partials.
 
-1. 공식 문서 기준 Lagrangian의 SIWC 토큰 공유 적격성, OAuth 앱 등록/동의 절차 및 배포 범위 (미검증).
-2. 호스트 서비스 내 토큰 저장/갱신/폐기 책임 소유자 및 보안 저장소 연동 방식.
-3. OAuth 토큰으로 접근 가능한 실제 모델 목록, 플랜별 쿼터 한도 및 초과 시 UX 정책.
-4. 직접 Responses API 호출과 Codex app-server 전송 중 1차 구현 경로 결정.
-5. 앵커가 삭제되거나 모호해진 고아 대화의 UI 배치: 살아남은 인접 문단 사이 배치 vs 별도 미해결 목록 표시 (사용자 결정 대기).
-6. 대화 요약 생성 알고리즘(클라이언트 경량 요약 vs 호스트 로컬 생성 vs 서버 모델 요약)의 구체화.
-7. 여백 적격성 판정을 위한 구체적 뷰포트 임계값.
-8. 초기 릴리스 대상 뷰어 범위: HTML 전용으로 한정할지 terminal·paged를 포함할지 여부.
-9. 파일 이름 변경 또는 이동(rename/move) 시에도 지속되는 문서 신원 체계.
-10. 문단당 단일 대화 스레드 유지 vs 복수 스레드 허용 여부 및 프롬프트 문맥 예산(context budget).
+Reattachment compares complete accepted paragraph text with adjacent paragraph hashes (and same-revision key evidence), preserving source correspondence as private evidence. A changed or ambiguous paragraph is unresolved rather than guessed; users can open its saved history in the unresolved area. Exact-source fingerprints guard each opening and model-tool read.
+
+Summary policy extracts the latest actual question and actual answer text with explicit partial/failure status; it makes no generated summary claims. Summary geometry measures actual ink near the paragraph, crosses the reading edge exactly by one-third, and falls back inline. Expanded conversations always follow their paragraph in flow. Long annotation/footnote columns move left into local whitespace and a narrow margin with mirrored connector routing; short labels retain their existing owner. No chat connector or count marker is added.
+
+Focused Python/Node tests and a synthetic accepted-document real-browser fixture use temporary private stores, fake signed OAuth/JWKS and local HTTP/SSE Responses. Full reader lint, architecture, service and reader gates are required. No tests may sign in a real user, perform paid inference, install/restart services or compile Rust locally.
+
+## Explicit pending coverage
+
+- Real user-initiated OAuth registration/consent, live model entitlements, quotas, production key rotation and network revocation.
+- Paged adapter with native selection protocol and remote Rust validation.
+- Physical phone/tablet and native terminal device coverage; synthetic Chromium coverage is not device validation.
+
+## Selection and acknowledgment correctness
+
+Reopening a different subpassage in the same uniquely attached paragraph updates the current composer quote/context and its optimistic version while retaining the conversation ID. Each user message freezes a deep copy of its own verified selection, source evidence and accepted revision. Provider history pairs each user question with that message's original document context; the current turn uses the newest user message's frozen context. The UI refreshes its blockquote on reopening and displays each historical question's selected passage and revision. A changed selection is rejected while the conversation is streaming; users must wait or explicitly interrupt, then reselect. The active run never observes a replacement composer context.
+
+Send message identities are deduplicated against stored questions before optimistic view-version checks, after service/document/revision validation. Reusing an identity for different question text is rejected. A failed acknowledgment triggers an authoritative history read; if the original message exists, the view recovers it without another send. A completed recovered question clears only its matching local draft, preserving any newer text. Python and Chromium regressions cover reselection, immutable history, running-context protection and a completed host turn whose HTTP acknowledgment is deliberately lost.

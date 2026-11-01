@@ -66,7 +66,7 @@ async function stop(child) {
   await exited;
 }
 try {
-  const { url, entry, focusFile, managedData, managerPython } = await fixtureReady;
+  const { url, entry, managedData, managerPython } = await fixtureReady;
   process.env.FLOW_READER_DATA_DIR = managedData;
   process.env.PYTHON = managerPython;
   editor = spawn(
@@ -293,15 +293,15 @@ try {
   await mkdir(path.dirname(snapshot), { recursive: true });
   await page.screenshot({ path: snapshot });
   const savedFocus = page.waitForResponse(
-    (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+    (response) => response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
   );
   check(
-    "Save for Codex uses the shared HTML action",
-    await page.evaluate(() => globalThis.flowReaderTerminal.action("save")),
+    "Ask uses the shared HTML action",
+    await page.evaluate(() => globalThis.flowReaderTerminal.action("ask")),
   );
   check(
-    "Save for Codex acknowledges through the shared HTML service",
-    (await (await savedFocus).json()).status === "selected",
+    "Ask acknowledges through the shared HTML service",
+    (await (await savedFocus).json()).conversations[0].status === "idle",
   );
   const beforeReopen = await (await page.request.get(url + "api/state")).json();
   await host.context.close();
@@ -329,8 +329,8 @@ try {
     await host.page.locator(".reader-review-marks span").count(),
   );
   check(
-    "Terminal Save for Codex writes the shared server context",
-    JSON.parse(await readFile(focusFile, "utf8")).selection?.text,
+    "Terminal Ask restores host-owned paragraph history",
+    (await host.page.locator(".reader-chat-summary").count()) > 0,
   );
   check(
     "Terminal Reader has no quotation library",

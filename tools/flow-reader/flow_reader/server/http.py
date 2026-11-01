@@ -2,12 +2,14 @@
 import gzip
 from http.server import BaseHTTPRequestHandler
 import json
+import time
 from urllib.parse import parse_qs, urlsplit
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.server.assets import reader_assets
 from flow_reader.server.offline import snapshot_inventory, worker_script
+from flow_reader.services.chat_auth import ChatProviderError
 
 
 def handler_for(state):
@@ -21,17 +23,21 @@ def handler_for(state):
     compiler_assets = getattr(state, "compiler_assets", None)
     compiler_actions = {"/api/compiler/" + action for action in
                         ("register", "heartbeat", "poll", "release", "result", "diagnose")}
+    chat_actions = {"/api/chat/" + action for action in
+                    ("list", "open", "draft", "send", "cancel", "events", "auth")}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in compiler_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
+            if path not in compiler_actions | chat_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
                             "/api/highlight", "/api/source", "/api/source-text", "/api/cursor", "/api/focus", "/api/editor-attachment"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
             if origin and (urlsplit(origin).scheme not in {"http", "https"}
                            or urlsplit(origin).netloc != self.headers.get("Host")):
                 return self.respond(b"Origin does not match the reader", "text/plain", 403)
+            if path in chat_actions and not origin:
+                return self.respond(b"Reader origin is required", "text/plain", 403)
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 return self.respond(b"Expected application/json", "text/plain", 415)
             try:
@@ -42,7 +48,48 @@ def handler_for(state):
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                if path in compiler_actions:
+                if path in chat_actions:
+                    chat = state.paragraph_chat
+                    action = path.rsplit("/", 1)[-1]
+                    if action == "auth":
+                        chat.snapshot(request)
+                        # Account actions belong to the physical host, not a
+                        # remote document client or a forwarded/tailnet origin.
+                        host_local = (self.client_address[0] in {"127.0.0.1", "::1"}
+                                      and urlsplit(origin).hostname in {"127.0.0.1", "localhost", "::1"})
+                        operation = request.get("operation", "status")
+                        if not host_local:
+                            if operation not in {"status", "models"}:
+                                return self.respond(b"Sign in from this Mac's loopback Reader", "text/plain", 403)
+                            if operation == "models":
+                                result = {"models": chat.provider.models()}
+                            else:
+                                status = chat.auth.status()
+                                result = {"hostOnly": True, "signedIn": status["signedIn"],
+                                          "planEnabled": status["planEnabled"],
+                                          "notice": "Open Reader on this Mac to manage ChatGPT sign-in."}
+                        elif operation == "login":
+                            result = chat.auth.login(request.get("registration"))
+                        elif operation == "logout":
+                            result = chat.auth.logout()
+                        elif operation == "cancel":
+                            chat.auth.close()
+                            result = chat.auth.status()
+                        elif operation == "models":
+                            result = {"models": chat.provider.models()}
+                        elif operation == "status":
+                            result = chat.auth.status()
+                        else:
+                            raise ValueError("Unknown account operation")
+                    elif action == "events":
+                        return self.chat_events(chat, request)
+                    elif action == "list":
+                        result = chat.list(request)
+                    elif action == "open":
+                        result = chat.open(request)
+                    else:
+                        result = chat.mutate(request, action)
+                elif path in compiler_actions:
                     if not compiler_pool:
                         return self.respond(b"Browser compilation is disabled", "text/plain", 503)
                     if path == "/api/compiler/register":
@@ -100,8 +147,37 @@ def handler_for(state):
                 self.respond(json.dumps(result).encode(), "application/json")
             except RevisionChanged as error:
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 409)
+            except ChatProviderError as error:
+                self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 503)
             except (ValueError, TypeError) as error:
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 400)
+
+        def chat_events(self, chat, request):
+            result = chat.list(request)  # Validate before sending stream headers.
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            last = None
+            deadline = time.monotonic() + 25
+            try:
+                while time.monotonic() < deadline:
+                    encoded = json.dumps(result, ensure_ascii=False)
+                    if encoded != last:
+                        self.wfile.write(("data: " + encoded + "\n\n").encode())
+                        self.wfile.flush()
+                        last = encoded
+                    if not any(r["status"] == "streaming" for r in result["conversations"]):
+                        break
+                    time.sleep(0.15)
+                    result = chat.list(request)
+            except RevisionChanged:
+                self.wfile.write(b'event: stale\ndata: {}\n\n')
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # The host run and durable history outlive a disconnected view.
 
         def do_GET(self):
             url = urlsplit(self.path)
