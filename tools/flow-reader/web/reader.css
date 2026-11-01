@@ -1894,6 +1894,35 @@ math svg {
 /* Approved B mark: 85% of the 51 × 44px prototype, with a full touch target. */
 #reader-logo {
   justify-self: center;
+  position: relative;
+}
+#reader-logo-popover:not([hidden]) {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(280px, 85vw);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.875rem;
+  box-shadow: 0 3px 12px #0003;
+}
+#reader-logo-popover:not([hidden])::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: calc(50% - 5px);
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
 }
 .reader-brand {
   display: grid;
@@ -1907,6 +1936,10 @@ math svg {
   background: transparent;
   padding: 0;
   border-radius: 8px;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
 .reader-brand::-webkit-details-marker {
   display: none;
