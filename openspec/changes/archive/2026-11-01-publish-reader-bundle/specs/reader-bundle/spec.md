@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Publish the reader bundle on hit and miss
-`.github/workflows/flow-engine.yml` SHALL upload `reader-bundle-<headSha>` and `flow-reader-bundle` for the run commit on an engine cache hit and on an engine cache miss. The bundle SHALL contain the tracked `tools/flow-reader` and `tools/reader-common` trees, including `web/`, `install.py`, `manage.py`, and the `web/reader-common` symlink, plus `scripts/reader_bundle.py` and `reader-bundle.json`. The manifest SHALL record `headSha`, the SHA-256 and git mode of each file, and `bundleChecksum`. `scripts/engine-input-hash.py` SHALL NOT gain reader inputs. The `flow-engine-darwin-arm64` artifact name and layout SHALL stay unchanged.
+`.github/workflows/flow-engine.yml` SHALL upload `reader-bundle-<headSha>` and `flow-reader-bundle` for the run commit on an engine cache hit and on an engine cache miss. `scripts/engine-input-hash.py` SHALL NOT gain reader inputs. The `flow-engine-darwin-arm64` artifact name and layout SHALL stay unchanged.
 
 #### Scenario: Web-only push
 - **WHEN** a push changes `tools/flow-reader/web` and no engine input
@@ -12,6 +12,14 @@
 - **WHEN** no retained artifact matches the engine-input hash
 - **THEN** the job builds the engine and uploads `flow-engine-darwin-arm64`
 - **AND** uploads `reader-bundle-<headSha>` and `flow-reader-bundle` for the same commit
+
+### Requirement: Reader bundle contents and manifest
+The bundle SHALL contain the tracked `tools/flow-reader` and `tools/reader-common` trees, including `web/`, `install.py`, `manage.py`, and the `web/reader-common` symlink, plus `scripts/reader_bundle.py` and `reader-bundle.json`. The manifest SHALL record `headSha`, the SHA-256 and git mode of each file, and `bundleChecksum`.
+
+#### Scenario: Tracked tree and manifest records
+- **WHEN** the reader bundle is packaged for a commit
+- **THEN** the bundle contains the tracked `tools/flow-reader` and `tools/reader-common` trees, including `web/`, `install.py`, `manage.py`, and the `web/reader-common` symlink
+- **AND** `reader-bundle.json` records `headSha`, the SHA-256 and git mode of each file, and `bundleChecksum`
 
 ### Requirement: Fetch a verified staging directory
 `scripts/fetch-reader-bundle.py` SHALL accept `--run-id`, `--head-sha`, or `--branch`, download the bundle with `gh`, and require the run head SHA, the manifest `headSha`, `bundleChecksum`, the archive checksum, and every file hash to match. It SHALL then unpack a staging directory and print that absolute path. On any failure it SHALL exit non-zero and SHALL NOT modify an installed reader.
