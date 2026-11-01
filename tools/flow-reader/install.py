@@ -3,24 +3,80 @@
 
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
+
+# The staged tree is hashed before install. Importing flow_reader must not write
+# __pycache__ into that tree, or verification refuses every bundle install.
+sys.dont_write_bytecode = True
 
 from flow_reader.services.manager import DEFAULT_DATA, ReaderManager, atomic_write, run
 from flow_reader.server.compiler_assets import CompilerAssets
 
 
+def reader_revision(source):
+    """Return the commit from a clean checkout, or the headSha of a verified bundle."""
+    source = Path(source)
+    if (source / "reader-bundle.json").is_file():
+        return _verify_reader_bundle(source)["headSha"]
+    if run(["git", "-C", str(source), "status", "--porcelain"]).strip():
+        raise ValueError("Install Reader from a clean commit")
+    return run(["git", "-C", str(source), "rev-parse", "HEAD"]).strip()
+
+
+def stage_reader_sources(source, staging):
+    """Place the Reader trees in ``staging`` and return the revision those bytes belong to."""
+    source = Path(source)
+    staging = Path(staging)
+    if (source / "reader-bundle.json").is_file():
+        module = _reader_bundle_module(source)
+        manifest = module.verify_unpacked_tree(source)
+        for relative in ("tools/flow-reader", "tools/reader-common"):
+            shutil.copytree(source / relative, staging / relative, symlinks=True)
+        module.verify_copied_trees(staging, manifest)
+        return manifest["headSha"]
+    revision = reader_revision(source)
+    archive = subprocess.run(
+        ["git", "-C", str(source), "archive", revision, "tools/flow-reader", "tools/reader-common"],
+        capture_output=True, check=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(staging, filter="data")
+    return revision
+
+
+def _reader_bundle_module(source):
+    module_path = Path(source) / "scripts" / "reader_bundle.py"
+    if not module_path.is_file():
+        raise ValueError("Reader bundle is missing scripts/reader_bundle.py")
+    spec = importlib.util.spec_from_file_location("reader_bundle_install", module_path)
+    if spec is None or spec.loader is None:
+        raise ValueError("Reader bundle verifier could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    # Importing the verifier must not drop a .pyc into the tree before the hash check.
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def _verify_reader_bundle(source):
+    return _reader_bundle_module(source).verify_unpacked_tree(Path(source))
+
+
 def install(args):
     source = Path(__file__).resolve().parents[2]
-    if run(["git", "-C", source, "status", "--porcelain"]).strip():
-        raise ValueError("Install Reader from a clean commit")
-    revision = run(["git", "-C", source, "rev-parse", "HEAD"]).strip()
+    revision = reader_revision(source)
     manager = ReaderManager(args.data)
     config_path = manager.data / "config.json"
     identifier = args.profile + "-reader"
@@ -72,10 +128,9 @@ def install(args):
         with tempfile.TemporaryDirectory(prefix=".install-", dir=releases) as temporary:
             staging = Path(temporary) / "release"
             staging.mkdir()
-            archive = subprocess.run(["git", "-C", str(source), "archive", revision, "tools/flow-reader", "tools/reader-common"],
-                                     capture_output=True, check=True).stdout
-            with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-                tar.extractall(staging, filter="data")
+            staged_revision = stage_reader_sources(source, staging)
+            if staged_revision != revision:
+                raise ValueError("Reader revision changed during installation")
             if browser_assets:
                 destination = staging / "tools/flow-reader/compiler-assets"
                 destination.mkdir()

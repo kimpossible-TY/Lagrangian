@@ -16,6 +16,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+import flow_engine_runs
+
 ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
 MARKER_PREFIX = 'flow-engine-input-'
 ENGINE_TARGET = 'aarch64-apple-darwin'
@@ -94,15 +99,7 @@ def _gh(args, repo_cwd=None):
 
 
 def list_successful_runs(repo, branch, limit):
-    raw = _gh([
-        'run', 'list', '--repo', repo, '--workflow', 'flow-engine.yml',
-        '--branch', branch, '--status', 'success', '--limit', str(limit),
-        '--json', 'databaseId,createdAt,url,conclusion,event,headSha',
-    ])
-    runs = json.loads(raw or '[]')
-    if not isinstance(runs, list):
-        raise RuntimeError('gh run list did not return a list for ' + branch)
-    return runs
+    return flow_engine_runs.list_successful_runs(repo, branch=branch, limit=limit, runner=_gh)
 
 
 def list_artifacts(repo, run_id):

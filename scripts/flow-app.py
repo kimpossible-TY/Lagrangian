@@ -19,6 +19,10 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+import flow_engine_runs
 APP_ID = 'io.github.kimpossible-ty.lagrangian'
 ENGINE_WORKFLOW = 'flow-engine.yml'
 ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
@@ -299,21 +303,10 @@ def engine_cache_dir(run_id):
 def github_repo():
     return capture(['gh', 'repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd=ROOT).strip().strip('"')
 
-def latest_engine_run(repo, branch):
+def _actions_gh(args):
     # A workflow_dispatch run is listed under the ref it was started with.
     # --branch main therefore finds `gh workflow run flow-engine.yml --ref main`.
-    # Do not add --event; that would hide a successful run of another event.
-    raw = capture(['gh', 'run', 'list', '--repo', repo, '--workflow', ENGINE_WORKFLOW,
-                   '--branch', branch, '--status', 'success', '--limit', '1',
-                   '--json', 'databaseId,url,headSha,conclusion'], cwd=ROOT)
-    try:
-        runs = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise ValueError('gh run list did not return JSON') from error
-    if not isinstance(runs, list) or not runs or not runs[0].get('databaseId'):
-        raise ValueError('No successful ' + ENGINE_WORKFLOW + ' run for branch ' + branch + '. '
-                         'Dispatch one with: gh workflow run ' + ENGINE_WORKFLOW + ' --ref ' + branch)
-    return str(runs[0]['databaseId'])
+    return capture(['gh', *args], cwd=ROOT)
 
 def parse_engine_checksum(text):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -389,14 +382,19 @@ def fetch_engine(args):
     if args.dest is not None:
         ensure_outside_target(args.dest)
     run_id = str(args.run_id) if args.run_id else None
-    if run_id is not None and not re.fullmatch(r'\d+', run_id):
-        raise ValueError('Run id must be the numeric GitHub Actions run id')
-    repo = github_repo()
+    branch = None
     if run_id is None:
         branch = (args.branch or '').strip()
         if not branch:
             raise ValueError('Pass --branch or --run-id')
-        run_id = latest_engine_run(repo, branch)
+    repo = github_repo()
+    try:
+        record = flow_engine_runs.select_run(repo, run_id=run_id, branch=branch, runner=_actions_gh, limit=1 if run_id is None else 30)
+    except ValueError as error:
+        if run_id is None and str(error).startswith('No successful'):
+            raise ValueError(str(error) + '. Dispatch one with: gh workflow run ' + ENGINE_WORKFLOW + ' --ref ' + branch) from error
+        raise
+    run_id = str(record['databaseId'])
     dest = (args.dest or engine_cache_dir(run_id)).expanduser()
     ensure_outside_target(dest)
     install_engine_payload(repo, run_id, dest)
@@ -1472,7 +1470,7 @@ def main():
     b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
     fetch = sub.add_parser('fetch-engine', help='Download a macOS arm64 engine built by GitHub Actions without compiling Rust')
     fetch.add_argument('--branch', default='main', help='Branch whose latest successful flow-engine run is downloaded')
-    fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run')
+    fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run. Pass the same id to scripts/fetch-reader-bundle.py so the engine and the reader come from one run')
     fetch.add_argument('--dest', type=Path, help='Directory outside the repository target/ (default: a small user cache keyed by run id)')
     fetch.set_defaults(func=fetch_engine)
     stage = sub.add_parser('stage-engine-artifact', help='Collect the unsigned Apple Silicon engine and app manifest for upload')

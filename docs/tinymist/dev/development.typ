@@ -195,13 +195,30 @@ uses the locked `flow-release` profile with ThinLTO. The runner must be
 `arm64`. Staging checks `tinymist --version` and `preview --help` for
 `--follow-system-theme`, then uploads `flow-engine-darwin-arm64` for 30 days.
 The dispatch accepts a `jobs` input; the default is 2. A later run for the
-same ref cancels the older in-progress run. The job token keeps `actions: write`
-because publishing the artifact, downloading a previous artifact, and saving
-the Cargo cache need it. A matching artifact older than the 30-day retention,
+same ref cancels the older in-progress run. The job token is `actions: read`.
+`actions/upload-artifact@v4` and the Cargo cache use the Actions runtime token.
+Listing and downloading a previous run's artifact uses that `actions: read`
+permission. A matching artifact older than the 30-day retention,
 or outside the newest 30 successful runs on each searched branch, is a miss
 and builds again. A hit republishes the previous `Lagrangian.app` as well, so Swift,
 branding, and the bundled user-guide PDF stay with the engine build that
 produced them.
+
+Every successful run also publishes the HTML Reader for that commit. This
+happens on an engine cache hit and on a miss. Reader sources are not engine
+inputs: `scripts/engine-input-hash.py` is unchanged, and an edit under
+`tools/flow-reader/web` still republishes the previous
+`flow-engine-darwin-arm64` bytes. The job runs
+`python3 scripts/package-reader-bundle.py` before the Cargo steps and, after
+the engine artifact is ready, uploads that directory twice:
+`reader-bundle-<headSha>` and `flow-reader-bundle`. The directory contains
+`reader-bundle.json` and `reader-bundle.tar`. The tar holds the tracked
+`tools/flow-reader` and `tools/reader-common` trees, including `web/`,
+`install.py`, `manage.py`, and the `web/reader-common` symlink, plus
+`scripts/reader_bundle.py`. The manifest records `headSha`, the git mode and
+SHA-256 of each file, `archiveSHA256` (the tar bytes), and `bundleChecksum`
+(SHA-256 over `headSha` and those file records). Symlinks stay symlinks. The
+engine artifact does not gain files.
 
 The minimum supported Rust is `rust-version` in `Cargo.toml`. The workflow
 installs `channel` from `rust-toolchain.toml`. Keep them on the same release:
@@ -210,30 +227,66 @@ compare `rust-version` with the `# check-min-version` toolchain pin in
 `ci.yml`. That workflow and script are gone, so compare the two files
 directly. This check does not compile Rust.
 
-On the Mac, download a successful run and package with the printed engine path.
-`fetch-engine` only downloads, verifies, and prints that path:
+On the Mac, download one successful run and use that engine with that run's
+reader. Pass the same `--run-id` to `fetch-engine` and
+`scripts/fetch-reader-bundle.py`. Calling `--branch` on each command separately
+can observe two different runs if another success lands between them. A cache
+hit still republishes an engine whose `release.json` commit may be older than
+the reader's `headSha`; both artifacts still belong to the run you named.
+`fetch-engine` only downloads, verifies, and prints the engine path. The reader
+helper only verifies and prints a staging path. The Mac launchd updater is
+outside this repository and is pending; it still installs the reader from its
+local checkout.
 
 ```sh
 gh auth status
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+python3 "$reader/tools/flow-reader/install.py" \
+  --profile <parent-profile> --port <port> --engine "$engine"
+```
+
+`fetch-engine` uses `gh run list` for the latest successful `flow-engine.yml`
+run on a branch when `--run-id` is omitted. Manual runs are included because
+`workflow_dispatch` is recorded on the ref given to `--ref`. The download is
+stored in `~/Library/Caches/Lagrangian/engines/<run-id>/`, outside the
+repository `target/` directory. The command checks the SHA-256 against
+`flow-engine.sha256` and `release.json`, clears the macOS quarantine attribute,
+probes `--version` and `--follow-system-theme`, and prints the absolute engine
+path. Pass that path to `--engine`. The same directory also contains
+`release.json` and the ad-hoc signed `Lagrangian.app` from the runner; local
+packaging uses the printed `flow-engine` so the installed app keeps the Mac
+signing identity.
+
+```sh
 engine=$(python3 scripts/flow-app.py fetch-engine --branch main)
 python3 scripts/flow-app.py build --engine "$engine"
 ```
 
-`fetch-engine` uses `gh run list` for the latest successful `flow-engine.yml`
-run on that branch. Manual runs are included because `workflow_dispatch` is
-recorded on the ref given to `--ref`. Pass `--run-id <id>` to select one run.
-The download is stored
-in `~/Library/Caches/Lagrangian/engines/<run-id>/`, outside the repository
-`target/` directory. The command checks the SHA-256 against `flow-engine.sha256`
-and `release.json`, clears the macOS quarantine attribute, probes `--version`
-and `--follow-system-theme`, and prints the absolute engine path. Pass that
-path to `--engine`. The same directory also contains `release.json` and the
-ad-hoc signed `Lagrangian.app` from the runner; local packaging uses the
-printed `flow-engine` so the installed app keeps the Mac signing identity.
+The reader helper shells out to `gh`, checks that run's head SHA against the
+manifest, checks `bundleChecksum`, `archiveSHA256`, and every file, then
+unpacks to a staging directory and prints that absolute path. Stdout is only
+the path. A mismatch, a missing artifact, or a failed `gh` call exits non-zero,
+leaves any previous staging directory in place, and does not modify the
+installed reader. The helper does not run `install.py`.
+
+`--head-sha <40-hex-sha>` selects the newest successful `flow-engine.yml` run
+for that commit. Passing `--branch` and `--head-sha` together requires that
+commit to be one of the newest successful runs on the branch. The default
+staging directory on macOS is
+`~/Library/Caches/Lagrangian/reader-bundles/<headSha>/`. `--dest` chooses
+another directory outside installed application data. An existing `--dest` is
+replaced when it is empty or already contains `reader-bundle.json`; any other
+non-empty directory is left unchanged and the command exits non-zero.
+`install.py` in the staged directory sets `sys.dont_write_bytecode` before it
+imports the reader package, reads `reader-bundle.json`, checks the same
+checksums, copies the reader trees, checks that copy against the manifest, and
+installs release `<headSha>` without a git checkout.
 
 ```sh
-engine=$(python3 scripts/flow-app.py fetch-engine --run-id 123456789)
-python3 scripts/flow-app.py build --engine "$engine"
+reader=$(python3 scripts/fetch-reader-bundle.py --branch main)
+reader=$(python3 scripts/fetch-reader-bundle.py --head-sha <40-hex-sha>)
 ```
 
 `gh workflow run` requires this file on the default branch. The `--ref` argument
@@ -304,6 +357,8 @@ widen for consumers when shared contracts change:
   frontend, DOM tests, and installed-layout tests. Build changes also require
   `yarn build:preview`.
 - Python: `yarn test:reader-services` runs the existing service/install suite.
+  Reader bundle packaging and fetch verification is
+  `python3 -m unittest discover -s tests/flow-app -p test_reader_bundle.py -v`.
   Compiler fixtures need `FLOW_READER_PACKAGES` and optionally `FLOW_READER_TYPST`.
   `yarn test:reader-integration` requires the package directory and rejects all
   skipped tests; use macOS with Neovim and set `TAIL_HOSTING_SOURCE` to the companion
