@@ -407,7 +407,9 @@ class FetchEngine(unittest.TestCase):
         if args[:3] == ['gh', 'repo', 'view']:
             return 'kimpossible-TY/Lagrangian'
         if args[:3] == ['gh', 'run', 'list']:
-            return json.dumps([{'databaseId': 42, 'url': 'https://example.test/runs/42', 'headSha': 'abc', 'conclusion': 'success'}])
+            return json.dumps([{'databaseId': 42, 'url': 'https://example.test/runs/42', 'headSha': 'ab' * 20, 'conclusion': 'success', 'headBranch': 'main', 'workflowName': 'Flow engine'}])
+        if args[:3] == ['gh', 'run', 'view']:
+            return json.dumps({'databaseId': 42, 'url': 'https://example.test/runs/42', 'headSha': 'ab' * 20, 'conclusion': 'success', 'status': 'completed', 'headBranch': 'main', 'workflowName': 'Flow engine'})
         if args[:3] == ['gh', 'run', 'download']:
             dest = Path(args[args.index('--dir') + 1])
             root = dest / 'flow-engine-darwin-arm64' if self.layout == 'nested' else dest

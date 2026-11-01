@@ -155,6 +155,32 @@ class PackageTests(Fixture):
             with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
                 installer.reader_revision(staged)
 
+    def test_copied_trees_are_rechecked_against_the_manifest(self):
+        manifest = self.package()
+        with tempfile.TemporaryDirectory() as temporary:
+            staged = Path(temporary) / 'staged'
+            bundle.materialize(manifest, self.output / 'reader-bundle.tar', staged)
+            release = Path(temporary) / 'release'
+            release.mkdir()
+            original = installer.shutil.copytree
+
+            def corrupt(src, dst, *args, **kwargs):
+                installer.shutil.copytree = original
+                try:
+                    original(src, dst, *args, **kwargs)
+                finally:
+                    installer.shutil.copytree = corrupt
+                target = Path(dst) / 'web' / 'app.js'
+                if target.is_file():
+                    target.write_text('tampered\n')
+
+            installer.shutil.copytree = corrupt
+            try:
+                with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
+                    installer.stage_reader_sources(staged, release)
+            finally:
+                installer.shutil.copytree = original
+
     def test_git_checkout_still_requires_a_clean_commit(self):
         with tempfile.TemporaryDirectory() as temporary:
             staging = Path(temporary) / 'staging'
@@ -177,7 +203,6 @@ class FetchTests(Fixture):
         home = Path(self.directory.name) / 'home'
         dest = Path(self.directory.name) / 'stage'
         dest.mkdir()
-        (dest / 'previous').write_text('old')
         sentinel = home / 'Library/Application Support/Lagrangian/reader/config.json'
         write(sentinel, 'installed reader\n')
         before = sentinel.read_bytes()
@@ -189,7 +214,6 @@ class FetchTests(Fixture):
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue().strip(), str(dest.resolve()))
         self.assertIn('verified ' + self.sha, stderr.getvalue())
-        self.assertFalse((dest / 'previous').exists())
         self.assertEqual((dest / 'tools/flow-reader/install.py').read_text(), 'print("install")\n')
         self.assertTrue((dest / 'tools/flow-reader/web/reader-common').is_symlink())
         self.assertEqual(sentinel.read_bytes(), before)
@@ -311,6 +335,26 @@ class FetchTests(Fixture):
             with self.assertRaisesRegex(ValueError, 'does not install the reader'):
                 bundle.fetch_reader_bundle(repo='kimpossible-TY/Lagrangian', run_id='42', dest=dest)
 
+    def test_dest_refuses_unrelated_contents_and_replaces_a_prior_bundle(self):
+        home = Path(self.directory.name) / 'home'
+        unrelated = Path(self.directory.name) / 'unrelated'
+        unrelated.mkdir()
+        (unrelated / 'notes.txt').write_text('keep')
+        with self.assertRaisesRegex(ValueError, 'not empty'):
+            bundle.fetch_reader_bundle(
+                repo='kimpossible-TY/Lagrangian', run_id='42', dest=unrelated, gh=self.fake(), home=home)
+        self.assertEqual((unrelated / 'notes.txt').read_text(), 'keep')
+        self.assertFalse((unrelated / 'tools').exists())
+        prior = Path(self.directory.name) / 'prior'
+        prior.mkdir()
+        (prior / 'reader-bundle.json').write_text('{}\n')
+        (prior / 'stale.txt').write_text('old')
+        staged = bundle.fetch_reader_bundle(
+            repo='kimpossible-TY/Lagrangian', run_id='42', dest=prior, gh=self.fake(), home=home)
+        self.assertEqual(staged, prior.resolve())
+        self.assertFalse((prior / 'stale.txt').exists())
+        self.assertIn(self.sha, (prior / 'reader-bundle.json').read_text())
+
 
 class ContractTests(unittest.TestCase):
     def test_reader_sources_stay_out_of_the_engine_input_hash(self):
@@ -323,6 +367,8 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(hashing.include(Path('scripts/reader_bundle.py')))
         self.assertFalse(hashing.include(Path('scripts/package-reader-bundle.py')))
         self.assertFalse(hashing.include(Path('scripts/fetch-reader-bundle.py')))
+        self.assertFalse(hashing.include(Path('scripts/flow_engine_runs.py')))
+        self.assertFalse(hashing.include(Path('scripts/reuse-engine-artifact.py')))
         self.assertFalse(hashing.include(Path('.github/workflows/flow-engine.yml')))
         self.assertTrue(hashing.include(Path('scripts/flow-app.py')))
 
@@ -339,6 +385,8 @@ class ContractTests(unittest.TestCase):
             self.assertNotIn('\n        if:', block)
             self.assertNotIn('engine_cache.outputs.hit', block)
         self.assertIn('if: steps.engine_cache.outputs.hit != \'true\'', workflow)
+        self.assertIn('\n  actions: read\n', workflow)
+        self.assertNotIn('actions: write', workflow)
 
     def test_real_checkout_packages_when_the_verifier_is_committed(self):
         listed = git(ROOT, 'ls-files', 'scripts/reader_bundle.py', check=False).stdout.strip()
@@ -357,6 +405,63 @@ class ContractTests(unittest.TestCase):
             release = Path(temporary) / 'release'
             release.mkdir()
             self.assertEqual(installer.stage_reader_sources(staged, release), sha)
+
+    def test_staged_install_py_runs_in_an_isolated_profile(self):
+        """Execute the staged install.py so bytecode cannot hide ahead of verification."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'src'
+            shutil.copytree(
+                ROOT / 'tools/flow-reader', root / 'tools/flow-reader', symlinks=True,
+                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            shutil.copytree(
+                ROOT / 'tools/reader-common', root / 'tools/reader-common', symlinks=True,
+                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            write(root / 'scripts/reader_bundle.py', (ROOT / 'scripts/reader_bundle.py').read_text())
+            git(root, 'init', '-q', '-b', 'main')
+            sha = commit_all(root)
+            output = Path(temporary) / 'artifact'
+            manifest = bundle.package_reader_bundle(root, sha, output)
+            staged = Path(temporary) / 'staged'
+            bundle.materialize(manifest, output / 'reader-bundle.tar', staged)
+            home = Path(temporary) / 'home'
+            data = Path(temporary) / 'reader-data'
+            project = Path(temporary) / 'project'
+            project.mkdir()
+            (project / 'main.typ').write_text('Fixture')
+            (project / 'packages').mkdir()
+            parent = {
+                'id': 'install-fixture', 'name': 'Fixture', 'root': str(project), 'entry': 'main.typ',
+                'fonts': [], 'packages': str(project / 'packages'), 'port': 25001, 'publicURL': '',
+            }
+            flow = Path(temporary) / 'flow-manager'
+            change_file = Path(temporary) / 'changes.json'
+            flow.write_text(
+                f"#!{sys.executable}\nimport json, sys\n"
+                f"profiles = {repr({'profiles': [parent]})}\n"
+                f"plan = {repr({'environment': {'TINYMIST_PREVIEW_CHANGE_FILE': str(change_file)}})}\n"
+                "print(json.dumps(plan if sys.argv[1] == '--launch-plan' else profiles))\n"
+            )
+            flow.chmod(0o755)
+            engine = Path(temporary) / 'engine'
+            engine.write_text(f"#!{sys.executable}\n")
+            engine.chmod(0o755)
+            completed = subprocess.run(
+                [
+                    sys.executable, str(staged / 'tools/flow-reader/install.py'),
+                    '--profile', 'install-fixture', '--port', '25002', '--data', str(data),
+                    '--flow-manager', str(flow), '--python', sys.executable,
+                    '--compiler', sys.executable, '--engine', str(engine), '--development',
+                ],
+                check=False, capture_output=True, text=True,
+                env={key: value for key, value in os.environ.items() if key != 'PYTHONDONTWRITEBYTECODE'} | {'HOME': str(home)},
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+            installed = json.loads(completed.stdout)
+            self.assertEqual(installed['revision'], sha)
+            self.assertEqual(installed['release'], sha)
+            self.assertTrue((data / 'releases' / sha / 'tools/flow-reader/install.py').is_file())
+            self.assertFalse(any(path.name == '__pycache__' for path in staged.rglob('*')))
+            self.assertFalse(list(staged.rglob('*.pyc')))
 
 
 class FakeGH:

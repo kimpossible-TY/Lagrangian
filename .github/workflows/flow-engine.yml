@@ -15,7 +15,10 @@ name: Flow engine
 # reader-bundle-<headSha> and flow-reader-bundle. They are not engine inputs.
 on:
   push:
-    branches: [main]
+    # cursor/reader-bundle-bedd is temporary so this branch can prove the
+    # actions: read token still reuses and uploads artifacts. Remove this
+    # branch before the pull request is final.
+    branches: [main, cursor/reader-bundle-bedd]
     paths-ignore:
       - "docs/**"
       - "openspec/**"
@@ -30,11 +33,10 @@ on:
 
 permissions:
   contents: read
-  # actions: write is required. actions/upload-artifact cannot publish
-  # flow-engine-darwin-arm64 with actions: read, and the Cargo cache save
-  # (setup-rust-toolchain / rust-cache) also needs actions: write.
-  # Downloading a previous run's artifact needs actions: read, which write includes.
-  actions: write
+  # actions/upload-artifact@v4 and the Cargo cache use the Actions runtime
+  # token. Listing and downloading a previous run's artifact uses this
+  # GITHUB_TOKEN permission.
+  actions: read
 
 # A later run of the same ref cancels the older in-progress run.
 concurrency:

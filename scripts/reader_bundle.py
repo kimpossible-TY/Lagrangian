@@ -33,8 +33,6 @@ MANIFEST_NAME = 'reader-bundle.json'
 ARCHIVE_NAME = 'reader-bundle.tar'
 STABLE_ARTIFACT = 'flow-reader-bundle'
 SHA_ARTIFACT_PREFIX = 'reader-bundle-'
-WORKFLOW_NAME = 'Flow engine'
-WORKFLOW_FILE = 'flow-engine.yml'
 BUNDLE_TREES = ('tools/flow-reader', 'tools/reader-common')
 VERIFIER_PATH = 'scripts/reader_bundle.py'
 REQUIRED_PATHS = (
@@ -361,6 +359,33 @@ def _walk_files(root):
     return found
 
 
+def _check_disk_entry(disk, entry):
+    path = entry['path']
+    if entry['mode'] == '120000':
+        if not disk.is_symlink():
+            raise ValueError('Reader bundle expected a symlink: ' + path)
+        target = os.readlink(disk)
+        if target != entry['target']:
+            raise ValueError('Symlink target mismatch for ' + path)
+        digest = hashlib.sha256(target.encode()).hexdigest()
+    else:
+        if disk.is_symlink() or not disk.is_file():
+            raise ValueError('Reader bundle expected a regular file: ' + path)
+        mode = '100755' if disk.stat().st_mode & 0o111 else '100644'
+        if mode != entry['mode']:
+            raise ValueError('File mode mismatch for ' + path)
+        digest = hashlib.sha256(disk.read_bytes()).hexdigest()
+    if digest != entry['sha256']:
+        raise ValueError('Reader file SHA-256 mismatch for ' + path)
+
+
+def _entries_under(manifest, trees):
+    return {
+        item['path']: item for item in manifest['files']
+        if any(item['path'] == tree or item['path'].startswith(tree + '/') for tree in trees)
+    }
+
+
 def verify_unpacked_tree(root, manifest=None):
     """Recompute every file hash. ``root`` contains the manifest and the tar files."""
     root = Path(root)
@@ -377,23 +402,29 @@ def verify_unpacked_tree(root, manifest=None):
     if missing:
         raise ValueError('Reader bundle is missing ' + missing[0])
     for path, entry in expected.items():
-        disk = root / path
-        if entry['mode'] == '120000':
-            if not disk.is_symlink():
-                raise ValueError('Reader bundle expected a symlink: ' + path)
-            target = os.readlink(disk)
-            if target != entry['target']:
-                raise ValueError('Symlink target mismatch for ' + path)
-            digest = hashlib.sha256(target.encode()).hexdigest()
-        else:
-            if disk.is_symlink() or not disk.is_file():
-                raise ValueError('Reader bundle expected a regular file: ' + path)
-            mode = '100755' if disk.stat().st_mode & 0o111 else '100644'
-            if mode != entry['mode']:
-                raise ValueError('File mode mismatch for ' + path)
-            digest = hashlib.sha256(disk.read_bytes()).hexdigest()
-        if digest != entry['sha256']:
-            raise ValueError('Reader file SHA-256 mismatch for ' + path)
+        _check_disk_entry(root / path, entry)
+    return manifest
+
+
+def verify_copied_trees(root, manifest, trees=BUNDLE_TREES):
+    """Check a copy of the reader trees against the manifest, including extra files."""
+    root = Path(root)
+    manifest = check_manifest(manifest)
+    expected = _entries_under(manifest, trees)
+    if not expected:
+        raise ValueError('Reader bundle manifest has no files in the copied trees')
+    present = {
+        path for path in _walk_files(root)
+        if any(path == tree or path.startswith(tree + '/') for tree in trees)
+    }
+    extra = sorted(present - set(expected))
+    missing = sorted(set(expected) - present)
+    if extra:
+        raise ValueError('Copied reader tree has an unexpected file: ' + extra[0])
+    if missing:
+        raise ValueError('Copied reader tree is missing ' + missing[0])
+    for path, entry in expected.items():
+        _check_disk_entry(root / path, entry)
     return manifest
 
 
@@ -497,85 +528,22 @@ def assert_not_installed_reader(dest, home=None):
     return resolved
 
 
+def _flow_runs():
+    """Load the shared run selector from this file's directory, including a staged copy."""
+    scripts = Path(__file__).resolve().parent
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    import flow_engine_runs
+    return flow_engine_runs
+
+
 def default_gh(args):
-    completed = subprocess.run(['gh', *args], check=False, text=True, capture_output=True)
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or '').strip()
-        raise RuntimeError('gh ' + ' '.join(args[:4]) + ' failed: ' + detail)
-    return completed.stdout
-
-
-def _json_gh(gh, args):
-    raw = gh(args)
-    try:
-        return json.loads(raw or 'null')
-    except json.JSONDecodeError as error:
-        raise ValueError('gh ' + ' '.join(args[:3]) + ' did not return JSON') from error
-
-
-def _sort_runs(runs):
-    if not isinstance(runs, list):
-        raise ValueError('gh run list did not return a list')
-    return sorted(runs, key=lambda run: (run.get('createdAt') or '', str(run.get('databaseId') or '')), reverse=True)
-
-
-def list_successful_runs(gh, repo, branch=None, commit=None, limit=30):
-    args = [
-        'run', 'list', '--repo', repo, '--workflow', WORKFLOW_FILE,
-        '--status', 'success', '--limit', str(limit),
-        '--json', 'databaseId,headSha,conclusion,createdAt,url,headBranch,workflowName',
-    ]
-    if branch:
-        args.extend(['--branch', branch])
-    if commit:
-        args.extend(['--commit', commit])
-    return _sort_runs(_json_gh(gh, args))
-
-
-def view_run(gh, repo, run_id):
-    record = _json_gh(gh, [
-        'run', 'view', str(run_id), '--repo', repo,
-        '--json', 'databaseId,headSha,conclusion,status,url,headBranch,workflowName',
-    ])
-    if not isinstance(record, dict) or not record.get('databaseId'):
-        raise ValueError('gh run view did not return run ' + str(run_id))
-    if record.get('workflowName') != WORKFLOW_NAME:
-        raise ValueError('Run ' + str(run_id) + ' is not a flow-engine.yml run')
-    if record.get('conclusion') != 'success':
-        raise ValueError('Run ' + str(run_id) + ' is not a successful flow-engine.yml run')
-    record['headSha'] = parse_sha(record.get('headSha'))
-    return record
+    return _flow_runs().invoke_gh(args)
 
 
 def select_run(gh, repo, run_id=None, head_sha=None, branch=None):
-    if run_id is not None and not str(run_id).isdigit():
-        raise ValueError('Run id must be the numeric GitHub Actions run id')
-    if head_sha is not None:
-        head_sha = parse_sha(head_sha)
-    if branch is not None and (not branch or branch.startswith('-') or any(char.isspace() for char in branch)):
-        raise ValueError('Branch name is not valid')
-    if run_id is None and branch is not None:
-        runs = list_successful_runs(gh, repo, branch=branch, limit=30)
-        if head_sha is not None:
-            runs = [item for item in runs if parse_sha(item.get('headSha')) == head_sha]
-        if not runs:
-            target = 'branch ' + branch + (' at ' + head_sha if head_sha else '')
-            raise ValueError('No successful ' + WORKFLOW_FILE + ' run for ' + target)
-        run_id = str(runs[0]['databaseId'])
-    elif run_id is None and head_sha is not None:
-        runs = list_successful_runs(gh, repo, commit=head_sha, limit=30)
-        runs = [item for item in runs if parse_sha(item.get('headSha')) == head_sha]
-        if not runs:
-            raise ValueError('No successful ' + WORKFLOW_FILE + ' run for commit ' + head_sha)
-        run_id = str(runs[0]['databaseId'])
-    if run_id is None:
-        raise ValueError('Pass --run-id, --head-sha, or --branch')
-    record = view_run(gh, repo, run_id)
-    if head_sha is not None and record['headSha'] != head_sha:
-        raise ValueError('headSha mismatch: run ' + str(run_id) + ' is ' + record['headSha'] + ', expected ' + head_sha)
-    if branch is not None and record.get('headBranch') != branch:
-        raise ValueError('Run ' + str(run_id) + ' is on ' + str(record.get('headBranch')) + ', not ' + branch)
-    return record
+    """Resolve a run with the shared flow-engine selector."""
+    return _flow_runs().select_run(repo, run_id=run_id, head_sha=head_sha, branch=branch, runner=gh)
 
 
 def locate_bundle(download):
@@ -600,6 +568,22 @@ def download_bundle(gh, repo, run_id, head_sha):
             errors.append(name + ': ' + str(error))
             shutil.rmtree(temporary, ignore_errors=True)
     raise RuntimeError('Could not download a reader bundle for run ' + str(run_id) + ': ' + '; '.join(errors))
+
+
+def assert_staging_replaceable(dest):
+    """Allow a missing, empty, or previous-bundle directory. Leave anything else alone."""
+    dest = Path(dest)
+    if not dest.exists():
+        return
+    if not dest.is_dir():
+        raise ValueError('Refusing to replace ' + str(dest) + ': not a directory')
+    if not any(dest.iterdir()):
+        return
+    if (dest / MANIFEST_NAME).is_file():
+        return
+    raise ValueError(
+        'Refusing to replace ' + str(dest) + ': it is not empty and has no ' + MANIFEST_NAME
+    )
 
 
 def _replace_staging(incoming, final):
@@ -635,7 +619,7 @@ def fetch_reader_bundle(repo=None, run_id=None, head_sha=None, branch=None, dest
     if dest is not None:
         assert_not_installed_reader(dest, home)
     if repo is None:
-        described = _json_gh(gh, ['repo', 'view', '--json', 'nameWithOwner'])
+        described = _flow_runs().json_gh(['repo', 'view', '--json', 'nameWithOwner'], gh)
         if not isinstance(described, dict) or not described.get('nameWithOwner'):
             raise ValueError('gh repo view did not return a repository')
         repo = described['nameWithOwner']
@@ -652,6 +636,7 @@ def fetch_reader_bundle(repo=None, run_id=None, head_sha=None, branch=None, dest
         final.parent.mkdir(parents=True, exist_ok=True)
         incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=final.parent))
         materialize(manifest, archive_path, incoming)
+        assert_staging_replaceable(final)
         _replace_staging(incoming, final)
         incoming = None
     except Exception:
@@ -693,7 +678,11 @@ def main_fetch(argv=None, gh=None):
         description='Download a flow-engine reader bundle, verify it, and print a staging directory. '
                     'Does not install or restart the reader.',
     )
-    parser.add_argument('--run-id', help='GitHub Actions run id of a successful flow-engine.yml run')
+    parser.add_argument(
+        '--run-id',
+        help='GitHub Actions run id of a successful flow-engine.yml run. '
+             'Pass the same id to fetch-engine so the engine and the reader come from one run',
+    )
     parser.add_argument('--head-sha', help='Commit whose reader bundle should be staged')
     parser.add_argument('--branch', help='Newest successful flow-engine.yml run on this branch')
     parser.add_argument('--repo', help='GitHub repository (default: gh repo view)')

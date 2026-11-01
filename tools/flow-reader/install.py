@@ -14,6 +14,10 @@ import sys
 import tarfile
 import tempfile
 
+# The staged tree is hashed before install. Importing flow_reader must not write
+# __pycache__ into that tree, or verification refuses every bundle install.
+sys.dont_write_bytecode = True
+
 from flow_reader.services.manager import DEFAULT_DATA, ReaderManager, atomic_write, run
 from flow_reader.server.compiler_assets import CompilerAssets
 
@@ -33,9 +37,11 @@ def stage_reader_sources(source, staging):
     source = Path(source)
     staging = Path(staging)
     if (source / "reader-bundle.json").is_file():
-        manifest = _verify_reader_bundle(source)
+        module = _reader_bundle_module(source)
+        manifest = module.verify_unpacked_tree(source)
         for relative in ("tools/flow-reader", "tools/reader-common"):
             shutil.copytree(source / relative, staging / relative, symlinks=True)
+        module.verify_copied_trees(staging, manifest)
         return manifest["headSha"]
     revision = reader_revision(source)
     archive = subprocess.run(
@@ -46,7 +52,7 @@ def stage_reader_sources(source, staging):
     return revision
 
 
-def _verify_reader_bundle(source):
+def _reader_bundle_module(source):
     module_path = Path(source) / "scripts" / "reader_bundle.py"
     if not module_path.is_file():
         raise ValueError("Reader bundle is missing scripts/reader_bundle.py")
@@ -61,7 +67,11 @@ def _verify_reader_bundle(source):
         spec.loader.exec_module(module)
     finally:
         sys.dont_write_bytecode = previous
-    return module.verify_unpacked_tree(Path(source))
+    return module
+
+
+def _verify_reader_bundle(source):
+    return _reader_bundle_module(source).verify_unpacked_tree(Path(source))
 
 
 def install(args):

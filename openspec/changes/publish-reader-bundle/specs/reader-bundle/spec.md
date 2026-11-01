@@ -37,3 +37,24 @@
 #### Scenario: Git install
 - **WHEN** `install.py` is run from a checkout that has no `reader-bundle.json`
 - **THEN** a dirty worktree is refused before the installed reader changes
+
+#### Scenario: Staged install verifies before and after the copy
+- **WHEN** `install.py` is executed from the staged bundle
+- **THEN** importing the installer does not add `__pycache__` under that bundle
+- **AND** the copied `tools/flow-reader` and `tools/reader-common` trees match the manifest hashes
+
+### Requirement: Keep an unrelated staging directory
+`scripts/fetch-reader-bundle.py` SHALL replace `--dest` only when that path is missing, empty, or already contains `reader-bundle.json`. Any other existing directory SHALL be left unchanged and the command SHALL exit non-zero.
+
+#### Scenario: Unrelated destination
+- **WHEN** `--dest` exists, is not empty, and has no `reader-bundle.json`
+- **THEN** the command exits non-zero
+- **AND** that directory is unchanged
+
+### Requirement: Take the engine and the reader from one run
+`fetch-engine --run-id` and `scripts/fetch-reader-bundle.py --run-id` SHALL accept the same numeric run id. The development guide SHALL show that one id as the way to stage both artifacts from one flow-engine run.
+
+#### Scenario: Shared run id
+- **WHEN** a caller passes one run id to both commands
+- **THEN** both commands select that run
+- **AND** the reader manifest `headSha` is that run's head SHA
