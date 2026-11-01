@@ -42,7 +42,54 @@
           <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" stroke-width="3" />
         </svg>
       </button>
-      <span class="reader-brand">Flow <span>Reader</span></span>
+      <details id="reader-logo" data-phase="waiting">
+        <summary class="reader-brand" aria-label="문서를 기다리는 중 · 상태 보기">
+          <svg class="reader-logo-mark" viewBox="0 0 240 220" aria-hidden="true">
+            <path
+              class="reader-logo-base"
+              pathLength="100"
+              d="M31 29 C48 45 63 53 75 48 C85 45 88 30 93 20 C97 12 105 10 108 17 C112 26 103 38 91 44 C83 48 79 49 78 60 C76 100 78 137 67 160 C59 180 45 199 34 201 C19 204 16 187 23 174 C32 158 51 163 66 169 C91 181 113 200 145 201 C183 204 211 189 215 164 C219 146 208 137 198 141 C190 144 191 151 196 153"
+            />
+            <path
+              class="reader-logo-halo"
+              pathLength="100"
+              d="M31 29 C48 45 63 53 75 48 C85 45 88 30 93 20 C97 12 105 10 108 17 C112 26 103 38 91 44 C83 48 79 49 78 60 C76 100 78 137 67 160 C59 180 45 199 34 201 C19 204 16 187 23 174 C32 158 51 163 66 169 C91 181 113 200 145 201 C183 204 211 189 215 164 C219 146 208 137 198 141 C190 144 191 151 196 153"
+            />
+            <path
+              class="reader-logo-beam"
+              pathLength="100"
+              d="M31 29 C48 45 63 53 75 48 C85 45 88 30 93 20 C97 12 105 10 108 17 C112 26 103 38 91 44 C83 48 79 49 78 60 C76 100 78 137 67 160 C59 180 45 199 34 201 C19 204 16 187 23 174 C32 158 51 163 66 169 C91 181 113 200 145 201 C183 204 211 189 215 164 C219 146 208 137 198 141 C190 144 191 151 196 153"
+            />
+          </svg>
+          <span class="reader-logo-badge" aria-hidden="true"></span>
+        </summary>
+        <div class="reader-logo-panel" role="group" aria-label="리더 상태">
+          <button class="reader-logo-close" type="button" aria-label="상태 닫기">×</button>
+          <p class="reader-logo-label">문서를 기다리는 중…</p>
+          <p class="reader-logo-hint" hidden></p>
+          <button class="reader-logo-release" type="button" hidden>선택 해제 후 갱신</button>
+          <button id="reader-apply-update" type="button" hidden>업데이트 적용</button>
+          <div
+            class="reader-settings-status-card"
+            role="group"
+            aria-label="오프라인 및 하이라이트 상태"
+          >
+            <div class="reader-status-item">
+              <span class="reader-status-title">오프라인 읽기</span>
+              <p id="reader-offline-status" role="status">오프라인 읽기를 준비하고 있습니다.</p>
+            </div>
+            <div class="reader-status-item">
+              <span class="reader-status-title">하이라이트 동기화</span>
+              <p id="reader-highlight-queue-status" role="status">
+                대기 중인 하이라이트 요청이 없습니다.
+              </p>
+              <button id="reader-highlight-results-clear" type="button" hidden>
+                확인한 요청 결과 지우기
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
       <div class="reader-appearance">
         <button
           id="reader-appearance-open"
@@ -149,26 +196,6 @@
           <p id="reader-appearance-status" class="reader-visually-hidden" role="status">
             기기 설정에 맞춰 자동으로 전환합니다.
           </p>
-          <button id="reader-apply-update" type="button" hidden>업데이트 적용</button>
-          <div
-            class="reader-settings-status-card"
-            role="group"
-            aria-label="오프라인 및 하이라이트 상태"
-          >
-            <div class="reader-status-item">
-              <span class="reader-status-title">오프라인 읽기</span>
-              <p id="reader-offline-status" role="status">오프라인 읽기를 준비하고 있습니다.</p>
-            </div>
-            <div class="reader-status-item">
-              <span class="reader-status-title">하이라이트 동기화</span>
-              <p id="reader-highlight-queue-status" role="status">
-                대기 중인 하이라이트 요청이 없습니다.
-              </p>
-              <button id="reader-highlight-results-clear" type="button" hidden>
-                확인한 요청 결과 지우기
-              </button>
-            </div>
-          </div>
           <div class="reader-compute-section" role="group" aria-label="기기 계산 및 진단">
             <div class="reader-compute-setting">
               <div class="reader-compute-heading">
@@ -188,53 +215,62 @@
               <div class="reader-compute-labels" aria-hidden="true">
                 <span>Low</span><span>High</span>
               </div>
-              <p id="reader-compute-description">
-                문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.
-              </p>
-              <p id="reader-compiler-status" role="status"></p>
-            </div>
-            <details id="reader-compiler-diagnostics">
-              <summary>이 기기 계산 확인</summary>
-              <div class="reader-diagnostics-body">
-                <p class="reader-diagnostic-note">
-                  1. 간단 검사를 누르고 이 화면을 열어 두세요. 2. 통과하면 현재 문서 검사를
-                  진행하세요.
+              <details class="reader-settings-advanced">
+                <summary>고급 · 계산 및 진단</summary>
+                <p id="reader-compute-description">
+                  문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.
                 </p>
-                <p id="reader-device-identity"></p>
-                <div class="reader-diagnostic-actions">
-                  <button type="button" data-diagnostic="quick" disabled>1. 간단 검사</button>
-                  <button type="button" data-diagnostic="document" disabled>
-                    2. 현재 문서 검사
-                  </button>
-                </div>
-                <p class="reader-diagnostic-note">
-                  현재 문서 검사는 수 분 걸릴 수 있습니다. 결과를 비교하며 원본과 읽는 문서는 바꾸지
-                  않습니다.
-                </p>
-                <p id="reader-diagnostic-result" role="status" aria-live="polite">
-                  기기 연결을 확인하고 있습니다.
-                </p>
-                <div class="reader-diagnostic-copy-row">
-                  <button type="button" id="reader-diagnostic-copy">결과 복사</button>
-                  <p id="reader-diagnostic-copy-status" role="status"></p>
-                </div>
-                <details class="reader-compiler-log-details">
-                  <summary>연결된 기기와 최근 작업</summary>
-                  <div class="reader-compiler-log-body">
+                <p id="reader-compiler-status" role="status"></p>
+                <details id="reader-compiler-diagnostics">
+                  <summary>이 기기 계산 확인</summary>
+                  <div class="reader-diagnostics-body">
                     <p class="reader-diagnostic-note">
-                      계산 결과 수신과 최종 문서 반영은 별도로 표시됩니다. 기록은 서버 재시작 시
-                      초기화됩니다.
+                      1. 간단 검사를 누르고 이 화면을 열어 두세요. 2. 통과하면 현재 문서 검사를
+                      진행하세요.
                     </p>
-                    <ul id="reader-compiler-devices"></ul>
-                    <ol id="reader-compiler-history"></ol>
+                    <p id="reader-device-identity"></p>
+                    <div class="reader-diagnostic-actions">
+                      <button type="button" data-diagnostic="quick" disabled>1. 간단 검사</button>
+                      <button type="button" data-diagnostic="document" disabled>
+                        2. 현재 문서 검사
+                      </button>
+                    </div>
+                    <p class="reader-diagnostic-note">
+                      현재 문서 검사는 수 분 걸릴 수 있습니다. 결과를 비교하며 원본과 읽는 문서는
+                      바꾸지 않습니다.
+                    </p>
+                    <p id="reader-diagnostic-result" role="status" aria-live="polite">
+                      기기 연결을 확인하고 있습니다.
+                    </p>
+                    <div class="reader-diagnostic-copy-row">
+                      <button type="button" id="reader-diagnostic-copy">결과 복사</button>
+                      <p id="reader-diagnostic-copy-status" role="status"></p>
+                    </div>
+                    <details class="reader-compiler-log-details">
+                      <summary>연결된 기기와 최근 작업</summary>
+                      <div class="reader-compiler-log-body">
+                        <p class="reader-diagnostic-note">
+                          계산 결과 수신과 최종 문서 반영은 별도로 표시됩니다. 기록은 서버 재시작 시
+                          초기화됩니다.
+                        </p>
+                        <ul id="reader-compiler-devices"></ul>
+                        <ol id="reader-compiler-history"></ol>
+                      </div>
+                    </details>
                   </div>
                 </details>
-              </div>
-            </details>
+              </details>
+            </div>
           </div>
         </div>
       </div>
     </header>
+    <span
+      id="reader-logo-announcement"
+      class="reader-visually-hidden"
+      role="status"
+      aria-live="polite"
+    ></span>
     <div
       id="reader-activity"
       class="reader-activity"

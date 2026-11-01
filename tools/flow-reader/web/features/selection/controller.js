@@ -124,11 +124,7 @@ export class ReaderSelectionActions {
     });
     // Native sharing/copy reads the prefetched excerpts. Expand a formula only
     // inside the copied range so the visible selection keeps its handles.
-    listen(
-      this.article,
-      "copy",
-      () => this.noticeNativeCopy(),
-    );
+    listen(this.article, "copy", () => this.noticeNativeCopy());
     const touchPoint = (clientX, clientY) =>
       mathSelectionUnit(document.elementFromPoint(clientX, clientY));
     listen(this.article, "pointerdown", (event) => {
@@ -187,7 +183,8 @@ export class ReaderSelectionActions {
           )
           .then((result) => {
             if (generation !== this.excerptGeneration || this.manifest !== document) return;
-            entry.status = result?.status === "located" ? "located" : (result?.status ?? "unmapped");
+            entry.status =
+              result?.status === "located" ? "located" : (result?.status ?? "unmapped");
             entry.text = entry.status === "located" ? result.text : null;
           })
           .catch(() => {
@@ -329,7 +326,9 @@ export class ReaderSelectionActions {
     const result = this.copyTextFor(selection.getRangeAt(0).cloneRange());
     if (!result?.math) return;
     if (result.pending)
-      this.announce("수식 원문을 확인하는 중입니다. 잠시 후 다시 복사하면 Typst 원문이 복사됩니다.");
+      this.announce(
+        "수식 원문을 확인하는 중입니다. 잠시 후 다시 복사하면 Typst 원문이 복사됩니다.",
+      );
     else if (result.unverified)
       this.announce("수식 원문을 확인할 수 없어 화면에 표시된 글자로 복사했습니다.");
   }
@@ -414,6 +413,7 @@ export class ReaderSelectionActions {
       const records = this.intents.records(this.manifest?.documentID);
       const pending = records.filter((record) => record.state === "pending").length;
       const rejected = records.filter((record) => record.state === "rejected").length;
+      status.dataset.pending = String(pending);
       status.textContent = `${pending ? `연결 후 확인할 하이라이트 ${pending}개. ` : ""}${
         rejected
           ? `확인이 필요한 요청 ${rejected}개. 최신 문서에서 저장 여부를 확인하고 다시 선택해 주세요.`
@@ -562,6 +562,7 @@ export class ReaderSelectionActions {
     this.review.dispose();
     this.sourcePaint.dispose();
     for (const remove of this.listeners) remove();
-    for (const timer of [this.selectionTimer, this.messageTimer, this.snapTimer]) clearTimeout(timer);
+    for (const timer of [this.selectionTimer, this.messageTimer, this.snapTimer])
+      clearTimeout(timer);
   }
 }

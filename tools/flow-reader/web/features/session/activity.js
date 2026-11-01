@@ -79,6 +79,7 @@ export class ReaderActivityState {
 export class ReaderActivity {
   constructor(element, adapter) {
     this.state = new ReaderActivityState();
+    this.logo = adapter.logo;
     this.notice = new ActivityNotice(element, {
       phase: () => this.state.phase(adapter.held()),
       language: uiLanguage(),
@@ -103,11 +104,13 @@ export class ReaderActivity {
 
   refresh() {
     this.notice.refresh();
+    this.logo?.update(this.notice.phase, this.notice, Boolean(this.state.server?.offline));
   }
 
   dispose() {
     for (const event of ["selectionchange", "close", "toggle", "touchend", "touchcancel"])
       document.removeEventListener(event, this.interactionChanged, true);
+    this.logo?.dispose();
     this.notice.dispose();
   }
 }
