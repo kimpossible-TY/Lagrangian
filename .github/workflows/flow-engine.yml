@@ -15,10 +15,7 @@ name: Flow engine
 # reader-bundle-<headSha> and flow-reader-bundle. They are not engine inputs.
 on:
   push:
-    # cursor/reader-bundle-bedd is temporary so this branch can prove the
-    # actions: read token still reuses and uploads artifacts. Remove this
-    # branch before the pull request is final.
-    branches: [main, cursor/reader-bundle-bedd]
+    branches: [main]
     paths-ignore:
       - "docs/**"
       - "openspec/**"
