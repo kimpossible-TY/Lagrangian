@@ -1903,6 +1903,9 @@ math svg {
   min-height: 44px;
   list-style: none;
   cursor: pointer;
+  border: 0;
+  background: transparent;
+  padding: 0;
   border-radius: 8px;
 }
 .reader-brand::-webkit-details-marker {
@@ -1943,6 +1946,9 @@ math svg {
   top: 0;
   font-size: 12px;
   color: var(--ink);
+}
+#reader-logo[data-update-waiting="true"] .reader-logo-badge {
+  color: var(--accent);
 }
 #reader-logo:is(
     [data-phase="waiting"],
@@ -2021,38 +2027,13 @@ math svg {
     color: var(--ink);
   }
 }
-.reader-logo-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(21.5rem, calc(100vw - 24px));
-  max-height: calc(100dvh - 100px);
-  overflow: auto;
-  box-sizing: border-box;
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: 0 10px 30px #0002;
-}
-.reader-logo-close {
-  float: right;
-  min-width: 32px;
-  min-height: 32px;
-  font-size: 22px;
-}
 .reader-logo-label {
   font-weight: 600;
-  margin: 4px 32px 8px 0;
+  margin: 12px 0 8px;
 }
 .reader-logo-hint {
   color: var(--muted);
   font-size: 12px;
-}
-.reader-logo-release {
-  margin: 8px 0;
 }
 .reader-settings-advanced > summary {
   cursor: pointer;

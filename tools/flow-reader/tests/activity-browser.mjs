@@ -148,19 +148,66 @@ try {
           .evaluate((node) => getComputedStyle(node).animationName),
         "none",
       );
-      await page.locator(".reader-brand").click();
-      const logoBounds = await page.locator(".reader-logo-panel").boundingBox();
-      assert.ok(logoBounds.x >= 0 && logoBounds.x + logoBounds.width <= 390);
+      // The logo refreshes the page; details remain in advanced settings.
+      assert.equal(await page.locator(".reader-logo-panel").count(), 0);
+      const brand = page.locator(".reader-brand");
+      const brandLabel = await brand.getAttribute("aria-label");
+      assert.ok(
+        brandLabel && brandLabel.includes("새로고침"),
+        "logo button exposes accessible name for refresh action",
+      );
+
+      // Keyboard activation of the logo refreshes the reader.
+      state.compiling = false;
+      await brand.focus();
+      await Promise.all([page.waitForNavigation(), page.keyboard.press("Enter")]);
+      await ready("r1");
+      await page.locator("#reader-appearance-open").click();
+      await page.locator(".reader-settings-advanced > summary").click();
       assert.equal(await page.locator("#reader-offline-status").isVisible(), true);
       await page.keyboard.press("Escape");
 
-      // A real native selection survives polling and a WebKit touch tap releases it.
+      // A real native selection survives polling, and logo tap/click in held state preserves it.
       await selectPassage();
       Object.assign(state, { revision: "r2", compiling: false });
       await phase("selection-held");
       assert.equal(await page.locator(".reader-activity-ring").isVisible(), false);
       assert.equal(await page.locator("#version").textContent(), "Accepted r1");
       assert.ok(await page.evaluate(() => !getSelection().isCollapsed));
+
+      // Logo tap in held state must NOT reload and must keep the active selection.
+      await brand.tap();
+      assert.equal(
+        await page.evaluate(() => getSelection().isCollapsed),
+        false,
+        "logo tap keeps selection",
+      );
+      assert.equal(
+        await page.locator("#version").textContent(),
+        "Accepted r1",
+        "held-state tap does not reload",
+      );
+
+      // Logo click in held state focuses the release button instead of dropping the selection.
+      await brand.click();
+      assert.equal(
+        await page.evaluate(() => getSelection().isCollapsed),
+        false,
+        "logo click keeps selection",
+      );
+      assert.equal(
+        await page.locator("#version").textContent(),
+        "Accepted r1",
+        "held-state click does not reload",
+      );
+      assert.equal(
+        await page.evaluate(
+          () => document.activeElement === document.querySelector("#reader-activity button"),
+        ),
+        true,
+        "held-state logo click focuses the release button",
+      );
+
       if (process.env.FLOW_READER_ACTIVITY_SCREENSHOTS)
         for (const theme of ["light", "dark"]) {
           await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
@@ -168,13 +215,38 @@ try {
             path: `${process.env.FLOW_READER_ACTIVITY_SCREENSHOTS}/${engine}-${theme}.png`,
           });
         }
-      await page.locator(".reader-brand").tap();
-      assert.ok(await page.evaluate(() => !getSelection().isCollapsed));
-      assert.equal(await page.locator(".reader-logo-panel").isVisible(), true);
-      await page.locator(".reader-logo-release").tap();
-      await page.keyboard.press("Escape");
+      await page.locator("#reader-activity button").tap();
       await ready("r2");
       assert.equal(await page.evaluate(() => getSelection().isCollapsed), true);
+
+      // A waiting service worker shows an update badge and activates the applyUpdate path.
+      await page.evaluate(() => {
+        window.__offlineApplied = false;
+        const fakeOffline = {
+          registration: { waiting: {} },
+          applyUpdate: async () => {
+            window.__offlineApplied = true;
+            return false;
+          },
+        };
+        window.__readerLogo.offline = fakeOffline;
+        window.__readerLogo.setUpdateWaiting(true);
+      });
+      assert.equal(await page.locator(".reader-logo-badge").textContent(), "↑");
+      assert.ok(
+        (await brand.getAttribute("aria-label")).includes("업데이트 적용"),
+        "accessible name reflects update action",
+      );
+      await brand.click();
+      assert.equal(
+        await page.evaluate(() => window.__offlineApplied),
+        true,
+        "logo click calls applyUpdate",
+      );
+      await page.evaluate(() => {
+        window.__readerLogo.setUpdateWaiting(false);
+        window.__readerLogo.offline = null;
+      });
 
       // A selection made during the fetch also holds publication; keyboard release works.
       sectionGate = new Promise((resolve) => (releaseSection = resolve));

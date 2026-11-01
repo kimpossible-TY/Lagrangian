@@ -1,0 +1,3 @@
+- [ ] 1. Create light and dark adaptive SVG favicon presenting approved L mark.
+- [ ] 2. Serve favicon in HTML reader assets and link in web shell.
+- [ ] 3. Validate browser color scheme switching and SVG favicon rendering.

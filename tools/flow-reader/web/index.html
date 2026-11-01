@@ -42,8 +42,8 @@
           <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" stroke-width="3" />
         </svg>
       </button>
-      <details id="reader-logo" data-phase="waiting">
-        <summary class="reader-brand" aria-label="문서를 기다리는 중 · 상태 보기">
+      <div id="reader-logo" data-phase="waiting">
+        <button type="button" class="reader-brand" aria-label="문서를 기다리는 중 · 새로고침">
           <svg class="reader-logo-mark" viewBox="0 0 240 220" aria-hidden="true">
             <path
               class="reader-logo-base"
@@ -62,34 +62,8 @@
             />
           </svg>
           <span class="reader-logo-badge" aria-hidden="true"></span>
-        </summary>
-        <div class="reader-logo-panel" role="group" aria-label="리더 상태">
-          <button class="reader-logo-close" type="button" aria-label="상태 닫기">×</button>
-          <p class="reader-logo-label">문서를 기다리는 중…</p>
-          <p class="reader-logo-hint" hidden></p>
-          <button class="reader-logo-release" type="button" hidden>선택 해제 후 갱신</button>
-          <button id="reader-apply-update" type="button" hidden>업데이트 적용</button>
-          <div
-            class="reader-settings-status-card"
-            role="group"
-            aria-label="오프라인 및 하이라이트 상태"
-          >
-            <div class="reader-status-item">
-              <span class="reader-status-title">오프라인 읽기</span>
-              <p id="reader-offline-status" role="status">오프라인 읽기를 준비하고 있습니다.</p>
-            </div>
-            <div class="reader-status-item">
-              <span class="reader-status-title">하이라이트 동기화</span>
-              <p id="reader-highlight-queue-status" role="status">
-                대기 중인 하이라이트 요청이 없습니다.
-              </p>
-              <button id="reader-highlight-results-clear" type="button" hidden>
-                확인한 요청 결과 지우기
-              </button>
-            </div>
-          </div>
-        </div>
-      </details>
+        </button>
+      </div>
       <div class="reader-appearance">
         <button
           id="reader-appearance-open"
@@ -217,6 +191,31 @@
               </div>
               <details class="reader-settings-advanced">
                 <summary>고급 · 계산 및 진단</summary>
+                <p class="reader-logo-label">문서를 기다리는 중…</p>
+                <p class="reader-logo-hint" hidden></p>
+                <button id="reader-apply-update" type="button" hidden>업데이트 적용</button>
+                <div
+                  class="reader-settings-status-card"
+                  role="group"
+                  aria-label="오프라인 및 하이라이트 상태"
+                >
+                  <div class="reader-status-item">
+                    <span class="reader-status-title">오프라인 읽기</span>
+                    <p id="reader-offline-status" role="status">
+                      오프라인 읽기를 준비하고 있습니다.
+                    </p>
+                  </div>
+                  <div class="reader-status-item">
+                    <span class="reader-status-title">하이라이트 동기화</span>
+                    <p id="reader-highlight-queue-status" role="status">
+                      대기 중인 하이라이트 요청이 없습니다.
+                    </p>
+                    <button id="reader-highlight-results-clear" type="button" hidden>
+                      확인한 요청 결과 지우기
+                    </button>
+                  </div>
+                </div>
+
                 <p id="reader-compute-description">
                   문서 컴파일은 서버에 맡기고, 이 기기에서는 수식·그림을 화면에 맞춥니다.
                 </p>
