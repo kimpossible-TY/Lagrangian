@@ -10,3 +10,5 @@
 - `openspec validate add-reader-status-logo --strict` and `git diff --check`: passed.
 
 Checks used isolated fixtures. No local Rust compilation, app installation or user-service restart. Physical-device Safari and optional real compiler integrations were not run. Preview-only outputs remain outside the implementation commit.
+
+- Refresh-button revision: Chromium and WebKit passed the shell fixture including reload, advanced status details, selection release and reduced motion; focused activity and architecture tests passed.

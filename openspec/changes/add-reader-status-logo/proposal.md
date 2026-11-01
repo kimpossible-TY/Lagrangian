@@ -4,12 +4,12 @@ The HTML reader scatters progress and connection details across notices and read
 ## What Changes
 - Replace the toolbar wordmark with the approved continuous-stroke L, 43.35 × 37.4 CSS pixels.
 - Follow its stroke with accelerating light and a gentle return during compilation/publication; distinguish reconnect, error, held updates, offline reading and completion.
-- Open state details from the logo, move offline/highlight information there, and fold technical reading settings under Advanced.
+- Reload the reader from the logo; place state details and offline/highlight information under Advanced.
 - Preserve shared activity precedence, explicit selection release and prominent error/held notices.
 
 ## Capabilities
 ### New Capabilities
-- `reader-status-logo`: HTML toolbar identity, state presentation and compact status details.
+- `reader-status-logo`: HTML toolbar identity, state presentation and refresh action.
 ### Modified Capabilities
 None in the accepted spec inventory. Existing active preview-activity requirements remain the source of activity policy; this HTML presentation replaces its busy ring with the approved mark.
 

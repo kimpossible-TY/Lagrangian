@@ -2,51 +2,32 @@
 export class StatusLogo {
   constructor(element) {
     this.element = element;
-    this.trigger = element.querySelector("summary");
+    this.trigger = element.querySelector("button");
     this.announcer = element.ownerDocument.querySelector("#reader-logo-announcement");
-    this.label = element.querySelector(".reader-logo-label");
-    this.hint = element.querySelector(".reader-logo-hint");
+    this.label = element.ownerDocument.querySelector(".reader-logo-label");
+    this.hint = element.ownerDocument.querySelector(".reader-logo-hint");
     this.badge = element.querySelector(".reader-logo-badge");
-    this.release = element.querySelector(".reader-logo-release");
     this.listeners = new AbortController();
     const { signal } = this.listeners;
-    // Preserve native document selection until the explicit release action.
-    this.trigger.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
-    this.release.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
-    this.release.addEventListener("click", () => this.notice?.releaseButton.click(), { signal });
-    element.querySelector(".reader-logo-close").addEventListener("click", () => this.close(true), {
-      signal,
-    });
-    document.addEventListener(
+    this.trigger.addEventListener(
       "click",
-      (event) => {
-        if (!element.contains(event.target)) this.close();
-      },
-      { signal },
-    );
-    document.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.key === "Escape" && element.open) {
-          event.preventDefault();
-          this.close(true);
-        }
+      () => {
+        if (this.reloading) return;
+        this.reloading = true;
+        this.element.dataset.phase = "loading";
+        this.trigger.setAttribute("aria-label", "새로고침 중");
+        this.reloadTimer = setTimeout(() => window.location.reload(), 180);
       },
       { signal },
     );
     document.documentElement.dataset.readerLogo = "true";
   }
 
-  close(focus = false) {
-    this.element.open = false;
-    if (focus) this.trigger.focus({ preventScroll: true });
-  }
-
   update(phase, notice, offline = false) {
     if (this.disposed) return;
     this.notice = notice;
     const korean = notice.korean;
-    const queue = this.element.querySelector("#reader-highlight-queue-status");
+    const queue = this.element.ownerDocument.querySelector("#reader-highlight-queue-status");
     const display =
       offline && ["ready", "reconnecting"].includes(phase)
         ? "offline"
@@ -82,7 +63,7 @@ export class StatusLogo {
               : "Connected · document up to date"
             : notice.label.textContent;
     if (this.label.textContent !== label) this.label.textContent = label;
-    this.trigger.setAttribute("aria-label", `${label} · ${korean ? "상태 보기" : "View status"}`);
+    this.trigger.setAttribute("aria-label", `${label} · ${korean ? "새로고침" : "Refresh"}`);
     this.trigger.title = label;
     if (this.announcer.textContent !== label) this.announcer.textContent = label;
     const hint =
@@ -93,8 +74,6 @@ export class StatusLogo {
         : notice.hint.textContent;
     this.hint.textContent = hint;
     this.hint.hidden = !hint;
-    this.release.textContent = notice.releaseButton.textContent;
-    this.release.hidden = notice.releaseButton.hidden;
     this.badge.textContent = display.endsWith("error")
       ? "!"
       : display.endsWith("held")
@@ -112,7 +91,7 @@ export class StatusLogo {
     this.disposed = true;
     clearTimeout(this.completed);
     this.listeners.abort();
-    this.close();
+    clearTimeout(this.reloadTimer);
     this.element.hidden = true;
     delete document.documentElement.dataset.readerLogo;
   }

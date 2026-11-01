@@ -148,9 +148,13 @@ try {
           .evaluate((node) => getComputedStyle(node).animationName),
         "none",
       );
-      await page.locator(".reader-brand").click();
-      const logoBounds = await page.locator(".reader-logo-panel").boundingBox();
-      assert.ok(logoBounds.x >= 0 && logoBounds.x + logoBounds.width <= 390);
+      // The logo refreshes the page; details remain in advanced settings.
+      assert.equal(await page.locator(".reader-logo-panel").count(), 0);
+      state.compiling = false;
+      await Promise.all([page.waitForNavigation(), page.locator(".reader-brand").click()]);
+      await ready("r1");
+      await page.locator("#reader-appearance-open").click();
+      await page.locator(".reader-settings-advanced > summary").click();
       assert.equal(await page.locator("#reader-offline-status").isVisible(), true);
       await page.keyboard.press("Escape");
 
@@ -168,11 +172,7 @@ try {
             path: `${process.env.FLOW_READER_ACTIVITY_SCREENSHOTS}/${engine}-${theme}.png`,
           });
         }
-      await page.locator(".reader-brand").tap();
-      assert.ok(await page.evaluate(() => !getSelection().isCollapsed));
-      assert.equal(await page.locator(".reader-logo-panel").isVisible(), true);
-      await page.locator(".reader-logo-release").tap();
-      await page.keyboard.press("Escape");
+      await page.locator("#reader-activity button").tap();
       await ready("r2");
       assert.equal(await page.evaluate(() => getSelection().isCollapsed), true);
 
