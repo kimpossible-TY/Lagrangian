@@ -1,7 +1,7 @@
 import { logicalTextIndex, selectedIntervals } from "../../rendering/math/identity.js";
 import { sourceSegments } from "./source-segments.js";
 
-const excluded = "svg,script,style,nav,.flow-notes,[data-flow-targets]";
+const excluded = "svg,script,style,nav,.flow-notes,.reader-chat,[data-flow-targets]";
 export const textIndex = logicalTextIndex;
 
 /** Resolve browser ranges to semantic blocks without exposing DOM state to shared policy. */

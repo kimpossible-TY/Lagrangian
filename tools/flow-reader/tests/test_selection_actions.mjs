@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SourceHighlightController } from "../web/features/source-highlight/controller.js";
-import { CodexContextController } from "../web/features/codex-context/controller.js";
 import { OptimisticHighlights } from "../../reader-common/source-highlight/optimistic.js";
 
-function harness(kind, editorServer, editorAttachment) {
+function harness(editorServer, editorAttachment) {
   const selected = [{ key: "body", exact: "Selected", revision: "r1", service: { pid: 7 } }];
   const state = {
     document: { revision: "r1" },
@@ -52,10 +51,7 @@ function harness(kind, editorServer, editorAttachment) {
     },
   };
   const highlights = new OptimisticHighlights((selected) => (state.paint = selected));
-  controller =
-    kind === "highlight"
-      ? new SourceHighlightController(view, transport, highlights)
-      : new CodexContextController(view, transport, 17);
+  controller = new SourceHighlightController(view, transport, highlights);
   return {
     state,
     selected,
@@ -67,54 +63,44 @@ function harness(kind, editorServer, editorAttachment) {
   };
 }
 
-for (const kind of ["highlight", "codex"]) {
-  test(`${kind} acknowledgment preserves a newer selection or revision`, async () => {
-    const h = harness(kind);
-    const pending = h.controller.submit(h.selected);
-    assert.equal(h.controller.pending, true);
-    await h.controller.submit(h.selected);
-    assert.equal(h.requests.length, 1);
-    assert.equal(h.requests[0][0], kind === "highlight" ? "api/highlight" : "api/focus");
-    if (kind === "codex") {
-      assert.equal(h.requests[0][1].viewerID, 17);
-      assert.deepEqual(h.requests[0][1].service, h.selected[0].service);
-    }
-    const newer = [{ ...h.selected[0], exact: "New selection" }];
-    h.state.selection = newer;
-    h.resolve(
-      kind === "highlight"
-        ? { status: "highlighted" }
-        : { status: "selected", rendered_revision: "r1" },
-    );
-    await pending;
-    assert.equal(h.state.selection, newer);
-    assert.equal(h.controller.pending, false);
-    const again = h.controller.submit(newer);
-    h.state.document = { revision: "r2" };
-    h.reject();
-    await again;
-    assert.equal(h.state.retained, null);
-  });
+test("highlight acknowledgment preserves a newer selection or revision", async () => {
+  const h = harness();
+  const pending = h.controller.submit(h.selected);
+  assert.equal(h.controller.pending, true);
+  await h.controller.submit(h.selected);
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0][0], "api/highlight");
+  const newer = [{ ...h.selected[0], exact: "New selection" }];
+  h.state.selection = newer;
+  h.resolve({ status: "highlighted" });
+  await pending;
+  assert.equal(h.state.selection, newer);
+  assert.equal(h.controller.pending, false);
+  const again = h.controller.submit(newer);
+  h.state.document = { revision: "r2" };
+  h.reject();
+  await again;
+  assert.equal(h.state.retained, null);
+});
 
-  test(`${kind} failed submission retains a native collapsed range but respects dismissal`, async () => {
-    const h = harness(kind);
-    const pending = h.controller.submit(h.selected);
-    h.state.selection = null;
-    h.reject();
-    await pending;
-    assert.equal(h.state.retained, h.selected);
-    const retry = h.controller.submit(h.selected);
-    h.controller.dismiss();
-    h.state.selection = null;
-    h.state.retained = null;
-    h.reject();
-    await retry;
-    assert.equal(h.state.retained, null);
-  });
-}
+test("highlight failed submission retains a native collapsed range but respects dismissal", async () => {
+  const h = harness();
+  const pending = h.controller.submit(h.selected);
+  h.state.selection = null;
+  h.reject();
+  await pending;
+  assert.equal(h.state.retained, h.selected);
+  const retry = h.controller.submit(h.selected);
+  h.controller.dismiss();
+  h.state.selection = null;
+  h.state.retained = null;
+  h.reject();
+  await retry;
+  assert.equal(h.state.retained, null);
+});
 
 test("source highlighting rejects a stale captured revision before writing", async () => {
-  const h = harness("highlight");
+  const h = harness();
   h.state.document.revision = "r2";
   await h.controller.submit(h.selected);
   assert.equal(h.requests.length, 0);
@@ -124,7 +110,7 @@ test("source highlighting rejects a stale captured revision before writing", asy
 });
 
 test("source highlight paints before the response and survives success until publication", async () => {
-  const h = harness("highlight");
+  const h = harness();
   const pending = h.controller.submit(h.selected);
   assert.deepEqual(h.state.paint, [h.selected]);
   assert.equal(h.state.released, true);
@@ -140,7 +126,7 @@ test("source highlight paints before the response and survives success until pub
 
 test("rejected and disconnected highlights remove optimistic paint and retain retry text", async () => {
   for (const status of ["stale", "unsupported", "modified", "error", "offline"]) {
-    const h = harness("highlight");
+    const h = harness();
     const pending = h.controller.submit(h.selected);
     assert.deepEqual(h.state.paint, [h.selected]);
     if (status === "offline") h.reject();
@@ -152,7 +138,7 @@ test("rejected and disconnected highlights remove optimistic paint and retain re
 });
 
 test("a service restart with the same revision cannot restore old retry context", async () => {
-  const h = harness("highlight");
+  const h = harness();
   const pending = h.controller.submit(h.selected);
   h.state.document.service = { pid: 8 };
   h.state.selection = null;
@@ -165,7 +151,7 @@ test("a service restart with the same revision cannot restore old retry context"
 
 test("terminal highlights carry editor identity and ordinary highlights omit the optional field", async () => {
   for (const expected of [undefined, "configured-editor"]) {
-    const h = harness("highlight", expected);
+    const h = harness(expected);
     const pending = h.controller.submit(h.selected);
     const body = h.requests[0][1];
     assert.equal(body.editorServer, expected);
@@ -178,7 +164,7 @@ test("terminal highlights carry editor identity and ordinary highlights omit the
 });
 
 test("shared editor highlights retain the private attachment through the HTML action", async () => {
-  const h = harness("highlight", "own-editor", "private-token");
+  const h = harness("own-editor", "private-token");
   const pending = h.controller.submit(h.selected);
   assert.equal(h.requests[0][1].editorAttachment, "private-token");
   h.resolve({ status: "editor-mismatch" });

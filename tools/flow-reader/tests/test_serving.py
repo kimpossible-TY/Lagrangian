@@ -76,7 +76,8 @@ class ReaderServingTests(unittest.TestCase):
                     if filename.endswith(".js"):
                         self.assertIn("javascript", response.headers["Content-Type"])
             for route in ("/assets.json", "/reader-common/AGENTS.md", "/../AGENTS.md",
-                          "/%2e%2e/AGENTS.md", "/features/selection/../../assets.json"):
+                          "/%2e%2e/AGENTS.md", "/features/selection/../../assets.json",
+                          "/features/codex-context/controller.js"):
                 with self.subTest(route=route), self.assertRaises(HTTPError) as missing:
                     urlopen(base + route)
                 self.assertEqual(missing.exception.code, 404)

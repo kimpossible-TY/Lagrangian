@@ -16,6 +16,7 @@ from flow_reader.compiler.build import Project
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
 from flow_reader.server.watch import watch
+from flow_reader.services.paragraph_chat import ParagraphChat
 
 
 def main():
@@ -59,6 +60,7 @@ def main():
         state = ReaderState(project, output, "https://example.test/paged/", False,
                             editor_server=os.environ.get("FLOW_READER_EDITOR_SERVER"),
                             change_file=os.environ.get("FLOW_READER_CHANGE_FILE"))
+        state._paragraph_chat = ParagraphChat(state, directory=work / "private-chat")
         state.compile()
         if not state.revision:
             raise RuntimeError(state.report)

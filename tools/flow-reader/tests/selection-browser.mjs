@@ -15,7 +15,7 @@ const fixture = spawn(
   { stdio: ["ignore", "pipe", "inherit"] },
 );
 const lines = createInterface({ input: fixture.stdout });
-const { url, entry, focusFile } = await new Promise((resolve, reject) => {
+const { url, entry } = await new Promise((resolve, reject) => {
   lines.once("line", (line) => resolve(JSON.parse(line)));
   fixture.once("exit", (code) => reject(new Error(`Fixture exited: ${code}`)));
 });
@@ -53,13 +53,13 @@ async function verify(browser, viewport) {
   });
   const errors = [];
   let highlights = 0;
-  let codexSaves = 0;
+  let chatOpens = 0;
   let sourceTexts = 0;
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("request", (request) => {
     if (request.url().endsWith("/api/highlight")) highlights++;
     if (request.url().endsWith("/api/source-text")) sourceTexts++;
-    if (request.method() === "POST" && request.url().endsWith("/api/focus")) codexSaves++;
+    if (request.method() === "POST" && request.url().endsWith("/api/chat/open")) chatOpens++;
   });
   const ready = () =>
     page.waitForFunction(
@@ -131,7 +131,9 @@ async function verify(browser, viewport) {
       const data = new DataTransfer();
       document
         .querySelector("#reader-document")
-        .dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }));
+        .dispatchEvent(
+          new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }),
+        );
       return data.getData("text/plain");
     });
   const copied = () => page.waitForFunction(() => window.__copied !== null);
@@ -160,9 +162,7 @@ async function verify(browser, viewport) {
         toolbar.y + toolbar.height <= viewport.height,
     );
 
-    await page.waitForFunction(
-      () => document.querySelector(".flow-equation .flow-math-view"),
-    );
+    await page.waitForFunction(() => document.querySelector(".flow-equation .flow-math-view"));
     const firstSourceRequests = sourceTexts;
     await selectMathGlyph();
     await page.waitForTimeout(400);
@@ -223,9 +223,7 @@ async function verify(browser, viewport) {
         !nativeMixed.includes("𝛼"),
     );
 
-    await page.waitForFunction(
-      () => document.querySelector(".flow-equation .flow-math-view"),
-    );
+    await page.waitForFunction(() => document.querySelector(".flow-equation .flow-math-view"));
     await page.evaluate(() => {
       window.__copied = null;
       document
@@ -284,8 +282,10 @@ async function verify(browser, viewport) {
       const equation = document.querySelector(
         '.flow-equation:has([data-flow-selection-ignore="dots-space"])',
       );
-      return equation?.querySelector('.flow-math-view[data-math-state="ready"]') &&
-        equation.querySelector('.flow-math-view [data-flow-selection-ignore="footnote"]');
+      return (
+        equation?.querySelector('.flow-math-view[data-math-state="ready"]') &&
+        equation.querySelector('.flow-math-view [data-flow-selection-ignore="footnote"]')
+      );
     });
     const ignoredMarkers = await page.evaluate(() => {
       const equation = document.querySelector(
@@ -308,9 +308,11 @@ async function verify(browser, viewport) {
     });
     check(
       "Selection across an equation excludes its generated markers",
-      ignoredMarkers.dots === "none" && ignoredMarkers.footnote === "none" &&
+      ignoredMarkers.dots === "none" &&
+        ignoredMarkers.footnote === "none" &&
         !ignoredMarkers.text.includes(ignoredMarkers.number) &&
-        !ignoredMarkers.text.includes("⋯") && !ignoredMarkers.text.includes("1") &&
+        !ignoredMarkers.text.includes("⋯") &&
+        !ignoredMarkers.text.includes("1") &&
         ignoredMarkers.link,
     );
 
@@ -323,7 +325,9 @@ async function verify(browser, viewport) {
     await click("#reader-copy");
     await copied();
     await page.waitForFunction(() =>
-      document.querySelector("#reader-highlight-message").textContent.includes("화면에 표시된 글자"),
+      document
+        .querySelector("#reader-highlight-message")
+        .textContent.includes("화면에 표시된 글자"),
     );
     check(
       "An unverified expression falls back to displayed text with a notice",
@@ -388,38 +392,29 @@ async function verify(browser, viewport) {
     });
     await page.reload();
     await ready();
-    check("Old local quotations are not automatically sent to Codex", codexSaves === 0);
+    check("Old local quotations do not automatically open chat", chatOpens === 0);
     check(
       "The quotation library UI is removed",
       (await page.locator("#reader-highlights-open, #reader-highlights").count()) === 0,
     );
     await select("Trailing paragraph 7");
     const savedResponse = page.waitForResponse(
-      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
-    await click("#reader-codex-save");
-    const saved = await (await savedResponse).json();
+    await click("#reader-chat-ask");
+    const saved = (await (await savedResponse).json()).conversations[0];
     check(
-      `Save for Codex records the exact selection and source context: ${JSON.stringify(saved)}`,
-      saved.status === "selected" &&
-        saved.selection.text === "Trailing paragraph 7" &&
-        saved.source.filepath === (await realpath(entry)),
+      `Ask records the exact selection and verified source context: ${JSON.stringify(saved)}`,
+      saved.status === "idle" &&
+        saved.quote === "Trailing paragraph 7" &&
+        saved.context.source.filepath === (await realpath(entry)),
     );
     check(
       "Saving context does not edit source or highlight it",
       highlights === 0 && (await readFile(entry, "utf8")) === original,
     );
-    check(
-      "The server writes the private focus record",
-      JSON.parse(await readFile(focusFile, "utf8")).selection.text === saved.selection.text,
-    );
-    const readContext = await (await page.request.get(url + "api/focus")).json();
-    check(
-      "The selection reader validates the saved context",
-      readContext.selection_usable &&
-        readContext.service_matches &&
-        readContext.source_excerpt_matches_disk,
-    );
+    check("Ask opens without starting inference", saved.thread.length === 0);
     check(
       "Legacy local quotation data remains untouched",
       (await page.evaluate((key) => localStorage.getItem(key), legacyKey)) === legacyValue,
@@ -427,23 +422,35 @@ async function verify(browser, viewport) {
 
     await select("Wrapped proof 한글", "block");
     const wrappedResponse = page.waitForResponse(
-      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
-    await click("#reader-codex-save");
-    const wrapped = await (await wrappedResponse).json();
-    const navigation = await (await page.request.post(url + "api/source", {
-      data: { revision: state.revision, fragments: wrapped.selection.fragments },
-    })).json();
-    const cursor = await (await page.request.post(url + "api/cursor", {
-      data: { revision: state.revision, path: navigation.path,
-              line: navigation.line, column: navigation.column },
-    })).json();
+    await click("#reader-chat-ask");
+    const wrapped = (await (await wrappedResponse).json()).conversations[0];
+    const navigation = await (
+      await page.request.post(url + "api/source", {
+        data: { revision: state.revision, fragments: wrapped.context.fragments },
+      })
+    ).json();
+    const cursor = await (
+      await page.request.post(url + "api/cursor", {
+        data: {
+          revision: state.revision,
+          path: navigation.path,
+          line: navigation.line,
+          column: navigation.column,
+        },
+      })
+    ).json();
     check(
-      "A mixed math proof saves the same source range used by Sync Editor",
-      wrapped.status === "selected" && navigation.status === "located" &&
-        wrapped.source.filepath === navigation.path && wrapped.source.line === navigation.line &&
-        wrapped.source.range.end.line === navigation.end_line &&
-        cursor.status === "located" && cursor.key === wrapped.selection.fragments[0].key,
+      "A mixed math proof captures the same source range used by Sync Editor",
+      wrapped.status === "idle" &&
+        navigation.status === "located" &&
+        wrapped.context.source.filepath === navigation.path &&
+        wrapped.context.source.line === navigation.line &&
+        wrapped.context.source.range.end.line === navigation.end_line &&
+        cursor.status === "located" &&
+        cursor.key === wrapped.context.fragments[0].key,
     );
     check(
       "Range mapping leaves workspace source and delivered HTML free of carriers",
@@ -451,14 +458,15 @@ async function verify(browser, viewport) {
         !(await page.content()).includes("data-flow-source-edge"),
     );
 
-    await page.route("**/api/focus", (route) =>
+    await page.route("**/api/chat/open", (route) =>
       route.fulfill({ status: 503, body: "Unavailable" }),
     );
     await select("Trailing paragraph 8");
     const failedSave = page.waitForResponse(
-      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
-    await page.locator("#reader-codex-save").evaluate((button) => {
+    await page.locator("#reader-chat-ask").evaluate((button) => {
       button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
       getSelection().removeAllRanges();
       button.click();
@@ -467,20 +475,21 @@ async function verify(browser, viewport) {
     await page.waitForFunction(() =>
       document
         .querySelector("#reader-highlight-message")
-        .textContent.includes("저장하지 못했습니다"),
+        .textContent.includes("Could not open chat"),
     );
     check(
-      "A failed Codex save retains the range after native collapse",
-      await page.locator("#reader-codex-save").isVisible(),
+      "A failed Ask retains the range after native collapse",
+      await page.locator("#reader-chat-ask").isVisible(),
     );
-    await page.unroute("**/api/focus");
+    await page.unroute("**/api/chat/open");
     const retriedSave = page.waitForResponse(
-      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
-    await click("#reader-codex-save");
+    await click("#reader-chat-ask");
     check(
       "The retained range can be retried without reselecting",
-      (await (await retriedSave).json()).selection.text === "Trailing paragraph 8",
+      (await (await retriedSave).json()).conversations[0].quote === "Trailing paragraph 8",
     );
 
     let releaseCodex;
@@ -488,7 +497,7 @@ async function verify(browser, viewport) {
     const codexRequested = new Promise((resolve) => {
       notifyCodex = resolve;
     });
-    await page.route("**/api/focus", async (route) => {
+    await page.route("**/api/chat/open", async (route) => {
       notifyCodex();
       await new Promise((resolve) => {
         releaseCodex = resolve;
@@ -496,28 +505,25 @@ async function verify(browser, viewport) {
       await route.fulfill({ response: await route.fetch() });
     });
     await select("Trailing paragraph 8");
-    await click("#reader-codex-save");
+    await click("#reader-chat-ask");
     await codexRequested;
     check(
-      "A pending Codex save blocks duplicate submission",
-      await page.locator("#reader-codex-save").isDisabled(),
+      "A pending Ask blocks duplicate submission",
+      await page.locator("#reader-chat-ask").isDisabled(),
     );
     await select("Trailing paragraph 9");
     const delayedSave = page.waitForResponse(
-      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
     releaseCodex();
     await delayedSave;
-    await page.waitForFunction(() =>
-      document
-        .querySelector("#reader-highlight-message")
-        .textContent.includes("Codex용 텍스트 저장됨"),
-    );
+    await page.waitForFunction(() => !document.querySelector("#reader-chat-ask").disabled);
     check(
-      "An older Codex acknowledgment preserves a newer selection",
+      "An older chat acknowledgment preserves a newer selection",
       (await page.evaluate(() => getSelection().toString())) === "Trailing paragraph 9",
     );
-    await page.unroute("**/api/focus");
+    await page.unroute("**/api/chat/open");
     await click("#reader-selection-cancel");
 
     // A native toolbar tap may collapse selection before its click arrives.
@@ -545,20 +551,21 @@ async function verify(browser, viewport) {
       document.querySelector("#reader-highlight-message").textContent.includes("정확히 연결"),
     );
     check(
-      "Rejected macro output keeps Save for Codex after native collapse",
-      (await page.locator("#reader-codex-save").isVisible()) &&
+      "Rejected macro output keeps Ask after native collapse",
+      (await page.locator("#reader-chat-ask").isVisible()) &&
         (await readFile(entry, "utf8")) === original,
     );
     const macroSavedResponse = page.waitForResponse(
-      (response) => response.url().endsWith("/api/focus") && response.request().method() === "POST",
+      (response) =>
+        response.url().endsWith("/api/chat/open") && response.request().method() === "POST",
     );
-    await click("#reader-codex-save");
-    const macroSaved = await (await macroSavedResponse).json();
+    await click("#reader-chat-ask");
+    const macroSaved = (await (await macroSavedResponse).json()).conversations[0];
     check(
       "Generated content saves its text with explicit unavailable source",
-      macroSaved.status === "unmapped" &&
-        macroSaved.selection.text === "Shared macro words" &&
-        macroSaved.source === null,
+      macroSaved.status === "idle" &&
+        macroSaved.quote === "Shared macro words" &&
+        macroSaved.context.source === null,
     );
     await click("#reader-selection-cancel");
 

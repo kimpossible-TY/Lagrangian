@@ -42,6 +42,7 @@ class ReaderState:
                             SharedEditLocation(project.root, project.entry, change_file))
         self.shared_edit_stamp = None
         self.lock = threading.RLock()
+        self._paragraph_chat = None
         self.accepted_inputs = None
         self.report = {}
         self.document = None
@@ -230,6 +231,8 @@ class ReaderState:
 
 
     def close(self):
+        if self._paragraph_chat:
+            self._paragraph_chat.close()
         if self.compiler_pool:
             self.compiler_pool.close()
         try:
@@ -237,6 +240,15 @@ class ReaderState:
                 self.source_history.close()
         finally:
             self.renderer.close()
+
+    @property
+    def paragraph_chat(self):
+        # Ordinary reading never opens an OAuth profile or conversation store.
+        from flow_reader.services.paragraph_chat import ParagraphChat
+        with self.lock:
+            if self._paragraph_chat is None:
+                self._paragraph_chat = ParagraphChat(self)
+            return self._paragraph_chat
 
     def locate(self, revision, fragments):
         return self.selection.locate(revision, fragments)
