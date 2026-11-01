@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Build, install, update, roll back, and migrate the personal macOS app."""
-# Temporary engine-input probe so this ref takes the flow-engine cache-miss path.
 from __future__ import annotations
 import argparse
 import datetime as dt

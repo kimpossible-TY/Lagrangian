@@ -15,10 +15,7 @@ name: Flow engine
 # reader-bundle-<headSha> and flow-reader-bundle. They are not engine inputs.
 on:
   push:
-    # cursor/reader-bundle-bedd is temporary so this branch can prove a cache
-    # hit and a miss. The Cursor GitHub App token cannot call workflow_dispatch
-    # (actions=write). Remove this branch before the pull request is final.
-    branches: [main, cursor/reader-bundle-bedd]
+    branches: [main]
     paths-ignore:
       - "docs/**"
       - "openspec/**"
