@@ -1,12 +1,12 @@
 # reader-bundle Specification
 
 ## Purpose
-Deliver the tracked reader tree as a per-run CI artifact whose manifest and checksums let the Mac fetch and install the reader without a git checkout.
+Package and deliver the tracked reader tree as a verified CI artifact paired with engine builds. Its manifest and checksums allow host tooling to fetch, stage, and install reader releases without requiring a local git checkout.
 
 ## Requirements
 
 ### Requirement: Publish the reader bundle on hit and miss
-`.github/workflows/flow-engine.yml` SHALL upload `reader-bundle-<headSha>` and `flow-reader-bundle` for the run commit on an engine cache hit and on an engine cache miss. The bundle SHALL contain the tracked `tools/flow-reader` and `tools/reader-common` trees, including `web/`, `install.py`, `manage.py`, and the `web/reader-common` symlink, plus `scripts/reader_bundle.py` and `reader-bundle.json`. The manifest SHALL record `headSha`, the SHA-256 and git mode of each file, and `bundleChecksum`. `scripts/engine-input-hash.py` SHALL NOT gain reader inputs. The `flow-engine-darwin-arm64` artifact name and layout SHALL stay unchanged.
+`.github/workflows/flow-engine.yml` SHALL upload `reader-bundle-<headSha>` and `flow-reader-bundle` on cache hit and miss. The bundle SHALL contain the tracked `tools/flow-reader` and `tools/reader-common` trees, `scripts/reader_bundle.py`, and `reader-bundle.json`. The manifest SHALL record `headSha`, per-file SHA-256 and git mode, and `bundleChecksum`. `scripts/engine-input-hash.py` SHALL NOT gain reader inputs; `flow-engine-darwin-arm64` name and layout SHALL stay unchanged.
 
 #### Scenario: Web-only push
 - **WHEN** a push changes `tools/flow-reader/web` and no engine input

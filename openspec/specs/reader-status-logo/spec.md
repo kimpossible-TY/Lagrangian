@@ -1,7 +1,7 @@
 # reader-status-logo Specification
 
 ## Purpose
-TBD - created by archiving change add-reader-status-logo. Update Purpose after archive.
+Provide an animated toolbar mark in the HTML reader that communicates live compilation, publication, and connection activity. The logo also serves as an accessible refresh control while preserving user selections and reflecting offline reading state.
 
 ## Requirements
 
