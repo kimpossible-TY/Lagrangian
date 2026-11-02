@@ -155,6 +155,9 @@
     "mathjax-newcm/chtml/woff2/mjx-ncm-ssbx.woff2": "5ca3f6d99f2f1d3d7e7f32cb20b637c5c2a1a9ff8349ed45c72afc5ab71829d7",
     "mathjax-newcm/chtml/woff2/mjx-ncm-lr.woff2": "e8e1f9f71f4ea8daf6655c131ec273d86bf79d951abe1c09ea43b6ec53b4e522",
     "mathjax-newcm/chtml/woff2/mjx-ncm-heb.woff2": "935d2cc9e8ec70822d0b45eff866645f2fa9399bc0a8ddc5b14802c1c21dcd19",
-    "mathjax-newcm/chtml/woff2/mjx-ncm-gki.woff2": "0185126699ae80e0c27dbdfa136d4aeb66cf7b1640b8b7965ea74e7987c2c29a"
+    "mathjax-newcm/chtml/woff2/mjx-ncm-gki.woff2": "0185126699ae80e0c27dbdfa136d4aeb66cf7b1640b8b7965ea74e7987c2c29a",
+    "mathjax/input/tex-base.js": "3333576887732af3f4d43ff259f5e5bb412efb4717c454f49182a462c80a5da8",
+    "mathjax/input/tex/extensions/ams.js": "6ff85ab489da04ec533a22b9b93d5d5d51f9f51ef02c723439734e65d9257d14",
+    "mathjax/input/tex/extensions/newcommand.js": "27bc6df0fc8567eaff5153e679e5de53e9cf0918aae714d8dd72fd3a40ca2293"
   }
 }

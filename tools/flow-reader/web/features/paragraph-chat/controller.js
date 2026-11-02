@@ -1,3 +1,4 @@
+import { ChatTranscript, chatStatus } from "./content.js";
 import {
   ConversationState,
   conversationSummary,
@@ -18,6 +19,7 @@ export class ParagraphChatController {
     Object.assign(this, { article, view, transport });
     this.state = new ConversationState();
     this.nodes = new Map();
+    this.createAccountSettings();
     this.drafts = new Map();
     this.queues = new Map();
     this.pending = false;
@@ -39,6 +41,34 @@ export class ParagraphChatController {
     document.fonts?.addEventListener("loadingdone", this.reflow);
     this.exit = () => this.flushDrafts();
     window.addEventListener("pagehide", this.exit);
+  }
+
+  createAccountSettings() {
+    const dialog = element("dialog", "", "reader-chat-settings");
+    dialog.id = "reader-chat-settings";
+    dialog.setAttribute("aria-labelledby", "reader-chat-settings-title");
+    const heading = element("h2", "ChatGPT 연결 설정");
+    heading.id = "reader-chat-settings-title";
+    const close = element("button", "닫기");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close ChatGPT settings");
+    close.addEventListener("click", () => dialog.close());
+    const account = element("div", "", "reader-chat-account");
+    const status = element("p", "");
+    status.setAttribute("role", "status");
+    dialog.append(heading, account, status, close);
+    this.article.ownerDocument.body.append(dialog);
+    this.accountSettings = { dialog, account, status };
+    dialog.addEventListener("close", () => {
+      if (!this.disposed && this.settingsReturn?.isConnected) this.settingsReturn.focus();
+    });
+  }
+
+  openAccountSettings(trigger) {
+    this.settingsReturn = trigger;
+    this.renderAccount(this.accountSettings);
+    if (!this.accountSettings.dialog.open) this.accountSettings.dialog.showModal();
+    this.loadAccount(true);
   }
 
   identity() {
@@ -130,30 +160,55 @@ export class ParagraphChatController {
     panel.id = `reader-chat-${id}`;
     panel.hidden = true;
     summary.setAttribute("aria-controls", panel.id);
-    const quote = element("blockquote", record.quote);
+    panel.setAttribute("role", "region");
+    const heading = element("div", "", "reader-chat-heading");
+    const title = element("span", "이 문단에 대한 대화");
+    title.id = `reader-chat-title-${id}`;
+    panel.setAttribute("aria-labelledby", title.id);
+    heading.append(title);
+    const contextLabel = element("p", "선택한 구절", "reader-chat-context-label");
+    const quote = element("blockquote", record.quote, "reader-chat-quote");
     const messages = element("div", "", "reader-chat-messages");
+    messages.setAttribute("role", "log");
+    messages.setAttribute("aria-live", "off");
+    messages.setAttribute("aria-label", "Paragraph questions and answers");
+    const transcript = new ChatTranscript(messages);
     const status = element("p", "", "reader-chat-status");
     status.setAttribute("role", "status");
-    const account = element("div", "", "reader-chat-account");
-    const form = element("form");
+    const account = element("button", "ChatGPT 연결 설정", "reader-chat-settings-open");
+    account.type = "button";
+    account.setAttribute("aria-haspopup", "dialog");
+    account.setAttribute("aria-controls", this.accountSettings.dialog.id);
+    account.addEventListener("click", () => this.openAccountSettings(account));
+    const form = element("form", "", "reader-chat-composer");
+    const inputLabel = element("label", "이 문단에 질문하기", "reader-chat-composer-label");
+    inputLabel.htmlFor = `reader-chat-question-${id}`;
     const input = element("textarea");
     input.setAttribute("aria-label", "Question about this paragraph");
-    input.placeholder = "Ask about this paragraph…";
+    input.id = inputLabel.htmlFor;
+    input.placeholder = "궁금한 점을 적어 주세요…";
     input.maxLength = 8000;
     input.rows = 2;
     input.value = this.drafts.get(id) ?? record.draft;
-    const send = element("button", "Send");
+    const send = element("button", "보내기 ↑", "reader-chat-send");
     send.type = "submit";
-    const cancel = element("button", "Interrupt");
+    const cancel = element("button", "생성 중단", "reader-chat-interrupt");
+    cancel.setAttribute("aria-label", "Interrupt");
+    cancel.hidden = true;
     cancel.type = "button";
     cancel.addEventListener("click", () => this.action(id, "cancel"));
-    const close = element("button", "Close conversation");
+    const close = element("button", "접기", "reader-chat-close");
+    close.setAttribute("aria-label", "Close conversation");
     close.type = "button";
     close.addEventListener("click", () => this.close(id));
     const model = element("select");
     model.setAttribute("aria-label", "ChatGPT model");
-    form.append(input, model, send, cancel);
-    panel.append(quote, messages, status, account, form, close);
+    const actions = element("div", "", "reader-chat-composer-actions");
+    model.className = "reader-chat-model";
+    actions.append(model, account, cancel, send);
+    form.append(inputLabel, input, actions);
+    heading.append(close);
+    panel.append(heading, contextLabel, quote, messages, status, form);
     root.append(summary, panel);
     summary.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
     root.addEventListener("keydown", (event) => {
@@ -166,8 +221,15 @@ export class ParagraphChatController {
     // Native button Enter/Space and click cover keyboard, pointer and touch.
     input.addEventListener("input", () => {
       this.drafts.set(id, input.value);
+      this.updateSend(node);
       clearTimeout(node.draftTimer);
       node.draftTimer = setTimeout(() => this.action(id, "draft", { draft: input.value }), 250);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) {
+        event.preventDefault();
+        form.requestSubmit();
+      }
     });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -179,6 +241,8 @@ export class ParagraphChatController {
       panel,
       quote,
       messages,
+      transcript,
+      inputLabel,
       status,
       account,
       form,
@@ -200,6 +264,7 @@ export class ParagraphChatController {
     node.summary.style.cssText = "";
     if (focus) node.input.focus({ preventScroll: true });
     else node.panel.querySelector("textarea")?.focus({ preventScroll: true });
+    node.transcript.update(this.state.records.get(id).thread, { visible: true });
     this.loadAccount();
     this.reload();
     this.schedule();
@@ -239,36 +304,28 @@ export class ParagraphChatController {
       const title = conversationSummary(record);
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
-      const text = record.thread
-        .map(
-          (message) =>
-            `${message.role === "user" ? `You [${message.revision}; selected: ${message.context?.selection ?? "unavailable"}]` : "Answer"}${message.status === "completed" ? "" : ` (${message.status})`}: ${message.text}`,
-        )
-        .join("\n\n");
-      if (node.messages.textContent !== text) node.messages.textContent = text;
-      const notice =
-        attachment.state === "unresolved"
-          ? `Unresolved (${attachment.reason}). History is retained. `
-          : "";
-      const status = `${notice}${record.status}: ${record.progress}`;
+      node.transcript.update(record.thread, { visible: !node.panel.hidden });
+      const status = chatStatus(record);
+      node.status.dataset.state = record.status;
       if (node.status.textContent !== status) node.status.textContent = status;
+      node.inputLabel.textContent = record.thread.length ? "이어서 질문하기" : "이 문단에 질문하기";
       if (
         !this.drafts.has(id) &&
         document.activeElement !== node.input &&
         node.input.value !== record.draft
       )
         node.input.value = record.draft;
-      node.send.disabled =
-        record.status === "streaming" || attachment.state !== "attached" || !node.model.value;
       node.cancel.hidden = record.status !== "streaming";
-      this.renderAccount(node);
+      this.renderModels(node);
+      this.updateSend(node);
     }
+    this.renderAccount(this.accountSettings);
     this.unresolved.hidden = !unresolved;
     this.schedule();
   }
 
   renderAccount(node) {
-    const signature = JSON.stringify([this.account, this.models]);
+    const signature = JSON.stringify(this.account);
     if (node.accountSignature === signature) return;
     node.accountSignature = signature;
     const notice = element(
@@ -356,8 +413,25 @@ export class ParagraphChatController {
       });
       node.account.append(link, cancel);
     }
+  }
+
+  updateSend(node) {
+    const record = this.state.records.get(node.root.dataset.conversationId);
+    node.send.disabled = Boolean(
+      node.sending ||
+        record.status === "streaming" ||
+        record.attachment.state !== "attached" ||
+        !node.model.value ||
+        !node.input.value.trim(),
+    );
+  }
+
+  renderModels(node) {
+    const signature = JSON.stringify(this.models);
+    if (node.modelsSignature === signature) return;
+    node.modelsSignature = signature;
     const current = node.model.value;
-    const placeholder = element("option", "Choose a model");
+    const placeholder = element("option", "모델 선택");
     placeholder.value = "";
     node.model.replaceChildren(
       placeholder,
@@ -368,13 +442,7 @@ export class ParagraphChatController {
       }),
     );
     node.model.value = this.models.some((model) => model.id === current) ? current : "";
-    node.model.onchange = () => {
-      const record = this.state.records.get(node.root.dataset.conversationId);
-      node.send.disabled =
-        !node.model.value ||
-        record.status === "streaming" ||
-        record.attachment.state !== "attached";
-    };
+    node.model.onchange = () => this.updateSend(node);
   }
 
   async auth(operation, extra = {}) {
@@ -478,12 +546,15 @@ export class ParagraphChatController {
     if (!node.pendingMessage || node.pendingMessage.question !== question)
       node.pendingMessage = { question, id: crypto.randomUUID() };
     this.drafts.set(id, question);
+    node.sending = true;
     node.send.disabled = true;
     const ok = await this.action(id, "send", {
       question,
       model: node.model.value,
       messageID: node.pendingMessage.id,
     });
+    node.sending = false;
+    this.updateSend(node);
     if (ok) {
       node.pendingMessage = null;
       this.watch();
@@ -585,7 +656,12 @@ export class ParagraphChatController {
     const obstacles = documentInk(this.article);
     for (const node of this.nodes.values()) {
       if (!node.root.isConnected || !node.host?.isConnected) continue;
-      if (!node.panel.hidden) continue;
+      if (!node.panel.hidden) {
+        node.transcript.update(this.state.records.get(node.root.dataset.conversationId).thread, {
+          visible: true,
+        });
+        continue;
+      }
       const size = node.summary.getBoundingClientRect();
       const box =
         window.innerWidth >= 960 &&
@@ -650,5 +726,6 @@ export class ParagraphChatController {
     document.fonts?.removeEventListener("loadingdone", this.reflow);
     this.clearNodes();
     this.unresolved.remove();
+    this.accountSettings.dialog.remove();
   }
 }
