@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.compiler.project import document_identity
@@ -22,8 +22,13 @@ LABEL_PREFIX = "io.github.kimpossible-ty.lagrangian.reader."
 LEGACY_LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
 
 
-def run(arguments, *, check=True):
-    result = subprocess.run(list(map(str, arguments)), text=True, capture_output=True, timeout=20)
+class NoReaderRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+def run(arguments, *, check=True, timeout=20):
+    result = subprocess.run(list(map(str, arguments)), text=True, capture_output=True, timeout=timeout)
     if check and result.returncode:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "Command failed")
     return result.stdout
@@ -77,9 +82,17 @@ class ReaderManager:
             raise ValueError("Missing executable: engine")
         return config
 
-    def profiles(self):
+    def parent_profiles(self):
+        """Read configured parents without a launch plan or lifecycle operation."""
         config = self.config()
         parents = json.loads(run([config["flowManager"], "--profiles"]))["profiles"]
+        if not isinstance(parents, list):
+            raise ValueError("Invalid Flow profiles")
+        return parents
+
+    def profiles(self):
+        config = self.config()
+        parents = self.parent_profiles()
         by_id = {profile["id"]: profile for profile in parents}
         ids, ports, result = set(by_id), {profile["port"] for profile in parents}, []
         focus_files = {str(Path(p["focusFile"]).resolve()) for p in parents if p.get("focusFile")}
@@ -159,6 +172,12 @@ class ReaderManager:
                      "--compiler", config["compiler"], "--output", str(self.data / "documents" / profile["id"]),
                      "--focus-file", profile["focusFile"],
                      "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
+        if config.get("homepageURL"):
+            from flow_reader.services.homepage import reader_url
+            homepage = reader_url(config["homepageURL"])
+            if not homepage:
+                raise ValueError("Invalid Homepage origin")
+            arguments.extend(["--homepage-url", homepage])
         engine = config.get("engine") or os.environ.get("FLOW_ENGINE_PATH")
         if profile.get("publicURL"):
             arguments.extend(["--public-url", profile["publicURL"]])
@@ -200,10 +219,10 @@ class ReaderManager:
         return matches[0]
 
     @staticmethod
-    def request(url, path, payload=None):
+    def request(url, path, payload=None, *, timeout=2):
         request = Request(url + path, None if payload is None else json.dumps(payload).encode(),
                           {"Content-Type": "application/json"})
-        with urlopen(request, timeout=2) as response:
+        with build_opener(NoReaderRedirect).open(request, timeout=timeout) as response:
             return json.loads(response.read(1024 * 1024))
 
     def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
@@ -255,8 +274,8 @@ class ReaderManager:
                 "StandardOutPath": str(self.data / "logs" / (profile["id"] + ".out.log")),
                 "StandardErrorPath": str(self.data / "logs" / (profile["id"] + ".err.log"))}
 
-    def job_pid(self, profile):
-        status = run(["/bin/launchctl", "print", f"gui/{os.getuid()}/{profile['label']}"], check=False)
+    def job_pid(self, profile, *, timeout=20):
+        status = run(["/bin/launchctl", "print", f"gui/{os.getuid()}/{profile['label']}"], check=False, timeout=timeout)
         match = re.search(r"(?m)^\s*pid = (\d+)\s*$", status)
         return int(match[1]) if match else None
 

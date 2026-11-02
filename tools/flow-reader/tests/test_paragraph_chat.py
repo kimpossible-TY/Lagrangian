@@ -250,9 +250,8 @@ class ParagraphChatTests(unittest.TestCase):
             self.assertNotIn("fixture-access", frames)
 
     def serve(self):
-        self.capability_path = self.work / ("host-capability-" + os.urandom(8).hex() + ".json")
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state,
-            public_url="https://reader.example", host_capability_path=self.capability_path))
+            public_url="https://reader.example", homepage_url="https://home.example/"))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
@@ -274,59 +273,24 @@ class ParagraphChatTests(unittest.TestCase):
             with urlopen(Request(origin + "/api/state", headers={"Host": host})) as response:
                 self.assertEqual(response.status, 200)
 
-    def test_host_capability_is_local_unproxied_ephemeral_and_required_for_auth(self):
+    def test_document_account_is_read_only_and_links_to_homepage(self):
         origin = self.serve()
-        endpoint = origin + "/api/chat/host-capability"
-        capability = read_json(self.capability_path, {})["capability"]
-        self.assertEqual(stat.S_IMODE(self.capability_path.stat().st_mode), 0o600)
-        other_origin = self.serve()
-        self.assertNotEqual(read_json(self.capability_path, {})["capability"], capability)
-        with self.assertRaises(HTTPError) as error:
-            urlopen(Request(other_origin + "/api/chat/auth",
-                json.dumps(self.reader.request(operation="login")).encode(),
-                {"Origin": other_origin, "Content-Type": "application/json", "X-Reader-Host-Capability": capability}))
-        self.assertEqual(error.exception.code, 403)
-        self.addCleanup(error.exception.close)
-        # Even a proxy hiding every forwarding header cannot retrieve the token over HTTP.
-        with self.assertRaises(HTTPError) as error:
-            urlopen(endpoint)
-        self.assertEqual(error.exception.code, 404)
-        self.addCleanup(error.exception.close)
-        forwarded = ("X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "Tailscale-User-Login",
-                     "tAiLsCaLe-Arbitrary")
-        for header in forwarded:
-            with self.subTest(header=header):
-                for value in ("", "127.0.0.1"):
-                    for operation in ("login", "logout", "cancel"):
-                        with self.assertRaises(HTTPError) as error:
-                            urlopen(Request(origin + "/api/chat/auth",
-                                json.dumps(self.reader.request(operation=operation)).encode(),
-                                {"Origin": origin, "Content-Type": "application/json",
-                                 "X-Reader-Host-Capability": capability, header: value}))
-                        self.assertEqual(error.exception.code, 403)
-                        self.addCleanup(error.exception.close)
-        for headers in ({"Host": "reader.example"}, {"Origin": "https://attacker.invalid"}):
-            with self.assertRaises(HTTPError) as error:
-                urlopen(Request(endpoint, headers=headers))
-            self.assertEqual(error.exception.code, 404)
-            self.addCleanup(error.exception.close)
+        with urlopen(Request(origin + "/api/chat/auth",
+                json.dumps(self.reader.request(operation="status")).encode(),
+                {"Origin": origin, "Content-Type": "application/json"})) as response:
+            status = json.load(response)
+        self.assertEqual(status["homepageURL"], "https://home.example/")
+        self.assertNotIn("accounts", status)
         for operation in ("login", "logout", "cancel"):
-            for token in (None, "wrong-capability"):
-                headers = {"Origin": origin, "Content-Type": "application/json"}
-                if token is not None:
-                    headers["X-Reader-Host-Capability"] = token
+            method = "close" if operation == "cancel" else operation
+            with patch.object(self.chat.auth, method) as action:
                 with self.assertRaises(HTTPError) as error:
                     urlopen(Request(origin + "/api/chat/auth",
-                        json.dumps(self.reader.request(operation=operation)).encode(), headers))
-                self.assertEqual(error.exception.code, 403)
-                self.addCleanup(error.exception.close)
-            method = "close" if operation == "cancel" else operation
-            with patch.object(self.chat.auth, method, return_value={"ok": True}) as action:
-                with urlopen(Request(origin + "/api/chat/auth",
                         json.dumps(self.reader.request(operation=operation)).encode(),
-                        {"Origin": origin, "Content-Type": "application/json", "X-Reader-Host-Capability": capability})) as response:
-                    self.assertEqual(response.status, 200)
-                action.assert_called_once()
+                        {"Origin": origin, "Content-Type": "application/json", "X-Reader-Host-Capability": "anything"}))
+                self.assertEqual(error.exception.code, 403)
+                error.exception.close()
+                action.assert_not_called()
 
     def test_invalid_request_does_not_echo_exception_secrets(self):
         origin = self.serve()

@@ -3,7 +3,7 @@ import test from "node:test";
 import { bubblePosition } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 
-test("host capability input disables autofill and text transformations and stays in memory", (t) => {
+test("document account entry uses configured Homepage and never includes host proof", (t) => {
   const createElement = (tagName) =>
     Object.assign(new EventTarget(), {
       tagName,
@@ -11,6 +11,9 @@ test("host capability input disables autofill and text transformations and stays
       attributes: {},
       setAttribute(name, value) {
         this.attributes[name] = value;
+      },
+      removeAttribute(name) {
+        delete this.attributes[name];
       },
       append(...children) {
         this.children.push(...children);
@@ -33,26 +36,22 @@ test("host capability input disables autofill and text transformations and stays
   const controller = { account: {}, models: [] };
   const node = { account: createElement("section"), model: createElement("select") };
   const render = () => ParagraphChatController.prototype.renderAccount.call(controller, node);
-  const input = () => node.account.children.find((child) => child.tagName === "input");
+  controller.account = { homepageURL: "https://home.example/" };
   render();
-  assert.equal(input().type, "text");
-  assert.equal(input().autocomplete, "off");
-  assert.equal(input().spellcheck, false);
-  assert.equal(input().autocapitalize, "off");
-  assert.equal(input().className, "reader-chat-host-capability");
-  assert.equal(input().attributes["aria-label"], "Host authorization token");
-  input().value = "locally-entered-capability";
-  input().dispatchEvent(new Event("input"));
-  assert.equal(controller.hostCapability, "locally-entered-capability");
-  controller.account = { signedIn: true };
+  const link = node.account.children.find((child) => child.tagName === "a");
+  assert.equal(link.href, "https://home.example/#connection");
+  assert.equal(link.target, "_blank");
+  assert.equal(link.rel, "noopener noreferrer");
+  assert.equal(
+    node.account.children.some((child) => child.tagName === "input"),
+    false,
+  );
+  controller.account = { homepageURL: "javascript:alert(1)" };
   render();
-  assert.equal(input().value, controller.hostCapability);
-  controller.account = { hostOnly: true };
-  render();
-  assert.equal(input(), undefined);
+  assert.equal(node.account.children.find((child) => child.tagName === "a").href, undefined);
 });
 
-test("account mutations require an explicitly entered local host capability", async (t) => {
+test("document account transport never sends credential mutations or host proof", async (t) => {
   const requests = [];
   t.mock.method(globalThis, "fetch", async (path, options) => {
     requests.push({ path, ...options });
@@ -62,21 +61,14 @@ test("account mutations require an explicitly entered local host capability", as
   for (const operation of ["login", "logout", "cancel"])
     await assert.rejects(
       ParagraphChatController.prototype.auth.call(controller, operation),
-      /local host authorization token/,
+      /Homepage/,
     );
   assert.equal(requests.length, 0);
-  controller.hostCapability = "locally-entered-capability";
-  for (const operation of ["login", "logout", "cancel", "status", "models"])
+  for (const operation of ["status", "models"])
     await ParagraphChatController.prototype.auth.call(controller, operation);
   assert.deepEqual(
     requests.map((request) => request.headers["X-Reader-Host-Capability"]),
-    [
-      controller.hostCapability,
-      controller.hostCapability,
-      controller.hostCapability,
-      undefined,
-      undefined,
-    ],
+    [undefined, undefined],
   );
   assert.ok(requests.every((request) => !request.body.includes("capability")));
 });
@@ -109,4 +101,15 @@ test("summary falls back inline when prose, math or annotations occupy local whi
   };
   assert.equal(bubblePosition(base), null);
   assert.equal(bubblePosition({ ...base, obstacles: [], viewport: { left: 0, right: 800 } }), null);
+});
+
+test("late send completion disables a composer removed by document replacement", () => {
+  const node = {
+    root: { dataset: { conversationId: "old" } },
+    send: {},
+    model: { value: "model" },
+    input: { value: "draft" },
+  };
+  ParagraphChatController.prototype.updateSend.call({ state: { records: new Map() } }, node);
+  assert.equal(node.send.disabled, true);
 });

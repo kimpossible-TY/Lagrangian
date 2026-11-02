@@ -312,15 +312,15 @@ The host MUST retain each user question's original verified selection/context/re
 
 ### Requirement: Host and authentication request boundaries
 
-The Reader MUST enforce a Host allowlist for GET/POST. Authentication management MUST require a per-start random capability, compared with hmac.compare_digest, and non-proxied loopback access. The capability MUST be delivered only through a 0600 host-local file, never HTTP, and explicitly entered by the host user. Tokens MUST NOT enter logs or persistent browser storage.
+The Reader MUST enforce a Host allowlist for GET/POST. Homepage credential management MUST require non-proxied loopback, a per-start capability from a 0600 host file compared with hmac.compare_digest, and a session-bound CSRF token. The capability MUST never be returned by HTTP or stored in the browser. Document account APIs MUST remain read-only and revision-bound.
 
 #### Scenario: Forged same-origin or proxied authentication
 
 - **WHEN** a client forges matching Origin and Host, supplies a forwarding header, or omits the correct current host capability
 - **THEN** disallowed Host receives 421 and authentication management without the required host proof receives 403
 - **AND** HTTP never returns the capability, even with forged local headers and no forwarding headers
-- **AND** the allowlist contains only the bound 127.0.0.1/localhost port and explicitly configured HTTPS Reader address
-- **AND** Forwarded, X-Forwarded-For, X-Forwarded-Host and any Tailscale-\* header, even empty, disqualify login/logout/cancel
+- **AND** each allowlist contains only its configured loopback authority and explicitly configured HTTPS address
+- **AND** Forwarded, X-Forwarded-\* and Tailscale-\* headers, even empty, disqualify Homepage login/logout/cancel; document endpoints always reject these mutations
 
 #### Scenario: Refresh and cancellation lifetimes
 

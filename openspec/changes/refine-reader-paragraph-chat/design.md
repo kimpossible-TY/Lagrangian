@@ -17,8 +17,8 @@ Expanded panels inherit paper/ink/accent and reading size. Small system labels
 separate context, question, answer and follow-up. Hairlines replace bulky cards.
 The canonical toolbar logo is unchanged. Collapsed geometry is unchanged.
 
-One dialog per controller holds the existing account UI and memory-only host
-capability. Each composer links to that dialog. Mac loopback/origin/capability
-checks are unchanged. Homepage integration owns replacing renderAccount/auth;
-the chat presentation calls shared account rendering once and models separately.
-No Homepage source is copied or modified by this work.
+One dialog per controller holds read-only connection status and the configured
+Homepage account-management link. Each composer opens that same dialog. The
+Homepage prerequisite owns account composition and Mac-only mutation authority;
+document auth remains status/models-only. Model selection stays per composer.
+The completed Homepage commit is merged locally as an explicit prerequisite.

@@ -23,10 +23,10 @@ Late formatting MUST NOT paint a newer document or message.
 - **THEN** it cannot execute, fetch embedded content or replace newer content.
 
 ### Requirement: Shared account controls
-Account/token management SHALL appear once in shared settings, reachable from
-each composer, while preserving the existing host-only authority and in-memory
-capability handling. The standalone Reader SHALL still support explicit Mac
-sign-in until shared Homepage composition replaces the settings implementation.
+Account/token management SHALL remain owned by the independent Homepage. One
+shared read-only connection dialog SHALL be reachable from each composer and
+link to that configured Homepage. Document auth MUST remain status/models-only;
+host proof and credential mutation controls MUST NOT appear in the document.
 
 #### Scenario: Settings from two paragraph conversations
 - **WHEN** either composer opens account settings

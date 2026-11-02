@@ -9,8 +9,8 @@ The user approved a document-inline redesign on 2026-11-02.
 Keep collapsed margin summaries, collision fallback and paragraph-local expansion.
 Separate quote, question, answer and follow-up composition; put original question
 context in accessible details. Render safe Markdown and base/AMS math without raw
-HTML or new provider capabilities. Move existing account controls to one shared
-settings dialog so sign-in remains available before the Homepage is integrated.
+HTML or new provider capabilities. Expose one shared read-only connection dialog linking to the independent
+Homepage account settings, included as an explicit integration prerequisite.
 
 ## Impact
 HTML and terminal browser presentation only. No source changes, history schema,

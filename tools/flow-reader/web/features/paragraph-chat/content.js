@@ -15,7 +15,11 @@ function inlineMath(state, silent) {
   let end = start + opening.length;
   for (;;) {
     end = source.indexOf(closing, end);
-    if (end < 0 || end - start > mathLimit) return false;
+    if (end < 0 || end - start > mathLimit) {
+      if (!silent) state.push("text", "", 0).content = opening;
+      state.pos = start + opening.length;
+      return true;
+    }
     let slashes = 0;
     for (let i = end - 1; source[i] === "\\"; i--) slashes++;
     if (slashes % 2 === 0) break;
@@ -51,6 +55,7 @@ function blockMath(state, startLine, endLine, silent) {
   if (silent) return true;
   const token = state.push("reader_math_block", "", 0);
   token.block = true;
+  token.markup = opening;
   token.content = state.src.slice(start + opening.length, end).trim();
   token.map = [startLine, next + 1];
   state.line = next + 1;
@@ -110,8 +115,9 @@ function appendTokens(parent, tokens) {
       node.className = "reader-chat-math";
       node.dataset.tex = token.content;
       node.dataset.display = String(Boolean(token.block));
-      node.textContent =
-        (token.block ? "\\[" : "\\(") + token.content + (token.block ? "\\]" : "\\)");
+      const opening = token.markup || (token.block ? "\\[" : "\\(");
+      const closing = opening === "$" || opening === "$$" ? opening : token.block ? "\\]" : "\\)";
+      node.textContent = opening + token.content + closing;
       append(node);
     } else if (token.type === "text" || token.type === "softbreak")
       append(document.createTextNode(token.type === "softbreak" ? "\n" : token.content));
@@ -183,6 +189,7 @@ export async function renderChatContent(container, text, { complete = true } = {
         if (result.querySelector("a[href],img,image,foreignObject,script,iframe")) continue;
         node.replaceChildren(result);
         node.dataset.typeset = "true";
+        mathjax.startup.document.reset();
         mathjax.startup.document.updateDocument();
       } catch {
         node.title = "수식 원문 · 조판하지 못했습니다";

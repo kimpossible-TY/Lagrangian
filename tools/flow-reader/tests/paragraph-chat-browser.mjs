@@ -106,18 +106,14 @@ try {
   await first.locator(".reader-chat-settings-open").click();
   const settings = page.locator("dialog.reader-chat-settings");
   check(
-    "One shared settings dialog retains the masked host capability",
-    (await settings.count()) === 1 &&
-      (await settings
-        .locator("input[aria-label='Host authorization token']")
-        .evaluate(
-          (input) =>
-            input.type === "text" &&
-            input.autocomplete === "off" &&
-            input.spellcheck === false &&
-            ["off", "none"].includes(input.autocapitalize) && input.getAttribute("autocapitalize") === "off" &&
-            getComputedStyle(input).getPropertyValue("-webkit-text-security") === "disc",
-        )),
+    "One shared settings dialog links account management to Homepage",
+    (await settings.count()) === 1 && (await settings.textContent()).includes("Homepage"),
+  );
+  check(
+    "Document settings never contain host proof or auth mutation buttons",
+    (await page
+      .locator("input[aria-label='Host authorization token'],button[data-oai-siwc-button]")
+      .count()) === 0,
   );
   await settings.getByRole("button", { name: "Close ChatGPT settings", exact: true }).click();
   check(
@@ -197,6 +193,37 @@ try {
         .locator(".reader-chat-message-context")
         .first()
         .evaluate((e) => e.open)),
+  );
+  check(
+    "Late math cannot replace a newer answer and unsupported commands stay literal",
+    await page.evaluate(async () => {
+      const { renderChatContent } = await import("/features/paragraph-chat/content.js");
+      const math = globalThis.MathJax,
+        original = math.tex2chtmlPromise;
+      const target = document.createElement("div");
+      document.body.append(target);
+      let release, begin;
+      const started = new Promise((resolve) => (begin = resolve));
+      math.tex2chtmlPromise = () => {
+        begin();
+        return new Promise((resolve) => (release = resolve));
+      };
+      try {
+        const old = renderChatContent(target, "\\(x\\)");
+        await started;
+        await renderChatContent(target, "Newer answer");
+        const result = document.createElement("span");
+        result.textContent = "obsolete math";
+        release(result);
+        await old;
+        if (target.textContent !== "Newer answer") return false;
+        await renderChatContent(target, "\\(\\require{html}\\)");
+        return target.textContent.includes("require") && !target.querySelector("[data-typeset]");
+      } finally {
+        math.tex2chtmlPromise = original;
+        target.remove();
+      }
+    }),
   );
   await control({ mode: "stall" });
   await first.locator("textarea").fill("Interrupt this response");
@@ -313,6 +340,18 @@ try {
     (await second.getAttribute("data-conversation-id")) !== firstID &&
       (await second.locator(".reader-chat-messages").textContent()) === "",
   );
+  await second.locator(".reader-chat-settings-open").click();
+  check(
+    "Different paragraphs share the same settings destination",
+    (await page.locator("dialog.reader-chat-settings").count()) === 1,
+  );
+  await page.getByRole("button", { name: "Close ChatGPT settings", exact: true }).click();
+  check(
+    "Shared settings returns focus to the second composer",
+    await second
+      .locator(".reader-chat-settings-open")
+      .evaluate((e) => e === document.activeElement),
+  );
   await second.locator("textarea").fill("An unsent durable draft");
   await page.waitForTimeout(600);
   await page.reload();
@@ -354,6 +393,7 @@ try {
       "completed",
   );
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
   check(
     "Mobile expanded composer fits without page overflow",
     await second.evaluate((root) => {

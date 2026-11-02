@@ -60,3 +60,8 @@ test("Conversation labels retain partial, unresolved and unknown truthfulness", 
     /기록은 보존/u,
   );
 });
+
+test("unfinished explicit math delimiters stay literal", () => {
+  const tokens = flatten(chatTokens("Unfinished \\(\\frac{1}"));
+  assert.ok(tokens.some((t) => t.type === "text" && t.content.includes("\\(")));
+});
