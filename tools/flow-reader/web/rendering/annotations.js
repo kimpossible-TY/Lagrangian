@@ -428,12 +428,13 @@ export class TextAnnotations {
         // Footnotes and longer explanations use the available side column.
         if (record.kind === "text" && record.short) continue;
         const host = this.fragments(record)[0]?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li");
+        const chatLayout = this.article.classList.contains("reader-paragraph-chat");
         if (
           !host ||
           !sideAnnotations({
             width: document.documentElement.clientWidth,
             height: innerHeight,
-            articleWidth: host.getBoundingClientRect().width,
+            articleWidth: host.getBoundingClientRect().width + (chatLayout ? 80 : 0),
             fontSize,
           })
         )
@@ -448,7 +449,11 @@ export class TextAnnotations {
     }
     for (const [host, group] of groups) {
       group.lines = this.sides.get(host)?.lines;
-      group.width = Math.max(220, fontSize * 14);
+      group.leftNotes = this.article.classList.contains("reader-paragraph-chat");
+      group.width = group.leftNotes ? Math.max(150, fontSize * 11) : Math.max(220, fontSize * 14);
+      group.outset = group.leftNotes
+        ? Math.min(60, Math.max(0, host.getBoundingClientRect().left - 12))
+        : 0;
       for (const record of group.records) {
         const reference =
           record.kind === "footnote"
@@ -477,14 +482,19 @@ export class TextAnnotations {
       [...this.sides.keys()].some((host) => !groups.has(host)) ||
       [...groups].some(([host, group]) => {
         const previous = this.sides.get(host);
-        return !previous || previous.width !== group.width || previous.minimum !== group.minimum;
+        return (
+          !previous ||
+          previous.width !== group.width ||
+          previous.minimum !== group.minimum ||
+          previous.outset !== group.outset
+        );
       });
     if (changed) {
       this.preserve(() => {
         for (const host of this.sides.keys()) if (!groups.has(host)) this.clearSide(host);
         for (const [host, group] of groups) {
           host.classList.add("flow-annotation-side");
-          host.style.setProperty("--flow-side-width", `${group.width}px`);
+          host.style.setProperty("--flow-side-width", `${group.width - group.outset}px`);
           host.style.setProperty("--flow-side-height", `${group.minimum}px`);
         }
         this.sides = groups;
@@ -513,12 +523,12 @@ export class TextAnnotations {
     this.place(lines, bounds.left, bounds.top);
     const width = bounds.width,
       height = bounds.height,
-      divider = width - group.width;
+      divider = width - group.width + group.outset;
     lines.style.width = `${width}px`;
     lines.style.height = `${height}px`;
     const local = (rect) => ({
-      left: rect.left - bounds.left,
-      right: rect.right - bounds.left,
+      left: group.leftNotes ? bounds.right - rect.right : rect.left - bounds.left,
+      right: group.leftNotes ? bounds.right - rect.left : rect.right - bounds.left,
       top: rect.top - bounds.top,
       bottom: rect.bottom - bounds.top,
     });
@@ -527,8 +537,8 @@ export class TextAnnotations {
       .map(local);
     const targets = group.records.map((record) => ({
       record,
-      target: this.rectangles(record).at(-1),
-      note: record.body.getBoundingClientRect(),
+      target: this.rectangles(record).at(-1) && local(this.rectangles(record).at(-1)),
+      note: local(record.body.getBoundingClientRect()),
     }));
     const key = JSON.stringify(
       [
@@ -536,20 +546,18 @@ export class TextAnnotations {
         height,
         divider,
         ink,
-        targets.map(({ record, target, note }) => [
-          record.note.id,
-          target && local(target),
-          local(note),
-        ]),
+        targets.map(({ record, target, note }) => [record.note.id, target, note]),
       ],
       (_, value) => (typeof value === "number" ? Math.round(value * 4) / 4 : value),
     );
     if (lines.flowSideGeometry === key) return;
     lines.flowSideGeometry = key;
-    let svg = `<path class="flow-side-divider" d="M${divider},0 V${height}"/>`;
+    let svg = group.leftNotes
+      ? `<g transform="translate(${width},0) scale(-1,1)">`
+      : `<path class="flow-side-divider" d="M${divider},0 V${height}"/>`;
     for (const { record, target, note } of targets) {
       if (!target) continue;
-      const end = { x: divider, y: Math.max(4, note.top - bounds.top - 4) };
+      const end = { x: divider, y: Math.max(4, note.top - 4) };
       const obstacles = ink.concat([
         { left: 0, right: width, top: -1000, bottom: 0 },
         { left: 0, right: width, top: height, bottom: height + 1000 },
@@ -562,8 +570,8 @@ export class TextAnnotations {
         [(target.left + target.right) / 2, target.bottom + 4, "south"],
       ]) {
         point = {
-          x: Math.max(4, Math.min(divider - 8, x - bounds.left)),
-          y: Math.max(4, Math.min(height - 4, y - bounds.top)),
+          x: Math.max(4, Math.min(divider - 8, x)),
+          y: Math.max(4, Math.min(height - 4, y)),
         };
         route = routeConnection(
           {
@@ -585,6 +593,7 @@ export class TextAnnotations {
         `<path class="flow-side-connector" data-note="${record.note.id}" d="${path}"/>` +
         `<circle class="flow-side-dot" cx="${point.x}" cy="${point.y}" r="2.5"/>`;
     }
+    if (group.leftNotes) svg += "</g>";
     if (lines.flowSidePaint !== svg) {
       lines.innerHTML = svg;
       lines.flowSidePaint = svg;
@@ -602,7 +611,8 @@ export class TextAnnotations {
       articleWidth:
         area.width -
         parseFloat(getComputedStyle(this.article).paddingLeft) -
-        parseFloat(getComputedStyle(this.article).paddingRight),
+        parseFloat(getComputedStyle(this.article).paddingRight) +
+        (this.article.classList.contains("reader-paragraph-chat") ? 80 : 0),
       fontSize,
     });
     const layout = side ? "side" : "compact";
@@ -637,7 +647,11 @@ export class TextAnnotations {
       );
       for (const record of group.records) {
         sideRecords.add(record);
-        this.place(record.note, bounds.right - group.width, top);
+        this.place(
+          record.note,
+          group.leftNotes ? bounds.left - group.outset : bounds.right - group.width,
+          top,
+        );
         top += record.note.getBoundingClientRect().height + 16;
       }
     }
@@ -671,7 +685,8 @@ export class TextAnnotations {
         const anchor = rects.at(-1);
         const host = this.fragments(record)[0]?.closest(".flow-equation,p");
         const hostBounds = host?.getBoundingClientRect();
-        const gutter = groups.has(host) ? groups.get(host).width + 20 : 0;
+        const group = groups.get(host);
+        const gutter = group && !group.leftNotes ? group.width + 20 : 0;
         const right = hostBounds?.right - gutter;
         const available = host
           ? Math.min(area.right, right) - Math.max(area.left, hostBounds.left) - 8
@@ -707,7 +722,10 @@ export class TextAnnotations {
               anchor,
               size,
               {
-                left: Math.max(area.left, hostBounds.left) + 4,
+                left:
+                  Math.max(area.left, hostBounds.left) +
+                  4 +
+                  (group?.leftNotes ? group.width - group.outset + 20 : 0),
                 right: Math.min(area.right, right) - 4,
                 top: hostBounds.top + 3,
               },

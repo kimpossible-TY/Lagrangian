@@ -146,6 +146,9 @@ from flow_reader.services.source_history import SourceHistoryClient, source_snap
 from flow_reader.compiler.project import Project
 
 assert Path(state.__file__).resolve().is_relative_to(Path.cwd())
+from flow_reader.services.paragraph_chat import ParagraphChat, DocumentTools
+from flow_reader.services.chat_auth import ChatAuth
+assert (Path(state.__file__).parents[1] / 'services/verify-id-token.mjs').is_file()
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary).resolve()
     (root / 'main.typ').write_text('Installed source-history client')

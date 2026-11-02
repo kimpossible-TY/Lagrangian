@@ -36,7 +36,9 @@ function fixture(t) {
     Object.defineProperty(globalThis, key, { configurable: true, value });
   }
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const actions = new ReaderSelectionActions(element());
+  const actions = new ReaderSelectionActions(element(), {
+    createChat: () => ({ pending: false, dismiss() {}, dispose() {}, onDocument() {} }),
+  });
   const selected = [{ key: "body", exact: "Selected", revision: "r1" }];
   actions.selection = selected;
   const submitted = [];

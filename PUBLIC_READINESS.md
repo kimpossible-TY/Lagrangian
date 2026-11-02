@@ -30,6 +30,6 @@ Publishing this source as **experimental** is reasonable on the evidence reviewe
 - Initial deployment was macOS arm64 with the Tinymist 0.15.8 extension. Other platforms and newer extension versions are not established compatibility claims.
 - Timings are individual requests, including an intentionally expensive reproducer, not a representative performance distribution.
 - Existing upstream version metadata remains; a future distributed binary needs clear fork provenance and its own artifact identification.
-- Previous scoped tests passed; no claim is made that the entire inherited CI suite passes. See the [validation record](openspec/changes/static-import-discovery/validation.md).
+- Previous scoped tests passed; no claim is made that the entire inherited CI suite passes. See the [validation record](openspec/changes/archive/2026-11-01-static-import-discovery/validation.md).
 
 No change to visibility was made during this review. A later publication step should recheck changes and uploaded artifacts since this review, then explicitly change this repository to public. Keep Actions disabled until its inherited release and publishing configuration has been adapted.

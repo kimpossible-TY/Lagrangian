@@ -211,6 +211,9 @@ class ReaderManagerTests(unittest.TestCase):
         self.assertEqual(arguments[arguments.index("--root") + 1], self.parent["root"])
         self.assertEqual(arguments[arguments.index("--font-path") + 1], "fonts")
         self.assertEqual(arguments[arguments.index("--original-url") + 1], self.parent["publicURL"])
+        self.assertEqual(arguments[arguments.index("--public-url") + 1], profile["publicURL"])
+        without_public_url = {**profile, "publicURL": ""}
+        self.assertNotIn("--public-url", self.manager.arguments(without_public_url))
         self.assertNotIn("--allow-incomplete", arguments)
         self.assertNotIn("--semantic-canvases", arguments)
         agent = self.manager.agent(profile)

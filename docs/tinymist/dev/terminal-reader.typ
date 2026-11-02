@@ -3,7 +3,7 @@
 `tools/flow-reader/terminal.mjs` runs the existing HTML Reader in headless
 Chromium and sends its rendered image to a graphics terminal. Mouse and
 keyboard input reach the real browser document, including its text selection,
-mathematics, figures, reading settings, Save for Codex and review marks.
+mathematics, figures, reading settings, Ask paragraph conversations and review marks.
 `editors/neovim/lua/tinymist/reader.lua` opens a right-hand view inside Neovim
 by default and connects saved-source navigation and verified source highlights.
 Source and Reader share the same terminal connection.
@@ -379,12 +379,25 @@ Tab and Enter, or these shortcuts while focus is outside a text input:
   [`q`], [Quit this Reader host.],
 )
 
-The normal Reader settings and Save for Codex remain browser controls, reachable
-with Tab and Enter. Save for Codex uses the same acknowledged HTTP action and
-private service record as the web Reader, with exact logical text and supported
-source context. It does not send a message or start a Codex turn. Shortcuts pass
-through while typing in an input. Review strikes stay in browser storage; source
-highlighting is an explicit file change. Source navigation requires Neovim.
+The normal Reader settings and Ask remain browser controls, reachable with
+Tab and Enter. Ask replaces Save for Codex in HTML and terminal views. It reuses
+verified selection capture to open one conversation per paragraph; only Send
+starts a model turn. Conversations and drafts belong to the host's private local
+store outside the source project and survive reopening the terminal.
+
+Continue with ChatGPT must be initiated from this Mac's loopback Reader. It opens
+the system browser for SIWC consent; remote views can choose account models and
+chat after host authorization, but cannot manage credentials. No API key or
+existing Codex profile is imported. Node.js is required for ID-token signature
+verification. The host exposes only bounded search/read tools for the current
+accepted document, with no model filesystem or shell access. Interrupted and
+failed answers remain labeled and drafts can be retried explicitly. Physical
+terminal and paged-adapter verification are separate follow-up coverage.
+
+Shortcuts pass through while typing in an input. Review strikes stay in browser
+storage; source highlighting is an explicit file change. Source navigation
+requires Neovim. The legacy saved-context protocol remains available for
+compatibility and is not the conversation history.
 
 Read the shared HTML service's context with its explicit local URL:
 
@@ -402,7 +415,7 @@ the quotation library and its paint/relocation UI are removed.
 
 == Saved-source synchronization and conflicts
 
-Cursor polling and Save for Codex share the accepted HTML block-to-source map.
+Cursor polling, paragraph chat capture and the legacy context protocol share the accepted HTML block-to-source map.
 It includes literal content inside wrappers and closure bodies, formatted prose
 and complete mathematics where compilation verifies the same block identity and
 canonical text. Selected subpassages retain exact UTF-8 source positions; whole

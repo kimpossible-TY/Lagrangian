@@ -1,4 +1,4 @@
-// Explicit source highlights, Codex context and browser-local review strikes.
+// Explicit source highlights, paragraph conversations and local review strikes.
 import { ReaderReviewMarks } from "../review-strikes/renderer.js";
 import { selectedReaderText } from "./dom-selection.js";
 import { composeCopyText, hasCompleteMath } from "./copy-text.js";
@@ -6,7 +6,7 @@ import { mathSelectionUnit, snapRangeToMath } from "./math-snap.js";
 import { SourceHighlightController } from "../source-highlight/controller.js";
 import { SourceHighlightRenderer } from "../source-highlight/renderer.js";
 import { HighlightIntents } from "../source-highlight/intents.js";
-import { CodexContextController } from "../codex-context/controller.js";
+import { ParagraphChatController } from "../paragraph-chat/controller.js";
 import { ReaderTransport } from "../session/transport.js";
 import { SelectionPress } from "../../reader-common/selection/press.js";
 export { textIndex } from "./dom-selection.js";
@@ -17,7 +17,12 @@ const excerptKey = (fragment, segment) =>
 export class ReaderSelectionActions {
   constructor(
     article,
-    { canHighlight = () => true, editorServer = null, editorAttachment = null } = {},
+    {
+      canHighlight = () => true,
+      editorServer = null,
+      editorAttachment = null,
+      createChat = (...args) => new ParagraphChatController(...args),
+    } = {},
   ) {
     this.article = article;
     this.canHighlight = canHighlight;
@@ -35,7 +40,7 @@ export class ReaderSelectionActions {
     this.message = document.querySelector("#reader-highlight-message");
     this.copyButton = document.querySelector("#reader-copy");
     this.sourceButton = document.querySelector("#reader-source-highlight");
-    this.saveButton = document.querySelector("#reader-codex-save");
+    this.saveButton = document.querySelector("#reader-chat-ask");
     this.strikeButton = document.querySelector("#reader-strike");
     this.undoButton = document.querySelector("#reader-strike-undo");
     this.clearButton = document.querySelector("#reader-strike-clear");
@@ -53,7 +58,7 @@ export class ReaderSelectionActions {
       sameSelection: (left, right) => JSON.stringify(left) === JSON.stringify(right),
       editorServer: () => this.editorServer,
       editorAttachment: () => this.editorAttachment,
-      enabled: (action) => !(action === "save" ? this.saveButton : this.sourceButton).disabled,
+      enabled: (action) => !(action === "ask" ? this.saveButton : this.sourceButton).disabled,
       collapse: () => this.collapse(),
       releaseSelection: () => window.getSelection()?.removeAllRanges(),
       retain: (selected) => {
@@ -82,7 +87,7 @@ export class ReaderSelectionActions {
       this.sourcePaint.highlights,
       this.intents,
     );
-    this.codex = new CodexContextController(view, transport, this.viewerID);
+    this.chat = createChat(article, view, transport);
     const action = (button, perform) => {
       listen(button, "pointerdown", (event) => {
         this.press.begin(this.selection);
@@ -98,7 +103,7 @@ export class ReaderSelectionActions {
       });
     };
     action(this.copyButton, (selected) => this.copySelection(selected));
-    action(this.saveButton, (selected) => this.codex.submit(selected));
+    action(this.saveButton, (selected) => this.chat.submit(selected));
     action(this.sourceButton, (selected) => this.source.submit(selected));
     action(this.strikeButton, (selected) => {
       if (!selected || !this.review.add(selected)) return;
@@ -399,6 +404,7 @@ export class ReaderSelectionActions {
     this.touchSelecting = false;
     clearTimeout(this.snapTimer);
     this.review.onDocument(manifest.documentID);
+    this.chat.onDocument(manifest);
     this.updateActions();
     this.repaint();
     this.updateIntentStatus();
@@ -434,6 +440,7 @@ export class ReaderSelectionActions {
   }
 
   repaint() {
+    this.chat.onDocument(this.manifest);
     this.review.schedule();
     this.sourcePaint.highlights.repaint();
   }
@@ -480,6 +487,7 @@ export class ReaderSelectionActions {
   updateActions() {
     if (this.disposed) return;
     if (this.manifest) this.sourcePaint.onDocument(this.manifest);
+    if (this.manifest) this.chat.onDocument(this.manifest);
     const fragments = this.selection;
     const tooLarge =
       fragments &&
@@ -488,7 +496,7 @@ export class ReaderSelectionActions {
     const selected = Boolean(fragments);
     for (const button of [this.copyButton, this.saveButton, this.sourceButton, this.strikeButton])
       button.hidden = !selected;
-    const pending = Boolean(this.source.pending || this.codex.pending);
+    const pending = Boolean(this.source.pending || this.chat.pending);
     const codexTooLarge =
       fragments && [...fragments.map((part) => part.exact).join("\n")].length > 8000;
     this.copyButton.disabled = Boolean(
@@ -512,7 +520,7 @@ export class ReaderSelectionActions {
     hint.textContent = tooLarge
       ? "구절을 조금 짧게 선택해 주세요."
       : codexTooLarge
-        ? "Codex 저장은 8000자까지 가능합니다."
+        ? "질문할 구절은 8000자까지 선택할 수 있습니다."
         : selected
           ? "선택한 구절"
           : "빨간 취소선";
@@ -545,7 +553,7 @@ export class ReaderSelectionActions {
 
   collapse() {
     this.source.dismiss();
-    this.codex.dismiss();
+    this.chat.dismiss();
     this.selection = this.retainedSelection = this.selectionRange = this.copiedSelection = null;
     window.getSelection()?.removeAllRanges();
     this.updateActions();
@@ -555,7 +563,7 @@ export class ReaderSelectionActions {
     this.excerptGeneration++;
     this.excerpts.clear();
     this.source.dismiss();
-    this.codex.dismiss();
+    this.chat.dispose();
     this.transport.dispose();
     this.intents.dispose();
     this.press.dispose();

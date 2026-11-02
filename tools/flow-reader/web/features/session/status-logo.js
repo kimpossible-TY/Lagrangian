@@ -13,66 +13,151 @@ export class StatusLogo {
     const { signal } = this.listeners;
     // Preserve native document selection until the explicit release action.
     this.trigger.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
+    this.trigger.addEventListener("contextmenu", (event) => event.preventDefault(), { signal });
+    this.popover = element.querySelector("#reader-logo-popover");
+    this.trigger.setAttribute("aria-expanded", "false");
+    this.trigger.setAttribute("aria-controls", "reader-logo-popover");
+    this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
+    if (!this.trigger.getAttribute?.("aria-description")) {
+      this.trigger.setAttribute("aria-description", "길게 누르거나 Shift+Enter로 새로고침");
+    }
+    this.trigger.addEventListener(
+      "click",
+      (event) => {
+        if (this.suppressClick && event.detail !== 0) {
+          this.suppressClick = false;
+          return;
+        }
+        this.setPopoverOpen(this.popover?.hidden);
+      },
+      { signal },
+    );
     this.trigger.addEventListener(
       "keydown",
       (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          if (!event.isTrusted && typeof this.trigger.click === "function") {
-            this.trigger.click();
-          }
+        if (event.key === "Enter" && event.shiftKey) {
+          event.preventDefault();
+          this.performAction();
         }
       },
       { signal },
     );
     this.trigger.addEventListener(
-      "click",
-      async () => {
-        if (this.reloading) return;
-        if (
-          this.phase === "selection-held" ||
-          this.notice?.phase === "selection-held" ||
-          this.element.dataset.phase === "selection-held"
-        ) {
-          const releaseButton =
-            this.notice?.releaseButton ||
-            this.element.ownerDocument.querySelector(".reader-activity-release");
-          if (releaseButton && !releaseButton.hidden) {
-            releaseButton.focus();
-          }
-          if (this.notice?.hint) this.notice.hint.hidden = false;
-          if (this.hint) this.hint.hidden = false;
-          return;
+      "pointerdown",
+      (event) => {
+        if (!event.isPrimary || event.button !== 0) return;
+        this.cancelPress();
+        this.suppressClick = false;
+        this.press = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        this.pressTimer = setTimeout(() => {
+          this.pressTimer = null;
+          if (!this.press) return;
+          this.suppressClick = true;
+          this.press = null;
+          this.performAction();
+        }, 500);
+      },
+      { signal },
+    );
+    const doc = element.ownerDocument;
+    doc.addEventListener(
+      "pointermove",
+      (event) => {
+        if (this.press?.id !== event.pointerId) return;
+        if (Math.hypot(event.clientX - this.press.x, event.clientY - this.press.y) > 10) {
+          this.suppressClick = true;
+          this.cancelPress();
         }
-        if (this.hasWaitingUpdate && this.offline?.applyUpdate) {
-          this.reloading = true;
-          this.element.dataset.phase = "loading";
-          const korean = this.notice?.korean ?? true;
-          this.trigger.setAttribute("aria-label", korean ? "업데이트 적용 중" : "Applying update");
-          try {
-            const applied = await this.offline.applyUpdate();
-            if (applied) {
-              window.location.reload();
-            } else {
-              this.reloading = false;
-              if (this.notice) {
-                this.update(this.notice.phase, this.notice, Boolean(this.offlineMode));
-              } else {
-                delete this.element.dataset.phase;
-              }
-            }
-          } catch {
-            this.reloading = false;
-          }
-          return;
-        }
-        this.reloading = true;
-        this.element.dataset.phase = "loading";
-        this.trigger.setAttribute("aria-label", "새로고침 중");
-        this.reloadTimer = setTimeout(() => window.location.reload(), 180);
+      },
+      { signal },
+    );
+    doc.addEventListener(
+      "pointerup",
+      (event) => {
+        if (this.press?.id === event.pointerId) this.cancelPress();
+      },
+      { signal },
+    );
+    doc.addEventListener(
+      "pointercancel",
+      (event) => {
+        if (this.press?.id === event.pointerId) this.cancelPress();
+      },
+      { signal },
+    );
+    doc.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!element.contains(event.target)) this.setPopoverOpen(false);
+      },
+      { signal },
+    );
+    doc.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") this.setPopoverOpen(false);
       },
       { signal },
     );
     document.documentElement.dataset.readerLogo = "true";
+  }
+
+  setPopoverOpen(open) {
+    const isOpen = Boolean(open);
+    if (this.popover) this.popover.hidden = !isOpen;
+    this.trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+
+  cancelPress() {
+    clearTimeout(this.pressTimer);
+    this.pressTimer = null;
+    this.press = null;
+  }
+
+  async performAction() {
+    if (this.reloading) return;
+    this.setPopoverOpen(false);
+    if (
+      this.phase === "selection-held" ||
+      this.notice?.phase === "selection-held" ||
+      this.element.dataset.phase === "selection-held"
+    ) {
+      const releaseButton =
+        this.notice?.releaseButton ||
+        this.element.ownerDocument.querySelector(".reader-activity-release");
+      if (releaseButton && !releaseButton.hidden) releaseButton.focus();
+      if (this.notice?.hint) this.notice.hint.hidden = false;
+      if (this.hint) this.hint.hidden = false;
+      return;
+    }
+    if (this.hasWaitingUpdate && this.offline?.applyUpdate) {
+      this.reloading = true;
+      this.element.dataset.phase = "loading";
+      this.trigger.setAttribute(
+        "aria-label",
+        (this.notice?.korean ?? true) ? "업데이트 적용 중" : "Applying update",
+      );
+      try {
+        const applied = await this.offline.applyUpdate();
+        if (applied) window.location.reload();
+        else {
+          this.reloading = false;
+          if (this.notice) this.update(this.notice.phase, this.notice, Boolean(this.offlineMode));
+          else delete this.element.dataset.phase;
+        }
+      } catch {
+        this.reloading = false;
+        if (this.notice) this.update(this.notice.phase, this.notice, Boolean(this.offlineMode));
+      }
+      return;
+    }
+    this.reloading = true;
+    this.element.dataset.phase = "loading";
+    this.trigger.setAttribute(
+      "aria-label",
+      (this.notice?.korean ?? true) ? "새로고침 중" : "Refreshing",
+    );
+    this.reloadTimer = setTimeout(() => window.location.reload(), 180);
   }
 
   get hasWaitingUpdate() {
@@ -99,6 +184,15 @@ export class StatusLogo {
       delete this.badge.dataset.badge;
       if (this.badge.textContent === "↑") this.badge.textContent = "";
     }
+    const korean = this.notice?.korean ?? true;
+    const description = korean
+      ? hasUpdate
+        ? "길게 누르거나 Shift+Enter로 업데이트 적용"
+        : "길게 누르거나 Shift+Enter로 새로고침"
+      : hasUpdate
+        ? "Long-press or Shift+Enter to apply update"
+        : "Long-press or Shift+Enter to refresh";
+    this.trigger.setAttribute("aria-description", description);
   }
 
   update(phase, notice, offline = false) {
@@ -150,15 +244,19 @@ export class StatusLogo {
               : "Connected · document up to date"
             : notice.label.textContent;
     if (this.label.textContent !== label) this.label.textContent = label;
-    const actionLabel = hasUpdate
-      ? korean
-        ? "업데이트 적용"
-        : "Apply update"
-      : korean
-        ? "새로고침"
-        : "Refresh";
-    this.trigger.setAttribute("aria-label", `${label} · ${actionLabel}`);
-    this.trigger.title = label;
+    this.trigger.setAttribute("aria-label", label);
+    this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
+    const description = korean
+      ? hasUpdate
+        ? "길게 누르거나 Shift+Enter로 업데이트 적용"
+        : "길게 누르거나 Shift+Enter로 새로고침"
+      : hasUpdate
+        ? "Long-press or Shift+Enter to apply update"
+        : "Long-press or Shift+Enter to refresh";
+    this.trigger.setAttribute("aria-description", description);
+    this.popover.textContent = hasUpdate
+      ? `${label} · ${korean ? "업데이트 대기 중" : "Update waiting"}`
+      : label;
     if (this.announcer.textContent !== label) this.announcer.textContent = label;
     const hint =
       display === "offline"
@@ -186,8 +284,10 @@ export class StatusLogo {
   dispose() {
     this.disposed = true;
     clearTimeout(this.completed);
+    this.cancelPress();
     this.listeners.abort();
     clearTimeout(this.reloadTimer);
+    this.setPopoverOpen(false);
     this.element.hidden = true;
     delete document.documentElement.dataset.readerLogo;
   }

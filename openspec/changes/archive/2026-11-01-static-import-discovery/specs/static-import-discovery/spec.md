@@ -25,3 +25,8 @@ Tinymist SHALL retain unresolved dependency information and allow expression ana
 ### Requirement: Semantic highlighting remains enabled
 
 Tinymist SHALL preserve semantic-token responses for the regression fixture rather than avoiding work by returning empty data or disabling the feature.
+
+#### Scenario: Semantic highlighting remains enabled after import discovery
+- **WHEN** static import discovery runs for a document
+- **THEN** semantic highlighting remains enabled
+- **AND** semantic-token responses are not empty data

@@ -148,19 +148,32 @@ try {
           .evaluate((node) => getComputedStyle(node).animationName),
         "none",
       );
-      // The logo refreshes the page; details remain in advanced settings.
+      // The logo explains activity; details remain in advanced settings.
       assert.equal(await page.locator(".reader-logo-panel").count(), 0);
       const brand = page.locator(".reader-brand");
       const brandLabel = await brand.getAttribute("aria-label");
       assert.ok(
-        brandLabel && brandLabel.includes("새로고침"),
-        "logo button exposes accessible name for refresh action",
+        brandLabel && (brandLabel.includes("연결됨") || brandLabel.includes("문서를")),
+        "logo button exposes accessible name for current state only",
       );
+      assert.equal(
+        await brand.getAttribute("aria-keyshortcuts"),
+        "Shift+Enter",
+        "logo button exposes Shift+Enter shortcut",
+      );
+      assert.equal(await brand.getAttribute("aria-expanded"), "false");
+      assert.equal(await brand.getAttribute("aria-controls"), "reader-logo-popover");
 
-      // Keyboard activation of the logo refreshes the reader.
+      await brand.click();
+      assert.equal(await brand.getAttribute("aria-expanded"), "true");
+      assert.equal(await page.locator("#reader-logo-popover").isVisible(), true);
+      await page.keyboard.press("Escape");
+      assert.equal(await brand.getAttribute("aria-expanded"), "false");
+      assert.equal(await page.locator("#reader-logo-popover").isVisible(), false);
+      // Shift+Enter invokes the deliberate refresh action.
       state.compiling = false;
       await brand.focus();
-      await Promise.all([page.waitForNavigation(), page.keyboard.press("Enter")]);
+      await Promise.all([page.waitForNavigation(), page.keyboard.press("Shift+Enter")]);
       await ready("r1");
       await page.locator("#reader-appearance-open").click();
       await page.locator(".reader-settings-advanced > summary").click();
@@ -188,7 +201,7 @@ try {
         "held-state tap does not reload",
       );
 
-      // Logo click in held state focuses the release button instead of dropping the selection.
+      // A second logo click dismisses the popover while preserving selection.
       await brand.click();
       assert.equal(
         await page.evaluate(() => getSelection().isCollapsed),
@@ -200,13 +213,16 @@ try {
         "Accepted r1",
         "held-state click does not reload",
       );
+      assert.equal(await page.locator("#reader-logo-popover").isVisible(), false);
+      await brand.focus();
+      await page.keyboard.press("Shift+Enter");
       assert.equal(
         await page.evaluate(
           () => document.activeElement === document.querySelector("#reader-activity button"),
         ),
         true,
-        "held-state logo click focuses the release button",
       );
+      assert.equal(await page.evaluate(() => !getSelection().isCollapsed), true);
 
       if (process.env.FLOW_READER_ACTIVITY_SCREENSHOTS)
         for (const theme of ["light", "dark"]) {
@@ -234,10 +250,18 @@ try {
       });
       assert.equal(await page.locator(".reader-logo-badge").textContent(), "↑");
       assert.ok(
-        (await brand.getAttribute("aria-label")).includes("업데이트 적용"),
-        "accessible name reflects update action",
+        (await brand.getAttribute("aria-description")).includes("업데이트 적용"),
+        "accessible description reflects update action",
       );
-      await brand.click();
+      const logoBounds = await brand.boundingBox();
+      await page.mouse.move(
+        logoBounds.x + logoBounds.width / 2,
+        logoBounds.y + logoBounds.height / 2,
+      );
+      await page.mouse.down();
+      await page.waitForTimeout(550);
+      await page.mouse.up();
+      assert.equal(await page.locator("#reader-logo-popover").isVisible(), false);
       assert.equal(
         await page.evaluate(() => window.__offlineApplied),
         true,

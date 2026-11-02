@@ -174,7 +174,10 @@ test("an equal revision from another document cannot report the old content read
 function createLogoHarness() {
   const listeners = new Map();
   const triggerAttrs = new Map([
-    ["aria-label", "문서를 기다리는 중… · 새로고침"],
+    ["aria-label", "문서를 기다리는 중…"],
+    ["aria-expanded", "false"],
+    ["aria-controls", "reader-logo-popover"],
+    ["aria-keyshortcuts", "Shift+Enter"],
     ["type", "button"],
   ]);
   let focusedElement = null;
@@ -182,6 +185,7 @@ function createLogoHarness() {
   const trigger = {
     setAttribute: (k, v) => triggerAttrs.set(k, v),
     getAttribute: (k) => triggerAttrs.get(k) ?? null,
+    hasAttribute: (k) => triggerAttrs.has(k),
     focus: () => {
       focusedElement = trigger;
     },
@@ -208,6 +212,7 @@ function createLogoHarness() {
     },
   };
 
+  const popover = { textContent: "", hidden: true };
   const badge = { textContent: "", dataset: {} };
   const announcer = { textContent: "" };
   const label = { textContent: "" };
@@ -222,7 +227,13 @@ function createLogoHarness() {
 
   const element = {
     dataset: {},
+    contains: (target) => target === trigger || target === popover,
     ownerDocument: {
+      addEventListener: (event, handler) => {
+        const list = listeners.get(`document:${event}`) || [];
+        list.push(handler);
+        listeners.set(`document:${event}`, list);
+      },
       querySelector: (selector) => {
         if (selector === "#reader-logo-announcement") return announcer;
         if (selector === ".reader-logo-label") return label;
@@ -234,6 +245,7 @@ function createLogoHarness() {
     querySelector: (selector) => {
       if (selector === "button") return trigger;
       if (selector === ".reader-logo-badge") return badge;
+      if (selector === "#reader-logo-popover") return popover;
       return null;
     },
   };
@@ -242,6 +254,10 @@ function createLogoHarness() {
     element,
     trigger,
     badge,
+    popover,
+    dispatchDocument: (event) => {
+      for (const handler of listeners.get(`document:${event.type}`) || []) handler(event);
+    },
     announcer,
     label,
     hint,
@@ -264,8 +280,23 @@ test("status logo accessible name reflects state, language, and update readiness
     const logo = new StatusLogo(harness.element);
     assert.equal(
       harness.trigger.getAttribute("aria-label"),
-      "문서를 기다리는 중… · 새로고침",
-      "initial accessible name indicates refresh",
+      "문서를 기다리는 중…",
+      "initial accessible name reflects current state only",
+    );
+    assert.equal(
+      harness.trigger.getAttribute("aria-keyshortcuts"),
+      "Shift+Enter",
+      "exposes keyboard shortcut",
+    );
+    assert.equal(
+      harness.trigger.getAttribute("aria-expanded"),
+      "false",
+      "popover closed initially",
+    );
+    assert.equal(
+      harness.trigger.getAttribute("aria-controls"),
+      "reader-logo-popover",
+      "controls the status popover",
     );
 
     const noticeKo = {
@@ -277,8 +308,13 @@ test("status logo accessible name reflects state, language, and update readiness
     logo.update("ready", noticeKo);
     assert.equal(
       harness.trigger.getAttribute("aria-label"),
-      "연결됨 · 최신 문서 · 새로고침",
+      "연결됨 · 최신 문서",
       "Korean accessible name",
+    );
+    assert.match(
+      harness.trigger.getAttribute("aria-description") || "",
+      /새로고침/,
+      "Korean description mentions refresh",
     );
 
     const noticeEn = {
@@ -290,15 +326,25 @@ test("status logo accessible name reflects state, language, and update readiness
     logo.update("ready", noticeEn);
     assert.equal(
       harness.trigger.getAttribute("aria-label"),
-      "Connected · document up to date · Refresh",
+      "Connected · document up to date",
       "English accessible name",
+    );
+    assert.match(
+      harness.trigger.getAttribute("aria-description") || "",
+      /Refresh|refresh/,
+      "English description mentions refresh",
     );
 
     logo.setUpdateWaiting(true);
     assert.equal(
       harness.trigger.getAttribute("aria-label"),
-      "Connected · document up to date · Apply update",
-      "accessible name reflects update action when waiting",
+      "Connected · document up to date",
+      "accessible name reflects current state without action suffix",
+    );
+    assert.match(
+      harness.trigger.getAttribute("aria-description") || "",
+      /apply update|update/i,
+      "description reflects update action when waiting",
     );
     assert.equal(harness.badge.textContent, "↑", "shows update badge");
 
@@ -349,6 +395,8 @@ test("status logo keyboard activation and waiting-SW apply path", async () => {
     harness.trigger.dispatchEvent({
       type: "keydown",
       key: "Enter",
+      shiftKey: true,
+      preventDefault: () => {},
       isTrusted: false,
       target: harness.trigger,
     });
@@ -394,6 +442,14 @@ test("status logo held-state click behavior and mousedown preventDefault", () =>
       true,
       "mousedown prevents default to keep document selection",
     );
+    let contextMenuPrevented = false;
+    harness.trigger.dispatchEvent({
+      type: "contextmenu",
+      preventDefault: () => {
+        contextMenuPrevented = true;
+      },
+    });
+    assert.equal(contextMenuPrevented, true, "contextmenu prevents default on logo button");
 
     const notice = {
       korean: true,
@@ -407,8 +463,13 @@ test("status logo held-state click behavior and mousedown preventDefault", () =>
 
     assert.equal(harness.badge.textContent, "Ⅱ", "shows held badge");
 
-    // Clicking logo while selection-held must NOT reload
-    harness.trigger.click();
+    // The action while selection-held must NOT reload.
+    harness.trigger.dispatchEvent({
+      type: "keydown",
+      key: "Enter",
+      shiftKey: true,
+      preventDefault() {},
+    });
     assert.equal(reloadCalled, 0, "does not reload in held state");
     assert.equal(
       harness.getFocused(),
@@ -419,6 +480,59 @@ test("status logo held-state click behavior and mousedown preventDefault", () =>
 
     logo.dispose();
   } finally {
+    [globalThis.document, globalThis.window] = previous;
+  }
+});
+
+test("status logo tap, dismissal, and deliberate pointer action", async () => {
+  const previous = [globalThis.document, globalThis.window];
+  const harness = createLogoHarness();
+  let reloads = 0;
+  globalThis.document = { documentElement: { dataset: {} } };
+  globalThis.window = { location: { reload: () => reloads++ } };
+  const logo = new StatusLogo(harness.element);
+  try {
+    logo.update("ready", {
+      korean: false,
+      phase: "ready",
+      label: { textContent: "Ready" },
+      hint: { textContent: "" },
+    });
+    const down = {
+      type: "pointerdown",
+      isPrimary: true,
+      button: 0,
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+    };
+    harness.trigger.dispatchEvent(down);
+    harness.dispatchDocument({ type: "pointerup", pointerId: 1 });
+    harness.trigger.click();
+    assert.equal(harness.popover.hidden, false);
+    assert.equal(harness.trigger.getAttribute("aria-expanded"), "true");
+    assert.match(harness.popover.textContent, /Connected/);
+    assert.equal(reloads, 0);
+    harness.dispatchDocument({ type: "keydown", key: "Escape" });
+    assert.equal(harness.popover.hidden, true);
+    assert.equal(harness.trigger.getAttribute("aria-expanded"), "false");
+    harness.trigger.click();
+    assert.equal(harness.trigger.getAttribute("aria-expanded"), "true");
+    harness.trigger.click();
+    assert.equal(harness.popover.hidden, true);
+    assert.equal(harness.trigger.getAttribute("aria-expanded"), "false");
+    harness.trigger.click();
+    harness.dispatchDocument({ type: "pointerdown", target: {} });
+    assert.equal(harness.popover.hidden, true);
+    harness.trigger.dispatchEvent(down);
+    harness.dispatchDocument({ type: "pointermove", pointerId: 1, clientX: 30, clientY: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 520));
+    assert.equal(reloads, 0);
+    harness.trigger.dispatchEvent(down);
+    await new Promise((resolve) => setTimeout(resolve, 710));
+    assert.equal(reloads, 1);
+  } finally {
+    logo.dispose();
     [globalThis.document, globalThis.window] = previous;
   }
 });

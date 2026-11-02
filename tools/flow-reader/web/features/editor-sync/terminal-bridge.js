@@ -39,7 +39,7 @@ export function installTerminalBridge(adapter) {
     action(name) {
       const id = {
         highlight: "reader-source-highlight",
-        save: "reader-codex-save",
+        ask: "reader-chat-ask",
         strike: "reader-strike",
         undo: "reader-strike-undo",
         clear: "reader-strike-clear",

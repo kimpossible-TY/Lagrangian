@@ -80,7 +80,7 @@ export class SourceHighlightController {
               : result.status === "modified"
                 ? "Neovim에 저장하지 않은 변경 사항이 있습니다. 먼저 저장한 뒤 다시 선택해 주세요."
                 : ["unmapped", "unsupported"].includes(result.status)
-                  ? "소스 범위를 정확히 연결할 수 없습니다. Codex 저장을 사용할 수 있습니다."
+                  ? "소스 범위를 정확히 연결할 수 없습니다. Ask로 문단에 질문할 수 있습니다."
                   : "하이라이트를 저장하지 못했습니다. 다시 시도해 주세요.",
         );
       }
