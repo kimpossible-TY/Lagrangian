@@ -69,6 +69,11 @@ Homepage navigation, status, and account controls SHALL support keyboard and tou
 - **WHEN** a user tabs through the page
 - **THEN** actionable controls have visible focus and status is understandable without color
 
+#### Scenario: Inventory polling preserves keyboard focus
+- **WHEN** a Reader link has focus while periodic status observation updates its document
+- **THEN** its valid destination keeps its DOM identity and keyboard focus
+- **AND** removal of the focused destination moves focus to the document section
+
 ### Requirement: Homepage account ownership
 The Homepage SHALL own sign-in, cancel, sign-out, and plan/model status presentation; document readers SHALL link there for account management.
 
@@ -96,6 +101,14 @@ Provider tokens MUST remain host-owned and MUST NOT enter browser responses, URL
 #### Scenario: Account response
 - **WHEN** the page reads status or completes a management action
 - **THEN** no provider token is disclosed
+
+### Requirement: Source-external private storage
+Private account/history storage MUST be rejected before directory creation or permission changes when it resolves inside a Git checkout/worktree or a known source/bundle root. Filesystem-equivalent spellings MUST NOT bypass this check.
+
+#### Scenario: Unsafe configured account directory
+- **WHEN** a configured path or alias resolves inside a protected source location
+- **THEN** startup fails before creating authentication, capability, history, or server resources
+- **AND** external private storage retains its existing permissions and behavior
 
 ### Requirement: Independent host validation
 Homepage account endpoints MUST reject a Host outside an exact trusted configured authority allow-list.

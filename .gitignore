@@ -32,3 +32,11 @@ __pycache__/
 *.log
 error.log
 .env*
+
+# Defense in depth for private runtime chat/account data. Source storage is
+# rejected by chat_storage.py even when an ignored path is requested.
+credentials.json
+host-capability.json
+home-capability-*.json
+home-owner.lock
+history.sqlite3*

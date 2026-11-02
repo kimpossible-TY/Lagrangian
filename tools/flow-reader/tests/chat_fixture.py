@@ -111,6 +111,25 @@ class FakeOpenAI:
                         call["name"] = "exec_command"
                     emit({"type": "response.completed", "response": {"status": "completed", "output": [call]}})
                     return
+                if owner.mode == "markdown":
+                    text = r"""**끝점이 고정되어 있기 때문입니다.** 허용되는 변분은 \(\delta q(t_1)=\delta q(t_2)=0\)을 만족합니다.
+
+\[\left[\frac{\partial L}{\partial \dot q}\delta q\right]_{t_1}^{t_2}=0\]
+
+- 두 끝점에서 변분은 0입니다.
+- 경계항의 양 끝값도 0입니다.
+
+<img src=x onerror=alert(1)>
+
+[unsafe](javascript:alert(1))
+
+```html
+<script>alert(1)</script>
+```
+"""
+                    emit({"type": "response.output_text.delta", "delta": text})
+                    emit({"type": "response.completed", "response": {"status": "completed", "output": []}})
+                    return
                 emit({"type": "response.in_progress"})
                 for delta in ("The accepted context ", "supports this answer. ", "<img src=x onerror=alert(1)>"):
                     emit({"type": "response.output_text.delta", "delta": delta})

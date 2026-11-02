@@ -2,9 +2,9 @@
 
 ## Context
 
-See `proposal.md` for motivation and the mandatory dependency gate. This document describes future implementation only. The prerequisite branch is unmerged; no Homepage implementation may begin until `feat/reader-paragraph-chat` merges into `main` and the merged contracts are reconciled.
+See `proposal.md` for motivation and the mandatory dependency gate. PR #11 merged as `fb1baf78e26d7f0594243202d23ad0a34234d1f5`; `git merge-base --is-ancestor` passed after merge `7535d948` in the feature worktree. The 2026-11-02 user instruction authorizes implementation from the supplied visual reference and reuse of the actual HTML Reader logo. Main checkout and live services remain untouched.
 
-### Inspected baseline
+### Historical inspected baseline (before PR #11)
 
 The current worktree separates HTTP/static delivery from document publication and managed service lifecycle, as mapped by `docs/tinymist/dev/reader-architecture.typ`.
 
@@ -23,6 +23,32 @@ Current POST routing compares a supplied Origin's netloc with the supplied Host 
 
 Prerequisite evidence was read with `git show origin/feat/reader-paragraph-chat:<path>` at `b0b5ffed346d38a5060b5714166477d9042f35b5`: its proposal, design, spec, `server/http.py`, and `services/chat_auth.py`. Its `POST /api/chat/auth` first checks the chat document snapshot, then supports `status`, `models`, `login`, `cancel`, and `logout`. Remote clients receive sanitized sign-in/plan status and catalog; management requires a loopback socket peer and loopback Origin hostname. A separate ephemeral `127.0.0.1` listener receives OAuth callbacks; the Mac browser opens the authorization URL, with a link fallback. `ChatAuth` owns SIWC PKCE, state/nonce and identity validation, 0600 credential persistence, serialized refresh, and best-effort remote revocation.
 
+### Merged contract reconciliation and local activation
+
+The merged auth API also required a per-start capability delivered through a 0600
+host-local file and explicitly entered in the browser. The Homepage retains this
+proof on POST session creation, then binds management authority to an opaque
+in-memory session and synchronizer CSRF. No proof is returned by HTTP. The merged
+ChatAuth, protected credential directory, callback listener, PKCE/state/nonce,
+signature helper, cross-process refresh and revocation are reused unchanged.
+Document account endpoints now reject all credential mutations and retain their
+snapshot guard for observational status/catalog. Its active paragraph-chat spec
+is amended in place; it is not yet an accepted capability in openspec/specs.
+
+Local defaults are a dedicated `127.0.0.1:8769` admin origin. `home.py` composes
+the host without creating a document Project or compiling. Optional `--proxy-port`
+and an exact `--public-origin` create a separate read-only ingress; no public or
+wildcard listener is created. The fixture uses `https://home.example:8443` only as
+a simulated authority, not an activated address. Existing manager configuration
+owns `homepageURL`, propagated to document `--homepage-url`; an unset value gives
+configuration guidance. Host assets have their own explicit manifest.
+
+Initial policy is one host-global account and uniform sanitized inventory/status
+for all allowed viewers. Actual exposure requires the owner's homogeneous viewer
+grants; deployments needing per-document roles must not activate this mode. The
+real HTTPS identity, TLS/proxy provisioner and grants remain deployment decisions,
+not blockers for independent local implementation. Remote management is deferred.
+
 ## Goals / Non-Goals
 
 **Goals:** Introduce a host entry independent of any accepted document, compose existing inventory/status/authentication owners, and define a conservative account boundary for Tailscale access. Preserve existing document URLs, offline behavior, source guards, and conversation state.
@@ -35,11 +61,11 @@ Prerequisite evidence was read with `git show origin/feat/reader-paragraph-chat:
 
 The proposed host origin serves Homepage HTML at `/`. Each existing document service retains its own `/` and `/index.html` Reader shell and existing APIs. A document card links directly to its configured HTML URL or parent paged preview URL; it does not link to raw `/document.html`. Document settings replace account-management controls with a link to the configured Homepage origin; document chat remains in place.
 
-Use dedicated host composition and a host route table, not a global change to the document handler's root alias. Proposed host-only routes are `GET /api/home/documents`, `GET /api/home/status`, `GET /api/home/account`, `GET /api/home/models`, `POST /api/home/session`, and `POST /api/home/account` for explicit `login`/`cancel`/`logout`. Session creation has strict Origin/Host checks; account mutations additionally require the session and CSRF token. These names are proposals, not existing routes. No account API requires a document ID or accepted revision. Homepage static files are registered explicitly rather than discovered from disk.
+The implementation uses dedicated host composition and a host route table, not a global change to the document handler's root alias. Implemented host-only routes are `GET /api/home/documents`, `GET /api/home/status`, `GET /api/home/account`, `GET /api/home/models`, `POST /api/home/session`, and `POST /api/home/account` for explicit `login`/`cancel`/`logout`. Session creation has strict Origin/Host checks and requires the per-start capability to grant management; account mutations additionally require the session and CSRF token. They are implemented in server/home.py. No account API requires a document ID or accepted revision. Homepage static files are registered explicitly rather than discovered from disk.
 
 Host HTTP handlers delegate to narrow inventory/status and account operations. They do not call `paragraph_chat.snapshot()` for host account access, remove that guard from document chat, or acquire credentials themselves. `ChatAuth` remains the single credential/refresh owner; host and document services share its existing protected registration storage and serialization. Host-specific composition stays in the HTML Reader server/services boundary; no speculative cross-reader framework is needed.
 
-Alternative: replace `/` on every reader service and relocate readers to a new path. Rejected because bookmarks, terminal clients, relative APIs, and root-scoped offline workers already rely on those origins. Host listener and reverse-proxy provisioning are implementation decisions still gated on the deployment question below.
+Alternative: replace `/` on every reader service and relocate readers to a new path. Rejected because bookmarks, terminal clients, relative APIs, and root-scoped offline workers already rely on those origins. Host composition is implemented with loopback defaults; live reverse-proxy provisioning remains an activation decision below.
 
 ### 2. Read configured inventory and bounded status
 
@@ -67,7 +93,7 @@ Every credential change uses POST with a server-issued synchronizer CSRF token b
 
 ### 5. Keep browser sessions separate from provider credentials
 
-Generate random opaque 256-bit session handles and CSRF secrets; store session authority, ingress, expiry, and CSRF binding only in host memory. The browser receives only opaque UI handles and sanitized data, never access/refresh/ID tokens, PKCE verifiers, registration IDs, or account emails remotely. Keep CSRF tokens in page memory and a request header, not URLs or local/session storage. Account errors/logs redact secrets; request bodies and OAuth query parameters are not access-logged.
+After explicit host proof, generate random opaque 256-bit session handles and CSRF secrets; store session authority, ingress, expiry, and CSRF binding only in host memory. The browser receives only opaque UI handles and sanitized data, never access/refresh/ID tokens, PKCE verifiers, registration IDs, or account emails remotely. Keep CSRF tokens in page memory and a request header, not URLs or local/session storage. Account errors/logs redact secrets; request bodies and OAuth query parameters are not access-logged.
 
 For HTTPS, use host-only cookies with `Secure`, `HttpOnly`, `SameSite=Strict`, no `Domain`, and the narrow host API path. Separate the loopback admin session namespace from the remote read-only namespace. Deliberate local HTTP exception: the exact configured loopback admin ingress may issue a host-only `HttpOnly; SameSite=Strict` cookie without `Secure`, scoped to `/api/home/`, after verified local same-origin session creation. This exception is unavailable through the remote proxy or remote HTTP. Cookies are not port-isolated, so local sessions remain bound to configured ingress/port and Origin, with CSRF protection; other localhost services receive no authority from the cookie. Do not claim that a Secure cookie works over plain IP HTTP.
 
@@ -100,13 +126,26 @@ The existing `features/session/status-logo.js` presents activity supplied by the
 
 ## Migration Plan
 
-Future work only: first verify the prerequisite merge into `main`, then reconcile its accepted spec and credential ownership with this proposal. Resolve host ingress/deployment ownership before implementing routes or packaging. Introduce host composition and explicit assets, then migrate document account controls to Homepage links while retaining chat/source guards and configured document entry URLs. Do not move credential files or rewrite registrations as part of UI relocation.
+The prerequisite merge is verified and its current active spec is reconciled. Implement local routes and packaging independently; resolve actual HTTPS ingress ownership and viewer grants before activation. Introduce host composition and explicit assets, then migrate document account controls to Homepage links while retaining chat/source guards and configured document entry URLs. Do not move credential files or rewrite registrations as part of UI relocation.
 
-Validate new asset allow-lists, packaged/installed layout, and offline exclusions in isolated fixtures. Follow the normal CI bundle delivery process when implementation is separately authorized; this proposal authorizes no install, restart, commit, push, or deployment. Future rollback disables the host entry and restores prior document account presentation without deleting credentials, documents, or chat history. Never rewrite immutable reader releases.
+Validate new asset allow-lists, packaged/installed layout, and offline exclusions in isolated fixtures. Follow the normal CI bundle delivery process when implementation is separately authorized; this implementation authorizes no install, restart, push, or deployment. Future rollback disables the host entry and restores prior document account presentation without deleting credentials, documents, or chat history. Never rewrite immutable reader releases.
 
 ## Open Questions
 
 1. Should a later change allow remote sign-in/cancel/sign-out? If so, which authenticated host-admin identity authorizes it, and how does OAuth complete on the Mac without remote loopback confusion? Initial delivery remains Mac-only; a yes requires revised specs and security review.
-2. Which dedicated HTTPS host name/port and local admin port are available, and which existing app/proxy component owns their provisioning and trusted ingress configuration? This is a deployment gate before implementation, not permission to alter live services now.
+2. Which dedicated HTTPS host name/port and local admin port are available, and which existing app/proxy component owns their provisioning and trusted ingress configuration? This gates live activation; configurable local implementation and fake fixtures are complete without altering live services.
 3. Are all Homepage viewers allowed to see the same document inventory and sanitized global account status? If not, define viewer roles and per-document visibility before exposing the host; Tailnet membership alone supplies no such application roles.
 4. Is one host-global ChatGPT registration sufficient long-term, or are multiple administrators/devices expected? Initial UI preserves the prerequisite's host-owned registration model and reveals saved registration identities only locally.
+
+## Review corrections
+
+Inventory presentation retains document cards and Reader links by stable identity;
+status polling updates existing nodes. A removed focused destination moves focus
+to the document section. Keyboard navigation does not restart on every poll.
+
+The shared chat_storage boundary canonicalizes the chosen private directory and
+rejects Git directory/file ancestors before creation or chmod. Existing explicit
+project-root exclusions also compare ancestor file identities so case/Unicode
+spellings cannot bypass protection on macOS. Homepage supplies its source/bundle
+root independently of inventory availability. External parent aliases remain
+supported; leaf symlinks remain rejected. Ignore rules are defense in depth.
