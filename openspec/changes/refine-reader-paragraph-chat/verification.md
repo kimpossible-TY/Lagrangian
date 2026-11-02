@@ -6,7 +6,8 @@ document status/catalog contract are retained. No application install/restart,
 push, live sign-in or model inference was performed.
 
 - Node HTML/shared policy and architecture tests: 276 passed, zero skipped.
-- Reader services: 296 passed, 58 optional integration tests skipped. Compiler,
+- Reader services: 296 tests total; 238 passed and 58 optional integration tests
+  skipped. Compiler,
   source-history, physical devices and live OAuth/inference are not verified by
   those skips. Existing install/static-delivery tests verify the new manifest.
 - Chromium paragraph-chat fixture: 40 checks, zero page errors, with local fake
