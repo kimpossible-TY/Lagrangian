@@ -20,11 +20,17 @@ push, live sign-in or model inference was performed.
   visually inspected with a fictional variational-calculus document/history at
   reading size 17px. They are source-rendered fixtures, not a live installed UI.
   Inspection caught and fixed a MathJax dynamic fraction/bracket CSS update.
-- The Homepage browser's touch target assertion at home-browser.mjs:292 fails in
-  this Chrome environment both in the integrated branch and unchanged 498b1491
-  Homepage worktree. Its other source is unmodified here. This is not claimed as
-  a passing aggregate Homepage browser run; route/account boundaries are covered
-  by the passing service and paragraph-chat fixtures.
+- Homepage Chromium fixture: 34 checks passed with zero page errors after the
+  touch-target test correction. Paragraph chat Chromium was rerun: 40 checks
+  passed with zero page errors. Node policy/architecture tests were rerun:
+  276 passed. Reader lint also passed. Diagnosis reproduced the exact failing measurement on a detached
+  HTML Reader link: isConnected=false, width=0, height=0. Current rendered links
+  measured 152x44px, 152x44px and 312x44px at a 390px touch viewport. Refresh
+  replaces cards between locator resolution and evaluation. The test now waits
+  for its document response/rendering frame and atomically queries current links,
+  asserting the existing 44px tolerance on both axes for every link. Product CSS
+  and original Homepage worktree are unchanged.
+
 
 The document toolbar retains the canonical inline SVG L logo. All answer markup
 uses a DOM allowlist and locally served versioned assets. Unsupported TeX remains

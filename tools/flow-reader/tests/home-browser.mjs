@@ -288,13 +288,29 @@ try {
   await touch.locator("#document-search").fill("기하");
   check("touch title search", (await touch.locator(".document-card").count()) === 1);
   await touch.locator("#document-search").fill("");
+  // Refresh replaces the document cards. A Locator.evaluate can resolve an
+  // old link before replacement and measure it after it has detached (0x0).
+  // Wait for this response and the rendering frame, then query and measure all
+  // current links atomically. Keep the 44px target requirement on both axes.
+  const refreshedDocuments = touch.waitForResponse(
+    (response) =>
+      response.url() === url + "api/home/documents" && response.request().method() === "GET",
+  );
   await touch.locator("#refresh").tap();
+  await (await refreshedDocuments).finished();
+  await touch.evaluate(() => new Promise(requestAnimationFrame));
+  const touchTargets = await touch.evaluate(() =>
+    [...document.querySelectorAll(".reader-link")].map((el) => {
+      const bounds = el.getBoundingClientRect();
+      return { connected: el.isConnected, width: bounds.width, height: bounds.height };
+    }),
+  );
   check(
     "touch reader links have usable targets",
-    await touch
-      .locator(".reader-link")
-      .first()
-      .evaluate((el) => el.getBoundingClientRect().height >= 43.9),
+    touchTargets.length > 0 &&
+      touchTargets.every(
+        (target) => target.connected && target.width >= 43.9 && target.height >= 43.9,
+      ),
   );
   await touch.evaluate(() => {
     document.activeElement?.blur();
