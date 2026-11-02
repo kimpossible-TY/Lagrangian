@@ -160,6 +160,8 @@ class ReaderManager:
                      "--focus-file", profile["focusFile"],
                      "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
         engine = config.get("engine") or os.environ.get("FLOW_ENGINE_PATH")
+        if profile.get("publicURL"):
+            arguments.extend(["--public-url", profile["publicURL"]])
         if not engine:
             sibling = Path(config["flowManager"]).parent / "flow-engine"
             if os.access(sibling, os.X_OK):

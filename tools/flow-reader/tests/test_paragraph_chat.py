@@ -1,0 +1,505 @@
+"""Host persistence, OAuth and genuine local HTTP/SSE tool-loop contracts."""
+import concurrent.futures
+from http.server import ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import stat
+import tempfile
+import threading
+import time
+import unittest
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import Request, urlopen
+from unittest.mock import patch
+
+from chat_fixture import FakeOpenAI, SyntheticReader
+from flow_reader.errors import RevisionChanged
+from flow_reader.server.http import handler_for
+from flow_reader.services.chat_auth import ChatProviderError, verify_identity
+from flow_reader.services.chat_storage import read_json, write_json
+from flow_reader.services.paragraph_chat import ParagraphChat, DocumentTools, attach
+
+
+class ParagraphChatTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="paragraph-chat-test-")
+        self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name)
+        self.fake = FakeOpenAI()
+        self.addCleanup(self.fake.close)
+        self.reader = SyntheticReader(self.work, self.fake)
+        self.addCleanup(self.reader.close)
+        self.chat = self.reader.state.paragraph_chat
+
+    def open(self, text="First paragraph"):
+        return self.chat.open(self.reader.request(fragments=self.reader.fragments(text)))["conversations"][0]
+
+    def send(self, record, question="Explain this", **extra):
+        return self.chat.mutate(self.reader.request(conversationID=record["conversation_id"],
+            version=record["version"], question=question, model="fixture-model", messageID=os.urandom(8).hex(), **extra), "send")
+
+    def wait(self, identifier):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            record = next(r for r in self.chat.list(self.reader.request())["conversations"] if r["conversation_id"] == identifier)
+            if record["status"] != "streaming":
+                return record
+            time.sleep(0.02)
+        self.fail("Host turn did not finish")
+
+    def test_durable_independent_threads_restart_rename_and_unresolved(self):
+        a, b = self.open(), self.open("second independent")
+        self.assertNotEqual(a["conversation_id"], b["conversation_id"])
+        reopened = self.open("keeps its own")
+        self.assertEqual(reopened["conversation_id"], a["conversation_id"])
+        a = reopened
+        self.send(a)
+        final = self.wait(a["conversation_id"])
+        self.assertEqual(final["status"], "completed")
+        self.assertEqual(final["draft"], "")
+        self.assertEqual(len(self.chat.list(self.reader.request())["conversations"][1]["thread"]), 0)
+        restored = ParagraphChat(self.reader.state, directory=self.work / "private", provider=self.chat.provider)
+        self.assertEqual(restored.list(self.reader.request())["conversations"][0]["conversation_id"], a["conversation_id"])
+        old_id = self.reader.state.document_id
+        self.reader.state.document_id = "renamed-document"
+        self.assertEqual(self.chat.list(self.reader.request())["conversations"], [])
+        self.reader.state.document_id = old_id
+        self.reader.html = self.reader.html.replace("First paragraph keeps its own question.", "Deleted paragraph replacement.")
+        self.reader.publish("r2")
+        missing = self.chat.list(self.reader.request())["conversations"][0]
+        self.assertEqual(missing["attachment"]["state"], "unresolved")
+        self.assertEqual(missing["thread"], final["thread"])
+
+    def test_context_search_read_loop_only_explicit_bounded_tools_and_no_source_edits(self):
+        before = self.reader.entry.read_bytes()
+        record = self.open()
+        self.send(record)
+        final = self.wait(record["conversation_id"])
+        self.assertIn("accepted context", final["thread"][-1]["text"])
+        requests = [body for path, body in self.fake.requests if path == "/responses"]
+        self.assertEqual(len(requests), 3)
+        for body in requests:
+            self.assertFalse(body["store"])
+            self.assertTrue(body["stream"])
+            self.assertNotIn("previous_response_id", body)
+            self.assertEqual([t["name"] for t in body["tools"][0]["tools"]], ["search_current_document", "read_passage"])
+        output = [i for i in requests[-1]["input"] if i.get("type") == "function_call_output"][-1]
+        self.assertIn("Additional context", json.loads(output["output"])["text"])
+        self.assertEqual(before, self.reader.entry.read_bytes())
+        self.assertNotIn("fixture-access", (self.work / "private/history.sqlite3").read_bytes().decode(errors="ignore"))
+        self.assertEqual(stat.S_IMODE((self.work / "private").stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.work / "private/history.sqlite3").stat().st_mode), 0o600)
+
+    def test_reselect_updates_composer_but_preserves_each_questions_original_context(self):
+        first = self.open("First paragraph")
+        self.send(first, "Explain the first selection")
+        self.wait(first["conversation_id"])
+        second = self.open("its own question.")
+        self.assertEqual(second["conversation_id"], first["conversation_id"])
+        self.assertEqual(second["quote"], "its own question.")
+        self.assertEqual(second["thread"][0]["context"]["selection"], "First paragraph")
+        self.send(second, "Explain the newer selection")
+        final = self.wait(second["conversation_id"])
+        users = [message for message in final["thread"] if message["role"] == "user"]
+        self.assertEqual([m["context"]["selection"] for m in users], ["First paragraph", "its own question."])
+        self.assertEqual([m["context"]["revision"] for m in users], ["fixture-r1", "fixture-r1"])
+        latest = [body for path, body in self.fake.requests if path == "/responses"][-1]
+        current = json.loads(latest["input"][0]["content"].split("\n", 1)[1])
+        self.assertEqual(current["selection"], "its own question.")
+        model_questions = [json.loads(item["content"]) for item in latest["input"] if item.get("role") == "user"]
+        self.assertEqual([m["context"]["selection"] for m in model_questions], ["First paragraph", "its own question."])
+        self.assertNotIn("filepath", json.dumps(model_questions))
+
+    def test_reselection_is_rejected_while_a_run_owns_its_context(self):
+        from unittest.mock import patch
+        entered, release = threading.Event(), threading.Event()
+        original = self.chat.provider.run
+        def blocked(**kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("Fixture did not release the isolated provider")
+            yield from original(**kwargs)
+        first = self.open("First paragraph")
+        with patch.object(self.chat.provider, "run", blocked):
+            self.send(first)
+            self.assertTrue(entered.wait(5))
+            try:
+                with self.assertRaisesRegex(ValueError, "Wait for the current response"):
+                    self.open("its own question.")
+                current = self.chat.list(self.reader.request())["conversations"][0]
+                self.assertEqual(current["quote"], "First paragraph")
+                self.assertEqual(current["thread"][0]["context"]["selection"], "First paragraph")
+            finally:
+                release.set()
+            self.assertEqual(self.wait(first["conversation_id"])["status"], "completed")
+        self.assertEqual(self.open("its own question.")["quote"], "its own question.")
+
+    def test_completed_send_deduplicates_before_version_check_after_lost_ack(self):
+        first = self.open()
+        payload = self.reader.request(conversationID=first["conversation_id"], version=first["version"],
+            question="A question with a lost acknowledgment", model="fixture-model", messageID="lost-ack-id")
+        self.chat.mutate(payload, "send")
+        final = self.wait(first["conversation_id"])
+        requests = len(self.fake.requests)
+        recovered = self.chat.mutate(payload, "send")["conversations"][0]
+        self.assertEqual(recovered["thread"], final["thread"])
+        self.assertEqual(len(recovered["thread"]), 2)
+        self.assertEqual(len(self.fake.requests), requests)
+
+    def test_failed_interrupted_retry_and_drafts_survive(self):
+        self.fake.mode = "disconnect"
+        record = self.open()
+        self.send(record, "Draft question")
+        failed = self.wait(record["conversation_id"])
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["draft"], "Draft question")
+        self.assertEqual(failed["thread"][-1]["text"], "Incomplete ")
+        self.fake.mode = "success"
+        self.send(failed, failed["draft"])
+        final = self.wait(record["conversation_id"])
+        self.assertEqual(final["status"], "completed")
+        self.assertEqual(final["thread"][1]["status"], "failed")
+        self.fake.mode = "unsupported-tool"
+        self.send(final, "Attempt disallowed tool")
+        failed = self.wait(record["conversation_id"])
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("unsupported tool", failed["progress"])
+
+    def test_snapshot_source_service_and_tool_guards(self):
+        request = self.reader.request()
+        snapshot = self.chat.snapshot(request)
+        tools = DocumentTools(self.reader.state.document_id, snapshot, lambda: self.chat.fresh(snapshot))
+        args = {"documentID": request["documentID"], "revision": request["revision"], "key": "", "offset": 0, "limit": 2}
+        self.assertEqual(len(tools("read_passage", args)["passages"]), 2)
+        for bad in ({**args, "documentID": "other"}, {**args, "limit": 8001}, {**args, "path": "/etc/passwd"}):
+            with self.assertRaises(ValueError): tools("read_passage", bad)
+        with self.assertRaises(RevisionChanged): self.chat.list({**request, "service": {"pid": 1}})
+        with self.assertRaises(ValueError): self.chat.open(self.reader.request(fragments=[{**self.reader.fragments("First")[0], "exact": "fabricated"}]))
+        self.reader.entry.write_text("Drift outside accepted snapshot")
+        with self.assertRaises(RevisionChanged): self.chat.open(self.reader.request(fragments=self.reader.fragments("First")))
+        with self.assertRaises(RevisionChanged): tools("read_passage", args)
+
+    def test_changed_revision_interrupts_old_turn(self):
+        record = self.open()
+        self.send(record)
+        self.reader.publish("new-revision")
+        final = self.wait(record["conversation_id"])
+        self.assertEqual(final["status"], "interrupted")
+        self.assertEqual(final["thread"][-1]["revision"], "fixture-r1")
+
+    def test_ambiguous_anchor_does_not_choose_by_dom_key_after_revision(self):
+        record = self.open()
+        p = self.reader.state.bundle.passages
+        candidate = next(part for part in p if part["text"].startswith("First"))
+        evidence = record["anchor_evidence"]
+        copies = [{"key": "x", "text": "same-before", "section": "s"}, candidate,
+                  {"key": "z", "text": "same-after", "section": "s"}]
+        from flow_reader.services.paragraph_chat import digest
+        evidence.update(before=digest("same-before"), after=digest("same-after"))
+        self.assertEqual(attach(record, copies + copies, "new")["reason"], "ambiguous")
+
+    def test_lost_acknowledgment_cannot_run_a_turn_twice_and_cancel_is_durable(self):
+        record = self.open()
+        payload = self.reader.request(conversationID=record["conversation_id"], version=record["version"],
+            question="One request", model="fixture-model", messageID="same-client-message")
+        self.chat.mutate(payload, "send")
+        duplicate = self.chat.mutate(payload, "send")["conversations"][0]
+        self.assertEqual(len(duplicate["thread"]), 2)
+        with self.assertRaises(ValueError):
+            self.chat.mutate({**payload, "question": "A different request"}, "send")
+        self.chat.mutate(self.reader.request(conversationID=record["conversation_id"], version=duplicate["version"]), "cancel")
+        cancelled = self.wait(record["conversation_id"])
+        self.assertEqual(cancelled["status"], "interrupted")
+        self.assertEqual(cancelled["thread"][-1]["status"], "interrupted")
+        self.assertEqual(cancelled["draft"], "One request")
+
+    def test_http_origin_identity_stream_and_host_auth_boundary(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state, public_url="https://reader.example"))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
+        origin = f"http://127.0.0.1:{server.server_port}"
+        def post(action, body, request_origin=origin, host=None):
+            headers = {"Content-Type": "application/json"}
+            if request_origin: headers["Origin"] = request_origin
+            if host: headers["Host"] = host
+            return urlopen(Request(origin + "/api/chat/" + action, json.dumps(body).encode(), headers), timeout=10)
+        for bad_origin in (None, "https://attacker.invalid"):
+            with self.assertRaises(HTTPError) as error: post("open", self.reader.request(fragments=self.reader.fragments("First")), bad_origin)
+            self.assertEqual(error.exception.code, 403)
+            self.addCleanup(error.exception.close)
+        with self.assertRaises(HTTPError) as error:
+            post("auth", self.reader.request(operation="login"), "https://reader.example", "reader.example")
+        self.assertEqual(error.exception.code, 403)
+        self.addCleanup(error.exception.close)
+        with post("auth", self.reader.request(operation="status"), "https://reader.example", "reader.example") as response:
+            status = json.load(response)
+            self.assertTrue(status["signedIn"])
+            self.assertNotIn("accounts", status)
+            self.assertNotIn("hostCapabilityFile", status)
+        with post("auth", self.reader.request(operation="models"), "https://reader.example", "reader.example") as response:
+            self.assertEqual(json.load(response)["models"][0]["id"], "fixture-model")
+        record = self.open()
+        self.send(record)
+        with post("events", self.reader.request()) as response:
+            frames = response.read().decode()
+            self.assertIn("text/event-stream", response.headers["Content-Type"])
+            self.assertIn('"status": "completed"', frames)
+            self.assertNotIn("fixture-access", frames)
+
+    def serve(self):
+        self.capability_path = self.work / ("host-capability-" + os.urandom(8).hex() + ".json")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state,
+            public_url="https://reader.example", host_capability_path=self.capability_path))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
+        return f"http://127.0.0.1:{server.server_port}"
+
+    def test_host_allowlist_blocks_rebinding_for_state_list_and_send(self):
+        origin = self.serve()
+        for host in ("attacker.invalid", "127.0.0.1:1", "localhost", "reader.example.attacker.invalid"):
+            for action in ("state", "chat/list", "chat/send"):
+                with self.subTest(host=host, action=action):
+                    body = None if action == "state" else json.dumps(self.reader.request()).encode()
+                    request = Request(origin + "/api/" + action, body,
+                        {"Host": host, "Origin": "http://" + host, "Content-Type": "application/json"})
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(request)
+                    self.assertEqual(error.exception.code, 421)
+                    self.addCleanup(error.exception.close)
+        for host in (urlsplit(origin).netloc, "localhost:" + str(urlsplit(origin).port), "reader.example"):
+            with urlopen(Request(origin + "/api/state", headers={"Host": host})) as response:
+                self.assertEqual(response.status, 200)
+
+    def test_host_capability_is_local_unproxied_ephemeral_and_required_for_auth(self):
+        origin = self.serve()
+        endpoint = origin + "/api/chat/host-capability"
+        capability = read_json(self.capability_path, {})["capability"]
+        self.assertEqual(stat.S_IMODE(self.capability_path.stat().st_mode), 0o600)
+        other_origin = self.serve()
+        self.assertNotEqual(read_json(self.capability_path, {})["capability"], capability)
+        with self.assertRaises(HTTPError) as error:
+            urlopen(Request(other_origin + "/api/chat/auth",
+                json.dumps(self.reader.request(operation="login")).encode(),
+                {"Origin": other_origin, "Content-Type": "application/json", "X-Reader-Host-Capability": capability}))
+        self.assertEqual(error.exception.code, 403)
+        self.addCleanup(error.exception.close)
+        # Even a proxy hiding every forwarding header cannot retrieve the token over HTTP.
+        with self.assertRaises(HTTPError) as error:
+            urlopen(endpoint)
+        self.assertEqual(error.exception.code, 404)
+        self.addCleanup(error.exception.close)
+        forwarded = ("X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "Tailscale-User-Login",
+                     "tAiLsCaLe-Arbitrary")
+        for header in forwarded:
+            with self.subTest(header=header):
+                for value in ("", "127.0.0.1"):
+                    for operation in ("login", "logout", "cancel"):
+                        with self.assertRaises(HTTPError) as error:
+                            urlopen(Request(origin + "/api/chat/auth",
+                                json.dumps(self.reader.request(operation=operation)).encode(),
+                                {"Origin": origin, "Content-Type": "application/json",
+                                 "X-Reader-Host-Capability": capability, header: value}))
+                        self.assertEqual(error.exception.code, 403)
+                        self.addCleanup(error.exception.close)
+        for headers in ({"Host": "reader.example"}, {"Origin": "https://attacker.invalid"}):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(endpoint, headers=headers))
+            self.assertEqual(error.exception.code, 404)
+            self.addCleanup(error.exception.close)
+        for operation in ("login", "logout", "cancel"):
+            for token in (None, "wrong-capability"):
+                headers = {"Origin": origin, "Content-Type": "application/json"}
+                if token is not None:
+                    headers["X-Reader-Host-Capability"] = token
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(Request(origin + "/api/chat/auth",
+                        json.dumps(self.reader.request(operation=operation)).encode(), headers))
+                self.assertEqual(error.exception.code, 403)
+                self.addCleanup(error.exception.close)
+            method = "close" if operation == "cancel" else operation
+            with patch.object(self.chat.auth, method, return_value={"ok": True}) as action:
+                with urlopen(Request(origin + "/api/chat/auth",
+                        json.dumps(self.reader.request(operation=operation)).encode(),
+                        {"Origin": origin, "Content-Type": "application/json", "X-Reader-Host-Capability": capability})) as response:
+                    self.assertEqual(response.status, 200)
+                action.assert_called_once()
+
+    def test_invalid_request_does_not_echo_exception_secrets(self):
+        origin = self.serve()
+        with patch.object(self.chat, "list", side_effect=ValueError("secret-value")):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(origin + "/api/chat/list", json.dumps(self.reader.request()).encode(),
+                    {"Origin": origin, "Content-Type": "application/json"}))
+            self.assertEqual(error.exception.code, 400)
+            self.addCleanup(error.exception.close)
+            self.assertEqual(json.load(error.exception), {"error": "Invalid reader request"})
+
+    def test_sse_client_cancel_closes_stalled_upstream_and_releases_host_job(self):
+        origin = self.serve()
+        self.fake.mode = "stall"
+        record = self.open()
+        sent = self.send(record)["conversations"][0]
+        self.assertTrue(self.fake.stream_started.wait(3))
+        job = self.chat.jobs[record["conversation_id"]]
+        with urlopen(Request(origin + "/api/chat/cancel",
+                json.dumps(self.reader.request(conversationID=record["conversation_id"], version=sent["version"])).encode(),
+                {"Origin": origin, "Content-Type": "application/json"})) as response:
+            self.assertEqual(response.status, 200)
+        self.assertTrue(self.fake.stream_closed.wait(2), "Upstream SSE socket was not released")
+        job["thread"].join(2)
+        self.assertFalse(job["thread"].is_alive(), "Cancelled provider kept waiting for upstream bytes")
+        self.assertEqual(self.wait(record["conversation_id"])["status"], "interrupted")
+
+
+class ChatAuthTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="reader-oauth-test-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name) / "credentials"
+        self.fake = FakeOpenAI()
+        self.addCleanup(self.fake.close)
+        self.auth = self.fake.auth(self.directory)
+        self.addCleanup(lambda: self.auth.close())
+
+    def login(self):
+        url = self.auth.login()["authUrl"]
+        params = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
+        self.fake.nonce = params["nonce"]
+        callback = params["redirect_uri"] + "?" + urlencode({"state": params["state"], "code": "fixture-code", "client_id": "oaiapp_fixture"})
+        return params, callback
+
+    def test_pkce_loopback_signature_validation_refresh_serialization_and_revocation(self):
+        params, callback = self.login()
+        with urlopen(callback) as response: self.assertEqual(response.status, 200)
+        self.assertTrue(self.auth.status()["planEnabled"])
+        self.assertEqual(params["client_id"], "dynamic_agent_client")
+        exchange = self.fake.requests[0][1]
+        import base64, hashlib
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(exchange["code_verifier"].encode()).digest()).decode().rstrip("=")
+        self.assertEqual(challenge, params["code_challenge"])
+        self.assertEqual(exchange["redirect_uri"], params["redirect_uri"])
+        self.assertEqual(exchange["client_id"], "oaiapp_fixture")
+        self.assertEqual(stat.S_IMODE(self.auth.path.stat().st_mode), 0o600)
+        self.assertNotIn("fixture-access", json.dumps(self.auth.status()))
+        data = read_json(self.auth.path, {})
+        data["registrations"]["oaiapp_fixture"]["expires_at"] = 0
+        write_json(self.auth.path, data)
+        other = self.fake.auth(self.directory)
+        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+            self.assertEqual(list(pool.map(lambda auth: auth.access_token(), (self.auth, other))), ["fixture-access"] * 2)
+        self.assertEqual(self.fake.refreshes, 1)
+        self.assertTrue(self.auth.logout()["revocationConfirmed"])
+        self.assertEqual(self.fake.revocations, 1)
+        self.assertFalse(self.auth.status()["signedIn"])
+        data = read_json(self.auth.path, {})
+        self.assertNotIn("refresh_token", data["registrations"]["oaiapp_fixture"])
+        self.assertEqual(data["hostID"], read_json(self.auth.path, {})["hostID"])
+
+    def test_bad_state_invalid_identity_and_jwt_signature_do_not_save_tokens(self):
+        params, callback = self.login()
+        with self.assertRaises(HTTPError) as error: urlopen(callback.replace(params["state"], "bad-state"))
+        self.addCleanup(error.exception.close)
+        self.assertEqual(self.fake.requests, [])
+        self.fake.nonce = "wrong-nonce"
+        with self.assertRaises(HTTPError) as error: urlopen(callback)
+        self.addCleanup(error.exception.close)
+        self.assertFalse(self.auth.status()["signedIn"])
+        token = self.fake.tokens()["id_token"]
+        chunks = token.split(".")
+        chunks[1] = chunks[1][:-2] + "AA"
+        with self.assertRaises(ChatProviderError): verify_identity(".".join(chunks), [self.fake.keys["public"]])
+
+    def test_terminal_refresh_failure_clears_tokens_and_revocation_failure_is_honest(self):
+        self.auth = self.fake.auth(self.directory, signed_in=True)
+        data = read_json(self.auth.path, {})
+        data["registrations"]["oaiapp_fixture"]["expires_at"] = 0
+        write_json(self.auth.path, data)
+        self.fake.mode = "revoked"
+        with self.assertRaises(ChatProviderError): self.auth.access_token()
+        self.assertFalse(self.auth.status()["signedIn"])
+
+        self.fake.mode = "success"
+        self.auth = self.fake.auth(self.directory, signed_in=True)
+        self.fake.mode = "revoke-failure"
+        self.assertFalse(self.auth.logout()["revocationConfirmed"])
+        self.assertIn("not confirmed", self.auth.status()["notice"])
+        self.assertFalse(self.auth.status()["signedIn"])
+
+    def test_refresh_retains_missing_or_empty_refresh_token_updates_expiry_and_drops_id_token(self):
+        for replacement in (None, "", "omitted"):
+            with self.subTest(replacement=replacement):
+                self.auth = self.fake.auth(self.directory, signed_in=True)
+                data = read_json(self.auth.path, {})
+                record = data["registrations"]["oaiapp_fixture"]
+                previous = record["refresh_token"]
+                record.update(expires_at=0, id_token="old-id-token")
+                write_json(self.auth.path, data)
+                original = self.auth.request
+                def request(url, fields=None, **kwargs):
+                    tokens = original(url, fields, **kwargs)
+                    if fields and fields.get("grant_type") == "refresh_token":
+                        tokens.pop("refresh_token")
+                        if replacement != "omitted":
+                            tokens["refresh_token"] = replacement
+                        tokens.update(expires_in=120, id_token="unverified-refreshed-id-token")
+                    return tokens
+                before = time.time()
+                with patch.object(self.auth, "request", request):
+                    self.assertEqual(self.auth.access_token(), "fixture-access")
+                    refreshes = self.fake.refreshes
+                    self.assertEqual(self.auth.access_token(), "fixture-access")
+                    self.assertEqual(self.fake.refreshes, refreshes)
+                saved = read_json(self.auth.path, {})["registrations"]["oaiapp_fixture"]
+                self.assertEqual(saved["refresh_token"], previous)
+                self.assertGreaterEqual(saved["expires_at"], before + 120)
+                self.assertLessEqual(saved["expires_at"], time.time() + 120)
+                self.assertNotIn("id_token", saved)
+                for expiry in (0, -1, None):
+                    tokens = {"access_token": "new", "token_type": "Bearer", "expires_in": expiry}
+                    with self.assertRaises(ChatProviderError):
+                        self.auth.update_tokens(saved, tokens)
+                    self.assertEqual(saved["access_token"], "fixture-access")
+
+    def test_callback_exchange_and_verification_release_state_lock_and_cancel_invalidates_result(self):
+        for stage in ("request", "verify"):
+            with self.subTest(stage=stage):
+                entered, release = threading.Event(), threading.Event()
+                _params, callback = self.login()
+                original = getattr(self.auth, stage)
+                def blocked(*args, **kwargs):
+                    if stage == "verify" or args[0].endswith("/token"):
+                        entered.set()
+                        if not release.wait(5):
+                            raise AssertionError("Callback fixture was not released")
+                    return original(*args, **kwargs)
+                with patch.object(self.auth, stage, blocked), concurrent.futures.ThreadPoolExecutor(3) as pool:
+                    result = pool.submit(urlopen, callback)
+                    try:
+                        self.assertTrue(entered.wait(3))
+                        self.assertFalse(pool.submit(self.auth.status).result(timeout=1)["signedIn"])
+                        pool.submit(self.auth.close).result(timeout=1)
+                    finally:
+                        release.set()
+                    with self.assertRaises(HTTPError) as error:
+                        result.result(timeout=3)
+                    self.assertEqual(error.exception.code, 400)
+                    self.addCleanup(error.exception.close)
+                self.assertFalse(self.auth.status()["signedIn"])
+
+    def test_expired_oauth_attempt_does_not_exchange_or_save_credentials(self):
+        _params, callback = self.login()
+        self.auth.pending["expires"] = time.monotonic() - 1
+        with self.assertRaises(HTTPError) as error:
+            urlopen(callback)
+        self.assertEqual(error.exception.code, 400)
+        self.addCleanup(error.exception.close)
+        self.assertEqual(self.fake.requests, [])
+        self.assertFalse(self.auth.status()["signedIn"])
+
+
+if __name__ == "__main__":
+    unittest.main()

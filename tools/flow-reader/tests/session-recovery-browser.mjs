@@ -52,7 +52,7 @@ const server = createServer(async (request, response) => {
       sectionRequests++;
       payload = body();
       type = "text/html";
-    } else if (path === "api/focus") {
+    } else if (path === "api/chat/open") {
       let data = "";
       for await (const chunk of request) data += chunk;
       savedSelection = JSON.parse(data);
@@ -139,7 +139,7 @@ try {
           top: node.getBoundingClientRect().top,
         };
       });
-      await page.waitForSelector("#reader-codex-save", { state: "visible" });
+      await page.waitForSelector("#reader-chat-ask", { state: "visible" });
       const stable = () =>
         page.evaluate(
           () =>
@@ -166,13 +166,13 @@ try {
         "same accepted revision after process restart needs no replacement render",
         (await stable()) && sectionRequests === beforeRestart,
       );
-      await page.locator("#reader-codex-save").evaluate((node) => node.click());
+      await page.locator("#reader-chat-ask").evaluate((node) => node.click());
       await page.waitForFunction(() =>
         document.querySelector("#reader-highlight-message").textContent.includes("다시 선택"),
       );
       check(
-        "preserved selection keeps its captured service identity for explicit source validation",
-        savedSelection.service.startedAt === 1,
+        "preserved selection is rejected locally after service replacement before opening chat",
+        savedSelection === undefined,
       );
 
       await page.evaluate(() => {
@@ -182,7 +182,7 @@ try {
         getSelection().removeAllRanges();
         getSelection().addRange(range);
       });
-      await page.waitForSelector("#reader-codex-save", { state: "visible" });
+      await page.waitForSelector("#reader-chat-ask", { state: "visible" });
       manifest = documentManifest("r2", "book", 3);
       await wake();
       await phase("selection-held");
@@ -234,7 +234,7 @@ try {
         getSelection().removeAllRanges();
         getSelection().addRange(range);
       });
-      await page.waitForSelector("#reader-codex-save", { state: "visible" });
+      await page.waitForSelector("#reader-chat-ask", { state: "visible" });
       manifest = documentManifest("r3", "other-book", 5);
       await wake();
       await phase("selection-held");

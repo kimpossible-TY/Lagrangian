@@ -102,7 +102,7 @@ The server-only output comparison preserved all 281 pages: extracted text, word 
 - #link("docs/tinymist/flow-app.typ")[App and maintenance guide] — installation, upstream sync, local releases, and recovery.
 - #link("docs/dev-guide.md")[Developer guide] — toolchain, crates, and editor tooling.
 - #link("DEVELOPMENT_PLAN.md")[Development plan] — current priorities and investigation history.
-- #link("openspec/changes/optimize-interactive-analysis/tasks.md")[Interactive analysis work] — implemented behavior and validation.
+- #link("openspec/changes/archive/2026-11-01-optimize-interactive-analysis/tasks.md")[Interactive analysis work] — implemented behavior and validation.
 - #link("tests/perf/static-import-discovery/runner.py")[LSP regression harness] — a reproducible static-import workload.
 - #link("https://myriad-dreamin.github.io/tinymist/")[Tinymist documentation] — shared configuration and editor features.
 
