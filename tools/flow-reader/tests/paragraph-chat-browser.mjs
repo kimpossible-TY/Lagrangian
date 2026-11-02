@@ -99,18 +99,10 @@ try {
   await first
     .locator("select[aria-label='ChatGPT model'] option[value='fixture-model']")
     .waitFor({ state: "attached" });
+  check("Document management moved to Homepage", (await first.textContent()).includes("Homepage"));
   check(
-    "Host capability uses a visually masked text input without credential autofill",
-    await first
-      .locator("input[aria-label='Host authorization token']")
-      .evaluate(
-        (input) =>
-          input.type === "text" &&
-          input.autocomplete === "off" &&
-          input.spellcheck === false &&
-          input.autocapitalize === "off" &&
-          getComputedStyle(input).getPropertyValue("-webkit-text-security") === "disc",
-      ),
+    "Document has no host proof field",
+    (await first.locator("input[aria-label='Host authorization token']").count()) === 0,
   );
   await first.locator("select[aria-label='ChatGPT model']").selectOption("fixture-model");
   await first.locator("textarea").fill("Explain the first paragraph");

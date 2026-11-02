@@ -275,87 +275,32 @@ export class ParagraphChatController {
       "p",
       this.account.notice || (this.account.signedIn ? "Signed in with ChatGPT" : ""),
     );
-    const picker = element("select");
-    picker.setAttribute("aria-label", "Saved ChatGPT account or new registration");
-    picker.hidden = Boolean(this.account.hostOnly);
-    picker.append(element("option", "New ChatGPT account"));
-    picker.firstChild.value = "";
-    for (const account of this.account.accounts ?? []) {
-      const option = element("option", account.label);
-      option.value = account.id;
-      option.selected = account.id === this.account.active;
-      picker.append(option);
+    const manage = element("a", "Manage ChatGPT on the Homepage ↗");
+    try {
+      const url = new URL(this.account.homepageURL);
+      if (
+        url.username ||
+        url.password ||
+        url.pathname !== "/" ||
+        url.search ||
+        url.hash ||
+        !(
+          url.protocol === "https:" ||
+          (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
+        )
+      )
+        throw new Error();
+      manage.href = url.href + "#connection";
+      manage.target = "_blank";
+      manage.rel = "noopener noreferrer";
+    } catch {
+      manage.removeAttribute("href");
+      manage.textContent = "Configure the Homepage address on this Mac to manage ChatGPT.";
     }
-    const login = element("button", "Continue with ChatGPT");
-    login.type = "button";
-    login.setAttribute("data-oai-siwc-button", "");
-    login.disabled = Boolean(this.account.hostOnly);
-    login.addEventListener("click", async () => {
-      try {
-        const result = await this.auth("login", { registration: picker.value || null });
-        // Only the authorization URL, never tokens, is returned to this host UI.
-        const link = element("a", "Open ChatGPT sign-in in this Mac's browser");
-        const url = new URL(result.authUrl);
-        if (url.protocol !== "https:" || url.hostname !== "auth.openai.com") throw new Error();
-        link.href = this.loginURL = url.href;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        node.account.append(link);
-        this.pollAccount();
-      } catch (error) {
-        node.status.textContent = error.message || "Sign-in could not start";
-      }
-    });
-    const logout = element("button", "Sign out");
-    logout.type = "button";
-    logout.hidden = !this.account.signedIn || this.account.hostOnly;
-    logout.addEventListener("click", async () => {
-      try {
-        await this.auth("logout");
-        this.models = [];
-        await this.loadAccount();
-      } catch {
-        node.status.textContent = "Sign-out could not complete. Try again.";
-      }
-    });
     const refresh = element("button", "Check sign-in / models");
     refresh.type = "button";
     refresh.addEventListener("click", () => this.loadAccount(true));
-    node.account.replaceChildren(notice, picker, login, logout, refresh);
-    if (!this.account.hostOnly) {
-      const capability = element("input", "", "reader-chat-host-capability");
-      capability.type = "text";
-      capability.autocomplete = "off";
-      capability.spellcheck = false;
-      capability.autocapitalize = "off";
-      capability.setAttribute("aria-label", "Host authorization token");
-      capability.placeholder = "Paste the local host authorization token";
-      capability.value = this.hostCapability || "";
-      capability.addEventListener("input", () => {
-        this.hostCapability = capability.value;
-      });
-      node.account.append(capability);
-      if (this.account.hostCapabilityFile)
-        node.account.append(
-          element(
-            "p",
-            `For sign-in management, copy the capability value from this Mac's local file: ${this.account.hostCapabilityFile}`,
-          ),
-        );
-    }
-    if (this.loginURL && this.account.pending) {
-      const link = element("a", "Open ChatGPT sign-in in this Mac's browser");
-      link.href = this.loginURL;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      const cancel = element("button", "Cancel sign-in");
-      cancel.type = "button";
-      cancel.addEventListener("click", async () => {
-        await this.auth("cancel");
-        await this.loadAccount();
-      });
-      node.account.append(link, cancel);
-    }
+    node.account.replaceChildren(notice, manage, refresh);
     const current = node.model.value;
     const placeholder = element("option", "Choose a model");
     placeholder.value = "";
@@ -378,11 +323,9 @@ export class ParagraphChatController {
   }
 
   async auth(operation, extra = {}) {
+    if (!["status", "models"].includes(operation))
+      throw new Error("Manage ChatGPT on the Homepage");
     const headers = { "Content-Type": "application/json" };
-    if (["login", "logout", "cancel"].includes(operation)) {
-      if (!this.hostCapability) throw new Error("Paste the local host authorization token first.");
-      headers["X-Reader-Host-Capability"] = this.hostCapability;
-    }
     const response = await fetch("api/chat/auth", {
       method: "POST",
       headers,
@@ -415,14 +358,6 @@ export class ParagraphChatController {
     } finally {
       this.loadingAccount = false;
     }
-  }
-
-  pollAccount() {
-    clearTimeout(this.accountTimer);
-    this.accountTimer = setTimeout(async () => {
-      await this.loadAccount();
-      if (!this.disposed && this.account.pending) this.pollAccount();
-    }, 1500);
   }
 
   action(id, operation, extra = {}) {
@@ -641,7 +576,6 @@ export class ParagraphChatController {
     this.flushDrafts();
     this.disposed = true;
     this.stream?.abort();
-    clearTimeout(this.accountTimer);
     cancelAnimationFrame(this.frame);
     this.resize.disconnect();
     this.mutations.disconnect();

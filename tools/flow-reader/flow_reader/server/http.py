@@ -1,9 +1,7 @@
 """Reader HTTP protocol and explicit immutable asset delivery."""
 import gzip
-import hmac
 from http.server import BaseHTTPRequestHandler
 import json
-import secrets
 import time
 from urllib.parse import parse_qs, urlsplit
 from flow_reader.resources import READER_ROOT as HERE
@@ -12,17 +10,16 @@ from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.server.assets import reader_assets
 from flow_reader.server.offline import snapshot_inventory, worker_script
 from flow_reader.services.chat_auth import ChatProviderError
-from flow_reader.services.chat_storage import write_json
 
 
-def handler_for(state, *, public_url=None, host_capability_path=None):
+def handler_for(state, *, public_url=None, homepage_url=None):
     public = urlsplit(public_url or "")
     if public_url and (public.scheme != "https" or not public.hostname or public.username
                        or public.password or public.path not in {"", "/"} or public.query or public.fragment):
         raise ValueError("Reader public URL must be an HTTPS origin")
-    host_capability = secrets.token_urlsafe(32)
-    if host_capability_path:
-        write_json(host_capability_path, {"capability": host_capability})
+    from flow_reader.services.homepage import reader_url
+    if homepage_url and not reader_url(homepage_url):
+        raise ValueError("Invalid Homepage origin")
     assets = reader_assets()
     vendor = HERE / "web/vendor/mathjax-4.1.3"
     vendor_files = json.loads((vendor / "manifest.json").read_text())["files"]
@@ -42,13 +39,6 @@ def handler_for(state, *, public_url=None, host_capability_path=None):
             if public_url:
                 hosts.add(public.netloc)
             return len(self.headers.get_all("Host", [])) == 1 and self.headers.get("Host") in hosts
-
-        def host_local(self):
-            forwarded = any(name.lower() in {"x-forwarded-for", "forwarded", "x-forwarded-host"}
-                            or name.lower().startswith("tailscale-") for name in self.headers)
-            return (not forwarded and self.client_address[0] == "127.0.0.1"
-                    and self.headers.get("Host") in {f"127.0.0.1:{self.server.server_port}",
-                                                     f"localhost:{self.server.server_port}"})
 
         def do_POST(self):
             if not self.allowed_host():
@@ -78,37 +68,16 @@ def handler_for(state, *, public_url=None, host_capability_path=None):
                     action = path.rsplit("/", 1)[-1]
                     if action == "auth":
                         chat.snapshot(request)
-                        # Account actions belong to the physical host, not a
-                        # remote document client or a forwarded/tailnet origin.
-                        host_local = self.host_local()
                         operation = request.get("operation", "status")
-                        if operation in {"login", "logout", "cancel"}:
-                            capability = self.headers.get("X-Reader-Host-Capability", "")
-                            if (not host_local or not hmac.compare_digest(capability.encode(), host_capability.encode())):
-                                return self.respond(b"Host authorization required", "text/plain", 403)
-                        if not host_local:
-                            if operation not in {"status", "models"}:
-                                return self.respond(b"Sign in from this Mac's loopback Reader", "text/plain", 403)
-                            if operation == "models":
-                                result = {"models": chat.provider.models()}
-                            else:
-                                status = chat.auth.status()
-                                result = {"hostOnly": True, "signedIn": status["signedIn"],
-                                          "planEnabled": status["planEnabled"],
-                                          "notice": "Open Reader on this Mac to manage ChatGPT sign-in."}
-                        elif operation == "login":
-                            result = chat.auth.login(request.get("registration"))
-                        elif operation == "logout":
-                            result = chat.auth.logout()
-                        elif operation == "cancel":
-                            chat.auth.close()
-                            result = chat.auth.status()
-                        elif operation == "models":
+                        if operation == "models":
                             result = {"models": chat.provider.models()}
                         elif operation == "status":
-                            result = chat.auth.status()
-                            if host_capability_path:
-                                result["hostCapabilityFile"] = str(host_capability_path)
+                            status = chat.auth.status()
+                            result = {"hostOnly": True, "signedIn": status["signedIn"],
+                                      "planEnabled": status["planEnabled"], "homepageURL": homepage_url,
+                                      "notice": "Manage ChatGPT on the configured Homepage on this Mac."}
+                        elif operation in {"login", "cancel", "logout"}:
+                            return self.respond(b"Manage ChatGPT on the Homepage", "text/plain", 403)
                         else:
                             raise ValueError("Unknown account operation")
                     elif action == "events":
