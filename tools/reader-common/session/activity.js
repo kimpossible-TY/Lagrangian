@@ -20,6 +20,7 @@ const labels = {
   "interaction-held": ["읽기 동작 중 · 갱신 대기", "Update paused while reading"],
   reconnecting: ["연결 끊김 · 다시 연결 중…", "Disconnected · reconnecting…"],
   "compile-error": ["컴파일 오류 · 소스를 확인해 주세요", "Compilation failed · check source"],
+  "content-error": ["HTML 변환 확인 필요 · 갱신 보류", "HTML validation failed · update withheld"],
   "render-error": [
     "미리보기를 표시하지 못했습니다 · 새로고침해 주세요",
     "Preview failed · reload to retry",
@@ -113,6 +114,7 @@ export class ActivityNotice {
         "selection-held",
         "interaction-held",
         "compile-error",
+        "content-error",
         "render-error",
         "load-error",
       ].includes(phase);

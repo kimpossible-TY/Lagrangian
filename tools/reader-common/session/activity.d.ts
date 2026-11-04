@@ -9,6 +9,7 @@ export type ActivityPhase =
   | "interaction-held"
   | "reconnecting"
   | "compile-error"
+  | "content-error"
   | "render-error"
   | "load-error"
   | "ready";
@@ -16,7 +17,7 @@ export type ActivityPhase =
 /** Concrete adapters normalize their native signals; this policy owns precedence. */
 export function activityPhase(signals: {
   connection: "preparing" | "connecting" | "connected" | "reconnecting";
-  error?: "render-error" | "load-error" | null;
+  error?: "render-error" | "load-error" | "content-error" | null;
   compiler?: "compiling" | "success" | "error";
   pending?: "loading" | "rendering" | "selection-held" | "interaction-held" | null;
   rendered: boolean;

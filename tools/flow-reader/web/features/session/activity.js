@@ -16,13 +16,18 @@ export class ReaderActivityState {
   phase(held = null) {
     const compiler = this.server?.compiling
       ? "compiling"
-      : this.server?.exitCode ||
-          (this.server?.contentGatePassed === false && !this.server.development)
+      : this.server?.exitCode
         ? "error"
         : "success";
     return activityPhase({
       connection: this.connected ? "connected" : "reconnecting",
-      error: this.failed ? "load-error" : null,
+      error: this.failed
+        ? "load-error"
+        : compiler === "success" &&
+            this.server?.contentGatePassed === false &&
+            !this.server.development
+          ? "content-error"
+          : null,
       compiler,
       pending:
         this.request?.phase ??
@@ -88,11 +93,15 @@ export class ReaderActivity {
       releaseSelection: adapter.releaseSelection,
       resume: adapter.resume,
       hint: (phase) =>
-        phase.endsWith("error") || phase === "reconnecting"
-          ? this.state.renderedRevision
-            ? "현재 문서는 계속 읽을 수 있습니다."
-            : "소스와 서버 상태를 확인해 주세요."
-          : null,
+        phase === "content-error"
+          ? uiLanguage().startsWith("ko")
+            ? "컴파일은 성공했지만 HTML 내용 검증을 통과하지 못했습니다."
+            : "Compilation succeeded, but HTML content validation did not pass."
+          : phase.endsWith("error") || phase === "reconnecting"
+            ? this.state.renderedRevision
+              ? "현재 문서는 계속 읽을 수 있습니다."
+              : "소스와 서버 상태를 확인해 주세요."
+            : null,
     });
     this.interactionChanged = () => {
       this.refresh();
