@@ -385,7 +385,7 @@ verified selection capture to open one conversation per paragraph; only Send
 starts a model turn. Conversations and drafts belong to the host's private local
 store outside the source project and survive reopening the terminal.
 
-Continue with ChatGPT must be initiated from this Mac's loopback Reader. It opens
+Continue with ChatGPT must be initiated from this Mac's dedicated loopback Homepage. It opens
 the system browser for SIWC consent; remote views can choose account models and
 chat after host authorization, but cannot manage credentials. No API key or
 existing Codex profile is imported. Node.js is required for ID-token signature
@@ -393,6 +393,60 @@ verification. The host exposes only bounded search/read tools for the current
 accepted document, with no model filesystem or shell access. Interrupted and
 failed answers remain labeled and drafts can be retried explicitly. Physical
 terminal and paged-adapter verification are separate follow-up coverage.
+
+= Homepage entry and account management
+
+The Homepage is a separate host entry; it does not replace a document's root URL.
+It lists only configured parent/HTML profiles, with text search and honest observed
+HTML readiness. Paged readiness is not inferred from HTML availability. Its math
+motif is decorative, not a compiled document preview. No documents are fabricated
+when configuration is empty. Reading the Homepage never starts a service, builds
+a document, or sends a model question.
+
+For development, use isolated ReaderManager configuration and a private ChatAuth
+directory outside projects. This example does not install or restart anything:
+
+```sh
+python3 tools/flow-reader/home.py --port 8769 \
+  --data /absolute/path/to/isolated-reader-data \
+  --chat-data /absolute/path/to/isolated-chat-data
+```
+
+Private account data must stay outside Git checkouts/worktrees and the Reader
+source or installed bundle. Canonical and filesystem-equivalent source aliases
+are rejected before any account files are created. External parent-directory
+aliases remain supported; a symlink at the chosen directory itself is rejected.
+
+Open the printed loopback URL. For credential management, explicitly enter the
+capability value from the private file printed by that process. This authorizes
+only that browser session; closing/restarting the host or sign-out invalidates it.
+Sign-in opens SIWC consent in this Mac's browser, with a local fallback link.
+Interrupted sign-in requires explicit retry. Local sign-out can succeed even when
+remote revocation is unconfirmed; its notice explains that limitation. History
+and drafts are preserved. Provider credentials never enter the browser.
+
+Use the existing shared ChatAuth directory only for an explicitly activated host;
+do not copy or migrate registrations. Set `homepageURL` in the existing Reader
+manager configuration, or `--homepage-url` when launching a document Reader, to
+the dedicated Homepage origin. Document account links open a separate tab and
+leave document scroll position, draft/history, source actions and offline storage
+in place. An unset Homepage URL shows configuration guidance; it does not invent
+an address or fall back to credential management in a document.
+
+An eventual Tailnet deployment can add `--public-origin https://home.example`
+and `--proxy-port 8770`. The configured reverse proxy must send only that origin
+to the separate read-only proxy ingress, never to the admin port. This listener
+trusts its configured HTTPS deployment contract, not forwarding headers. The
+HTTPS hostname, proxy owner/TLS termination and viewer grants must be selected
+before activation. All allowed viewers share the configured inventory and sanitized
+host-global account status. Do not activate this mode where viewers require
+different document permissions; per-viewer roles and remote management are deferred.
+
+The host has no offline worker. On disconnection, account state becomes unknown
+and management is unavailable. Existing document offline reading remains separate.
+To roll back, stop the separately provisioned host and remove `homepageURL`; keep
+credential registrations and conversation data. Restoring an older immutable
+Reader release restores its older account presentation without data migration.
 
 Shortcuts pass through while typing in an input. Review strikes stay in browser
 storage; source highlighting is an explicit file change. Source navigation

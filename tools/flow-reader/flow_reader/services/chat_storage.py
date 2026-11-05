@@ -11,12 +11,36 @@ import tempfile
 DEFAULT_CHAT_DATA = Path.home() / "Library/Application Support/Lagrangian/paragraph-chat"
 
 
+def inside_source(path, source):
+    source = Path(source).resolve()
+    if path.is_relative_to(source):
+        return True
+    # resolve() does not recover on-disk spelling on case-insensitive or
+    # normalization-insensitive filesystems. Compare existing ancestors by
+    # identity before creating any missing descendants.
+    for parent in (path, *path.parents):
+        try:
+            if parent.samefile(source):
+                return True
+        except FileNotFoundError:
+            continue
+    return False
+
+
 def private_directory(path, project_root=None):
     path = Path(path).expanduser().absolute()
-    if project_root and path.resolve().is_relative_to(Path(project_root).resolve()):
-        raise ValueError("Chat storage must be outside the source project")
     if path.is_symlink():
         raise ValueError("Chat storage cannot be a symlink")
+    # Resolve parent aliases before validation and keep using that same path.
+    # This permits normal macOS temporary-directory aliases without routing
+    # private-file creation through a mutable alias into a source checkout.
+    path = path.resolve()
+    if project_root and inside_source(path, project_root):
+        raise ValueError("Chat storage must be outside the source project")
+    # .git is a directory in ordinary checkouts and a file in worktrees and
+    # submodules. Inspect the destination too; reject before mkdir or chmod.
+    if any((parent / ".git").exists() for parent in (path, *path.parents)):
+        raise ValueError("Chat storage must be outside Git repositories")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     info = path.stat()
     if info.st_uid != os.getuid():

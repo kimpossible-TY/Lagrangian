@@ -1,0 +1,8 @@
+{
+  "index.html": "home/index.html",
+  "home/home.css": "home/home.css",
+  "home/home.js": "home/home.js",
+  "theme.css": "theme.css",
+  "features/appearance/theme.js": "features/appearance/theme.js",
+  "favicon.png": "favicon.png"
+}

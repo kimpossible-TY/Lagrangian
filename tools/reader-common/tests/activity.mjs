@@ -11,6 +11,7 @@ test("both transports share failure, paused-work and publication priority", () =
     assert.equal(activityPhase({ ...signals, pending }), pending);
     assert.equal(activityPhase({ ...signals, pending, compiler: "error" }), "compile-error");
     assert.equal(activityPhase({ ...signals, pending, error: "load-error" }), "load-error");
+    assert.equal(activityPhase({ ...signals, pending, error: "content-error" }), "content-error");
     assert.equal(
       activityPhase({ ...signals, pending, error: "render-error", connection: "reconnecting" }),
       "reconnecting",
@@ -91,6 +92,11 @@ test("shared notice owns localization, wait feedback, selection release and clea
     assert.equal(waiting.delay, 15000);
     waiting.callback();
     assert.match(hint.textContent, /Taking longer/);
+    phase = "content-error";
+    notice.refresh();
+    assert.equal(label.textContent, "HTML validation failed · update withheld");
+    assert.equal(element.dataset.busy, "false");
+    assert.equal(timers.size, 0, "content rejection must not spin or report long-running work");
     phase = "selection-held";
     notice.refresh();
     assert.equal(timers.size, 0);

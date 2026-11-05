@@ -8,7 +8,7 @@ The repository maintains feature policy separately from renderer geometry, trans
 - Selection: `tools/reader-common/selection/submission.js` owns pending-submission tickets and acknowledgment policy; `selection/press.js` owns the shared pressed-selection, deferred release and click-consumption lifecycle. Each reader captures its own native selection and binds DOM toolbar events in `features/selection/`. Concrete capture/update guards and action effects remain local; disposing the shared press state cancels pending release work. HTML `features/selection/` also owns copy composition, touch formula snapping and verified-excerpt caching; `flow_reader/services/source_mapping.py` owns the read-only accepted excerpt exposed by `/api/source-text`. Copy policy never reconstructs source from rendered mathematics or compiles during the action.
 - Source Highlight: `tools/reader-common/source-highlight/optimistic.js` owns immediate temporary paint lifetime through acknowledgment, accepted snapshot replacement, failure and disposal. Concrete `features/source-highlight/` renderers retain semantic DOM/page geometry; native selection releases after paint while submitted context remains guarded. HTML invokes its verified source action; the paged reader uses its preview protocol. Server-side source checks live in `flow_reader/services/source_highlight.py` and the existing Rust preview tool implementation.
 - Legacy saved context: HTML retains the `/api/focus` compatibility protocol through `flow_reader/services/codex_context.py`; its retired saved-context frontend is removed. HTML Codex and editor navigation share `services/source_mapping.py`: it resolves accepted compiler-carried ranges and retains literal fallback. Paged preview retains `crates/typst-preview/src/focus.rs` and its existing source-position protocol. Both preserve service, source and revision validation without inventing PDF coordinates for semantic HTML. Saved records have no time-based expiry. The companion `apps/macos/tail-hosting-reader-focus.patch` owns cross-reader lookup: after resolving one project and entry document, it chooses the latest saved text before tap-only positions, identifies its reader and preserves stale/error evidence. It does not merge writers or select other documents by recency.
-- Paragraph chat: HTML and terminal replace the saved-context UI with Ask through `web/features/paragraph-chat/controller.js`, reusing `features/selection/` capture and the accepted selection/source validators. `tools/reader-common/paragraph-chat/state.js` owns snapshot-safe view adoption and literal question/answer summary extraction. `geometry.js` owns HTML ink measurement and local margin/fallback placement. Expanded panels follow the paragraph; unresolved history remains accessible outside the canonical article. `services/paragraph_chat.py` owns UUID conversations, combined anchor evidence, private SQLite history/drafts, independent message lifetimes and bounded accepted-document search/read tools. `chat_auth.py` owns SIWC public-client PKCE, loopback consent, protected isolated registrations, signature verification through the fixed Node crypto helper, rotating refresh and revocation. `chat_provider.py` owns direct Responses SSE and the explicit function-tool loop. Neither exposes arbitrary paths or shell to the model. `chat_storage.py` owns private filesystem primitives outside source projects. HTTP retains origin checks and accepted document/service/revision checks; authentication management additionally requires non-proxied host loopback and a per-start capability; HTTP checks the explicit loopback/configured HTTPS Host allowlist. The paged adapter is a follow-up requiring remote Rust verification; its existing saved-context UI is retained until then.
+- Paragraph chat: HTML and terminal replace the saved-context UI with Ask through `web/features/paragraph-chat/controller.js`, reusing `features/selection/` capture and the accepted selection/source validators. `tools/reader-common/paragraph-chat/state.js` owns snapshot-safe view adoption and literal question/answer summary extraction. `geometry.js` owns HTML ink measurement and local margin/fallback placement. The concrete `content.js` adapter owns keyed message/context DOM, allowlisted Markdown token rendering and completed-answer base/AMS math through the existing MathJax loader. One shared read-only connection dialog links to the Homepage; composers retain independent model selection. Expanded panels follow the paragraph; unresolved history remains accessible outside the canonical article. `services/paragraph_chat.py` owns UUID conversations, combined anchor evidence, private SQLite history/drafts, independent message lifetimes and bounded accepted-document search/read tools. `chat_auth.py` owns SIWC public-client PKCE, loopback consent, protected isolated registrations, signature verification through the fixed Node crypto helper, rotating refresh and revocation. `chat_provider.py` owns direct Responses SSE and the explicit function-tool loop. Neither exposes arbitrary paths or shell to the model. `chat_storage.py` owns private filesystem primitives outside source projects. HTTP retains origin checks and accepted document/service/revision checks; document account management is replaced by a configured Homepage link; document auth status/catalog remains revision-bound and read-only; HTTP checks the explicit loopback/configured HTTPS Host allowlist. The paged adapter is a follow-up requiring remote Rust verification; its existing saved-context UI is retained until then.
 - Review strikes: `tools/reader-common/review-strikes/bounded-store.js` owns persistence limits and storage failure handling. Each `features/review-strikes/` adapter owns its mark format, geometry, invalidation and paint. Existing browser storage keys remain compatible.
 - Navigation: `tools/reader-common/navigation/change-location.js` owns pending last-change policy. `navigation/reference-return.js` owns the single return origin, replacement/consumption, action visibility and click/disposal lifecycle used by both readers. Concrete `features/navigation/` modules capture/restore page coordinates or semantic anchors, validate navigation completion and retain native scroll anchoring, section loading and URL/history effects.
 - Shared saved edits: `crates/tinymist-project/src/source_history.rs` owns bounded authored-edit policy; `source_history/store.rs` serializes project record transactions under a cross-process file lock. It selects an exact managed Flow profile or a deterministic root/entry record and preserves renderer-owned metadata. The paged `change.rs` owns palette fingerprints and coordinates using that store; `source_change.rs` preserves the upstream preview type names. The engine's `source-history` command exposes the same owner without compilation. HTML `services/source_history.py` invokes it before compilation and registers exact stable accepted source snapshots, so HTML-only sessions advance the common history. There is no separate HTML visual-edit chronology. `services/edit_location.py` validates saved source and resolves paths read-only, including the engine's `--path-only` lookup; `edit-location.py` exposes that result to Neovim. HTML `services/source_mapping.py` maps the range into accepted source carriers, and `server/state.py` publishes late navigation metadata without another compile. Neovim `reader.lua` performs asynchronous guarded restoration through its existing jump contract. Local editor marks remain fallback when no verified shared position is available.
@@ -27,6 +27,53 @@ See #link("terminal-reader.typ")[the terminal Reader guide] for prerequisites, n
 Concrete reader composition imports its feature adapters and shared policy. Shared policy never imports a concrete reader. Geometry, semantic positions and transport enter through explicit operations. Do not turn similar syntax into a shared abstraction when behavior differs.
 
 Rust and Python implementations share externally observable contracts and test cases rather than a new universal runtime. Source Highlight writes verified source; legacy saved-context protocol records context without starting a turn, while HTML/terminal Ask opens a paragraph composer and Send explicitly starts inference; review strikes remain browser-local paint. Do not reintroduce the retired quotation library.
+
+= Host Homepage
+
+`tools/flow-reader/home.py` composes `server/home.py` independently of document
+compilation. It never constructs a Project, watcher, compiler pool or conversation
+store. Existing document origins retain their root Reader, raw `/document.html`,
+revision guards and offline worker. `web/home-assets.json` is the separate explicit
+host asset allow-list. The host has no Service Worker or offline fallback; every
+host response uses no-store. `web/theme.css` owns the existing shared palette;
+the home header copies the current HTML Reader SVG mark and theme preference.
+
+`services/homepage.py` projects ReaderManager.parent_profiles()/profiles(), groups
+by parent ID rather than name, validates configured root URLs and strips source
+paths. Local fallback URLs are available only on genuine admin loopback; remote
+visitors see configured HTTPS entries. One asynchronous inventory refresh and
+four bounded status workers observe configured HTML services without starting
+them. Paged readiness remains unknown: an HTML observation is not proof of paged
+availability. Failed observations are unknown or explicitly stale.
+
+`services/home_account.py` presents the existing ChatAuth registration owner and
+ResponsesProvider catalog without document snapshots or inference. It owns only
+ephemeral browser sessions and CSRF. A process lease permits only one Homepage
+per credential directory to own pending OAuth. A per-start 0600 host capability file must be
+explicitly entered to create a management session; it is never returned over HTTP
+or stored in browser storage. Sessions bind to ingress and exact origin, expire
+after 15 minutes idle or 8 hours absolute, and rotate on account credential writes.
+Logout invalidates all browser sessions before revocation and preserves history.
+ChatAuth retains its callback, PKCE, state/nonce, cross-process refresh and private
+credential storage. Document auth mutation endpoints always return 403.
+
+The default is only 127.0.0.1:8769. An optional separate proxy listener requires
+an exact configured HTTPS origin and is always read-only, even from a loopback
+peer without forwarding headers. Provisioning must never target the admin port.
+Both listeners validate Host independently. POST requires the exact Origin;
+credential changes additionally require local ingress/peer, no forwarding headers,
+a management session and its CSRF header. HTTPS cookies are Secure, HttpOnly,
+SameSite Strict and host-only at `/api/home/`; only dedicated loopback permits
+HTTP without Secure. Remote status never contains registration IDs or emails.
+Local registration labels require an authorized management session.
+
+`web/home/home.js` retains CSRF only in memory, guards late responses by generation
+and account version, polls only while visible and aborts requests on navigation.
+Cross-tab notifications invalidate presentation without transmitting account data.
+No mutation is replayed after a timeout. The model catalog is explicitly requested
+and does not prove paid tier, quota or successful inference. See the terminal guide
+for configuration and rollback. Live HTTPS identity and proxy provisioning remain
+deployment decisions; no services are installed or restarted by this change.
 
 = HTML Reader package
 

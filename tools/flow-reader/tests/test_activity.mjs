@@ -85,7 +85,7 @@ test("cached publication cannot hide connection, compiler or content-gate errors
   rendered(state, 1, "r1");
   assert.equal(state.phase(), "compile-error");
   state.update(accepted("r1", { contentGatePassed: false }));
-  assert.equal(state.phase(), "compile-error");
+  assert.equal(state.phase(), "content-error");
   state.update(accepted("r1", { contentGatePassed: false, development: true }));
   assert.equal(state.phase(), "ready");
   state.begin(2, "r1");
@@ -100,6 +100,78 @@ test("cached publication cannot hide connection, compiler or content-gate errors
   assert.equal(state.phase(), "load-error", "healthy polling does not dismiss a section failure");
   rendered(state, 4, "r1");
   assert.equal(state.phase(), "ready");
+});
+
+test("HTML rejection is distinct from compilation failure and clears on retry or acceptance", () => {
+  const state = new ReaderActivityState();
+  const rejected = accepted("r1", { contentGatePassed: false });
+  state.update(rejected);
+  assert.equal(state.phase(), "content-error", "late viewers receive the rejection reason");
+  rendered(state, 1, "r1");
+  assert.equal(
+    state.phase("selection-held"),
+    "content-error",
+    "cached content cannot clear rejection",
+  );
+  state.connected = false;
+  assert.equal(state.phase(), "reconnecting");
+  state.update({ ...rejected, compiling: true });
+  assert.equal(state.phase(), "compiling", "a retry supersedes the old rejection");
+  state.update({ ...rejected, exitCode: 1 });
+  assert.equal(state.phase(), "compile-error", "nonzero exit remains a compiler failure");
+  state.update(rejected);
+  state.begin(2, "r1");
+  state.error(2);
+  assert.equal(state.phase(), "load-error");
+  rendered(state, 3, "r1");
+  assert.equal(state.phase(), "content-error");
+  state.update(accepted("r2"));
+  assert.equal(state.phase(), "loading");
+  rendered(state, 4, "r2");
+  assert.equal(state.phase(), "ready");
+});
+
+test("HTML validation notices explain successful compilation in either UI language", () => {
+  const previous = [globalThis.document, globalThis.window];
+  globalThis.window = {};
+  try {
+    for (const language of ["ko", "en"]) {
+      globalThis.document = {
+        documentElement: { lang: language },
+        addEventListener() {},
+        removeEventListener() {},
+      };
+      const button = { addEventListener() {}, removeEventListener() {} };
+      const label = {};
+      const hint = {};
+      const element = {
+        dataset: {},
+        querySelector: (selector) =>
+          selector.endsWith("-release") ? button : selector.endsWith("-label") ? label : hint,
+      };
+      const activity = new ReaderActivity(element, {
+        held: () => null,
+        hasSelection: () => false,
+      });
+      try {
+        activity.state.update(accepted("r1", { contentGatePassed: false }));
+        activity.refresh();
+        assert.equal(element.dataset.phase, "content-error");
+        assert.equal(element.dataset.busy, "false");
+        assert.equal(element.hidden, false);
+        assert.equal(hint.hidden, false);
+        assert.match(label.textContent, language === "ko" ? /HTML.*갱신 보류/ : /HTML.*withheld/);
+        assert.match(
+          hint.textContent,
+          language === "ko" ? /컴파일은 성공/ : /Compilation succeeded/,
+        );
+      } finally {
+        activity.dispose();
+      }
+    }
+  } finally {
+    [globalThis.document, globalThis.window] = previous;
+  }
 });
 
 test("selection release is explicit and disposal removes listeners and delayed feedback", () => {

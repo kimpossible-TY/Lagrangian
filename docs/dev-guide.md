@@ -68,7 +68,7 @@ Build into `dist`; use the installer for an installed app. Keep installed engine
 Use Yarn dependencies for frontend work and the workspace Rust toolchain in the execution environment described under **Remote Rust builds**. With the formatter already installed, formatting checks can run locally:
 
 ```sh
-yarn install --immutable
+yarn install --frozen-lockfile
 node scripts/build.mjs build:preview
 cargo fmt --check --all
 yarn workspace typst-preview-frontend test run
@@ -78,7 +78,7 @@ The native engine build uses the locked `flow-release` profile with ThinLTO. `py
 
 ## Remote Rust builds
 
-Agent-run Rust compilation requires a Cloud environment explicitly configured for the private `kimpossible-TY/Lagrangian` repository. The former published `tinymist-flow` environment targeted a deleted repository and is not a valid source of truth unless it is reconfigured and its checkout is verified. A request to build or validate Rust authorizes delegating that work to a verified environment, inspecting its progress and retrieving its results. This policy includes Cargo build, check, test, Clippy, bench, doc, run and source-based tool installation, and scripts that invoke Rust compilation, including native engine and browser compiler builders. Local Rust compilation requires an explicit instruction to build locally for that run. If Cloud access is unavailable, report the missing connection and keep the build pending; do not silently fall back to the local Mac.
+Agent-run Rust compilation requires a Cloud environment explicitly configured for the `kimpossible-TY/Lagrangian` repository. The former published `tinymist-flow` environment targeted a deleted repository and is not a valid source of truth unless it is reconfigured and its checkout is verified. A request to build or validate Rust authorizes delegating that work to a verified environment, inspecting its progress and retrieving its results. This policy includes Cargo build, check, test, Clippy, bench, doc, run and source-based tool installation, and scripts that invoke Rust compilation, including native engine and browser compiler builders. Local Rust compilation requires an explicit instruction to build locally for that run. If Cloud access is unavailable, report the missing connection and keep the build pending; do not silently fall back to the local Mac.
 
 Use connected task tools to find a matching Cloud build task for Lagrangian. Reuse it only when idle and safe to update; otherwise start an isolated task in the verified environment. Where task tools are unavailable, configure a Cloud environment for the private repository before dispatch. A local task can continue editing source and delegate just its Rust validation. These instructions guide agents; they do not redirect a manually entered terminal `cargo build` command.
 
@@ -158,7 +158,7 @@ The [web user guide](tinymist/flow-app.md) describes the first preview and readi
 
 ## Workflow
 
-Continue on the current branch unless the user requests another. Use Conventional Commits per work item. Read `openspec/config.yaml`, accepted specs and matching active changes for new features, observable behavior/contract changes and refactors across responsibility boundaries. Continue matching active work and keep proposal, design, tasks and spec deltas aligned. Small local fixes and documentation-only edits can proceed under existing contracts without a new change.
+Use a branch, pull request and review for Rust/engine code, changes to the Mac’s live state (launchd, app, data migrations) and hard-to-revert work. Small reversible changes (docs, config, tests, small scripts/workflows) may go directly to `main`. Otherwise continue on the current branch unless the user requests another. Only successful `main` runs of `flow-engine.yml` reach the Mac; a branch build needs `gh workflow run flow-engine.yml --ref <branch>` and is never installed. Use Conventional Commits per work item. Read `openspec/config.yaml`, accepted specs and matching active changes for new features, observable behavior/contract changes and refactors across responsibility boundaries. Continue matching active work and keep proposal, design, tasks and spec deltas aligned. Small local fixes and documentation-only edits can proceed under existing contracts without a new change.
 
 Preserve unrelated changes and upstream notices; record intentionally imported upstream commits. Keep version/dependency/release edits scoped to actual needs. PR descriptions list modified features and issue operations without execution logs. Development tests/builds use isolated profiles and must not install or restart the user’s services. Releases use a clean commit, bundled installation and verified document delivery before a `flow-vX.Y.Z` tag.
 

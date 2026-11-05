@@ -100,25 +100,33 @@ try {
     .locator("select[aria-label='ChatGPT model'] option[value='fixture-model']")
     .waitFor({ state: "attached" });
   check(
-    "Host capability uses a visually masked text input without credential autofill",
-    await first
-      .locator("input[aria-label='Host authorization token']")
-      .evaluate(
-        (input) =>
-          input.type === "text" &&
-          input.autocomplete === "off" &&
-          input.spellcheck === false &&
-          input.autocapitalize === "off" &&
-          getComputedStyle(input).getPropertyValue("-webkit-text-security") === "disc",
-      ),
+    "Paragraphs contain no credential controls",
+    (await page.locator(".reader-chat input").count()) === 0,
+  );
+  await first.locator(".reader-chat-settings-open").click();
+  const settings = page.locator("dialog.reader-chat-settings");
+  check(
+    "One shared settings dialog links account management to Homepage",
+    (await settings.count()) === 1 && (await settings.textContent()).includes("Homepage"),
+  );
+  check(
+    "Document settings never contain host proof or auth mutation buttons",
+    (await page
+      .locator("input[aria-label='Host authorization token'],button[data-oai-siwc-button]")
+      .count()) === 0,
+  );
+  await settings.getByRole("button", { name: "Close ChatGPT settings", exact: true }).click();
+  check(
+    "Settings close restores the originating composer focus",
+    await first.locator(".reader-chat-settings-open").evaluate((e) => e === document.activeElement),
   );
   await first.locator("select[aria-label='ChatGPT model']").selectOption("fixture-model");
   await first.locator("textarea").fill("Explain the first paragraph");
   await first.locator("button[type=submit]").click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector("#first + .reader-chat .reader-chat-status")
-      ?.textContent.startsWith("completed:"),
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "completed",
   );
   check(
     "Answer safely renders model markup as text",
@@ -142,9 +150,8 @@ try {
   await first.locator("button[type=submit]").click();
   await page.waitForFunction(
     () =>
-      document
-        .querySelector("#first + .reader-chat .reader-chat-status")
-        ?.textContent.startsWith("completed:") &&
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+        "completed" &&
       document
         .querySelector("#first + .reader-chat .reader-chat-messages")
         ?.textContent.includes("Explain the newer selection"),
@@ -158,10 +165,89 @@ try {
   );
   check(
     "Earlier selection remains visible in history",
-    (await first.locator(".reader-chat-messages").textContent()).includes(
-      "selected: First paragraph",
+    (await first.locator(".reader-chat-message-context blockquote").allTextContents()).includes(
+      "First paragraph",
     ),
   );
+  await first.locator(".reader-chat-message-context summary").first().click();
+  await control({ mode: "markdown" });
+  await first.locator("textarea").fill("Format the boundary term");
+  await first.locator("button[type=submit]").click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "completed",
+  );
+  const answer = first.locator('.reader-chat-message[data-role="assistant"]').last();
+  await answer.locator('.reader-chat-math[data-typeset="true"]').first().waitFor();
+  check(
+    "Markdown hierarchy and local MathJax render without model HTML or images",
+    (await answer.locator("strong").count()) > 0 &&
+      (await answer.locator("mjx-container").count()) >= 2 &&
+      (await answer.locator("img,script,iframe,a[href^='javascript:']").count()) === 0,
+  );
+  check(
+    "Code remains literal and prior context stays open through answer updates",
+    (await answer.locator("pre code").textContent()).includes("<script>") &&
+      (await first
+        .locator(".reader-chat-message-context")
+        .first()
+        .evaluate((e) => e.open)),
+  );
+  check(
+    "Late math cannot replace a newer answer and unsupported commands stay literal",
+    await page.evaluate(async () => {
+      const { renderChatContent } = await import("/features/paragraph-chat/content.js");
+      const math = globalThis.MathJax,
+        original = math.tex2chtmlPromise;
+      const target = document.createElement("div");
+      document.body.append(target);
+      let release, begin;
+      const started = new Promise((resolve) => (begin = resolve));
+      math.tex2chtmlPromise = () => {
+        begin();
+        return new Promise((resolve) => (release = resolve));
+      };
+      try {
+        const old = renderChatContent(target, "\\(x\\)");
+        await started;
+        await renderChatContent(target, "Newer answer");
+        const result = document.createElement("span");
+        result.textContent = "obsolete math";
+        release(result);
+        await old;
+        if (target.textContent !== "Newer answer") return false;
+        await renderChatContent(target, "\\(\\require{html}\\)");
+        return target.textContent.includes("require") && !target.querySelector("[data-typeset]");
+      } finally {
+        math.tex2chtmlPromise = original;
+        target.remove();
+      }
+    }),
+  );
+  await control({ mode: "stall" });
+  await first.locator("textarea").fill("Interrupt this response");
+  await first.locator("button[type=submit]").click();
+  await first.getByRole("button", { name: "Interrupt", exact: true }).waitFor({ state: "visible" });
+  await first.locator("button[type=submit]").evaluate((e) => e.click());
+  check(
+    "Streaming disables duplicate sends",
+    (await history())
+      .find((r) => r.conversation_id === firstID)
+      .thread.filter((m) => m.role === "user" && m.text === "Interrupt this response").length === 1,
+  );
+  await first.getByRole("button", { name: "Interrupt", exact: true }).click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "interrupted",
+  );
+  check(
+    "Interruption preserves draft and hides the stop control",
+    (await first.locator("textarea").inputValue()) === "Interrupt this response" &&
+      !(await first.getByRole("button", { name: "Interrupt", exact: true }).isVisible()),
+  );
+  await control({ mode: "success" });
   let lostAckSends = 0;
   await page.route("**/api/chat/send", async (route) => {
     lostAckSends++;
@@ -254,6 +340,18 @@ try {
     (await second.getAttribute("data-conversation-id")) !== firstID &&
       (await second.locator(".reader-chat-messages").textContent()) === "",
   );
+  await second.locator(".reader-chat-settings-open").click();
+  check(
+    "Different paragraphs share the same settings destination",
+    (await page.locator("dialog.reader-chat-settings").count()) === 1,
+  );
+  await page.getByRole("button", { name: "Close ChatGPT settings", exact: true }).click();
+  check(
+    "Shared settings returns focus to the second composer",
+    await second
+      .locator(".reader-chat-settings-open")
+      .evaluate((e) => e === document.activeElement),
+  );
   await second.locator("textarea").fill("An unsent durable draft");
   await page.waitForTimeout(600);
   await page.reload();
@@ -273,26 +371,40 @@ try {
     .waitFor({ state: "attached" });
   await second.locator("select[aria-label='ChatGPT model']").selectOption("fixture-model");
   await second.locator("button[type=submit]").click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector("#second + .reader-chat .reader-chat-status")
-      ?.textContent.startsWith("failed:"),
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#second + .reader-chat .reader-chat-status")?.dataset.state ===
+      "failed",
   );
   check(
     "Failed stream preserves draft and partial state",
     (await second.locator("textarea").inputValue()) === "An unsent durable draft" &&
-      (await second.locator(".reader-chat-messages").textContent()).includes(
-        "(failed): Incomplete",
-      ),
+      (
+        await second
+          .locator('.reader-chat-message[data-status="failed"] .reader-chat-content')
+          .textContent()
+      ).includes("Incomplete"),
   );
   await control({ mode: "success" });
   await second.locator("button[type=submit]").click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector("#second + .reader-chat .reader-chat-status")
-      ?.textContent.startsWith("completed:"),
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#second + .reader-chat .reader-chat-status")?.dataset.state ===
+      "completed",
   );
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+  check(
+    "Mobile expanded composer fits without page overflow",
+    await second.evaluate((root) => {
+      const b = root.getBoundingClientRect();
+      return (
+        b.left >= 0 &&
+        b.right <= innerWidth + 1 &&
+        document.documentElement.scrollWidth <= innerWidth + 1
+      );
+    }),
+  );
   await second.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.waitForTimeout(300);
   check(
@@ -360,7 +472,9 @@ try {
   await page.locator(".reader-chat-unresolved .reader-chat-summary").click();
   check(
     "Deleted anchor remains accessible as unresolved",
-    (await page.locator(".reader-chat-unresolved").textContent()).includes("Unresolved (missing)"),
+    (await page.locator(".reader-chat-unresolved").textContent()).includes(
+      "문단 위치를 확인하지 못했습니다",
+    ),
   );
   check("No browser errors", errors.length === 0);
   console.log(JSON.stringify({ checks, errors }));

@@ -6,7 +6,11 @@ export function loadMathJax() {
     const assets = new URL("../../vendor/mathjax-4.1.3/", import.meta.url).href;
     globalThis.MathJax = {
       mml: { allowHtmlInTokenNodes: true },
-      loader: { paths: { mathjax: assets + "mathjax" }, load: ["a11y/assistive-mml"] },
+      tex: { packages: ["base", "ams"], tags: "none", maxBuffer: 12000, maxMacros: 1000 },
+      loader: {
+        paths: { mathjax: assets + "mathjax" },
+        load: ["a11y/assistive-mml", "input/tex-base", "[tex]/ams"],
+      },
       output: {
         displayOverflow: "linebreak",
         linebreaks: { inline: true, width: "100%", lineleading: 0.3 },
@@ -28,7 +32,7 @@ export function loadMathJax() {
           settings: { enrich: false, speech: false, braille: false, assistiveMml: true },
         },
       },
-      startup: { typeset: false },
+      startup: { typeset: false, input: ["mml", "tex"] },
     };
     const script = document.createElement("script");
     script.src = assets + "mathjax/mml-chtml.js";

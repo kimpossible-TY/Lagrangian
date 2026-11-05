@@ -1,0 +1,11 @@
+# Tasks
+- [x] Separate message/context/composer presentation and shared settings entry.
+- [x] Preserve geometry, selection, drafts and host authority.
+- [x] Add token-based Markdown and bounded base/AMS math with source fallback.
+- [x] Verify Node policy, fake-provider browser interactions, asset delivery and installation.
+- [x] Inspect desktop/mobile source-rendered screenshots and record results.
+- [x] Integrate shared account settings with the completed Homepage implementation.
+- [x] Preserve focused Reader links across periodic inventory updates.
+- [x] Reject source-local private storage, including case/Unicode path aliases.
+- [x] Reconstruct publication ancestry without private local implementation commits.
+- [ ] Obtain independent final content/history privacy clearance before any push.

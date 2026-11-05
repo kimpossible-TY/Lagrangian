@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Lagrangian · 내 문서</title>
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <script src="/features/appearance/theme.js"></script>
+    <link rel="stylesheet" href="/theme.css" />
+    <link rel="stylesheet" href="/home/home.css" />
+    <script type="module" src="/home/home.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#documents">문서 목록으로 이동</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Lagrangian 홈"
+        ><svg class="reader-logo-mark" viewBox="0 0 240 220" aria-hidden="true">
+          <path
+            class="reader-logo-base"
+            pathLength="100"
+            d="M31 29 C48 45 63 53 75 48 C85 45 88 30 93 20 C97 12 105 10 108 17 C112 26 103 38 91 44 C83 48 79 49 78 60 C76 100 78 137 67 160 C59 180 45 199 34 201 C19 204 16 187 23 174 C32 158 51 163 66 169 C91 181 113 200 145 201 C183 204 211 189 215 164 C219 146 208 137 198 141 C190 144 191 151 196 153"
+          />
+          <path
+            class="reader-logo-halo"
+            pathLength="100"
+            d="M31 29 C48 45 63 53 75 48 C85 45 88 30 93 20 C97 12 105 10 108 17 C112 26 103 38 91 44 C83 48 79 49 78 60 C76 100 78 137 67 160 C59 180 45 199 34 201 C19 204 16 187 23 174 C32 158 51 163 66 169 C91 181 113 200 145 201 C183 204 211 189 215 164 C219 146 208 137 198 141 C190 144 191 151 196 153"
+          />
+          <path
+            class="reader-logo-beam"
+            pathLength="100"
+            d="M31 29 C48 45 63 53 75 48 C85 45 88 30 93 20 C97 12 105 10 108 17 C112 26 103 38 91 44 C83 48 79 49 78 60 C76 100 78 137 67 160 C59 180 45 199 34 201 C19 204 16 187 23 174 C32 158 51 163 66 169 C91 181 113 200 145 201 C183 204 211 189 215 164 C219 146 208 137 198 141 C190 144 191 151 196 153"
+          /></svg
+        ><span>Lagrangian</span></a
+      >
+      <nav aria-label="홈 탐색">
+        <a href="#documents">내 문서</a><a href="#connection">연결 상태</a>
+      </nav>
+      <label class="theme-label" for="reader-theme"
+        ><span>화면 테마</span
+        ><select id="reader-theme" aria-label="화면 테마">
+          <option value="system">자동</option>
+          <option value="light">라이트</option>
+          <option value="dark">다크</option>
+        </select></label
+      >
+    </header>
+    <main>
+      <div class="intro">
+        <p class="eyebrow">LAGRANGIAN READER</p>
+        <h1>생각이 이어지는 곳</h1>
+        <p>문서를 열고, 읽고, 대화를 이어가세요.</p>
+      </div>
+      <div class="layout">
+        <section id="documents" aria-labelledby="documents-title" tabindex="-1">
+          <div class="section-heading">
+            <h2 id="documents-title">내 문서 <span id="document-count"></span></h2>
+            <label class="search"
+              ><span class="sr-only">문서 제목 검색</span
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10" cy="10" r="6.5" />
+                <path d="m15 15 5 5" /></svg
+              ><input
+                id="document-search"
+                type="search"
+                placeholder="문서 제목으로 검색하기…"
+                autocomplete="off"
+            /></label>
+          </div>
+          <p id="inventory-message" class="feedback" role="status">문서 목록을 확인하는 중…</p>
+          <div id="document-list"></div>
+          <button id="refresh" class="text-button" type="button">상태 새로고침</button>
+        </section>
+        <aside id="connection" tabindex="-1" aria-label="연결 상태">
+          <section class="panel" aria-labelledby="account-title">
+            <h2 id="account-title">
+              <span class="connection-icon" aria-hidden="true">◎</span> ChatGPT 연결
+            </h2>
+            <div id="account-state" class="connection-state">
+              <strong id="account-label">상태 확인 중</strong>
+              <p id="plan-label">연결 정보를 확인하고 있습니다.</p>
+            </div>
+            <p id="account-notice" class="feedback" role="status"></p>
+            <p id="management-hint">계정 관리는 이 Mac에서 할 수 있어요.</p>
+            <form id="unlock" hidden>
+              <label for="host-proof">이 Mac의 호스트 확인값</label
+              ><input
+                id="host-proof"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+              /><button type="submit">이 Mac에서 관리</button>
+              <p class="help">
+                홈 서버를 실행할 때 안내된 비공개 파일의 capability 값을 입력하세요. 확인값은
+                브라우저에 저장하지 않습니다.
+              </p>
+            </form>
+            <div id="account-controls" hidden>
+              <label for="account-picker">ChatGPT 계정</label
+              ><select id="account-picker" aria-label="ChatGPT 계정"></select
+              ><button id="login" type="button" data-oai-siwc-button>Continue with ChatGPT</button
+              ><button id="cancel" class="secondary" type="button" hidden>로그인 취소</button
+              ><button id="logout" class="secondary" type="button" hidden>로그아웃</button>
+              <p class="help">
+                이 Mac의 모든 문서에서 공유하는 연결입니다. 대화 기록과 초안은 보존됩니다.
+              </p>
+            </div>
+            <a id="login-link" target="_blank" rel="noopener noreferrer" hidden
+              >이 Mac의 브라우저에서 로그인 계속하기 ↗</a
+            >
+            <button id="models" class="text-button" type="button" hidden>모델 목록 확인</button>
+            <p id="model-notice" class="help"></p>
+            <ul id="model-list"></ul>
+          </section>
+          <section class="panel service-panel" aria-labelledby="service-title">
+            <h2 id="service-title">서비스 상태</h2>
+            <dl>
+              <div>
+                <dt>호스트</dt>
+                <dd id="host-state">확인 중</dd>
+              </div>
+              <div>
+                <dt>HTML 문서</dt>
+                <dd id="document-state">확인 중</dd>
+              </div>
+              <div>
+                <dt>마지막 확인</dt>
+                <dd id="last-checked">아직 확인하지 않음</dd>
+              </div>
+            </dl>
+            <p class="help">마지막 관찰 이후 문서 상태가 달라질 수 있어요.</p>
+          </section>
+        </aside>
+      </div>
+    </main>
+    <footer>읽고, 생각하고, 다시 이어서.</footer>
+  </body>
+</html>

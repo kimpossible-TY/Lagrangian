@@ -19,6 +19,7 @@
   "features/navigation/reading-navigation.js": "features/navigation/reading-navigation.js",
   "features/navigation/reading-position.js": "features/navigation/reading-position.js",
   "features/navigation/toolbar-visibility.js": "features/navigation/toolbar-visibility.js",
+  "features/paragraph-chat/content.js": "features/paragraph-chat/content.js",
   "features/paragraph-chat/controller.js": "features/paragraph-chat/controller.js",
   "features/paragraph-chat/geometry.js": "features/paragraph-chat/geometry.js",
   "features/review-strikes/renderer.js": "features/review-strikes/renderer.js",
@@ -70,5 +71,7 @@
   "rendering/math/loader.js": "rendering/math/loader.js",
   "rendering/math/renderer.js": "rendering/math/renderer.js",
   "rendering/tables.js": "rendering/tables.js",
-  "ui/language.js": "ui/language.js"
+  "theme.css": "theme.css",
+  "ui/language.js": "ui/language.js",
+  "vendor/markdown-it-12.3.2/markdown-it.min.js": "vendor/markdown-it-12.3.2/markdown-it.min.js"
 }
