@@ -241,8 +241,13 @@
 // Helper spacer/dots pattern for equations.
 #let dots_space = context {
   if target() == "html" {
-    html.elem("mrow", attrs: ("data-flow-selection-ignore": "dots-space"),
-      $& wide dots.h.c thin$)
+    // Keep a math export context when the helper is used in ordinary prose.
+    // Nested inline equations flatten inside math without changing its spacing.
+    math.equation(
+      html.elem("mrow", attrs: ("data-flow-selection-ignore": "dots-space"),
+        $& wide dots.h.c thin$),
+      block: false, numbering: none,
+    )
   } else {
     $& wide dots.h.c thin$
   }

@@ -181,6 +181,29 @@ class CompiledSourceMappingTests(unittest.TestCase):
             server.server_close()
             worker.join()
 
+    def test_dots_helper_preserves_formula_copying_and_adjacent_prose_mapping(self):
+        source = (ROOT / 'tests/fixtures/dots-space.typ').read_text()
+        state = self.state(source)
+        formulas = ['$alpha #dots_space beta$',
+                    '$x^(#dots_space) + frac(1, #dots_space) + mat(#dots_space, 1; 2, 3)$',
+                    source[source.index('$\n'):source.index('$ <dots-aligned>') + 1]]
+        for formula in formulas:
+            with self.subTest(formula=formula):
+                fragment = self.mathematics_fragment(state, source, formula)
+                self.assertEqual(state.source_text(state.revision, [fragment])['text'], formula)
+        for phrase in ['Before helper', 'after helper.', 'Inline formula',
+                       'remains in this paragraph.', 'Nested formula', 'stays inline.']:
+            with self.subTest(phrase=phrase):
+                located = state.source(state.revision, [self.fragment(state, phrase)])
+                self.assertEqual(located['status'], 'located', located)
+                self.assertEqual(located['path'], str(self.entry))
+                offset = source.index(phrase)
+                line_start = source.rfind('\n', 0, offset) + 1
+                self.assertEqual(located['line'], source.count('\n', 0, offset) + 1)
+                self.assertEqual(located['column'], len(source[line_start:offset].encode()))
+                self.assertEqual(located['end_line'], located['line'])
+                self.assertEqual(located['end_column'], len(source[line_start:offset + len(phrase)].encode()))
+
     def test_callout_title_and_unwrapped_body_map_only_to_navigation_container(self):
         source = ('#import "@local/math-blocks:0.2.0": note\n'
                   'Before the note.\n\n'
