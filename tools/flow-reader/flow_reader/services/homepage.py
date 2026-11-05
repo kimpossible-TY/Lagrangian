@@ -5,6 +5,9 @@ import time
 from urllib.parse import urlsplit
 
 
+LOOPBACK_HOST = "127.0.0.1"
+
+
 def reader_url(value):
     """Accept configured origins only; never paths, credentials or redirects."""
     try:
@@ -13,7 +16,7 @@ def reader_url(value):
                 or parsed.path not in {"", "/"} or not parsed.port and parsed.netloc.endswith(":")):
             return None
         if parsed.scheme != "https" and not (parsed.scheme == "http" and
-                                              parsed.hostname in {"127.0.0.1", "localhost", "::1"}):
+                                              parsed.hostname == LOOPBACK_HOST):
             return None
         if any(c.isspace() or ord(c) < 32 for c in value) or "\\" in value:
             return None
@@ -25,7 +28,7 @@ def reader_url(value):
 def public_reader_url(value):
     url = reader_url(value)
     parsed = urlsplit(url or "")
-    return url if parsed.scheme == "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"} else None
+    return url if parsed.scheme == "https" and parsed.hostname not in {"localhost", LOOPBACK_HOST, "::1"} else None
 
 
 class HomeInventory:
@@ -57,10 +60,10 @@ class HomeInventory:
             documents, probes = [], {}
             for parent in parents:
                 variants = [{"kind": "paged", "public": public_reader_url(parent.get("publicURL", "")),
-                             "local": reader_url(f"http://127.0.0.1:{parent['port']}/")}]
+                             "local": reader_url(f"http://{LOOPBACK_HOST}:{parent['port']}/")}]
                 for profile in children.get(parent["id"], []):
                     variants.append({"kind": "html", "public": public_reader_url(profile.get("publicURL", "")),
-                                     "local": reader_url(f"http://127.0.0.1:{profile['port']}/")})
+                                     "local": reader_url(f"http://{LOOPBACK_HOST}:{profile['port']}/")})
                     probes[profile["id"]] = profile
                 name = parent.get("name")
                 documents.append({"id": parent["id"], "name": name[:200] if isinstance(name, str) else "이름 없는 문서",
@@ -85,7 +88,7 @@ class HomeInventory:
             if self.manager.job_pid(profile, timeout=.75) is None:
                 state = "stopped"
             else:
-                response = self.manager.request(f"http://127.0.0.1:{profile['port']}/", "api/state", timeout=.75)
+                response = self.manager.request(f"http://{LOOPBACK_HOST}:{profile['port']}/", "api/state", timeout=.75)
                 if not isinstance(response, dict):
                     raise ValueError("Invalid status")
                 state = "ready" if response.get("revision") else "unavailable"

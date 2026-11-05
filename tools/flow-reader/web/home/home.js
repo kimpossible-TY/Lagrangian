@@ -1,3 +1,5 @@
+import { readerLink } from "../ui/reader-links.js";
+
 const $ = (id) => document.getElementById(id);
 const labels = {
   ready: "HTML 문서 준비됨",
@@ -56,18 +58,6 @@ async function request(path, body, headers = {}) {
     controllers.delete(controller);
   }
 }
-function safeURL(value) {
-  try {
-    const url = new URL(value);
-    if (url.username || url.password || url.search || url.hash || url.pathname !== "/") return null;
-    return url.protocol === "https:" ||
-      (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
-}
 const documentCards = new Map();
 
 // Leave already ordered nodes in place: removing/reinserting a focused link
@@ -112,7 +102,7 @@ function documentCard(doc) {
     const key = `${variant.kind}:${index}`;
     keys.add(key);
     const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
-    const url = safeURL(variant.url);
+    const url = readerLink(variant.url);
     let item = record.variants.get(key);
     if (!item || item.linked !== Boolean(url)) {
       const element = url

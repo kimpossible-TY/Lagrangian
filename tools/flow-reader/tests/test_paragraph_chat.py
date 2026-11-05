@@ -249,13 +249,25 @@ class ParagraphChatTests(unittest.TestCase):
             self.assertIn('"status": "completed"', frames)
             self.assertNotIn("fixture-access", frames)
 
-    def serve(self):
+    def serve(self, homepage_url="https://home.example/"):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(self.reader.state,
-            public_url="https://reader.example", homepage_url="https://home.example/"))
+            public_url="https://reader.example", homepage_url=homepage_url))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
         return f"http://127.0.0.1:{server.server_port}"
+
+    def test_homepage_config_rejects_unsupported_loopback_and_returns_canonical_url(self):
+        from flow_reader.services.homepage import LOOPBACK_HOST
+        for configured in ("http://localhost:8769/", "http://[::1]:8769/"):
+            with self.assertRaisesRegex(ValueError, "Invalid Homepage origin"):
+                handler_for(self.reader.state, homepage_url=configured)
+        configured = f"http://{LOOPBACK_HOST}:8769"
+        origin = self.serve(homepage_url=configured)
+        with urlopen(Request(origin + "/api/chat/auth",
+                json.dumps(self.reader.request(operation="status")).encode(),
+                {"Origin": origin, "Content-Type": "application/json"})) as response:
+            self.assertEqual(json.load(response)["homepageURL"], configured + "/")
 
     def test_host_allowlist_blocks_rebinding_for_state_list_and_send(self):
         origin = self.serve()

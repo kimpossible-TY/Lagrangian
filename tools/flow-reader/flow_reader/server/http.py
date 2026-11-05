@@ -18,8 +18,10 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                        or public.password or public.path not in {"", "/"} or public.query or public.fragment):
         raise ValueError("Reader public URL must be an HTTPS origin")
     from flow_reader.services.homepage import reader_url
-    if homepage_url and not reader_url(homepage_url):
-        raise ValueError("Invalid Homepage origin")
+    if homepage_url:
+        homepage_url = reader_url(homepage_url)
+        if not homepage_url:
+            raise ValueError("Invalid Homepage origin")
     assets = reader_assets()
     vendor = HERE / "web/vendor/mathjax-4.1.3"
     vendor_files = json.loads((vendor / "manifest.json").read_text())["files"]

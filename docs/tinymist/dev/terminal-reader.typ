@@ -416,6 +416,8 @@ Private account data must stay outside Git checkouts/worktrees and the Reader
 source or installed bundle. Canonical and filesystem-equivalent source aliases
 are rejected before any account files are created. External parent-directory
 aliases remain supported; a symlink at the chosen directory itself is rejected.
+A dotfiles Git root at the resolved home directory is allowed for private app
+data; nested repositories and explicit source/bundle roots remain excluded.
 
 Open the printed loopback URL. For credential management, explicitly enter the
 capability value from the private file printed by that process. This authorizes
@@ -428,8 +430,11 @@ and drafts are preserved. Provider credentials never enter the browser.
 Use the existing shared ChatAuth directory only for an explicitly activated host;
 do not copy or migrate registrations. Set `homepageURL` in the existing Reader
 manager configuration, or `--homepage-url` when launching a document Reader, to
-the dedicated Homepage origin. Document account links open a separate tab and
-leave document scroll position, draft/history, source actions and offline storage
+the dedicated Homepage origin. Local HTTP Homepage URLs must use `127.0.0.1`
+(for example `http://127.0.0.1:8769/`), matching the exact admin Host/Origin;
+`localhost` and `::1` are not accepted. Python owns the configured URL policy;
+both browser clients use its validated URLs. Document account links open a
+separate tab and leave document scroll position, draft/history, source actions and offline storage
 in place. An unset Homepage URL shows configuration guidance; it does not invent
 an address or fall back to credential management in a document.
 

@@ -46,6 +46,15 @@ test("document account entry uses configured Homepage and never includes host pr
     node.account.children.some((child) => child.tagName === "input"),
     false,
   );
+  controller.account = { homepageURL: "http://127.0.0.1:8769/" };
+  render();
+  assert.equal(
+    node.account.children.find((child) => child.tagName === "a").href,
+    "http://127.0.0.1:8769/#connection",
+  );
+  controller.account = { homepageURL: null };
+  render();
+  assert.equal(node.account.children.find((child) => child.tagName === "a").href, undefined);
   controller.account = { homepageURL: "javascript:alert(1)" };
   render();
   assert.equal(node.account.children.find((child) => child.tagName === "a").href, undefined);

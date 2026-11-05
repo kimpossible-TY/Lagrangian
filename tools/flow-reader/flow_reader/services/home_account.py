@@ -47,7 +47,12 @@ class HomeAccount:
     def create(self, handle, ingress, origin, *, manage=False):
         with self.lock:
             self.sync()
-            self.sessions.pop(handle, None)
+            # Read-only ingress has no browser authority to retain or rotate.
+            # In particular, it must not evict a Mac management session.
+            if not manage:
+                return "", {"csrf": "", "management": False, **self.envelope()}
+            if self.session(handle, ingress, origin):
+                self.sessions.pop(handle)
             if len(self.sessions) >= 256:
                 oldest = min(self.sessions, key=lambda k: self.sessions[k]["seen"])
                 del self.sessions[oldest]
@@ -72,14 +77,16 @@ class HomeAccount:
             return result
 
     def models(self):
+        # Catalog lookup can refresh credentials or wait on an external provider.
+        # Keep it independent of browser status and management serialization.
+        try:
+            models = self.provider.models()
+            state, notice = "available", "카탈로그는 실제 모델 사용 가능 여부나 잔여량을 보장하지 않습니다."
+        except (ChatProviderError, OSError, ValueError, KeyError, TypeError) as error:
+            models = []
+            state = "reauthentication" if str(error) == "Sign in again" else "unavailable"
+            notice = "다시 로그인하세요." if state == "reauthentication" else "모델 목록을 확인하지 못했습니다."
         with self.lock:
-            try:
-                models = self.provider.models()
-                state, notice = "available", "카탈로그는 실제 모델 사용 가능 여부나 잔여량을 보장하지 않습니다."
-            except (ChatProviderError, OSError, ValueError, KeyError, TypeError) as error:
-                models = []
-                state = "reauthentication" if str(error) == "Sign in again" else "unavailable"
-                notice = "다시 로그인하세요." if state == "reauthentication" else "모델 목록을 확인하지 못했습니다."
             self.sync()
             return {"models": models, "state": state, "notice": notice, **self.envelope()}
 

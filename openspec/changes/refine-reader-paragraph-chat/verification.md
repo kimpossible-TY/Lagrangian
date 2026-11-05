@@ -3,9 +3,11 @@
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this
-publication ancestry. Final independent content/history privacy clearance is
-required before any push. No application install/restart, remote write, live
-sign-in or model inference was performed.
+publication ancestry. The implementation was subsequently pushed and merged to
+main without the required independent final content/history privacy review.
+That review remains pending; it is not cleared by the merge or by these tests.
+The implementation checks below used no application install/restart, live sign-in
+or model inference.
 
 - Node HTML/shared policy and architecture tests: 276 passed, zero skipped.
 - Final Reader services: 305 tests total; 247 passed and 58 optional integration
@@ -43,5 +45,6 @@ sign-in or model inference was performed.
   HTML, remote image or dynamic TeX extension capability.
 
 The repository workflow triggers on main pushes or explicit dispatch, not feature
-branch pushes or pull requests. No dispatch, main merge or auto-merge is enabled.
-The normal main delivery pipeline remains outside this publication authorization.
+branch pushes or pull requests. The implementation has since merged to main;
+the earlier no-push publication state no longer applies. This record does not
+verify deployment or installation from the normal main delivery pipeline.

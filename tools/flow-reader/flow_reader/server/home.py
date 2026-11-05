@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from flow_reader.resources import READER_ROOT
 from flow_reader.server.assets import CONTENT_TYPES
-from flow_reader.services.homepage import HomeInventory, reader_url
+from flow_reader.services.homepage import LOOPBACK_HOST, HomeInventory, reader_url
 from flow_reader.services.home_account import HomeAccount
 from flow_reader.services.manager import ReaderManager
 from flow_reader.services.chat_auth import ChatAuth, ChatProviderError
@@ -59,7 +59,7 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
     class Handler(BaseHTTPRequestHandler):
 
         def origin(self):
-            return (f"http://127.0.0.1:{self.server.server_port}" if ingress == "admin"
+            return (f"http://{LOOPBACK_HOST}:{self.server.server_port}" if ingress == "admin"
                     else public_origin.rstrip("/"))
 
         def trusted(self):
@@ -69,7 +69,7 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
         def eligible(self):
             forwarded = any(name.lower() == "forwarded" or name.lower().startswith(
                 ("x-forwarded-", "tailscale-")) for name in self.headers)
-            return ingress == "admin" and self.client_address[0] == "127.0.0.1" and not forwarded
+            return ingress == "admin" and self.client_address[0] == LOOPBACK_HOST and not forwarded
 
         def handle_cookie(self):
             if len(self.headers.get_all("Cookie", [])) > 1:
@@ -198,15 +198,15 @@ def main():
     write_json(capability_path, {"capability": capability})
     servers = []
     try:
-        admin = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for_home(
+        admin = ThreadingHTTPServer((LOOPBACK_HOST, args.port), handler_for_home(
             inventory, account, capability=capability))
         servers.append(admin)
         if args.proxy_port is not None:
-            proxy = ThreadingHTTPServer(("127.0.0.1", args.proxy_port), handler_for_home(
+            proxy = ThreadingHTTPServer((LOOPBACK_HOST, args.proxy_port), handler_for_home(
                 inventory, account, ingress="proxy", public_origin=args.public_origin))
             servers.append(proxy)
             threading.Thread(target=proxy.serve_forever, daemon=True).start()
-        print(json.dumps({"url": f"http://127.0.0.1:{admin.server_port}/",
+        print(json.dumps({"url": f"http://{LOOPBACK_HOST}:{admin.server_port}/",
                           "capabilityFile": str(capability_path)}), flush=True)
         admin.serve_forever()
     except KeyboardInterrupt:
