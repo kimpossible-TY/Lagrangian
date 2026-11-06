@@ -26,11 +26,11 @@ support="$HOME/Library/Application Support/Lagrangian"
 plist="$HOME/Library/LaunchAgents/dev.lagrangian.engine-autoupdate.plist"
 backup="$HOME/Library/Application Support/Lagrangian/autoupdate-backup-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$backup"
-cp -p "$support/auto-update-engine.sh" "$backup/"
+cp -p "$support/auto-update-engine.sh" "$support/refresh-reader-engine.sh" "$backup/"
 cp -p "$plist" "$backup/"
 launchctl bootout "gui/$(id -u)" "$plist"
-cp scripts/mac/auto-update-engine.sh "$support/auto-update-engine.sh"
-chmod 755 "$support/auto-update-engine.sh"
+cp scripts/mac/auto-update-engine.sh scripts/mac/refresh-reader-engine.sh "$support/"
+chmod 755 "$support/auto-update-engine.sh" "$support/refresh-reader-engine.sh"
 cp scripts/mac/dev.lagrangian.engine-autoupdate.plist.example "$plist"
 plutil -lint "$plist"
 launchctl bootstrap "gui/$(id -u)" "$plist"
@@ -41,5 +41,5 @@ Inspect `~/Library/Logs/lagrangian-engine-autoupdate.log` and
 `pipeline-status.json` after a successful main run. `bootout` stops the job;
 `bootstrap` loads it and `RunAtLoad` starts the loop. Keep the backup path for
 rollback. To restore, first stop the job with the same `bootout` command, copy
-both files from that backup to their original paths, then `bootstrap` the
+both scripts and the plist from that backup to their original paths, then `bootstrap` the
 restored plist. The marker and application data are retained during rollback.

@@ -65,3 +65,4 @@ watch_iteration; expect ''
 LIST_ERROR=0; printf 'invalid\n' > "$STATE"
 watch_iteration; expect ''
 printf 'auto-update watch regression passed\n'
+python3 scripts/mac/test-reader-refresh.py

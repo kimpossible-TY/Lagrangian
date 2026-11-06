@@ -28,7 +28,7 @@ failed() {
   exit "$code"
 }
 verify_services() { python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" <<'PY'
-import hashlib,json,os,re,subprocess,sys,urllib.request
+import hashlib,json,os,re,subprocess,sys,urllib.parse,urllib.request
 from pathlib import Path
 mode,app,sha,snapshot=sys.argv[1:]
 app=Path(app); native=app/'Contents/MacOS/Lagrangian'
@@ -39,9 +39,9 @@ def require(ok,message):
     if not ok: raise RuntimeError(message)
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): return None
-def http(port):
+def http(port,path="/"):
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-    with opener.open(f'http://127.0.0.1:{int(port)}/',timeout=3) as response:
+    with opener.open(f'http://127.0.0.1:{int(port)}{path}',timeout=3) as response:
         require(response.status==200,f'HTTP readiness failed on port {port}')
 if mode=='snapshot':
     active=[]
@@ -49,8 +49,9 @@ if mode=='snapshot':
         state=data(native,'--status',profile['id'])
         if state['running'] and state.get('managedByApp'):
             active.append({'id':profile['id'],'port':profile['port']})
-    config=Path.home()/'Library/Application Support/Lagrangian/reader/config.json'
-    readers=[{'id':p['id'],'port':p['port']} for p in json.loads(config.read_text())['services']]
+    launcher=Path.home()/'Library/Application Support/Lagrangian/reader/bin/flow-reader'
+    readers=[{'id':p['id'],'port':p['port'],'shared':bool(p.get('shared'))}
+             for p in data(launcher,'--profiles')['profiles']]
     Path(snapshot).write_text(json.dumps({'previews':active,'readers':readers}))
     sys.exit(0)
 manifest=json.loads((app/'Contents/Resources/release.json').read_text())
@@ -77,23 +78,31 @@ for profile in expected['previews']:
 if mode=='complete':
     launcher=Path.home()/'Library/Application Support/Lagrangian/reader/bin/flow-reader'
     profiles=data(launcher,'--profiles')['profiles']
-    require(sorted((p['id'],p['port']) for p in profiles)==
-            sorted((p['id'],p['port']) for p in expected['readers']),
+    require(sorted((p['id'],p['port'],bool(p.get('shared'))) for p in profiles)==
+            sorted((p['id'],p['port'],p['shared']) for p in expected['readers']),
             'Reader service set changed during update')
     for profile in profiles:
         plan=data(launcher,'--launch-plan',profile['id'])
-        arguments=plan['arguments']
-        require('--engine' in arguments and arguments[arguments.index('--engine')+1]==str(engine),
-                'Reader engine path mismatch: '+profile['id'])
         serve=Path(plan['arguments'][1])
         release=serve.parents[2]
+        # The shared host argv omits document options. Ask its installed manager
+        # for the same per-document arguments used by the shared server.
+        sys.path.insert(0,str(serve.parent))
+        from flow_reader.services.manager import ReaderManager
+        manager=ReaderManager(launcher.parents[1])
+        resolved=manager.profile(profile['id'])
+        require(resolved is not None,'Reader profile missing: '+profile['id'])
+        arguments=manager.document_arguments(resolved)
+        require('--engine' in arguments and arguments[arguments.index('--engine')+1]==str(engine),
+                'Reader engine path mismatch: '+profile['id'])
         release_manifest=json.loads((release/'release.json').read_text())
         require(release_manifest['revision']==sha,'Reader revision mismatch: '+profile['id'])
         state=data(launcher,'--status',profile['id'])
         require(state['running'] and state.get('managedByApp'),'Reader is not running: '+profile['id'])
         command=run('ps','-ww','-p',str(state['pid']),'-o','command=')
         require(str(serve) in command,'Reader is running a previous release: '+profile['id'])
-        http(profile['port'])
+        path='/d/'+urllib.parse.quote(profile['id'],safe='')+'/' if profile.get('shared') else '/'
+        http(profile['port'],path)
 print('Verified '+('app, engine and Reader' if mode=='complete' else 'app and engine'))
 PY
 }
