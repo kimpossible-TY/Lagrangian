@@ -460,12 +460,14 @@ may continue using an old cached root until that update.
 Generate one plist with the existing manager `--agent-plist <reader-id>` command.
 It has label `io.github.kimpossible-ty.lagrangian.reader.shared` and arguments
 `<managed-launcher> --serve-all`. All document profiles refer to that same job.
-Use the existing owner-checked start/stop/restart commands for this shared job;
-there is no second Homepage launchd job. Restarting it affects all HTML documents.
+Use the owner-checked manager `start` command for this shared job, and use
+`stop-shared` and `restart-shared` to stop and restart it. Per-document stop and
+restart commands are refused for shared profiles. There is no second Homepage
+launchd job. Restarting the shared job affects all HTML documents.
 The plist-generating manager source is backed up beside it as `manager.py.bak`.
 Do not edit live plists, load/unload jobs or replace live releases as a test.
 
-Rollback stops the shared job through existing tooling, restores saved
+Rollback stops the shared job with the manager `stop-shared` command, restores saved
 config/launcher and old plists, and starts the previous jobs. Keep credentials,
 history, drafts, focus files and per-document outputs. Immutable releases remain
 immutable. No data-schema migration is required. Shared document workers use
