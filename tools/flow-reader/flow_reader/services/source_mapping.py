@@ -7,6 +7,7 @@ import re
 
 from flow_reader.document.passages import locate_passages, normalized_offsets, occurrences, validate_fragments
 from flow_reader.compiler.inputs import source_paths
+from flow_reader.compiler.source_map import markup_ranges
 
 
 def literal_blocks(source):
@@ -252,9 +253,6 @@ def source_location(project, dependencies, bundle, fragments):
             **source_position(block["source"], offset)}
 
 
-ATTACHED_LABEL = re.compile(r"\s*<[\w.:-]+>\s*$")
-
-
 def source_excerpt(project, dependencies, bundle, fragments):
     """Return one complete expression's verified Typst slice for copying."""
     clean = validate_fragments(fragments)
@@ -270,11 +268,12 @@ def source_excerpt(project, dependencies, bundle, fragments):
         return {"status": "unmapped"}
     _, start, end = spans[0]
     text = mapped["source"][start:end]
-    closing = text.rfind("$")
-    # A verified equation range may carry its attached label. Copying the
-    # expression keeps it reusable without duplicating the author's label.
-    if closing >= 0 and ATTACHED_LABEL.fullmatch(text[closing + 1:]):
-        text = text[:closing + 1]
+    # Carriers retain literal and computed labels to preserve references. Use
+    # their scanner to copy just the expression, even when a label contains '$'.
+    expression = next(markup_ranges(text, include_labels=False), None)
+    if expression is None or expression[0] != 0 or expression[2] != "math":
+        return {"status": "unmapped"}
+    text = text[:expression[1]]
     if not text.startswith("$") or not text.endswith("$") or len(text) > 20000:
         return {"status": "unmapped"}
     return {"status": "located", "text": text}

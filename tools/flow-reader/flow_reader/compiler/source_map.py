@@ -40,13 +40,14 @@ def compile_source_map(project, dependencies, request, baseline, work):
             "sourceMapStatus": "verified" if carriers.complete else "partial" if mapping else "unmapped"}
 
 
-def markup_ranges(source, *, invocations=False):
+def markup_ranges(source, *, invocations=False, include_labels=True):
     """Recognize prose/content calls, computed references and whole equations.
 
     Unknown hash expressions are skipped through their line and balanced code
     delimiters. Content arguments of direct calls such as #proof[...] recurse
     in markup mode, including content returned by closures in call arguments.
     Definitions, raw code and strings do not become prose candidates.
+    Excerpts can exclude attached labels while carriers retain them.
     """
     length = len(source)
     call_pattern = re.compile(r"#[\w-]+(?:\.[\w-]+)*")
@@ -168,7 +169,8 @@ def markup_ranges(source, *, invocations=False):
                 if end < length:
                     # Labels must stay attached to the equation, inside its
                     # carrier; attaching them to html.elem changes references.
-                    end = attached_label_end(end + 1) - 1
+                    if include_labels:
+                        end = attached_label_end(end + 1) - 1
                     yield position, end + 1, "math"
                 position = min(length, end + 1)
             elif character == "#":
@@ -206,7 +208,8 @@ def markup_ranges(source, *, invocations=False):
                     # A variable or unknown expression is not literal prose.
                     position = end
                 if invocations and position > call.end():
-                    position = attached_label_end(position)
+                    if include_labels:
+                        position = attached_label_end(position)
                     yield invocation_start, position, "invocation"
             elif character == "[":
                 position = yield from markup(position + 1, True)

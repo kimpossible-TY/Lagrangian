@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from urllib.request import Request, urlopen
@@ -21,10 +22,22 @@ from flow_reader.compiler.source_map import SourceCarriers, markup_ranges
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.services.source_mapping import edit_location
+from flow_reader.services.source_mapping import edit_location, source_excerpt
 
 
 class CarrierAcceptanceTests(unittest.TestCase):
+    def test_excerpt_scanning_excludes_literal_and_computed_labels(self):
+        formula = '$alpha + #text("$") beta$'
+        for suffix in ('', ' <literal>', ' #<literal>',
+                       ' #(s.tag)("periodic-cell-solution")',
+                       ' #tag("price-$", ("nested",))'):
+            with self.subTest(suffix=suffix):
+                source = formula + suffix
+                carried = next(markup_ranges(source))
+                expression = next(markup_ranges(source, include_labels=False))
+                self.assertEqual(carried, (0, len(source), 'math'))
+                self.assertEqual(expression, (0, len(formula), 'math'))
+
     def test_computed_reference_calls_are_one_source_range(self):
         source = 'See #(s.ref)("interval-images") now.'
         ranges = list(markup_ranges(source))
@@ -104,6 +117,30 @@ class CarrierAcceptanceTests(unittest.TestCase):
         result = carriers.extract(baseline, annotated)
         self.assertEqual([part["text"] for part in result.values()], ["Stable"])
         self.assertFalse(carriers.complete)
+
+
+class SourceExcerptTests(unittest.TestCase):
+    def test_verified_math_range_copies_without_its_computed_label(self):
+        formula = '$alpha + beta$'
+        rendered = 'α+β'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            entry = root / 'main.typ'
+            project = Project(root, Path('main.typ'), root / 'packages')
+            for suffix in ('', ' <literal>', ' #<literal>',
+                           ' #(s.tag)("periodic-cell-solution")',
+                           ' #tag("price-$", ("nested",))'):
+                with self.subTest(suffix=suffix):
+                    source = formula + suffix
+                    entry.write_text(source)
+                    span = {'path': str(entry), 'source_hash': hashlib.sha256(source.encode()).hexdigest(),
+                            'start': 0, 'end': len(source), 'kind': 'math',
+                            'text_start': 0, 'text_end': len(rendered)}
+                    bundle = SimpleNamespace(passages=[{'key': 'equation', 'id': 'equation',
+                        'section': 'section-0', 'text': rendered + '(3.4.48)', 'source_ranges': [span]}])
+                    fragment = {'key': 'equation', 'exact': rendered, 'suffix': '(3.4.48)'}
+                    self.assertEqual(source_excerpt(project, (), bundle, [fragment]),
+                                     {'status': 'located', 'text': formula})
 
 
 class CompiledSourceMappingTests(unittest.TestCase):
@@ -203,6 +240,43 @@ class CompiledSourceMappingTests(unittest.TestCase):
                 self.assertEqual(located['column'], len(source[line_start:offset].encode()))
                 self.assertEqual(located['end_line'], located['line'])
                 self.assertEqual(located['end_column'], len(source[line_start:offset + len(phrase)].encode()))
+
+    def test_numbered_aligned_equation_with_computed_label_copies_whole_source(self):
+        source = (ROOT / 'tests/fixtures/aligned-equation-copy.typ').read_text()
+        state = self.state(source)
+        formula = self.mathematics_fragment(state, source, '$\n')
+        expected = source[source.index('$\n'):source.index('$ #(s.tag)') + 1]
+        passage = next(part for part in state.bundle.passages if part['key'] == formula['key'])
+        self.assertEqual(formula['suffix'], '(3.4.48)')
+        self.assertIn(b'<mtable class="multiline-equation aligned">', state.document)
+        self.assertEqual(state.source_text(state.revision, [formula])['text'], expected)
+        whole_block = self.fragment(state, passage['text'])
+        self.assertEqual(state.source_text(state.revision, [whole_block])['status'], 'unmapped')
+        partial = {**formula, 'exact': formula['exact'][:-1],
+                   'suffix': formula['exact'][-1] + formula['suffix']}
+        self.assertEqual(state.source_text(state.revision, [partial])['status'], 'unmapped')
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(state))
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            payload = json.dumps({'revision': state.revision, 'fragments': [formula]}).encode()
+            request = Request(f'http://127.0.0.1:{server.server_port}/api/source-text', payload,
+                              {'Content-Type': 'application/json'})
+            with urlopen(request) as response:
+                result = json.load(response)
+            self.assertEqual(result['status'], 'located')
+            self.assertEqual(result['text'], expected)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+
+        plain = compile_project(self.project, self.work / 'plain', map_sources=False)
+        self.assertTrue(plain['contentGatePassed'])
+        self.assertEqual(state.document, (self.work / 'plain/document.html').read_bytes())
+        self.entry.write_text(source + '\nChanged saved source.\n')
+        self.assertEqual(state.source_text(state.revision, [formula])['status'], 'stale')
 
     def test_callout_title_and_unwrapped_body_map_only_to_navigation_container(self):
         source = ('#import "@local/math-blocks:0.2.0": note\n'
