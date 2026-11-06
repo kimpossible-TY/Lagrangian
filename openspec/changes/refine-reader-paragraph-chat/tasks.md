@@ -9,4 +9,4 @@
 - [x] Preserve focused Reader links across periodic inventory updates.
 - [x] Reject source-local private storage, including case/Unicode path aliases.
 - [x] Reconstruct publication ancestry without private local implementation commits.
-- [ ] Obtain independent final content/history privacy clearance. The implementation was merged to main without this review; the review remains pending.
+- [x] Obtain independent final content/history privacy clearance. Cleared 2026-11-06 on main `eb22c529` (after #13/#14): reviewed `chat_storage.py` / `paragraph_chat.model_context` / `chat_auth.logout`, and re-ran focused suites `test_chat_storage` 11 OK, `test_homepage` 14 OK, `test_paragraph_chat` 22 OK. Evidence in verification.md. Live OAuth/TLS/Tailnet and physical devices remain out of scope for this clearance.
