@@ -104,3 +104,5 @@ Inventory is captured at startup; configuration changes require restarting the
 shared job. A shared-process failure affects every HTML Reader. Paged engines
 remain native processes. Cross-origin browser review/position preferences remain
 on their old origin; private conversation history/drafts retain document identity.
+
+PR #16 S1/S2 follow-up: `--managed` (including the `home.py` shim) requires explicit `config.shared` before resolving documents or binding ports; shared per-document stop/restart is refused unless explicitly requested with `--control stop-shared|restart-shared ID`; shared start and ownership guards are preserved.

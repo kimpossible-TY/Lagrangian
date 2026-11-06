@@ -80,6 +80,79 @@ class ReaderManagerTests(unittest.TestCase):
         request.assert_called_once_with(result["url"], "api/state")
         control.assert_not_called()
 
+    def test_shared_per_document_stop_restart_refused_before_control_side_effects(self):
+        self.config["shared"] = {"port": 8769}
+        self.save()
+        profile = self.resolve()
+        for action in ("stop", "restart"):
+            with self.subTest(action=action), \
+                    patch.object(self.manager, "locked") as locked, \
+                    patch("flow_reader.services.manager.run") as command, \
+                    patch("flow_reader.services.manager.ReaderManager", return_value=self.manager), \
+                    patch.object(self.manager, "profile", return_value=profile):
+                for invoke in (lambda: self.manager.control(action, profile),
+                               lambda: main(["--control", action, profile["id"]])):
+                    with self.assertRaisesRegex(ValueError, f"shared Reader job.*--control {action}-shared"):
+                        invoke()
+                locked.assert_not_called()
+                command.assert_not_called()
+        self.assertFalse(self.manager.agents.exists())
+
+    def test_explicit_shared_stop_restart_cli_controls_only_the_owned_shared_job(self):
+        self.config["shared"] = {"port": 8769}
+        self.save()
+        profile = self.resolve()
+        target = f"gui/{os.getuid()}/{profile['label']}"
+        for action in ("stop", "restart"):
+            with self.subTest(action=action), \
+                    patch("flow_reader.services.manager.ReaderManager", return_value=self.manager), \
+                    patch.object(self.manager, "profile", return_value=profile), \
+                    patch.object(self.manager, "job_pid", return_value=123), \
+                    patch.object(self.manager, "owns_agent", return_value=True), \
+                    patch("flow_reader.services.manager.run", return_value="") as command:
+                main(["--control", action + "-shared", profile["id"]])
+                launchctl = [call.args[0] for call in command.call_args_list if call.args[0][0] == "/bin/launchctl"]
+                self.assertEqual([args[1] for args in launchctl],
+                                 ["disable", "bootout", "print"] if action == "stop" else
+                                 ["bootout", "print", "enable", "bootstrap"])
+                self.assertTrue(all(args[-1] == target for args in launchctl if args[1] != "bootstrap"))
+        plist = plistlib.loads((self.manager.agents / (profile["label"] + ".plist")).read_bytes())
+        self.assertEqual(plist["Label"], LABEL_PREFIX + "shared")
+        self.assertEqual(plist["ProgramArguments"], [str(self.manager.launcher), "--serve-all"])
+
+    def test_explicit_shared_control_preserves_ownership_guard_and_rejects_legacy_profiles(self):
+        legacy = self.resolve()
+        for action in ("stop-shared", "restart-shared"):
+            with self.subTest(action=action), \
+                    patch.object(self.manager, "locked") as locked, \
+                    patch("flow_reader.services.manager.run") as command:
+                with self.assertRaisesRegex(ValueError, "requires a shared Reader profile"):
+                    self.manager.control(action, legacy)
+                locked.assert_not_called()
+                command.assert_not_called()
+        self.config["shared"] = {"port": 8769}
+        self.save()
+        profile = self.resolve()
+        for action in ("stop-shared", "restart-shared"):
+            with self.subTest(action=action), \
+                    patch.object(self.manager, "job_pid", return_value=123), \
+                    patch.object(self.manager, "owns_agent", return_value=False), \
+                    patch("flow_reader.services.manager.run") as command:
+                with self.assertRaisesRegex(ValueError, "does not own"):
+                    self.manager.control(action, profile)
+                command.assert_not_called()
+
+    def test_shared_start_still_reuses_running_job(self):
+        self.config["shared"] = {"port": 8769}
+        self.save()
+        profile = self.resolve()
+        with patch.object(self.manager, "job_pid", return_value=123), \
+                patch.object(self.manager, "owns_agent", return_value=True), \
+                patch("flow_reader.services.manager.run", return_value="") as command:
+            self.manager.control("start", profile)
+        command.assert_called_once_with(["/usr/sbin/lsof", "-nP", "-iTCP:8769", "-sTCP:LISTEN", "-t"], check=False)
+        self.assertFalse(self.manager.agents.exists())
+
     def test_shared_ports_and_origins_are_validated(self):
         for shared in ({"port": 24002}, {"port": 24001}, {"port": True},
                        {"port": 8769, "publicURL": "http://remote.example"},

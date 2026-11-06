@@ -87,9 +87,12 @@ class ReaderRuntime:
 
     def configure(self, state_factory):
         args, manager = self.options, self.manager
+        # Shared mode is opt-in; never take over legacy document ports implicitly.
+        shared = manager.shared_settings()
+        if shared is None:
+            raise ValueError('--managed requires ReaderManager config shared: {"port": ...}; configure shared before starting the Reader')
         profiles = manager.profiles()
         parents = manager.parent_profiles()
-        shared = manager.shared_settings() or {}
         port = args.port or shared.get("port", 8769)
         public = args.public_origin or shared.get("publicURL") or None
         proxy_port = args.proxy_port if args.proxy_port is not None else shared.get("proxyPort")

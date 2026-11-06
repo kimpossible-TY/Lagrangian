@@ -1,5 +1,7 @@
 """Shared lifecycle contracts; fake states, isolated sockets/data, no compiler."""
+from contextlib import redirect_stderr
 from http.client import HTTPConnection
+import io
 import json
 import os
 from pathlib import Path
@@ -54,6 +56,50 @@ class RuntimeTests(unittest.TestCase):
         result = response.status, response.read(), dict(response.getheaders())
         connection.close()
         return result
+
+    def test_missing_shared_rejects_before_states_or_occupied_legacy_port_binds(self):
+        from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+        occupied = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+        self.addCleanup(occupied.server_close)
+        self.profiles[0]["port"] = occupied.server_port
+        self.args.port = occupied.server_port  # An explicit port does not opt into shared mode.
+        self.manager.shared_settings.return_value = None
+        factory = Mock(side_effect=AssertionError("Document state must not be created"))
+        with patch("flow_reader.server.cli.ThreadingHTTPServer") as server, \
+                patch("flow_reader.server.cli.ChatAuth") as auth:
+            with self.assertRaisesRegex(ValueError, r'--managed requires.*shared:.*port'):
+                ReaderRuntime(self.args, self.manager, state_factory=factory)
+        factory.assert_not_called()
+        server.assert_not_called()
+        auth.assert_not_called()
+        self.manager.profiles.assert_not_called()
+        self.manager.parent_profiles.assert_not_called()
+        self.manager.document_arguments.assert_not_called()
+        self.assertFalse((self.work / "private").exists())
+
+    def test_managed_and_home_cli_report_missing_shared_without_binding(self):
+        from flow_reader.server.cli import main as reader_main
+        from flow_reader.server.home import main as home_main
+        self.manager.shared_settings.return_value = None
+        for entrypoint in ("reader", "home"):
+            with self.subTest(entrypoint=entrypoint), \
+                    patch("flow_reader.server.cli.ReaderManager", return_value=self.manager), \
+                    patch("flow_reader.server.cli.ThreadingHTTPServer") as server, \
+                    patch("flow_reader.server.cli.create_state") as state, \
+                    patch("flow_reader.server.cli.signal.signal"), \
+                    patch("sys.argv", ["home.py", "--chat-data", str(self.args.chat_data)]), \
+                    redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as exited:
+                    if entrypoint == "reader":
+                        reader_main(["--managed", "--chat-data", str(self.args.chat_data)])
+                    else:
+                        home_main()
+                self.assertEqual(exited.exception.code, 2)
+                self.assertIn('shared: {"port": ...}', errors.getvalue())
+                self.assertNotIn("Traceback", errors.getvalue())
+                server.assert_not_called()
+                state.assert_not_called()
+        self.manager.profiles.assert_not_called()
 
     def test_one_auth_owner_all_documents_and_redirect_sockets_share_process(self):
         runtime = self.runtime()

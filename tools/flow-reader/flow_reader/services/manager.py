@@ -350,8 +350,14 @@ class ReaderManager:
             time.sleep(.1)
 
     def control(self, action, profile):
-        if action not in {"start", "stop", "restart"}:
-            raise ValueError("Expected start, stop, or restart")
+        if action not in {"start", "stop", "restart", "stop-shared", "restart-shared"}:
+            raise ValueError("Expected start, stop, restart, stop-shared, or restart-shared")
+        if action.endswith("-shared"):
+            if not profile.get("shared"):
+                raise ValueError("Shared-job control requires a shared Reader profile")
+            action = action.removesuffix("-shared")
+        elif profile.get("shared") and action in {"stop", "restart"}:
+            raise ValueError(f"Cannot {action} one document: this affects the shared Reader job and all documents; use --control {action}-shared {profile['id']} explicitly")
         with self.locked():
             target = f"gui/{os.getuid()}/{profile['label']}"
             path = self.agents / (profile["label"] + ".plist")
@@ -412,7 +418,7 @@ def main(argv=None):
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))
         return
     if not arguments or len(arguments) not in {2, 3}:
-        raise ValueError("Commands: --profiles, --focus ID, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart ID")
+        raise ValueError("Commands: --profiles, --focus ID, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart|stop-shared|restart-shared ID")
     profile = manager.profile(arguments[-1])
     if profile is None:
         raise ValueError("Unknown reader profile")
