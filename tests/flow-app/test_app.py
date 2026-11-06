@@ -236,7 +236,7 @@ class InstallRecovery(unittest.TestCase):
             for path, text in [(old, 'old'), (incoming, 'new')]:
                 package.executable(path).parent.mkdir(parents=True); package.executable(path).write_text(text)
             settings = root / 'data/profiles.json'; settings.parent.mkdir(); settings.write_text('preserved')
-            with patch.object(package, 'validate', return_value={}), patch.object(package, 'running', return_value=['test']), patch.object(package, 'capture', return_value='{"running": false}'), patch.object(package, 'run'), patch.object(package.subprocess, 'run'), patch.object(package, 'healthy', side_effect=RuntimeError('failed')):
+            with patch.object(package, 'validate', return_value={}), patch.object(package, 'running', return_value=['test']), patch.object(package, 'profiles', return_value=[{'id': 'test'}]), patch.object(package, 'capture', return_value='{"running": false}'), patch.object(package, 'run'), patch.object(package.subprocess, 'run'), patch.object(package, 'healthy', side_effect=RuntimeError('failed')):
                 with self.assertRaises(RuntimeError): package.replace_app(incoming, old, root / 'data')
             self.assertEqual(package.executable(old).read_text(), 'old')
             self.assertEqual(settings.read_text(), 'preserved')
@@ -252,6 +252,7 @@ class InstallRecovery(unittest.TestCase):
             def control(args):
                 if args[-2] == 'start': self.assertEqual(package.executable(old).read_text(), 'new')
             with patch.object(package, 'validate', return_value={}), patch.object(package, 'running', return_value=['test']), \
+                    patch.object(package, 'profiles', return_value=[{'id': 'test'}]), \
                     patch.object(package, 'run', side_effect=control) as commands, patch.object(package, 'capture', side_effect=status) as checks, \
                     patch.object(package.time, 'sleep'), patch.object(package, 'healthy'):
                 package.replace_app(incoming, old, root / 'data')
@@ -272,6 +273,97 @@ class InstallRecovery(unittest.TestCase):
             previous = Path(json.loads((root / 'data/previous-release.json').read_text())['app'])
             self.assertEqual(package.executable(previous).read_text(), 'old')
             self.assertEqual(package.executable(old).read_text(), 'new')
+
+class SharedReaderControl(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.shared_label = package.CURRENT_READER_LABEL_PREFIX + 'shared'
+        self.shared = [
+            {'id': 'first-reader', 'label': self.shared_label, 'shared': True},
+            {'id': 'second-reader', 'label': self.shared_label},  # Label-only shared metadata.
+        ]
+        self.legacy = {'id': 'legacy-reader', 'label': package.CURRENT_READER_LABEL_PREFIX + 'legacy-reader'}
+
+    def test_install_rollback_and_failure_recovery_control_shared_job_once_per_phase(self):
+        for operation in ('install', 'rollback', 'failed-install'):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory(dir=self.root) as tmp:
+                root = Path(tmp).resolve(); old = root / 'Applications/Lagrangian.app'; incoming = root / 'new/Lagrangian.app'
+                for path, text in ((old, 'old'), (incoming, 'new')):
+                    package.executable(path).parent.mkdir(parents=True)
+                    package.executable(path).write_text(text)
+                data = root / 'data'; data.mkdir()
+                (data / 'previous-release.json').write_text(json.dumps({'app': str(incoming)}))
+                active = [*self.shared, self.legacy]
+                representative_ids = ['first-reader', 'legacy-reader']
+                with patch.object(package, 'DATA', data), \
+                        patch.object(package, 'validate', return_value={}), \
+                        patch.object(package, 'running', return_value=[p['id'] for p in active]), \
+                        patch.object(package, 'profiles', return_value=active), \
+                        patch.object(package, 'run') as commands, \
+                        patch.object(package.subprocess, 'run') as recovery, \
+                        patch.object(package, 'wait_stopped') as wait, \
+                        patch.object(package, 'healthy', side_effect=RuntimeError('failed') if operation == 'failed-install' else None) as health:
+                    if operation == 'failed-install':
+                        with self.assertRaisesRegex(RuntimeError, 'failed'):
+                            package.replace_app(incoming, old, data)
+                    elif operation == 'rollback':
+                        package.rollback(argparse.Namespace(app=old))
+                    else:
+                        package.replace_app(incoming, old, data)
+                controls = [tuple(call.args[0][-2:]) for call in commands.call_args_list if '--control' in call.args[0]]
+                self.assertEqual(controls, [('stop-shared', 'first-reader'), ('stop', 'legacy-reader'),
+                                            ('start', 'first-reader'), ('start', 'legacy-reader')])
+                self.assertTrue(all(call.args == (old, representative_ids) for call in wait.call_args_list))
+                self.assertEqual(wait.call_count, 2 if operation == 'failed-install' else 1)
+                health.assert_called_once_with(old, representative_ids)
+                if operation == 'failed-install':
+                    self.assertEqual([tuple(call.args[0][-2:]) for call in recovery.call_args_list],
+                                     [('stop-shared', 'first-reader'), ('stop', 'legacy-reader'),
+                                      ('start', 'first-reader'), ('start', 'legacy-reader')])
+                    self.assertEqual(package.executable(old).read_text(), 'old')
+                else:
+                    recovery.assert_not_called()
+                    self.assertEqual(package.executable(old).read_text(), 'new')
+
+    def test_migrated_restart_and_recovery_commands_are_explicit_and_deduplicated(self):
+        jobs = [*self.shared, self.legacy]
+        launcher = self.root / 'reader/bin/flow-reader'
+        for fails in (False, True):
+            with self.subTest(fails=fails), \
+                    patch.object(package, 'reader_launcher_path', return_value=launcher), \
+                    patch.object(package, 'flow_env', return_value={}), \
+                    patch.object(package, 'run', side_effect=RuntimeError('failed') if fails else None) as commands, \
+                    patch.object(package, 'reader_job_state', return_value='stopped'), \
+                    patch('sys.stdout', new_callable=io.StringIO) as output:
+                package.restart_migrated_readers(jobs)
+            expected = [('restart-shared', 'first-reader'), ('restart', 'legacy-reader')]
+            self.assertEqual([tuple(call.args[0][-2:]) for call in commands.call_args_list], expected[:1] if fails else expected)
+            if fails:
+                self.assertIn(f'{launcher} --control restart-shared first-reader', output.getvalue())
+                self.assertIn(f'{launcher} --control restart legacy-reader', output.getvalue())
+                self.assertNotIn('second-reader', output.getvalue())
+
+    def test_reader_inventory_recognizes_shared_label_and_serve_all_ownership(self):
+        cfg = {'shared': {'port': 8769}, 'services': [{'id': p['id']} for p in self.shared]}
+        launcher = self.root / 'reader/bin/flow-reader'
+        plist = self.root / 'Library/LaunchAgents' / (self.shared_label + '.plist')
+        plist.parent.mkdir(parents=True)
+        plist.write_bytes(package.plistlib.dumps({'ProgramArguments': [str(launcher), '--serve-all']}))
+        with patch.object(Path, 'home', return_value=self.root), \
+                patch.object(package, 'reader_launcher_path', return_value=launcher), \
+                patch.object(package, 'launchd_job_pid', return_value=123):
+            jobs = package.reader_jobs(cfg)
+        self.assertEqual([p['id'] for p in jobs], ['first-reader', 'second-reader'])
+        self.assertTrue(all(p['shared'] and p['owned'] and p['running'] for p in jobs))
+        self.assertEqual({p['label'] for p in jobs}, {self.shared_label})
+        self.assertFalse(package.reader_plist_owned(plist, 'first-reader', launcher))
+        with patch.object(package.subprocess, 'run', return_value=argparse.Namespace(returncode=0, stdout='')), \
+                patch.object(package, 'reader_jobs', return_value=jobs), \
+                patch.object(package, 'reader_launcher_path', return_value=Path(__file__)), \
+                patch.object(package, 'reader_service_parent_id', return_value='first'):
+            selected = package.check_reader_install_preconditions([{'id': 'first-reader'}, {'id': 'second-reader'}], cfg, {})
+        self.assertEqual([p['id'] for p in selected], ['first-reader'])
 
 class NativeBuild(unittest.TestCase):
     def test_native_packaging_failure_preserves_previous_output(self):

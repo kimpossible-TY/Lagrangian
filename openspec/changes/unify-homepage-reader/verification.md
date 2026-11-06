@@ -106,3 +106,5 @@ remain native processes. Cross-origin browser review/position preferences remain
 on their old origin; private conversation history/drafts retain document identity.
 
 PR #16 S1/S2 follow-up: `--managed` (including the `home.py` shim) requires explicit `config.shared` before resolving documents or binding ports; shared per-document stop/restart is refused unless explicitly requested with `--control stop-shared|restart-shared ID`; shared start and ownership guards are preserved.
+
+PR #16 S3 follow-up: flow-app install/rollback/recovery and migrated-reader restarts deduplicate shared jobs by label and use explicit stop-shared/restart-shared controls (including recovery guidance); waits, health checks and starts use one representative ID; 8 focused and 3 existing isolated migration tests passed.
