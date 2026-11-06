@@ -48,6 +48,48 @@ class ChatStorageBoundaryTests(unittest.TestCase):
             private_directory(worktree / "chat")
         self.assertFalse((worktree / "chat").exists())
 
+    def test_home_dotfiles_worktree_allows_default_private_data(self):
+        home_root = self.work / "home"
+        home_root.mkdir()
+        for git_file in (False, True):
+            with self.subTest(git_file=git_file):
+                marker = home_root / ".git"
+                if git_file:
+                    marker.rmdir()
+                    marker.write_text("gitdir: /fixture/dotfiles.git\n")
+                else:
+                    marker.mkdir()
+                target = home_root / "Library/Application Support/Lagrangian/paragraph-chat"
+                with patch.object(Path, "home", return_value=home_root):
+                    directory = private_directory(target)
+                    self.assertEqual(directory, target.resolve())
+                    self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+                    # Explicit source roots take precedence over the exemption.
+                    with self.assertRaisesRegex(ValueError, "outside the source project"):
+                        private_directory(home_root / "source-chat", home_root)
+                self.assertFalse((home_root / "source-chat").exists())
+
+    def test_home_exemption_checks_resolved_nearest_worktree_not_symlink_spelling(self):
+        home_root = self.work / "home"
+        home_root.mkdir()
+        (home_root / ".git").mkdir()
+        nested = home_root / "projects" / "nested"
+        nested.mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: /fixture/worktree.git\n")
+        external_alias = self.work / "home-alias"
+        external_alias.symlink_to(home_root, target_is_directory=True)
+        project_alias = home_root / "project-alias"
+        project_alias.symlink_to(self.repository, target_is_directory=True)
+        with patch.object(Path, "home", return_value=external_alias):
+            allowed = private_directory(external_alias / "Library" / "chat")
+            self.assertEqual(allowed, home_root / "Library" / "chat")
+            for target in (nested / "chat", external_alias / "projects/nested/chat",
+                           project_alias / "chat", external_alias / "project-alias/chat"):
+                with self.subTest(path=target):
+                    with self.assertRaisesRegex(ValueError, "outside.*repositor"):
+                        private_directory(target)
+                    self.assertFalse(target.resolve().exists())
+
     def test_relative_dotdot_and_ancestor_alias_into_git_are_rejected(self):
         alias = self.work / "source-alias"
         alias.symlink_to(self.repository, target_is_directory=True)

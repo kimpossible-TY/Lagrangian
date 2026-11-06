@@ -39,7 +39,10 @@ def private_directory(path, project_root=None):
         raise ValueError("Chat storage must be outside the source project")
     # .git is a directory in ordinary checkouts and a file in worktrees and
     # submodules. Inspect the destination too; reject before mkdir or chmod.
-    if any((parent / ".git").exists() for parent in (path, *path.parents)):
+    git_root = next((parent for parent in (path, *path.parents) if (parent / ".git").exists()), None)
+    # A dotfiles worktree at $HOME must not exclude ordinary private app data.
+    # The nearest worktree still wins, so nested projects remain protected.
+    if git_root is not None and git_root != Path.home().resolve():
         raise ValueError("Chat storage must be outside Git repositories")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     info = path.stat()

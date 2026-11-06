@@ -1,4 +1,5 @@
 # Tasks
+
 - [x] Separate message/context/composer presentation and shared settings entry.
 - [x] Preserve geometry, selection, drafts and host authority.
 - [x] Add token-based Markdown and bounded base/AMS math with source fallback.
@@ -8,4 +9,4 @@
 - [x] Preserve focused Reader links across periodic inventory updates.
 - [x] Reject source-local private storage, including case/Unicode path aliases.
 - [x] Reconstruct publication ancestry without private local implementation commits.
-- [ ] Obtain independent final content/history privacy clearance before any push.
+- [ ] Obtain independent final content/history privacy clearance. The implementation was merged to main without this review; the review remains pending.

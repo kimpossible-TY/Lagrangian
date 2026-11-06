@@ -73,5 +73,6 @@
   "rendering/tables.js": "rendering/tables.js",
   "theme.css": "theme.css",
   "ui/language.js": "ui/language.js",
+  "ui/reader-links.js": "ui/reader-links.js",
   "vendor/markdown-it-12.3.2/markdown-it.min.js": "vendor/markdown-it-12.3.2/markdown-it.min.js"
 }

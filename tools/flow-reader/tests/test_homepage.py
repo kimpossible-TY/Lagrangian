@@ -1,4 +1,5 @@
 """Isolated Homepage security, inventory and installed-asset contracts."""
+from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
@@ -11,7 +12,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from flow_reader.services.homepage import HomeInventory, reader_url
+from flow_reader.services.homepage import LOOPBACK_HOST, HomeInventory, reader_url
 from flow_reader.services.home_account import HomeAccount
 from flow_reader.services.chat_auth import ChatProviderError
 from flow_reader.server.home import handler_for_home, home_assets, claim_host
@@ -213,6 +214,87 @@ class HomeTests(unittest.TestCase):
         self.assertFalse(self.account.sessions)
         self.assertIn("Max-Age=0", result[2]["Set-Cookie"])
         self.assertNotIn(other.split("=")[1], self.account.sessions)
+
+    def test_read_only_session_flood_cannot_evict_or_rotate_management(self):
+        cookie, proof = self.unlock()
+        handle = cookie.split("=")[1]
+        for _ in range(257):
+            status, raw, headers = self.request("POST", "/api/home/session", ingress="proxy",
+                headers={"Cookie": "__Secure-ReaderHomeView=" + handle})
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(raw)["csrf"], "")
+            self.assertFalse(json.loads(raw)["management"])
+            self.assertIn("Max-Age=0", headers["Set-Cookie"])
+        # Even an unprivileged admin request carrying a copied handle cannot
+        # remove the existing management session.
+        self.request("POST", "/api/home/session", headers={"Cookie": cookie})
+        self.assertEqual(set(self.account.sessions), {handle})
+        self.assertTrue(json.loads(self.request(headers={"Cookie": cookie})[1])["management"])
+        self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]},
+            body={"operation": "cancel"})[0], 200)
+
+    def test_sessions_are_invisible_across_ingress_even_with_matching_origin(self):
+        origin = "https://same.example"
+        # Exercise binding independently of the HTTP cookie names/authorities.
+        admin, _ = self.account.create("", "admin", origin, manage=True)
+        proxy, proof = self.account.create(admin, "proxy", origin)
+        self.assertEqual(proxy, "")
+        self.assertFalse(proof["management"])
+        self.assertIsNone(self.account.session(admin, "proxy", origin))
+        self.assertIsNone(self.account.session(proxy, "admin", origin))
+        self.assertIsNotNone(self.account.session(admin, "admin", origin))
+        other, _ = self.account.create(admin, "proxy", origin, manage=True)
+        self.assertIsNone(self.account.session(other, "admin", origin))
+        self.assertIsNotNone(self.account.session(other, "proxy", origin))
+        self.assertIsNotNone(self.account.session(admin, "admin", origin))
+        for ingress, cookie in (("proxy", "__Secure-ReaderHomeView=" + admin),
+                                ("admin", "ReaderHomeAdmin=" + other)):
+            result = json.loads(self.request(ingress=ingress, headers={"Cookie": cookie})[1])
+            self.assertFalse(result["management"])
+            self.assertNotIn("accounts", result)
+
+    def test_proxy_catalog_fetch_does_not_block_status_or_management(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.provider.models
+
+        def blocked_models():
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError("fixture catalog was not released")
+            return original()
+
+        self.provider.models = blocked_models
+        cookie, proof = self.unlock()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            catalog = pool.submit(self.request, path="/api/home/models", ingress="proxy")
+            try:
+                self.assertTrue(entered.wait(1))
+                status = pool.submit(self.request, headers={"Cookie": cookie}).result(timeout=1)
+                self.assertTrue(json.loads(status[1])["management"])
+                mutation = pool.submit(self.request, "POST", headers={"Cookie": cookie,
+                    "X-Reader-CSRF": proof["csrf"]}, body={"operation": "cancel"}).result(timeout=1)
+                self.assertEqual(mutation[0], 200)
+                self.assertFalse(catalog.done())
+            finally:
+                release.set()
+            result = json.loads(catalog.result(timeout=2)[1])
+        self.assertEqual(result["state"], "available")
+        self.assertEqual(result["version"], json.loads(mutation[1])["version"])
+
+    def test_configured_loopback_url_matches_exact_admin_authority(self):
+        server = self.servers["admin"]
+        configured = reader_url(f"http://{LOOPBACK_HOST}:{server.server_port}")
+        self.assertEqual(configured, f"http://{LOOPBACK_HOST}:{server.server_port}/")
+        self.assertEqual(self.request(path="/", headers={"Host": configured.split("/")[2]})[0], 200)
+        for host in ("localhost", "[::1]"):
+            self.assertIsNone(reader_url(f"http://{host}:{server.server_port}/"))
+            self.assertEqual(self.request(headers={"Host": f"{host}:{server.server_port}"})[0], 421)
+        self.inventory.observe()
+        self.assertTrue(all(reader_url(v["local"]) == v["local"]
+                            for d in self.inventory.documents for v in d["variants"]))
+        # The common link adapter must be delivered on both independent origins.
+        self.assertEqual(home_assets()["/ui/reader-links.js"], reader_assets()["/ui/reader-links.js"][0])
+        self.assertEqual(self.request(path="/ui/reader-links.js")[0], 200)
 
     def test_no_store_cookie_scope_catalog_uncertainty_and_absolute_expiry(self):
         cookie, proof = self.unlock()

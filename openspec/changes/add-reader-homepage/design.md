@@ -8,16 +8,16 @@ See `proposal.md` for motivation and the mandatory dependency gate. PR #11 merge
 
 The current worktree separates HTTP/static delivery from document publication and managed service lifecycle, as mapped by `docs/tinymist/dev/reader-architecture.typ`.
 
-| Owner or route | Current behavior relevant to the Homepage |
-| --- | --- |
-| `tools/flow-reader/flow_reader/server/http.py` | Per-document request routing and response transport; not a host document registry or authentication policy owner. |
-| `server/assets.py`, `web/assets.json` | Explicit reviewed static routes; `/` aliases `/index.html`, the full document Reader shell. |
-| `GET /document.html` | Accepted document content with revision validation; not an alternative full Reader entry. |
-| `GET /api/state`, `/health` | Document state; health returns 503 without an accepted revision. This is not host-wide health. |
-| `GET /api/manifest`, `/api/sections/*`, `/api/assets/*` | Accepted, revision-bound document delivery. |
-| Compiler GET/POST routes; source, highlight, focus, cursor and rendering POSTs | Existing concrete reader operations and source/snapshot guards. |
-| `GET /service-worker.js`, `/api/offline`; `server/offline.py` | Document shell and accepted-snapshot offline inventory. |
-| `services/manager.py` | `ReaderManager.profiles()` resolves configured HTML readers and parent app profiles, public URLs, and exact managed identities. |
+| Owner or route                                                                 | Current behavior relevant to the Homepage                                                                                       |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `tools/flow-reader/flow_reader/server/http.py`                                 | Per-document request routing and response transport; not a host document registry or authentication policy owner.               |
+| `server/assets.py`, `web/assets.json`                                          | Explicit reviewed static routes; `/` aliases `/index.html`, the full document Reader shell.                                     |
+| `GET /document.html`                                                           | Accepted document content with revision validation; not an alternative full Reader entry.                                       |
+| `GET /api/state`, `/health`                                                    | Document state; health returns 503 without an accepted revision. This is not host-wide health.                                  |
+| `GET /api/manifest`, `/api/sections/*`, `/api/assets/*`                        | Accepted, revision-bound document delivery.                                                                                     |
+| Compiler GET/POST routes; source, highlight, focus, cursor and rendering POSTs | Existing concrete reader operations and source/snapshot guards.                                                                 |
+| `GET /service-worker.js`, `/api/offline`; `server/offline.py`                  | Document shell and accepted-snapshot offline inventory.                                                                         |
+| `services/manager.py`                                                          | `ReaderManager.profiles()` resolves configured HTML readers and parent app profiles, public URLs, and exact managed identities. |
 
 Current POST routing compares a supplied Origin's netloc with the supplied Host and permits absent Origin on older operations. There is no independent configured Host allow-list or management browser session there. That check is insufficient for host account management; its presence must not be described as the proposed security boundary.
 
@@ -41,7 +41,12 @@ and an exact `--public-origin` create a separate read-only ingress; no public or
 wildcard listener is created. The fixture uses `https://home.example:8443` only as
 a simulated authority, not an activated address. Existing manager configuration
 owns `homepageURL`, propagated to document `--homepage-url`; an unset value gives
-configuration guidance. Host assets have their own explicit manifest.
+configuration guidance. `services/homepage.py` owns the single `LOOPBACK_HOST`
+constant (`127.0.0.1`), used for HTTP URL validation and host binding/authority.
+The Homepage and document clients share `web/ui/reader-links.js` and consume
+server-normalized URLs without a separate loopback allowlist. Local HTTP
+`localhost` and `::1` links are rejected at configuration time. Host assets have
+their own explicit manifest.
 
 Initial policy is one host-global account and uniform sanitized inventory/status
 for all allowed viewers. Actual exposure requires the owner's homogeneous viewer
@@ -96,6 +101,16 @@ Every credential change uses POST with a server-issued synchronizer CSRF token b
 After explicit host proof, generate random opaque 256-bit session handles and CSRF secrets; store session authority, ingress, expiry, and CSRF binding only in host memory. The browser receives only opaque UI handles and sanitized data, never access/refresh/ID tokens, PKCE verifiers, registration IDs, or account emails remotely. Keep CSRF tokens in page memory and a request header, not URLs or local/session storage. Account errors/logs redact secrets; request bodies and OAuth query parameters are not access-logged.
 
 For HTTPS, use host-only cookies with `Secure`, `HttpOnly`, `SameSite=Strict`, no `Domain`, and the narrow host API path. Separate the loopback admin session namespace from the remote read-only namespace. Deliberate local HTTP exception: the exact configured loopback admin ingress may issue a host-only `HttpOnly; SameSite=Strict` cookie without `Secure`, scoped to `/api/home/`, after verified local same-origin session creation. This exception is unavailable through the remote proxy or remote HTTP. Cookies are not port-isolated, so local sessions remain bound to configured ingress/port and Origin, with CSRF protection; other localhost services receive no authority from the cookie. Do not claim that a Secure cookie works over plain IP HTTP.
+
+Read-only session creation retains no handle or CSRF token and clears the
+ingress cookie. It cannot rotate or evict management sessions. Catalog/provider
+work runs outside the browser-account lock; only status synchronization and the
+response version envelope use that lock.
+
+Private storage checks resolved paths against explicit source/bundle roots and
+the nearest Git root. A dotfiles Git root equal to the resolved home directory
+is exempt; nested Git repositories and explicit source/bundle roots still fail
+before directory creation or permission changes, including through symlink aliases.
 
 Proposed limits are 15 minutes idle and 8 hours absolute, with shorter pending-login expiry retained from `ChatAuth`. Rotate session and CSRF secrets on successful sign-in/account change. Sign-out invalidates all management sessions and pending login attempts and stops local token use; remote revocation is best-effort with an honest result. Host restart discards all UI sessions, while protected provider credentials retain their existing persistence semantics. Other tabs get an expired-session response and rebootstrap only on an eligible ingress; requests never replay a mutation automatically.
 

@@ -5,6 +5,7 @@ import {
   sameChatSnapshot,
 } from "../../reader-common/paragraph-chat/state.js";
 import { bubblePosition, documentInk } from "./geometry.js";
+import { readerLink } from "../../ui/reader-links.js";
 
 const element = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -331,24 +332,12 @@ export class ParagraphChatController {
       this.account.notice || (this.account.signedIn ? "Signed in with ChatGPT" : ""),
     );
     const manage = element("a", "Manage ChatGPT on the Homepage ↗");
-    try {
-      const url = new URL(this.account.homepageURL);
-      if (
-        url.username ||
-        url.password ||
-        url.pathname !== "/" ||
-        url.search ||
-        url.hash ||
-        !(
-          url.protocol === "https:" ||
-          (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
-        )
-      )
-        throw new Error();
-      manage.href = url.href + "#connection";
+    const url = readerLink(this.account.homepageURL);
+    if (url) {
+      manage.href = url + "#connection";
       manage.target = "_blank";
       manage.rel = "noopener noreferrer";
-    } catch {
+    } else {
       manage.removeAttribute("href");
       manage.textContent = "Configure the Homepage address on this Mac to manage ChatGPT.";
     }
