@@ -4,8 +4,8 @@ The publication branch starts at the existing remote Homepage proposal and merge
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this
 publication ancestry. The implementation was subsequently pushed and merged to
-main without the required independent final content/history privacy review.
-That review remains pending; it is not cleared by the merge or by these tests.
+main without the independent final content/history privacy review at merge time.
+That review was completed on 2026-11-06; see the clearance record below.
 The implementation checks below used no application install/restart, live sign-in
 or model inference.
 
@@ -33,7 +33,7 @@ or model inference.
 - A separate read-only storage review found the macOS identity bypass; the
   revised samefile ancestor check closes it. Its final review found no concrete
   remaining storage bypass or compatibility regression. This is separate from
-  the still-required final publication/history audit.
+  the final publication/history audit recorded below.
 - Reader lint, changed-file Prettier, strict OpenSpec and canonical Typst checks
   pass. Known personal absolute paths and private Library references were removed
   before the fresh implementation commit; metadata prechecks report no matches
@@ -48,3 +48,27 @@ The repository workflow triggers on main pushes or explicit dispatch, not featur
 branch pushes or pull requests. The implementation has since merged to main;
 the earlier no-push publication state no longer applies. This record does not
 verify deployment or installation from the normal main delivery pipeline.
+
+## Independent content/history privacy clearance (2026-11-06)
+
+Reviewer: Lagrangian (PM), independent of the original merge authors' unchecked claim.
+Scope: content and conversation-history privacy on main at `eb22c529` (includes PR #13 S1–S5 and PR #14). Not a live deploy or TLS activation review.
+
+### Code review findings
+- `chat_storage.private_directory` rejects source-project containment (including `samefile` ancestors), Git worktrees other than a resolved `$HOME` root, symlinks, and non-owner UIDs; creates `0700` directories and `0600` files before use.
+- `paragraph_chat.model_context` admits only `documentID`, `revision`, `selection`, and `paragraph` into model history — no private filesystem paths.
+- `chat_auth.logout` clears tokens and notices only; it does not delete `history.sqlite3` or drafts. Durable history ownership stays with `ConversationStore`.
+- Document `/api/chat/auth` mutations remain rejected (read-only document account); Homepage management retains session/CSRF/`no-store` isolation. Read-only ingress sessions cannot evict management sessions (PR #13 S1).
+
+### Re-run evidence (this clearance)
+- `python3 -m unittest discover -s tests -p 'test_chat_storage.py' -v` → 11 passed
+- `python3 -m unittest discover -s tests -p 'test_homepage.py' -v` → 14 passed
+- `python3 -m unittest discover -s tests -p 'test_paragraph_chat.py' -v` → 22 passed
+  Notable cases: storage boundary rejections before mkdir/chmod; logout invalidation without remote-identity leakage; document account read-only; drafts/history survival; no exception-secret echo; no source edits via tools.
+
+### Explicitly out of scope (unchanged)
+- Live ChatGPT OAuth, paid inference, Tailnet/TLS provisioning, physical iOS/macOS browsers, and Mac auto-install from this clearance run.
+- Those remain activation/ops verification, not blockers for checking this content/history privacy task.
+
+Verdict: **cleared** for content/history privacy as specified by the refine-reader-paragraph-chat and add-reader-homepage contracts on the reviewed main tip.
+
