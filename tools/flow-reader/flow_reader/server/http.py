@@ -18,7 +18,7 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                        or public.password or public.path not in {"", "/"} or public.query or public.fragment):
         raise ValueError("Reader public URL must be an HTTPS origin")
     from flow_reader.services.homepage import reader_url
-    if homepage_url:
+    if homepage_url and homepage_url != "/":
         homepage_url = reader_url(homepage_url)
         if not homepage_url:
             raise ValueError("Invalid Homepage origin")
@@ -75,8 +75,12 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                             result = {"models": chat.provider.models()}
                         elif operation == "status":
                             status = chat.auth.status()
+                            account_home = homepage_url
+                            if account_home == "/":
+                                scheme = "https" if self.headers["Host"] == public.netloc else "http"
+                                account_home = scheme + "://" + self.headers["Host"] + "/"
                             result = {"hostOnly": True, "signedIn": status["signedIn"],
-                                      "planEnabled": status["planEnabled"], "homepageURL": homepage_url,
+                                      "planEnabled": status["planEnabled"], "homepageURL": account_home,
                                       "notice": "Manage ChatGPT on the configured Homepage on this Mac."}
                         elif operation in {"login", "cancel", "logout"}:
                             return self.respond(b"Manage ChatGPT on the Homepage", "text/plain", 403)

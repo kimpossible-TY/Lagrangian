@@ -28,52 +28,47 @@ Concrete reader composition imports its feature adapters and shared policy. Shar
 
 Rust and Python implementations share externally observable contracts and test cases rather than a new universal runtime. Source Highlight writes verified source; legacy saved-context protocol records context without starting a turn, while HTML/terminal Ask opens a paragraph composer and Send explicitly starts inference; review strikes remain browser-local paint. Do not reintroduce the retired quotation library.
 
-= Host Homepage
+= Shared Reader host
 
-`tools/flow-reader/home.py` composes `server/home.py` independently of document
-compilation. It never constructs a Project, watcher, compiler pool or conversation
-store. Existing document origins retain their root Reader, raw `/document.html`,
-revision guards and offline worker. `web/home-assets.json` is the separate explicit
-host asset allow-list. The host has no Service Worker or offline fallback; every
-host response uses no-store. `web/theme.css` owns the existing shared palette;
-the home header copies the current HTML Reader SVG mark and theme preference.
+`server/cli.py` composes one ReaderRuntime: Homepage at `/`, document states at
+`/d/<reader-id>/`, and redirect-only old-port listeners in the same process.
+`home.py` is a compatibility alias for `serve.py --managed`; it no longer owns
+an independent Homepage runtime. `server/routing.py` selects exact configured
+IDs, strips only that prefix and delegates to existing document/Homepage handlers.
+Relative APIs, allowlisted assets and offline workers retain document-local scope.
+The `/d/<id>/paged/` entry redirects to the configured native paged view; its
+engine and WebSocket protocol retain their existing ownership and origin.
 
-`services/homepage.py` projects ReaderManager.parent_profiles()/profiles(), groups
-by parent ID rather than name, validates configured root URLs and strips source
-paths. Local fallback URLs are available only on genuine admin loopback; remote
-visitors see configured HTTPS entries. One asynchronous inventory refresh and
-four bounded status workers observe configured HTML services without starting
-them. Paged readiness remains unknown: an HTML observation is not proof of paged
-availability. Failed observations are unknown or explicitly stale.
+`services/manager.py` remains the inventory, compiler-plan and lifecycle owner.
+The optional `shared` configuration maps all HTML profiles to one shared job and
+prefixed URL. `document_arguments` retains each document's existing font, compiler,
+source-history, focus and output settings. Terminal attachments validate the same
+process PID and exact document identity. The runtime starts configured compilers
+at service startup; Homepage requests themselves never compile or infer.
 
-`services/home_account.py` presents the existing ChatAuth registration owner and
-ResponsesProvider catalog without document snapshots or inference. It owns only
-ephemeral browser sessions and CSRF. A process lease permits only one Homepage
-per credential directory to own pending OAuth. A per-start 0600 host capability file must be
-explicitly entered to create a management session; it is never returned over HTTP
-or stored in browser storage. Sessions bind to ingress and exact origin, expire
-after 15 minutes idle or 8 hours absolute, and rotate on account credential writes.
-Logout invalidates all browser sessions before revocation and preserves history.
-ChatAuth retains its callback, PKCE, state/nonce, cross-process refresh and private
-credential storage. Document auth mutation endpoints always return 403.
+`services/homepage.py` projects the loaded manager inventory and document states
+without probing or controlling launchd in shared mode. Group by parent ID, sanitize
+names and source paths, and retain truthful empty/error/unavailable states. Paged
+readiness is never inferred from HTML state. The host asset manifest is separate;
+Homepage/account responses use no-store and have no offline fallback.
 
-The default is only 127.0.0.1:8769. An optional separate proxy listener requires
-an exact configured HTTPS origin and is always read-only, even from a loopback
-peer without forwarding headers. Provisioning must never target the admin port.
-Both listeners validate Host independently. POST requires the exact Origin;
-credential changes additionally require local ingress/peer, no forwarding headers,
-a management session and its CSRF header. HTTPS cookies are Secure, HttpOnly,
-SameSite Strict and host-only at `/api/home/`; only dedicated loopback permits
-HTTP without Secure. Remote status never contains registration IDs or emails.
-Local registration labels require an authorized management session.
+`services/home_account.py` owns ephemeral browser authority and CSRF, while one
+shared ChatAuth owns provider credentials, PKCE, callback, refresh and revocation.
+Injected conversation providers borrow this owner; closing a document cancels its
+conversation work without cancelling shared OAuth. One process lease protects the
+credential directory. The per-start 0600 capability must be entered explicitly and
+is required on every account mutation and privileged account-status read, along
+with session/CSRF, exact Host/Origin, genuine 127.0.0.1 admin peer and no forwarding
+headers. A copied browser cookie alone conveys no mutation or identity authority.
 
-`web/home/home.js` retains CSRF only in memory, guards late responses by generation
-and account version, polls only while visible and aborts requests on navigation.
-Cross-tab notifications invalidate presentation without transmitting account data.
-No mutation is replayed after a timeout. The model catalog is explicitly requested
-and does not prove paid tier, quota or successful inference. See the terminal guide
-for configuration and rollback. Live HTTPS identity and proxy provisioning remain
-deployment decisions; no services are installed or restarted by this change.
+Paths on one origin are not a security boundary. Capability stays in Homepage
+module memory, never URLs or browser storage; remote status remains sanitized.
+Document account APIs are revision-bound and read-only. The separate optional
+proxy ingress always denies account mutations, even with copied proofs. It serves
+the same Homepage/document routes under the exact configured HTTPS origin.
+TLS, Tailnet and viewer grants require separate activation; no per-viewer roles
+or paged protocol migration is implied. See the terminal guide for launchd
+migration, redirect-worker retirement and rollback without data migration.
 
 = HTML Reader package
 

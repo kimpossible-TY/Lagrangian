@@ -51,6 +51,46 @@ class ReaderManagerTests(unittest.TestCase):
         with patch("flow_reader.services.manager.run", return_value=json.dumps({"profiles": [self.parent]})):
             return self.manager.profiles()[0]
 
+    def test_shared_profiles_use_one_plan_job_and_prefixed_urls(self):
+        self.config["shared"] = {"port": 8769, "publicURL": "https://reader.example", "proxyPort": 8770}
+        self.save()
+        profile = self.resolve()
+        self.assertEqual(profile["label"], LABEL_PREFIX + "shared")
+        self.assertEqual(profile["legacyPort"], 24002)
+        self.assertEqual(profile["legacyPublicURL"], "https://example.ts.net:24002/")
+        self.assertEqual(self.manager.document_url(profile), "http://127.0.0.1:8769/d/parent-reader/")
+        self.assertEqual(self.manager.document_url(profile, public=True), "https://reader.example/d/parent-reader/")
+        self.assertEqual(self.manager.agent(profile)["ProgramArguments"], [str(self.manager.launcher), "--serve-all"])
+        self.assertEqual(self.manager.arguments(profile)[2:], ["--managed", "--data", str(self.manager.data)])
+        plan = self.manager.document_arguments(profile)
+        self.assertIn("--root", plan)
+        self.assertEqual(plan[plan.index("--focus-file") + 1], profile["focusFile"])
+        self.assertEqual(plan[plan.index("--original-url") + 1], self.parent["publicURL"])
+
+    def test_shared_attachment_checks_common_pid_at_exact_document_url(self):
+        self.config["shared"] = {"port": 8769}
+        self.save()
+        profile = self.resolve()
+        with patch.object(self.manager, "match_document", return_value=profile), \
+                patch.object(self.manager, "job_pid", return_value=os.getpid()), \
+                patch.object(self.manager, "request", return_value=self.attachment_state(profile)) as request, \
+                patch.object(self.manager, "control") as control:
+            result = self.manager.attach(profile["root"], profile["entry"])
+        self.assertEqual(result["url"], "http://127.0.0.1:8769/d/parent-reader/")
+        request.assert_called_once_with(result["url"], "api/state")
+        control.assert_not_called()
+
+    def test_shared_ports_and_origins_are_validated(self):
+        for shared in ({"port": 24002}, {"port": 24001}, {"port": True},
+                       {"port": 8769, "publicURL": "http://remote.example"},
+                       {"port": 8769, "proxyPort": 8770},
+                       {"port": 8769, "proxyPort": 8769, "publicURL": "https://reader.example"}):
+            with self.subTest(shared=shared):
+                self.config["shared"] = shared
+                self.save()
+                with self.assertRaises(ValueError):
+                    self.resolve()
+
     def test_parent_settings_are_resolved_afresh_and_paged_identity_is_preserved(self):
         first = self.resolve()
         self.assertEqual(first["originalURL"], self.parent["publicURL"])

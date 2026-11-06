@@ -385,7 +385,7 @@ verified selection capture to open one conversation per paragraph; only Send
 starts a model turn. Conversations and drafts belong to the host's private local
 store outside the source project and survive reopening the terminal.
 
-Continue with ChatGPT must be initiated from this Mac's dedicated loopback Homepage. It opens
+Continue with ChatGPT must be initiated from this Mac's loopback Homepage. It opens
 the system browser for SIWC consent; remote views can choose account models and
 chat after host authorization, but cannot manage credentials. No API key or
 existing Codex profile is imported. Node.js is required for ID-token signature
@@ -396,62 +396,80 @@ terminal and paged-adapter verification are separate follow-up coverage.
 
 = Homepage entry and account management
 
-The Homepage is a separate host entry; it does not replace a document's root URL.
-It lists only configured parent/HTML profiles, with text search and honest observed
-HTML readiness. Paged readiness is not inferred from HTML availability. Its math
-motif is decorative, not a compiled document preview. No documents are fabricated
-when configuration is empty. Reading the Homepage never starts a service, builds
-a document, or sends a model question.
+One shared Reader process serves Homepage at `/` and HTML documents at
+`/d/<reader-id>/`. IDs are the existing manager service IDs, not document titles.
+The trailing slash is canonical. Document assets, APIs and offline workers stay
+inside that prefix. `/d/<id>/paged/` redirects to the existing native paged view;
+its engine/protocol and origin are unchanged. Homepage reads loaded inventory
+and accepted-state status; opening it never starts inference or compilation.
+Configured document compilation starts when the Reader service starts.
 
-For development, use isolated ReaderManager configuration and a private ChatAuth
-directory outside projects. This example does not install or restart anything:
+For development, use an isolated ReaderManager configuration and private ChatAuth
+directory outside source projects. This starts an isolated shared Reader without
+installing launchd jobs:
 
 ```sh
-python3 tools/flow-reader/home.py --port 8769 \
+python3 tools/flow-reader/serve.py --managed --port 8769 \
   --data /absolute/path/to/isolated-reader-data \
   --chat-data /absolute/path/to/isolated-chat-data
 ```
 
-Private account data must stay outside Git checkouts/worktrees and the Reader
-source or installed bundle. Canonical and filesystem-equivalent source aliases
-are rejected before any account files are created. External parent-directory
-aliases remain supported; a symlink at the chosen directory itself is rejected.
-A dotfiles Git root at the resolved home directory is allowed for private app
-data; nested repositories and explicit source/bundle roots remain excluded.
+`home.py` accepts the same managed options as a compatibility alias. Direct
+`serve.py --root ...` remains the legacy document-only CLI until its configuration
+migrates; shared mode prints a `documents` map of prefixed URLs.
+Private data rejects source/bundle/Git locations and filesystem-equivalent aliases
+before creation; the existing resolved-home dotfiles exception remains supported.
 
-Open the printed loopback URL. For credential management, explicitly enter the
-capability value from the private file printed by that process. This authorizes
-only that browser session; closing/restarting the host or sign-out invalidates it.
-Sign-in opens SIWC consent in this Mac's browser, with a local fallback link.
-Interrupted sign-in requires explicit retry. Local sign-out can succeed even when
-remote revocation is unconfirmed; its notice explains that limitation. History
-and drafts are preserved. Provider credentials never enter the browser.
+Open the printed loopback URL. Explicitly enter the capability from its private
+file to manage accounts. The page retains it only in module memory and sends it
+with each account change and privileged status read. Cookie/CSRF alone is not
+sufficient on a shared origin. Restart and sign-out invalidate browser authority.
+SIWC consent still uses the Mac callback. Cancel/sign-out, failed refresh and
+unconfirmed remote revocation retain existing honest feedback and preserve drafts
+and history. No provider credential is returned to the browser.
 
-Use the existing shared ChatAuth directory only for an explicitly activated host;
-do not copy or migrate registrations. Set `homepageURL` in the existing Reader
-manager configuration, or `--homepage-url` when launching a document Reader, to
-the dedicated Homepage origin. Local HTTP Homepage URLs must use `127.0.0.1`
-(for example `http://127.0.0.1:8769/`), matching the exact admin Host/Origin;
-`localhost` and `::1` are not accepted. Python owns the configured URL policy;
-both browser clients use its validated URLs. Document account links open a
-separate tab and leave document scroll position, draft/history, source actions and offline storage
-in place. An unset Homepage URL shows configuration guidance; it does not invent
-an address or fall back to credential management in a document.
+Local Host/Origin must use exact `127.0.0.1`, never `localhost` or `::1`.
+Document account dialogs link to `/` on their current ingress. Remote visitors
+receive sanitized status and cannot manage accounts even with copied proofs.
+For later HTTPS activation, configure a shared `publicURL` and separate
+`proxyPort`, or use `--public-origin https://reader.example --proxy-port 8770`.
+Point the HTTPS proxy only at that read-only ingress. Provisioning TLS, Tailnet,
+viewer grants and live OAuth is outside this code/test migration.
 
-An eventual Tailnet deployment can add `--public-origin https://home.example`
-and `--proxy-port 8770`. The configured reverse proxy must send only that origin
-to the separate read-only proxy ingress, never to the admin port. This listener
-trusts its configured HTTPS deployment contract, not forwarding headers. The
-HTTPS hostname, proxy owner/TLS termination and viewer grants must be selected
-before activation. All allowed viewers share the configured inventory and sanitized
-host-global account status. Do not activate this mode where viewers require
-different document permissions; per-viewer roles and remote management are deferred.
+== Operator migration and launchd
 
-The host has no offline worker. On disconnection, account state becomes unknown
-and management is unavailable. Existing document offline reading remains separate.
-To roll back, stop the separately provisioned host and remove `homepageURL`; keep
-credential registrations and conversation data. Restoring an older immutable
-Reader release restores its older account presentation without data migration.
+Do not run activation steps during development verification. Preserve old config,
+launcher, immutable release and all existing document/Homepage plists first.
+Stop old document and Homepage jobs with existing owner-aware tooling, then add
+the following field to the existing ReaderManager config, retaining `services`
+and their old ports/public URLs:
+
+```json
+"shared": {"port": 8769}
+```
+
+For configured HTTPS, use a complete pair such as
+`"shared": {"port": 8769, "publicURL": "https://reader.example/", "proxyPort": 8770}`.
+Shared ports must differ from every old document/parent port. Old document ports
+become redirect-only listeners in the same Reader PID, preserving queries and
+methods with 307 redirects; browser fragments inherit across redirects. Existing
+reverse proxies may continue targeting those ports. Their old root Service
+Workers retire and remove only their scope's caches on reconnect; offline pages
+may continue using an old cached root until that update.
+
+Generate one plist with the existing manager `--agent-plist <reader-id>` command.
+It has label `io.github.kimpossible-ty.lagrangian.reader.shared` and arguments
+`<managed-launcher> --serve-all`. All document profiles refer to that same job.
+Use the existing owner-checked start/stop/restart commands for this shared job;
+there is no second Homepage launchd job. Restarting it affects all HTML documents.
+The plist-generating manager source is backed up beside it as `manager.py.bak`.
+Do not edit live plists, load/unload jobs or replace live releases as a test.
+
+Rollback stops the shared job through existing tooling, restores saved
+config/launcher and old plists, and starts the previous jobs. Keep credentials,
+history, drafts, focus files and per-document outputs. Immutable releases remain
+immutable. No data-schema migration is required. Shared document workers use
+new path-specific cache keys; Homepage/account responses remain outside them.
 
 Shortcuts pass through while typing in an input. Review strikes stay in browser
 storage; source highlighting is an explicit file change. Source navigation
@@ -461,7 +479,7 @@ compatibility and is not the conversation history.
 Read the shared HTML service's context with its explicit local URL:
 
 ```sh
-python3 tools/flow-reader/focus.py --url http://127.0.0.1:24002/
+python3 tools/flow-reader/focus.py --url http://127.0.0.1:8769/d/parent-reader/
 ```
 
 The service defaults to `OUTPUT/focus.json` and checks live identity, revision,

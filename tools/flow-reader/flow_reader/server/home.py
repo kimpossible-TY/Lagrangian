@@ -1,25 +1,18 @@
-"""Dedicated host composition. No document compiler, watcher or model invocation."""
-import argparse
+"""Homepage HTTP handlers and the shared account-owner lease."""
 import fcntl
 import os
 import hmac
 from http.cookies import SimpleCookie, CookieError
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
-import secrets
-import signal
-import threading
 from urllib.parse import urlsplit
 
 from flow_reader.resources import READER_ROOT
 from flow_reader.server.assets import CONTENT_TYPES
-from flow_reader.services.homepage import LOOPBACK_HOST, HomeInventory, reader_url
-from flow_reader.services.home_account import HomeAccount
-from flow_reader.services.manager import ReaderManager
-from flow_reader.services.chat_auth import ChatAuth, ChatProviderError
-from flow_reader.services.chat_provider import ResponsesProvider
-from flow_reader.services.chat_storage import DEFAULT_CHAT_DATA, private_directory, private_file, write_json
+from flow_reader.services.homepage import LOOPBACK_HOST, reader_url
+from flow_reader.services.chat_auth import ChatProviderError
+from flow_reader.services.chat_storage import private_file
 
 
 def claim_host(directory):
@@ -71,6 +64,12 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
                 ("x-forwarded-", "tailscale-")) for name in self.headers)
             return ingress == "admin" and self.client_address[0] == LOOPBACK_HOST and not forwarded
 
+        def capability_valid(self):
+            supplied = self.headers.get("X-Reader-Host-Capability", "")
+            return (self.eligible() and bool(capability)
+                    and len(self.headers.get_all("X-Reader-Host-Capability", [])) == 1
+                    and hmac.compare_digest(supplied.encode(), capability.encode()))
+
         def handle_cookie(self):
             if len(self.headers.get_all("Cookie", [])) > 1:
                 return ""
@@ -115,7 +114,8 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
                 if path in {"/api/home/documents", "/api/home/status"}:
                     return self.respond(inventory.snapshot(local=self.eligible()))
                 if path == "/api/home/account":
-                    return self.respond(account.status(self.handle_cookie(), ingress, self.origin(), eligible=self.eligible()))
+                    return self.respond({**account.status(self.handle_cookie(), ingress, self.origin(),
+                        eligible=self.capability_valid()), "eligible": self.eligible()})
                 if path == "/api/home/models":
                     return self.respond(account.models())
             except (OSError, ValueError, ChatProviderError):
@@ -144,12 +144,12 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
                 handle = self.handle_cookie()
                 if path.endswith("/session"):
                     supplied = self.headers.get("X-Reader-Host-Capability", "")
-                    management = self.eligible() and bool(capability) and hmac.compare_digest(supplied, capability)
+                    management = self.capability_valid()
                     if supplied and not management:
                         return self.respond({"error": "이 Mac의 현재 확인값이 필요합니다."}, 403)
                     handle, result = account.create(handle, ingress, self.origin(), manage=management)
                 else:
-                    if not self.eligible():
+                    if not self.capability_valid():
                         return self.respond({"error": "이 Mac에서만 계정을 관리할 수 있습니다."}, 403)
                     handle, result = account.mutate(handle, self.headers.get("X-Reader-CSRF", ""), ingress,
                         self.origin(), request.get("operation"), request.get("registration"))
@@ -168,55 +168,7 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8769, help="Dedicated Mac loopback administration port")
-    parser.add_argument("--data", type=Path, help="Existing ReaderManager data directory")
-    parser.add_argument("--chat-data", type=Path, default=DEFAULT_CHAT_DATA)
-    parser.add_argument("--public-origin", help="Exact HTTPS origin on a separately provisioned proxy")
-    parser.add_argument("--proxy-port", type=int, help="Separate read-only loopback ingress for that proxy")
-    args = parser.parse_args()
-    if bool(args.public_origin) != (args.proxy_port is not None):
-        parser.error("--public-origin and --proxy-port must be configured together")
-    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
-    manager = ReaderManager(data=args.data)
-    try:
-        # Source and installed releases share the tools/flow-reader layout.
-        # The shared guard also rejects other Git checkouts independently of
-        # whether the optional document inventory can currently be read.
-        directory = private_directory(args.chat_data, READER_ROOT.parents[1])
-    except ValueError as error:
-        parser.error(str(error))
-    try:
-        lease = claim_host(directory)
-    except BlockingIOError:
-        parser.error("A Homepage already owns this ChatAuth directory")
-    auth = ChatAuth(directory)
-    account = HomeAccount(auth, ResponsesProvider(auth))
-    inventory = HomeInventory(manager)
-    capability = secrets.token_urlsafe(32)
-    capability_path = directory / ("home-capability-" + secrets.token_hex(8) + ".json")
-    write_json(capability_path, {"capability": capability})
-    servers = []
-    try:
-        admin = ThreadingHTTPServer((LOOPBACK_HOST, args.port), handler_for_home(
-            inventory, account, capability=capability))
-        servers.append(admin)
-        if args.proxy_port is not None:
-            proxy = ThreadingHTTPServer((LOOPBACK_HOST, args.proxy_port), handler_for_home(
-                inventory, account, ingress="proxy", public_origin=args.public_origin))
-            servers.append(proxy)
-            threading.Thread(target=proxy.serve_forever, daemon=True).start()
-        print(json.dumps({"url": f"http://{LOOPBACK_HOST}:{admin.server_port}/",
-                          "capabilityFile": str(capability_path)}), flush=True)
-        admin.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        for server in servers:
-            if server is not admin:
-                server.shutdown()
-            server.server_close()
-        inventory.close()
-        auth.close()
-        capability_path.unlink(missing_ok=True)
-        lease.close()
+    """Compatibility entrypoint: Homepage is now part of the Reader runtime."""
+    import sys
+    from flow_reader.server.cli import main as reader_main
+    reader_main(["--managed", *sys.argv[1:]])

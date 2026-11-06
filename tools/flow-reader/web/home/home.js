@@ -23,6 +23,7 @@ const node = (tag, text, className) => {
 let documents = [],
   inventoryKnown = false,
   csrf = "",
+  capability = "",
   management = false,
   version = -1,
   instance = "",
@@ -44,6 +45,7 @@ async function request(path, body, headers = {}) {
       method: body === undefined ? "GET" : "POST",
       headers: {
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(capability ? { "X-Reader-Host-Capability": capability } : {}),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -157,6 +159,7 @@ function renderDocuments() {
 function adopt(result) {
   if (instance && instance !== result.instance) {
     csrf = "";
+    capability = "";
     management = false;
   }
   if (instance === result.instance && result.version < version) return false;
@@ -214,6 +217,7 @@ function renderAccount(result) {
   }
 }
 function unavailable() {
+  capability = "";
   csrf = "";
   management = false;
   $("account-label").textContent = "상태 미확인";
@@ -291,6 +295,7 @@ async function change(operation) {
     if (disposed || current !== generation) return;
     if (!adopt(result)) return;
     csrf = result.csrf || "";
+    if (operation === "logout") capability = "";
     const status = await request("account");
     if (disposed || current !== generation) return;
     renderAccount(status);
@@ -329,6 +334,7 @@ $("unlock").addEventListener("submit", async (event) => {
     if (disposed || current !== generation) return;
     if (!result.management) throw new Error("이 Mac의 확인값을 입력하세요.");
     adopt(result);
+    capability = proof;
     csrf = result.csrf;
     const status = await request("account");
     if (!disposed && current === generation) renderAccount(status);
@@ -366,6 +372,8 @@ document.addEventListener("visibilitychange", () => {
   } else refresh();
 });
 window.addEventListener("pagehide", () => {
+  capability = "";
+  csrf = "";
   disposed = true;
   generation++;
   clearTimeout(timer);
