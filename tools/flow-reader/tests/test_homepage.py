@@ -112,6 +112,8 @@ class HomeTests(unittest.TestCase):
         server = self.servers[ingress]
         origin = f"http://127.0.0.1:{server.server_port}" if ingress == "admin" else "https://home.example:8443"
         fields = {"Host": origin.split("//")[1], "Origin": origin, "Content-Type": "application/json"}
+        if ingress == "admin" and headers and "Cookie" in headers and (method == "GET" or "X-Reader-CSRF" in headers):
+            fields["X-Reader-Host-Capability"] = "host-proof"
         fields.update(headers or {})
         if fields.get("Origin") is None:
             fields.pop("Origin")

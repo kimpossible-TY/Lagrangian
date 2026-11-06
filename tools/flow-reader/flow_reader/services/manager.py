@@ -82,6 +82,32 @@ class ReaderManager:
             raise ValueError("Missing executable: engine")
         return config
 
+    def shared_settings(self):
+        shared = self.config().get("shared")
+        if shared is None:
+            return None
+        if not isinstance(shared, dict):
+            raise ValueError("Invalid shared Reader configuration")
+        port = shared.get("port", 8769)
+        proxy_port = shared.get("proxyPort")
+        from flow_reader.services.homepage import public_reader_url
+        public = shared.get("publicURL")
+        if (type(port) is not int or not 1024 <= port <= 65535
+                or bool(public) != (proxy_port is not None)
+                or (public and not public_reader_url(public))
+                or (proxy_port is not None and (not public or type(proxy_port) is not int
+                    or not 1024 <= proxy_port <= 65535 or proxy_port == port))):
+            raise ValueError("Invalid shared Reader ports or HTTPS origin")
+        return {**shared, "port": port, "publicURL": public or "", "proxyPort": proxy_port}
+
+    @staticmethod
+    def document_url(profile, *, public=False):
+        from flow_reader.services.homepage import document_prefix
+        origin = profile.get("publicURL") if public else f"http://127.0.0.1:{profile['port']}/"
+        if not origin:
+            return None
+        return origin.rstrip("/") + (document_prefix(profile["id"]) if profile.get("shared") else "/")
+
     def parent_profiles(self):
         """Read configured parents without a launch plan or lifecycle operation."""
         config = self.config()
@@ -148,6 +174,15 @@ class ReaderManager:
             result.append(profile)
             ids.add(identifier)
             ports.add(port)
+        shared = self.shared_settings()
+        if shared:
+            occupied = ports
+            if shared["port"] in occupied or shared["proxyPort"] in occupied:
+                raise ValueError("Shared Reader ports conflict with existing document ports")
+            for profile in result:
+                profile.update(legacyPort=profile["port"], legacyPublicURL=profile["publicURL"],
+                               port=shared["port"], publicURL=shared["publicURL"], shared=True,
+                               label=LABEL_PREFIX + "shared")
         return result
 
     def reader_label(self, identifier):
@@ -160,6 +195,14 @@ class ReaderManager:
         return next((profile for profile in self.profiles() if profile["id"] == identifier), None)
 
     def arguments(self, profile):
+        if profile.get("shared"):
+            self.document_arguments(profile)
+            config = self.config()
+            return [config["python"], str(HERE / "serve.py"), "--managed", "--data", str(self.data)]
+        return self.document_arguments(profile)
+
+    def document_arguments(self, profile):
+        """The existing per-document compiler plan, also used inside a shared host."""
         config = self.config()
         root = Path(profile["root"])
         entry = root / profile["entry"]
@@ -231,7 +274,7 @@ class ReaderManager:
         profile = self.match_document(root, entry, identifier)
         if self.job_pid(profile) is None:
             self.control("start", profile)
-        url = f"http://127.0.0.1:{profile['port']}/"
+        url = self.document_url(profile)
         expected_document = document_identity(profile["root"], profile["entry"])
         deadline = time.monotonic() + 15
         while True:
@@ -266,13 +309,14 @@ class ReaderManager:
         return plan
 
     def agent(self, profile):
-        return {"Label": profile["label"], "ProgramArguments": [str(self.launcher), "--serve", profile["id"]],
+        return {"Label": profile["label"], "ProgramArguments": ([str(self.launcher), "--serve-all"] if profile.get("shared")
+                                      else [str(self.launcher), "--serve", profile["id"]]),
                 "AssociatedBundleIdentifiers": ["io.github.kimpossible-ty.lagrangian"],
                 "WorkingDirectory": str(self.data), "RunAtLoad": True, "KeepAlive": True,
                 "ThrottleInterval": 10, "ProcessType": "Interactive",
                 "EnvironmentVariables": {"FLOW_READER_DATA_DIR": str(self.data), "PYTHONDONTWRITEBYTECODE": "1"},
-                "StandardOutPath": str(self.data / "logs" / (profile["id"] + ".out.log")),
-                "StandardErrorPath": str(self.data / "logs" / (profile["id"] + ".err.log"))}
+                "StandardOutPath": str(self.data / "logs" / (("shared" if profile.get("shared") else profile["id"]) + ".out.log")),
+                "StandardErrorPath": str(self.data / "logs" / (("shared" if profile.get("shared") else profile["id"]) + ".err.log"))}
 
     def job_pid(self, profile, *, timeout=20):
         status = run(["/bin/launchctl", "print", f"gui/{os.getuid()}/{profile['label']}"], check=False, timeout=timeout)
@@ -306,8 +350,14 @@ class ReaderManager:
             time.sleep(.1)
 
     def control(self, action, profile):
-        if action not in {"start", "stop", "restart"}:
-            raise ValueError("Expected start, stop, or restart")
+        if action not in {"start", "stop", "restart", "stop-shared", "restart-shared"}:
+            raise ValueError("Expected start, stop, restart, stop-shared, or restart-shared")
+        if action.endswith("-shared"):
+            if not profile.get("shared"):
+                raise ValueError("Shared-job control requires a shared Reader profile")
+            action = action.removesuffix("-shared")
+        elif profile.get("shared") and action in {"stop", "restart"}:
+            raise ValueError(f"Cannot {action} one document: this affects the shared Reader job and all documents; use --control {action}-shared {profile['id']} explicitly")
         with self.locked():
             target = f"gui/{os.getuid()}/{profile['label']}"
             path = self.agents / (profile["label"] + ".plist")
@@ -344,6 +394,11 @@ class ReaderManager:
 def main(argv=None):
     arguments = sys.argv[1:] if argv is None else argv
     manager = ReaderManager()
+    if arguments == ["--serve-all"]:
+        config = manager.config()
+        command = [config["python"], str(HERE / "serve.py"), "--managed", "--data", str(manager.data)]
+        os.execv(command[0], command)
+        return
     if arguments[:1] == ["--attach"]:
         import argparse
         parser = argparse.ArgumentParser(description="Attach presentation to the managed HTML Reader")
@@ -363,7 +418,7 @@ def main(argv=None):
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))
         return
     if not arguments or len(arguments) not in {2, 3}:
-        raise ValueError("Commands: --profiles, --focus ID, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart ID")
+        raise ValueError("Commands: --profiles, --focus ID, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart|stop-shared|restart-shared ID")
     profile = manager.profile(arguments[-1])
     if profile is None:
         raise ValueError("Unknown reader profile")
@@ -377,7 +432,7 @@ def main(argv=None):
             print(json.dumps({"status": "not_ready", "service_matches": False,
                               "selection_usable": False, "needs_reselection": True}))
         else:
-            print(json.dumps(read_reader(f"http://127.0.0.1:{profile['port']}/", expected_pid=pid,
+            print(json.dumps(read_reader(manager.document_url(profile), expected_pid=pid,
                                         project=profile["root"],
                                         document=Path(profile["root"]) / profile["entry"]), ensure_ascii=False))
     elif action == "--launch-plan":
@@ -388,7 +443,7 @@ def main(argv=None):
         pid = manager.job_pid(profile)
         print(json.dumps({"id": profile["id"], "running": pid is not None, "pid": pid,
                           "label": profile["label"], "managedByApp": manager.owns_agent(profile),
-                          "url": profile["publicURL"] or f"http://127.0.0.1:{profile['port']}/"}))
+                          "url": manager.document_url(profile, public=True) or manager.document_url(profile)}))
     elif action == "--serve":
         command = manager.arguments(profile)
         os.environ["PYTHONDONTWRITEBYTECODE"] = "1"

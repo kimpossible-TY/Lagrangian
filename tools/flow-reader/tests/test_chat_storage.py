@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flow_reader.services.chat_storage import private_directory, private_file, read_json, write_json
-from flow_reader.server import home
+from flow_reader.server import cli as home
 
 
 class ChatStorageBoundaryTests(unittest.TestCase):
@@ -149,7 +149,7 @@ class ChatStorageBoundaryTests(unittest.TestCase):
 
     def assert_home_rejects_before_sinks(self, target, reader_root=None):
         with ExitStack() as stack:
-            stack.enter_context(patch.object(sys, "argv", ["home.py", "--chat-data", str(target)]))
+            stack.enter_context(patch.object(sys, "argv", ["serve.py", "--managed", "--chat-data", str(target)]))
             stack.enter_context(patch.object(home.signal, "signal"))
             stack.enter_context(patch.object(home, "ReaderManager"))
             if reader_root is not None:

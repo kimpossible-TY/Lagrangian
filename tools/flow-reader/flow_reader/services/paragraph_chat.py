@@ -153,6 +153,7 @@ class ParagraphChat:
         self.state = state
         self.directory = private_directory(directory or DEFAULT_CHAT_DATA, state.project.root)
         self.store = ConversationStore(self.directory)
+        self.owns_auth = provider is None
         self.auth = provider.auth if provider else ChatAuth(self.directory)
         self.provider = provider or ResponsesProvider(self.auth)
         self.jobs = {}
@@ -378,4 +379,5 @@ class ParagraphChat:
                             if message["status"] == "streaming":
                                 message["status"] = "interrupted"
                         self.store.save(db, record)
-        self.auth.close()
+        if self.owns_auth:
+            self.auth.close()

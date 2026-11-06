@@ -27,7 +27,7 @@ from flow_reader.server.compiler_assets import CompilerAssets
 class ReaderState:
     def __init__(self, project, output, original_url, allow_incomplete, focus_file=None,
                  *, editor_server=None, nvim="nvim", change_file=None, source_history=None,
-                 browser_compiler=None):
+                 browser_compiler=None, chat_provider=None, chat_data=None):
         self.project = project
         self.output = output
         self.original_url = original_url
@@ -43,6 +43,7 @@ class ReaderState:
         self.shared_edit_stamp = None
         self.lock = threading.RLock()
         self._paragraph_chat = None
+        self.chat_provider, self.chat_data = chat_provider, chat_data
         self.accepted_inputs = None
         self.report = {}
         self.document = None
@@ -247,7 +248,7 @@ class ReaderState:
         from flow_reader.services.paragraph_chat import ParagraphChat
         with self.lock:
             if self._paragraph_chat is None:
-                self._paragraph_chat = ParagraphChat(self)
+                self._paragraph_chat = ParagraphChat(self, directory=self.chat_data, provider=self.chat_provider)
             return self._paragraph_chat
 
     def locate(self, revision, fragments):

@@ -1,11 +1,19 @@
 """Read-only projection of configured ReaderManager inventory and observations."""
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import re
 import time
 from urllib.parse import urlsplit
 
 
 LOOPBACK_HOST = "127.0.0.1"
+
+
+def document_prefix(identifier):
+    """Stable configured Reader IDs, never titles or filesystem paths."""
+    if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", identifier):
+        raise ValueError("Invalid Reader route ID")
+    return f"/d/{identifier}/"
 
 
 def reader_url(value):
@@ -33,8 +41,9 @@ def public_reader_url(value):
 
 class HomeInventory:
     """One bounded background observation; reading never invokes manager.control."""
-    def __init__(self, manager, *, clock=time.time, interval=30):
+    def __init__(self, manager, *, clock=time.time, interval=30, loaded=None):
         self.manager, self.clock, self.interval = manager, clock, interval
+        self.loaded = loaded
         self.lock = threading.RLock()
         self.documents, self.profiles, self.observations = [], {}, {}
         self.error, self.checked, self.started = None, None, None
@@ -51,7 +60,8 @@ class HomeInventory:
 
     def observe(self):
         try:
-            parents, profiles = self.manager.parent_profiles(), self.manager.profiles()
+            parents, profiles = (self.loaded[:2] if self.loaded is not None else
+                                 (self.manager.parent_profiles(), self.manager.profiles()))
             if len(parents) > 128 or len(profiles) > 128:
                 raise ValueError("Inventory limit")
             children = {}
@@ -62,6 +72,16 @@ class HomeInventory:
                 variants = [{"kind": "paged", "public": public_reader_url(parent.get("publicURL", "")),
                              "local": reader_url(f"http://{LOOPBACK_HOST}:{parent['port']}/")}]
                 for profile in children.get(parent["id"], []):
+                    if self.loaded is not None:
+                        prefix = document_prefix(profile["id"])
+                        public = public_reader_url(profile.get("publicURL", ""))
+                        local = reader_url(f"http://{LOOPBACK_HOST}:{profile['port']}/")
+                        variants[0] = {"kind": "paged", "public": public + prefix.lstrip("/") + "paged/" if public else None,
+                                       "local": local + prefix.lstrip("/") + "paged/"}
+                        variants.append({"kind": "html", "public": public + prefix.lstrip("/") if public else None,
+                                         "local": local + prefix.lstrip("/")})
+                        probes[profile["id"]] = profile
+                        continue
                     variants.append({"kind": "html", "public": public_reader_url(profile.get("publicURL", "")),
                                      "local": reader_url(f"http://{LOOPBACK_HOST}:{profile['port']}/")})
                     probes[profile["id"]] = profile
@@ -85,7 +105,10 @@ class HomeInventory:
 
     def probe(self, key, profile):
         try:
-            if self.manager.job_pid(profile, timeout=.75) is None:
+            if self.loaded is not None:
+                response = self.loaded[2][key].public()
+                state = "compiling" if response.get("compiling") else "ready" if response.get("revision") else "unavailable"
+            elif self.manager.job_pid(profile, timeout=.75) is None:
                 state = "stopped"
             else:
                 response = self.manager.request(f"http://{LOOPBACK_HOST}:{profile['port']}/", "api/state", timeout=.75)

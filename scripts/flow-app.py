@@ -406,6 +406,23 @@ def profiles(app):
     if not executable(app).exists(): return []
     return json.loads(capture([executable(app), '--profiles']))['profiles']
 
+def shared_reader_job(profile):
+    label = profile.get('label') or profile.get('launchAgentLabel') or ''
+    return bool(profile.get('shared') or label.endswith('.reader.shared'))
+
+def control_jobs(profiles):
+    """Choose one document to address each launchd job, preserving legacy IDs."""
+    jobs = {}
+    for profile in profiles:
+        key = profile.get('label') or profile.get('launchAgentLabel')
+        if not key:
+            key = CURRENT_READER_LABEL_PREFIX + 'shared' if shared_reader_job(profile) else profile['id']
+        jobs.setdefault(key, profile)
+    return list(jobs.values())
+
+def control_action(action, profile):
+    return action + '-shared' if action in {'stop', 'restart'} and shared_reader_job(profile) else action
+
 def running(app):
     active = []
     for p in profiles(app):
@@ -459,7 +476,9 @@ def _replace_app(source, destination, data_dir, check_health):
     stamp = dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     releases = data_dir / 'releases'; releases.mkdir(parents=True, exist_ok=True)
     backup = releases / stamp / APP_BUNDLE
-    active = running(destination)
+    active_ids = running(destination)
+    by_id = {p['id']: p for p in profiles(destination)} if active_ids else {}
+    active = control_jobs(by_id.get(pid, {'id': pid}) for pid in active_ids)
     stage = Path(tempfile.mkdtemp(prefix='.lagrangian-install-', dir=destination.parent)) / APP_BUNDLE
     shutil.copytree(source, stage, symlinks=True)
     validate(stage)
@@ -467,22 +486,22 @@ def _replace_app(source, destination, data_dir, check_health):
     had_previous = destination.exists()
     swapped = False
     try:
-        for pid in active:
-            run([executable(destination), '--control', 'stop', pid]); stopped.append(pid)
-        wait_stopped(destination, stopped)
+        for job in active:
+            run([executable(destination), '--control', control_action('stop', job), job['id']]); stopped.append(job)
+        wait_stopped(destination, [job['id'] for job in stopped])
         if had_previous:
             backup.parent.mkdir(); os.replace(destination, backup)
         os.replace(stage, destination); swapped = True
-        for pid in active: run([executable(destination), '--control', 'start', pid])
-        if check_health: healthy(destination, active)
+        for job in active: run([executable(destination), '--control', 'start', job['id']])
+        if check_health: healthy(destination, [job['id'] for job in active])
     except Exception:
-        for pid in stopped:
-            if executable(destination).exists(): subprocess.run([str(executable(destination)), '--control', 'stop', pid], capture_output=True)
-        if executable(destination).exists(): wait_stopped(destination, stopped)
+        for job in stopped:
+            if executable(destination).exists(): subprocess.run([str(executable(destination)), '--control', control_action('stop', job), job['id']], capture_output=True)
+        if executable(destination).exists(): wait_stopped(destination, [job['id'] for job in stopped])
         if swapped and destination.exists():
             failed = releases / (stamp + '-failed'); failed.mkdir(); os.replace(destination, failed / destination.name)
         if backup.exists(): os.replace(backup, destination)
-        for pid in stopped: subprocess.run([str(executable(destination)), '--control', 'start', pid], capture_output=True)
+        for job in stopped: subprocess.run([str(executable(destination)), '--control', 'start', job['id']], capture_output=True)
         raise
     finally:
         shutil.rmtree(stage.parent, ignore_errors=True)
@@ -1016,7 +1035,7 @@ def reader_launchd_label(identifier):
         return legacy
     return CURRENT_READER_LABEL_PREFIX + identifier
 
-def reader_plist_owned(plist, sid, launcher):
+def reader_plist_owned(plist, sid, launcher, *, shared=False):
     """Own a job whose arguments serve this id and whose launcher resolves to flow-reader."""
     if not Path(plist).is_file():
         return False
@@ -1025,7 +1044,8 @@ def reader_plist_owned(plist, sid, launcher):
     except (OSError, plistlib.InvalidFileException):
         return False
     arguments = agent.get('ProgramArguments') if isinstance(agent, dict) else None
-    if (not isinstance(arguments, list) or not arguments or arguments[1:] != ['--serve', sid]
+    expected = ['--serve-all'] if shared else ['--serve', sid]
+    if (not isinstance(arguments, list) or not arguments or arguments[1:] != expected
             or not isinstance(arguments[0], str)):
         return False
     try:
@@ -1033,22 +1053,30 @@ def reader_plist_owned(plist, sid, launcher):
     except (OSError, RuntimeError):
         return False
 
-def reader_jobs(reader_cfg):
-    """Running jobs install.py sees: reader config services, labeled like ReaderManager."""
-    launcher = reader_launcher_path()
-    jobs = []
+def reader_job_profiles(reader_cfg):
+    """Resolve job identity from the same shared opt-in as ReaderManager."""
+    shared = reader_cfg.get('shared') is not None
+    profiles = []
     for service in reader_cfg.get('services') or []:
         sid = service.get('id')
         if not isinstance(sid, str) or not sid:
             continue
-        label = reader_launchd_label(sid)
+        label = CURRENT_READER_LABEL_PREFIX + 'shared' if shared else reader_launchd_label(sid)
+        profiles.append({'id': sid, 'label': label, 'shared': shared})
+    return profiles
+
+def reader_jobs(reader_cfg):
+    """Running jobs install.py sees: reader config services, labeled like ReaderManager."""
+    launcher = reader_launcher_path()
+    jobs = []
+    for profile in reader_job_profiles(reader_cfg):
+        sid, label = profile['id'], profile['label']
         plist = Path.home() / 'Library/LaunchAgents' / f'{label}.plist'
         jobs.append({
-            'id': sid,
-            'label': label,
+            **profile,
             'plist': plist,
             'running': launchd_job_pid(label) is not None,
-            'owned': reader_plist_owned(plist, sid, launcher),
+            'owned': reader_plist_owned(plist, sid, launcher, shared=profile['shared']),
         })
     return jobs
 
@@ -1087,7 +1115,7 @@ def check_reader_install_preconditions(reader_services, reader_cfg, data, plan=N
             else:
                 disposition = 'stopped'
             plan.append(f'install-preflight {sid}: parentID {parent_id}, {disposition}')
-    return [job for job in jobs if job['running']]
+    return control_jobs(job for job in jobs if job['running'])
 
 def reader_job_state(job):
     pid = launchd_job_pid(job['label'])
@@ -1106,13 +1134,14 @@ def reader_job_state(job):
 
 def restart_migrated_readers(jobs):
     launcher = reader_launcher_path()
+    jobs = control_jobs(jobs)
     try:
         for job in jobs:
-            run([launcher, '--control', 'restart', job['id']], env=flow_env())
+            run([launcher, '--control', control_action('restart', job), job['id']], env=flow_env())
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
         print(f'Reader restart failed: {error}')
         for job in jobs:
-            print(f'Restart reader {job["id"]}: {launcher} --control restart {job["id"]}')
+            print(f'Restart reader {job["id"]}: {launcher} --control {control_action("restart", job)} {job["id"]}')
             print(f'Reader {job["id"]} state: {reader_job_state(job)}')
 
 def finalize_reader_migration(reader_services, reader_cfg, target_reader, app, dry_run=False, plan=None):
@@ -1295,9 +1324,10 @@ def migrate(args):
     if running_readers:
         restart_migrated_readers(running_readers)
     print('Profiles imported; ingress preserved. Activate with the app Restart control.')
-    for s in reader_services:
+    reader_ids = {s['id'] for s in reader_services}
+    for job in control_jobs(p for p in reader_job_profiles(reader_cfg or {}) if p['id'] in reader_ids):
         launcher = reader_launcher_path()
-        print(f'Restart reader {s["id"]}: {launcher} --control restart {s["id"]}')
+        print(f'Restart reader {job["id"]}: {launcher} --control {control_action("restart", job)} {job["id"]}')
     print('Recovery files:', backup)
 
 def restore_always_preview(service, app, backup, saved=None, dry_run=False, plan=None):

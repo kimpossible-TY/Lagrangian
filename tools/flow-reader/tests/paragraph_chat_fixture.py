@@ -7,7 +7,10 @@ import signal
 import tempfile
 
 from chat_fixture import FakeOpenAI, SyntheticReader
-from flow_reader.server.http import handler_for
+from flow_reader.server.routing import handler_for_reader
+from flow_reader.services.homepage import HomeInventory
+from flow_reader.services.home_account import HomeAccount
+from test_homepage import FakeManager, FakeAuth, FakeProvider
 
 
 def main():
@@ -18,13 +21,15 @@ def main():
         fake = FakeOpenAI()
         reader = SyntheticReader(Path(directory), fake)
         token = secrets.token_hex(16)
-        base = handler_for(reader.state)
+        inventory = HomeInventory(FakeManager())
+        account = HomeAccount(FakeAuth(Path(directory)), FakeProvider())
+        base = handler_for_reader({"fixture": reader.state}, inventory, account, capability="fixture-proof")
         class Handler(base):
             def do_POST(self):
-                if self.path != "/fixture-control":
+                if self.path != "/d/fixture/fixture-control":
                     return super().do_POST()
                 if self.headers.get("X-Fixture-Token") != token:
-                    return self.respond(b"Forbidden", "text/plain", 403)
+                    return self.respond({"error": "Forbidden"}, 403)
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 if request.get("mode"):
                     fake.mode = request["mode"]
@@ -33,14 +38,16 @@ def main():
                     reader.publish("fixture-r2")
                 if request.get("revision"):
                     reader.publish(request["revision"])
-                return self.respond(b"{}", "application/json")
+                return self.respond({})
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/", "token": token}), flush=True)
+        print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/d/fixture/", "token": token}), flush=True)
         try:
             server.serve_forever()
         finally:
             server.server_close()
+            reader.state.paragraph_chat.auth.close()
             reader.close()
+            inventory.close()
             fake.close()
 
 

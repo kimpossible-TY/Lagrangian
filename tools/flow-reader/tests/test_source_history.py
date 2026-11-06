@@ -188,11 +188,13 @@ else:
 
     def test_sigterm_during_cli_startup_reaps_helper_before_client_is_returned(self):
         self.block.touch()
+        chat_data = tempfile.TemporaryDirectory(prefix="reader-cli-chat-test-")
+        self.addCleanup(chat_data.cleanup)
         process = subprocess.Popen([
             sys.executable, str(ROOT / 'serve.py'), '--root', str(self.root),
             '--package-path', str(self.root), '--output', str(self.root / 'output'),
             '--original-url', 'http://127.0.0.1:1/', '--engine', str(self.engine),
-            '--change-file', str(self.record)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            '--change-file', str(self.record), '--chat-data', chat_data.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             pid = self.wait_started()
             process.terminate()
