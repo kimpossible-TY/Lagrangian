@@ -8,7 +8,7 @@ Redesign the paragraph conversation for narrow and wide screens: put connection 
 
 Use the same compact logo-only annotation at the paragraph end on every screen.
 An open conversation occupies a 360–420px capsule beside its paragraph only when
-actual margin space is sufficient and collision-free; otherwise it follows the
+local whitespace across the reading edge or outer margin space is sufficient and collision-free; otherwise it follows the
 paragraph. Preserve the controls, draft, caret and conversation scroll during
 resize, and use a wider side-entry threshold to avoid placement oscillation.
 

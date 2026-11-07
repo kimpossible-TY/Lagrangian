@@ -1,5 +1,7 @@
 ## Implementation
 
+- [x] Restore bounded local whitespace search with collision checks and verify against original margin design.
+
 - [x] Keep the same annotation on all screens and adapt only open panel placement, with collision avoidance and width hysteresis.
 - [x] Verify resize continuity, long transcripts, multiple panels, focus, themes and captures; record device coverage.
 
@@ -68,3 +70,5 @@ OpenSpec and diff checks pass. Web-interface review uses the pinned revision and
 SHA-256 recorded above; scope is the controller, geometry, styles and browser
 fixture on Chrome 156.0.8078.80 / Playwright 1.65.0. Physical iPhone Safari,
 VoiceOver and live inference remain unverified. No live services were changed.
+
+Local whitespace restoration: 14 focused Node tests and the 77-check Chromium fixture pass; scoped ESLint, strict OpenSpec and diff checks pass. Local geometry tests cover reading-edge crossing, obstacle-edge displacement, prior-offset retention, blocked-space fallback and narrow screens. Physical Safari remains unverified.

@@ -17,13 +17,15 @@ exclusions (`.reader-chat` and selection-ignore metadata) keep it outside canoni
 text and model context. Unresolved history retains its accessible text entry
 outside the canonical article. Unmount and disposal remove both controls.
 
-The existing HTML geometry owner places expanded panels. A side capsule starts
-24px beyond the reading edge, is 360–420 CSS pixels wide and leaves at least 12px
-to the viewport edge. Entering side presentation requires another 24px of spare
-width; an existing side panel can shrink to 360px before returning below the
-paragraph. These are local design choices, not native Apple constants. A source
-ink/annotation collision or collision with an earlier open panel falls back below
-the paragraph. The reading column is not narrowed to manufacture margin space.
+The existing HTML geometry owner first checks nearby empty space crossing the
+reading edge (one third inside and two thirds outside), then available outer
+margin space. For expanded panels this crossing is a candidate, not a mandatory
+ratio: measured ink, equations, numbers, annotations and other open panels must
+remain unobscured. Width remains 360–420 CSS pixels. Local vertical candidates
+come from obstacle edges within 160px of the paragraph annotation, ordered by
+distance; a still-valid prior offset is preferred for continuity. A panel falls
+back below its paragraph when neither local nor outer margin placement fits.
+Narrow viewports skip local search. The column is not narrowed for chat.
 
 Layout temporarily removes side candidates from document flow together before
 measuring source ink, so a panel's own inline row cannot create its side vacancy.

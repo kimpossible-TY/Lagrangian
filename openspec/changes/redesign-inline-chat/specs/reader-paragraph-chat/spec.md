@@ -28,6 +28,13 @@ The paragraph conversation SHALL present its source, transcript and composer in 
 - **THEN** it appears in a 360–420 CSS pixel side capsule without covering source content, annotations or another open capsule
 - **AND** the source reading column is not narrowed to create that space.
 
+#### Scenario: Local whitespace before inline fallback
+
+- **WHEN** the immediate paragraph-side position is occupied
+- **THEN** the reader searches nearby obstacle-edge positions within 160 CSS pixels, preferring the shortest displacement and retaining a still-valid previous offset
+- **AND** expanded capsules may use empty space inside the reading column together with the adjoining margin, without covering source text, equations, numbers or annotations
+- **AND** below-paragraph placement is used when local and outer margin candidates cannot fit.
+
 #### Scenario: Continuous resize
 
 - **WHEN** an open conversation changes between side and below-paragraph placement

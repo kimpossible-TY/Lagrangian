@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { panelPosition, overlapsInk } from "../web/features/paragraph-chat/geometry.js";
+import { panelPosition, localPanelPosition, overlapsInk } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 import { stripMathDelimiters } from "../web/features/paragraph-chat/content.js";
 import { conversationSummary } from "../../reader-common/paragraph-chat/state.js";
@@ -603,4 +603,14 @@ test("controller summary UI renders plain-text title preserving currency ranges 
     assert.equal(node.summary.textContent, expected);
     assert.equal(node.summary.title, expected);
   }
+});
+
+
+test("local capsule searches neighboring whitespace before falling back", () => {
+  const base = { edge: 900, anchor: { top: 100 }, viewport: { right: 1280 }, height: 200, obstacles: [] };
+  assert.equal(localPanelPosition(base).left, 760);
+  assert.equal(localPanelPosition({ ...base, obstacles: [{ left: 760, right: 1100, top: 95, bottom: 130 }] }).top, 138);
+  assert.equal(localPanelPosition({ ...base, previous: 50 }).top, 150);
+  assert.equal(localPanelPosition({ ...base, obstacles: [{ left: 700, right: 1200, top: -500, bottom: 900 }] }), null);
+  assert.equal(localPanelPosition({ ...base, viewport: { right: 390 } }), null);
 });

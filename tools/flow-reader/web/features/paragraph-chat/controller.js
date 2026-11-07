@@ -4,7 +4,7 @@ import {
   conversationSummary,
   sameChatSnapshot,
 } from "../../reader-common/paragraph-chat/state.js";
-import { panelPosition, overlapsInk, documentInk } from "./geometry.js";
+import { panelPosition, localPanelPosition, overlapsInk, documentInk } from "./geometry.js";
 import { readerLink } from "../../ui/reader-links.js";
 
 const element = (tag, text, className) => {
@@ -723,7 +723,7 @@ export class ParagraphChatController {
       box: panelPosition({
         edge, anchor: node.marker.getBoundingClientRect(), viewport,
         side: node.root.classList.contains("reader-chat-side"),
-      }),
+      }) || localPanelPosition({ edge, anchor: node.marker.getBoundingClientRect(), viewport, height: 0, obstacles: [] }),
     }));
     // Temporarily take candidates out of flow together. Their own inline rows
     // must not manufacture empty space for a side presentation.
@@ -737,8 +737,12 @@ export class ParagraphChatController {
         // Read the trigger again after removing expanded rows from document flow.
         box.top = node.marker.getBoundingClientRect().top;
         box.bottom = box.top + node.panel.getBoundingClientRect().height;
-        if (overlapsInk(box, obstacles)) box = null;
-        else obstacles.push(box);
+        const anchor = node.marker.getBoundingClientRect();
+        const local = localPanelPosition({ edge, anchor, viewport,
+          height: box.bottom - box.top, obstacles, previous: node.localOffset });
+        if (local && Math.abs(local.width - box.width) < 1) box = local;
+        else if (overlapsInk(box, obstacles)) box = null;
+        if (box) obstacles.push(box);
       }
       return { node, box, scroll };
     });
@@ -748,7 +752,7 @@ export class ParagraphChatController {
     }
     for (const { node, box, scroll } of placements) {
       if (box) {
-        box.top = node.marker.getBoundingClientRect().top;
+        node.localOffset = box.top - node.marker.getBoundingClientRect().top;
         const origin = node.root.getBoundingClientRect();
         node.panel.style.cssText = `width:${box.width}px;left:${box.left - origin.left}px;top:${box.top - origin.top}px`;
       } else node.panel.style.cssText = "";
