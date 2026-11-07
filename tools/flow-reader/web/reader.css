@@ -2256,8 +2256,20 @@ math svg {
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: manipulation;
+  transform: translateX(var(--logo-swipe-x, 0px));
+  transition: transform 280ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
+.reader-brand.reader-logo-dragging { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reader-brand { transform: none; transition: none; }
+}
+.reader-logo-home-link:not([hidden]) {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-action);
+  border-radius: var(--radius-small);
+}
+.reader-logo-home-link:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
 .reader-brand::-webkit-details-marker {
   display: none;
 }
@@ -2429,6 +2441,10 @@ math svg {
 .reader-drawer-panel :is(button, a),
 #reader-appearance-panel :is(button, select, summary, label) {
   touch-action: manipulation;
+}
+.reader-toolbar .reader-brand,
+.reader-toolbar .reader-brand svg {
+  touch-action: pan-y;
 }
 .reader-settings-advanced > summary {
   display: flex;

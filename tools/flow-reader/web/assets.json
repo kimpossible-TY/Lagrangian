@@ -15,6 +15,7 @@
   "features/appearance/theme.js": "features/appearance/theme.js",
   "features/editor-sync/terminal-bridge.js": "features/editor-sync/terminal-bridge.js",
   "features/navigation/change-navigation.js": "features/navigation/change-navigation.js",
+  "features/navigation/logo-home-swipe.js": "features/navigation/logo-home-swipe.js",
   "features/navigation/outline.js": "features/navigation/outline.js",
   "features/navigation/reading-navigation.js": "features/navigation/reading-navigation.js",
   "features/navigation/reading-position.js": "features/navigation/reading-position.js",

@@ -1,3 +1,5 @@
+import { logoHomeURL, logoSwipe } from "../navigation/logo-home-swipe.js";
+
 /** HTML presentation only: ActivityNotice retains labels and release policy. */
 export class StatusLogo {
   constructor(element, { offline = null } = {}) {
@@ -15,6 +17,10 @@ export class StatusLogo {
     this.trigger.addEventListener("mousedown", (event) => event.preventDefault(), { signal });
     this.trigger.addEventListener("contextmenu", (event) => event.preventDefault(), { signal });
     this.popover = element.querySelector("#reader-logo-popover");
+    this.popoverStatus = element.querySelector(".reader-logo-status") || this.popover;
+    this.homeLink = element.querySelector(".reader-logo-home-link");
+    this.homeURL = logoHomeURL(element.ownerDocument.defaultView?.location.pathname || "");
+    if (this.homeLink) this.homeLink.hidden = !this.homeURL;
     this.trigger.setAttribute("aria-expanded", "false");
     this.trigger.setAttribute("aria-controls", "reader-logo-popover");
     this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
@@ -45,7 +51,19 @@ export class StatusLogo {
     this.trigger.addEventListener(
       "pointerdown",
       (event) => {
+        if (this.swipe) {
+          this.swipe = logoSwipe(this.swipe, { type: "down" });
+          this.cancelPress();
+          this.suppressClick = true;
+          return;
+        }
         if (!event.isPrimary || event.button !== 0) return;
+        if (this.homeURL) {
+          this.swipe = logoSwipe(null, { type: "down", pointerId: event.pointerId,
+            isPrimary: event.isPrimary, button: event.button, x: event.clientX,
+            y: event.clientY, width: this.trigger.getBoundingClientRect().width });
+          this.trigger.setPointerCapture(event.pointerId);
+        }
         this.cancelPress();
         this.suppressClick = false;
         this.press = { id: event.pointerId, x: event.clientX, y: event.clientY };
@@ -63,6 +81,15 @@ export class StatusLogo {
     doc.addEventListener(
       "pointermove",
       (event) => {
+        if (this.swipe?.id === event.pointerId) {
+          this.swipe = logoSwipe(this.swipe, { type: "move", pointerId: event.pointerId, x: event.clientX, y: event.clientY });
+          if (!this.swipe.cancelled && this.swipe.dx > 0) {
+            this.trigger.style.setProperty("--logo-swipe-x", `${Math.min(24, this.swipe.dx)}px`);
+            this.trigger.classList.add("reader-logo-dragging");
+          } else {
+            this.resetSwipeVisual();
+          }
+        }
         if (this.press?.id !== event.pointerId) return;
         if (Math.hypot(event.clientX - this.press.x, event.clientY - this.press.y) > 10) {
           this.suppressClick = true;
@@ -74,6 +101,16 @@ export class StatusLogo {
     doc.addEventListener(
       "pointerup",
       (event) => {
+        if (this.swipe?.id === event.pointerId) {
+          const result = logoSwipe(this.swipe, { type: "up", pointerId: event.pointerId, x: event.clientX, y: event.clientY });
+          this.swipe = null;
+          this.resetSwipeVisual();
+          if (result.complete) {
+            this.suppressClick = true;
+            this.cancelPress();
+            element.ownerDocument.defaultView.location.assign(this.homeURL);
+          }
+        }
         if (this.press?.id === event.pointerId) this.cancelPress();
       },
       { signal },
@@ -81,6 +118,11 @@ export class StatusLogo {
     doc.addEventListener(
       "pointercancel",
       (event) => {
+        if (this.swipe?.id === event.pointerId) {
+          this.swipe = null;
+          this.resetSwipeVisual();
+          this.suppressClick = true;
+        }
         if (this.press?.id === event.pointerId) this.cancelPress();
       },
       { signal },
@@ -88,6 +130,12 @@ export class StatusLogo {
     doc.addEventListener(
       "pointerdown",
       (event) => {
+        if (this.swipe && event.pointerId !== this.swipe.id) {
+          this.swipe = logoSwipe(this.swipe, { type: "down" });
+          this.cancelPress();
+          this.suppressClick = true;
+          this.resetSwipeVisual();
+        }
         if (!element.contains(event.target)) this.setPopoverOpen(false);
       },
       { signal },
@@ -100,6 +148,15 @@ export class StatusLogo {
       { signal },
     );
     document.documentElement.dataset.readerLogo = "true";
+  }
+
+  resetSwipeVisual() {
+    this.trigger.classList.remove("reader-logo-dragging");
+    this.trigger.style.removeProperty("--logo-swipe-x");
+  }
+
+  description(text, korean) {
+    return this.homeURL ? `${text} · ${korean ? "오른쪽으로 밀어 홈으로 이동" : "Swipe right to go home"}` : text;
   }
 
   setPopoverOpen(open) {
@@ -192,7 +249,7 @@ export class StatusLogo {
       : hasUpdate
         ? "Long-press or Shift+Enter to apply update"
         : "Long-press or Shift+Enter to refresh";
-    this.trigger.setAttribute("aria-description", description);
+    this.trigger.setAttribute("aria-description", this.description(description, korean));
   }
 
   update(phase, notice, offline = false) {
@@ -253,8 +310,8 @@ export class StatusLogo {
       : hasUpdate
         ? "Long-press or Shift+Enter to apply update"
         : "Long-press or Shift+Enter to refresh";
-    this.trigger.setAttribute("aria-description", description);
-    this.popover.textContent = hasUpdate
+    this.trigger.setAttribute("aria-description", this.description(description, korean));
+    this.popoverStatus.textContent = hasUpdate
       ? `${label} · ${korean ? "업데이트 대기 중" : "Update waiting"}`
       : label;
     if (this.announcer.textContent !== label) this.announcer.textContent = label;
@@ -286,6 +343,8 @@ export class StatusLogo {
     clearTimeout(this.completed);
     this.cancelPress();
     this.listeners.abort();
+    if (this.swipe) this.resetSwipeVisual();
+    this.swipe = null;
     clearTimeout(this.reloadTimer);
     this.setPopoverOpen(false);
     this.element.hidden = true;
