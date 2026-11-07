@@ -9,6 +9,15 @@ export function sameChatSnapshot(left, right) {
   );
 }
 
+export function stripMathDelimiters(text) {
+  if (typeof text !== "string") return "";
+  return text
+    .replace(/\\\[\s*([\s\S]*?)\s*(?:\\\]|$)/gu, "$1")
+    .replace(/\\\(\s*([\s\S]*?)\s*(?:\\\)|$)/gu, "$1")
+    .replace(/\$\$\s*([\s\S]*?)\s*(?:\$\$|$)/gu, "$1")
+    .replace(/(^|[^\\])\$([^\s\$](?:[^\$\n]*?[^\s\$\\])?)\$/gu, "$1$2");
+}
+
 const line = (text, limit) => {
   const value = text.replace(/\s+/gu, " ").trim();
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
@@ -17,11 +26,11 @@ const line = (text, limit) => {
 /** Extract the latest question and its actual answer, never synthesize a claim. */
 export function conversationSummary(record) {
   const question = record.thread.findLastIndex((message) => message.role === "user");
-  if (question < 0) return line(record.quote, 140);
+  if (question < 0) return line(stripMathDelimiters(record.quote || ""), 140);
   const answer = record.thread.slice(question + 1).find((message) => message.role === "assistant");
-  return `${line(record.thread[question].text, 65)} · ${
+  return `${line(stripMathDelimiters(record.thread[question]?.text || ""), 65)} · ${
     answer?.text
-      ? `${answer.status === "completed" ? "" : "Partial: "}${line(answer.text, 90)}`
+      ? `${answer.status === "completed" ? "" : "Partial: "}${line(stripMathDelimiters(answer.text), 90)}`
       : record.status === "streaming"
         ? "Thinking…"
         : record.status === "failed"

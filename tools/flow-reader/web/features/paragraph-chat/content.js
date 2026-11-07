@@ -67,14 +67,7 @@ markdown.block.ruler.before("fence", "reader_math_block", blockMath, {
   alt: ["paragraph", "reference", "blockquote", "list"],
 });
 
-export function stripMathDelimiters(text) {
-  if (typeof text !== "string") return "";
-  return text
-    .replace(/\\\[\s*([\s\S]*?)\s*(?:\\\]|$)/gu, "$1")
-    .replace(/\\\(\s*([\s\S]*?)\s*(?:\\\)|$)/gu, "$1")
-    .replace(/\$\$\s*([\s\S]*?)\s*(?:\$\$|$)/gu, "$1")
-    .replace(/(^|[^\\])\$([^\s\$][^\$\n]*?)\$/gu, "$1$2");
-}
+export { stripMathDelimiters } from "../../reader-common/paragraph-chat/state.js";
 
 export function safeChatLink(value) {
   try {

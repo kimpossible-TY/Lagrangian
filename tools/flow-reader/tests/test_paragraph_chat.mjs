@@ -3,6 +3,7 @@ import test from "node:test";
 import { bubblePosition } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 import { stripMathDelimiters } from "../web/features/paragraph-chat/content.js";
+import { conversationSummary } from "../../reader-common/paragraph-chat/state.js";
 
 test("document account entry uses configured Homepage and never includes host proof", (t) => {
   const createElement = (tagName) =>
@@ -318,4 +319,207 @@ test("model list refresh with chosen model removed falls back to empty and disab
   // Send is disabled correctly because no model is selected
   controller.updateSend(node);
   assert.equal(node.send.disabled, true);
+});
+
+test("initial empty model catalog does not delete persisted model across catalog arrival and reload", (t) => {
+  setupDocument(t);
+  const storage = new Map([["reader_chat_model_conv-1", "gpt-4o"]]);
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem(key) {
+        return storage.get(key) ?? null;
+      },
+      setItem(key, val) {
+        storage.set(key, String(val));
+      },
+      removeItem(key) {
+        storage.delete(key);
+      },
+    },
+  });
+  t.after(() => {
+    if (previousStorage) Object.defineProperty(globalThis, "sessionStorage", previousStorage);
+    else delete globalThis.sessionStorage;
+  });
+
+  const controller = {
+    chosenModels: new Map(),
+    models: [],
+    modelsLoaded: false,
+    getChosenModel: ParagraphChatController.prototype.getChosenModel,
+    setChosenModel: ParagraphChatController.prototype.setChosenModel,
+    renderModels: ParagraphChatController.prototype.renderModels,
+    updateSend: ParagraphChatController.prototype.updateSend,
+    state: {
+      records: new Map([
+        ["conv-1", { status: "idle", attachment: { state: "attached" } }],
+      ]),
+    },
+  };
+  const node = createMockNode("conv-1");
+
+  // 1. Initial render with models = [] before catalog arrives
+  controller.renderModels(node);
+  assert.equal(node.model.value, "");
+  // Stored model must NOT be wiped out
+  assert.equal(controller.getChosenModel("conv-1"), "gpt-4o");
+  assert.equal(storage.get("reader_chat_model_conv-1"), "gpt-4o");
+
+  // 2. Catalog arrives with gpt-4o
+  controller.models = [
+    { id: "gpt-4o", label: "GPT-4o" },
+    { id: "o1-mini", label: "o1-mini" },
+  ];
+  controller.modelsLoaded = true;
+  controller.renderModels(node);
+  assert.equal(node.model.value, "gpt-4o");
+  assert.equal(controller.getChosenModel("conv-1"), "gpt-4o");
+  assert.equal(storage.get("reader_chat_model_conv-1"), "gpt-4o");
+
+  // 3. Conversation reload keeps the model
+  const reloadedNode = createMockNode("conv-1");
+  controller.renderModels(reloadedNode);
+  assert.equal(reloadedNode.model.value, "gpt-4o");
+  assert.equal(controller.getChosenModel("conv-1"), "gpt-4o");
+
+  // 4. Successful empty catalog receipt legitimately clears model
+  controller.models = [];
+  controller.modelsLoaded = true;
+  controller.renderModels(reloadedNode);
+  assert.equal(reloadedNode.model.value, "");
+  assert.equal(controller.getChosenModel("conv-1"), "");
+});
+
+test("sessionStorage delete failure preserves authoritative empty memory tombstone and prevents resurrection", (t) => {
+  setupDocument(t);
+  let removeItemThrew = false;
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem(key) {
+        return key === "reader_chat_model_conv-1" ? "gpt-4o" : null;
+      },
+      setItem() {},
+      removeItem() {
+        removeItemThrew = true;
+        throw new Error("SecurityError: Storage access is denied");
+      },
+    },
+  });
+  t.after(() => {
+    if (previousStorage) Object.defineProperty(globalThis, "sessionStorage", previousStorage);
+    else delete globalThis.sessionStorage;
+  });
+
+  const controller = {
+    chosenModels: new Map(),
+    models: [{ id: "gpt-4o", label: "GPT-4o" }],
+    modelsLoaded: true,
+    getChosenModel: ParagraphChatController.prototype.getChosenModel,
+    setChosenModel: ParagraphChatController.prototype.setChosenModel,
+    renderModels: ParagraphChatController.prototype.renderModels,
+    updateSend: ParagraphChatController.prototype.updateSend,
+    state: {
+      records: new Map([
+        ["conv-1", { status: "idle", attachment: { state: "attached" } }],
+      ]),
+    },
+  };
+  const node = createMockNode("conv-1");
+
+  // Initial read gets gpt-4o from storage
+  assert.equal(controller.getChosenModel("conv-1"), "gpt-4o");
+
+  // User or fallback clears the model (removeItem throws)
+  controller.setChosenModel("conv-1", "");
+  assert.equal(removeItemThrew, true);
+
+  // Authoritative memory tombstone keeps empty
+  assert.equal(controller.getChosenModel("conv-1"), "");
+
+  // Re-render stays empty
+  controller.renderModels(node);
+  assert.equal(node.model.value, "");
+  controller.updateSend(node);
+  assert.equal(node.send.disabled, true);
+
+  // Model removed from catalog
+  controller.models = [{ id: "other", label: "Other" }];
+  controller.renderModels(node);
+  assert.equal(node.model.value, "");
+
+  // Model reappears in catalog later: must NOT resurrect old gpt-4o
+  controller.models = [{ id: "gpt-4o", label: "GPT-4o" }];
+  controller.renderModels(node);
+  assert.equal(node.model.value, "");
+  assert.equal(controller.getChosenModel("conv-1"), "");
+  controller.updateSend(node);
+  assert.equal(node.send.disabled, true);
+});
+
+test("conversationSummary strips math on full question/answer before 65/90 truncation and preserves literal dollars", () => {
+  // Single-dollar math expression longer than 65 chars
+  const longMathQ = "$" + "x+".repeat(40) + "y$";
+  const rec1 = {
+    quote: "quote",
+    status: "idle",
+    thread: [{ role: "user", text: longMathQ, status: "completed" }],
+  };
+  const summary1 = conversationSummary(rec1);
+  assert.equal(summary1.includes("$"), false);
+  assert.equal(
+    summary1,
+    "x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+… · Ask",
+  );
+
+  // Display math \\[...\\] longer than 65 chars
+  const longLatexQ = "\\[" + "a+".repeat(40) + "b\\]";
+  const rec2 = {
+    quote: "quote",
+    status: "idle",
+    thread: [{ role: "user", text: longLatexQ, status: "completed" }],
+  };
+  const summary2 = conversationSummary(rec2);
+  assert.equal(summary2.includes("\\["), false);
+  assert.equal(summary2.includes("\\]"), false);
+
+  // Block math $$...$$ in assistant answer longer than 90 chars
+  const longAnswer = "$$" + "c+".repeat(50) + "d$$";
+  const rec3 = {
+    quote: "quote",
+    status: "idle",
+    thread: [
+      { role: "user", text: "Question?", status: "completed" },
+      { role: "assistant", text: longAnswer, status: "completed" },
+    ],
+  };
+  const summary3 = conversationSummary(rec3);
+  assert.equal(summary3.includes("$$"), false);
+
+  // Literal and currency dollars preserved through conversationSummary
+  const currencyRec = {
+    quote: "quote",
+    status: "idle",
+    thread: [{ role: "user", text: "Lunch costs $5 and $10", status: "completed" }],
+  };
+  assert.equal(conversationSummary(currencyRec), "Lunch costs $5 and $10 · Ask");
+
+  // Escaped dollars preserved
+  const escapedRec = {
+    quote: "quote",
+    status: "idle",
+    thread: [{ role: "user", text: "Price is \\$5 and \\$10", status: "completed" }],
+  };
+  assert.equal(conversationSummary(escapedRec), "Price is \\$5 and \\$10 · Ask");
+
+  // Single dollar literal preserved
+  const singleDollarRec = {
+    quote: "quote",
+    status: "idle",
+    thread: [{ role: "user", text: "Symbol \\$ alone", status: "completed" }],
+  };
+  assert.equal(conversationSummary(singleDollarRec), "Symbol \\$ alone · Ask");
 });

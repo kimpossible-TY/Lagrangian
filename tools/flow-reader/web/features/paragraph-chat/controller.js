@@ -27,6 +27,7 @@ export class ParagraphChatController {
     this.pending = false;
     this.account = { notice: "ChatGPT 연결 상태를 확인해 주세요." };
     this.models = [];
+    this.modelsLoaded = false;
     this.article.classList.add("reader-paragraph-chat");
     this.unresolved = element("section", "", "reader-chat reader-chat-unresolved");
     this.unresolved.setAttribute("aria-label", "Unresolved paragraph conversations");
@@ -85,22 +86,21 @@ export class ParagraphChatController {
         return saved;
       }
     } catch {}
+    this.chosenModels.set(id, "");
     return "";
   }
 
   setChosenModel(id, modelId) {
     if (!id) return;
-    if (modelId) {
-      this.chosenModels.set(id, modelId);
-      try {
-        globalThis.sessionStorage?.setItem(`reader_chat_model_${id}`, modelId);
-      } catch {}
-    } else {
-      this.chosenModels.delete(id);
-      try {
+    const value = modelId || "";
+    this.chosenModels.set(id, value);
+    try {
+      if (value) {
+        globalThis.sessionStorage?.setItem(`reader_chat_model_${id}`, value);
+      } else {
         globalThis.sessionStorage?.removeItem(`reader_chat_model_${id}`);
-      } catch {}
-    }
+      }
+    } catch {}
   }
 
   onDocument(manifest) {
@@ -412,13 +412,14 @@ export class ParagraphChatController {
         }),
       );
     }
-    const preferred = (id && this.getChosenModel ? this.getChosenModel(id) : "") || node.model.value;
+    const preferred = id && this.getChosenModel ? this.getChosenModel(id) : node.model.value;
+    const catalogLoaded = this.modelsLoaded !== undefined ? Boolean(this.modelsLoaded) : true;
     const valid = this.models.some((model) => model.id === preferred);
     const next = valid ? preferred : "";
     if (node.model.value !== next) {
       node.model.value = next;
     }
-    if (id && this.setChosenModel && (!valid || preferred !== next)) {
+    if (id && this.setChosenModel && catalogLoaded && (!valid || preferred !== next)) {
       this.setChosenModel(id, next);
     }
     node.model.onchange = () => {
@@ -449,10 +450,11 @@ export class ParagraphChatController {
       const status = await this.auth("status");
       if (generation !== this.state.generation) return;
       this.account = status;
-      if ((models || !this.models.length) && status.planEnabled) {
+      if ((models || !this.modelsLoaded) && status.planEnabled) {
         const result = await this.auth("models");
         if (generation !== this.state.generation) return;
-        this.models = result.models;
+        this.models = Array.isArray(result?.models) ? result.models : [];
+        this.modelsLoaded = true;
       }
       this.render();
     } catch (error) {

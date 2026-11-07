@@ -79,4 +79,8 @@ test("stripMathDelimiters strips LaTeX delimiters to plain text", () => {
     "Here is e_1,e_2 and X=3e_1+2e_2",
   );
   assert.equal(stripMathDelimiters("$$A=B$$ and $x$"), "A=B and x");
+  assert.equal(stripMathDelimiters("$5 and $10"), "$5 and $10");
+  assert.equal(stripMathDelimiters("Cost is \\$5 and \\$10"), "Cost is \\$5 and \\$10");
+  assert.equal(stripMathDelimiters("Single dollar \\$"), "Single dollar \\$");
+  assert.equal(stripMathDelimiters("$5 and $10 and $x$"), "$5 and $10 and x");
 });

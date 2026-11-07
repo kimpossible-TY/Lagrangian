@@ -1,4 +1,4 @@
-- [x] 1. Strip raw LaTeX delimiters to plain text for collapsed paragraph-chat summaries.
-- [x] 2. Preserve chosen model per conversation and handle model list fallback.
+- [x] 1. Strip raw LaTeX delimiters to plain text for collapsed paragraph-chat summaries before truncation while preserving literal/currency/escaped dollars.
+- [x] 2. Preserve chosen model per conversation across initial empty catalog load and deletion failures with authoritative memory fallback.
 - [x] 3. Add Tail Dashboard entry panel to Homepage aside.
-- [x] 4. Add regression tests for conversation switch, follow-up, and model removal.
+- [x] 4. Add regression tests for conversation switch, follow-up, model removal, catalog arrival lifecycle, storage delete failure, and boundary math summaries.
