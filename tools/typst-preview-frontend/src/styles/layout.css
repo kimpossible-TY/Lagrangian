@@ -1,3 +1,97 @@
+/* Mirrored from tools/flow-reader/web/theme.css; keep values in sync. */
+:root {
+  color-scheme: light;
+  --paper: #faf9f6;
+  --ink: #292824;
+  --muted: #6b6962;
+  --line: #dfddd5;
+  --accent: #35675d;
+  --wash: #eef1ec;
+  --surface: #fffefa;
+  --highlight: #f3e4b3;
+  --highlight-edge: #a88032;
+  --selection: #c9dfd7;
+  --warning: #964d1d;
+  --review-ink: #b72d2d;
+  /* Additive roles: existing Reader palette remains unchanged. */
+  --color-page: var(--paper);
+  --color-text: var(--ink);
+  --color-subtle: var(--muted);
+  --color-border: var(--line);
+  --color-action: var(--accent);
+  --color-surface: var(--surface);
+  --color-tint: var(--wash);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --radius-small: 0.625rem;
+  --radius-medium: 1rem;
+  --radius-large: 1.375rem;
+  --type-small: 0.8125rem;
+  --type-body: 1rem;
+  --type-heading: 1.375rem;
+  --type-display: clamp(2rem, 4vw, 3rem);
+  --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Apple SD Gothic Neo", sans-serif;
+  --shadow-card: 0 8px 28px rgb(41 40 36 / 6%);
+  --glass-solid: var(--surface);
+  --glass-fill: rgb(255 254 250 / 88%);
+  --glass-edge: rgb(41 40 36 / 12%);
+  --glass-blur: blur(18px) saturate(130%);
+  --motion-fast: 120ms;
+  --motion-standard: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+:root[data-document-theme="dark"] {
+  color-scheme: dark;
+  --paper: #1b1c1e;
+  --ink: #e6e4df;
+  --muted: #a9aaa5;
+  --line: #3b3d3f;
+  --accent: #9cc7b8;
+  --wash: #252d2a;
+  --surface: #242628;
+  --highlight: #51452b;
+  --highlight-edge: #d3b774;
+  --selection: #36594e;
+  --warning: #e3b184;
+  --review-ink: #ff9393;
+  --shadow-card: 0 8px 28px rgb(0 0 0 / 20%);
+  --glass-fill: rgb(36 38 40 / 90%);
+  --glass-edge: rgb(255 255 255 / 12%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-document-theme="light"]) {
+    color-scheme: dark;
+    --paper: #1b1c1e;
+    --ink: #e6e4df;
+    --muted: #a9aaa5;
+    --line: #3b3d3f;
+    --accent: #9cc7b8;
+    --wash: #252d2a;
+    --surface: #242628;
+    --highlight: #51452b;
+    --highlight-edge: #d3b774;
+    --selection: #36594e;
+    --warning: #e3b184;
+    --review-ink: #ff9393;
+    --shadow-card: 0 8px 28px rgb(0 0 0 / 20%);
+    --glass-fill: rgb(36 38 40 / 90%);
+    --glass-edge: rgb(255 255 255 / 12%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-standard: 0ms;
+  }
+}
+
+
 #typst-top-toolbar {
   align-items: center;
   background-color: var(--typst-preview-toolbar-bg-color);
@@ -6,8 +100,8 @@
   display: flex;
   /* 35px is height of toolbar in vscode, alternative it could be 
     2.625rem (height of the pdf viewer's toolbar in chrome ) */
-  height: 35px;
-  padding: 0 0.75rem;
+  min-height: 44px;
+  padding: 4px 0.75rem;
 }
 
 #typst-top-toolbar-start,
@@ -80,6 +174,38 @@
   transition: opacity 0.1s ease;
 }
 
-#typst-container.mode-slide #typst-container-top:hover {
+#typst-container.mode-slide #typst-container-top:hover,
+#typst-container.mode-slide #typst-container-top:focus-within {
   opacity: 1;
+}
+
+/* Chrome surfaces do not alter page geometry. */
+html[data-document-theme] { --typst-preview-background-color: var(--paper); }
+@media (prefers-reduced-motion: reduce) {
+  #typst-container.mode-slide #typst-container-top { transition: none; }
+}
+
+#typst-top-toolbar {
+  box-sizing: content-box;
+  background: var(--glass-solid);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: var(--shadow-card);
+  font-family: var(--font-system);
+}
+@supports (backdrop-filter: blur(1px)) {
+  #typst-top-toolbar { background: var(--glass-fill); border-color: var(--glass-edge); backdrop-filter: var(--glass-blur); }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  #typst-top-toolbar { background: var(--glass-solid); border-color: var(--line); backdrop-filter: none; }
+}
+
+/* Preserve the slide toolbar's original 35px overlay footprint. */
+#typst-container.mode-slide #typst-top-toolbar {
+  box-sizing: border-box;
+  /* Override the inline calc width in index.html for the slide overlay. */
+  width: 100% !important;
+  height: 35px;
+  min-height: 0;
+  padding: 0 0.75rem;
 }

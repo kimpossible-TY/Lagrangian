@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, copyFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { createServer } from "node:http";
 import { stableScreenshot } from "./ui-baseline-stability.mjs";
 
 const moduleName = process.env.FLOW_READER_PLAYWRIGHT_MODULE || "playwright";
@@ -18,7 +19,26 @@ const root = resolve(".local/ui-baseline");
 const update = process.argv.includes("--update-baseline");
 const contractOnly = process.argv.includes("--contract-only");
 const fixtures = [];
-let browser;
+let browser, previewServer;
+async function startPreviewFixture() {
+  const frontend = new URL("../../typst-preview-frontend/", import.meta.url);
+  let html = await readFile(new URL("index.html", frontend), "utf8");
+  html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  const activityStyles = await readFile(new URL("../../reader-common/session/activity.css", import.meta.url), "utf8");
+  html = html.replace('<link rel="stylesheet" href="../reader-common/session/activity.css" />', `<style>${activityStyles}</style>`);
+  const styles = await Promise.all(["typst.css", "styles/toolbar.css", "styles/layout.css", "styles/help-panel.css", "styles/outline.css", "styles/selection-actions.css"].map((file) => readFile(new URL(`src/${file}`, frontend), "utf8")));
+  html = html.replace("</head>", `<style>${styles.join("\n")}</style></head>`)
+    .replace('id="typst-preview-status"', 'id="typst-preview-status" hidden')
+    .replace('data-phase="preparing" data-busy="true"', 'data-phase="ready" data-busy="false"')
+    .replace('title="Total Pages"></span>', 'title="Total Pages">12</span>')
+    .replace('id="typst-container"', 'id="typst-container" class="mode-slide"')
+    .replace('</body>', `<div class="typst-selection-actions"><button>Copy</button><button>Highlight</button><button class="typst-strike-action">Strike</button></div></body>`);
+  // Synthetic page is fixture content; it does not stand in for rendering or geometry tests.
+  html = html.replace('</div>\n    </div>\n  </div>\n\n  <div id="typst-help-panel"', '<div style="margin:80px;background:white;color:#292824;width:600px;height:700px;padding:40px;box-sizing:border-box">Paged preview fixture</div></div>\n    </div>\n  </div>\n\n  <div id="typst-help-panel"');
+  previewServer = createServer((_request, response) => { response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); response.end(html); });
+  await new Promise((resolve) => previewServer.listen(0, "127.0.0.1", resolve));
+  return `http://127.0.0.1:${previewServer.address().port}/`;
+}
 async function startFixture(file) {
   const child = spawn(process.env.PYTHON || "python3", ["-B", fileURLToPath(new URL(file, import.meta.url))], {
     stdio: ["ignore", "pipe", "inherit"],
@@ -36,10 +56,10 @@ async function rendered(page, selectors) {
   for (const selector of selectors) assert.ok(await page.locator(selector).count(), `Missing rendered selector: ${selector}`);
 }
 async function settle(page, name) {
-  await page.mouse.move(0, 0);
+  await page.mouse.move(0, name.startsWith("preview") ? page.viewportSize().height - 1 : 0);
   await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; }" });
   await page.waitForLoadState("networkidle");
-  if (name !== "home") {
+  if (name !== "home" && !name.startsWith("preview")) {
     await page.waitForFunction(() => {
       const logo = document.querySelector("#reader-logo");
       return logo?.dataset.phase === "ready" && !logo.hasAttribute("data-completed");
@@ -103,7 +123,7 @@ async function compare(page, baseline, current, diff) {
   return result;
 }
 try {
-  const home = await startFixture("./home_fixture.py"), reader = await startFixture("./paragraph_chat_fixture.py");
+  const home = await startFixture("./home_fixture.py"), reader = await startFixture("./paragraph_chat_fixture.py"), preview = await startPreviewFixture();
   browser = await chromium.launch({ headless: true, executablePath: chrome });
   const metadata = { chrome: browser.version(), playwright: playwrightVersion, commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), dirty: Boolean(execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()), deviceScaleFactor: 1, locale: "en-US", timezone: "UTC", viewports: { desktop: { width: 1280, height: 800 }, mobile: { width: 390, height: 844 } } };
   const report = { metadata, results: [] };
@@ -111,7 +131,7 @@ try {
   for (const [size, viewport] of Object.entries(metadata.viewports)) for (const theme of ["light", "dark"]) {
     // Test-only: allow settle() to inject its deterministic capture styles under the app's CSP.
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, locale: metadata.locale, timezoneId: metadata.timezone, colorScheme: theme, reducedMotion: "reduce", serviceWorkers: "block", bypassCSP: true });
-    const allowed = new Set([new URL(home.url).origin, new URL(reader.url).origin]);
+    const allowed = new Set([new URL(home.url).origin, new URL(reader.url).origin, new URL(preview).origin]);
     const blocked = [];
     await context.route("**/*", async (route) => {
       const url = new URL(route.request().url());
@@ -125,8 +145,9 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.clock.install({ time: new Date("2024-01-01T00:00:00Z") });
-    async function capture(name) {
+    async function capture(name, revealToolbar = false) {
       await settle(page, name);
+      if (revealToolbar) await page.locator("#typst-page-selector").focus();
       if (!contractOnly) {
         const key = `${size}-${theme}-${name}`, current = join(root, "current", `${key}.png`), baseline = join(root, "baseline", `${key}.png`), diff = join(root, "diff", `${key}.png`);
         const { image, retryCount, unstable } = await stableScreenshot(() => page.screenshot({ animations: "disabled" }));
@@ -142,6 +163,59 @@ try {
     await page.waitForFunction(() => document.querySelector("#first[data-reader-key]") && document.querySelector("#reader-document").getAttribute("aria-busy") === "false");
     await rendered(page, ["#reader-document #first[data-reader-key]", "#reader-document #equation .flow-equation-number"]); await capture("reader");
     await openChat(page); await capture("chat");
+    await page.goto(preview);
+    await rendered(page, ["#typst-top-toolbar", "#typst-help-panel", ".typst-selection-actions", "#typst-app"]);
+    await settle(page, "preview");
+    await page.evaluate(() => {
+      const top = document.querySelector("#typst-container-top");
+      if (getComputedStyle(top).opacity !== "0") throw new Error("Slide toolbar should start hidden");
+      if (top.getBoundingClientRect().height !== 35) throw new Error("Slide toolbar footprint changed");
+      const hit = document.elementFromPoint(innerWidth / 2, 20);
+      // A transparent overlay must not paint over the slide, even though it retains hover hit testing.
+      if (!hit || Number(getComputedStyle(top).opacity) !== 0) throw new Error("Hidden toolbar covers slide content");
+    });
+    await capture("preview-hidden");
+    await page.locator("#typst-page-selector").focus();
+    await page.evaluate(() => {
+      if (getComputedStyle(document.querySelector("#typst-container-top")).opacity !== "1") throw new Error("Focus did not reveal slide toolbar");
+      const toolbar = document.querySelector("#typst-top-toolbar").getBoundingClientRect();
+      if (toolbar.height > 35) throw new Error("Slide toolbar exceeds original footprint");
+      const controls = [".typst-page-selector-content", "#typst-page-selector", ".typst-page-selector-divider", ".typst-page-number-indicator", "#typst-page-prev-selector .typst-page-button", "#typst-page-next-selector .typst-page-button"];
+      for (const selector of controls) {
+        const element = document.querySelector(selector), rect = element.getBoundingClientRect();
+        const parent = document.querySelector("#typst-top-toolbar-end").getBoundingClientRect();
+        if (!element.checkVisibility() || rect.top < toolbar.top || rect.bottom > toolbar.bottom || rect.left < parent.left || rect.right > parent.right || Math.abs((rect.top + rect.bottom - toolbar.top - toolbar.bottom) / 2) > 1) throw new Error(`Misaligned or clipped toolbar control: ${selector}`);
+        if ((selector === "#typst-page-selector" || selector.includes(".typst-page-button")) && (rect.width < 44 || rect.height < 35)) throw new Error(`Small toolbar target: ${selector}`);
+      }
+      if (document.querySelector(".typst-page-number-indicator").textContent !== "12") throw new Error("Ready fixture missing total pages");
+      if ([...document.querySelectorAll("body *")].some((element) => element.children.length === 0 && element.textContent.includes("Preparing preview") && element.checkVisibility())) throw new Error("Ready fixture shows preparing status");
+    });
+    // The fixture makes the existing div controls focusable to exercise their focus styles.
+    await page.evaluate(() => {
+      document.querySelectorAll("#typst-top-toolbar .typst-toolbar-icon, #typst-top-toolbar .typst-page-button").forEach((element) => { element.tabIndex = 0; });
+    });
+    await page.keyboard.press("Tab");
+    for (const selector of ["#typst-page-selector", "#typst-top-toolbar-navigator", "#typst-top-help-button", "#typst-page-prev-selector .typst-page-button", "#typst-page-next-selector .typst-page-button"]) {
+      await page.locator(selector).focus();
+      await page.locator(selector).evaluate((element) => {
+        const toolbar = document.querySelector("#typst-top-toolbar").getBoundingClientRect();
+        const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+        const expansion = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+        if (!element.matches(":focus-visible") || style.outlineStyle === "none" || !(parseFloat(style.outlineWidth) > 0) || !Number.isFinite(expansion)) throw new Error(`Missing focus outline: ${element.id || element.parentElement.id}`);
+        if (rect.left - expansion < Math.max(toolbar.left, 0) || rect.top - expansion < Math.max(toolbar.top, 0) || rect.right + expansion > Math.min(toolbar.right, innerWidth) || rect.bottom + expansion > Math.min(toolbar.bottom, innerHeight)) throw new Error(`Clipped focus outline: ${element.id || element.parentElement.id}`);
+      });
+    }
+    await capture("preview-revealed", true);
+    for (const forcedTheme of ["light", "dark"]) {
+      await page.evaluate((value) => { document.documentElement.dataset.documentTheme = value; }, forcedTheme);
+      await capture(`preview-forced-${forcedTheme}-hidden`);
+      await capture(`preview-forced-${forcedTheme}-revealed`, true);
+      await page.locator("#typst-help-panel").evaluate((panel) => panel.classList.remove("hidden"));
+      await capture(`preview-forced-${forcedTheme}-help`);
+      await page.locator("#typst-help-panel").evaluate((panel) => panel.classList.add("hidden"));
+    }
+    await page.locator("#typst-help-panel").evaluate((panel) => panel.classList.remove("hidden"));
+    await capture("preview-help");
     assert.deepEqual(errors, [], "Browser page errors");
     assert.deepEqual(blocked, [], "Unexpected network requests");
     await context.close();
@@ -157,5 +231,6 @@ try {
   } else console.log("Rendered selector contract passed");
 } finally {
   if (browser) await browser.close();
+  if (previewServer) await new Promise((resolve) => previewServer.close(resolve));
   for (const child of fixtures) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
 }

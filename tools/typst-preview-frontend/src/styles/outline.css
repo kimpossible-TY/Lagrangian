@@ -62,3 +62,7 @@
   /* set to alignment center */
   dominant-baseline: central;
 }
+
+.typst-outline:hover { background: var(--wash); }
+.typst-outline-title, .typst-preview-canvas-page-number { color: var(--ink); font-family: var(--font-system); }
+@media (prefers-reduced-motion: reduce) { .typst-outline { transition: none; } }
