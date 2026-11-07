@@ -57,6 +57,14 @@ test("TeX delimiters become math tokens while fenced and inline code remain lite
 test("Conversation labels retain partial, unresolved and unknown truthfulness", () => {
   const record = { attachment: { state: "attached" }, progress: "" };
   assert.match(chatStatus({ ...record, status: "completed" }), /완료/u);
+  assert.match(
+    chatStatus({ ...record, status: "streaming", progress: "Reading current document…" }),
+    /문서를 살펴보는 중/u,
+  );
+  assert.match(
+    chatStatus({ ...record, status: "streaming", progress: "Unknown progress" }),
+    /Unknown progress/u,
+  );
   assert.match(chatStatus({ ...record, status: "interrupted" }), /부분 답변/u);
   assert.match(chatStatus({ ...record, status: "failed" }), /다시 보내/u);
   assert.match(chatStatus({ ...record, status: "future-state" }), /미확인/u);

@@ -233,6 +233,13 @@ try {
   await first.locator("textarea").fill("Interrupt this response");
   await first.locator("button[type=submit]").click();
   await first.getByRole("button", { name: "Interrupt", exact: true }).waitFor({ state: "visible" });
+  check(
+    "Accepted question is not duplicated in the streaming composer",
+    (await first.locator("textarea").inputValue()) === "" &&
+      (await first.locator(".reader-chat-messages").textContent()).includes(
+        "Interrupt this response",
+      ),
+  );
   await first.locator("button[type=submit]").evaluate((e) => e.click());
   check(
     "Streaming disables duplicate sends",
@@ -250,6 +257,20 @@ try {
     "Interruption preserves draft and hides the stop control",
     (await first.locator("textarea").inputValue()) === "Interrupt this response" &&
       !(await first.getByRole("button", { name: "Interrupt", exact: true }).isVisible()),
+  );
+  await first.locator("textarea").fill("Another interrupted question");
+  await first.locator("button[type=submit]").click();
+  await first.getByRole("button", { name: "Interrupt", exact: true }).waitFor({ state: "visible" });
+  await first.locator("textarea").fill("A new follow-up draft");
+  await first.getByRole("button", { name: "Interrupt", exact: true }).click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "interrupted",
+  );
+  check(
+    "Interruption preserves a new follow-up draft",
+    (await first.locator("textarea").inputValue()) === "A new follow-up draft",
   );
   await control({ mode: "success" });
   let lostAckSends = 0;
@@ -275,7 +296,10 @@ try {
   await first.locator("textarea").fill("Lost acknowledgment question");
   await first.locator("button[type=submit]").click();
   await page.waitForFunction(
-    () => document.querySelector("#first + .reader-chat textarea")?.value === "",
+    () =>
+      document.querySelector("#first + .reader-chat textarea")?.value === "" &&
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+        "completed",
   );
   await first.locator("button[type=submit]").evaluate((button) => button.click());
   const recovered = (await history()).find((record) => record.conversation_id === firstID);

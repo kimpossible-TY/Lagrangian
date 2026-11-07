@@ -214,7 +214,15 @@ export function chatStatus(record) {
     record.attachment.state === "unresolved"
       ? "문단 위치를 확인하지 못했습니다. 기록은 보존되어 있습니다. "
       : "";
-  const progress = record.status === "completed" || record.status === "idle" ? "" : record.progress;
+  const progressLabels = {
+    "Connecting…": "연결 중…",
+    "Thinking…": "생각 중…",
+    "Reading current document…": "문서를 살펴보는 중…",
+  };
+  const progress =
+    record.status === "completed" || record.status === "idle"
+      ? ""
+      : progressLabels[record.progress] || record.progress;
   return (
     unresolved +
     (labels[record.status] || "대화 상태 미확인 · 연결을 확인해 주세요") +

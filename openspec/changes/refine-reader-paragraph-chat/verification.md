@@ -1,5 +1,15 @@
 # Verification
 
+## Local dogfooding follow-up
+
+An actual Reader question on 2026-11-07 exposed a duplicated submitted draft,
+English progress labels and an oversized composer. The isolated local Reader was
+then exercised through Chrome with the fake provider; the question appeared once,
+the composer was empty during streaming, and Korean progress was visible.
+The local browser suite passed 42 checks, including interruption, lost
+acknowledgment, a new draft during streaming and 390px viewport overflow. This
+does not measure live inference latency or verify the previous Ask-open failure.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

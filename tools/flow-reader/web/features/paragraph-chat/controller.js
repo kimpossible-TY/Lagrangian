@@ -345,9 +345,23 @@ export class ParagraphChatController {
       node.status.dataset.state = record.status;
       if (node.status.textContent !== status) node.status.textContent = status;
       node.inputLabel.textContent = record.thread.length ? "이어서 질문하기" : "이 문단에 질문하기";
+      const submitted = record.thread.findLast((message) => message.role === "user");
+      if (record.status === "streaming" && submitted && node.hiddenMessageId !== submitted.id) {
+        node.hiddenMessageId = submitted.id;
+        if (node.input.value === submitted.text) {
+          node.input.value = "";
+          node.hiddenSubmitted = submitted.text;
+        }
+      } else if (record.status !== "streaming" && node.hiddenSubmitted) {
+        const draft = this.drafts.get(id) ?? record.draft;
+        if (record.status !== "completed" && !node.input.value && draft === node.hiddenSubmitted)
+          node.input.value = draft;
+        node.hiddenSubmitted = null;
+      }
       if (
         !this.drafts.has(id) &&
         document.activeElement !== node.input &&
+        !(record.status === "streaming" && node.hiddenSubmitted === record.draft) &&
         node.input.value !== record.draft
       )
         node.input.value = record.draft;
