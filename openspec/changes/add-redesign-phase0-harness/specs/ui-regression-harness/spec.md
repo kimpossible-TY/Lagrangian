@@ -28,3 +28,17 @@ The harness SHALL capture Homepage, Reader, and open paragraph chat at desktop a
 
 - **WHEN** the mobile capture is reviewed
 - **THEN** it is identified as a viewport-only capture and not a real iOS device test
+
+### Requirement: Settled fixture capture
+
+The harness SHALL wait for the fixture Reader's ready activity state and completed visible equation composition before capturing, and SHALL require two consecutive identical screenshots within a bounded retry limit.
+
+#### Scenario: Stable capture
+
+- **WHEN** consecutive screenshots match
+- **THEN** the report records the number of retries and compares or saves the stable capture
+
+#### Scenario: Unstable capture
+
+- **WHEN** screenshots do not stabilize within the retry limit
+- **THEN** the report marks the capture unstable, the run fails, and no baselines are updated

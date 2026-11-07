@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile, copyFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { stableScreenshot } from "./ui-baseline-stability.mjs";
 
 const moduleName = process.env.FLOW_READER_PLAYWRIGHT_MODULE || "playwright";
 const { chromium } = await import(moduleName);
@@ -34,10 +35,20 @@ async function startFixture(file) {
 async function rendered(page, selectors) {
   for (const selector of selectors) assert.ok(await page.locator(selector).count(), `Missing rendered selector: ${selector}`);
 }
-async function settle(page) {
+async function settle(page, name) {
   await page.mouse.move(0, 0);
   await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; }" });
   await page.waitForLoadState("networkidle");
+  if (name !== "home") {
+    await page.waitForFunction(() => {
+      const logo = document.querySelector("#reader-logo");
+      return logo?.dataset.phase === "ready" && !logo.hasAttribute("data-completed");
+    });
+    if (name === "reader") await page.waitForFunction(() => {
+      const math = document.querySelector("#equation .flow-math-view");
+      return math && ["ready", "overflow"].includes(math.dataset.mathState);
+    });
+  }
   await page.evaluate(async () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     await globalThis.MathJax?.startup?.promise;
@@ -45,6 +56,10 @@ async function settle(page) {
     await Promise.all(Array.from(document.images, (image) => image.decode().catch(() => {})));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
+  if (name === "reader") {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  }
 }
 async function openChat(page) {
   await page.evaluate(async () => {
@@ -111,12 +126,14 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.clock.install({ time: new Date("2024-01-01T00:00:00Z") });
     async function capture(name) {
-      await settle(page);
+      await settle(page, name);
       if (!contractOnly) {
         const key = `${size}-${theme}-${name}`, current = join(root, "current", `${key}.png`), baseline = join(root, "baseline", `${key}.png`), diff = join(root, "diff", `${key}.png`);
-        await page.screenshot({ path: current, animations: "disabled" });
-        if (update) { report.results.push({ key, status: "baseline-updated" }); }
-        else report.results.push({ key, ...await compare(page, baseline, current, diff) });
+        const { image, retryCount, unstable } = await stableScreenshot(() => page.screenshot({ animations: "disabled" }));
+        await writeFile(current, image);
+        if (unstable) report.results.push({ key, status: "unstable", retryCount });
+        else if (update) report.results.push({ key, status: "baseline-updated", retryCount });
+        else report.results.push({ key, ...await compare(page, baseline, current, diff), retryCount });
       }
     }
     await page.goto(home.url); await page.locator(".document-card").first().waitFor();
@@ -131,6 +148,7 @@ try {
   }
   if (!contractOnly) {
     await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    if (report.results.some(({ status }) => status === "unstable")) throw new Error("Capture did not stabilize; see report.json");
     if (update) {
       for (const { key } of report.results) await copyFile(join(root, "current", `${key}.png`), join(root, "baseline", `${key}.png`));
       await writeFile(join(root, "baseline", "version.json"), JSON.stringify(metadata, null, 2) + "\n");

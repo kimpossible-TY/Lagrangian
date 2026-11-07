@@ -19,3 +19,12 @@ Chrome attempts by environment:
 - Unsandboxed Mac, d12832fa: Chrome 156.0.8078.80, Playwright 1.65.0; 2 consecutive compares, 0 diffs in all 12 captures.
 
 Verification at d12832fa: Node reader suite 298 pass / 0 fail / 0 skipped (architecture and lint-config included); ESLint clean on changed files; OpenSpec strict valid; `git diff --check` clean. Python flow-app: 139 ran, 7 skipped, 1 failure `test_reader_bundle...test_wrong_run_missing_selector_and_installed_destination_are_refused`, which fails identically on a clean origin/main worktree (pre-existing).
+
+## 4. Mobile capture stabilization
+
+- [x] Wait for the Reader's ready logo, completion timer, and fixture equation composition; reset the Reader capture to the top.
+- [x] Require two identical screenshots with bounded retries and record retry counts; reject unstable baseline updates.
+- [x] Test the retry and failure paths without Chrome.
+- [x] Repeatedly compare captures on an unsandboxed Mac: after regenerating the baseline (main 181b419e + this fix, Chrome 156.0.8078.80, Playwright 1.65.0), 5 consecutive compares had 0 changed pixels in all 12 captures. Before the fix, mobile Reader differed by 15 px in 2 of 5 runs. The race fixes are effective together; the single root cause was not isolated.
+
+The harness formerly waited for `aria-busy=false`, but Reader clears that before its next-frame activity transition. Its math renderer separately schedules per-formula MathJax conversion after a debounce; startup alone does not await that conversion. Those are concrete capture races, especially relevant to narrow layouts, but the reported 15-pixel difference has not been isolated to either without browser evidence. The logo's completion marker expires after 1.6 seconds; animation suppression does not wait for that state transition. Toolbar visibility changes on a tap, not a scroll timer. The fixture contains no canvas or images; reading-position restoration and font completion can move content, so the Reader capture resets scroll after composition and waits for fonts. The clock is installed but runs, allowing these timers to complete.
