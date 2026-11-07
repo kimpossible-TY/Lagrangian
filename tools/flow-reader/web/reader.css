@@ -2269,7 +2269,7 @@ math svg {
 }
 .reader-brand.reader-logo-pressing { transform: scale(.95); }
 .reader-brand.reader-logo-pressing::after { opacity: 1; animation: logo-hold 500ms linear forwards; }
-.reader-brand.reader-logo-confirmed { animation: logo-confirm 100ms ease-out forwards; }
+.reader-brand.reader-logo-confirmed { animation: logo-confirm 100ms ease-out; }
 @keyframes logo-hold { to { --logo-hold-progress: 100%; } }
 @keyframes logo-confirm { to { transform: scale(1.04); opacity: .75; } }
 .reader-brand.reader-logo-dragging { transition: none; }

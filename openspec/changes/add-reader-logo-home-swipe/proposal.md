@@ -15,7 +15,7 @@ Readers need a quick way back to the shared Homepage without losing the status l
 
 ### Modified Capabilities
 
-- `reader-status-logo`: Move refresh from long press to the popover button and Shift+Enter.
+- `reader-status-logo`: Use long-press (hold) or a rightward swipe for home, and the popover button or Shift+Enter for refresh.
 
 ## Impact
 

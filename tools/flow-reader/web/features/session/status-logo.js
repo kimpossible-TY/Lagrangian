@@ -51,7 +51,13 @@ export class StatusLogo {
       { signal },
     );
     const doc = element.ownerDocument;
+    this.trigger.addEventListener("animationend", (event) => {
+      if (event.target === this.trigger && event.animationName === "logo-confirm") {
+        this.trigger.classList.remove("reader-logo-confirmed");
+      }
+    }, { signal });
     this.trigger.addEventListener("pointerdown", (event) => {
+      this.trigger.classList?.remove("reader-logo-confirmed");
       if (!event.isPrimary || event.button !== 0) return;
       if (this.gesture && this.gesture.phase !== "done") return;
       this.suppressClick = false;
@@ -317,6 +323,7 @@ export class StatusLogo {
     this.cancelPress();
     this.listeners.abort();
     this.resetSwipeVisual();
+    this.trigger.classList?.remove("reader-logo-confirmed");
     this.gesture = null;
     clearTimeout(this.navigationTimer);
     clearTimeout(this.reloadTimer);

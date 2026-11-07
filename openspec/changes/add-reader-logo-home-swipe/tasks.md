@@ -1,7 +1,7 @@
 ## Implementation
 
 - [x] Add a pure swipe classifier and unit tests.
-- [x] Connect the shared Reader logo gesture and accessible Homepage link without changing refresh or click behavior.
+- [x] Connect long-press (hold) and rightward swipe to the shared Reader Homepage, while retaining click for the status popover and Shift+Enter or its button for refresh.
 - [x] Add browser coverage for shared and standalone Readers, including terminal presentation.
 - [x] Validate the change and document unexecuted browser coverage.
 - [x] Replace competing gesture trackers with a single hold/swipe state machine and feedback.
