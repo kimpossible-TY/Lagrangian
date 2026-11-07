@@ -38,3 +38,22 @@ The redesigned presentation SHALL retain paragraph attachment, accessible questi
 
 - **WHEN** an answer streams or fails
 - **THEN** its content and status remain associated with the originating paragraph and its interrupt or recovery action remains available.
+
+### Requirement: Default model and concise controls
+
+New conversations SHALL default to GPT-6 Luna with xhigh reasoning when it is available. Explicit model selections SHALL remain available and an unavailable model SHALL NOT be silently misrepresented.
+
+#### Scenario: Luna response
+
+- **WHEN** GPT-6 Luna is selected
+- **THEN** each Responses request, including tool continuations, specifies xhigh reasoning.
+
+#### Scenario: New conversation
+
+- **WHEN** the model catalog contains GPT-6 Luna and there is no saved selection
+- **THEN** it is selected without requiring a separate selection step.
+
+#### Scenario: Compact composition
+
+- **WHEN** a conversation is displayed
+- **THEN** redundant instructional labels are visually removed while accessible names and important status remain available.

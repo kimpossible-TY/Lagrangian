@@ -26,3 +26,10 @@ Following the requested correction, expanded conversations use a single
 floating surface with a boundary and shadow; contents and composer remain
 unboxed inside it. The 49-check Chromium fixture, surface contrast checks and
 strict OpenSpec validation pass; 390px light and dark captures were inspected.
+
+Default model follow-up: a new conversation selects `gpt-6-luna` when present;
+Luna Responses and tool-continuation requests explicitly send `xhigh` reasoning.
+The browser fixture checks the displayed default and existing selection; the
+local fake provider verifies reasoning in multiple requests. Redundant composer
+and status labels are visually hidden while retaining accessible semantics.
+Live SIWC entitlement and real model inference remain unverified.

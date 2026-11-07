@@ -93,8 +93,8 @@ export class ParagraphChatController {
     } catch {
       // Keep the in-memory fallback when storage is unavailable.
     }
-    this.chosenModels.set(id, "");
-    return "";
+    this.chosenModels.set(id, "gpt-6-luna");
+    return "gpt-6-luna";
   }
 
   setChosenModel(id, modelId) {
@@ -199,11 +199,11 @@ export class ParagraphChatController {
     summary.setAttribute("aria-controls", panel.id);
     panel.setAttribute("role", "region");
     const heading = element("div", "", "reader-chat-heading");
-    const title = element("span", "이 문단에 대한 대화");
+    const title = element("span", "ChatGPT");
     title.id = `reader-chat-title-${id}`;
     panel.setAttribute("aria-labelledby", title.id);
     heading.append(title);
-    const contextLabel = element("p", "선택한 구절", "reader-chat-context-label");
+    const contextLabel = element("p", "선택한 구절", "reader-chat-visually-hidden");
     const quote = element("blockquote", record.quote, "reader-chat-quote");
     const messages = element("div", "", "reader-chat-messages");
     messages.setAttribute("role", "log");
@@ -219,7 +219,7 @@ export class ParagraphChatController {
     account.setAttribute("aria-controls", this.accountSettings.dialog.id);
     account.addEventListener("click", () => this.openAccountSettings(account));
     const form = element("form", "", "reader-chat-composer");
-    const inputLabel = element("label", "이 문단에 질문하기", "reader-chat-composer-label");
+    const inputLabel = element("label", "질문", "reader-chat-visually-hidden");
     inputLabel.htmlFor = `reader-chat-question-${id}`;
     const input = element("textarea");
     input.setAttribute("aria-label", "Question about this paragraph");
@@ -355,8 +355,8 @@ export class ParagraphChatController {
       node.transcript.update(record.thread, { visible: !node.panel.hidden });
       const status = chatStatus(record);
       node.status.dataset.state = record.status;
+      node.status.dataset.unresolved = String(record.attachment.state === "unresolved");
       if (node.status.textContent !== status) node.status.textContent = status;
-      node.inputLabel.textContent = record.thread.length ? "이어서 질문하기" : "이 문단에 질문하기";
       const submitted = record.thread.findLast((message) => message.role === "user");
       if (record.status === "streaming" && submitted && node.hiddenMessageId !== submitted.id) {
         node.hiddenMessageId = submitted.id;
@@ -436,12 +436,12 @@ export class ParagraphChatController {
     const signatureChanged = node.modelsSignature !== signature;
     if (signatureChanged) {
       node.modelsSignature = signature;
-      const placeholder = element("option", "모델 선택");
+      const placeholder = element("option", this.modelsLoaded ? "모델을 사용할 수 없음" : "모델 불러오는 중…");
       placeholder.value = "";
       node.model.replaceChildren(
         placeholder,
         ...this.models.map((model) => {
-          const option = element("option", model.label);
+          const option = element("option", model.id === "gpt-6-luna" ? `${model.label} · xhigh` : model.label);
           option.value = model.id;
           return option;
         }),

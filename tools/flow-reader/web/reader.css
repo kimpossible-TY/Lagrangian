@@ -1091,6 +1091,17 @@ button:disabled {
 .reader-chat button[hidden] {
   display: none;
 }
+.reader-chat-visually-hidden,
+.reader-chat-status:is([data-state="idle"], [data-state="completed"])[data-unresolved="false"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .reader-chat-heading,
 .reader-chat-composer-actions,
 .reader-chat-heading-actions,
@@ -1266,15 +1277,15 @@ button:disabled {
   outline-offset: 3px;
 }
 .reader-chat .reader-chat-model {
-  max-width: min(100%, 17em);
+  max-width: min(65%, 17em);
   min-height: 44px;
   padding: 0.4em 1.7em 0.4em 0.5em;
   border: 0;
   border-radius: 0.4em;
-  color: var(--muted);
+  color: var(--color-text);
   background: transparent;
   font:
-    0.75rem/1.5 system-ui,
+    0.8125rem/1.5 system-ui,
     sans-serif;
 }
 .reader-chat :is(.reader-chat-close, .reader-chat-settings-open, .reader-chat-interrupt) {
@@ -1355,7 +1366,7 @@ button:disabled {
     font-size: max(1em, 16px);
   }
   .reader-chat .reader-chat-model {
-    flex: 1 1 45%;
+    flex: 0 1 auto;
     min-width: 0;
   }
   .reader-chat .reader-chat-settings-open {

@@ -55,7 +55,8 @@ class FakeOpenAI:
                 if self.path == "/jwks":
                     return self.reply({"keys": [owner.keys["public"]]})
                 if self.path == "/models":
-                    return self.reply({"models": [{"slug": "fixture-model", "display_name": "Fixture model", "visibility": "list"}]})
+                    return self.reply({"models": [{"slug": "fixture-model", "display_name": "Fixture model", "visibility": "list"},
+                                                  {"slug": "gpt-6-luna", "display_name": "GPT-6 Luna", "visibility": "list"}]})
                 self.reply({}, 404)
             def do_POST(self):
                 raw = self.rfile.read(int(self.headers["Content-Length"]))

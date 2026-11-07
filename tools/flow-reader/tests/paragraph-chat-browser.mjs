@@ -114,6 +114,11 @@ try {
     .locator("select[aria-label='ChatGPT model'] option[value='fixture-model']")
     .waitFor({ state: "attached" });
   check(
+    "A new conversation defaults to GPT-6 Luna xhigh",
+    (await first.locator("select[aria-label='ChatGPT model']").inputValue()) === "gpt-6-luna" &&
+      (await first.locator("select[aria-label='ChatGPT model'] option:checked").textContent()).includes("xhigh"),
+  );
+  check(
     "Paragraphs contain no credential controls",
     (await page.locator(".reader-chat input").count()) === 0,
   );

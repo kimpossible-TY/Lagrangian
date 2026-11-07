@@ -101,6 +101,8 @@ class ResponsesProvider:
                 raise ChatProviderError("Response interrupted")
             body = {"model": model, "input": inputs, "store": False, "stream": True,
                     "tools": document_tools(document_id, revision)}
+            if model == "gpt-6-luna":
+                body["reasoning"] = {"effort": "xhigh"}
             request = Request(self.resource + "/responses", json.dumps(body).encode(),
                               {"Content-Type": "application/json", "Accept": "text/event-stream",
                                "Authorization": "Bearer " + token})

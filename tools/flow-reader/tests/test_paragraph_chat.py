@@ -92,6 +92,17 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE((self.work / "private").stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.work / "private/history.sqlite3").stat().st_mode), 0o600)
 
+    def test_luna_requests_xhigh_across_tool_rounds(self):
+        record = self.open()
+        request = self.reader.request(conversationID=record["conversation_id"], version=record["version"],
+            question="Explain this", model="gpt-6-luna", messageID="luna-test")
+        self.chat.mutate(request, "send")
+        self.assertEqual(self.wait(record["conversation_id"])["status"], "completed")
+        requests = [body for path, body in self.fake.requests if path == "/responses"]
+        self.assertGreater(len(requests), 1)
+        self.assertTrue(all(body["model"] == "gpt-6-luna" and
+                            body["reasoning"] == {"effort": "xhigh"} for body in requests))
+
     def test_reselect_updates_composer_but_preserves_each_questions_original_context(self):
         first = self.open("First paragraph")
         self.send(first, "Explain the first selection")
