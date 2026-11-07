@@ -458,4 +458,4 @@ remote publication and physical-device/VoiceOver checks were not performed.
 
 ## Large document startup recovery
 
-- [ ] Separate the ordinary document execution budget from interactive/source-map/diagnostic limits, identify native timeouts without private details, and verify local tests plus installed document readiness.
+- [x] Separate the ordinary document execution budget from interactive/source-map/diagnostic limits, identify native timeouts without private details, and verify local tests plus installed document readiness.

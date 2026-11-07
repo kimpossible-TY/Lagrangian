@@ -119,7 +119,9 @@ the isolated clean-install check passed. Reader ESLint and changed-JS formatting
 strict OpenSpec and whitespace checks pass. Yarn was unavailable, so its exact
 lint:readers ESLint command was executed directly. The canonical architecture
 document compiled to PDF and HTML, including the new recovery ownership text.
-Installed-Reader recovery verification is pending deployment.
+The recovery implementation is deployed. Installed-browser failure injection
+remains unverified, as distinguished from the passing isolated browser checks
+above.
 
 Run 42364707549 installed draft-recovery revision `6c690a00`, but its actual
 document did not become ready: recent compiler history recorded two native
@@ -129,6 +131,30 @@ state had no accepted revision. The live draft-recovery exercise has not yet
 started. The temporary DevTools request condition was removed and disabled;
 startup deadline recovery continues under add-responsive-reader before resuming
 the real-browser check.
+
+Run 42365949058 subsequently installed `12dc8ef6` through the normal main
+pipeline. Live state accepted a nonempty document revision, stopped compiling,
+and reported exit code zero. Its native execution history recorded document
+passes of 16.191 and 12.062 seconds and source-map passes of 14.150 and 12.672
+seconds during dependency stabilization. These are successful rollout
+observations under different host load, not a controlled startup-speed
+comparison. The execution-budget and compiler-pool suites passed 30 tests.
+
+The installed Reader was then exercised through native Chrome using Computer.
+An ordinary draft autosave returned HTTP 200. DevTools displayed blocked draft
+requests and disconnected/offline states, but read-back of authoritative host
+history showed that background/unload saving still accepted the test drafts.
+Consequently, preserved text after these reloads does not prove recovery of an
+unacknowledged draft or preservation of a different host draft in the installed
+browser. That coverage remains the isolated Chromium/WebKit test result; the
+manual failure-injection attempt is inconclusive.
+
+Cleanup was verified: request-condition rules are empty, request blocking,
+Offline and service-worker bypass are disabled, and DevTools is closed. The
+test composer is empty both in the UI and authoritative host history; the
+conversation still has its original ten messages, with no test question sent.
+The Reader displays connected/latest-document state. No physical iPhone test
+was completed and no direct iPhone-to-provider inference was implemented.
 
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a

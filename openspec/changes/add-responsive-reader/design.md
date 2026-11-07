@@ -1329,6 +1329,14 @@ limits. The fallback record separates its selection reason from a fixed
 source paths and raw exception. Both executors still receive the same prepared
 request and pass the same acceptance and source-validation gates.
 
+Rollout verification: normal main pipeline run 42365949058 installed
+`12dc8ef6`; live state accepted a nonempty revision with exit code zero and
+compiling false. Native history recorded document passes of 16.191/12.062
+seconds and source-map passes of 14.150/12.672 seconds during dependency
+stabilization. The two focused execution/pool suites passed 30 tests. Different
+host load prevents attributing the observed execution durations to the larger
+deadline or treating them as a controlled performance comparison.
+
 ## Compact layout history
 
 The pinned Typst core stores up to four complete previous outputs solely to access
