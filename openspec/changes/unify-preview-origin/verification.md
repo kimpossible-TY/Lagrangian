@@ -61,3 +61,10 @@ The uncommitted work from `feat/preview-unify` (base 92408371) was carried as a 
 - Strict OpenSpec validation and `git diff --check` passed.
 - Added a browser test that fetches and instantiates a minimal WASM data URL and checks CSP violations. Chrome cannot launch in this sandbox; PM must run `CHROME_BIN=<chrome> node tools/flow-reader/tests/preview-proxy-browser.mjs`.
 - Full Python discovery: 366 tests, 61 skipped, 3 errors. Two Neovim job-control tests cannot run `ps` in the sandbox; the real Neovim RPC test failed when `nvim --remote-expr` exited 2 (stderr was captured by the test). The focused proxy suite passed separately.
+
+## S3 teardown follow-up
+
+- `python3 .local/repro-pr25.py`: all 200,014 bytes and the close frame arrived; HTTP filtering passed and no relay errors were reported.
+- Focused proxy Python discovery: 15 tests passed, including pending-byte delivery and slot/connection cleanup with a client that keeps its write side open.
+- Node reader tests with `FLOW_READER_PLAYWRIGHT_MODULE` unset: 306 passed, 1 skipped.
+- `openspec validate unify-preview-origin --strict`: passed; `git diff --check`: passed.

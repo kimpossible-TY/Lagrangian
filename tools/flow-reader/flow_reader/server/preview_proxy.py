@@ -7,6 +7,7 @@ import re
 import select
 import socket
 import threading
+import time
 from urllib.parse import unquote, urlsplit, urljoin
 
 from flow_reader.resources import READER_ROOT
@@ -17,6 +18,7 @@ RESPONSE_HEADERS = {"content-type", "content-range", "accept-ranges", "content-e
 WS_HEADERS = {"sec-websocket-key", "sec-websocket-version", "sec-websocket-protocol", "sec-websocket-extensions"}
 MAX_TEXT = 32 * 1024 * 1024
 MAX_BUFFER = 256 * 1024
+TEARDOWN_TIMEOUT = 5.0
 BRIDGE = "__reader_preview_proxy__.js"
 ROOT_ATTRIBUTE = re.compile(r'''(\b(?:src|href|action|poster)\s*=\s*)(["']?)(/(?!/)[^\s>"']*)(\2)''', re.I)
 SPECIAL_ATTRIBUTE = re.compile(r'''(\b(style|srcset)\s*=\s*)(["'])(.*?)\3''', re.I | re.S)
@@ -306,14 +308,18 @@ class PreviewProxy:
         peers = {client: upstream, upstream: client}
         reading = set(peers)
         half_closed = set()
+        deadline = None
         while reading or any(buffers.values()):
+            if deadline is not None and time.monotonic() >= deadline:
+                return
             for stream in peers:
                 if stream not in reading and stream not in half_closed and not buffers[peers[stream]]:
                     peers[stream].shutdown(socket.SHUT_WR)
                     half_closed.add(stream)
             readable = [s for s in reading if len(buffers[peers[s]]) < MAX_BUFFER]
             writable = [s for s in peers if buffers[s]]
-            ready, writes, _ = select.select(readable, writable, [], 1)
+            timeout = 1 if deadline is None else min(1, max(0, deadline - time.monotonic()))
+            ready, writes, _ = select.select(readable, writable, [], timeout)
             for stream in writes:
                 try:
                     size = stream.send(buffers[stream])
@@ -327,6 +333,8 @@ class PreviewProxy:
                     continue
                 if not data:
                     reading.remove(stream)
+                    if deadline is None:
+                        deadline = time.monotonic() + TEARDOWN_TIMEOUT
                 else:
                     buffers[peers[stream]].extend(data)
         for stream in peers:

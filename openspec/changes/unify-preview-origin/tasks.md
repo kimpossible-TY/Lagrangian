@@ -18,3 +18,4 @@
 - [x] 4.1 Allow data URL fetches only in proxied HTML connect-src; assert the exact policy and add a browser WASM fetch/instantiation regression.
 - [x] 4.2 Drain bounded relay buffers after per-direction EOF before propagating half-close; test a slow receiver and close frame.
 - [x] 4.3 Document the fixed preview bridge exception to the static asset manifest and record verification.
+- [x] 4.4 Bound teardown after the first EOF, drain pending bytes and verify an unresponsive client releases the connection and slot.

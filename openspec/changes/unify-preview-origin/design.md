@@ -53,7 +53,10 @@ WS uses a raw handshake connection without a second buffered reader, validates
 101/Upgrade/Connection/Sec-WebSocket-Accept before publishing 101, and preserves
 initial bytes arriving alongside headers. A nonblocking select relay transports
 frames unchanged, with bounded buffers and a connection limit. Each EOF propagates
-a write half-close only after that direction drains. Owner close shuts down both ends. Requests after engine restart resolve
+a write half-close only after that direction drains. The first EOF starts a
+five-second monotonic teardown deadline, allowing queued bytes to drain while
+bounding cleanup if a peer remains open or stops reading. Idle connections have
+no deadline. Owner close shuts down both ends immediately. Requests after engine restart resolve
 the same port afresh. Report unavailable upstreams as sanitized 503/502 responses.
 
 ### Existing client and absolute paths

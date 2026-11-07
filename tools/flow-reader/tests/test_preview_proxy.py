@@ -9,7 +9,9 @@ import socket
 import tempfile
 from types import SimpleNamespace
 import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from test_homepage import FakeAuth, FakeProvider, FakeManager
 from flow_reader.server.preview_proxy import MAX_BUFFER, PreviewProxy
@@ -65,6 +67,11 @@ class Backend:
                                 f"Sec-WebSocket-Accept: {accept}\r\n\r\n").encode()
                     # Headers and first frame intentionally share one write.
                     self.wfile.write(response + b"\x82\x05hello")
+                    if owner.mode == "close-after-payload":
+                        self.wfile.write(b"\x82\x07pending\x88\x02\x03\xe8")
+                        self.wfile.flush()
+                        owner.sockets.discard(self.connection)
+                        return
                     self.wfile.flush()
                     try:
                         while True:
@@ -233,6 +240,27 @@ class PreviewProxyTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertTrue(sizes)
         self.assertLessEqual(max(sizes), MAX_BUFFER)
+
+    def test_unresponsive_client_releases_slot_after_upstream_eof(self):
+        self.backend.mode = "close-after-payload"
+        with patch("flow_reader.server.preview_proxy.TEARDOWN_TIMEOUT", 0.3):
+            started = time.monotonic()
+            stream, _ = self.ws()
+            self.assertEqual(server_frame(stream), (2, b"hello"))
+            self.assertEqual(server_frame(stream), (2, b"pending"))
+            self.assertEqual(server_frame(stream), (8, b"\x03\xe8"))
+            self.assertEqual(stream.recv(1), b"")
+            # Keep the client write side open while the handler finishes.
+            limit = started + 2
+            while time.monotonic() < limit:
+                with self.proxy.lock:
+                    connections = len(self.proxy.connections)
+                if not connections and self.proxy.slots._value == 32:
+                    break
+                time.sleep(0.01)
+            self.assertEqual(connections, 0)
+            self.assertEqual(self.proxy.slots._value, 32)
+            self.assertLess(time.monotonic(), limit)
 
     def test_mapping_path_query_and_absolute_assets(self):
         status, body, headers = self.request("/p/alpha/?mode=doc&x=%2F")
