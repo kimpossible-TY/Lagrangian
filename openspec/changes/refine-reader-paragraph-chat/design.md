@@ -17,6 +17,11 @@ Expanded panels inherit paper/ink/accent and reading size. Small system labels
 separate context, question, answer and follow-up. Hairlines replace bulky cards.
 The canonical toolbar logo is unchanged. Collapsed geometry is unchanged.
 
+During an accepted stream the submitted question is already in the transcript.
+Hide that duplicate in the composer without deleting its durable draft; restore
+it after failure or interruption unless the user has started a different draft.
+Display known provider progress in Korean and leave unknown messages intact.
+
 One dialog per controller holds read-only connection status and the configured
 Homepage account-management link. Each composer opens that same dialog. The
 Homepage prerequisite owns account composition and Mac-only mutation authority;

@@ -1,5 +1,19 @@
 ## ADDED Requirements
 
+### Requirement: Clear streaming composer
+After a question is accepted, the composer SHALL avoid duplicating the submitted
+question while the answer streams, preserving it for recovery on failure or
+interruption without overwriting a new follow-up draft. Known provider progress
+SHALL be presented in Korean.
+
+#### Scenario: Interrupted response
+- **WHEN** an accepted response is interrupted and no new draft was entered
+- **THEN** the submitted question is available in the composer for retry.
+
+#### Scenario: Follow-up typed during streaming
+- **WHEN** the reader types a different draft while the answer is streaming
+- **THEN** that draft remains intact when the answer finishes or fails.
+
 ### Requirement: Document-inline conversation typography
 Expanded conversations SHALL remain below their source paragraph, preserve the
 Reader paper/ink/accent tokens and reading size, and distinguish current quote,

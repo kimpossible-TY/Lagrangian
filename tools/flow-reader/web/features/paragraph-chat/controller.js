@@ -357,9 +357,26 @@ export class ParagraphChatController {
       node.status.dataset.state = record.status;
       if (node.status.textContent !== status) node.status.textContent = status;
       node.inputLabel.textContent = record.thread.length ? "이어서 질문하기" : "이 문단에 질문하기";
+      const submitted = record.thread.findLast((message) => message.role === "user");
+      if (record.status === "streaming" && submitted && node.hiddenMessageId !== submitted.id) {
+        node.hiddenMessageId = submitted.id;
+        if (node.input.value === submitted.text) {
+          node.input.value = "";
+          resizeComposer(node.input);
+          node.hiddenSubmitted = submitted.text;
+        }
+      } else if (record.status !== "streaming" && node.hiddenSubmitted) {
+        const draft = this.drafts.get(id) ?? record.draft;
+        if (record.status !== "completed" && !node.input.value && draft === node.hiddenSubmitted) {
+          node.input.value = draft;
+          resizeComposer(node.input);
+        }
+        node.hiddenSubmitted = null;
+      }
       if (
         !this.drafts.has(id) &&
         document.activeElement !== node.input &&
+        !(record.status === "streaming" && node.hiddenSubmitted === record.draft) &&
         node.input.value !== record.draft
       ) {
         node.input.value = record.draft;
@@ -514,7 +531,10 @@ export class ParagraphChatController {
               if (record.thread[index + 1]?.status === "completed") {
                 if (this.drafts.get(id) === extra.question) this.drafts.delete(id);
                 const node = this.nodes.get(id);
-                if (node?.input.value === extra.question) node.input.value = "";
+                if (node?.input.value === extra.question) {
+                  node.input.value = "";
+                  resizeComposer(node.input);
+                }
               }
               return true; // Recover the accepted message, never automatically resend it.
             }
@@ -595,8 +615,10 @@ export class ParagraphChatController {
                     node &&
                     node.input.value === record.thread.findLast((m) => m.role === "user")?.text &&
                     !record.draft
-                  )
+                  ) {
                     node.input.value = "";
+                    resizeComposer(node.input);
+                  }
                 }
               }
               this.render();
