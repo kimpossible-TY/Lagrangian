@@ -553,6 +553,9 @@ test("conversationSummary strips math on full question/answer before 65/90 trunc
 test("controller summary UI renders plain-text title preserving currency ranges verbatim while stripping math", (t) => {
   setupDocument(t);
   const testCases = [
+    { text: "**Bold $x^2$** and __clear__", expected: "Bold x^2 and clear · Ask" },
+    { text: "Unmatched **bold", expected: "Unmatched **bold · Ask" },
+    { text: "Escaped \\*\\*literal\\*\\*", expected: "Escaped \\*\\*literal\\*\\* · Ask" },
     { text: "Budget is $5-$10", expected: "Budget is $5-$10 · Ask" },
     { text: "$5–$10", expected: "$5–$10 · Ask" },
     { text: "US$5–US$10", expected: "US$5–US$10 · Ask" },
@@ -585,7 +588,7 @@ test("controller summary UI renders plain-text title preserving currency ranges 
     const node = {
       root: { parentNode: null, remove() {} },
       quote: { textContent: "" },
-      summary: { textContent: "", title: "" },
+      summary: { textContent: "", title: "", set innerHTML(_value) { throw new Error("Summary must remain plain text"); } },
       panel: { hidden: true },
       transcript: { update() {} },
       status: { dataset: {}, textContent: "" },
