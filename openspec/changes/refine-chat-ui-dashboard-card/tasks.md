@@ -1,0 +1,4 @@
+- [x] 1. Strip raw LaTeX delimiters to plain text for collapsed paragraph-chat summaries.
+- [x] 2. Preserve chosen model per conversation and handle model list fallback.
+- [x] 3. Add Tail Dashboard entry panel to Homepage aside.
+- [x] 4. Add regression tests for conversation switch, follow-up, and model removal.
