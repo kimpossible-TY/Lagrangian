@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import threading
 import time
 import uuid
@@ -309,9 +310,32 @@ class ParagraphChat:
         return self.envelope(snapshot, [record])
 
     def run(self, identifier, snapshot, record, job, model):
+        started = time.monotonic()
+        metrics = {"sourceChecks": 0, "sourceCheckMs": 0, "storageWrites": 0, "storageMs": 0}
+        marks, metrics_lock = [], threading.Lock()
+        stages = {"auth-ready", "request-start", "response-headers", "response-first-event",
+                  "response-first-text", "response-completed", "tool-start", "tool-completed"}
+        outcome = "failed"
+        def measure(stage, round_index=0):
+            # Never accept model text, tool arguments, identities or transport details.
+            if stage not in stages or type(round_index) is not int or not 0 <= round_index <= 8:
+                return
+            with metrics_lock:
+                if len(marks) < 96:
+                    marks.append({"stage": stage, "round": round_index,
+                                  "atMs": round((time.monotonic() - started) * 1000, 1)})
+        def add_cost(count, duration, began):
+            with metrics_lock:
+                metrics[count] += 1
+                metrics[duration] += (time.monotonic() - began) * 1000
         def cancelled():
-            return job["cancel"].is_set() or not self.fresh(snapshot)
+            began = time.monotonic()
+            try:
+                return job["cancel"].is_set() or not self.fresh(snapshot)
+            finally:
+                add_cost("sourceChecks", "sourceCheckMs", began)
         def update(status=None, event=None):
+            began = time.monotonic()
             with self.lock, self.store.transaction() as db:
                 current = self.store.read(db, self.state.document_id, identifier)[0]
                 message = next(m for m in current["thread"] if m["id"] == job["message"])
@@ -332,6 +356,7 @@ class ParagraphChat:
                 current["sequence"] = current.get("sequence", 0) + 1
                 # Streaming never changes the optimistic mutation version.
                 self.store.save(db, current)
+            add_cost("storageWrites", "storageMs", began)
         try:
             if cancelled():
                 raise RevisionChanged("Accepted document changed")
@@ -344,23 +369,33 @@ class ParagraphChat:
                 raise ChatProviderError("Conversation context limit reached; history is preserved")
             # Paths and source excerpts are private validation evidence, not tool authority.
             context = model_context(record["thread"][-2]["context"])
-            tools = DocumentTools(self.state.document_id, snapshot, lambda: self.fresh(snapshot))
+            tools = DocumentTools(self.state.document_id, snapshot, lambda: not cancelled())
             for event in self.provider.run(model=model, history=history, context=context,
                     document_id=self.state.document_id, revision=snapshot.revision,
-                    call_tool=tools, cancelled=cancelled):
+                    call_tool=tools, cancelled=cancelled, measure=measure):
                 if cancelled():
                     raise RevisionChanged("Accepted document changed")
                 update(event=event)
             if cancelled():
                 raise RevisionChanged("Accepted document changed")
             update(status="completed", event={"type": "progress", "text": "Completed"})
+            outcome = "completed"
         except (ChatProviderError, RevisionChanged) as error:
-            update(status="interrupted" if cancelled() else "failed",
+            outcome = "interrupted" if cancelled() else "failed"
+            update(status=outcome,
                    event={"type": "progress", "text": str(error)})
         except Exception:
             # Never echo transport exceptions, credentials or document bodies into logs.
             update(status="failed", event={"type": "progress", "text": "Response failed. Your question is saved; retry when ready."})
         finally:
+            with metrics_lock:
+                report = {"schemaVersion": 1, "outcome": outcome,
+                          "durationMs": round((time.monotonic() - started) * 1000, 1),
+                          **{key: round(value, 1) for key, value in metrics.items()}, "events": marks}
+            try:
+                print("reader-chat-timing " + json.dumps(report), file=sys.stderr, flush=True)
+            except (OSError, ValueError):
+                pass  # Diagnostics must never prevent releasing the host job.
             with self.lock:
                 if self.jobs.get(identifier) is job:
                     del self.jobs[identifier]

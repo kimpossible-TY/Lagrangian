@@ -1,5 +1,6 @@
 """Host persistence, OAuth and genuine local HTTP/SSE tool-loop contracts."""
 import concurrent.futures
+import io
 from http.server import ThreadingHTTPServer
 import json
 import os
@@ -91,6 +92,59 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertNotIn("fixture-access", (self.work / "private/history.sqlite3").read_bytes().decode(errors="ignore"))
         self.assertEqual(stat.S_IMODE((self.work / "private").stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.work / "private/history.sqlite3").stat().st_mode), 0o600)
+
+    def test_timing_report_bounds_stages_and_never_includes_request_contents(self):
+        record = self.open()
+        original = self.chat.provider.run
+        def run(**options):
+            options["measure"]("timing-question-secret")
+            options["measure"]("tool-start", "fixture-access")
+            yield from original(**options)
+        output = io.StringIO()
+        with patch.object(self.chat.provider, "run", run), patch("sys.stderr", output):
+            self.send(record, "timing-question-secret")
+            result = self.wait(record["conversation_id"])
+            # Completion is saved before the terminal report and job cleanup.
+            deadline = time.monotonic() + 2
+            while record["conversation_id"] in self.chat.jobs and time.monotonic() < deadline:
+                time.sleep(0.01)
+        self.assertEqual(result["status"], "completed")
+        line, = output.getvalue().splitlines()
+        self.assertTrue(line.startswith("reader-chat-timing "))
+        report = json.loads(line.removeprefix("reader-chat-timing "))
+        self.assertEqual(set(report), {"schemaVersion", "outcome", "durationMs", "sourceChecks",
+                                     "sourceCheckMs", "storageWrites", "storageMs", "events"})
+        self.assertEqual(report["outcome"], "completed")
+        self.assertGreater(report["sourceChecks"], 0)
+        self.assertGreater(report["storageWrites"], 0)
+        self.assertLessEqual(len(report["events"]), 96)
+        events = report["events"]
+        self.assertEqual([e["round"] for e in events if e["stage"] == "request-start"], [1, 2, 3])
+        self.assertEqual(sum(e["stage"] == "tool-completed" for e in events), 2)
+        self.assertEqual(sum(e["stage"] == "response-first-text" for e in events), 1)
+        self.assertEqual([e["atMs"] for e in events], sorted(e["atMs"] for e in events))
+        for event in events:
+            self.assertEqual(set(event), {"stage", "round", "atMs"})
+        for secret in ("timing-question-secret", "fixture-access", "Additional context", "First paragraph",
+                       record["conversation_id"], str(self.work)):
+            self.assertNotIn(secret, line)
+        self.assertNotIn("durationMs", json.dumps(result))
+        for path, body in self.fake.requests:
+            if path == "/responses":
+                self.assertNotIn("timing", json.dumps({key: value for key, value in body.items() if key != "input"}))
+
+    def test_unavailable_timing_log_does_not_keep_a_completed_job(self):
+        output = io.StringIO()
+        output.close()
+        record = self.open()
+        with patch("sys.stderr", output):
+            self.send(record)
+            result = self.wait(record["conversation_id"])
+            deadline = time.monotonic() + 2
+            while record["conversation_id"] in self.chat.jobs and time.monotonic() < deadline:
+                time.sleep(0.01)
+        self.assertEqual(result["status"], "completed")
+        self.assertNotIn(record["conversation_id"], self.chat.jobs)
 
     def test_reselect_updates_composer_but_preserves_each_questions_original_context(self):
         first = self.open("First paragraph")

@@ -1,5 +1,16 @@
 ## ADDED Requirements
 
+### Requirement: Content-free host timing diagnostics
+Each model turn SHALL emit at most one bounded host-log report containing only
+allowlisted stage names, relative durations, numeric round indices/counts and a
+terminal outcome. It MUST NOT log user content, tool data, identities, credentials,
+paths, URLs or exception text, and MUST NOT change model requests or history.
+
+#### Scenario: Document-tool turn
+- **WHEN** a turn uses accepted-document tools before producing an answer
+- **THEN** timing distinguishes provider rounds, tool boundaries and local validation/storage work
+- **AND** the report contains no selected text, question, answer or tool arguments/results.
+
 ### Requirement: Clear streaming composer
 After a question is accepted, the composer SHALL avoid duplicating the submitted
 question while the answer streams, preserving it for recovery on failure or

@@ -28,6 +28,18 @@ the paragraph again; earlier message contexts and drafts remain intact. Request
 errors belong to the conversation view and survive ordinary rerenders until that
 operation succeeds or the reader explicitly refreshes its selected context.
 
+Each host run writes one bounded timing report to the existing stderr log. The
+provider marks authentication readiness, per-round request/headers/first event/
+first text/completion and bounded document-tool boundaries with monotonic elapsed
+milliseconds. The host aggregates source validation and storage write counts and
+durations; source validation includes concurrent cancellation checks, so summed
+cost is not a disjoint wall-time partition. Only allowlisted stage names, numeric
+round indices, numeric durations/counts, a schema version and terminal outcome
+enter the report. No document, prompt, answer, tool arguments/results, identity,
+model, credential, URL, path or exception text is recorded. Reports do not enter
+conversation history, model input or the browser protocol. Diagnostics cannot
+block terminal job cleanup if the log is unavailable.
+
 One dialog per controller holds read-only connection status and the configured
 Homepage account-management link. Each composer opens that same dialog. The
 Homepage prerequisite owns account composition and Mac-only mutation authority;

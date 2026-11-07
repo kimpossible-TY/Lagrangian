@@ -15,7 +15,10 @@ After local dogfooding, reduce composer height, avoid duplicating a submitted
 question during streaming, and present provider progress in Korean. Keep rejected
 request notices visible across rerenders and explain required reselection before
 sending from an older document context.
+Record bounded content-free request timing in the existing host log so local
+processing, provider rounds and document-tool delays can be distinguished.
 
 ## Impact
-HTML and terminal browser presentation only. No source changes, history schema,
-authentication authority, provider, live credentials or inference changes.
+HTML and terminal browser presentation, plus host/provider timing diagnostics.
+No source changes, history schema, authentication authority, live credentials,
+model request parameters or inference policy changes.

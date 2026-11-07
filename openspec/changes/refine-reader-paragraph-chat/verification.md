@@ -70,6 +70,15 @@ did not survive the full client reload; it was entered again before verifying
 reselection. Durability of unsaved drafts across explicit reloads and attribution
 of the live latency remain open, separate from the verified reselection recovery.
 
+For live latency attribution, bounded host-log diagnostics now record monotonic
+provider round and tool boundaries, plus aggregate source-check/storage costs.
+The existing paragraph-chat suite passed 23 checks after adding timing coverage;
+the additional closed-log cleanup check passed separately. Tests exercise three
+real local HTTP/SSE rounds and verify that reports omit content, credentials,
+identities and paths, while history and provider payload structure stay unchanged.
+Deployment and a real-model trace are pending; this instrumentation does not
+itself establish a latency improvement.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

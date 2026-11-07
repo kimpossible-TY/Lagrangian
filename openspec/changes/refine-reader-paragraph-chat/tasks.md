@@ -14,4 +14,5 @@
 - [x] Reduce composer footprint and localize known provider progress.
 - [x] Verify locally with focused tests and an isolated browser, including interruption and mobile layout.
 - [x] Preserve rejected-request notices and explain stale-context reselection; verify retry and draft recovery in local browsers and the installed Reader.
-- [ ] Investigate unsaved-draft recovery across explicit client updates and measure provider/tool/transport latency using content-free diagnostics.
+- [ ] Investigate unsaved-draft recovery across explicit client updates.
+- [ ] Measure live provider/tool/local-processing latency using bounded content-free diagnostics.
