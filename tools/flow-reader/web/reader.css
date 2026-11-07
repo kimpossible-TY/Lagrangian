@@ -2357,3 +2357,121 @@ math svg {
     opacity: 0.9;
   }
 }
+
+/* Phase 2 chrome: the document and independently positioned overlays keep their own styles. */
+.reader-toolbar,
+.reader-drawer-panel,
+#reader-appearance-panel {
+  background: var(--glass-solid);
+  border-color: var(--glass-edge);
+  color: var(--color-text);
+  font-family: var(--font-system);
+}
+.reader-drawer-panel,
+#reader-appearance-panel {
+  box-shadow: var(--shadow-card);
+}
+.reader-drawer-heading h2 {
+  font-family: var(--font-system);
+}
+.reader-toolbar :is(button, a),
+.reader-drawer-panel :is(button, a),
+#reader-appearance-panel :is(button, select, summary, label) {
+  touch-action: manipulation;
+}
+.reader-settings-advanced > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  border-radius: var(--radius-small);
+}
+/* Opaque hover fills keep foreground contrast independent of the backdrop. */
+@media (hover: hover) {
+  .reader-toolbar button:hover:not(:disabled),
+  .reader-drawer-panel button:hover:not(:disabled),
+  #reader-appearance-panel button:hover:not(:disabled),
+  #reader-appearance-panel summary:hover,
+  #reader-outline a:hover {
+    background: var(--color-tint);
+    color: var(--color-text);
+  }
+  .reader-appearance-option:hover {
+    box-shadow: inset 0 0 0 2px var(--color-action);
+  }
+}
+#reader-outline a:not([data-level="1"]):not([data-level="2"]) {
+  color: var(--color-text);
+}
+#reader-outline a:is(:focus-visible, :active, [aria-current="location"]) {
+  background: var(--color-tint);
+  color: var(--color-text);
+}
+.reader-appearance-close,
+.reader-settings-advanced > summary,
+.reader-logo-hint {
+  color: var(--color-text);
+}
+.reader-toolbar :focus-visible,
+.reader-drawer-panel :focus-visible,
+#reader-appearance-panel :focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+#reader-logo-popover:not([hidden]) {
+  border-color: var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-card);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .reader-toolbar,
+  .reader-drawer-panel,
+  #reader-appearance-panel {
+    background: var(--glass-fill);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .reader-toolbar,
+  .reader-drawer-panel,
+  #reader-appearance-panel {
+    background: var(--glass-solid);
+    border-color: var(--color-border);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (forced-colors: active) {
+  .reader-toolbar,
+  .reader-drawer-panel,
+  #reader-appearance-panel {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .reader-toolbar :focus-visible,
+  .reader-drawer-panel :focus-visible,
+  #reader-appearance-panel :focus-visible {
+    outline-color: Highlight;
+  }
+}
+/* Disabled chrome remains readable while its muted color communicates state. */
+.reader-toolbar button:disabled,
+.reader-drawer-panel button:disabled,
+#reader-appearance-panel button:disabled {
+  opacity: 1;
+  background: var(--color-surface);
+  color: var(--color-subtle);
+}
+@media (forced-colors: active) {
+  .reader-toolbar button:disabled,
+  .reader-drawer-panel button:disabled,
+  #reader-appearance-panel button:disabled {
+    color: GrayText;
+  }
+}
