@@ -26,6 +26,10 @@ browser fixture reproduced the HTTP 400 before the fix. After adjusting selectio
 and context boundaries to preserve complete Unicode characters, both prefix and
 suffix boundary cases open successfully; the Chromium suite passes 45 checks.
 The installed Reader has not yet been updated or re-tested with this fix.
+The original affected paragraph was also loaded into an isolated local Reader
+with disposable storage and a fake provider. Selecting the same prose and
+inline-math range through Chrome opened the composer successfully with the
+modified frontend; no live Reader or user conversation store was changed.
 
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
