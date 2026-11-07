@@ -31,13 +31,14 @@ Rust and Python implementations share externally observable contracts and test c
 = Shared Reader host
 
 `server/cli.py` composes one ReaderRuntime: Homepage at `/`, document states at
-`/d/<reader-id>/`, and redirect-only old-port listeners in the same process.
+`/d/<reader-id>/`, registered native previews at `/p/<preview-id>/`, and
+redirect-only old HTML-port listeners in the same process.
 `home.py` is a compatibility alias for `serve.py --managed`; it no longer owns
 an independent Homepage runtime. `server/routing.py` selects exact configured
 IDs, strips only that prefix and delegates to existing document/Homepage handlers.
 Relative APIs, allowlisted assets and offline workers retain document-local scope.
-The `/d/<id>/paged/` entry redirects to the configured native paged view; its
-engine and WebSocket protocol retain their existing ownership and origin.
+The managed `/d/<id>/paged/` entry redirects to its registered parent `/p/<id>/`.
+Native engines retain their processes, protocols and original direct ports.
 
 `services/manager.py` remains the inventory, compiler-plan and lifecycle owner.
 The optional `shared` configuration maps all HTML profiles to one shared job and
@@ -71,6 +72,37 @@ the same Homepage/document routes under the exact configured HTTPS origin.
 TLS, Tailnet and viewer grants require separate activation; no per-viewer roles
 or paged protocol migration is implied. See the terminal guide for launchd
 migration, redirect-worker retirement and rollback without data migration.
+
+= Shared preview transport
+
+`server/preview_proxy.py` owns the fixed parent-profile ID/loopback-port registry,
+HTTP forwarding, WebSocket handshake/relay, bounded buffers and connection disposal.
+`server/routing.py` selects only `/p/<id>/`; unknown IDs, traversal and arbitrary
+upstream destinations never select a connection. `server/cli.py` injects the
+registered manager parent inventory and closes relays before Reader shutdown.
+It never starts or stops engines. Homepage links preview-only profiles as well
+as HTML parents, without claiming native readiness from HTML status.
+
+The proxy checks shared Host/Origin before translating a valid Origin to the
+engine's exact loopback origin. An allowlist removes cookies, provider/account
+credentials, host proofs and forwarding headers. Editor-host `/_editor/` routes
+and admin namespaces are unavailable through preview routes; viewer sockets
+retain Origin. Existing Homepage loopback, capability, session and CSRF authority
+is unchanged. Proxy teardown closes both socket ends without touching engine jobs.
+
+The current embedded single-file client builds root and theme WebSocket paths.
+Proxied HTML injects `web/preview-proxy.js` before client scripts to scope those
+constructors, root-relative HTML/CSS assets and redirects to the registered prefix.
+No global asset or theme catch-all is exposed. Opaque JavaScript, new engine
+transports and future root ES-module imports are not broadly rewritten; they need
+a prefix-aware frontend release. No Rust source edit is needed for the current
+compatibility bridge, and engine rendering still needs remote/isolated validation.
+
+Migration is additive: retain native launchd jobs, old URLs/ports and their direct
+Origin settings. Normal Reader deployment activates the new paths. Registration
+changes require Reader restart; a rollback restores the previous Reader bundle
+without changing engines or credentials. Live activation, TLS/Tailnet and native
+editor/device verification remain separate from isolated transport tests.
 
 = HTML Reader package
 

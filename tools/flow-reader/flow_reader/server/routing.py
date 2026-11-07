@@ -4,7 +4,7 @@ from urllib.parse import unquote, urlsplit
 
 from flow_reader.server.home import handler_for_home
 from flow_reader.server.http import handler_for
-from flow_reader.services.homepage import document_prefix, reader_url
+from flow_reader.services.homepage import document_prefix, preview_prefix, reader_url
 
 
 def redirect(handler, destination):
@@ -15,13 +15,17 @@ def redirect(handler, destination):
     handler.end_headers()
 
 
-def handler_for_reader(documents, inventory, account, *, capability, ingress="admin", public_origin=None):
+def handler_for_reader(documents, inventory, account, *, capability, ingress="admin", public_origin=None,
+                       previews=None, preview_parents=None):
     """Documents map stable manager IDs to ReaderStates, never filesystem paths."""
     home = handler_for_home(inventory, account, capability=capability,
                             ingress=ingress, public_origin=public_origin)
     handlers = {document_prefix(key): handler_for(state, public_url=public_origin, homepage_url="/")
                 for key, state in documents.items()}
     paged = {document_prefix(key): reader_url(state.original_url) for key, state in documents.items()}
+    for key, parent in (preview_parents or {}).items():
+        if previews is not None and parent in previews.ports:
+            paged[document_prefix(key)] = preview_prefix(parent)
 
     class Handler(home):
         def dispatch(self, method):
@@ -33,6 +37,19 @@ def handler_for_reader(documents, inventory, account, *, capability, ingress="ad
             if (url.scheme or url.netloc or "\\" in decoded or
                     any(part in {".", ".."} for part in decoded.split("/"))):
                 return self.respond({"error": "Invalid route"}, 404)
+            if path.startswith("/p/"):
+                identifier = path.split("/", 3)[2]
+                if previews is None or identifier not in previews.ports:
+                    return self.send_error(404, "Unknown preview")
+                prefix = preview_prefix(identifier)
+                if path == prefix[:-1]:
+                    if method not in {"GET", "HEAD"} or self.headers.get("Upgrade"):
+                        return self.respond({"error": "Trailing slash required"}, 404)
+                    return redirect(self, prefix + ("?" + url.query if url.query else ""))
+                local = path[len(prefix) - 1:] + ("?" + url.query if url.query else "")
+                return previews.serve(self, identifier, local)
+            if method == "HEAD":
+                return self.send_error(405)
             if path.startswith("/d/"):
                 for prefix, document_handler in handlers.items():
                     if path == prefix[:-1]:
@@ -43,7 +60,7 @@ def handler_for_reader(documents, inventory, account, *, capability, ingress="ad
                         continue
                     local = path[len(prefix) - 1:]
                     if local == "/paged/" and method == "GET" and paged[prefix]:
-                        return redirect(self, paged[prefix])
+                        return redirect(self, paged[prefix] + ("?" + url.query if url.query and paged[prefix].startswith("/p/") else ""))
                     if unquote(local).startswith("/api/home/"):
                         return self.respond({"error": "Not found"}, 404)
                     # Reuse the handler without constructing another socket reader or
@@ -60,6 +77,9 @@ def handler_for_reader(documents, inventory, account, *, capability, ingress="ad
 
         def do_POST(self):
             return self.dispatch("POST")
+
+        def do_HEAD(self):
+            return self.dispatch("HEAD")
 
     return Handler
 
