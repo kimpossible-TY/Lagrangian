@@ -28,7 +28,7 @@ class RuntimeTests(unittest.TestCase):
         self.manager.shared_settings.return_value = {"port": 0}
         self.profiles = [{"id": key, "parentID": key, "name": key, "port": 0} for key in ("first", "second")]
         self.manager.profiles.side_effect = lambda: [dict(p) for p in self.profiles]
-        self.manager.parent_profiles.return_value = [{"id": key, "name": key, "port": 0} for key in ("first", "second")]
+        self.manager.parent_profiles.return_value = [{"id": key, "name": key, "port": 31001 + index} for index, key in enumerate(("first", "second"))]
         self.manager.document_arguments.side_effect = lambda p: ["python", "serve.py", "--root", str(self.work / p["id"]),
             "--original-url", "https://paged.example/", "--port", "0"]
         self.states, self.providers = {}, []
@@ -134,7 +134,8 @@ class RuntimeTests(unittest.TestCase):
         inventory = json.loads(self.get(runtime.admin, "/api/home/documents")[1])
         self.assertEqual(len(inventory["documents"]), 2)
         for item in inventory["documents"]:
-            self.assertTrue(all(v["url"].startswith(runtime.origin + f"d/{item['id']}/") for v in item["variants"]))
+            self.assertEqual({v["kind"]: v["url"] for v in item["variants"]}, {
+                "html": runtime.origin + f"d/{item['id']}/", "paged": runtime.origin + f"p/{item['id']}/"})
         self.manager.control.assert_not_called()
         self.manager.job_pid.assert_not_called()
         self.manager.request.assert_not_called()
