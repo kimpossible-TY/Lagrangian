@@ -14,6 +14,7 @@ from test_homepage import FakeAuth
 from flow_reader.server.cli import ReaderRuntime, argument_parser, create_state
 from flow_reader.services.paragraph_chat import ParagraphChat
 from flow_reader.services.chat_provider import ResponsesProvider
+from flow_reader.services.chat_auth import ChatAuth
 from flow_reader.services.chat_storage import read_json
 
 
@@ -137,6 +138,39 @@ class RuntimeTests(unittest.TestCase):
         self.manager.control.assert_not_called()
         self.manager.job_pid.assert_not_called()
         self.manager.request.assert_not_called()
+
+    def test_production_auth_leaves_homepage_navigation_to_browser(self):
+        opened = Mock()
+        metadata = {"issuer": "https://auth.openai.com", **{
+            field: "https://auth.openai.com/" + path for field, path in (
+                ("authorization_endpoint", "authorize"), ("token_endpoint", "token"),
+                ("jwks_uri", "jwks"), ("revocation_endpoint", "revoke"))}}
+        # Keep the production runtime composition and real ChatAuth; inject only
+        # discovery and the OS opener so no external requests/windows occur.
+        with patch("flow_reader.server.cli.ChatAuth", side_effect=lambda directory:
+                   ChatAuth(directory, request=lambda *_: metadata, open_browser=opened)):
+            runtime = ReaderRuntime(self.args, self.manager, state_factory=self.factory)
+        self.addCleanup(runtime.close)
+        runtime.start()
+
+        def post(path, body, headers=None):
+            connection = HTTPConnection("127.0.0.1", runtime.admin.server_port, timeout=3)
+            connection.request("POST", path, json.dumps(body), {
+                "Origin": runtime.origin.rstrip("/"), "Content-Type": "application/json", **(headers or {})})
+            response = connection.getresponse()
+            result = response.status, json.loads(response.read()), dict(response.getheaders())
+            connection.close()
+            return result
+
+        code, session, headers = post("/api/home/session", {"purpose": "oauth"})
+        self.assertEqual(code, 200)
+        code, result, _ = post("/api/home/account", {"operation": "login"}, {
+            "Cookie": headers["Set-Cookie"].split(";")[0], "X-Reader-CSRF": session["csrf"]})
+        self.assertEqual(code, 200)
+        self.assertTrue(result["authUrl"].startswith("https://auth.openai.com/authorize?"))
+        opened.assert_not_called()
+        terminal = runtime.auth.login()
+        opened.assert_called_once_with(terminal["authUrl"])
 
     def test_startup_failure_disposes_previous_states_lease_and_capability(self):
         self.manager.document_arguments.side_effect = [

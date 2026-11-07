@@ -5,7 +5,11 @@ import test from "node:test";
 // Credentials, real browser storage and provider requests are never involved.
 async function homepage(
   t,
-  { eligible = true, authUrl = "https://auth.openai.com/authorize?state=fixture" } = {},
+  {
+    eligible = true,
+    retainedManagementCookie = false,
+    authUrl = "https://auth.openai.com/authorize?state=fixture",
+  } = {},
 ) {
   class Element extends EventTarget {
     constructor() {
@@ -48,7 +52,7 @@ async function homepage(
   const window = new EventTarget();
   const state = { instance: "first-start", version: 0, signedIn: true, pending: false };
   let csrf = "",
-    managementSession = false;
+    managementSession = retainedManagementCookie;
   const calls = [],
     destinations = [];
   const fetch = async (path, options) => {
@@ -58,16 +62,19 @@ async function homepage(
     if (path.endsWith("documents")) result = { documents: [], loading: false };
     if (path.endsWith("session")) {
       assert.ok(eligible);
-      managementSession = capability === "private-proof";
-      if (!managementSession) assert.equal(JSON.parse(options.body).purpose, "oauth");
+      const manage = capability === "private-proof";
+      if (!manage) assert.equal(JSON.parse(options.body).purpose, "oauth");
+      managementSession ||= manage;
       csrf = `csrf-${state.version}`;
-      result = { ...result, management: managementSession, csrf };
+      result = { ...result, management: manage, csrf };
     }
     if (path.endsWith("account") && options.method === "POST") {
       assert.ok(eligible);
       assert.ok(csrf);
       assert.equal(options.headers["X-Reader-CSRF"], csrf);
       const operation = JSON.parse(options.body).operation;
+      // Matching a scoped OAuth CSRF never borrows management from a cookie.
+      const manage = Boolean(capability && managementSession);
       if (operation === "cancel") {
         assert.equal(capability, "private-proof");
         assert.ok(managementSession);
@@ -83,7 +90,7 @@ async function homepage(
         ...result,
         version: state.version,
         csrf,
-        management: managementSession,
+        management: manage && operation !== "logout",
         ...(operation === "login" ? { authUrl } : {}),
       };
     } else if (path.endsWith("account")) {
@@ -171,6 +178,25 @@ test("management keeps proof in memory for cancel and survives explicit unlock a
   assert.equal(mutations.length, 4);
   assert.ok(
     mutations.every((call) => call.headers["X-Reader-Host-Capability"] === "private-proof"),
+  );
+});
+
+test("a fresh page with a retained management cookie can log in and out using OAuth CSRF", async (t) => {
+  const { element, calls, destinations, click } = await homepage(t, {
+    retainedManagementCookie: true,
+  });
+  assert.equal(element("account-picker").hidden, true);
+  await click("login");
+  assert.equal(destinations.length, 1);
+  assert.equal(element("cancel").hidden, true);
+  await click("logout");
+  assert.equal(element("account-controls").hidden, false);
+  assert.ok(calls.every((call) => !call.headers["X-Reader-Host-Capability"]));
+  assert.deepEqual(
+    calls
+      .filter((call) => call.path.endsWith("account") && call.method === "POST")
+      .map((call) => JSON.parse(call.body).operation),
+    ["login", "logout"],
   );
 });
 

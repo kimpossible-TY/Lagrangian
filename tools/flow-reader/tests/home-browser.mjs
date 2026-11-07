@@ -132,6 +132,50 @@ try {
   );
   await page.screenshot({ path: `${artifacts}/dark.png`, fullPage: true });
   await page.locator("#reader-theme").selectOption("light");
+  for (const operation of ["login", "logout"]) {
+    if (operation === "logout") await control({ signedIn: true });
+    const retainedContext = await browser.newContext();
+    await retainedContext.route("https://auth.openai.com/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<title>OpenAI login fixture</title>" }),
+    );
+    const retainedPage = await retainedContext.newPage();
+    await retainedPage.goto(url);
+    await retainedPage.locator("#host-proof").fill("fixture-host-proof");
+    await retainedPage.locator("#unlock button").click();
+    await retainedPage.locator("#unlock").waitFor({ state: "hidden" });
+    const managementCookie = (await retainedContext.cookies()).find(
+      (cookie) => cookie.name === "ReaderHomeAdmin",
+    ).value;
+    await retainedPage.reload();
+    await retainedPage.locator(`#${operation}`).waitFor({ state: "visible" });
+    check(
+      `${operation}: reload retains the management cookie`,
+      (await retainedContext.cookies()).some(
+        (cookie) => cookie.name === "ReaderHomeAdmin" && cookie.value === managementCookie,
+      ),
+    );
+    const mutation = retainedPage.waitForResponse(
+      (response) =>
+        response.url() === url + "api/home/account" && response.request().method() === "POST",
+    );
+    await retainedPage.locator(`#${operation}`).click();
+    const response = await mutation;
+    const result = await response.json();
+    check(
+      `${operation}: first action after reload succeeds with OAuth-only CSRF`,
+      response.status() === 200 &&
+        !result.management &&
+        !response.request().headers()["x-reader-host-capability"] &&
+        Boolean(response.request().headers()["x-reader-csrf"]),
+    );
+    if (operation === "login") await retainedPage.waitForURL("https://auth.openai.com/**");
+    else
+      await retainedPage.waitForFunction(
+        () => document.querySelector("#account-label").textContent === "연결되지 않음",
+      );
+    await retainedContext.close();
+  }
+  const loginsBefore = (await control({})).authCalls.filter((v) => v === "login").length;
   await context.route("https://auth.openai.com/**", (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -152,7 +196,7 @@ try {
   );
   check(
     "explicit login only once",
-    (await control({})).authCalls.filter((v) => v === "login").length === 1,
+    (await control({})).authCalls.filter((v) => v === "login").length === loginsBefore + 1,
   );
   await page.goBack();
   await page.waitForFunction(

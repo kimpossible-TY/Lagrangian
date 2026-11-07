@@ -9,7 +9,7 @@ while preserving Mac-only credential authority.
 - Serve Homepage at `/` and configured HTML documents at `/d/<reader-id>/` in one Reader process.
 - Compose existing Homepage and document handlers, compiler/watch state and ChatAuth.
 - Keep old document origins through redirect-only listeners in the same process.
-- Require the current private capability on every account mutation in addition to existing session/CSRF and loopback checks.
+- Require the current private capability for management mutations and privileged identity reads, in addition to session/CSRF and loopback checks. `homepage-account-auth` in `remove-homepage-host-proof` now owns the narrowly superseding exceptions for Homepage login without registration selection and logout; see reader-host's local authority requirement.
 - Offer one shared ReaderManager launch plan/job; document operator-controlled migration and rollback.
 
 ## Capabilities

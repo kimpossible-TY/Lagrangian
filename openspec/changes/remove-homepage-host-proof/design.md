@@ -2,7 +2,7 @@
 
 ## Context
 
-See proposal.md. The active `unify-homepage-reader` capability requires host proof for every account mutation. `server/home.py` owns request eligibility and proof validation; `HomeAccount` owns browser authority/CSRF; `ChatAuth` owns credentials and OAuth. These owners remain unchanged.
+See proposal.md. This change's `homepage-account-auth` capability owns account authorization policy. It supersedes the blanket host-proof rule in active `unify-homepage-reader`'s `reader-host` requirement “Local capability authority on a shared origin” and its borrowed-session scenario only for Homepage login without registration selection and logout. The linked reader-host requirement and Security boundary defer those exceptions here; all other management, identity, document and remote restrictions remain. No accepted reader-host spec or archive ordering is required. `server/home.py` owns request eligibility and proof validation; `HomeAccount` owns browser authority/CSRF; `ChatAuth` owns credentials and OAuth. These implementation owners remain unchanged.
 
 ## Goals / Non-Goals
 
@@ -11,9 +11,9 @@ Provide exactly two local exceptions without granting management authority. No d
 ## Decisions
 
 - `POST /api/home/session` with `purpose: "oauth"` may create an OAuth-only session after the existing exact Host/Origin checks and admin socket-peer/forwarding validation. Ordinary session requests remain read-only unless host proof is valid. This avoids making all loopback sessions management sessions.
-- HomeAccount stores OAuth permission separately from management. Login/logout accept either permission with valid session-bound CSRF; cancel still requires management. Rotation retains the initiating session's scope; logout removes all authority. HTTP independently requires local eligibility for login/logout and host proof for all other operations. Privileged status still requires proof plus management session.
+- HomeAccount stores OAuth permission separately from management. An OAuth session request with a retained management cookie returns a separate OAuth-only CSRF token bound to that session, preserving its management handle and CSRF. This token cannot authorize cancel or registration selection, even with host proof. Login without selection/logout accept either permission; login with a nonempty registration requires current host proof at HTTP and management CSRF in HomeAccount before ChatAuth is called. Rotation retains the token's authorized scope; normal credential mutations invalidate old authority and logout removes all authority. Privileged status requires proof plus management session; unauthorized GET account returns 200 with sanitized public fallback. Invalid Host returns 421; other authorization failures return 403.
 - The Homepage shows login/logout using server eligibility, obtains OAuth CSRF on explicit action when needed, and navigates the current browser to a validated `https://auth.openai.com` authorization URL. Management unlock remains available for account selection/cancel. The fallback link stays available if navigation is interrupted.
-- Keep ChatAuth unchanged. Exercise its actual PKCE/state/nonce generation through HTTP with injected discovery and no external network or browser launch.
+- ChatAuth.login accepts a per-call opener opt-out. HomeAccount passes `open_browser=False`, making Homepage's current-browser navigation the sole consent navigation owner. ChatAuth's default still invokes the configured system opener for terminal/other callers. Exercise real PKCE/state/nonce generation through HTTP with injected discovery and an opener spy, and verify the default opener contract separately without external network or browser launch.
 
 ## Risks / Trade-offs
 

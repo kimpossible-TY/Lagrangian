@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Loopback login and logout without host proof
-Homepage OAuth login start and logout MUST be available without the current per-start private host capability (host proof) only to genuine admin-loopback callers that pass the Host, socket-peer, proxy, Origin, session and CSRF guards. A valid OAuth-only or management session MUST authorize these two operations without granting any other management authority. ChatAuth MUST remain the sole server-side credential owner; OAuth MUST retain PKCE and state and nonce validation.
+Homepage login without registration selection and logout MUST accept scoped OAuth or management CSRF without host proof after every local request guard passes. This capability owns that policy, superseding only the blanket proof gate in `unify-homepage-reader`'s reader-host “Local capability authority on a shared origin” requirement and borrowed-session scenario. All other authority gates remain.
 
 #### Scenario: Local login without host proof
 - **WHEN** a genuine admin-loopback visitor clicks Continue with ChatGPT without unlocking management and all independent request guards pass
@@ -21,12 +21,20 @@ Homepage OAuth login start and logout MUST be available without the current per-
 - **THEN** authentication fails without establishing an authenticated account
 - **AND** omitting host proof for login start does not bypass these protocol checks
 
+### Requirement: Single consent navigation owner
+Homepage MUST suppress the server-side browser opener and navigate its current browser exactly once to the validated OpenAI authorization URL. Default terminal ChatAuth callers MUST retain their configured opener. ChatAuth MUST remain the sole credential owner and retain PKCE, state and nonce validation.
+
+#### Scenario: Production Homepage starts consent
+- **WHEN** Homepage starts login with production ChatAuth and a configured system opener
+- **THEN** the server returns the authorization URL without invoking the opener and home.js navigates once
+- **AND** a terminal caller using ChatAuth.login defaults still invokes that opener once
+
 ### Requirement: Independent local request guards
 OAuth session creation, login start and logout MUST enforce the exact admin Host allowlist, exact Origin and actual admin-loopback socket peer, rejecting proxy ingress and Forwarded or X-Forwarded-* headers. Login start and logout MUST also require an unexpired browser session and matching session-bound CSRF. All guards MUST apply independently of host proof and fail before authentication effects.
 
 #### Scenario: Host allowlist remains enforced
 - **WHEN** an actual admin-loopback caller requests an OAuth session, login start or logout with a Host outside the exact admin allowlist, even with otherwise valid proofs
-- **THEN** the server returns 403 without issuing an OAuth session or invoking a ChatAuth mutation
+- **THEN** the server returns 421 without issuing an OAuth session or invoking a ChatAuth mutation
 
 #### Scenario: Origin remains mandatory
 - **WHEN** an OAuth session request, login start or logout has an absent or forged Origin even though its Host and socket peer are valid
@@ -45,11 +53,11 @@ OAuth session creation, login start and logout MUST enforce the exact admin Host
 - **THEN** the operation fails without authentication effects
 
 ### Requirement: Explicit OAuth-only browser session scope
-An eligible local caller MUST explicitly request an OAuth-only session to obtain session-bound CSRF without host proof. That session MUST authorize only login start and logout. Ordinary read-only and remote session requests MUST NOT gain OAuth or management authority or rotate or evict management sessions. OAuth sessions MUST retain ingress/origin binding, expiry, rotation, protected cookies and restart invalidation; rotation MUST preserve the initiating session's scope.
+An eligible local caller MUST explicitly request an OAuth-only session to obtain scoped CSRF without host proof, authorizing only login without registration selection and logout. Read-only and remote session requests MUST NOT gain OAuth or management authority. OAuth requests MUST NOT rotate or evict management sessions. OAuth sessions MUST retain ingress/origin binding, expiry, protected cookies and restart invalidation; rotation MUST preserve the initiating token's scope.
 
 #### Scenario: Explicit session scope
 - **WHEN** an eligible local caller explicitly requests an OAuth session without host proof
-- **THEN** it receives session-bound CSRF for login start and logout only
+- **THEN** it receives session-bound CSRF for login without registration selection and logout only
 - **AND** the session cannot authorize cancel, account selection or privileged account status
 
 #### Scenario: Read-only session requests preserve management sessions
@@ -57,23 +65,30 @@ An eligible local caller MUST explicitly request an OAuth-only session to obtain
 - **THEN** the request grants no OAuth or management authority
 - **AND** existing management sessions are neither rotated nor evicted
 
+#### Scenario: Reload retains a management cookie without module-memory proof
+- **WHEN** an eligible local page retains a management cookie but has lost host proof and CSRF and explicitly requests an OAuth session
+- **THEN** it receives a separate OAuth-only CSRF token bound to that cookie without rotating or evicting the management handle or revealing or changing its management CSRF
+- **AND** the first login without registration selection or logout succeeds with that OAuth token after all request guards pass
+- **AND** the token cannot authorize cancel or registration selection even with host proof; login rotation remains OAuth-only and normal credential invalidation remains in force
+
 #### Scenario: OAuth session lifetime and binding
 - **WHEN** an OAuth-only session is reused after expiry or server restart, or from a different ingress or origin
 - **THEN** it cannot authorize login start or logout
 - **AND** legitimate session rotation retains OAuth-only authority and cookie protections
 
 ### Requirement: Management operations retain host proof
-Cancel, account selection and all other privileged account management operations, including privileged status and identity disclosure, MUST require the current host proof, a valid management session and all independent local request guards. Management mutations MUST also require matching session-bound CSRF. The login/logout exceptions MUST NOT weaken these gates or promote OAuth-only sessions to management authority.
+Cancel, account selection (login with a nonempty registration) and other management operations MUST require current host proof, a management session and every local request guard. Management mutations MUST require management-scoped CSRF and reject unauthorized selection before ChatAuth.login. OAuth CSRF MUST NOT grant management authority. GET account without both valid proof and management session MUST return 200 sanitized public fallback without identity details.
 
 #### Scenario: Shared-origin caller borrows a management session
 - **WHEN** a same-origin caller has a management cookie and matching CSRF but lacks the current host proof
 - **THEN** cancel, account selection and other privileged management operations return 403
-- **AND** privileged account status returns 403 without disclosing account identity details
-- **AND** only login start and logout are permitted when all independent local request and CSRF checks pass
+- **AND** GET account returns 200 sanitized public fallback without disclosing account identity details
+- **AND** only login start without registration selection and logout are permitted when all independent local request and CSRF checks pass
 
 #### Scenario: Host proof does not promote an OAuth-only session
 - **WHEN** a local caller attempts cancel, account selection or privileged account status with host proof but only an OAuth-only session
-- **THEN** the server returns 403 without performing the operation or disclosing account identity details
+- **THEN** cancel and account selection return 403 before any ChatAuth mutation
+- **AND** GET account returns 200 sanitized public fallback without disclosing account identity details
 
 #### Scenario: Local management retains its existing authorization
 - **WHEN** a genuine admin-loopback caller submits cancel or another management mutation with the current host proof, a valid management session and matching CSRF and passes all request guards

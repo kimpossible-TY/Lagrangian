@@ -27,7 +27,7 @@ Document APIs, assets and offline workers SHALL remain under their document pref
 - **THEN** it receives 403 or 404 and no credential operation occurs
 
 ### Requirement: Local capability authority on a shared origin
-Account sign-in, cancel and sign-out MUST require genuine admin loopback, exact Host and Origin, no forwarding headers, a current per-start private capability, and a valid management session with CSRF. Remote ingress MUST remain read-only even with copied proofs.
+Account policy MUST follow `homepage-account-auth` in `remove-homepage-host-proof`, which owns and supersedes the blanket proof gate here only for Homepage login without registration selection and logout. Every mutation MUST retain admin loopback, exact Host/Origin, no forwarding headers and scoped session/CSRF. Cancel and registration selection MUST also require current capability and management CSRF. Remote ingress MUST remain read-only even with copied proofs.
 
 #### Scenario: Remote credential mutation
 - **WHEN** a non-loopback peer or read-only proxy submits login, cancel or logout with valid capability, cookie and CSRF
@@ -35,8 +35,9 @@ Account sign-in, cancel and sign-out MUST require genuine admin loopback, exact 
 
 #### Scenario: Shared-origin document borrows a browser session
 - **WHEN** a same-origin caller has a management cookie and CSRF but lacks the current private capability
-- **THEN** account mutations return 403
-- **AND** account identity details are not disclosed without that capability
+- **THEN** cancel and login with registration selection return 403
+- **AND** only Homepage login without selection and logout may proceed after all local request/session/CSRF guards pass, as owned by `homepage-account-auth`
+- **AND** GET account returns 200 sanitized public fallback without account identity details
 
 ### Requirement: Existing document URL compatibility
 Configured old HTML origins SHALL redirect root and document resource URLs to the matching prefixed shared URL, preserving query strings and browser fragments. Compatibility listeners SHALL belong to the shared process and SHALL NOT serve account management.

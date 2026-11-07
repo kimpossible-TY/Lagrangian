@@ -154,7 +154,9 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
                     handle, result = account.create(handle, ingress, self.origin(), manage=management, oauth=oauth)
                 else:
                     operation = request.get("operation")
-                    if not (self.eligible() if operation in OAUTH_OPERATIONS else self.capability_valid()):
+                    oauth_only = operation in OAUTH_OPERATIONS and not (
+                        operation == "login" and request.get("registration"))
+                    if not (self.eligible() if oauth_only else self.capability_valid()):
                         return self.respond({"error": "이 Mac에서만 계정을 관리할 수 있습니다."}, 403)
                     handle, result = account.mutate(handle, self.headers.get("X-Reader-CSRF", ""), ingress,
                         self.origin(), operation, request.get("registration"))
