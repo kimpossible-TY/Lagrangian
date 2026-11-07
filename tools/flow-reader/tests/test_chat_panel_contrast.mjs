@@ -53,7 +53,8 @@ test("Chat colors and hover remain legible across themes and materials", () => {
       rule.walkDecls("opacity", () => assert.fail(`Hover opacity in ${rule.selector}`));
     }
   });
-  assert.equal(ruleWith(".reader-chat-composer").background, "var(--color-page)");
+  assert.equal(ruleWith(".reader-chat-panel").background, "var(--color-surface)");
+  assert.equal(ruleWith(".reader-chat-composer").background, "transparent");
   assert.equal(ruleWith(".reader-chat-composer").border, "0");
   const light = tokens(":root");
   const themes = { light, dark: { ...light, ...tokens(':root[data-theme="dark"]') },
@@ -62,7 +63,7 @@ test("Chat colors and hover remain legible across themes and materials", () => {
     for (const [foreground, background] of [["--color-text", "--color-tint"],
       ["--color-text", "--color-surface"], ["--color-text", "--color-page"],
       ["--color-subtle", "--color-surface"], ["--color-subtle", "--color-page"],
-      ["--warning", "--color-page"], ["--color-action", "--color-page"],
+      ["--warning", "--color-page"], ["--warning", "--color-surface"], ["--color-action", "--color-page"],
       ["--color-surface", "--color-action"]]) {
       const ratio = contrast(rgb(resolve(`var(${foreground})`, values)), rgb(resolve(`var(${background})`, values)));
       assert.ok(ratio >= 4.5, `${name}, ${foreground} on ${background}: ${ratio.toFixed(2)}:1`);

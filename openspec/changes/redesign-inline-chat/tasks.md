@@ -21,3 +21,8 @@ reviewed. Web-interface guidance was audited against pinned revision
 `434b7f91364665f2f733b310ec54809bf8f37937`, SHA-256
 `d246b026f4f29b5823a9cc857f9edf3d2507002e055e32040cadeaf3b38e0234`.
 Device Safari, VoiceOver and native motion remain unverified.
+
+Following the requested correction, expanded conversations use a single
+floating surface with a boundary and shadow; contents and composer remain
+unboxed inside it. The 49-check Chromium fixture, surface contrast checks and
+strict OpenSpec validation pass; 390px light and dark captures were inspected.

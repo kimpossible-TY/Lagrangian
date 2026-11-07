@@ -2,7 +2,7 @@
 
 ### Requirement: Compact inline conversation
 
-The paragraph conversation SHALL present its source, transcript and composer in a clear reading hierarchy at narrow and wide viewports. Reading content and the composer SHALL use the Reader page surface without stacked glass cards.
+The paragraph conversation SHALL present its source, transcript and composer in a clear reading hierarchy at narrow and wide viewports. An expanded conversation SHALL have a distinct floating capsule surface, with its contents sharing that surface without nested cards.
 
 #### Scenario: Asking on a narrow viewport
 
