@@ -1223,7 +1223,12 @@ button:disabled {
 .reader-chat-status[data-state="completed"] {
   margin-block: 0.6em;
 }
-.reader-chat-status:is([data-state="failed"], [data-state="interrupted"]) {
+.reader-chat-status:is(
+  [data-state="failed"],
+  [data-state="interrupted"],
+  [data-state="request-failed"],
+  [data-state="needs-selection"]
+) {
   color: var(--warning);
 }
 .reader-chat-composer {

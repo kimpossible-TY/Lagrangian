@@ -45,6 +45,20 @@ observation and completed by 15 seconds. The submitted question was not repeated
 in the composer. This one request does not isolate provider and transport times.
 iPhone Mirroring could not connect, so physical-device verification remains open.
 
+A later live follow-up after run 42360343415 exposed a recovery failure: the
+accepted document changed while a draft was open, and subsequent send requests
+returned HTTP 409 without adding a message. The draft survived reopening, but
+the generic request error was overwritten by the old answer's completed status.
+The composer now explains required reselection before enabling Send for an old
+context, and rejected-request notices survive ordinary renders until recovery.
+The new browser regression timed out on the original implementation, then passed
+all 49 checks in each of Chromium and WebKit after the fix. The lost-acknowledgment
+fixture now waits for its rejection to be delivered before removing interception,
+avoiding a WebKit test race. Focused Node checks (19), ESLint, changed-JS
+Prettier and strict OpenSpec validation pass. Existing unrelated formatting drift
+in reader.css remains; the changed status selector follows Prettier formatting.
+Installed-Reader recovery verification is pending.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

@@ -286,6 +286,8 @@ try {
   );
   await control({ mode: "success" });
   let lostAckSends = 0;
+  let acknowledgeRejection;
+  const acknowledgmentRejected = new Promise((resolve) => (acknowledgeRejection = resolve));
   await page.route("**/api/chat/send", async (route) => {
     lostAckSends++;
     const accepted = await route.fetch();
@@ -304,9 +306,11 @@ try {
       contentType: "application/json",
       body: '{"error":"Fixture lost acknowledgment"}',
     });
+    acknowledgeRejection();
   });
   await first.locator("textarea").fill("Lost acknowledgment question");
   await first.locator("button[type=submit]").click();
+  await acknowledgmentRejected;
   await page.waitForFunction(
     () =>
       document.querySelector("#first + .reader-chat textarea")?.value === "" &&
@@ -322,6 +326,38 @@ try {
         .length === 1,
   );
   await page.unroute("**/api/chat/send");
+  await page.route("**/api/chat/send", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: '{"error":"Fixture unavailable"}',
+    }),
+  );
+  await first.locator("textarea").fill("Keep this question after a rejected send");
+  await first.locator("button[type=submit]").click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "request-failed",
+  );
+  await first.locator(".reader-chat-settings-open").click();
+  await page.getByRole("button", { name: "Close ChatGPT settings", exact: true }).click();
+  check(
+    "Rejected send stays visible through account and composer rerenders",
+    (await first.locator(".reader-chat-status").textContent()).includes("전송하지 못했습니다") &&
+      (await first.locator("textarea").inputValue()) === "Keep this question after a rejected send",
+  );
+  await page.unroute("**/api/chat/send");
+  await first.locator("button[type=submit]").click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "completed",
+  );
+  check(
+    "Successful retry clears the rejected-send notice",
+    !(await first.locator(".reader-chat-status").textContent()).includes("전송하지 못했습니다"),
+  );
   await first.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.waitForTimeout(500);
   const geometry = await first.evaluate(async (root) => {
@@ -528,6 +564,32 @@ try {
   );
   if (process.env.FLOW_READER_CHAT_SCREENSHOT)
     await page.screenshot({ path: process.env.FLOW_READER_CHAT_SCREENSHOT, fullPage: true });
+  await first.locator(".reader-chat-summary").click();
+  await first.locator("textarea").fill("Draft kept across a document update");
+  await page.waitForTimeout(600);
+  const originalContext = (await history()).find((record) => record.conversation_id === firstID)
+    .thread[0].context;
+  await control({ revision: "fixture-updated" });
+  await page.reload();
+  await first.locator(".reader-chat-summary").click();
+  check(
+    "Updated document explains reselection and prevents a rejected send",
+    (await first.locator(".reader-chat-status").textContent()).includes("다시 선택") &&
+      (await first.locator("button[type=submit]").isDisabled()) &&
+      (await first.locator("textarea").inputValue()) === "Draft kept across a document update",
+  );
+  await first.getByRole("button", { name: "Close conversation", exact: true }).click();
+  await select("First paragraph");
+  await page.locator("#reader-chat-ask").click();
+  await first.locator("textarea").waitFor({ state: "visible" });
+  await first.locator("button[type=submit]:enabled").waitFor();
+  check(
+    "Reselection resumes the existing draft and retains original question context",
+    (await first.locator("textarea").inputValue()) === "Draft kept across a document update" &&
+      JSON.stringify(
+        (await history()).find((record) => record.conversation_id === firstID).thread[0].context,
+      ) === JSON.stringify(originalContext),
+  );
   await control({ delete: true });
   await page.reload();
   await page.locator(".reader-chat-unresolved .reader-chat-summary").waitFor();

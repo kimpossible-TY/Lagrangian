@@ -12,7 +12,9 @@ context in accessible details. Render safe Markdown and base/AMS math without ra
 HTML or new provider capabilities. Expose one shared read-only connection dialog linking to the independent
 Homepage account settings, included as an explicit integration prerequisite.
 After local dogfooding, reduce composer height, avoid duplicating a submitted
-question during streaming, and present provider progress in Korean.
+question during streaming, and present provider progress in Korean. Keep rejected
+request notices visible across rerenders and explain required reselection before
+sending from an older document context.
 
 ## Impact
 HTML and terminal browser presentation only. No source changes, history schema,

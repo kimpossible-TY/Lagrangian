@@ -22,6 +22,12 @@ Hide that duplicate in the composer without deleting its durable draft; restore
 it after failure or interruption unless the user has started a different draft.
 Display known provider progress in Korean and leave unknown messages intact.
 
+The composer compares its captured context revision with the accepted document
+before enabling Send. A stale but reattached conversation explains how to select
+the paragraph again; earlier message contexts and drafts remain intact. Request
+errors belong to the conversation view and survive ordinary rerenders until that
+operation succeeds or the reader explicitly refreshes its selected context.
+
 One dialog per controller holds read-only connection status and the configured
 Homepage account-management link. Each composer opens that same dialog. The
 Homepage prerequisite owns account composition and Mac-only mutation authority;

@@ -14,6 +14,12 @@ SHALL be presented in Korean.
 - **WHEN** the reader types a different draft while the answer is streaming
 - **THEN** that draft remains intact when the answer finishes or fails.
 
+#### Scenario: Rejected send and document update
+- **WHEN** sending a question is rejected or its captured document revision is old
+- **THEN** a visible recovery notice remains through ordinary rerenders
+- **AND** stale context requires explicit reselection before Send is enabled
+- **AND** the draft and earlier question contexts remain intact.
+
 ### Requirement: Document-inline conversation typography
 Expanded conversations SHALL remain below their source paragraph, preserve the
 Reader paper/ink/accent tokens and reading size, and distinguish current quote,

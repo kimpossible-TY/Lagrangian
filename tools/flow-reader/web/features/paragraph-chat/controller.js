@@ -14,6 +14,9 @@ const element = (tag, text, className) => {
   return node;
 };
 
+const needsReselection = (record, snapshot) =>
+  Boolean(snapshot && record.context?.revision !== snapshot.revision);
+
 /** HTML and terminal share this adapter, transport and host-owned history. */
 export class ParagraphChatController {
   constructor(article, view, transport) {
@@ -162,8 +165,10 @@ export class ParagraphChatController {
         !this.view.sameSelection(selected, this.view.selection())
       )
         return;
-      this.render();
       const id = result.conversations[0].conversation_id;
+      const node = this.nodes.get(id);
+      if (node) node.requestError = null;
+      this.render();
       // Release only the selection that initiated this composer.
       this.view.collapse();
       this.open(id, true);
@@ -206,6 +211,7 @@ export class ParagraphChatController {
     messages.setAttribute("aria-label", "Paragraph questions and answers");
     const transcript = new ChatTranscript(messages);
     const status = element("p", "", "reader-chat-status");
+    status.id = `reader-chat-status-${id}`;
     status.setAttribute("role", "status");
     const account = element("button", "ChatGPT 연결 설정", "reader-chat-settings-open");
     account.type = "button";
@@ -217,6 +223,7 @@ export class ParagraphChatController {
     inputLabel.htmlFor = `reader-chat-question-${id}`;
     const input = element("textarea");
     input.setAttribute("aria-label", "Question about this paragraph");
+    input.setAttribute("aria-describedby", status.id);
     input.id = inputLabel.htmlFor;
     input.placeholder = "궁금한 점을 적어 주세요…";
     input.maxLength = 8000;
@@ -341,8 +348,16 @@ export class ParagraphChatController {
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
       node.transcript.update(record.thread, { visible: !node.panel.hidden });
-      const status = chatStatus(record);
-      node.status.dataset.state = record.status;
+      const reselect =
+        attachment.state === "attached" && needsReselection(record, this.state.snapshot);
+      const status = reselect
+        ? "문서가 업데이트되었습니다. 이 문단을 다시 선택하고 질문하기를 누르면 초안을 이어서 보낼 수 있습니다."
+        : node.requestError?.message || chatStatus(record);
+      node.status.dataset.state = reselect
+        ? "needs-selection"
+        : node.requestError
+          ? "request-failed"
+          : record.status;
       if (node.status.textContent !== status) node.status.textContent = status;
       node.inputLabel.textContent = record.thread.length ? "이어서 질문하기" : "이 문단에 질문하기";
       const submitted = record.thread.findLast((message) => message.role === "user");
@@ -408,6 +423,7 @@ export class ParagraphChatController {
       node.sending ||
         record.status === "streaming" ||
         record.attachment.state !== "attached" ||
+        needsReselection(record, this.state.snapshot) ||
         !node.model.value ||
         !node.input.value.trim(),
     );
@@ -501,6 +517,9 @@ export class ParagraphChatController {
         );
         if (!this.state.accept(result, generation)) return false;
         if (operation === "draft" && this.drafts.get(id) === extra.draft) this.drafts.delete(id);
+        const node = this.nodes.get(id);
+        if (node && (operation === "send" || node.requestError?.operation === operation))
+          node.requestError = null;
         this.render();
         return true;
       })
@@ -511,6 +530,8 @@ export class ParagraphChatController {
             const record = this.state.records.get(id);
             const index = record?.thread.findIndex((message) => message.id === extra.messageID);
             if (index >= 0 && record.thread[index].text === extra.question) {
+              const node = this.nodes.get(id);
+              if (node) node.requestError = null;
               if (record.thread[index + 1]?.status === "completed") {
                 if (this.drafts.get(id) === extra.question) this.drafts.delete(id);
                 const node = this.nodes.get(id);
@@ -520,9 +541,18 @@ export class ParagraphChatController {
             }
           }
           const node = this.nodes.get(id);
-          if (node)
-            node.status.textContent =
-              "Chat request failed. Draft retained; check connection and retry.";
+          if (node) {
+            node.requestError = {
+              operation,
+              message:
+                operation === "draft"
+                  ? "초안을 저장하지 못했습니다. 이 화면에 보존되어 있으니 연결을 확인해 주세요."
+                  : operation === "cancel"
+                    ? "중단을 확인하지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요."
+                    : "질문을 전송하지 못했습니다. 초안은 보존되어 있으니 연결을 확인한 뒤 다시 보내세요.",
+            };
+            this.render();
+          }
         }
         return false;
       });
