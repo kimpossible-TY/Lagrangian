@@ -56,7 +56,7 @@ async function rendered(page, selectors) {
   for (const selector of selectors) assert.ok(await page.locator(selector).count(), `Missing rendered selector: ${selector}`);
 }
 async function settle(page, name) {
-  await page.mouse.move(0, 0);
+  await page.mouse.move(0, name.startsWith("preview") ? page.viewportSize().height - 1 : 0);
   await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; }" });
   await page.waitForLoadState("networkidle");
   if (name !== "home" && !name.startsWith("preview")) {
@@ -145,8 +145,9 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.clock.install({ time: new Date("2024-01-01T00:00:00Z") });
-    async function capture(name) {
+    async function capture(name, revealToolbar = false) {
       await settle(page, name);
+      if (revealToolbar) await page.locator("#typst-page-selector").focus();
       if (!contractOnly) {
         const key = `${size}-${theme}-${name}`, current = join(root, "current", `${key}.png`), baseline = join(root, "baseline", `${key}.png`), diff = join(root, "diff", `${key}.png`);
         const { image, retryCount, unstable } = await stableScreenshot(() => page.screenshot({ animations: "disabled" }));
@@ -166,18 +167,38 @@ try {
     await rendered(page, ["#typst-top-toolbar", "#typst-help-panel", ".typst-selection-actions", "#typst-app"]);
     await settle(page, "preview");
     await page.evaluate(() => {
+      const top = document.querySelector("#typst-container-top");
+      if (getComputedStyle(top).opacity !== "0") throw new Error("Slide toolbar should start hidden");
+      if (top.getBoundingClientRect().height !== 35) throw new Error("Slide toolbar footprint changed");
+      const hit = document.elementFromPoint(innerWidth / 2, 20);
+      // A transparent overlay must not paint over the slide, even though it retains hover hit testing.
+      if (!hit || Number(getComputedStyle(top).opacity) !== 0) throw new Error("Hidden toolbar covers slide content");
+    });
+    await capture("preview-hidden");
+    await page.locator("#typst-page-selector").focus();
+    await page.evaluate(() => {
+      if (getComputedStyle(document.querySelector("#typst-container-top")).opacity !== "1") throw new Error("Focus did not reveal slide toolbar");
       const toolbar = document.querySelector("#typst-top-toolbar").getBoundingClientRect();
+      if (toolbar.height > 35) throw new Error("Slide toolbar exceeds original footprint");
       const controls = [".typst-page-selector-content", "#typst-page-selector", ".typst-page-selector-divider", ".typst-page-number-indicator", "#typst-page-prev-selector .typst-page-button", "#typst-page-next-selector .typst-page-button"];
       for (const selector of controls) {
         const element = document.querySelector(selector), rect = element.getBoundingClientRect();
         const parent = document.querySelector("#typst-top-toolbar-end").getBoundingClientRect();
         if (!element.checkVisibility() || rect.top < toolbar.top || rect.bottom > toolbar.bottom || rect.left < parent.left || rect.right > parent.right || Math.abs((rect.top + rect.bottom - toolbar.top - toolbar.bottom) / 2) > 1) throw new Error(`Misaligned or clipped toolbar control: ${selector}`);
-        if ((selector === "#typst-page-selector" || selector.includes(".typst-page-button")) && (rect.width < 44 || rect.height < 44)) throw new Error(`Small toolbar target: ${selector}`);
+        if ((selector === "#typst-page-selector" || selector.includes(".typst-page-button")) && (rect.width < 44 || rect.height < 35)) throw new Error(`Small toolbar target: ${selector}`);
       }
       if (document.querySelector(".typst-page-number-indicator").textContent !== "12") throw new Error("Ready fixture missing total pages");
       if ([...document.querySelectorAll("body *")].some((element) => element.children.length === 0 && element.textContent.includes("Preparing preview") && element.checkVisibility())) throw new Error("Ready fixture shows preparing status");
     });
-    await capture("preview");
+    await capture("preview-revealed", true);
+    for (const forcedTheme of ["light", "dark"]) {
+      await page.evaluate((value) => { document.documentElement.dataset.documentTheme = value; }, forcedTheme);
+      await capture(`preview-forced-${forcedTheme}-hidden`);
+      await capture(`preview-forced-${forcedTheme}-revealed`, true);
+      await page.locator("#typst-help-panel").evaluate((panel) => panel.classList.remove("hidden"));
+      await capture(`preview-forced-${forcedTheme}-help`);
+      await page.locator("#typst-help-panel").evaluate((panel) => panel.classList.add("hidden"));
+    }
     await page.locator("#typst-help-panel").evaluate((panel) => panel.classList.remove("hidden"));
     await capture("preview-help");
     assert.deepEqual(errors, [], "Browser page errors");

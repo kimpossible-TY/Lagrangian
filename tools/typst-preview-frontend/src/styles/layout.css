@@ -168,18 +168,19 @@
 }
 
 #typst-container.mode-slide #typst-container-top {
+  height: 35px;
   position: absolute;
-  opacity: 1;
+  opacity: 0;
   transition: opacity 0.1s ease;
 }
 
-#typst-container.mode-slide #typst-container-top:hover {
+#typst-container.mode-slide #typst-container-top:hover,
+#typst-container.mode-slide #typst-container-top:focus-within {
   opacity: 1;
 }
 
 /* Chrome surfaces do not alter page geometry. */
-:root { --typst-preview-background-color: var(--paper) !important; }
-body { background-color: var(--paper) !important; }
+html[data-document-theme] { --typst-preview-background-color: var(--paper); }
 @media (prefers-reduced-motion: reduce) {
   #typst-container.mode-slide #typst-container-top { transition: none; }
 }
@@ -198,3 +199,15 @@ body { background-color: var(--paper) !important; }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   #typst-top-toolbar { background: var(--glass-solid); border-color: var(--line); backdrop-filter: none; }
 }
+
+/* Preserve the slide toolbar's original 35px overlay footprint. */
+#typst-container.mode-slide #typst-top-toolbar {
+  box-sizing: border-box;
+  width: 100% !important;
+  height: 35px;
+  min-height: 0;
+  padding: 0 0.75rem;
+}
+#typst-container.mode-slide #typst-top-toolbar .typst-toolbar-icon,
+#typst-container.mode-slide .typst-page-button,
+#typst-container.mode-slide #typst-page-selector { height: 35px !important; }

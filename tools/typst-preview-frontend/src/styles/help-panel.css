@@ -66,6 +66,7 @@
 #typst-help-panel .key-binding-desc, #typst-help-panel .key-binding-box { line-height: 1.4; }
 #typst-help-panel .key-binding-box { background: var(--wash); border-color: var(--line); color: var(--ink); }
 #typst-help-panel span[style*="orange"] { color: var(--warning) !important; }
+html[data-document-theme] .typst-theme-selector,
 .typst-theme-selector { background: var(--surface); color: var(--ink); border-color: var(--line); font-family: var(--font-system); min-height: 44px; }
 .typst-theme-selector:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @supports (backdrop-filter: blur(1px)) {

@@ -44,3 +44,36 @@ test("preview chrome hover and solid text colors retain contrast", () => {
   assert.equal(hover.color, "var(--ink)");
   assert.equal(hover.background, "var(--wash)");
 });
+
+test("preview chrome remains legible over composited glass in forced themes", () => {
+  const surfaces = [
+    ["../../typst-preview-frontend/src/styles/layout.css", "#typst-top-toolbar"],
+    ["../../typst-preview-frontend/src/styles/help-panel.css", "#typst-help-panel"],
+    ["../../typst-preview-frontend/src/styles/selection-actions.css", ":root .typst-selection-actions"],
+  ];
+  for (const [path, selector] of surfaces) {
+    const sheet = parse(path);
+    let glass;
+    sheet.walkAtRules("supports", (at) => at.walkRules(selector, (node) => { glass = Object.fromEntries(node.nodes.filter((n) => n.type === "decl").map(({ prop, value }) => [prop, value])); }));
+    assert.equal(glass?.background, "var(--glass-fill)", selector);
+  }
+  const outline = rule(parse("../../typst-preview-frontend/src/styles/outline.css"), ".typst-outline-title, .typst-preview-canvas-page-number");
+  assert.equal(outline.color, "var(--ink)");
+  const light = rule(chrome, ":root");
+  for (const [name, values] of [["forced light", light], ["forced dark", { ...light, ...rule(chrome, ':root[data-document-theme="dark"]') }]]) {
+    const match = /^rgb\((\d+) (\d+) (\d+) \/ (\d+)%\)$/.exec(values["--glass-fill"]);
+    assert.ok(match);
+    const alpha = Number(match[4]) / 100;
+    // Include the themed surround and both extremes of content behind translucent chrome.
+    for (const backdrop of [values["--paper"], "#000000", "#ffffff"]) {
+      const channels = [1, 3, 5].map((i) => parseInt(backdrop.slice(i, i + 2), 16));
+      const composite = channels.map((channel, i) => Math.round(Number(match[i + 1]) * alpha + channel * (1 - alpha)));
+      const background = `#${composite.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+      for (const foreground of ["--ink", "--warning", "--review-ink"]) {
+        const ratio = contrast(values[foreground], background);
+        assert.ok(ratio >= 4.5, `${name} ${foreground} on glass over ${backdrop}: ${ratio.toFixed(2)}`);
+      }
+    }
+    assert.ok(contrast(values["--ink"], values["--paper"]) >= 4.5, `${name} outline on surround`);
+  }
+});
