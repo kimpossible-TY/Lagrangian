@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bubblePosition } from "../web/features/paragraph-chat/geometry.js";
+import { panelPosition, overlapsInk } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 import { stripMathDelimiters } from "../web/features/paragraph-chat/content.js";
 import { conversationSummary } from "../../reader-common/paragraph-chat/state.js";
@@ -84,34 +84,21 @@ test("document account transport never sends credential mutations or host proof"
   assert.ok(requests.every((request) => !request.body.includes("capability")));
 });
 
-test("summary crosses exactly one third of an empty reading edge and searches nearby rows", () => {
-  const geometry = {
-    edge: 700,
-    width: 240,
-    height: 32,
-    paragraph: { top: 100, bottom: 180 },
-    viewport: { left: 0, right: 1024 },
-    obstacles: [{ left: 100, right: 700, top: 100, bottom: 125 }],
-  };
-  const result = bubblePosition(geometry);
-  assert.equal(result.left, 620);
-  assert.equal(result.right, 860);
-  assert.equal(700 - result.left, 240 / 3);
-  assert.equal(result.right - 700, (240 * 2) / 3);
-  assert.ok(result.top >= 130);
+test("expanded capsules stay near the annotation and spill at most 24px into the margin", () => {
+  const base = { edge: 1000, start: 100, anchor: { left: 256, right: 300, top: 100, bottom: 144 }, viewport: { right: 1456 }, height: 200 };
+  const box = panelPosition(base);
+  assert.equal(box.left, 316);
+  assert.equal(box.top, 100);
+  assert.ok(box.right <= base.edge + 24);
+  assert.equal(panelPosition({ ...base, start: 900 }), null);
+  assert.equal(panelPosition({ ...base, viewport: { right: 390 } }), null);
 });
 
-test("summary falls back inline when prose, math or annotations occupy local whitespace", () => {
-  const base = {
-    edge: 700,
-    width: 240,
-    height: 32,
-    paragraph: { top: 100, bottom: 180 },
-    viewport: { left: 0, right: 1024 },
-    obstacles: [{ left: 600, right: 1000, top: 0, bottom: 240 }],
-  };
-  assert.equal(bubblePosition(base), null);
-  assert.equal(bubblePosition({ ...base, obstacles: [], viewport: { left: 0, right: 800 } }), null);
+test("side panels avoid source ink, annotations and other open panels", () => {
+  const box = { left: 1024, right: 1444, top: 120, bottom: 520 };
+  assert.equal(overlapsInk(box, [{ left: 900, right: 1000, top: 100, bottom: 400 }]), false);
+  assert.equal(overlapsInk(box, [{ left: 1030, right: 1100, top: 140, bottom: 160 }]), true);
+  assert.equal(overlapsInk(box, [{ left: 1024, right: 1444, top: 510, bottom: 900 }]), true);
 });
 
 test("late send completion disables a composer removed by document replacement", () => {
@@ -593,7 +580,7 @@ test("controller summary UI renders plain-text title preserving currency ranges 
       transcript: { update() {} },
       status: { dataset: {}, textContent: "" },
       inputLabel: { textContent: "" },
-      input: { value: "" },
+      input: { value: "", style: {}, scrollHeight: 44 },
       cancel: { hidden: true },
       model: { value: "" },
       send: { disabled: false },
@@ -617,4 +604,15 @@ test("controller summary UI renders plain-text title preserving currency ranges 
     assert.equal(node.summary.textContent, expected);
     assert.equal(node.summary.title, expected);
   }
+});
+
+
+test("local capsule searches nearby ink edges and preserves a safe prior placement", () => {
+  const base = { edge: 900, start: 0, anchor: { left: 256, right: 300, top: 100, bottom: 144 }, viewport: { right: 1280 }, height: 200, obstacles: [] };
+  assert.equal(panelPosition(base).left, 316);
+  const besideInk = panelPosition({ ...base, obstacles: [{ left: 0, right: 1000, top: 95, bottom: 130 }] });
+  assert.ok(besideInk.top >= 139, "leave room for subpixel rounding beyond the 8px collision gap");
+  assert.equal(panelPosition({ ...base, previous: { left: 60, top: 50 } }).top, 150);
+  assert.equal(panelPosition({ ...base, obstacles: [{ left: 0, right: 1200, top: -500, bottom: 900 }] }), null);
+  assert.equal(panelPosition({ ...base, anchor: { left: 0, right: 44, top: 100, bottom: 144 }, obstacles: [{ left: 0, right: 600, top: -500, bottom: 900 }] }), null);
 });

@@ -4,7 +4,7 @@ import {
   conversationSummary,
   sameChatSnapshot,
 } from "../../reader-common/paragraph-chat/state.js";
-import { bubblePosition, documentInk } from "./geometry.js";
+import { panelPosition, overlapsInk, documentInk } from "./geometry.js";
 import { readerLink } from "../../ui/reader-links.js";
 import { DraftRecovery } from "./draft-recovery.js";
 
@@ -17,6 +17,11 @@ const element = (tag, text, className) => {
 
 const needsReselection = (record, snapshot) =>
   Boolean(snapshot && record.context?.revision !== snapshot.revision);
+
+function resizeComposer(input) {
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
 
 /** HTML and terminal share this adapter, transport and host-owned history. */
 export class ParagraphChatController {
@@ -128,8 +133,8 @@ export class ParagraphChatController {
     } catch {
       // Keep the in-memory fallback when storage is unavailable.
     }
-    this.chosenModels.set(id, "");
-    return "";
+    this.chosenModels.set(id, "gpt-6-luna");
+    return "gpt-6-luna";
   }
 
   setChosenModel(id, modelId) {
@@ -230,17 +235,34 @@ export class ParagraphChatController {
     const summary = element("button", "", "reader-chat-summary");
     summary.type = "button";
     summary.setAttribute("aria-expanded", "false");
+    const anchor = element("span", "", "reader-chat reader-chat-anchor");
+    anchor.dataset.flowSelectionIgnore = "paragraph-chat";
+    anchor.hidden = true;
+    const marker = element("button", "", "reader-chat-marker");
+    marker.type = "button";
+    marker.setAttribute("aria-expanded", "false");
+    marker.setAttribute("aria-label", "ChatGPT 대화 열기");
+    const bubble = element("span", "", "reader-chat-marker-bubble");
+    bubble.setAttribute("aria-hidden", "true");
+    const logo = element("img");
+    logo.src = new URL("./chatgpt.ico", import.meta.url).href;
+    logo.alt = "";
+    logo.width = logo.height = 16;
+    bubble.append(logo);
+    marker.append(bubble);
+    anchor.append(marker);
     const panel = element("div", "", "reader-chat-panel");
     panel.id = `reader-chat-${id}`;
     panel.hidden = true;
     summary.setAttribute("aria-controls", panel.id);
+    marker.setAttribute("aria-controls", panel.id);
     panel.setAttribute("role", "region");
     const heading = element("div", "", "reader-chat-heading");
-    const title = element("span", "이 문단에 대한 대화");
+    const title = element("span", "ChatGPT");
     title.id = `reader-chat-title-${id}`;
     panel.setAttribute("aria-labelledby", title.id);
     heading.append(title);
-    const contextLabel = element("p", "선택한 구절", "reader-chat-context-label");
+    const contextLabel = element("p", "선택한 구절", "reader-chat-visually-hidden");
     const quote = element("blockquote", record.quote, "reader-chat-quote");
     const messages = element("div", "", "reader-chat-messages");
     messages.setAttribute("role", "log");
@@ -250,13 +272,14 @@ export class ParagraphChatController {
     const status = element("p", "", "reader-chat-status");
     status.id = `reader-chat-status-${id}`;
     status.setAttribute("role", "status");
-    const account = element("button", "ChatGPT 연결 설정", "reader-chat-settings-open");
+    const account = element("button", "연결", "reader-chat-settings-open");
     account.type = "button";
+    account.setAttribute("aria-label", "ChatGPT 연결 설정");
     account.setAttribute("aria-haspopup", "dialog");
     account.setAttribute("aria-controls", this.accountSettings.dialog.id);
     account.addEventListener("click", () => this.openAccountSettings(account));
     const form = element("form", "", "reader-chat-composer");
-    const inputLabel = element("label", "이 문단에 질문하기", "reader-chat-composer-label");
+    const inputLabel = element("label", "질문", "reader-chat-visually-hidden");
     inputLabel.htmlFor = `reader-chat-question-${id}`;
     const input = element("textarea");
     input.setAttribute("aria-label", "Question about this paragraph");
@@ -264,7 +287,7 @@ export class ParagraphChatController {
     input.id = inputLabel.htmlFor;
     input.placeholder = "궁금한 점을 적어 주세요…";
     input.maxLength = 8000;
-    input.rows = 2;
+    input.rows = 1;
     const recovered = this.drafts.has(id)
       ? null
       : this.recovery.get(this.state.snapshot.documentID, id);
@@ -292,7 +315,11 @@ export class ParagraphChatController {
     storageNotice.id = `reader-chat-draft-warning-${id}`;
     storageNotice.setAttribute("role", "status");
     storageNotice.hidden = true;
-    const send = element("button", "보내기 ↑", "reader-chat-send");
+    const send = element("button", "", "reader-chat-send");
+    send.setAttribute("aria-label", "보내기");
+    const sendIcon = element("span", "↑");
+    sendIcon.setAttribute("aria-hidden", "true");
+    send.append(sendIcon);
     send.type = "submit";
     const cancel = element("button", "생성 중단", "reader-chat-interrupt");
     cancel.setAttribute("aria-label", "Interrupt");
@@ -311,21 +338,29 @@ export class ParagraphChatController {
       this.updateSend(node);
     });
     const actions = element("div", "", "reader-chat-composer-actions");
-    actions.append(model, account, cancel, send);
+    actions.append(model, send);
     form.append(inputLabel, recovery, storageNotice, input, actions);
-    heading.append(close);
-    panel.append(heading, contextLabel, quote, messages, status, form);
+    const headingActions = element("div", "", "reader-chat-heading-actions");
+    headingActions.append(account, close);
+    heading.append(headingActions);
+    const responseStatus = element("div", "", "reader-chat-response-status");
+    responseStatus.append(status, cancel);
+    panel.append(heading, contextLabel, quote, messages, responseStatus, form);
     root.append(summary, panel);
     summary.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
-    root.addEventListener("keydown", (event) => {
+    marker.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
+    const collapseOnEscape = (event) => {
       if (event.key === "Escape" && !panel.hidden) {
         event.stopPropagation();
         event.preventDefault();
         this.close(id);
       }
-    });
+    };
+    root.addEventListener("keydown", collapseOnEscape);
+    anchor.addEventListener("keydown", collapseOnEscape);
     // Native button Enter/Space and click cover keyboard, pointer and touch.
     input.addEventListener("input", () => {
+      resizeComposer(input);
       this.drafts.set(id, input.value);
       this.rememberDraft(id, input.value);
       this.updateSend(node);
@@ -346,6 +381,8 @@ export class ParagraphChatController {
     const node = {
       root,
       summary,
+      anchor,
+      marker,
       panel,
       quote,
       messages,
@@ -368,6 +405,7 @@ export class ParagraphChatController {
         ? { question: recovered.text, id: recovered.messageID }
         : null,
     };
+    this.resize.observe(panel);
     this.nodes.set(id, node);
     return node;
   }
@@ -376,9 +414,10 @@ export class ParagraphChatController {
     const node = this.nodes.get(id);
     if (!node) return;
     node.panel.hidden = false;
+    resizeComposer(node.input);
     node.summary.setAttribute("aria-expanded", "true");
-    node.root.classList.remove("reader-chat-margin");
-    node.summary.style.cssText = "";
+    node.marker.setAttribute("aria-expanded", "true");
+    node.root.classList.remove("reader-chat-folded");
     if (focus) node.input.focus({ preventScroll: true });
     else node.panel.querySelector("textarea")?.focus({ preventScroll: true });
     node.transcript.update(this.state.records.get(id).thread, { visible: true });
@@ -392,7 +431,11 @@ export class ParagraphChatController {
     if (!node) return;
     node.panel.hidden = true;
     node.summary.setAttribute("aria-expanded", "false");
-    node.summary.focus({ preventScroll: true });
+    node.marker.setAttribute("aria-expanded", "false");
+    node.root.classList.remove("reader-chat-side");
+    node.panel.style.cssText = "";
+    if (node.host) node.root.classList.add("reader-chat-folded");
+    (node.host ? node.marker : node.summary).focus({ preventScroll: true });
     this.schedule();
   }
 
@@ -427,10 +470,22 @@ export class ParagraphChatController {
         node.root.remove();
       }
       node.host = host;
+      node.summary.hidden = Boolean(host);
+      if (!host && node.anchor) {
+        node.anchor.remove();
+        node.anchor.hidden = true;
+        node.root.classList.remove("reader-chat-folded", "reader-chat-side");
+        node.panel.style.cssText = "";
+      }
       if (node.quote.textContent !== record.quote) node.quote.textContent = record.quote;
       const title = (node.recovered ? "복구한 초안 · " : "") + conversationSummary(record);
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
+      if (node.marker) {
+        node.marker.setAttribute("aria-label", `ChatGPT 대화: ${title}`);
+        node.marker.dataset.state = record.status;
+        node.marker.setAttribute("aria-busy", String(record.status === "streaming"));
+      }
       node.transcript.update(record.thread, { visible: !node.panel.hidden });
       const reselect =
         attachment.state === "attached" && needsReselection(record, this.state.snapshot);
@@ -442,19 +497,22 @@ export class ParagraphChatController {
         : node.requestError
           ? "request-failed"
           : record.status;
+      node.status.dataset.unresolved = String(record.attachment.state === "unresolved");
       if (node.status.textContent !== status) node.status.textContent = status;
-      node.inputLabel.textContent = record.thread.length ? "이어서 질문하기" : "이 문단에 질문하기";
       const submitted = record.thread.findLast((message) => message.role === "user");
       if (record.status === "streaming" && submitted && node.hiddenMessageId !== submitted.id) {
         node.hiddenMessageId = submitted.id;
         if (node.input.value === submitted.text) {
           node.input.value = "";
+          resizeComposer(node.input);
           node.hiddenSubmitted = submitted.text;
         }
       } else if (record.status !== "streaming" && node.hiddenSubmitted) {
         const draft = this.drafts.get(id) ?? record.draft;
-        if (record.status !== "completed" && !node.input.value && draft === node.hiddenSubmitted)
+        if (record.status !== "completed" && !node.input.value && draft === node.hiddenSubmitted) {
           node.input.value = draft;
+          resizeComposer(node.input);
+        }
         node.hiddenSubmitted = null;
       }
       if (
@@ -462,8 +520,10 @@ export class ParagraphChatController {
         document.activeElement !== node.input &&
         !(record.status === "streaming" && node.hiddenSubmitted === record.draft) &&
         node.input.value !== record.draft
-      )
+      ) {
         node.input.value = record.draft;
+        resizeComposer(node.input);
+      }
       node.cancel.hidden = record.status !== "streaming";
       this.renderModels(node);
       this.updateSend(node);
@@ -520,12 +580,12 @@ export class ParagraphChatController {
     const signatureChanged = node.modelsSignature !== signature;
     if (signatureChanged) {
       node.modelsSignature = signature;
-      const placeholder = element("option", "모델 선택");
+      const placeholder = element("option", this.modelsLoaded ? "모델을 사용할 수 없음" : "모델 불러오는 중…");
       placeholder.value = "";
       node.model.replaceChildren(
         placeholder,
         ...this.models.map((model) => {
-          const option = element("option", model.label);
+          const option = element("option", model.id === "gpt-6-luna" ? `${model.label} · xhigh` : model.label);
           option.value = model.id;
           return option;
         }),
@@ -620,7 +680,10 @@ export class ParagraphChatController {
               if (record.thread[index + 1]?.status === "completed") {
                 if (this.drafts.get(id) === extra.question) this.drafts.delete(id);
                 const node = this.nodes.get(id);
-                if (node?.input.value === extra.question) node.input.value = "";
+                if (node?.input.value === extra.question) {
+                  node.input.value = "";
+                  resizeComposer(node.input);
+                }
               }
               return true; // Recover the accepted message, never automatically resend it.
             }
@@ -711,8 +774,10 @@ export class ParagraphChatController {
                     node &&
                     node.input.value === record.thread.findLast((m) => m.role === "user")?.text &&
                     !record.draft
-                  )
+                  ) {
                     node.input.value = "";
+                    resizeComposer(node.input);
+                  }
                 }
               }
               this.render();
@@ -742,58 +807,94 @@ export class ParagraphChatController {
   }
 
   layout() {
-    // Remount only when a previously absent section appears.
+    const expanded = [];
     for (const record of this.state.records.values()) {
       const node = this.nodes.get(record.conversation_id);
       if (!node || record.attachment.state !== "attached") continue;
       const host = this.article.querySelector(
         `[data-reader-key="${CSS.escape(record.attachment.key)}"]`,
       );
-      if (host && !node.root.isConnected) {
-        host.after(node.root);
-        node.host = host;
-      }
-    }
-    // A fallback's own reserved row must not create its next margin candidate.
-    for (const node of this.nodes.values()) {
-      if (node.panel.hidden && node.host?.isConnected)
-        node.root.classList.add("reader-chat-margin");
-    }
-    let edge, obstacles;
-    for (const node of this.nodes.values()) {
-      if (!node.root.isConnected || !node.host?.isConnected) continue;
-      if (!node.panel.hidden) {
-        node.transcript.update(this.state.records.get(node.root.dataset.conversationId).thread, {
-          visible: true,
-        });
+      if (!host) {
+        node.anchor.remove();
+        node.root.remove();
+        node.host = null;
         continue;
       }
-      if (window.innerWidth >= 960 && !obstacles) {
-        const style = getComputedStyle(this.article);
-        const area = this.article.getBoundingClientRect();
-        edge = area.right - parseFloat(style.paddingRight);
-        obstacles = documentInk(this.article);
-      }
-      const size = node.summary.getBoundingClientRect();
-      const box =
-        window.innerWidth >= 960 &&
-        bubblePosition({
-          edge,
-          width: size.width,
-          height: size.height,
-          paragraph: node.host.getBoundingClientRect(),
-          viewport: { left: 0, right: document.documentElement.clientWidth },
-          obstacles,
-        });
-      node.root.classList.toggle("reader-chat-margin", Boolean(box));
+      if (host !== node.host || !node.root.isConnected) host.after(node.root);
+      node.host = host;
+      if (node.anchor.parentNode !== host) host.append(node.anchor);
+      node.anchor.hidden = false;
+      node.summary.hidden = true;
+      node.root.classList.toggle("reader-chat-folded", node.panel.hidden);
+      if (!node.panel.hidden) expanded.push(node);
+    }
+    if (!expanded.length) return;
+
+    const area = this.article.getBoundingClientRect();
+    const style = getComputedStyle(this.article);
+    const edge = area.right - parseFloat(style.paddingRight);
+    const start = area.left + parseFloat(style.paddingLeft);
+    const viewport = { right: document.documentElement.clientWidth };
+    const candidates = expanded.map((node) => ({
+      node,
+      scroll: node.messages.scrollTop,
+      box: panelPosition({
+        edge, start, anchor: node.marker.getBoundingClientRect(), viewport,
+      }),
+    }));
+    // Temporarily take candidates out of flow together. Their own inline rows
+    // must not manufacture empty space for a side presentation.
+    for (const { node, box } of candidates) {
+      node.root.classList.toggle("reader-chat-side", Boolean(box));
+      node.panel.style.cssText = box ? `width:${box.width}px` : "";
+    }
+    const obstacles = candidates.some(({ box }) => box) ? documentInk(this.article) : [];
+    const placements = candidates.map((candidate) => {
+      const { node, scroll } = candidate;
+      let { box } = candidate;
+      const anchorTop = node.marker.getBoundingClientRect().top;
       if (box) {
-        const origin = node.summary.offsetParent.getBoundingClientRect();
-        const left = `${box.left - origin.left}px`,
-          top = `${box.top - origin.top}px`;
-        if (node.summary.style.left !== left) node.summary.style.left = left;
-        if (node.summary.style.top !== top) node.summary.style.top = top;
-        obstacles.push(box);
-      } else if (node.summary.style.left) node.summary.style.cssText = "";
+        box = panelPosition({ edge, start, anchor: node.marker.getBoundingClientRect(), viewport,
+          height: node.panel.getBoundingClientRect().height, obstacles, previous: node.previousPlacement });
+        if (box) obstacles.push(box);
+      }
+      return { node, box, scroll, anchorTop };
+    });
+    for (const { node, box } of placements) {
+      node.root.classList.toggle("reader-chat-side", Boolean(box));
+      if (!box) node.panel.style.cssText = "";
+    }
+    for (let pass = 0; pass < placements.length; pass++) {
+      const ink = placements.some(({ box }) => box) ? documentInk(this.article) : [];
+      let changed = false;
+      for (const placement of placements) {
+        if (!placement.box) continue;
+        const anchor = placement.node.marker.getBoundingClientRect();
+        const offset = placement.box.top - placement.anchorTop;
+        placement.box.top = anchor.top + offset;
+        placement.box.bottom = placement.box.top + placement.node.panel.getBoundingClientRect().height;
+        placement.anchorTop = anchor.top;
+        if (overlapsInk(placement.box, ink)) {
+          placement.box = null;
+          placement.node.root.classList.remove("reader-chat-side");
+          placement.node.panel.style.cssText = "";
+          changed = true;
+        } else ink.push(placement.box);
+      }
+      if (!changed) break;
+    }
+    for (const { node, box, scroll } of placements) {
+      if (box) {
+        const anchor = node.marker.getBoundingClientRect();
+        node.previousPlacement = { left: box.left - anchor.left, top: box.top - anchor.top };
+        const origin = node.root.getBoundingClientRect();
+        node.panel.style.cssText = `width:${box.width}px;left:${box.left - origin.left}px;top:${box.top - origin.top}px`;
+      } else node.panel.style.cssText = "";
+      resizeComposer(node.input);
+      node.transcript.update(this.state.records.get(node.root.dataset.conversationId).thread, {
+        visible: true,
+      });
+      node.messages.scrollTop = scroll;
     }
   }
 
@@ -819,6 +920,8 @@ export class ParagraphChatController {
   clearNodes() {
     for (const node of this.nodes.values()) {
       clearTimeout(node.draftTimer);
+      this.resize.unobserve(node.panel);
+      node.anchor.remove();
       node.root.remove();
     }
     this.nodes.clear();

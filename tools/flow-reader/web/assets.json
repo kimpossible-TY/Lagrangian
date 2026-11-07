@@ -21,6 +21,7 @@
   "features/navigation/reading-position.js": "features/navigation/reading-position.js",
   "features/navigation/toolbar-visibility.js": "features/navigation/toolbar-visibility.js",
   "features/paragraph-chat/content.js": "features/paragraph-chat/content.js",
+  "features/paragraph-chat/chatgpt.ico": "features/paragraph-chat/chatgpt.ico",
   "features/paragraph-chat/controller.js": "features/paragraph-chat/controller.js",
   "features/paragraph-chat/draft-recovery.js": "features/paragraph-chat/draft-recovery.js",
   "features/paragraph-chat/geometry.js": "features/paragraph-chat/geometry.js",
