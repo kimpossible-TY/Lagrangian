@@ -16,4 +16,4 @@
 - [x] Preserve rejected-request notices and explain stale-context reselection; verify retry and draft recovery in local browsers and the installed Reader.
 - [ ] Investigate unsaved-draft recovery across explicit client updates.
 - [x] Measure live provider/tool/local-processing latency using bounded content-free diagnostics.
-- [ ] Reduce duplicate full source checks during streaming while preserving event/tool guards and idle cancellation; verify locally and in the installed Reader.
+- [x] Reduce duplicate full source checks during streaming while preserving event/tool guards and idle cancellation; verify locally and in the installed Reader.

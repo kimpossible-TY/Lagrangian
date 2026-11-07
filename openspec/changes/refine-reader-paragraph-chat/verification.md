@@ -97,6 +97,18 @@ stalled upstream after an un-published source edit without receiving another SSE
 byte. Existing user cancellation, stale snapshot, tool, history and HTTP checks
 also pass. Strict OpenSpec validation and whitespace checks pass.
 
+Run 42363162320 installed optimization revision `8ad58a17`. Through actual Chrome
+interaction, the same format of short follow-up produced a completed answer with
+one model request: host duration 3379 ms, first text 1709 ms, 51 full source
+checks totaling 1283 ms, and 49 writes totaling 108 ms. The earlier short request
+had 6484 ms duration, 1920 ms first text, 164 checks totaling 7007 ms, and 54
+writes totaling 140 ms. This verifies the intended reduction in repeated local
+validation during real use. Different history and generated text, and one sample
+per version, prevent interpreting these observations as a controlled end-to-end
+speedup percentage or evidence about physical iPhone network latency. The UI was
+observed completed by 11 seconds after clicking Send; host timings are more
+precise for the measured server work. The unsaved-draft reload case remains open.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this
