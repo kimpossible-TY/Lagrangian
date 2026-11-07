@@ -1,5 +1,8 @@
 ## Implementation
 
+- [x] Keep the same annotation on all screens and adapt only open panel placement, with collision avoidance and width hysteresis.
+- [x] Verify resize continuity, long transcripts, multiple panels, focus, themes and captures; record device coverage.
+
 - [x] Implement the responsive logo annotation, document asset provenance and verify selection, focus, resizing and cleanup in an isolated browser.
 
 - [x] Redesign the inline conversation hierarchy and compact composer while preserving the shared settings dialog and per-conversation model selection.
@@ -47,3 +50,21 @@ light/dark collapsed captures and narrow/wide expanded captures. Shared/HTML Nod
 tests: 315 passed, one skipped; the isolated installed-layout test passes.
 Full reader ESLint, strict OpenSpec validation and diff checks pass. Physical
 iPhone Safari and VoiceOver remain unverified; no live services were changed.
+
+
+Adaptive-panel follow-up: all attached conversations now retain their inline
+logo annotation; visible summary entries are limited to unresolved history.
+The 77-check isolated Chromium fixture passes with zero page errors, including
+side/below placement, measured-width hysteresis, existing margin-content
+collisions, multiple open capsules, transcript scrolling, repeated resize with
+DOM/draft/caret/model/focus/scroll continuity, keyboard/touch, copy exclusion and
+source remounts. The 320, 390, 768, 959, 960, 1280, 1440, 1920, 2048 and 2300px
+matrix passes without horizontal overflow; the fixture uses side presentation at
+2048/2300px and below-paragraph presentation at the smaller widths because the
+reading column is not narrowed to manufacture space. Reviewed actual 390px,
+1280px and 2048px captures and dark/reduced-motion 2048px presentation.
+Shared/HTML Node suites: 315 passed, one skipped. Full reader ESLint, strict
+OpenSpec and diff checks pass. Web-interface review uses the pinned revision and
+SHA-256 recorded above; scope is the controller, geometry, styles and browser
+fixture on Chrome 156.0.8078.80 / Playwright 1.65.0. Physical iPhone Safari,
+VoiceOver and live inference remain unverified. No live services were changed.

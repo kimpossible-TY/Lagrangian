@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bubblePosition } from "../web/features/paragraph-chat/geometry.js";
+import { panelPosition, overlapsInk } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 import { stripMathDelimiters } from "../web/features/paragraph-chat/content.js";
 import { conversationSummary } from "../../reader-common/paragraph-chat/state.js";
@@ -84,34 +84,20 @@ test("document account transport never sends credential mutations or host proof"
   assert.ok(requests.every((request) => !request.body.includes("capability")));
 });
 
-test("summary crosses exactly one third of an empty reading edge and searches nearby rows", () => {
-  const geometry = {
-    edge: 700,
-    width: 240,
-    height: 32,
-    paragraph: { top: 100, bottom: 180 },
-    viewport: { left: 0, right: 1024 },
-    obstacles: [{ left: 100, right: 700, top: 100, bottom: 125 }],
-  };
-  const result = bubblePosition(geometry);
-  assert.equal(result.left, 620);
-  assert.equal(result.right, 860);
-  assert.equal(700 - result.left, 240 / 3);
-  assert.equal(result.right - 700, (240 * 2) / 3);
-  assert.ok(result.top >= 130);
+test("side presentation uses spare margin and keeps a 24px entry buffer", () => {
+  const base = { edge: 1000, anchor: { top: 120 }, viewport: { right: 1456 } };
+  const wide = panelPosition(base);
+  assert.deepEqual(wide, { left: 1024, right: 1444, top: 120, width: 420 });
+  assert.equal(panelPosition({ ...base, viewport: { right: 1410 } }), null);
+  assert.equal(panelPosition({ ...base, viewport: { right: 1410 }, side: true }).width, 374);
+  assert.equal(panelPosition({ ...base, viewport: { right: 1390 }, side: true }), null);
 });
 
-test("summary falls back inline when prose, math or annotations occupy local whitespace", () => {
-  const base = {
-    edge: 700,
-    width: 240,
-    height: 32,
-    paragraph: { top: 100, bottom: 180 },
-    viewport: { left: 0, right: 1024 },
-    obstacles: [{ left: 600, right: 1000, top: 0, bottom: 240 }],
-  };
-  assert.equal(bubblePosition(base), null);
-  assert.equal(bubblePosition({ ...base, obstacles: [], viewport: { left: 0, right: 800 } }), null);
+test("side panels avoid source ink, annotations and other open panels", () => {
+  const box = { left: 1024, right: 1444, top: 120, bottom: 520 };
+  assert.equal(overlapsInk(box, [{ left: 900, right: 1000, top: 100, bottom: 400 }]), false);
+  assert.equal(overlapsInk(box, [{ left: 1030, right: 1100, top: 140, bottom: 160 }]), true);
+  assert.equal(overlapsInk(box, [{ left: 1024, right: 1444, top: 510, bottom: 900 }]), true);
 });
 
 test("late send completion disables a composer removed by document replacement", () => {

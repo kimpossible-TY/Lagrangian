@@ -1034,13 +1034,6 @@ button:disabled {
 #reader-document p {
   margin: 0.8em 0;
 }
-/* The summary crosses the reading edge into a smaller outer margin. Both
-   margins retain the paper, with no sidebar surface or dividing rule. */
-@media (min-width: 960px) {
-  #reader-document.reader-paragraph-chat {
-    max-width: min(1200px, calc(100% - 280px));
-  }
-}
 .reader-chat {
   font: var(--type-body)/1.6 var(--font-system);
   color: var(--color-text);
@@ -1070,12 +1063,9 @@ button:disabled {
 .reader-chat-summary[aria-expanded="true"] {
   display: none;
 }
-.reader-chat-compact {
+.reader-chat-folded {
   margin: 0;
   height: 0;
-}
-.reader-chat-compact > .reader-chat-summary {
-  display: none;
 }
 .reader-chat-anchor {
   display: inline-flex;
@@ -1124,6 +1114,10 @@ button:disabled {
   background: inherit;
   transform: skewY(-35deg);
 }
+.reader-chat-marker[aria-expanded="true"] .reader-chat-marker-bubble {
+  border-color: var(--accent);
+  background: var(--color-tint);
+}
 .reader-chat-marker:is([data-state="streaming"], [data-state="failed"], [data-state="interrupted"]) .reader-chat-marker-bubble::before {
   content: "";
   position: absolute;
@@ -1150,14 +1144,34 @@ button:disabled {
     filter: invert(1);
   }
 }
-.reader-chat-margin {
+.reader-chat-side {
+  position: relative;
   margin: 0;
   height: 0;
 }
-.reader-chat-margin .reader-chat-summary {
+.reader-chat-side > .reader-chat-panel {
+  box-sizing: border-box;
   position: absolute;
+  display: flex;
+  flex-direction: column;
+  max-height: min(48rem, calc(100dvh - 6rem));
+  margin: 0;
   max-width: none;
   z-index: 3;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.reader-chat-side :is(.reader-chat-heading, .reader-chat-composer, .reader-chat-response-status) {
+  flex-shrink: 0;
+}
+.reader-chat-side .reader-chat-quote {
+  min-height: 0;
+}
+.reader-chat-messages {
+  min-height: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .reader-chat-panel {
   border: 1px solid var(--color-border);

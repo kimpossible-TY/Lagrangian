@@ -13,15 +13,27 @@ The paragraph conversation SHALL present its source, transcript and composer in 
 #### Scenario: Folded conversation
 
 - **WHEN** the conversation is folded
-- **THEN** it appears as a rounded one-line summary bubble in eligible margin space
-- **AND** when margin space is insufficient it becomes a small ChatGPT-logo-only annotation at the end of the associated paragraph, without a separate block row
+- **THEN** it appears as the same small ChatGPT-logo-only annotation at the end of the associated paragraph on every screen, without a separate block row or visible summary
 - **AND** it retains hover, focus, pressed and forced-colors states.
 
 #### Scenario: Compact annotation interaction
 
 - **WHEN** a compact annotation is activated by keyboard or touch
-- **THEN** the conversation expands below its paragraph and closing returns focus to that annotation
+- **THEN** the conversation expands beside its paragraph when sufficient collision-free margin space is available, or below the paragraph otherwise, and closing returns focus to that annotation
 - **AND** its visual body is 28 by 24 CSS pixels within a 44 by 44 CSS pixel target.
+
+#### Scenario: Adaptive open conversation
+
+- **WHEN** an open conversation has sufficient margin space
+- **THEN** it appears in a 360–420 CSS pixel side capsule without covering source content, annotations or another open capsule
+- **AND** the source reading column is not narrowed to create that space.
+
+#### Scenario: Continuous resize
+
+- **WHEN** an open conversation changes between side and below-paragraph placement
+- **THEN** the same panel and annotation remain mounted with draft, model, caret, focus and transcript scroll retained
+- **AND** side placement requires an extra 24 CSS pixels on entry to avoid oscillation near its minimum width
+- **AND** reduced-motion users receive the same usable layout without spatial animation.
 
 #### Scenario: Canonical source text
 

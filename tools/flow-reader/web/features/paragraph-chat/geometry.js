@@ -1,32 +1,17 @@
-/** Find actual empty ink space near the paragraph at the exact one-third crossing. */
-export function bubblePosition({ edge, width, height, paragraph, viewport, obstacles }) {
-  const left = edge - width / 3;
-  const right = edge + (2 * width) / 3;
-  if (viewport.right - right < 12 || left < viewport.left + 12) return null;
-  const near = { top: paragraph.top - 12, bottom: paragraph.bottom + 48 };
-  const candidates = [
-    ...new Set([
-      paragraph.top,
-      paragraph.bottom - height,
-      ...obstacles.flatMap((box) => [box.bottom + 5, box.top - height - 5]),
-    ]),
-  ]
-    .filter((top) => top >= near.top && top + height <= near.bottom)
-    .sort((a, b) => Math.abs(a - paragraph.top) - Math.abs(b - paragraph.top));
-  for (const top of candidates) {
-    const box = { left, right, top, bottom: top + height };
-    if (
-      !obstacles.some(
-        (ink) =>
-          box.left < ink.right + 3 &&
-          box.right > ink.left - 3 &&
-          box.top < ink.bottom + 3 &&
-          box.bottom > ink.top - 3,
-      )
-    )
-      return box;
-  }
-  return null;
+/** Side presentation requires real spare space, with a wider threshold on entry. */
+export function panelPosition({ edge, anchor, viewport, side = false }) {
+  const left = edge + 24;
+  const available = viewport.right - 12 - left;
+  if (available < 360 + (side ? 0 : 24)) return null;
+  const width = Math.min(420, available);
+  return { left, right: left + width, top: anchor.top, width };
+}
+
+export function overlapsInk(box, obstacles) {
+  return obstacles.some((ink) =>
+    box.left < ink.right + 8 && box.right > ink.left - 8 &&
+    box.top < ink.bottom + 8 && box.bottom > ink.top - 8,
+  );
 }
 
 export function documentInk(article) {

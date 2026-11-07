@@ -4,7 +4,7 @@ import {
   conversationSummary,
   sameChatSnapshot,
 } from "../../reader-common/paragraph-chat/state.js";
-import { bubblePosition, documentInk } from "./geometry.js";
+import { panelPosition, overlapsInk, documentInk } from "./geometry.js";
 import { readerLink } from "../../ui/reader-links.js";
 
 const element = (tag, text, className) => {
@@ -278,14 +278,16 @@ export class ParagraphChatController {
     panel.append(heading, contextLabel, quote, messages, responseStatus, form);
     root.append(summary, panel);
     summary.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
-    marker.addEventListener("click", () => this.open(id));
-    root.addEventListener("keydown", (event) => {
+    marker.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
+    const collapseOnEscape = (event) => {
       if (event.key === "Escape" && !panel.hidden) {
         event.stopPropagation();
         event.preventDefault();
         this.close(id);
       }
-    });
+    };
+    root.addEventListener("keydown", collapseOnEscape);
+    anchor.addEventListener("keydown", collapseOnEscape);
     // Native button Enter/Space and click cover keyboard, pointer and touch.
     input.addEventListener("input", () => {
       resizeComposer(input);
@@ -322,6 +324,7 @@ export class ParagraphChatController {
       cancel,
       model,
     };
+    this.resize.observe(panel);
     this.nodes.set(id, node);
     return node;
   }
@@ -333,9 +336,7 @@ export class ParagraphChatController {
     resizeComposer(node.input);
     node.summary.setAttribute("aria-expanded", "true");
     node.marker.setAttribute("aria-expanded", "true");
-    node.anchor.hidden = true;
-    node.root.classList.remove("reader-chat-margin", "reader-chat-compact");
-    node.summary.style.cssText = "";
+    node.root.classList.remove("reader-chat-folded");
     if (focus) node.input.focus({ preventScroll: true });
     else node.panel.querySelector("textarea")?.focus({ preventScroll: true });
     node.transcript.update(this.state.records.get(id).thread, { visible: true });
@@ -350,11 +351,10 @@ export class ParagraphChatController {
     node.panel.hidden = true;
     node.summary.setAttribute("aria-expanded", "false");
     node.marker.setAttribute("aria-expanded", "false");
-    if (node.compact) {
-      node.root.classList.add("reader-chat-compact");
-      node.anchor.hidden = false;
-    }
-    (node.compact ? node.marker : node.summary).focus({ preventScroll: true });
+    node.root.classList.remove("reader-chat-side");
+    node.panel.style.cssText = "";
+    if (node.host) node.root.classList.add("reader-chat-folded");
+    (node.host ? node.marker : node.summary).focus({ preventScroll: true });
     this.schedule();
   }
 
@@ -379,20 +379,19 @@ export class ParagraphChatController {
         node.root.remove();
       }
       node.host = host;
+      node.summary.hidden = Boolean(host);
       if (!host && node.anchor) {
         node.anchor.remove();
         node.anchor.hidden = true;
-        node.compact = false;
-        node.root.classList.remove("reader-chat-compact", "reader-chat-margin");
-        node.summary.style.cssText = "";
+        node.root.classList.remove("reader-chat-folded", "reader-chat-side");
+        node.panel.style.cssText = "";
       }
       if (node.quote.textContent !== record.quote) node.quote.textContent = record.quote;
       const title = conversationSummary(record);
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
       if (node.marker) {
-        node.marker.title = title;
-        node.marker.setAttribute("aria-label", `ChatGPT 대화 열기: ${title}`);
+        node.marker.setAttribute("aria-label", `ChatGPT 대화: ${title}`);
         node.marker.dataset.state = record.status;
         node.marker.setAttribute("aria-busy", String(record.status === "streaming"));
       }
@@ -692,75 +691,72 @@ export class ParagraphChatController {
   }
 
   layout() {
-    // Remount only when a previously absent section appears.
+    const expanded = [];
     for (const record of this.state.records.values()) {
       const node = this.nodes.get(record.conversation_id);
       if (!node || record.attachment.state !== "attached") continue;
       const host = this.article.querySelector(
         `[data-reader-key="${CSS.escape(record.attachment.key)}"]`,
       );
-      if (host && (host !== node.host || !node.root.isConnected)) {
+      if (!host) {
         node.anchor.remove();
-        host.after(node.root);
-        node.host = host;
-      }
-    }
-    // Measure wide candidates before an inline marker changes paragraph wrapping.
-    for (const node of this.nodes.values()) {
-      if (node.panel.hidden && node.host?.isConnected) {
-        node.restoreEntryFocus = [node.marker, node.summary].includes(document.activeElement);
-        if (window.innerWidth >= 960) {
-          node.anchor.hidden = true;
-          node.root.classList.remove("reader-chat-compact");
-          node.root.classList.add("reader-chat-margin");
-        }
-      }
-    }
-    let edge, obstacles;
-    for (const node of this.nodes.values()) {
-      if (!node.root.isConnected || !node.host?.isConnected) continue;
-      if (!node.panel.hidden) {
-        node.transcript.update(this.state.records.get(node.root.dataset.conversationId).thread, {
-          visible: true,
-        });
+        node.root.remove();
+        node.host = null;
         continue;
       }
-      if (window.innerWidth >= 960 && !obstacles) {
-        const style = getComputedStyle(this.article);
-        const area = this.article.getBoundingClientRect();
-        edge = area.right - parseFloat(style.paddingRight);
-        obstacles = documentInk(this.article);
-      }
-      const size = node.summary.getBoundingClientRect();
-      const box =
-        window.innerWidth >= 960 &&
-        bubblePosition({
-          edge,
-          width: size.width,
-          height: size.height,
-          paragraph: node.host.getBoundingClientRect(),
-          viewport: { left: 0, right: document.documentElement.clientWidth },
-          obstacles,
-        });
-      node.root.classList.toggle("reader-chat-margin", Boolean(box));
-      node.compact = !box;
+      if (host !== node.host || !node.root.isConnected) host.after(node.root);
+      node.host = host;
+      if (node.anchor.parentNode !== host) host.append(node.anchor);
+      node.anchor.hidden = false;
+      node.summary.hidden = true;
+      node.root.classList.toggle("reader-chat-folded", node.panel.hidden);
+      if (!node.panel.hidden) expanded.push(node);
+    }
+    if (!expanded.length) return;
+
+    const area = this.article.getBoundingClientRect();
+    const edge = area.right - parseFloat(getComputedStyle(this.article).paddingRight);
+    const viewport = { right: document.documentElement.clientWidth };
+    const candidates = expanded.map((node) => ({
+      node,
+      scroll: node.messages.scrollTop,
+      box: panelPosition({
+        edge, anchor: node.marker.getBoundingClientRect(), viewport,
+        side: node.root.classList.contains("reader-chat-side"),
+      }),
+    }));
+    // Temporarily take candidates out of flow together. Their own inline rows
+    // must not manufacture empty space for a side presentation.
+    for (const { node, box } of candidates) {
+      node.root.classList.toggle("reader-chat-side", Boolean(box));
+      node.panel.style.cssText = box ? `width:${box.width}px` : "";
+    }
+    const obstacles = candidates.some(({ box }) => box) ? documentInk(this.article) : [];
+    const placements = candidates.map(({ node, box, scroll }) => {
       if (box) {
-        const origin = node.summary.offsetParent.getBoundingClientRect();
-        const left = `${box.left - origin.left}px`,
-          top = `${box.top - origin.top}px`;
-        if (node.summary.style.left !== left) node.summary.style.left = left;
-        if (node.summary.style.top !== top) node.summary.style.top = top;
-        obstacles.push(box);
-      } else {
-        node.summary.style.cssText = "";
-        node.root.classList.add("reader-chat-compact");
-        if (node.anchor.parentNode !== node.host) node.host.append(node.anchor);
-        node.anchor.hidden = false;
+        // Read the trigger again after removing expanded rows from document flow.
+        box.top = node.marker.getBoundingClientRect().top;
+        box.bottom = box.top + node.panel.getBoundingClientRect().height;
+        if (overlapsInk(box, obstacles)) box = null;
+        else obstacles.push(box);
       }
-      if (node.restoreEntryFocus) {
-        (box ? node.summary : node.marker).focus({ preventScroll: true });
-        node.restoreEntryFocus = false;
-      }
+      return { node, box, scroll };
+    });
+    for (const { node, box } of placements) {
+      node.root.classList.toggle("reader-chat-side", Boolean(box));
+      if (!box) node.panel.style.cssText = "";
+    }
+    for (const { node, box, scroll } of placements) {
+      if (box) {
+        box.top = node.marker.getBoundingClientRect().top;
+        const origin = node.root.getBoundingClientRect();
+        node.panel.style.cssText = `width:${box.width}px;left:${box.left - origin.left}px;top:${box.top - origin.top}px`;
+      } else node.panel.style.cssText = "";
+      resizeComposer(node.input);
+      node.transcript.update(this.state.records.get(node.root.dataset.conversationId).thread, {
+        visible: true,
+      });
+      node.messages.scrollTop = scroll;
     }
   }
 
@@ -785,6 +781,7 @@ export class ParagraphChatController {
   clearNodes() {
     for (const node of this.nodes.values()) {
       clearTimeout(node.draftTimer);
+      this.resize.unobserve(node.panel);
       node.anchor.remove();
       node.root.remove();
     }

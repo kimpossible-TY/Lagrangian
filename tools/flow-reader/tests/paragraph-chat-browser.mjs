@@ -334,52 +334,85 @@ try {
   await page.unroute("**/api/chat/send");
   await first.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.waitForTimeout(500);
-  const geometry = await first.evaluate(async (root) => {
-    const { documentInk } = await import(
-      new URL("features/paragraph-chat/geometry.js", location.href).href
-    );
-    const summary = root.querySelector(".reader-chat-summary").getBoundingClientRect();
-    const article = document.querySelector("#reader-document"),
-      area = article.getBoundingClientRect();
-    const edge = area.right - parseFloat(getComputedStyle(article).paddingRight);
-    return {
-      margin: root.classList.contains("reader-chat-margin"),
-      width: summary.width,
-      inside: edge - summary.left,
-      outside: summary.right - edge,
-      overlaps: documentInk(article).some(
-        (ink) =>
-          summary.left < ink.right &&
-          summary.right > ink.left &&
-          summary.top < ink.bottom &&
-          summary.bottom > ink.top,
-      ),
-    };
-  });
-  check("Wide summary uses empty margin space", geometry.margin && !geometry.overlaps);
-  check(
-    "Wide geometry is exactly w/3 and 2w/3",
-    Math.abs(geometry.inside - geometry.width / 3) < 1 &&
-      Math.abs(geometry.outside - (geometry.width * 2) / 3) < 1,
-  );
-  await first.locator(".reader-chat-summary").focus();
+  const firstMarker = page.locator("#first .reader-chat-marker");
+  await firstMarker.waitFor({ state: "visible" });
+  check("Wide folded conversation keeps only the same inline logo", await firstMarker.evaluate((button) =>
+    button.textContent === "" && button.querySelector(".reader-chat-marker-bubble").getBoundingClientRect().width === 28,
+  ) && !(await first.locator(".reader-chat-summary").isVisible()));
+  await page.setViewportSize({ width: 2048, height: 900 });
+  await firstMarker.focus();
   await page.keyboard.press("Enter");
-  check("Keyboard opens directly below paragraph", await first.locator("textarea").isVisible());
+  await page.waitForFunction(() => document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
+  check("Open side capsule uses real margin without covering document ink", await first.evaluate(async (root) => {
+    const { documentInk, overlapsInk } = await import(new URL("features/paragraph-chat/geometry.js", location.href).href);
+    const panel = root.querySelector(".reader-chat-panel").getBoundingClientRect();
+    const article = document.querySelector("#reader-document");
+    const edge = article.getBoundingClientRect().right - parseFloat(getComputedStyle(article).paddingRight);
+    return panel.width >= 360 && panel.width <= 420 && panel.left >= edge + 23 &&
+      panel.right <= innerWidth - 11 && !overlapsInk(panel, documentInk(article));
+  }));
+  const firstInput = first.locator("textarea");
+  await firstInput.fill("Draft survives adaptive placement");
+  await firstInput.evaluate((input) => {
+    input.focus();
+    input.setSelectionRange(6, 14);
+    window.chatContinuityFixture = { input, panel: input.closest(".reader-chat-panel"), marker: document.querySelector("#first .reader-chat-marker") };
+    const messages = input.closest(".reader-chat-panel").querySelector(".reader-chat-messages");
+    messages.scrollTop = 60;
+  });
+  const transcriptScroll = await first.locator(".reader-chat-messages").evaluate((node) => node.scrollTop);
+  check("Long conversation scrolls while composer remains inside side capsule", transcriptScroll > 0 && await first.evaluate((root) => {
+    const panel = root.querySelector(".reader-chat-panel").getBoundingClientRect();
+    return root.querySelector("textarea").getBoundingClientRect().bottom <= panel.bottom;
+  }));
+  for (const width of [390, 1280, 2048, 390, 2048]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(180);
+    check(`Resize ${width} retains controls, draft, caret, model and focus`, await firstInput.evaluate((input) => {
+      const saved = window.chatContinuityFixture;
+      return input === saved.input && input.closest(".reader-chat-panel") === saved.panel &&
+        document.querySelector("#first .reader-chat-marker") === saved.marker &&
+        input.value === "Draft survives adaptive placement" && input.selectionStart === 6 && input.selectionEnd === 14 &&
+        document.activeElement === input && input.closest(".reader-chat").querySelector("select").value === "fixture-model";
+    }));
+    check(`Resize ${width} retains transcript scroll`, Math.abs(await first.locator(".reader-chat-messages").evaluate((node) => node.scrollTop) - transcriptScroll) < 2);
+  }
+  const hysteresisMiddle = await page.evaluate(() => {
+    const article = document.querySelector("#reader-document");
+    const edge = article.getBoundingClientRect().right - parseFloat(getComputedStyle(article).paddingRight);
+    const available = document.documentElement.clientWidth - 12 - edge - 24;
+    return innerWidth + Math.round(2 * (372 - available));
+  });
+  for (const [width, side] of [[hysteresisMiddle, true], [hysteresisMiddle - 36, false], [hysteresisMiddle, false], [2048, true]]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(180);
+    check(`Width hysteresis ${width} keeps placement ${side}`, (await first.getAttribute("class")).includes("reader-chat-side") === side);
+  }
+  await page.evaluate(() => {
+    const article = document.querySelector("#reader-document");
+    const area = article.getBoundingClientRect();
+    const edge = area.right - parseFloat(getComputedStyle(article).paddingRight);
+    const obstacle = document.createElement("figure");
+    obstacle.id = "chat-side-obstacle";
+    obstacle.style.cssText = `position:fixed;left:${edge + 24}px;top:${document.querySelector("#first .reader-chat-marker").getBoundingClientRect().top}px;width:380px;height:160px;margin:0`;
+    obstacle.textContent = "Existing figure occupies this margin";
+    article.append(obstacle);
+  });
+  await page.waitForFunction(() => !document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
+  check("Existing margin content sends open conversation below its paragraph", await first.locator("textarea").isVisible());
+  await page.locator("#chat-side-obstacle").evaluate((node) => node.remove());
+  await page.waitForFunction(() => document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
+  check("Removing the collision restores side presentation", await firstMarker.isVisible());
+  await firstInput.fill("");
   await page.keyboard.press("Escape");
-  check(
-    "Escape returns summary focus",
-    await first.locator(".reader-chat-summary").evaluate((node) => node === document.activeElement),
-  );
+  check("Escape returns annotation focus", await firstMarker.evaluate((node) => node === document.activeElement));
   await page.keyboard.press("Space");
   check("Space opens the conversation", await first.locator("textarea").isVisible());
   await page.keyboard.press("Escape");
-  await first.locator(".reader-chat-summary").tap();
-  check(
-    "Touch opens without changing canonical selection",
-    (await first.locator("textarea").isVisible()) &&
-      (await page.evaluate(() => getSelection().isCollapsed)),
-  );
+  await firstMarker.tap();
+  check("Touch opens without changing canonical selection", await first.locator("textarea").isVisible() && await page.evaluate(() => getSelection().isCollapsed));
   await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1280, height: 850 });
   await select("second independent");
   check(
     "Terminal bridge reuses Ask",
@@ -407,8 +440,8 @@ try {
   await second.locator("textarea").fill("An unsent durable draft");
   await page.waitForTimeout(600);
   await page.reload();
-  await second.locator(".reader-chat-summary").waitFor();
-  await second.locator(".reader-chat-summary").click();
+  await page.locator("#second .reader-chat-marker").waitFor();
+  await page.locator("#second .reader-chat-marker").click();
   check(
     "Reload restores host draft",
     (await second.locator("textarea").inputValue()) === "An unsent durable draft",
@@ -444,6 +477,18 @@ try {
       document.querySelector("#second + .reader-chat .reader-chat-status")?.dataset.state ===
       "completed",
   );
+  await page.setViewportSize({ width: 2300, height: 900 });
+  await firstMarker.click();
+  await page.waitForTimeout(300);
+  check("Nearby open conversations avoid overlapping side capsules", await page.evaluate(() => {
+    const first = document.querySelector("#first + .reader-chat");
+    const second = document.querySelector("#second + .reader-chat");
+    const a = first.querySelector(".reader-chat-panel").getBoundingClientRect();
+    const b = second.querySelector(".reader-chat-panel").getBoundingClientRect();
+    return first.classList.contains("reader-chat-side") && !second.classList.contains("reader-chat-side") &&
+      !(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+  }));
+  await first.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
   const composerInput = second.locator("textarea");
@@ -492,7 +537,7 @@ try {
   await page.waitForTimeout(300);
   check(
     "Narrow viewport falls back inline",
-    !(await second.getAttribute("class")).includes("reader-chat-margin"),
+    !(await second.getAttribute("class")).includes("reader-chat-side"),
   );
   const marker = page.locator("#second > .reader-chat-anchor .reader-chat-marker");
   await marker.waitFor({ state: "visible" });
@@ -511,7 +556,7 @@ try {
   check("Closing returns focus to compact annotation", await marker.evaluate((button) => document.activeElement === button));
   await page.setViewportSize({ width: 1280, height: 850 });
   await page.waitForTimeout(200);
-  check("Resize restores the wide summary and transfers focus", await second.locator(".reader-chat-summary").evaluate((button) => document.activeElement === button && button.getBoundingClientRect().width > 0));
+  check("Wide resize retains the annotation and its focus", await marker.evaluate((button) => document.activeElement === button && button.getBoundingClientRect().width === 44) && !(await second.locator(".reader-chat-summary").isVisible()));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(200);
   check("Resize restores annotation without duplication", (await page.locator("#second > .reader-chat-anchor").count()) === 1 && await marker.evaluate((button) => document.activeElement === button));
@@ -570,12 +615,12 @@ try {
     article.style.boxSizing = "border-box";
   });
   await marker.waitFor({ state: "visible" });
-  check("Wide viewport with no margin also uses the annotation", !(await second.getAttribute("class")).includes("reader-chat-margin"));
+  check("Wide viewport with no margin also uses the annotation", !(await second.getAttribute("class")).includes("reader-chat-side"));
   await page.locator("#reader-document").evaluate((article, style) => {
     if (style === null) article.removeAttribute("style");
     else article.setAttribute("style", style);
   }, previousArticleStyle);
-  await second.locator(".reader-chat-summary").waitFor({ state: "visible" });
+  await marker.waitFor({ state: "visible" });
   check("Annotation divider is removed", (await page.locator(".flow-side-divider").count()) === 0);
   check(
     "Meaningful annotation connector remains",
