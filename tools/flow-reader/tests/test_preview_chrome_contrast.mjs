@@ -6,6 +6,21 @@ import postcss from "postcss";
 const parse = (path) => postcss.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const theme = parse("../web/theme.css");
 const chrome = parse("../../typst-preview-frontend/src/styles/layout.css");
+test("preview toolbar uses only the documented inline-width override", () => {
+  const toolbar = parse("../../typst-preview-frontend/src/styles/toolbar.css");
+  const important = (sheet) => {
+    const declarations = [];
+    sheet.walkDecls((decl) => { if (decl.important) declarations.push(decl); });
+    return declarations;
+  };
+  assert.deepEqual(important(toolbar), []);
+  const overrides = important(chrome);
+  assert.equal(overrides.length, 1);
+  assert.equal(overrides[0].prop, "width");
+  assert.equal(overrides[0].value, "100%");
+  assert.equal(overrides[0].parent.selector, "#typst-container.mode-slide #typst-top-toolbar");
+  assert.match(overrides[0].prev()?.text ?? "", /inline calc width/);
+});
 function rule(tree, selector) {
   let result;
   tree.walkRules(selector, (node) => { if (!result) result = node; });

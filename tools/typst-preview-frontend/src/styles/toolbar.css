@@ -76,9 +76,10 @@
 #typst-page-selector, .typst-page-selector-divider { font: 500 var(--type-small) var(--font-system); }
 .typst-toolbar-icon { --fill-color: var(--ink); border-radius: var(--radius-small); }
 #typst-top-toolbar .typst-toolbar-icon {
-  flex-basis: 44px !important;
-  width: 44px !important;
-  height: 44px !important;
+  flex-basis: 44px;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
 }
@@ -94,7 +95,13 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
 }
+#typst-container.mode-slide #typst-top-toolbar .typst-toolbar-icon,
+#typst-container.mode-slide .typst-page-button,
+#typst-container.mode-slide #typst-page-selector { height: 35px; }
 .typst-page-button:hover, .typst-toolbar-icon:hover { background: var(--wash); color: var(--ink); }
 #typst-page-selector:focus-visible, .typst-page-button:focus-visible, .typst-toolbar-icon:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
+}
+#typst-container.mode-slide :is(#typst-page-selector, .typst-page-button, .typst-toolbar-icon):focus-visible {
+  outline-offset: -2px;
 }

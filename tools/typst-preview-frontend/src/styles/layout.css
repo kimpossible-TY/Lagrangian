@@ -203,11 +203,9 @@ html[data-document-theme] { --typst-preview-background-color: var(--paper); }
 /* Preserve the slide toolbar's original 35px overlay footprint. */
 #typst-container.mode-slide #typst-top-toolbar {
   box-sizing: border-box;
+  /* Override the inline calc width in index.html for the slide overlay. */
   width: 100% !important;
   height: 35px;
   min-height: 0;
   padding: 0 0.75rem;
 }
-#typst-container.mode-slide #typst-top-toolbar .typst-toolbar-icon,
-#typst-container.mode-slide .typst-page-button,
-#typst-container.mode-slide #typst-page-selector { height: 35px !important; }

@@ -190,6 +190,21 @@ try {
       if (document.querySelector(".typst-page-number-indicator").textContent !== "12") throw new Error("Ready fixture missing total pages");
       if ([...document.querySelectorAll("body *")].some((element) => element.children.length === 0 && element.textContent.includes("Preparing preview") && element.checkVisibility())) throw new Error("Ready fixture shows preparing status");
     });
+    // The fixture makes the existing div controls focusable to exercise their focus styles.
+    await page.evaluate(() => {
+      document.querySelectorAll("#typst-top-toolbar .typst-toolbar-icon, #typst-top-toolbar .typst-page-button").forEach((element) => { element.tabIndex = 0; });
+    });
+    await page.keyboard.press("Tab");
+    for (const selector of ["#typst-page-selector", "#typst-top-toolbar-navigator", "#typst-top-help-button", "#typst-page-prev-selector .typst-page-button", "#typst-page-next-selector .typst-page-button"]) {
+      await page.locator(selector).focus();
+      await page.locator(selector).evaluate((element) => {
+        const toolbar = document.querySelector("#typst-top-toolbar").getBoundingClientRect();
+        const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+        const expansion = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+        if (!element.matches(":focus-visible") || style.outlineStyle === "none" || !(parseFloat(style.outlineWidth) > 0) || !Number.isFinite(expansion)) throw new Error(`Missing focus outline: ${element.id || element.parentElement.id}`);
+        if (rect.left - expansion < Math.max(toolbar.left, 0) || rect.top - expansion < Math.max(toolbar.top, 0) || rect.right + expansion > Math.min(toolbar.right, innerWidth) || rect.bottom + expansion > Math.min(toolbar.bottom, innerHeight)) throw new Error(`Clipped focus outline: ${element.id || element.parentElement.id}`);
+      });
+    }
     await capture("preview-revealed", true);
     for (const forcedTheme of ["light", "dark"]) {
       await page.evaluate((value) => { document.documentElement.dataset.documentTheme = value; }, forcedTheme);
