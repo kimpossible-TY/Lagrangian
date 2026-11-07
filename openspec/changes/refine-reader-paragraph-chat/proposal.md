@@ -19,8 +19,12 @@ Record bounded content-free request timing in the existing host log so local
 processing, provider rounds and document-tool delays can be distinguished.
 Avoid duplicate full source checks in cancellation polling while retaining full
 validation at event, tool and completion boundaries.
+Keep a bounded tab-local copy of unacknowledged composer text and pending send
+identity. Recover it after reload without automatically saving over a host draft
+or sending a question; clear it when the host acknowledges the exact draft/send.
 
 ## Impact
-HTML and terminal browser presentation, plus host/provider timing diagnostics.
+HTML and terminal browser presentation, tab-local unsent-draft recovery and
+host/provider timing diagnostics.
 No source changes, history schema, authentication authority, live credentials,
 model request parameters or inference policy changes.

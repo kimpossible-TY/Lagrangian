@@ -358,6 +358,39 @@ try {
     "Successful retry clears the rejected-send notice",
     !(await first.locator(".reader-chat-status").textContent()).includes("전송하지 못했습니다"),
   );
+  let reloadLostAckSends = 0;
+  await page.route("**/api/chat/list", (route) => route.fulfill({ status: 503, body: "{}" }));
+  await page.route("**/api/chat/send", async (route) => {
+    reloadLostAckSends++;
+    assert.ok((await route.fetch()).ok());
+    await route.fulfill({ status: 503, body: "{}" });
+  });
+  await first.locator("textarea").fill("Accepted before this tab reloaded");
+  await first.locator("button[type=submit]").click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#first + .reader-chat .reader-chat-status")?.dataset.state ===
+      "request-failed",
+  );
+  for (const deadline = Date.now() + 5000; ; ) {
+    const accepted = (await history()).find((r) => r.conversation_id === firstID);
+    if (accepted.status === "completed") break;
+    assert.ok(Date.now() < deadline, "Accepted turn completes before reload recovery");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  await page.unroute("**/api/chat/list");
+  await page.unroute("**/api/chat/send");
+  await page.reload();
+  await first.locator(".reader-chat-summary").click();
+  check(
+    "Reload reconciles a lost send acknowledgment without restoring or resending the question",
+    reloadLostAckSends === 1 &&
+      (await first.locator("textarea").inputValue()) === "" &&
+      !(await first.locator(".reader-chat-draft-recovery").isVisible()) &&
+      (await history())
+        .find((r) => r.conversation_id === firstID)
+        .thread.filter((m) => m.text === "Accepted before this tab reloaded").length === 1,
+  );
   await first.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.waitForTimeout(500);
   const geometry = await first.evaluate(async (root) => {
@@ -413,6 +446,7 @@ try {
   );
   const second = page.locator("#second + .reader-chat");
   await second.locator("textarea").waitFor({ state: "visible" });
+  const secondID = await second.getAttribute("data-conversation-id");
   check(
     "Paragraphs have independent histories",
     (await second.getAttribute("data-conversation-id")) !== firstID &&
@@ -442,6 +476,76 @@ try {
   check(
     "Conversation identity survives reopen",
     (await first.getAttribute("data-conversation-id")) === firstID,
+  );
+  await control({ draftsUnavailable: true });
+  await second.locator("textarea").fill("Recover this failed autosave 🧮");
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#second + .reader-chat .reader-chat-status")?.dataset.state ===
+      "request-failed",
+  );
+  await page.reload();
+  await second.locator(".reader-chat-summary").waitFor();
+  check(
+    "Collapsed conversation identifies its recovered draft",
+    (await second.locator(".reader-chat-summary").textContent()).startsWith("복구한 초안"),
+  );
+  await second.locator(".reader-chat-summary").click();
+  await second.locator(".reader-chat-draft-recovery").waitFor({ state: "visible" });
+  check(
+    "Reload recovers an unacknowledged draft without overwriting the host draft",
+    (await second.locator("textarea").inputValue()) === "Recover this failed autosave 🧮" &&
+      (await second.locator(".reader-chat-draft-recovery pre").textContent()) ===
+        "An unsent durable draft" &&
+      (await history()).find((r) => r.conversation_id === secondID).draft ===
+        "An unsent durable draft",
+  );
+  await control({ draftsUnavailable: false });
+  await second.getByRole("button", { name: "복구한 초안 저장", exact: true }).click();
+  await second.locator(".reader-chat-draft-recovery").waitFor({ state: "hidden" });
+  check(
+    "Recovered draft is saved only after explicit review",
+    (await history()).find((r) => r.conversation_id === secondID).draft ===
+      "Recover this failed autosave 🧮",
+  );
+  await page.reload();
+  await second.locator(".reader-chat-summary").click();
+  check(
+    "Acknowledged recovery does not reappear",
+    !(await second.locator(".reader-chat-draft-recovery").isVisible()) &&
+      (await second.locator("textarea").inputValue()) === "Recover this failed autosave 🧮",
+  );
+  await page.evaluate(() => {
+    window.__originalDraftSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("reader_chat_draft_v1_")) throw new Error("Fixture storage unavailable");
+      return window.__originalDraftSetItem.call(this, key, value);
+    };
+  });
+  await page.route("**/api/chat/draft", (route) => route.fulfill({ status: 503, body: "{}" }));
+  await second.locator("textarea").fill("Volatile edit while storage is unavailable");
+  check(
+    "Unpersisted edits guard page exit when tab storage fails",
+    (await second.locator(".reader-chat-draft-warning").isVisible()) &&
+      (await page.evaluate(() => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      })),
+  );
+  await page.unroute("**/api/chat/draft");
+  await page.evaluate(() => {
+    Storage.prototype.setItem = window.__originalDraftSetItem;
+  });
+  await second.locator("textarea").fill("An unsent durable draft");
+  await page.waitForTimeout(600);
+  check(
+    "Host acknowledgment removes the volatile-edit exit guard",
+    await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return !event.defaultPrevented;
+    }),
   );
   await control({ mode: "disconnect" });
   await second

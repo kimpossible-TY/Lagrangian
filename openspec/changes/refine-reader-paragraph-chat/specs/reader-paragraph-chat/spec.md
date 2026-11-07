@@ -1,5 +1,27 @@
 ## ADDED Requirements
 
+### Requirement: Unacknowledged draft recovery
+The browser SHALL retain a bounded tab-local recovery copy of unacknowledged
+composer text, scoped to its document and conversation, and the pending message
+identity after an explicit Send. Recovery MUST NOT automatically overwrite host
+drafts or dispatch questions. It MUST NOT copy history, source context or
+credentials. Exact host acknowledgment SHALL remove the matching recovery copy
+without deleting newer edits.
+
+#### Scenario: Failed autosave followed by reload
+- **WHEN** draft saving fails and the same tab reloads with tab storage available
+- **THEN** the composer restores that text and identifies it as recovered
+- **AND** the host draft remains accessible until the user explicitly saves or sends.
+
+#### Scenario: Lost send acknowledgment followed by reload
+- **WHEN** a pending send was accepted before its acknowledgment was lost
+- **THEN** recovery reconciles its original message ID with host history
+- **AND** it neither offers that accepted question as an unsent draft nor resends it.
+
+#### Scenario: Unavailable tab storage
+- **WHEN** tab storage cannot save an unacknowledged edit
+- **THEN** editing remains available in memory, a visible notice advises saving/copying before leaving, and supported page-unload warnings are requested.
+
 ### Requirement: Content-free host timing diagnostics
 Each model turn SHALL emit at most one bounded host-log report containing only
 allowlisted stage names, relative durations, numeric round indices/counts and a

@@ -22,6 +22,7 @@
   "features/navigation/toolbar-visibility.js": "features/navigation/toolbar-visibility.js",
   "features/paragraph-chat/content.js": "features/paragraph-chat/content.js",
   "features/paragraph-chat/controller.js": "features/paragraph-chat/controller.js",
+  "features/paragraph-chat/draft-recovery.js": "features/paragraph-chat/draft-recovery.js",
   "features/paragraph-chat/geometry.js": "features/paragraph-chat/geometry.js",
   "features/review-strikes/renderer.js": "features/review-strikes/renderer.js",
   "features/review-strikes/store.js": "features/review-strikes/store.js",

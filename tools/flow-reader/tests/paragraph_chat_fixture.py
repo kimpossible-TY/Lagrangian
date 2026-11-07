@@ -24,13 +24,18 @@ def main():
         inventory = HomeInventory(FakeManager())
         account = HomeAccount(FakeAuth(Path(directory)), FakeProvider())
         base = handler_for_reader({"fixture": reader.state}, inventory, account, capability="fixture-proof")
+        faults = {"draftsUnavailable": False}
         class Handler(base):
             def do_POST(self):
+                if self.path == "/d/fixture/api/chat/draft" and faults["draftsUnavailable"]:
+                    return self.respond({"error": "Fixture draft storage unavailable"}, 503)
                 if self.path != "/d/fixture/fixture-control":
                     return super().do_POST()
                 if self.headers.get("X-Fixture-Token") != token:
                     return self.respond({"error": "Forbidden"}, 403)
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if "draftsUnavailable" in request:
+                    faults["draftsUnavailable"] = bool(request["draftsUnavailable"])
                 if request.get("mode"):
                     fake.mode = request["mode"]
                 if request.get("delete"):

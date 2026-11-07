@@ -109,6 +109,18 @@ speedup percentage or evidence about physical iPhone network latency. The UI was
 observed completed by 11 seconds after clicking Send; host timings are more
 precise for the measured server work. The unsaved-draft reload case remains open.
 
+Tab-local draft recovery now retains only bounded unacknowledged composer text
+and optional pending message identity. Chromium and WebKit each pass 56 checks,
+including actual host-side autosave rejection followed by reload, preservation
+of a different host draft until explicit saving, acknowledged-copy cleanup,
+lost-send-acknowledgment reconciliation across reload, and storage-denial notice/
+unload guards. The HTML Node suite passed 283 checks with one existing skip;
+the isolated clean-install check passed. Reader ESLint and changed-JS formatting,
+strict OpenSpec and whitespace checks pass. Yarn was unavailable, so its exact
+lint:readers ESLint command was executed directly. The canonical architecture
+document compiled to PDF and HTML, including the new recovery ownership text.
+Installed-Reader recovery verification is pending deployment.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

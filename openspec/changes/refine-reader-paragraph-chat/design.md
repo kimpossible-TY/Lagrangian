@@ -28,6 +28,21 @@ the paragraph again; earlier message contexts and drafts remain intact. Request
 errors belong to the conversation view and survive ordinary rerenders until that
 operation succeeds or the reader explicitly refreshes its selected context.
 
+`draft-recovery.js` owns a bounded sessionStorage recovery copy keyed by document
+and conversation. It contains only up to 8000 characters of composer text and,
+after an explicit Send, that pending message ID. No history, source context or
+credentials are copied. On reload the controller reconciles the copy against
+the host's exact saved draft or accepted user-message identity before displaying
+it. Unacknowledged text is restored with a visible notice; the current host draft
+remains available in details, and automatic draft writes/pagehide flushes pause
+until the user explicitly saves or sends the recovered text. Acknowledgment
+removes the recovery copy, without deleting newer edits or resurrecting text if
+storage removal fails. Unavailable tab storage retains editing in memory, shows
+a saving/copying notice, and adds a beforeunload guard only while those volatile
+edits remain unacknowledged. Mobile lifecycle termination is not assumed to
+deliver beforeunload; the visible notice covers that limitation.
+The host remains authoritative for history and all model dispatch.
+
 Each host run writes one bounded timing report to the existing stderr log. The
 provider marks authentication readiness, per-round request/headers/first event/
 first text/completion and bounded document-tool boundaries with monotonic elapsed

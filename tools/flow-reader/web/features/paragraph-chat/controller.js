@@ -6,6 +6,7 @@ import {
 } from "../../reader-common/paragraph-chat/state.js";
 import { bubblePosition, documentInk } from "./geometry.js";
 import { readerLink } from "../../ui/reader-links.js";
+import { DraftRecovery } from "./draft-recovery.js";
 
 const element = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -25,6 +26,12 @@ export class ParagraphChatController {
     this.nodes = new Map();
     this.createAccountSettings();
     this.drafts = new Map();
+    this.recovery = new DraftRecovery();
+    this.volatileDrafts = new Set();
+    this.warnDraftLoss = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
     this.queues = new Map();
     this.chosenModels = new Map();
     this.pending = false;
@@ -77,6 +84,36 @@ export class ParagraphChatController {
 
   identity() {
     return this.state.snapshot && { ...this.state.snapshot };
+  }
+
+  rememberDraft(id, text, messageID) {
+    if (this.recovery.set(this.state.snapshot.documentID, id, text, messageID))
+      this.volatileDrafts.delete(id);
+    else this.volatileDrafts.add(id);
+    const node = this.nodes.get(id);
+    if (node) this.updateDraftNotice(node);
+    this.updateExitGuard();
+  }
+
+  updateDraftNotice(node) {
+    const volatile = this.volatileDrafts.has(node.root.dataset.conversationId);
+    node.storageNotice.hidden = !volatile;
+    node.input.setAttribute(
+      "aria-describedby",
+      [node.status.id, node.recovered && node.recoveryNotice.id, volatile && node.storageNotice.id]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+
+  updateExitGuard() {
+    const guarded = this.volatileDrafts.size > 0;
+    if (guarded === Boolean(this.exitGuarded)) return;
+    window[guarded ? "addEventListener" : "removeEventListener"](
+      "beforeunload",
+      this.warnDraftLoss,
+    );
+    this.exitGuarded = guarded;
   }
 
   getChosenModel(id) {
@@ -228,7 +265,33 @@ export class ParagraphChatController {
     input.placeholder = "궁금한 점을 적어 주세요…";
     input.maxLength = 8000;
     input.rows = 2;
+    const recovered = this.drafts.has(id)
+      ? null
+      : this.recovery.get(this.state.snapshot.documentID, id);
+    if (recovered) this.drafts.set(id, recovered.text);
     input.value = this.drafts.get(id) ?? record.draft;
+    const recovery = element("div", "", "reader-chat-draft-recovery");
+    const recoveryNotice = element(
+      "p",
+      "이 탭에 남아 있던 미저장 초안을 복구했습니다. 내용을 확인한 뒤 저장하거나 보내세요.",
+    );
+    recoveryNotice.id = `reader-chat-recovery-${id}`;
+    const savedDraftDetails = element("details");
+    const savedDraft = element("pre");
+    savedDraftDetails.append(element("summary", "서버에 저장된 초안 보기"), savedDraft);
+    const saveRecovered = element("button", "복구한 초안 저장");
+    saveRecovered.type = "button";
+    saveRecovered.addEventListener("click", () => this.action(id, "draft", { draft: input.value }));
+    recovery.append(recoveryNotice, savedDraftDetails, saveRecovered);
+    recovery.hidden = !recovered;
+    const storageNotice = element(
+      "p",
+      "임시 보관을 사용할 수 없습니다. 페이지를 나가기 전에 초안을 서버에 저장하거나 복사해 주세요.",
+      "reader-chat-draft-warning",
+    );
+    storageNotice.id = `reader-chat-draft-warning-${id}`;
+    storageNotice.setAttribute("role", "status");
+    storageNotice.hidden = true;
     const send = element("button", "보내기 ↑", "reader-chat-send");
     send.type = "submit";
     const cancel = element("button", "생성 중단", "reader-chat-interrupt");
@@ -249,7 +312,7 @@ export class ParagraphChatController {
     });
     const actions = element("div", "", "reader-chat-composer-actions");
     actions.append(model, account, cancel, send);
-    form.append(inputLabel, input, actions);
+    form.append(inputLabel, recovery, storageNotice, input, actions);
     heading.append(close);
     panel.append(heading, contextLabel, quote, messages, status, form);
     root.append(summary, panel);
@@ -264,9 +327,11 @@ export class ParagraphChatController {
     // Native button Enter/Space and click cover keyboard, pointer and touch.
     input.addEventListener("input", () => {
       this.drafts.set(id, input.value);
+      this.rememberDraft(id, input.value);
       this.updateSend(node);
       clearTimeout(node.draftTimer);
-      node.draftTimer = setTimeout(() => this.action(id, "draft", { draft: input.value }), 250);
+      if (!node.recovered)
+        node.draftTimer = setTimeout(() => this.action(id, "draft", { draft: input.value }), 250);
     });
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) {
@@ -293,6 +358,15 @@ export class ParagraphChatController {
       send,
       cancel,
       model,
+      recovery,
+      recoveryNotice,
+      storageNotice,
+      recovered: Boolean(recovered),
+      savedDraft,
+      savedDraftDetails,
+      pendingMessage: recovered?.messageID
+        ? { question: recovered.text, id: recovered.messageID }
+        : null,
     };
     this.nodes.set(id, node);
     return node;
@@ -327,8 +401,18 @@ export class ParagraphChatController {
     let unresolved = false;
     for (const record of this.state.records.values()) {
       const id = record.conversation_id;
+      const acknowledged = this.recovery?.acknowledge(this.state.snapshot.documentID, record);
+      if (acknowledged) this.volatileDrafts?.delete(id);
+      if (acknowledged && this.drafts.get(id) === acknowledged.text) this.drafts.delete(id);
       let node = this.nodes.get(id);
       if (!node) node = this.create(record);
+      if (acknowledged) node.recovered = false;
+      if (node.recovery) {
+        node.recovery.hidden = !node.recovered;
+        node.savedDraft.textContent = record.draft;
+        node.savedDraftDetails.hidden = !record.draft || record.draft === node.input.value;
+        this.updateDraftNotice(node);
+      }
       const attachment = record.attachment;
       const host =
         attachment.state === "attached" &&
@@ -344,7 +428,7 @@ export class ParagraphChatController {
       }
       node.host = host;
       if (node.quote.textContent !== record.quote) node.quote.textContent = record.quote;
-      const title = conversationSummary(record);
+      const title = (node.recovered ? "복구한 초안 · " : "") + conversationSummary(record);
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
       node.transcript.update(record.thread, { visible: !node.panel.hidden });
@@ -385,6 +469,7 @@ export class ParagraphChatController {
       this.updateSend(node);
     }
     this.renderAccount(this.accountSettings);
+    this.updateExitGuard?.();
     this.unresolved.hidden = !unresolved;
     this.schedule();
   }
@@ -568,6 +653,7 @@ export class ParagraphChatController {
     if (!node.pendingMessage || node.pendingMessage.question !== question)
       node.pendingMessage = { question, id: crypto.randomUUID() };
     this.drafts.set(id, question);
+    this.rememberDraft?.(id, question, node.pendingMessage.id);
     if (this.setChosenModel) this.setChosenModel(id, node.model.value);
     node.sending = true;
     node.send.disabled = true;
@@ -714,7 +800,8 @@ export class ParagraphChatController {
   flushDrafts() {
     for (const [id, draft] of this.drafts) {
       const record = this.state.records.get(id);
-      if (!record) continue;
+      const node = this.nodes.get(id);
+      if (!record || node?.recovered || node?.pendingMessage?.question === draft) continue;
       void fetch("api/chat/draft", {
         method: "POST",
         keepalive: true,
@@ -748,6 +835,7 @@ export class ParagraphChatController {
     this.mutations.disconnect();
     window.removeEventListener("resize", this.reflow);
     window.removeEventListener("pagehide", this.exit);
+    window.removeEventListener("beforeunload", this.warnDraftLoss);
     document.fonts?.removeEventListener("loadingdone", this.reflow);
     this.clearNodes();
     this.unresolved.remove();

@@ -1214,7 +1214,8 @@ button:disabled {
   margin-block: 0.6em;
   white-space: pre-wrap;
 }
-.reader-chat-status {
+.reader-chat-status,
+.reader-chat-draft-warning {
   color: var(--muted);
   font:
     0.75rem/1.6 system-ui,
@@ -1222,6 +1223,9 @@ button:disabled {
 }
 .reader-chat-status[data-state="completed"] {
   margin-block: 0.6em;
+}
+.reader-chat-draft-warning {
+  color: var(--warning);
 }
 .reader-chat-status:is(
   [data-state="failed"],
@@ -1237,6 +1241,18 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: var(--radius-medium);
   background: var(--glass-solid);
+}
+.reader-chat-draft-recovery {
+  margin-block: 0.6em;
+  padding-inline-start: 0.8em;
+  border-inline-start: 2px solid var(--warning);
+  font:
+    0.8rem/1.6 system-ui,
+    sans-serif;
+}
+.reader-chat-draft-recovery pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .reader-chat textarea {
   display: block;
