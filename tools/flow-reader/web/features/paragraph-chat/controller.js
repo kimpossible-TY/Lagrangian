@@ -643,10 +643,7 @@ export class ParagraphChatController {
       if (node.panel.hidden && node.host?.isConnected)
         node.root.classList.add("reader-chat-margin");
     }
-    const style = getComputedStyle(this.article);
-    const area = this.article.getBoundingClientRect();
-    const edge = area.right - parseFloat(style.paddingRight);
-    const obstacles = documentInk(this.article);
+    let edge, obstacles;
     for (const node of this.nodes.values()) {
       if (!node.root.isConnected || !node.host?.isConnected) continue;
       if (!node.panel.hidden) {
@@ -654,6 +651,12 @@ export class ParagraphChatController {
           visible: true,
         });
         continue;
+      }
+      if (window.innerWidth >= 960 && !obstacles) {
+        const style = getComputedStyle(this.article);
+        const area = this.article.getBoundingClientRect();
+        edge = area.right - parseFloat(style.paddingRight);
+        obstacles = documentInk(this.article);
       }
       const size = node.summary.getBoundingClientRect();
       const box =

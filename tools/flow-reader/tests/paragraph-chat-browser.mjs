@@ -425,6 +425,24 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
   check(
+    "Mobile chat layout does not scan document ink",
+    await page.evaluate(async () => {
+      const original = document.createTreeWalker;
+      let scans = 0;
+      document.createTreeWalker = function (...args) {
+        if (args[0] === document.querySelector("#reader-document")) scans++;
+        return original.apply(this, args);
+      };
+      try {
+        window.dispatchEvent(new Event("resize"));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return scans === 0;
+      } finally {
+        document.createTreeWalker = original;
+      }
+    }),
+  );
+  check(
     "Mobile expanded composer fits without page overflow",
     await second.evaluate((root) => {
       const b = root.getBoundingClientRect();

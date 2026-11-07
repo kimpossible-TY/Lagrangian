@@ -10,6 +10,15 @@ The local browser suite passed 42 checks, including interruption, lost
 acknowledgment, a new draft during streaming and 390px viewport overflow. This
 does not measure live inference latency or verify the previous Ask-open failure.
 
+On a further live Reader check, the same prose-and-inline-math selection again
+failed to open chat with HTTP 400; the response did not identify the validation
+failure. A plain-text follow-up completed by the 9-second observation, compared
+with the earlier 26.5-second observation after document reading. These are single
+observations, not a controlled latency comparison. The mobile layout now skips
+document-ink scanning when margin placement cannot be used. Local Chromium
+verified the mobile scan is absent and retained wide margin placement (43 checks,
+zero page errors); live device performance and the 400 cause remain unverified.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this
