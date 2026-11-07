@@ -228,7 +228,11 @@ export class ParagraphChatController {
     input.maxLength = 8000;
     input.rows = 1;
     input.value = this.drafts.get(id) ?? record.draft;
-    const send = element("button", "보내기 ↑", "reader-chat-send");
+    const send = element("button", "", "reader-chat-send");
+    send.setAttribute("aria-label", "보내기");
+    const sendIcon = element("span", "↑");
+    sendIcon.setAttribute("aria-hidden", "true");
+    send.append(sendIcon);
     send.type = "submit";
     const cancel = element("button", "생성 중단", "reader-chat-interrupt");
     cancel.setAttribute("aria-label", "Interrupt");

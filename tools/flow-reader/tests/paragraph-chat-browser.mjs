@@ -119,6 +119,11 @@ try {
       (await first.locator("select[aria-label='ChatGPT model'] option:checked").textContent()).includes("xhigh"),
   );
   check(
+    "Send is an accessible icon-only control",
+    (await first.getByRole("button", { name: "보내기", exact: true }).textContent()) === "↑" &&
+      (await first.locator(".reader-chat-send span").getAttribute("aria-hidden")) === "true",
+  );
+  check(
     "Paragraphs contain no credential controls",
     (await page.locator(".reader-chat input").count()) === 0,
   );

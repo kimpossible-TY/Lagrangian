@@ -1297,15 +1297,18 @@ button:disabled {
     sans-serif;
 }
 .reader-chat .reader-chat-send {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
   min-height: 44px;
   margin-inline-start: auto;
-  padding: 0.6em 1em;
+  padding: 0.4em;
   border: 1px solid var(--accent);
   border-radius: 0.55em;
   color: var(--color-surface);
   background: var(--color-action);
   font:
-    0.8125rem/1.4 system-ui,
+    1.15rem/1 system-ui,
     sans-serif;
 }
 .reader-chat .reader-chat-settings-open {
