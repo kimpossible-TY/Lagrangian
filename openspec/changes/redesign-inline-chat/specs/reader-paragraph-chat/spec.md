@@ -13,8 +13,25 @@ The paragraph conversation SHALL present its source, transcript and composer in 
 #### Scenario: Folded conversation
 
 - **WHEN** the conversation is folded
-- **THEN** it appears as a small rounded one-line summary bubble with a boundary and shadow
-- **AND** it retains the original margin placement, inline fallback, hover, focus, pressed and forced-colors states.
+- **THEN** it appears as a rounded one-line summary bubble in eligible margin space
+- **AND** when margin space is insufficient it becomes a small ChatGPT-logo-only annotation at the end of the associated paragraph, without a separate block row
+- **AND** it retains hover, focus, pressed and forced-colors states.
+
+#### Scenario: Compact annotation interaction
+
+- **WHEN** a compact annotation is activated by keyboard or touch
+- **THEN** the conversation expands below its paragraph and closing returns focus to that annotation
+- **AND** its visual body is 28 by 24 CSS pixels within a 44 by 44 CSS pixel target.
+
+#### Scenario: Canonical source text
+
+- **WHEN** a paragraph has a compact chat annotation
+- **THEN** selection, copying, source matching and model context exclude the annotation.
+
+#### Scenario: Resize and disposal
+
+- **WHEN** the viewport changes, the paragraph unmounts, its anchor becomes unresolved or the controller is disposed
+- **THEN** the annotation changes placement or is removed with its owning conversation without leaving duplicate or stale controls.
 
 #### Scenario: Composing a longer question
 

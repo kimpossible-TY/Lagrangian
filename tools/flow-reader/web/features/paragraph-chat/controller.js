@@ -193,10 +193,27 @@ export class ParagraphChatController {
     const summary = element("button", "", "reader-chat-summary");
     summary.type = "button";
     summary.setAttribute("aria-expanded", "false");
+    const anchor = element("span", "", "reader-chat reader-chat-anchor");
+    anchor.dataset.flowSelectionIgnore = "paragraph-chat";
+    anchor.hidden = true;
+    const marker = element("button", "", "reader-chat-marker");
+    marker.type = "button";
+    marker.setAttribute("aria-expanded", "false");
+    marker.setAttribute("aria-label", "ChatGPT 대화 열기");
+    const bubble = element("span", "", "reader-chat-marker-bubble");
+    bubble.setAttribute("aria-hidden", "true");
+    const logo = element("img");
+    logo.src = new URL("./chatgpt.ico", import.meta.url).href;
+    logo.alt = "";
+    logo.width = logo.height = 16;
+    bubble.append(logo);
+    marker.append(bubble);
+    anchor.append(marker);
     const panel = element("div", "", "reader-chat-panel");
     panel.id = `reader-chat-${id}`;
     panel.hidden = true;
     summary.setAttribute("aria-controls", panel.id);
+    marker.setAttribute("aria-controls", panel.id);
     panel.setAttribute("role", "region");
     const heading = element("div", "", "reader-chat-heading");
     const title = element("span", "ChatGPT");
@@ -261,6 +278,7 @@ export class ParagraphChatController {
     panel.append(heading, contextLabel, quote, messages, responseStatus, form);
     root.append(summary, panel);
     summary.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
+    marker.addEventListener("click", () => this.open(id));
     root.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !panel.hidden) {
         event.stopPropagation();
@@ -289,6 +307,8 @@ export class ParagraphChatController {
     const node = {
       root,
       summary,
+      anchor,
+      marker,
       panel,
       quote,
       messages,
@@ -312,7 +332,9 @@ export class ParagraphChatController {
     node.panel.hidden = false;
     resizeComposer(node.input);
     node.summary.setAttribute("aria-expanded", "true");
-    node.root.classList.remove("reader-chat-margin");
+    node.marker.setAttribute("aria-expanded", "true");
+    node.anchor.hidden = true;
+    node.root.classList.remove("reader-chat-margin", "reader-chat-compact");
     node.summary.style.cssText = "";
     if (focus) node.input.focus({ preventScroll: true });
     else node.panel.querySelector("textarea")?.focus({ preventScroll: true });
@@ -327,7 +349,12 @@ export class ParagraphChatController {
     if (!node) return;
     node.panel.hidden = true;
     node.summary.setAttribute("aria-expanded", "false");
-    node.summary.focus({ preventScroll: true });
+    node.marker.setAttribute("aria-expanded", "false");
+    if (node.compact) {
+      node.root.classList.add("reader-chat-compact");
+      node.anchor.hidden = false;
+    }
+    (node.compact ? node.marker : node.summary).focus({ preventScroll: true });
     this.schedule();
   }
 
@@ -352,10 +379,23 @@ export class ParagraphChatController {
         node.root.remove();
       }
       node.host = host;
+      if (!host && node.anchor) {
+        node.anchor.remove();
+        node.anchor.hidden = true;
+        node.compact = false;
+        node.root.classList.remove("reader-chat-compact", "reader-chat-margin");
+        node.summary.style.cssText = "";
+      }
       if (node.quote.textContent !== record.quote) node.quote.textContent = record.quote;
       const title = conversationSummary(record);
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
+      if (node.marker) {
+        node.marker.title = title;
+        node.marker.setAttribute("aria-label", `ChatGPT 대화 열기: ${title}`);
+        node.marker.dataset.state = record.status;
+        node.marker.setAttribute("aria-busy", String(record.status === "streaming"));
+      }
       node.transcript.update(record.thread, { visible: !node.panel.hidden });
       const status = chatStatus(record);
       node.status.dataset.state = record.status;
@@ -659,15 +699,22 @@ export class ParagraphChatController {
       const host = this.article.querySelector(
         `[data-reader-key="${CSS.escape(record.attachment.key)}"]`,
       );
-      if (host && !node.root.isConnected) {
+      if (host && (host !== node.host || !node.root.isConnected)) {
+        node.anchor.remove();
         host.after(node.root);
         node.host = host;
       }
     }
-    // A fallback's own reserved row must not create its next margin candidate.
+    // Measure wide candidates before an inline marker changes paragraph wrapping.
     for (const node of this.nodes.values()) {
-      if (node.panel.hidden && node.host?.isConnected)
-        node.root.classList.add("reader-chat-margin");
+      if (node.panel.hidden && node.host?.isConnected) {
+        node.restoreEntryFocus = [node.marker, node.summary].includes(document.activeElement);
+        if (window.innerWidth >= 960) {
+          node.anchor.hidden = true;
+          node.root.classList.remove("reader-chat-compact");
+          node.root.classList.add("reader-chat-margin");
+        }
+      }
     }
     let edge, obstacles;
     for (const node of this.nodes.values()) {
@@ -696,6 +743,7 @@ export class ParagraphChatController {
           obstacles,
         });
       node.root.classList.toggle("reader-chat-margin", Boolean(box));
+      node.compact = !box;
       if (box) {
         const origin = node.summary.offsetParent.getBoundingClientRect();
         const left = `${box.left - origin.left}px`,
@@ -703,7 +751,16 @@ export class ParagraphChatController {
         if (node.summary.style.left !== left) node.summary.style.left = left;
         if (node.summary.style.top !== top) node.summary.style.top = top;
         obstacles.push(box);
-      } else if (node.summary.style.left) node.summary.style.cssText = "";
+      } else {
+        node.summary.style.cssText = "";
+        node.root.classList.add("reader-chat-compact");
+        if (node.anchor.parentNode !== node.host) node.host.append(node.anchor);
+        node.anchor.hidden = false;
+      }
+      if (node.restoreEntryFocus) {
+        (box ? node.summary : node.marker).focus({ preventScroll: true });
+        node.restoreEntryFocus = false;
+      }
     }
   }
 
@@ -728,6 +785,7 @@ export class ParagraphChatController {
   clearNodes() {
     for (const node of this.nodes.values()) {
       clearTimeout(node.draftTimer);
+      node.anchor.remove();
       node.root.remove();
     }
     this.nodes.clear();

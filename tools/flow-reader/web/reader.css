@@ -1070,6 +1070,86 @@ button:disabled {
 .reader-chat-summary[aria-expanded="true"] {
   display: none;
 }
+.reader-chat-compact {
+  margin: 0;
+  height: 0;
+}
+.reader-chat-compact > .reader-chat-summary {
+  display: none;
+}
+.reader-chat-anchor {
+  display: inline-flex;
+  margin: 0 0 0 0.2em;
+  background: transparent;
+  font: inherit;
+  vertical-align: -0.3em;
+  text-indent: 0;
+  user-select: none;
+}
+.reader-chat-anchor[hidden] {
+  display: none;
+}
+.reader-chat .reader-chat-marker {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.reader-chat-marker-bubble {
+  box-sizing: border-box;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+.reader-chat-marker-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -3px;
+  left: 6px;
+  width: 5px;
+  height: 5px;
+  border-inline-start: 1px solid var(--color-border);
+  border-block-end: 1px solid var(--color-border);
+  background: inherit;
+  transform: skewY(-35deg);
+}
+.reader-chat-marker:is([data-state="streaming"], [data-state="failed"], [data-state="interrupted"]) .reader-chat-marker-bubble::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--warning);
+}
+.reader-chat-marker[data-state="streaming"] .reader-chat-marker-bubble::before {
+  background: var(--accent);
+}
+.reader-chat-marker img {
+  width: 16px;
+  height: 16px;
+}
+:root[data-theme="dark"] .reader-chat-marker img {
+  filter: invert(1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .reader-chat-marker img {
+    filter: invert(1);
+  }
+}
 .reader-chat-margin {
   margin: 0;
   height: 0;
@@ -1385,6 +1465,11 @@ button:disabled {
 }
 @media (forced-colors: active) {
   .reader-chat-summary { border-color: ButtonText; }
+  .reader-chat-marker-bubble {
+    background: Canvas;
+    border-color: ButtonText;
+    box-shadow: none;
+  }
   .reader-chat button:focus-visible, .reader-chat textarea:focus-visible,
   .reader-chat select:focus-visible { outline-color: Highlight; }
 }
@@ -1395,6 +1480,13 @@ button:disabled {
     color: var(--color-text);
     background: var(--color-tint);
     text-decoration: underline;
+  }
+  .reader-chat .reader-chat-marker:hover:not(:disabled) {
+    background: transparent;
+    text-decoration: none;
+  }
+  .reader-chat-marker:hover .reader-chat-marker-bubble {
+    background: var(--color-tint);
   }
 }
 .reader-chat-message-context summary:focus-visible {
@@ -1504,6 +1596,13 @@ button:disabled {
 }
 .flow-equation > .flow-math-status {
   grid-column: 1 / -1;
+}
+.flow-equation:has(> .reader-chat-anchor:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.flow-equation > .reader-chat-anchor {
+  grid-area: 1 / 3;
+  margin: 0;
 }
 .flow-inline-equation {
   display: inline-block;

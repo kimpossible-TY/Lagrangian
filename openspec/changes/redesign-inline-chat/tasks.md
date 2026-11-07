@@ -1,5 +1,7 @@
 ## Implementation
 
+- [x] Implement the responsive logo annotation, document asset provenance and verify selection, focus, resizing and cleanup in an isolated browser.
+
 - [x] Redesign the inline conversation hierarchy and compact composer while preserving the shared settings dialog and per-conversation model selection.
 - [x] Integrate the concurrent draft-recovery and localized progress changes through `b3856727` without overwriting their source.
 - [x] Verify narrow and wide browser interactions, streaming, interruption, focus, theme and screen captures using isolated fixture data.
@@ -34,3 +36,14 @@ The browser fixture checks the displayed default and existing selection; the
 local fake provider verifies reasoning in multiple requests. Redundant composer
 and status labels are visually hidden while retaining accessible semantics.
 Live SIWC entitlement and real model inference remain unverified.
+
+Compact annotation follow-up: the 28x24 logo bubble reserves a 44x44 inline
+target at its paragraph end, while eligible margins retain the summary. The
+60-check Chromium fixture passes with zero page errors, including copy exclusion,
+keyboard focus transfer, paragraph remounting, wide layouts without spare margin
+space and numbered-equation placement. The 320, 390, 768, 959, 960, 1280 and
+1440px layout matrix passes without horizontal overflow. Refreshed and inspected
+light/dark collapsed captures and narrow/wide expanded captures. Shared/HTML Node
+tests: 315 passed, one skipped; the isolated installed-layout test passes.
+Full reader ESLint, strict OpenSpec validation and diff checks pass. Physical
+iPhone Safari and VoiceOver remain unverified; no live services were changed.

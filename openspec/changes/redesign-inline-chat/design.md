@@ -11,7 +11,16 @@ edge and shadow to distinguish it from the document. The transcript and
 composer share that surface rather than stacking cards. A small rounded summary
 bubble identifies a folded conversation; its boundary, opaque surface and shadow
 match the expanded capsule. It retains the original one-third/two-thirds margin
-placement and inline fallback. A divider identifies the composer. Native
+placement. When no margin candidate fits, the controller appends one excluded
+inline annotation to the associated paragraph; the expanded panel stays after
+that paragraph. The annotation contains a decorative ChatGPT mark and a native
+button, with a 28x24 visual body inside a reserved 44x44 inline target. The
+target reserves inline space rather than overlapping source text. There is no
+separate block row. Known reader exclusions (`.reader-chat` and selection-ignore
+metadata) keep it outside canonical text and model context. Resize restores the
+wide summary when space returns; unmount, unresolved anchors and disposal remove
+the annotation. The original same-control panel and focus-return contract applies
+to whichever entry is visible. A divider identifies the composer. Native
 buttons retain keyboard activation and visible focus, with immediate pressed
 feedback and a forced-colors fallback. This is an editorial web treatment, not
 an imitation of native Liquid Glass optics.

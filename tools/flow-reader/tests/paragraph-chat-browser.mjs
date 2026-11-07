@@ -494,6 +494,59 @@ try {
     "Narrow viewport falls back inline",
     !(await second.getAttribute("class")).includes("reader-chat-margin"),
   );
+  const marker = page.locator("#second > .reader-chat-anchor .reader-chat-marker");
+  await marker.waitFor({ state: "visible" });
+  check("Compact entry is a logo annotation with no separate block row", await marker.evaluate((button) => {
+    const b = button.getBoundingClientRect();
+    const image = button.querySelector("img");
+    const bubble = button.querySelector(".reader-chat-marker-bubble").getBoundingClientRect();
+    const panelRoot = document.querySelector("#second + .reader-chat");
+    return b.width >= 44 && b.height >= 44 && bubble.width === 28 && bubble.height === 24 && image.complete && image.naturalWidth > 0 &&
+      button.textContent === "" && panelRoot.getBoundingClientRect().height === 0;
+  }));
+  await marker.focus();
+  await page.keyboard.press("Enter");
+  check("Keyboard annotation opens the same paragraph capsule", await second.locator("textarea").isVisible());
+  await page.keyboard.press("Escape");
+  check("Closing returns focus to compact annotation", await marker.evaluate((button) => document.activeElement === button));
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await page.waitForTimeout(200);
+  check("Resize restores the wide summary and transfers focus", await second.locator(".reader-chat-summary").evaluate((button) => document.activeElement === button && button.getBoundingClientRect().width > 0));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  check("Resize restores annotation without duplication", (await page.locator("#second > .reader-chat-anchor").count()) === 1 && await marker.evaluate((button) => document.activeElement === button));
+  check("Copy composition excludes the inline chat annotation", await page.evaluate(async () => {
+    const { selectedReaderText } = await import(new URL("features/selection/dom-selection.js", location.href).href);
+    const { composeCopyText } = await import(new URL("features/selection/copy-text.js", location.href).href);
+    const manifest = await (await fetch("api/state")).json();
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector("#second"));
+    const fragments = selectedReaderText(document.querySelector("#reader-document"), manifest, range);
+    return composeCopyText(fragments) === "A second independent paragraph.";
+  }));
+  await page.evaluate(() => {
+    const old = document.querySelector("#second"), replacement = document.createElement("p");
+    for (const { name, value } of old.attributes) replacement.setAttribute(name, value);
+    replacement.textContent = "A second independent paragraph.";
+    old.replaceWith(replacement);
+  });
+  await marker.waitFor({ state: "visible" });
+  check("Remounted paragraph gets exactly one current annotation", (await page.locator("#second > .reader-chat-anchor").count()) === 1);
+  const equationText = await page.evaluate(async () => {
+    const { logicalTextIndex } = await import(new URL("rendering/math/identity.js", location.href).href);
+    return logicalTextIndex(document.querySelector("#equation")).text;
+  });
+  await select(equationText);
+  await page.locator("#reader-chat-ask").click();
+  const equationChat = page.locator("#equation + .reader-chat");
+  await equationChat.locator("textarea").waitFor({ state: "visible" });
+  await equationChat.getByRole("button", { name: "Close conversation", exact: true }).click();
+  await page.locator("#equation > .reader-chat-anchor .reader-chat-marker").waitFor({ state: "visible" });
+  check("Equation annotation shares the equation row and preserves its number", await page.locator("#equation").evaluate((equation) => {
+    const anchor = equation.querySelector(".reader-chat-anchor");
+    return getComputedStyle(anchor).gridRowStart === "1" && getComputedStyle(anchor).gridColumnStart === "3" &&
+      equation.querySelector(".flow-equation-number").textContent === "(1)";
+  }));
   check(
     "Chat does not pollute canonical paragraph copy",
     await page.evaluate(async () => {
@@ -502,12 +555,27 @@ try {
       );
       return (
         logicalTextIndex(document.querySelector("#first")).text ===
-        "First paragraph keeps its own question."
+        "First paragraph keeps its own question." &&
+        logicalTextIndex(document.querySelector("#second")).text ===
+        "A second independent paragraph."
       );
     }),
   );
   await page.setViewportSize({ width: 1280, height: 850 });
   await page.waitForTimeout(300);
+  const previousArticleStyle = await page.locator("#reader-document").getAttribute("style");
+  await page.locator("#reader-document").evaluate((article) => {
+    article.style.maxWidth = "none";
+    article.style.width = "100%";
+    article.style.boxSizing = "border-box";
+  });
+  await marker.waitFor({ state: "visible" });
+  check("Wide viewport with no margin also uses the annotation", !(await second.getAttribute("class")).includes("reader-chat-margin"));
+  await page.locator("#reader-document").evaluate((article, style) => {
+    if (style === null) article.removeAttribute("style");
+    else article.setAttribute("style", style);
+  }, previousArticleStyle);
+  await second.locator(".reader-chat-summary").waitFor({ state: "visible" });
   check("Annotation divider is removed", (await page.locator(".flow-side-divider").count()) === 0);
   check(
     "Meaningful annotation connector remains",
