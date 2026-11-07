@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// Exercise the delivered Homepage module with explicit user events and a fake
-// transport. No browser, provider, filesystem account or storage is involved.
-test("Homepage retains proof only in memory and includes it on each account operation", async (t) => {
+// Exercise the delivered Homepage with explicit events and a scoped transport.
+// Credentials, real browser storage and provider requests are never involved.
+async function homepage(
+  t,
+  { eligible = true, authUrl = "https://auth.openai.com/authorize?state=fixture" } = {},
+) {
   class Element extends EventTarget {
     constructor() {
       super();
@@ -43,34 +46,53 @@ test("Homepage retains proof only in memory and includes it on each account oper
     createElement: () => new Element(),
   });
   const window = new EventTarget();
-  let instance = "first-start",
-    version = 0,
-    signedIn = true;
-  const calls = [];
+  const state = { instance: "first-start", version: 0, signedIn: true, pending: false };
+  let csrf = "",
+    managementSession = false;
+  const calls = [],
+    destinations = [];
   const fetch = async (path, options) => {
     calls.push({ path, ...options });
-    let result = { instance, version };
+    const capability = options.headers["X-Reader-Host-Capability"];
+    let result = { instance: state.instance, version: state.version };
     if (path.endsWith("documents")) result = { documents: [], loading: false };
     if (path.endsWith("session")) {
-      assert.equal(options.headers["X-Reader-Host-Capability"], "private-proof");
-      result = { ...result, management: true, csrf: "current-csrf" };
+      assert.ok(eligible);
+      managementSession = capability === "private-proof";
+      if (!managementSession) assert.equal(JSON.parse(options.body).purpose, "oauth");
+      csrf = `csrf-${state.version}`;
+      result = { ...result, management: managementSession, csrf };
     }
     if (path.endsWith("account") && options.method === "POST") {
-      assert.equal(options.headers["X-Reader-Host-Capability"], "private-proof");
-      assert.equal(options.headers["X-Reader-CSRF"], "current-csrf");
+      assert.ok(eligible);
+      assert.ok(csrf);
+      assert.equal(options.headers["X-Reader-CSRF"], csrf);
       const operation = JSON.parse(options.body).operation;
-      if (operation === "logout") signedIn = false;
+      if (operation === "cancel") {
+        assert.equal(capability, "private-proof");
+        assert.ok(managementSession);
+      }
+      if (operation === "login") state.pending = true;
+      else state.pending = false;
+      if (operation === "logout") {
+        state.signedIn = false;
+        managementSession = false;
+      }
+      csrf = operation === "logout" ? "" : `csrf-${++state.version}`;
       result = {
         ...result,
-        version: ++version,
-        csrf: operation === "logout" ? "" : "current-csrf",
+        version: state.version,
+        csrf,
+        management: managementSession,
+        ...(operation === "login" ? { authUrl } : {}),
       };
     } else if (path.endsWith("account")) {
       result = {
         ...result,
-        signedIn,
-        eligible: true,
-        management: Boolean(options.headers["X-Reader-Host-Capability"]),
+        signedIn: state.signedIn,
+        pending: state.pending,
+        eligible,
+        management: Boolean(capability && managementSession),
       };
     }
     return { ok: true, json: async () => result };
@@ -80,8 +102,9 @@ test("Homepage retains proof only in memory and includes it on each account oper
     window,
     fetch,
     BroadcastChannel: undefined,
-    localStorage: { setItem: () => assert.fail("proof must not enter storage") },
-    sessionStorage: { setItem: () => assert.fail("proof must not enter storage") },
+    location: { assign: (url) => destinations.push(url) },
+    localStorage: { setItem: () => assert.fail("proof/CSRF must not enter storage") },
+    sessionStorage: { setItem: () => assert.fail("proof/CSRF must not enter storage") },
   };
   for (const [key, value] of Object.entries(globals)) {
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -92,30 +115,92 @@ test("Homepage retains proof only in memory and includes it on each account oper
     });
   }
   t.after(() => window.dispatchEvent(new Event("pagehide")));
-  await import(`../web/home/home.js?account-proof=${Date.now()}`);
+  await import(`../web/home/home.js?account=${Math.random()}`);
   await new Promise(setImmediate);
-  assert.ok(calls.length >= 2);
-  assert.ok(calls.every((call) => !call.headers["X-Reader-Host-Capability"]));
+  const click = (id) => element(id).listeners.get("click")();
   const unlock = async () => {
     element("host-proof").value = "private-proof";
     await element("unlock").listeners.get("submit")({ preventDefault() {} });
     assert.equal(element("host-proof").value, "");
-    assert.equal(element("account-controls").hidden, false);
   };
-  await unlock();
-  for (const operation of ["login", "cancel"]) await element(operation).listeners.get("click")();
-  // A restart encountered during explicit unlock must not erase the new proof.
-  instance = "second-start";
-  await unlock();
-  await element("cancel").listeners.get("click")();
-  await element("logout").listeners.get("click")();
-  const finalStatus = calls.at(-1);
-  assert.ok(finalStatus.path.endsWith("account"));
-  assert.equal(finalStatus.method, "GET");
-  assert.equal(finalStatus.headers["X-Reader-Host-Capability"], undefined);
-  assert.equal(element("account-controls").hidden, true);
+  return { element, calls, destinations, click, unlock, state };
+}
+
+test("local login/logout work before unlock with OAuth CSRF and direct OpenAI navigation", async (t) => {
+  const { element, calls, destinations, click } = await homepage(t);
+  assert.ok(calls.every((call) => call.method === "GET"));
+  assert.equal(element("account-controls").hidden, false);
+  assert.equal(element("account-picker").hidden, true);
+  await click("login");
+  assert.deepEqual(destinations, ["https://auth.openai.com/authorize?state=fixture"]);
+  assert.equal(element("login").hidden, false, "local OAuth can be restarted without unlocking");
+  assert.equal(element("logout").hidden, false);
+  assert.equal(element("cancel").hidden, true);
+  const before = calls.length;
+  await click("cancel");
+  assert.equal(calls.length, before, "OAuth permission cannot cancel login");
+  await click("logout");
+  assert.equal(
+    element("account-controls").hidden,
+    false,
+    "local sign-in remains available after logout",
+  );
+  await click("login");
+  assert.equal(calls.filter((call) => call.path.endsWith("session")).length, 2);
+  assert.ok(calls.every((call) => !call.headers["X-Reader-Host-Capability"]));
   assert.equal(
     calls.filter((call) => call.path.endsWith("account") && call.method === "POST").length,
-    4,
+    3,
   );
+});
+
+test("management keeps proof in memory for cancel and survives explicit unlock after restart", async (t) => {
+  const { element, calls, click, unlock, state } = await homepage(t);
+  await unlock();
+  assert.equal(element("account-picker").hidden, false);
+  await click("login");
+  assert.equal(element("cancel").hidden, false);
+  await click("cancel");
+  state.instance = "second-start";
+  await unlock();
+  await click("cancel");
+  await click("logout");
+  assert.equal(calls.at(-1).headers["X-Reader-Host-Capability"], undefined);
+  assert.equal(element("account-picker").hidden, true);
+  const mutations = calls.filter((call) => call.path.endsWith("account") && call.method === "POST");
+  assert.equal(mutations.length, 4);
+  assert.ok(
+    mutations.every((call) => call.headers["X-Reader-Host-Capability"] === "private-proof"),
+  );
+});
+
+test("remote Homepage remains status-only and cannot trigger OAuth session or mutations", async (t) => {
+  const { element, calls, click, destinations } = await homepage(t, { eligible: false });
+  assert.equal(element("account-controls").hidden, true);
+  assert.equal(element("unlock").hidden, true);
+  const count = calls.length;
+  for (const operation of ["login", "logout", "cancel"]) await click(operation);
+  assert.equal(calls.length, count);
+  assert.deepEqual(destinations, []);
+});
+
+test("credential changes require fresh OAuth CSRF on the next explicit action", async (t) => {
+  const { click, calls, state } = await homepage(t);
+  await click("login");
+  state.version++;
+  state.signedIn = true;
+  state.pending = false;
+  await click("refresh");
+  await click("logout");
+  assert.equal(calls.filter((call) => call.path.endsWith("session")).length, 2);
+});
+
+test("login never navigates to an untrusted provider URL", async (t) => {
+  const { click, destinations, element } = await homepage(t, {
+    authUrl: "https://attacker.invalid/authorize",
+  });
+  await click("login");
+  assert.deepEqual(destinations, []);
+  assert.equal(element("account-controls").hidden, true);
+  assert.match(element("account-notice").textContent, /로그인 주소/);
 });

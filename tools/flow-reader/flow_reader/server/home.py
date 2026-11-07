@@ -12,6 +12,7 @@ from flow_reader.resources import READER_ROOT
 from flow_reader.server.assets import CONTENT_TYPES
 from flow_reader.services.homepage import LOOPBACK_HOST, reader_url
 from flow_reader.services.chat_auth import ChatProviderError
+from flow_reader.services.home_account import OAUTH_OPERATIONS
 from flow_reader.services.chat_storage import private_file
 
 
@@ -147,12 +148,16 @@ def handler_for_home(inventory, account, *, ingress="admin", public_origin=None,
                     management = self.capability_valid()
                     if supplied and not management:
                         return self.respond({"error": "이 Mac의 현재 확인값이 필요합니다."}, 403)
-                    handle, result = account.create(handle, ingress, self.origin(), manage=management)
+                    oauth = request.get("purpose") == "oauth"
+                    if oauth and not self.eligible():
+                        return self.respond({"error": "이 Mac에서만 로그인하거나 로그아웃할 수 있습니다."}, 403)
+                    handle, result = account.create(handle, ingress, self.origin(), manage=management, oauth=oauth)
                 else:
-                    if not self.capability_valid():
+                    operation = request.get("operation")
+                    if not (self.eligible() if operation in OAUTH_OPERATIONS else self.capability_valid()):
                         return self.respond({"error": "이 Mac에서만 계정을 관리할 수 있습니다."}, 403)
                     handle, result = account.mutate(handle, self.headers.get("X-Reader-CSRF", ""), ingress,
-                        self.origin(), request.get("operation"), request.get("registration"))
+                        self.origin(), operation, request.get("registration"))
                 return self.respond(result, cookie=handle)
             except PermissionError:
                 return self.respond({"error": "Mac 확인 세션이 만료되었습니다. 다시 확인하세요."}, 403, cookie="")

@@ -56,10 +56,12 @@ Homepage/account responses use no-store and have no offline fallback.
 shared ChatAuth owns provider credentials, PKCE, callback, refresh and revocation.
 Injected conversation providers borrow this owner; closing a document cancels its
 conversation work without cancelling shared OAuth. One process lease protects the
-credential directory. The per-start 0600 capability must be entered explicitly and
-is required on every account mutation and privileged account-status read, along
-with session/CSRF, exact Host/Origin, genuine 127.0.0.1 admin peer and no forwarding
-headers. A copied browser cookie alone conveys no mutation or identity authority.
+credential directory. Only OAuth login start and logout may use an explicitly
+requested OAuth-only browser session without the per-start 0600 capability.
+Cancel and privileged account-status reads retain the explicitly entered
+capability and management session. Mutations retain session/CSRF, exact
+Host/Origin, genuine 127.0.0.1 admin socket peer and no forwarding headers.
+OAuth-only session rotation never grants management or account identity authority.
 
 Paths on one origin are not a security boundary. Capability stays in Homepage
 module memory, never URLs or browser storage; remote status remains sanitized.

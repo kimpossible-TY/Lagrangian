@@ -43,6 +43,9 @@ try {
   });
   const page = await context.newPage(),
     errors = [];
+  await context.route("https://auth.openai.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<title>OpenAI login fixture</title>" }),
+  );
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url);
   await page.locator(".document-card").first().waitFor();
@@ -129,24 +132,41 @@ try {
   );
   await page.screenshot({ path: `${artifacts}/dark.png`, fullPage: true });
   await page.locator("#reader-theme").selectOption("light");
+  await context.route("https://auth.openai.com/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<title>OpenAI authorize fixture</title><p>Local authorize fixture</p>",
+    }),
+  );
+  await page.locator("#login").waitFor({ state: "visible" });
+  const loginRequest = page.waitForRequest(
+    (request) => request.url() === url + "api/home/account" && request.method() === "POST",
+  );
+  await page.locator("#login").click();
+  await page.waitForURL("https://auth.openai.com/**");
+  const startedLogin = await loginRequest;
+  check(
+    "one local click navigates directly to OpenAI with CSRF and no host proof",
+    !startedLogin.headers()["x-reader-host-capability"] &&
+      Boolean(startedLogin.headers()["x-reader-csrf"]),
+  );
+  check(
+    "explicit login only once",
+    (await control({})).authCalls.filter((v) => v === "login").length === 1,
+  );
+  await page.goBack();
+  await page.waitForFunction(
+    () => document.querySelector("#account-label").textContent === "로그인 대기 중",
+  );
+  check("cancel still needs management unlock", await page.locator("#cancel").isHidden());
   await page.locator("#host-proof").fill("fixture-host-proof");
   await page.locator("#unlock button").click();
-  await page.locator("#login").waitFor({ state: "visible" });
+  await page.locator("#cancel").waitFor({ state: "visible" });
   check(
     "host proof stays out of storage",
     await page.evaluate(
       () => !JSON.stringify({ ...localStorage, ...sessionStorage }).includes("fixture-host-proof"),
     ),
-  );
-  await page.locator("#login").click();
-  await page.locator("#cancel").waitFor({ state: "visible" });
-  check(
-    "explicit login only once",
-    (await control({})).authCalls.filter((v) => v === "login").length === 1,
-  );
-  check(
-    "local fallback URL",
-    (await page.locator("#login-link").getAttribute("href")).startsWith("https://auth.openai.com/"),
   );
   await control({ interrupted: true });
   await page.locator("#refresh").click();
@@ -156,6 +176,10 @@ try {
     (await page.locator("#account-notice").textContent()).includes("expired"),
   );
   await page.locator("#login").click();
+  await page.waitForURL("https://auth.openai.com/**");
+  await page.goBack();
+  await page.locator("#host-proof").fill("fixture-host-proof");
+  await page.locator("#unlock button").click();
   await page.locator("#cancel").waitFor({ state: "visible" });
   await page.locator("#cancel").click();
   await page.locator("#login").waitFor({ state: "visible" });
@@ -165,8 +189,7 @@ try {
     () => document.querySelector("#account-label").textContent === "연결됨",
   );
   check("sign-in rotates authority", await page.locator("#unlock").isVisible());
-  await page.locator("#host-proof").fill("fixture-host-proof");
-  await page.locator("#unlock button").click();
+  await page.reload();
   await page.locator("#logout").waitFor({ state: "visible" });
   await control({ catalogFailure: true });
   await page.locator("#models").click();
@@ -254,7 +277,14 @@ try {
   });
   await page.locator("#refresh").click();
   await oldReady;
+  const logoutRequest = page.waitForRequest(
+    (request) => request.url() === url + "api/home/account" && request.method() === "POST",
+  );
   await page.locator("#logout").click();
+  check(
+    "logout needs no host proof after credential rotation",
+    !(await logoutRequest).headers()["x-reader-host-capability"],
+  );
   await page.waitForFunction(
     () => document.querySelector("#account-label").textContent === "연결되지 않음",
   );

@@ -25,6 +25,7 @@ let documents = [],
   csrf = "",
   capability = "",
   management = false,
+  oauthEligible = false,
   version = -1,
   instance = "",
   generation = 0,
@@ -157,6 +158,7 @@ function renderDocuments() {
 }
 
 function adopt(result) {
+  if (instance === result.instance && result.version > version) csrf = "";
   if (instance && instance !== result.instance) {
     csrf = "";
     capability = "";
@@ -169,6 +171,7 @@ function adopt(result) {
 }
 function renderAccount(result) {
   if (!adopt(result)) return;
+  oauthEligible = Boolean(result.eligible);
   management = Boolean(result.management && csrf);
   $("account-label").textContent = result.pending
     ? "로그인 대기 중"
@@ -185,14 +188,16 @@ function renderAccount(result) {
   $("management-hint").textContent = result.eligible
     ? management
       ? "이 Mac에서 관리 중"
-      : "계정 관리 전에 이 Mac을 확인하세요."
+      : "이 Mac에서 바로 로그인하거나 로그아웃할 수 있어요."
     : "계정 관리는 이 Mac의 로컬 홈 화면에서 할 수 있어요. (Manage on this Mac)";
   $("unlock").hidden = !result.eligible || management;
-  $("account-controls").hidden = !management;
-  $("cancel").hidden = !result.pending;
+  $("account-controls").hidden = !oauthEligible;
+  $("account-picker-label").hidden = !management;
+  $("account-picker").hidden = !management;
+  $("cancel").hidden = !management || !result.pending;
   $("logout").hidden = !result.signedIn;
-  $("login").hidden = Boolean(result.pending);
-  if (!result.pending || !management) {
+  $("login").hidden = Boolean(result.pending && management);
+  if (!result.pending || !oauthEligible) {
     $("login-link").hidden = true;
     $("login-link").removeAttribute("href");
   }
@@ -220,6 +225,7 @@ function unavailable() {
   capability = "";
   csrf = "";
   management = false;
+  oauthEligible = false;
   $("account-label").textContent = "상태 미확인";
   $("account-label").dataset.state = "unknown";
   $("plan-label").textContent =
@@ -279,7 +285,7 @@ async function refresh() {
   schedule();
 }
 async function change(operation) {
-  if (busy || disposed) return;
+  if (busy || disposed || !oauthEligible || (operation === "cancel" && !management)) return;
   busy = true;
   generation++;
   clearTimeout(timer);
@@ -287,9 +293,14 @@ async function change(operation) {
   const current = generation;
   for (const button of $("account-controls").querySelectorAll("button")) button.disabled = true;
   try {
+    if (!csrf && operation !== "cancel") {
+      const session = await request("session", { purpose: "oauth" });
+      if (disposed || current !== generation || !adopt(session)) return;
+      csrf = session.csrf || "";
+    }
     const result = await request(
       "account",
-      { operation, registration: $("account-picker").value || null },
+      { operation, registration: management ? $("account-picker").value || null : null },
       { "X-Reader-CSRF": csrf },
     );
     if (disposed || current !== generation) return;
@@ -305,6 +316,7 @@ async function change(operation) {
         throw new Error("로그인 주소를 확인할 수 없습니다.");
       $("login-link").href = url.href;
       $("login-link").hidden = false;
+      location.assign(url.href);
     }
     $("account-notice").textContent =
       result.notice || status.notice || "이 Mac의 브라우저에서 로그인을 완료하세요.";
