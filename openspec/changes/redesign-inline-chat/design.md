@@ -17,15 +17,27 @@ exclusions (`.reader-chat` and selection-ignore metadata) keep it outside canoni
 text and model context. Unresolved history retains its accessible text entry
 outside the canonical article. Unmount and disposal remove both controls.
 
-The existing HTML geometry owner first checks nearby empty space crossing the
-reading edge (one third inside and two thirds outside), then available outer
-margin space. For expanded panels this crossing is a candidate, not a mandatory
-ratio: measured ink, equations, numbers, annotations and other open panels must
-remain unobscured. Width remains 360–420 CSS pixels. Local vertical candidates
-come from obstacle edges within 160px of the paragraph annotation, ordered by
-distance; a still-valid prior offset is preferred for continuity. A panel falls
-back below its paragraph when neither local nor outer margin placement fits.
-Narrow viewports skip local search. The column is not narrowed for chat.
+The expanded capsule uses the paragraph's actual logo annotation as its spatial
+anchor, not the far edge of the reading column. First try directly beside that
+annotation; then try nearby empty rectangles derived from source-ink edges. The
+capsule is mostly inside the reading column and may spill at most 24 CSS pixels
+into the right margin (also respecting the viewport's 12px inset). There is no
+fully-outside-column escape. The old exact w/3 + 2w/3 rule described the retired
+folded summary; it is not applied to an expanded 420px conversation. This corrects
+the previous implementation's distant right-margin position in response to the
+approved local-whitespace mockup and the user's margin-use correction.
+
+A capsule is at most 420px wide and never narrower than 360px. The direct position
+has a 16px gap. Nearby candidates are ordered by distance from the annotation,
+with at most 160px of rectangle separation and vertical displacement. At most 32
+nearby horizontal and vertical ink-edge candidates are combined to bound search
+cost. A still-valid previous relative position is retained before new searches.
+All source ink, math, equation numbers, notes, annotation targets and other open
+capsules remain unobscured. Final placements are checked again after in-flow
+fallbacks change source geometry; an invalid result falls back before painting.
+If no local position fits, use normal flow below the paragraph. Viewports below
+960px skip local search. The reading column is not narrowed for chat. These are
+local web design parameters, not native Apple constants.
 
 Layout temporarily removes side candidates from document flow together before
 measuring source ink, so a panel's own inline row cannot create its side vacancy.

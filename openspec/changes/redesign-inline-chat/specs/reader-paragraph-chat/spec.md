@@ -19,27 +19,28 @@ The paragraph conversation SHALL present its source, transcript and composer in 
 #### Scenario: Compact annotation interaction
 
 - **WHEN** a compact annotation is activated by keyboard or touch
-- **THEN** the conversation expands beside its paragraph when sufficient collision-free margin space is available, or below the paragraph otherwise, and closing returns focus to that annotation
+- **THEN** the conversation expands beside its paragraph when sufficient collision-free local whitespace is available, or below the paragraph otherwise, and closing returns focus to that annotation
 - **AND** its visual body is 28 by 24 CSS pixels within a 44 by 44 CSS pixel target.
 
 #### Scenario: Adaptive open conversation
 
-- **WHEN** an open conversation has sufficient margin space
+- **WHEN** an open conversation has sufficient nearby whitespace
 - **THEN** it appears in a 360–420 CSS pixel side capsule without covering source content, annotations or another open capsule
-- **AND** the source reading column is not narrowed to create that space.
+- **AND** its right edge extends at most 24 CSS pixels into the right margin and the source reading column is not narrowed to create that space
+- **AND** it remains within 160 CSS pixels of its paragraph annotation instead of escaping to distant outside-column space.
 
 #### Scenario: Local whitespace before inline fallback
 
 - **WHEN** the immediate paragraph-side position is occupied
-- **THEN** the reader searches nearby obstacle-edge positions within 160 CSS pixels, preferring the shortest displacement and retaining a still-valid previous offset
+- **THEN** the reader searches nearby obstacle-edge positions within 160 CSS pixels of its annotation, preferring the shortest displacement and retaining a still-valid previous relative position
 - **AND** expanded capsules may use empty space inside the reading column together with the adjoining margin, without covering source text, equations, numbers or annotations
-- **AND** below-paragraph placement is used when local and outer margin candidates cannot fit.
+- **AND** below-paragraph placement is used when nearby candidates cannot fit.
 
 #### Scenario: Continuous resize
 
 - **WHEN** an open conversation changes between side and below-paragraph placement
 - **THEN** the same panel and annotation remain mounted with draft, model, caret, focus and transcript scroll retained
-- **AND** side placement requires an extra 24 CSS pixels on entry to avoid oscillation near its minimum width
+- **AND** a still-valid placement is retained to avoid unnecessary movement
 - **AND** reduced-motion users receive the same usable layout without spatial animation.
 
 #### Scenario: Canonical source text

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { panelPosition, localPanelPosition, overlapsInk } from "../web/features/paragraph-chat/geometry.js";
+import { panelPosition, overlapsInk } from "../web/features/paragraph-chat/geometry.js";
 import { ParagraphChatController } from "../web/features/paragraph-chat/controller.js";
 import { stripMathDelimiters } from "../web/features/paragraph-chat/content.js";
 import { conversationSummary } from "../../reader-common/paragraph-chat/state.js";
@@ -84,13 +84,14 @@ test("document account transport never sends credential mutations or host proof"
   assert.ok(requests.every((request) => !request.body.includes("capability")));
 });
 
-test("side presentation uses spare margin and keeps a 24px entry buffer", () => {
-  const base = { edge: 1000, anchor: { top: 120 }, viewport: { right: 1456 } };
-  const wide = panelPosition(base);
-  assert.deepEqual(wide, { left: 1024, right: 1444, top: 120, width: 420 });
-  assert.equal(panelPosition({ ...base, viewport: { right: 1410 } }), null);
-  assert.equal(panelPosition({ ...base, viewport: { right: 1410 }, side: true }).width, 374);
-  assert.equal(panelPosition({ ...base, viewport: { right: 1390 }, side: true }), null);
+test("expanded capsules stay near the annotation and spill at most 24px into the margin", () => {
+  const base = { edge: 1000, start: 100, anchor: { left: 256, right: 300, top: 100, bottom: 144 }, viewport: { right: 1456 }, height: 200 };
+  const box = panelPosition(base);
+  assert.equal(box.left, 316);
+  assert.equal(box.top, 100);
+  assert.ok(box.right <= base.edge + 24);
+  assert.equal(panelPosition({ ...base, start: 900 }), null);
+  assert.equal(panelPosition({ ...base, viewport: { right: 390 } }), null);
 });
 
 test("side panels avoid source ink, annotations and other open panels", () => {
@@ -606,11 +607,11 @@ test("controller summary UI renders plain-text title preserving currency ranges 
 });
 
 
-test("local capsule searches neighboring whitespace before falling back", () => {
-  const base = { edge: 900, anchor: { top: 100 }, viewport: { right: 1280 }, height: 200, obstacles: [] };
-  assert.equal(localPanelPosition(base).left, 760);
-  assert.equal(localPanelPosition({ ...base, obstacles: [{ left: 760, right: 1100, top: 95, bottom: 130 }] }).top, 138);
-  assert.equal(localPanelPosition({ ...base, previous: 50 }).top, 150);
-  assert.equal(localPanelPosition({ ...base, obstacles: [{ left: 700, right: 1200, top: -500, bottom: 900 }] }), null);
-  assert.equal(localPanelPosition({ ...base, viewport: { right: 390 } }), null);
+test("local capsule searches nearby ink edges and preserves a safe prior placement", () => {
+  const base = { edge: 900, start: 0, anchor: { left: 256, right: 300, top: 100, bottom: 144 }, viewport: { right: 1280 }, height: 200, obstacles: [] };
+  assert.equal(panelPosition(base).left, 316);
+  assert.equal(panelPosition({ ...base, obstacles: [{ left: 0, right: 1000, top: 95, bottom: 130 }] }).top, 138);
+  assert.equal(panelPosition({ ...base, previous: { left: 60, top: 50 } }).top, 150);
+  assert.equal(panelPosition({ ...base, obstacles: [{ left: 0, right: 1200, top: -500, bottom: 900 }] }), null);
+  assert.equal(panelPosition({ ...base, anchor: { left: 0, right: 44, top: 100, bottom: 144 }, obstacles: [{ left: 0, right: 600, top: -500, bottom: 900 }] }), null);
 });

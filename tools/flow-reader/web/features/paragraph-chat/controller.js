@@ -4,7 +4,7 @@ import {
   conversationSummary,
   sameChatSnapshot,
 } from "../../reader-common/paragraph-chat/state.js";
-import { panelPosition, localPanelPosition, overlapsInk, documentInk } from "./geometry.js";
+import { panelPosition, overlapsInk, documentInk } from "./geometry.js";
 import { readerLink } from "../../ui/reader-links.js";
 
 const element = (tag, text, className) => {
@@ -715,15 +715,16 @@ export class ParagraphChatController {
     if (!expanded.length) return;
 
     const area = this.article.getBoundingClientRect();
-    const edge = area.right - parseFloat(getComputedStyle(this.article).paddingRight);
+    const style = getComputedStyle(this.article);
+    const edge = area.right - parseFloat(style.paddingRight);
+    const start = area.left + parseFloat(style.paddingLeft);
     const viewport = { right: document.documentElement.clientWidth };
     const candidates = expanded.map((node) => ({
       node,
       scroll: node.messages.scrollTop,
       box: panelPosition({
-        edge, anchor: node.marker.getBoundingClientRect(), viewport,
-        side: node.root.classList.contains("reader-chat-side"),
-      }) || localPanelPosition({ edge, anchor: node.marker.getBoundingClientRect(), viewport, height: 0, obstacles: [] }),
+        edge, start, anchor: node.marker.getBoundingClientRect(), viewport,
+      }),
     }));
     // Temporarily take candidates out of flow together. Their own inline rows
     // must not manufacture empty space for a side presentation.
@@ -732,27 +733,44 @@ export class ParagraphChatController {
       node.panel.style.cssText = box ? `width:${box.width}px` : "";
     }
     const obstacles = candidates.some(({ box }) => box) ? documentInk(this.article) : [];
-    const placements = candidates.map(({ node, box, scroll }) => {
+    const placements = candidates.map((candidate) => {
+      const { node, scroll } = candidate;
+      let { box } = candidate;
+      const anchorTop = node.marker.getBoundingClientRect().top;
       if (box) {
-        // Read the trigger again after removing expanded rows from document flow.
-        box.top = node.marker.getBoundingClientRect().top;
-        box.bottom = box.top + node.panel.getBoundingClientRect().height;
-        const anchor = node.marker.getBoundingClientRect();
-        const local = localPanelPosition({ edge, anchor, viewport,
-          height: box.bottom - box.top, obstacles, previous: node.localOffset });
-        if (local && Math.abs(local.width - box.width) < 1) box = local;
-        else if (overlapsInk(box, obstacles)) box = null;
+        box = panelPosition({ edge, start, anchor: node.marker.getBoundingClientRect(), viewport,
+          height: node.panel.getBoundingClientRect().height, obstacles, previous: node.previousPlacement });
         if (box) obstacles.push(box);
       }
-      return { node, box, scroll };
+      return { node, box, scroll, anchorTop };
     });
     for (const { node, box } of placements) {
       node.root.classList.toggle("reader-chat-side", Boolean(box));
       if (!box) node.panel.style.cssText = "";
     }
+    for (let pass = 0; pass < placements.length; pass++) {
+      const ink = placements.some(({ box }) => box) ? documentInk(this.article) : [];
+      let changed = false;
+      for (const placement of placements) {
+        if (!placement.box) continue;
+        const anchor = placement.node.marker.getBoundingClientRect();
+        const offset = placement.box.top - placement.anchorTop;
+        placement.box.top = anchor.top + offset;
+        placement.box.bottom = placement.box.top + placement.node.panel.getBoundingClientRect().height;
+        placement.anchorTop = anchor.top;
+        if (overlapsInk(placement.box, ink)) {
+          placement.box = null;
+          placement.node.root.classList.remove("reader-chat-side");
+          placement.node.panel.style.cssText = "";
+          changed = true;
+        } else ink.push(placement.box);
+      }
+      if (!changed) break;
+    }
     for (const { node, box, scroll } of placements) {
       if (box) {
-        node.localOffset = box.top - node.marker.getBoundingClientRect().top;
+        const anchor = node.marker.getBoundingClientRect();
+        node.previousPlacement = { left: box.left - anchor.left, top: box.top - anchor.top };
         const origin = node.root.getBoundingClientRect();
         node.panel.style.cssText = `width:${box.width}px;left:${box.left - origin.left}px;top:${box.top - origin.top}px`;
       } else node.panel.style.cssText = "";

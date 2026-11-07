@@ -1,27 +1,36 @@
-/** Side presentation requires real spare space, with a wider threshold on entry. */
-export function panelPosition({ edge, anchor, viewport, side = false }) {
-  const left = edge + 24;
-  const available = viewport.right - 12 - left;
-  if (available < 360 + (side ? 0 : 24)) return null;
-  const width = Math.min(420, available);
-  return { left, right: left + width, top: anchor.top, width };
-}
-
-/** Search bounded local whitespace; preserve a valid prior vertical offset. */
-export function localPanelPosition({ edge, anchor, viewport, height, obstacles, previous }) {
+/** Expanded capsules use paragraph-local whitespace, with at most 24px of margin spill. */
+export function panelPosition({ edge, start = 0, anchor, viewport, height = 0, obstacles = [], previous }) {
   if (viewport.right < 960) return null;
-  const width = Math.min(420, (viewport.right - 12 - edge) * 1.5);
+  const right = Math.min(edge + 24, viewport.right - 12);
+  const width = Math.min(420, right - start);
   if (width < 360) return null;
-  const left = edge - width / 3;
-  const tops = [anchor.top, ...obstacles.flatMap((ink) => [ink.bottom + 8, ink.top - height - 8])];
-  tops.sort((a, b) => Math.abs(a - anchor.top) - Math.abs(b - anchor.top));
-  if (Number.isFinite(previous)) tops.unshift(anchor.top + previous);
-  for (const top of new Set(tops)) {
-    if (Math.abs(top - anchor.top) > 160) continue;
-    const box = { left, right: left + width, top, bottom: top + height, width };
-    if (!overlapsInk(box, obstacles)) return box;
+  const nearby = obstacles.filter((ink) => ink.bottom >= anchor.top - 160 - 8 &&
+    ink.top <= anchor.top + 160 + height + 8);
+  const gap = (box) => Math.hypot(
+    Math.max(anchor.left - box.right, box.left - anchor.right, 0),
+    Math.max(anchor.top - box.bottom, box.top - anchor.bottom, 0),
+  );
+  const boxAt = (left, top) => ({ left, right: left + width, top, bottom: top + height, width });
+  const fits = (box) => box.left >= start && box.right <= right &&
+    Math.abs(box.top - anchor.top) <= 160 && gap(box) <= 160 && !overlapsInk(box, nearby);
+  if (previous) {
+    const box = boxAt(anchor.left + previous.left, anchor.top + previous.top);
+    if (fits(box)) return box;
   }
-  return null;
+  const direct = boxAt(anchor.right + 16, anchor.top);
+  if (fits(direct)) return direct;
+  const xs = [...new Set([anchor.right + 16, right - width,
+    ...nearby.flatMap((ink) => [ink.right + 8, ink.left - width - 8])])]
+    .filter((left) => left >= start && left + width <= right)
+    .sort((a, b) => Math.abs(a - direct.left) - Math.abs(b - direct.left)).slice(0, 32);
+  const ys = [...new Set([anchor.top,
+    ...nearby.flatMap((ink) => [ink.bottom + 8, ink.top - height - 8])])]
+    .filter((top) => Math.abs(top - anchor.top) <= 160)
+    .sort((a, b) => Math.abs(a - anchor.top) - Math.abs(b - anchor.top)).slice(0, 32);
+  const candidates = xs.flatMap((left) => ys.map((top) => boxAt(left, top)))
+    .sort((a, b) => (gap(a) + Math.abs(a.top - anchor.top) * 0.1) -
+      (gap(b) + Math.abs(b.top - anchor.top) * 0.1));
+  return candidates.find(fits) || null;
 }
 
 export function overlapsInk(box, obstacles) {
@@ -46,5 +55,9 @@ export function documentInk(article) {
   )) {
     if (!node.closest(excluded)) rectangles.push(...node.getClientRects());
   }
+  for (const marker of article.querySelectorAll(".reader-chat-marker"))
+    rectangles.push(...marker.getClientRects());
+  const toolbar = article.ownerDocument.querySelector(".reader-toolbar");
+  if (toolbar) rectangles.push(...toolbar.getClientRects());
   return rectangles.filter((box) => box.width > 0 && box.height > 0);
 }

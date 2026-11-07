@@ -1,5 +1,7 @@
 ## Implementation
 
+- [x] Anchor expanded capsules to nearby whitespace, limit right-margin spill and verify proximity/collision constraints in the browser.
+
 - [x] Restore bounded local whitespace search with collision checks and verify against original margin design.
 
 - [x] Keep the same annotation on all screens and adapt only open panel placement, with collision avoidance and width hysteresis.
@@ -72,3 +74,16 @@ fixture on Chrome 156.0.8078.80 / Playwright 1.65.0. Physical iPhone Safari,
 VoiceOver and live inference remain unverified. No live services were changed.
 
 Local whitespace restoration: 14 focused Node tests and the 77-check Chromium fixture pass; scoped ESLint, strict OpenSpec and diff checks pass. Local geometry tests cover reading-edge crossing, obstacle-edge displacement, prior-offset retention, blocked-space fallback and narrow screens. Physical Safari remains unverified.
+
+
+Annotation-local correction supersedes the former expanded-panel crossing and
+outside-margin rules: the annotation is now the anchor for both horizontal and
+vertical search, with at most 24px of right-margin spill and 160px of separation.
+A completely blocked local area falls below even on a very wide display. The
+77-check Chromium fixture passes with zero page errors, including a real nearby
+empty capsule, a blocking figure, removal/recovery, no distant-margin escape,
+copy/source safety, resize continuity and multiple open conversations. Shared/HTML
+Node suites: 316 passed, one skipped. Full reader ESLint, strict OpenSpec and diff
+checks pass. Reviewed the actual 1800px empty-capsule capture: it occupies blank
+reading-column space next to the annotation instead of the old far-right region.
+Physical Safari and VoiceOver remain unverified; no live services were changed.

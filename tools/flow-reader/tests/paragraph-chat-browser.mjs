@@ -110,6 +110,29 @@ try {
     "Ask opens a composer without sending",
     (await first.locator(".reader-chat-messages").textContent()) === "",
   );
+  await page.waitForTimeout(200);
+  check("Empty capsule uses nearby reading-column whitespace with limited margin spill", await first.evaluate(async (root) => {
+    const { documentInk, overlapsInk } = await import(new URL("features/paragraph-chat/geometry.js", location.href).href);
+    const box = root.querySelector(".reader-chat-panel").getBoundingClientRect();
+    const anchor = document.querySelector("#first .reader-chat-marker").getBoundingClientRect();
+    const article = document.querySelector("#reader-document");
+    const edge = article.getBoundingClientRect().right - parseFloat(getComputedStyle(article).paddingRight);
+    return root.classList.contains("reader-chat-side") && box.right <= edge + 24 &&
+      Math.hypot(Math.max(box.left - anchor.right, anchor.left - box.right, 0),
+        Math.max(box.top - anchor.bottom, anchor.top - box.bottom, 0)) <= 160 &&
+      !overlapsInk(box, documentInk(article));
+  }));
+  await page.evaluate(() => {
+    const anchor = document.querySelector("#first .reader-chat-marker").getBoundingClientRect();
+    const obstacle = document.createElement("figure");
+    obstacle.id = "chat-local-obstacle";
+    obstacle.style.cssText = `position:fixed;left:0;top:${anchor.top - 500}px;width:100vw;height:1500px;margin:0;pointer-events:none`;
+    document.querySelector("#reader-document").append(obstacle);
+  });
+  await page.waitForFunction(() => !document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
+  check("Blocked nearby whitespace falls below without a distant right-margin escape", await first.locator("textarea").isVisible());
+  await page.locator("#chat-local-obstacle").evaluate((node) => node.remove());
+  await page.waitForFunction(() => document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
   await first
     .locator("select[aria-label='ChatGPT model'] option[value='fixture-model']")
     .waitFor({ state: "attached" });
@@ -342,15 +365,8 @@ try {
   await page.setViewportSize({ width: 2048, height: 900 });
   await firstMarker.focus();
   await page.keyboard.press("Enter");
-  await page.waitForFunction(() => document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
-  check("Open side capsule uses real margin without covering document ink", await first.evaluate(async (root) => {
-    const { documentInk, overlapsInk } = await import(new URL("features/paragraph-chat/geometry.js", location.href).href);
-    const panel = root.querySelector(".reader-chat-panel").getBoundingClientRect();
-    const article = document.querySelector("#reader-document");
-    const edge = article.getBoundingClientRect().right - parseFloat(getComputedStyle(article).paddingRight);
-    return panel.width >= 360 && panel.width <= 420 && panel.left >= edge + 23 &&
-      panel.right <= innerWidth - 11 && !overlapsInk(panel, documentInk(article));
-  }));
+  await first.locator("textarea").waitFor({ state: "visible" });
+  check("Long conversation falls below when nearby space is blocked, despite a wide viewport", !(await first.getAttribute("class")).includes("reader-chat-side"));
   const firstInput = first.locator("textarea");
   await firstInput.fill("Draft survives adaptive placement");
   await firstInput.evaluate((input) => {
@@ -361,7 +377,7 @@ try {
     messages.scrollTop = 60;
   });
   const transcriptScroll = await first.locator(".reader-chat-messages").evaluate((node) => node.scrollTop);
-  check("Long conversation scrolls while composer remains inside side capsule", transcriptScroll > 0 && await first.evaluate((root) => {
+  check("Long conversation scrolls while composer remains inside its capsule", transcriptScroll > 0 && await first.evaluate((root) => {
     const panel = root.querySelector(".reader-chat-panel").getBoundingClientRect();
     return root.querySelector("textarea").getBoundingClientRect().bottom <= panel.bottom;
   }));
@@ -377,32 +393,12 @@ try {
     }));
     check(`Resize ${width} retains transcript scroll`, Math.abs(await first.locator(".reader-chat-messages").evaluate((node) => node.scrollTop) - transcriptScroll) < 2);
   }
-  const hysteresisMiddle = await page.evaluate(() => {
-    const article = document.querySelector("#reader-document");
-    const edge = article.getBoundingClientRect().right - parseFloat(getComputedStyle(article).paddingRight);
-    const available = document.documentElement.clientWidth - 12 - edge - 24;
-    return innerWidth + Math.round(2 * (372 - available));
-  });
-  for (const [width, side] of [[hysteresisMiddle, true], [hysteresisMiddle - 36, false], [hysteresisMiddle, false], [2048, true]]) {
+  const stablePlacement = await first.getAttribute("class");
+  for (const width of [2100, 2048, 2300, 2048]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.waitForTimeout(180);
-    check(`Width hysteresis ${width} keeps placement ${side}`, (await first.getAttribute("class")).includes("reader-chat-side") === side);
+    await page.waitForTimeout(120);
+    check(`Wider screen ${width} does not send a blocked conversation to distant margin space`, (await first.getAttribute("class")) === stablePlacement);
   }
-  await page.evaluate(() => {
-    const article = document.querySelector("#reader-document");
-    const area = article.getBoundingClientRect();
-    const edge = area.right - parseFloat(getComputedStyle(article).paddingRight);
-    const obstacle = document.createElement("figure");
-    obstacle.id = "chat-side-obstacle";
-    obstacle.style.cssText = `position:fixed;left:${edge + 24}px;top:${document.querySelector("#first .reader-chat-marker").getBoundingClientRect().top}px;width:380px;height:160px;margin:0`;
-    obstacle.textContent = "Existing figure occupies this margin";
-    article.append(obstacle);
-  });
-  await page.waitForFunction(() => !document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
-  check("Existing margin content sends open conversation below its paragraph", await first.locator("textarea").isVisible());
-  await page.locator("#chat-side-obstacle").evaluate((node) => node.remove());
-  await page.waitForFunction(() => document.querySelector("#first + .reader-chat").classList.contains("reader-chat-side"));
-  check("Removing the collision restores side presentation", await firstMarker.isVisible());
   await firstInput.fill("");
   await page.keyboard.press("Escape");
   check("Escape returns annotation focus", await firstMarker.evaluate((node) => node === document.activeElement));
@@ -480,13 +476,12 @@ try {
   await page.setViewportSize({ width: 2300, height: 900 });
   await firstMarker.click();
   await page.waitForTimeout(300);
-  check("Nearby open conversations avoid overlapping side capsules", await page.evaluate(() => {
+  check("Nearby open conversations avoid overlapping capsules", await page.evaluate(() => {
     const first = document.querySelector("#first + .reader-chat");
     const second = document.querySelector("#second + .reader-chat");
     const a = first.querySelector(".reader-chat-panel").getBoundingClientRect();
     const b = second.querySelector(".reader-chat-panel").getBoundingClientRect();
-    return first.classList.contains("reader-chat-side") && !second.classList.contains("reader-chat-side") &&
-      !(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+    return !(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
   }));
   await first.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
