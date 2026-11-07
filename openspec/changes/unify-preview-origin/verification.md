@@ -52,3 +52,12 @@ The uncommitted work from `feat/preview-unify` (base 92408371) was carried as a 
 - `preview-proxy-browser.mjs` with installed Chrome 156 (`CHROME_BIN`): passed.
 - ui-baseline compare (report-only): ran, exit 0.
 - ESLint on the proxy JS: clean. OpenSpec strict and `git diff --check`: pass.
+
+## PR #25 review fixes (2026-11-07)
+
+- The adapted local review repro now uses this checkout: all 200,014 relay bytes and the close frame arrive, with no relay errors; its HTTP filtering assertions pass.
+- Focused proxy Python suite: 14 passed, including a slow receiver with a payload larger than the relay buffer and an exact CSP assertion.
+- Reader Node suites with `FLOW_READER_PLAYWRIGHT_MODULE` unset: 306 passed, one skipped. ESLint on the changed browser fixture passed.
+- Strict OpenSpec validation and `git diff --check` passed.
+- Added a browser test that fetches and instantiates a minimal WASM data URL and checks CSP violations. Chrome cannot launch in this sandbox; PM must run `CHROME_BIN=<chrome> node tools/flow-reader/tests/preview-proxy-browser.mjs`.
+- Full Python discovery: 366 tests, 61 skipped, 3 errors. Two Neovim job-control tests cannot run `ps` in the sandbox; the real Neovim RPC test failed when `nvim --remote-expr` exited 2 (stderr was captured by the test). The focused proxy suite passed separately.

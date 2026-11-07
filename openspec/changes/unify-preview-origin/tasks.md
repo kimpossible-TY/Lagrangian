@@ -13,3 +13,8 @@
 ## 3. Verification and handoff
 - [x] 3.1 Run focused Python, delivered JS and relevant browser checks; record results and unavailable engine/device coverage.
 - [x] 3.2 Validate OpenSpec strictly, review diff and write /tmp/preview-unify-report.txt with exact optional frontend/engine handoff and verification plan.
+
+## 4. PR review fixes
+- [x] 4.1 Allow data URL fetches only in proxied HTML connect-src; assert the exact policy and add a browser WASM fetch/instantiation regression.
+- [x] 4.2 Drain bounded relay buffers after per-direction EOF before propagating half-close; test a slow receiver and close frame.
+- [x] 4.3 Document the fixed preview bridge exception to the static asset manifest and record verification.

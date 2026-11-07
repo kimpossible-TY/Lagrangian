@@ -164,6 +164,7 @@ class PreviewProxy:
             if closed:
                 return self.reply(handler, 503)
             prefix = preview_prefix(identifier)
+            # This exact preview-scoped bridge is the exception to web/assets.json.
             if url.path == "/" + BRIDGE and not upgrade:
                 return self.reply(handler, 200, (READER_ROOT / "web" / "preview-proxy.js").read_bytes(),
                                   [("Content-Type", "text/javascript; charset=utf-8")])
@@ -213,7 +214,7 @@ class PreviewProxy:
                     parser.feed(content)
                     parser.close()
                     content = parser.result()
-                    fields.append(("Content-Security-Policy", "connect-src 'self'; base-uri 'self'; frame-ancestors 'none'"))
+                    fields.append(("Content-Security-Policy", "connect-src 'self' data:; base-uri 'self'; frame-ancestors 'none'"))
                 else:
                     content = CSS_ROOT.sub(lambda m: m[1] + scoped_url(m[2], prefix), content)
                 fields = [(k, v) for k, v in fields if k.lower() not in {"etag", "last-modified", "content-encoding"}]
@@ -303,8 +304,14 @@ class PreviewProxy:
         upstream.setblocking(False)
         buffers = {client: bytearray(initial), upstream: bytearray(initial_client)}
         peers = {client: upstream, upstream: client}
-        while True:
-            readable = [s for s in peers if len(buffers[peers[s]]) < MAX_BUFFER]
+        reading = set(peers)
+        half_closed = set()
+        while reading or any(buffers.values()):
+            for stream in peers:
+                if stream not in reading and stream not in half_closed and not buffers[peers[stream]]:
+                    peers[stream].shutdown(socket.SHUT_WR)
+                    half_closed.add(stream)
+            readable = [s for s in reading if len(buffers[peers[s]]) < MAX_BUFFER]
             writable = [s for s in peers if buffers[s]]
             ready, writes, _ = select.select(readable, writable, [], 1)
             for stream in writes:
@@ -319,5 +326,9 @@ class PreviewProxy:
                 except BlockingIOError:
                     continue
                 if not data:
-                    return
-                buffers[peers[stream]].extend(data)
+                    reading.remove(stream)
+                else:
+                    buffers[peers[stream]].extend(data)
+        for stream in peers:
+            if stream not in half_closed:
+                peers[stream].shutdown(socket.SHUT_WR)

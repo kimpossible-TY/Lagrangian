@@ -12,7 +12,7 @@ import threading
 import unittest
 
 from test_homepage import FakeAuth, FakeProvider, FakeManager
-from flow_reader.server.preview_proxy import PreviewProxy
+from flow_reader.server.preview_proxy import MAX_BUFFER, PreviewProxy
 from flow_reader.server.routing import handler_for_reader
 from flow_reader.services.home_account import HomeAccount
 from flow_reader.services.homepage import HomeInventory
@@ -184,6 +184,56 @@ class PreviewProxyTests(unittest.TestCase):
             response.extend(exact(stream, 1))
         return stream, bytes(response)
 
+    def test_tunnel_drains_bounded_buffers_before_half_close(self):
+        client_proxy, client = socket.socketpair()
+        upstream_proxy, upstream = socket.socketpair()
+        for stream in (client_proxy, client, upstream_proxy, upstream):
+            self.addCleanup(stream.close)
+        client_proxy.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        client.settimeout(10)
+        upstream.settimeout(10)
+        sizes, errors = [], []
+
+        class ObservedSocket:
+            def __init__(self, stream):
+                self.stream = stream
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+            def send(self, data):
+                sizes.append(len(data))
+                return self.stream.send(data)
+
+        payload = b"\x82\x7f" + (600000).to_bytes(8, "big") + b"x" * 600000 + b"\x88\x02\x03\xe8"
+        def relay():
+            try:
+                self.proxy.tunnel(ObservedSocket(client_proxy), ObservedSocket(upstream_proxy), b"")
+            except OSError as error:
+                errors.append(error)
+        thread = threading.Thread(target=relay, daemon=True)
+        thread.start()
+        def send():
+            upstream.sendall(payload)
+            upstream.shutdown(socket.SHUT_WR)
+        writer = threading.Thread(target=send, daemon=True)
+        writer.start()
+        # The small socket buffers force backpressure before the reader drains.
+        writer.join(0.1)
+        self.assertTrue(writer.is_alive())
+        received = bytearray()
+        while chunk := client.recv(8192):
+            received.extend(chunk)
+        self.assertEqual(received, payload)
+        self.assertTrue(received.endswith(b"\x88\x02\x03\xe8"))
+        client.shutdown(socket.SHUT_WR)
+        writer.join(10)
+        thread.join(10)
+        self.assertFalse(writer.is_alive())
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertTrue(sizes)
+        self.assertLessEqual(max(sizes), MAX_BUFFER)
+
     def test_mapping_path_query_and_absolute_assets(self):
         status, body, headers = self.request("/p/alpha/?mode=doc&x=%2F")
         self.assertEqual(status, 200)
@@ -197,6 +247,8 @@ class PreviewProxyTests(unittest.TestCase):
         self.assertNotIn("Set-Cookie", headers)
         self.assertEqual(int(headers["Content-Length"]), len(body))
         self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(headers["Content-Security-Policy"],
+                         "connect-src 'self' data:; base-uri 'self'; frame-ancestors 'none'")
         status, css, _ = self.request("/p/alpha/assets/theme.css?x=1")
         self.assertEqual(status, 200)
         self.assertIn(b'"/p/alpha/other.css"', css)

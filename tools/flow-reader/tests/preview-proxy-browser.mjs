@@ -30,6 +30,12 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("request", (request) => requests.push(request.url()));
   page.on("websocket", (socket) => sockets.push(socket.url()));
+  await page.addInitScript(() => {
+    window.cspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      window.cspViolations.push({ directive: event.violatedDirective, blocked: event.blockedURI });
+    });
+  });
   await page.goto(url);
   const preview = page.getByRole("link", { name: "Fixture preview · Paged Reader", exact: true });
   await preview.waitFor();
@@ -37,6 +43,14 @@ try {
   await preview.click();
   await page.waitForFunction(() => window.previewLoaded && window.socket?.readyState === 1);
   assert.equal(page.url(), url + "p/alpha/");
+  const wasm = await page.evaluate(async () => {
+    const response = await fetch("data:application/wasm;base64,AGFzbQEAAAA=");
+    const bytes = await response.arrayBuffer();
+    const { instance } = await WebAssembly.instantiate(bytes);
+    return instance instanceof WebAssembly.Instance;
+  });
+  assert.equal(wasm, true);
+  assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
   for (const path of [
     "p/alpha/assets/client.js",
     "p/alpha/assets/theme.css?x=1",

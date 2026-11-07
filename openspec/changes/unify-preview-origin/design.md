@@ -52,8 +52,8 @@ untransformed resources. Reject ambiguous request framing and unsupported method
 WS uses a raw handshake connection without a second buffered reader, validates
 101/Upgrade/Connection/Sec-WebSocket-Accept before publishing 101, and preserves
 initial bytes arriving alongside headers. A nonblocking select relay transports
-frames unchanged, with bounded buffers and a connection limit. Owner close shuts
-down both ends; disconnects close both ends. Requests after engine restart resolve
+frames unchanged, with bounded buffers and a connection limit. Each EOF propagates
+a write half-close only after that direction drains. Owner close shuts down both ends. Requests after engine restart resolve
 the same port afresh. Report unavailable upstreams as sanitized 503/502 responses.
 
 ### Existing client and absolute paths
@@ -61,7 +61,8 @@ Source inspection: `crates/tinymist/src/tool/preview.rs` calls frontend_html wit
 `"/"`; `crates/typst-preview/src/lib.rs` replaces the WS placeholder with that
 value. `tools/typst-preview-frontend/src/features/appearance/document-theme.ts`
 resets pathname to `/_theme/<theme>`. Vite's viteSingleFile plugin embeds the
-current JS/CSS/WASM client into engine HTML.
+current JS/CSS/WASM client into engine HTML. Proxied HTML permits `data:` only
+in `connect-src` for the embedded WASM fetch.
 
 For existing embedded releases, inject a small external classic script before
 client scripts, served only inside the registered preview prefix. It adapts the
