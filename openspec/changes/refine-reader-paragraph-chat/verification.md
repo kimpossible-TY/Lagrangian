@@ -19,6 +19,14 @@ document-ink scanning when margin placement cannot be used. Local Chromium
 verified the mobile scan is absent and retained wide margin placement (43 checks,
 zero page errors); live device performance and the 400 cause remain unverified.
 
+The live 400 was traced to a selection-context boundary splitting a UTF-16
+surrogate pair in a mathematical character. The request's suffix contained an
+unpaired surrogate, and saving that context raised UnicodeEncodeError. A local
+browser fixture reproduced the HTTP 400 before the fix. After adjusting selection
+and context boundaries to preserve complete Unicode characters, both prefix and
+suffix boundary cases open successfully; the Chromium suite passes 45 checks.
+The installed Reader has not yet been updated or re-tested with this fix.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

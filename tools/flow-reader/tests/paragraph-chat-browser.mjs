@@ -90,6 +90,18 @@ try {
     await page.waitForTimeout(120);
   };
   check("Saved action is replaced", (await page.locator("#reader-codex-save").count()) === 0);
+  for (const [text, id] of [
+    ["Suffix case", "unicode-suffix"],
+    ["Prefix case", "unicode-prefix"],
+  ]) {
+    await select(text);
+    const opened = page.waitForResponse((response) => response.url().endsWith("/api/chat/open"));
+    await page.locator("#reader-chat-ask").click();
+    check(`${id} opens with a complete Unicode context`, (await opened).ok());
+    const chat = page.locator(`#${id} + .reader-chat`);
+    await chat.locator("textarea").waitFor({ state: "visible" });
+    await chat.getByRole("button", { name: "Close conversation", exact: true }).click();
+  }
   await select("First paragraph");
   await page.locator("#reader-chat-ask").click();
   const first = page.locator("#first + .reader-chat");
