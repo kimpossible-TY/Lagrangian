@@ -90,6 +90,18 @@ try {
     await page.waitForTimeout(120);
   };
   check("Saved action is replaced", (await page.locator("#reader-codex-save").count()) === 0);
+  for (const [text, id] of [
+    ["Suffix case", "unicode-suffix"],
+    ["Prefix case", "unicode-prefix"],
+  ]) {
+    await select(text);
+    const opened = page.waitForResponse((response) => response.url().endsWith("/api/chat/open"));
+    await page.locator("#reader-chat-ask").click();
+    check(`${id} opens with a complete Unicode context`, (await opened).ok());
+    const chat = page.locator(`#${id} + .reader-chat`);
+    await chat.locator("textarea").waitFor({ state: "visible" });
+    await chat.getByRole("button", { name: "Close conversation", exact: true }).click();
+  }
   await select("First paragraph");
   await page.locator("#reader-chat-ask").click();
   const first = page.locator("#first + .reader-chat");
@@ -437,6 +449,24 @@ try {
     await second.scrollIntoViewIfNeeded();
     await page.screenshot({ path: process.env.FLOW_READER_CHAT_MOBILE_SCREENSHOT });
   }
+  check(
+    "Mobile chat layout does not scan document ink",
+    await page.evaluate(async () => {
+      const original = document.createTreeWalker;
+      let scans = 0;
+      document.createTreeWalker = function (...args) {
+        if (args[0] === document.querySelector("#reader-document")) scans++;
+        return original.apply(this, args);
+      };
+      try {
+        window.dispatchEvent(new Event("resize"));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return scans === 0;
+      } finally {
+        document.createTreeWalker = original;
+      }
+    }),
+  );
   check(
     "Mobile expanded composer fits without page overflow",
     await second.evaluate((root) => {

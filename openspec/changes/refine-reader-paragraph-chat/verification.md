@@ -10,6 +10,33 @@ The local browser suite passed 42 checks, including interruption, lost
 acknowledgment, a new draft during streaming and 390px viewport overflow. This
 does not measure live inference latency or verify the previous Ask-open failure.
 
+On a further live Reader check, the same prose-and-inline-math selection again
+failed to open chat with HTTP 400; the response did not identify the validation
+failure. A plain-text follow-up completed by the 9-second observation, compared
+with the earlier 26.5-second observation after document reading. These are single
+observations, not a controlled latency comparison. The mobile layout now skips
+document-ink scanning when margin placement cannot be used. Local Chromium
+verified the mobile scan is absent and retained wide margin placement (43 checks,
+zero page errors); live device performance and the 400 cause remain unverified.
+
+The live 400 was traced to a selection-context boundary splitting a UTF-16
+surrogate pair in a mathematical character. The request's suffix contained an
+unpaired surrogate, and saving that context raised UnicodeEncodeError. A local
+browser fixture reproduced the HTTP 400 before the fix. After adjusting selection
+and context boundaries to preserve complete Unicode characters, both prefix and
+suffix boundary cases open successfully; the Chromium suite passes 45 checks.
+The installed Reader has not yet been updated or re-tested with this fix.
+The original affected paragraph was also loaded into an isolated local Reader
+with disposable storage and a fake provider. Selecting the same prose and
+inline-math range through Chrome opened the composer successfully with the
+modified frontend; no live Reader or user conversation store was changed.
+
+For latency triage, three read-only samples of the actual PDE project's accepted
+inputs (187 dependencies, warm local filesystem) gave median 4.5 ms for source
+signature and 8.4 ms for content fingerprint (maxima 4.6 and 30.7 ms). These
+operations recur during streaming; this small sample does not establish their
+aggregate cost or explain the live first-answer delay.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

@@ -192,7 +192,9 @@ class SyntheticReader:
             '<div class="flow-equation" id="equation"><math display="block"><mrow><mi data-flow-mark="m2">x</mi>'
             '<mo>=</mo><mn>1</mn></mrow></math><span class="flow-equation-number">(1)</span></div>'
             '<aside class="flow-notes"><div data-flow-targets="[&quot;m2&quot;]">kernel</div></aside>'
-            '<p id="trailing">Trailing ordinary prose remains selectable.</p></body></html>')
+            '<p id="trailing">Trailing ordinary prose remains selectable.</p>'
+            '<p id="unicode-suffix">Suffix case' + 'a' * 63 + '𝑁 end.</p>'
+            '<p id="unicode-prefix">𝑁' + 'a' * 62 + ' Prefix case.</p></body></html>')
         self.publish("fixture-r1")
         auth = fake.auth(work / "private", signed_in=True)
         provider = ResponsesProvider(auth, resource=fake.url)
