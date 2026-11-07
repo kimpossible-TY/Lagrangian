@@ -9,6 +9,7 @@ for (const [name, file] of Object.entries({ home: "../web/home/index.html", read
     checkShell(name, html);
     const hook = name === "home" ? 'id="document-list"' : 'id="reader-document"';
     assert.throws(() => checkShell(name, html.replace(hook, "")), /missing hooks/);
+    assert.throws(() => checkShell(name, html.replace(hook, `data-${hook}`)), /missing hooks/);
   });
 }
 

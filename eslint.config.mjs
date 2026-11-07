@@ -92,6 +92,7 @@ export default [
     // These Node hosts also send callbacks to the browser through page.evaluate.
     files: [
       "tools/flow-reader/tests/*-browser.mjs",
+      "tools/flow-reader/tests/ui-baseline.mjs",
       "tools/flow-reader/terminal/browser-session.mjs",
       "tools/flow-reader/terminal/editor-bridge.mjs",
       "tools/flow-reader/terminal/host.mjs",

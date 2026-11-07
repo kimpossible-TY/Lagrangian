@@ -35,8 +35,16 @@ async function rendered(page, selectors) {
   for (const selector of selectors) assert.ok(await page.locator(selector).count(), `Missing rendered selector: ${selector}`);
 }
 async function settle(page) {
-  await page.evaluate(() => document.fonts.ready);
-  await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }" });
+  await page.mouse.move(0, 0);
+  await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; }" });
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(async () => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await globalThis.MathJax?.startup?.promise;
+    await document.fonts.ready;
+    await Promise.all(Array.from(document.images, (image) => image.decode().catch(() => {})));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
 }
 async function openChat(page) {
   await page.evaluate(async () => {

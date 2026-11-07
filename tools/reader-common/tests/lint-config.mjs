@@ -24,13 +24,10 @@ test("browser policy rejects Node globals and Node policy rejects browser global
 });
 
 test("browser evaluation hosts accept both runtimes but reject unknown names", async () => {
-  const [result] = await eslint.lintText("process.exitCode = 0; document.title; missingReader();", {
-    filePath: "tools/flow-reader/tests/selection-browser.mjs",
-  });
-  assert.deepEqual(
-    result.messages.map((message) => message.message),
-    ["'missingReader' is not defined."],
-  );
+  for (const filePath of ["tools/flow-reader/tests/selection-browser.mjs", "tools/flow-reader/tests/ui-baseline.mjs"]) {
+    const [result] = await eslint.lintText("process.exitCode = 0; document.title; missingReader();", { filePath });
+    assert.deepEqual(result.messages.map((message) => message.message), ["'missingReader' is not defined."], filePath);
+  }
 });
 
 test("reader TypeScript is parsed and unused values are checked", async () => {

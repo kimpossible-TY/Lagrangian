@@ -5,7 +5,15 @@ export const shells = {
 };
 
 export function checkShell(name, html) {
-  const tags = html.replace(/<!--[\s\S]*?-->/g, "").match(/<[a-z][^>]*>/gi) || [];
-  const missing = shells[name].filter((attribute) => !tags.some((tag) => tag.includes(attribute)));
+  const tags = html.replace(/<!--[\s\S]*?-->/g, "").match(/<[a-z][^\s/>]*(?:\s+(?:[^"'>]|"[^"]*"|'[^']*')*)?\s*\/?\s*>/gi) || [];
+  const attributes = tags.flatMap((tag) => {
+    const body = tag.replace(/^<[^\s/>]+/, "").replace(/\s*\/?>$/, "");
+    return Array.from(body.matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g),
+      ([, key, double, single, unquoted]) => [key.toLowerCase(), double ?? single ?? unquoted]);
+  });
+  const missing = shells[name].filter((attribute) => {
+    const [key, value] = attribute.split('="');
+    return !attributes.some(([actualKey, actualValue]) => actualKey === key && (value === undefined || actualValue === value.slice(0, -1)));
+  });
   if (missing.length) throw new Error(`${name} shell missing hooks: ${missing.join(", ")}`);
 }
