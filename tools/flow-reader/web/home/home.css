@@ -609,11 +609,16 @@ button, .reader-link, input, select { border-radius: var(--radius-small); }
 button, .reader-link {
   touch-action: manipulation;
   transition: transform var(--motion-fast) var(--motion-ease),
-    opacity var(--motion-standard) var(--motion-ease),
     background-color var(--motion-standard) var(--motion-ease);
 }
 @media (hover: hover) {
-  button:hover:not(:disabled), .reader-link:hover { opacity: 0.82; }
+  button:hover:not(:disabled), .reader-link:hover {
+    background: var(--color-surface);
+    color: var(--color-action);
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+  }
+  .text-button:hover:not(:disabled) { text-decoration-thickness: 2px; }
 }
 button:active:not(:disabled), .reader-link:active { transform: scale(0.98); }
 :focus-visible { outline: 3px solid var(--color-action); outline-offset: 3px; }

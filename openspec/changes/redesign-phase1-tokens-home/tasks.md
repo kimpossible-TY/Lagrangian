@@ -7,4 +7,5 @@
 ## 2. Verification
 
 - [x] Run the requested Node, Python, OpenSpec, and diff checks.
+- [x] Preserve control text contrast on hover and cover theme and solid fallback colors with a CSS contract test.
 - [ ] Review visual baselines and interaction states in a working browser (PM-owned capture).
