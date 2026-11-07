@@ -83,4 +83,9 @@ test("stripMathDelimiters strips LaTeX delimiters to plain text", () => {
   assert.equal(stripMathDelimiters("Cost is \\$5 and \\$10"), "Cost is \\$5 and \\$10");
   assert.equal(stripMathDelimiters("Single dollar \\$"), "Single dollar \\$");
   assert.equal(stripMathDelimiters("$5 and $10 and $x$"), "$5 and $10 and x");
+  assert.equal(stripMathDelimiters("Budget is $5-$10"), "Budget is $5-$10");
+  assert.equal(stripMathDelimiters("$5–$10"), "$5–$10");
+  assert.equal(stripMathDelimiters("US$5–US$10"), "US$5–US$10");
+  assert.equal(stripMathDelimiters("$x^2$"), "x^2");
+  assert.equal(stripMathDelimiters("$2+3$"), "2+3");
 });

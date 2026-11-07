@@ -15,7 +15,19 @@ export function stripMathDelimiters(text) {
     .replace(/\\\[\s*([\s\S]*?)\s*(?:\\\]|$)/gu, "$1")
     .replace(/\\\(\s*([\s\S]*?)\s*(?:\\\)|$)/gu, "$1")
     .replace(/\$\$\s*([\s\S]*?)\s*(?:\$\$|$)/gu, "$1")
-    .replace(/(^|[^\\])\$([^\s\$](?:[^\$\n]*?[^\s\$\\])?)\$/gu, "$1$2");
+    .replace(
+      /(^|[^\\])\$([^\s\$](?:[^\$\n]*?[^\s\$\\])?)\$(?!\d)/gu,
+      (match, prefix, content, offset, fullText) => {
+        const openIdx = offset + prefix.length;
+        const beforeOpen = fullText.slice(0, openIdx);
+        if (/(?:US|[a-zA-Z0-9])$/u.test(beforeOpen)) return match;
+        if (/\d\s*[-–—]\s*$/u.test(beforeOpen)) return match;
+        if (/^(?:[A-Za-z]{1,3}\s*)?\d+(?:[.,]\d+)?\s*[-–—]\s*(?:[A-Za-z]{1,3})?$/u.test(content))
+          return match;
+        if (/\d/u.test(fullText[offset + match.length] || "")) return match;
+        return `${prefix}${content}`;
+      },
+    );
 }
 
 const line = (text, limit) => {

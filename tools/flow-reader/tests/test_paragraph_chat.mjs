@@ -522,4 +522,96 @@ test("conversationSummary strips math on full question/answer before 65/90 trunc
     thread: [{ role: "user", text: "Symbol \\$ alone", status: "completed" }],
   };
   assert.equal(conversationSummary(singleDollarRec), "Symbol \\$ alone · Ask");
+
+  // Currency ranges preserved verbatim through conversationSummary
+  assert.equal(
+    conversationSummary({
+      quote: "quote",
+      status: "idle",
+      thread: [{ role: "user", text: "Budget is $5-$10", status: "completed" }],
+    }),
+    "Budget is $5-$10 · Ask",
+  );
+  assert.equal(
+    conversationSummary({
+      quote: "quote",
+      status: "idle",
+      thread: [{ role: "user", text: "$5–$10", status: "completed" }],
+    }),
+    "$5–$10 · Ask",
+  );
+  assert.equal(
+    conversationSummary({
+      quote: "quote",
+      status: "idle",
+      thread: [{ role: "user", text: "US$5–US$10", status: "completed" }],
+    }),
+    "US$5–US$10 · Ask",
+  );
+});
+
+test("controller summary UI renders plain-text title preserving currency ranges verbatim while stripping math", (t) => {
+  setupDocument(t);
+  const testCases = [
+    { text: "Budget is $5-$10", expected: "Budget is $5-$10 · Ask" },
+    { text: "$5–$10", expected: "$5–$10 · Ask" },
+    { text: "US$5–US$10", expected: "US$5–US$10 · Ask" },
+    { text: "Numeric math $x^2$", expected: "Numeric math x^2 · Ask" },
+    { text: "Formula $2+3$", expected: "Formula 2+3 · Ask" },
+    { text: "Price is \\$5 and \\$10", expected: "Price is \\$5 and \\$10 · Ask" },
+    { text: "Lunch costs $5 and $10", expected: "Lunch costs $5 and $10 · Ask" },
+    {
+      text: "$" + "x+".repeat(40) + "y$",
+      expected: "x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+… · Ask",
+    },
+  ];
+
+  for (let i = 0; i < testCases.length; i++) {
+    const { text, expected } = testCases[i];
+    const convId = `conv-curr-${i}`;
+    const record = {
+      conversation_id: convId,
+      quote: "quote",
+      status: "idle",
+      thread: [{ role: "user", text, status: "completed" }],
+      attachment: { state: "unresolved" },
+    };
+
+    // 1. Direct conversationSummary check
+    const summary = conversationSummary(record);
+    assert.equal(summary, expected);
+
+    // 2. Real controller summary UI path: render() -> node.summary.textContent & node.summary.title
+    const node = {
+      root: { parentNode: null, remove() {} },
+      quote: { textContent: "" },
+      summary: { textContent: "", title: "" },
+      panel: { hidden: true },
+      transcript: { update() {} },
+      status: { dataset: {}, textContent: "" },
+      inputLabel: { textContent: "" },
+      input: { value: "" },
+      cancel: { hidden: true },
+      model: { value: "" },
+      send: { disabled: false },
+    };
+    const controller = {
+      render: ParagraphChatController.prototype.render,
+      renderModels() {},
+      updateSend() {},
+      renderAccount() {},
+      schedule() {},
+      nodes: new Map([[convId, node]]),
+      state: { records: new Map([[convId, record]]) },
+      unresolved: { append() {}, hidden: false },
+      article: { querySelector() { return null; } },
+      drafts: new Map(),
+      accountSettings: {},
+    };
+
+    controller.render();
+
+    assert.equal(node.summary.textContent, expected);
+    assert.equal(node.summary.title, expected);
+  }
 });
