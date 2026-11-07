@@ -146,6 +146,61 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertNotIn(record["conversation_id"], self.chat.jobs)
 
+    def test_idle_cancellation_polls_do_not_repeat_full_validation_per_poll(self):
+        record = self.open()
+        def run(**options):
+            before = fresh.call_count
+            for _ in range(100):
+                self.assertFalse(options["cancelled"]())
+            self.assertLess(fresh.call_count - before, 10)
+            yield {"type": "delta", "text": "Validated answer"}
+        with patch.object(self.chat, "fresh", wraps=self.chat.fresh) as fresh, patch.object(self.chat.provider, "run", run):
+            self.send(record)
+            result = self.wait(record["conversation_id"])
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["thread"][-1]["text"], "Validated answer")
+
+    def test_recent_idle_validation_cannot_admit_a_delta_after_source_change(self):
+        record = self.open()
+        sent = threading.Event()
+        def run(**options):
+            self.assertTrue(sent.wait(2))
+            self.assertFalse(options["cancelled"]())
+            self.reader.entry.write_text("changed immediately before the next delta")
+            yield {"type": "delta", "text": "Must not be stored"}
+        with patch.object(self.chat.provider, "run", run):
+            self.send(record)
+            sent.set()
+            deadline = time.monotonic() + 2
+            while record["conversation_id"] in self.chat.jobs and time.monotonic() < deadline:
+                time.sleep(0.01)
+        with self.chat.store.transaction() as db:
+            result, = self.chat.store.read(db, self.reader.state.document_id, record["conversation_id"])
+        self.assertEqual(result["status"], "interrupted")
+        self.assertEqual(result["thread"][-1]["text"], "")
+
+    def test_source_edit_interrupts_idle_upstream_without_publication_or_more_bytes(self):
+        self.fake.mode = "stall"
+        record = self.open()
+        self.send(record)
+        self.assertTrue(self.fake.stream_started.wait(3))
+        job = self.chat.jobs[record["conversation_id"]]
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            with self.chat.store.transaction() as db:
+                current, = self.chat.store.read(db, self.reader.state.document_id, record["conversation_id"])
+            if current["progress"] == "Thinking…":
+                break
+            time.sleep(0.01)
+        self.assertEqual(current["progress"], "Thinking…")
+        self.reader.entry.write_text("changed while upstream is idle")
+        self.assertTrue(self.fake.stream_closed.wait(2))
+        job["thread"].join(2)
+        self.assertFalse(job["thread"].is_alive())
+        with self.chat.store.transaction() as db:
+            result, = self.chat.store.read(db, self.reader.state.document_id, record["conversation_id"])
+        self.assertEqual(result["status"], "interrupted")
+
     def test_reselect_updates_composer_but_preserves_each_questions_original_context(self):
         first = self.open("First paragraph")
         self.send(first, "Explain the first selection")

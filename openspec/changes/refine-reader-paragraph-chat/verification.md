@@ -76,8 +76,26 @@ The existing paragraph-chat suite passed 23 checks after adding timing coverage;
 the additional closed-log cleanup check passed separately. Tests exercise three
 real local HTTP/SSE rounds and verify that reports omit content, credentials,
 identities and paths, while history and provider payload structure stay unchanged.
-Deployment and a real-model trace are pending; this instrumentation does not
-itself establish a latency improvement.
+Run 42362172149 installed revision `26d6c875`. Actual Chrome questions through the
+installed Reader produced two content-free traces: a short follow-up completed
+in 6484 ms (first text 1920 ms, one model request, 164 source checks totaling
+7007 ms across concurrent callers, 54 storage writes totaling 140 ms). A document
+search follow-up completed in 26458 ms (first text 19040 ms, five model requests,
+four document tools totaling 60 ms, 902 source checks totaling 21394 ms across
+callers, 156 writes totaling 274 ms). UI completion was observed by 12 and 33
+seconds respectively; these are observation bounds. Source-check sums overlap
+provider/network wall time and each other, so they cannot be subtracted from the
+total to assign exact latency percentages. The traces identify repeated source
+validation and multiple model rounds as costs; instrumentation alone does not
+establish an improvement. The cancellation polling optimization is pending live
+verification.
+
+The revised run guard passed all 27 paragraph-chat/OAuth tests. New regressions
+exercise 100 cancellation polls without repeating full validation for each poll,
+reject a delta after a source edit despite a recent idle check, and close a
+stalled upstream after an un-published source edit without receiving another SSE
+byte. Existing user cancellation, stale snapshot, tool, history and HTTP checks
+also pass. Strict OpenSpec validation and whitespace checks pass.
 
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a

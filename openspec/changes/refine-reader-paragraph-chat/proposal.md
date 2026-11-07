@@ -17,6 +17,8 @@ request notices visible across rerenders and explain required reselection before
 sending from an older document context.
 Record bounded content-free request timing in the existing host log so local
 processing, provider rounds and document-tool delays can be distinguished.
+Avoid duplicate full source checks in cancellation polling while retaining full
+validation at event, tool and completion boundaries.
 
 ## Impact
 HTML and terminal browser presentation, plus host/provider timing diagnostics.

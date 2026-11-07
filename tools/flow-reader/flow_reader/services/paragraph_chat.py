@@ -313,6 +313,8 @@ class ParagraphChat:
         started = time.monotonic()
         metrics = {"sourceChecks": 0, "sourceCheckMs": 0, "storageWrites": 0, "storageMs": 0}
         marks, metrics_lock = [], threading.Lock()
+        source_lock = threading.Lock()
+        checked_at, source_current = 0.0, True
         stages = {"auth-ready", "request-start", "response-headers", "response-first-event",
                   "response-first-text", "response-completed", "tool-start", "tool-completed"}
         outcome = "failed"
@@ -328,12 +330,31 @@ class ParagraphChat:
             with metrics_lock:
                 metrics[count] += 1
                 metrics[duration] += (time.monotonic() - began) * 1000
-        def cancelled():
+        def check_sources():
+            nonlocal checked_at, source_current
             began = time.monotonic()
             try:
-                return job["cancel"].is_set() or not self.fresh(snapshot)
+                source_current = self.fresh(snapshot)
+                checked_at = time.monotonic()
+                return source_current
             finally:
                 add_cost("sourceChecks", "sourceCheckMs", began)
+        def accepted():
+            # Every visible event and tool still receives a full source check.
+            with source_lock:
+                return not job["cancel"].is_set() and check_sources()
+        def cancelled():
+            with self.state.lock:
+                if (job["cancel"].is_set() or self.closed or self.state.compiling
+                        or self.state.revision != snapshot.revision):
+                    return True
+            # The upstream socket watcher runs every 50 ms. Reuse a recent full
+            # check here, never at the publication/tool boundary. Idle streams
+            # still detect saved-source edits without waiting for model bytes.
+            with source_lock:
+                if time.monotonic() - checked_at >= 0.5:
+                    check_sources()
+                return not source_current
         def update(status=None, event=None):
             began = time.monotonic()
             with self.lock, self.store.transaction() as db:
@@ -358,7 +379,7 @@ class ParagraphChat:
                 self.store.save(db, current)
             add_cost("storageWrites", "storageMs", began)
         try:
-            if cancelled():
+            if not accepted():
                 raise RevisionChanged("Accepted document changed")
             history = [{"role": m["role"], "content":
                         json.dumps({"question": m["text"], "context": model_context(m.get("context", {
@@ -369,24 +390,26 @@ class ParagraphChat:
                 raise ChatProviderError("Conversation context limit reached; history is preserved")
             # Paths and source excerpts are private validation evidence, not tool authority.
             context = model_context(record["thread"][-2]["context"])
-            tools = DocumentTools(self.state.document_id, snapshot, lambda: not cancelled())
+            tools = DocumentTools(self.state.document_id, snapshot, accepted)
             for event in self.provider.run(model=model, history=history, context=context,
                     document_id=self.state.document_id, revision=snapshot.revision,
                     call_tool=tools, cancelled=cancelled, measure=measure):
-                if cancelled():
+                if not accepted():
                     raise RevisionChanged("Accepted document changed")
                 update(event=event)
-            if cancelled():
+            if not accepted():
                 raise RevisionChanged("Accepted document changed")
             update(status="completed", event={"type": "progress", "text": "Completed"})
             outcome = "completed"
         except (ChatProviderError, RevisionChanged) as error:
-            outcome = "interrupted" if cancelled() else "failed"
+            outcome = "interrupted" if isinstance(error, RevisionChanged) or cancelled() else "failed"
             update(status=outcome,
                    event={"type": "progress", "text": str(error)})
         except Exception:
             # Never echo transport exceptions, credentials or document bodies into logs.
-            update(status="failed", event={"type": "progress", "text": "Response failed. Your question is saved; retry when ready."})
+            outcome = "interrupted" if cancelled() else "failed"
+            update(status=outcome, event={"type": "progress", "text": "Response interrupted" if outcome == "interrupted"
+                                         else "Response failed. Your question is saved; retry when ready."})
         finally:
             with metrics_lock:
                 report = {"schemaVersion": 1, "outcome": outcome,

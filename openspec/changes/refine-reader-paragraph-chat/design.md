@@ -40,6 +40,16 @@ model, credential, URL, path or exception text is recorded. Reports do not enter
 conversation history, model input or the browser protocol. Diagnostics cannot
 block terminal job cleanup if the log is unavailable.
 
+Live traces showed the 50 ms upstream cancellation watcher repeatedly hashing the
+same accepted sources in parallel with event validation. Each run now owns a
+serialized validation result. Visible provider events, document tools, initial
+dispatch and completion force a full validation; they never use the cached
+result. Idle/provider cancellation polls reuse it for at most 500 ms, while
+explicit cancellation, closure, revision changes and compilation remain checked
+on every poll. Thus an idle upstream still closes after a saved-source edit even
+without another SSE byte or a publication, and a source edit immediately before
+a delta cannot admit that delta through the recent idle result.
+
 One dialog per controller holds read-only connection status and the configured
 Homepage account-management link. Each composer opens that same dialog. The
 Homepage prerequisite owns account composition and Mac-only mutation authority;
