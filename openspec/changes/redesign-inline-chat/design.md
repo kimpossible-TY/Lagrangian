@@ -8,8 +8,10 @@ Verify isolated mobile and desktop browser interactions and review screenshots w
 
 The expanded conversation uses a single floating, opaque surface with a subtle
 edge and shadow to distinguish it from the document. The transcript and
-composer share that surface rather than stacking cards. A restrained edge
-identifies a folded conversation; a divider identifies the composer. Native
+composer share that surface rather than stacking cards. A small rounded summary
+bubble identifies a folded conversation; its boundary, opaque surface and shadow
+match the expanded capsule. It retains the original one-third/two-thirds margin
+placement and inline fallback. A divider identifies the composer. Native
 buttons retain keyboard activation and visible focus, with immediate pressed
 feedback and a forced-colors fallback. This is an editorial web treatment, not
 an imitation of native Liquid Glass optics.

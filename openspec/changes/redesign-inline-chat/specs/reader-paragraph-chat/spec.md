@@ -13,7 +13,8 @@ The paragraph conversation SHALL present its source, transcript and composer in 
 #### Scenario: Folded conversation
 
 - **WHEN** the conversation is folded
-- **THEN** it remains identifiable as a control with hover, focus, pressed and forced-colors states.
+- **THEN** it appears as a small rounded one-line summary bubble with a boundary and shadow
+- **AND** it retains the original margin placement, inline fallback, hover, focus, pressed and forced-colors states.
 
 #### Scenario: Composing a longer question
 

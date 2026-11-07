@@ -4,6 +4,7 @@
 - [x] Integrate the concurrent draft-recovery and localized progress changes through `b3856727` without overwriting their source.
 - [x] Verify narrow and wide browser interactions, streaming, interruption, focus, theme and screen captures using isolated fixture data.
 - [x] Run focused reader tests, lint and OpenSpec validation; record remaining device coverage.
+- [x] Restore the folded summary bubble from the original contract and verify collapsed/expanded screenshots and placement. Chromium: 51 checks passed, including exact one-third/two-thirds margin placement, collision avoidance, mobile fallback, keyboard/touch activation and focus return; contrast and strict OpenSpec checks pass. Refreshed the 390px comparison captures and visually checked the folded bubble.
 
 Chromium fixture: 46 checks and zero page errors, including interruption,
 shared settings focus, narrow layout and composer growth. Shared and HTML Node

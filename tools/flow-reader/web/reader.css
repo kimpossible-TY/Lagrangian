@@ -1054,12 +1054,12 @@ button:disabled {
   width: 240px;
   max-width: 100%;
   padding: 0.4em 0.65em;
-  border: 0;
-  border-inline-start: 2px solid var(--accent);
-  border-radius: 0;
-  color: var(--muted);
-  background: var(--color-page);
-  box-shadow: none;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
   font: inherit;
   line-height: 1.5;
   overflow: hidden;
