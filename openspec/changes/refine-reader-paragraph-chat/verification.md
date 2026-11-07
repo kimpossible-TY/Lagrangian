@@ -31,6 +31,12 @@ with disposable storage and a fake provider. Selecting the same prose and
 inline-math range through Chrome opened the composer successfully with the
 modified frontend; no live Reader or user conversation store was changed.
 
+For latency triage, three read-only samples of the actual PDE project's accepted
+inputs (187 dependencies, warm local filesystem) gave median 4.5 ms for source
+signature and 8.4 ms for content fingerprint (maxima 4.6 and 30.7 ms). These
+operations recur during streaming; this small sample does not establish their
+aggregate cost or explain the live first-answer delay.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this
