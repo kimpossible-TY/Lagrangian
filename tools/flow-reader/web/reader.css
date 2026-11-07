@@ -1054,11 +1054,12 @@ button:disabled {
   width: 240px;
   max-width: 100%;
   padding: 0.4em 0.65em;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-medium);
-  color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  border: 0;
+  border-inline-start: 2px solid var(--accent);
+  border-radius: 0;
+  color: var(--muted);
+  background: var(--color-page);
+  box-shadow: none;
   font: inherit;
   line-height: 1.5;
   overflow: hidden;
@@ -1139,9 +1140,8 @@ button:disabled {
   background: var(--color-page);
 }
 .reader-chat-message[data-role="user"] .reader-chat-content {
-  padding: 0.65em 0.8em;
-  border-radius: var(--radius-medium);
-  background: var(--color-tint);
+  padding: 0;
+  background: var(--color-page);
   white-space: pre-wrap;
   font-weight: 500;
 }
@@ -1229,11 +1229,11 @@ button:disabled {
   color: var(--warning);
 }
 .reader-chat-composer {
-  margin-block-start: 0.8em;
-  padding: 0.55em 0.7em;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-medium);
-  background: var(--glass-solid);
+  margin-block-start: 1em;
+  padding: 0.7em 0 0;
+  border: 0;
+  border-block-start: 1px solid var(--line);
+  background: var(--color-page);
 }
 .reader-chat textarea {
   box-sizing: border-box;
@@ -1247,12 +1247,16 @@ button:disabled {
   color: var(--ink);
   background: transparent;
   border: 0;
-  border-radius: var(--radius-small);
+  border-block-end: 1px solid var(--line);
+  border-radius: 0;
   font: inherit;
   line-height: 1.6;
 }
 .reader-chat textarea::placeholder {
   color: var(--muted);
+}
+.reader-chat textarea:focus {
+  border-block-end-color: var(--accent);
 }
 .reader-chat :is(textarea, button, select):focus-visible,
 .reader-chat-settings :is(input, button, select, a):focus-visible {
@@ -1360,20 +1364,13 @@ button:disabled {
   }
 }
 
-/* Only the panel controls use the frosted material; transcript surfaces stay opaque. */
-@supports (backdrop-filter: blur(1px)) {
-  .reader-chat-heading,
-  .reader-chat-composer {
-    background: var(--glass-fill);
-    backdrop-filter: var(--glass-blur);
-  }
+.reader-chat button:active:not(:disabled) {
+  filter: brightness(0.88);
 }
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .reader-chat-heading,
-  .reader-chat-composer {
-    background: var(--glass-solid);
-    backdrop-filter: none;
-  }
+@media (forced-colors: active) {
+  .reader-chat-summary { border-color: ButtonText; }
+  .reader-chat button:focus-visible, .reader-chat textarea:focus-visible,
+  .reader-chat select:focus-visible { outline-color: Highlight; }
 }
 @media (hover: hover) {
   .reader-chat button:hover:not(:disabled),

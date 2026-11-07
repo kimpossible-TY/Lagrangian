@@ -53,10 +53,8 @@ test("Chat colors and hover remain legible across themes and materials", () => {
       rule.walkDecls("opacity", () => assert.fail(`Hover opacity in ${rule.selector}`));
     }
   });
-  for (const selector of [".reader-chat-heading", ".reader-chat-composer"]) {
-    assert.equal(ruleWith(selector, "backdrop-filter").background, "var(--glass-fill)");
-    assert.equal(ruleWith(selector, "prefers-reduced-transparency").background, "var(--glass-solid)");
-  }
+  assert.equal(ruleWith(".reader-chat-composer").background, "var(--color-page)");
+  assert.equal(ruleWith(".reader-chat-composer").border, "0");
   const light = tokens(":root");
   const themes = { light, dark: { ...light, ...tokens(':root[data-theme="dark"]') },
     system: { ...light, ...tokens(':root:not([data-theme="light"])') } };

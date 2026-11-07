@@ -2,7 +2,7 @@
 
 ### Requirement: Compact inline conversation
 
-The paragraph conversation SHALL present its source, transcript and composer in a clear reading hierarchy at narrow and wide viewports. The composer SHALL start compact and grow with its contents to a bounded scrollable height. Model selection SHALL remain available and account settings SHALL be available in the conversation header. The response interruption control SHALL remain available during generation.
+The paragraph conversation SHALL present its source, transcript and composer in a clear reading hierarchy at narrow and wide viewports. Reading content and the composer SHALL use the Reader page surface without stacked glass cards.
 
 #### Scenario: Asking on a narrow viewport
 
@@ -10,10 +10,20 @@ The paragraph conversation SHALL present its source, transcript and composer in 
 - **THEN** the composer, model choice, send action and account access remain visible and usable without horizontal overflow
 - **AND** the empty composer occupies a compact single-line height.
 
+#### Scenario: Folded conversation
+
+- **WHEN** the conversation is folded
+- **THEN** it remains identifiable as a control with hover, focus, pressed and forced-colors states.
+
 #### Scenario: Composing a longer question
 
 - **WHEN** the question grows across multiple lines
 - **THEN** the input expands up to its limit and remains scrollable beyond it.
+
+#### Scenario: Response in progress
+
+- **WHEN** an answer is generating
+- **THEN** its interruption control remains available.
 
 #### Scenario: Keyboard and account access
 

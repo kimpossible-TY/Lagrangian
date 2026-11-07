@@ -5,3 +5,10 @@ The paragraph remains the visual anchor. A quiet header contains the connection 
 The shared connection dialog remains accessible from every conversation. Existing draft, model, focus, error and revision ownership remain with the controller. Coordinate integration with the concurrently active `refine-reader-paragraph-chat` work, which owns accepted-stream draft recovery and progress localization.
 
 Verify isolated mobile and desktop browser interactions and review screenshots with synthetic data. Physical iPhone behavior and live model latency need separate verification.
+
+The conversation is reading content, so the transcript and composer use the
+Reader's opaque page rather than stacked translucent cards. A restrained edge
+identifies a folded conversation; a divider identifies the composer. Native
+buttons retain keyboard activation and visible focus, with immediate pressed
+feedback and a forced-colors fallback. This is an editorial web treatment, not
+an imitation of native Liquid Glass optics.
