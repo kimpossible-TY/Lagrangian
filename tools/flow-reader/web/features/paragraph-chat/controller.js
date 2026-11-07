@@ -14,6 +14,11 @@ const element = (tag, text, className) => {
   return node;
 };
 
+function resizeComposer(input) {
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
+
 /** HTML and terminal share this adapter, transport and host-owned history. */
 export class ParagraphChatController {
   constructor(article, view, transport) {
@@ -207,8 +212,9 @@ export class ParagraphChatController {
     const transcript = new ChatTranscript(messages);
     const status = element("p", "", "reader-chat-status");
     status.setAttribute("role", "status");
-    const account = element("button", "ChatGPT 연결 설정", "reader-chat-settings-open");
+    const account = element("button", "연결", "reader-chat-settings-open");
     account.type = "button";
+    account.setAttribute("aria-label", "ChatGPT 연결 설정");
     account.setAttribute("aria-haspopup", "dialog");
     account.setAttribute("aria-controls", this.accountSettings.dialog.id);
     account.addEventListener("click", () => this.openAccountSettings(account));
@@ -220,7 +226,7 @@ export class ParagraphChatController {
     input.id = inputLabel.htmlFor;
     input.placeholder = "궁금한 점을 적어 주세요…";
     input.maxLength = 8000;
-    input.rows = 2;
+    input.rows = 1;
     input.value = this.drafts.get(id) ?? record.draft;
     const send = element("button", "보내기 ↑", "reader-chat-send");
     send.type = "submit";
@@ -241,10 +247,14 @@ export class ParagraphChatController {
       this.updateSend(node);
     });
     const actions = element("div", "", "reader-chat-composer-actions");
-    actions.append(model, account, cancel, send);
+    actions.append(model, send);
     form.append(inputLabel, input, actions);
-    heading.append(close);
-    panel.append(heading, contextLabel, quote, messages, status, form);
+    const headingActions = element("div", "", "reader-chat-heading-actions");
+    headingActions.append(account, close);
+    heading.append(headingActions);
+    const responseStatus = element("div", "", "reader-chat-response-status");
+    responseStatus.append(status, cancel);
+    panel.append(heading, contextLabel, quote, messages, responseStatus, form);
     root.append(summary, panel);
     summary.addEventListener("click", () => (panel.hidden ? this.open(id) : this.close(id)));
     root.addEventListener("keydown", (event) => {
@@ -256,6 +266,7 @@ export class ParagraphChatController {
     });
     // Native button Enter/Space and click cover keyboard, pointer and touch.
     input.addEventListener("input", () => {
+      resizeComposer(input);
       this.drafts.set(id, input.value);
       this.updateSend(node);
       clearTimeout(node.draftTimer);
@@ -295,6 +306,7 @@ export class ParagraphChatController {
     const node = this.nodes.get(id);
     if (!node) return;
     node.panel.hidden = false;
+    resizeComposer(node.input);
     node.summary.setAttribute("aria-expanded", "true");
     node.root.classList.remove("reader-chat-margin");
     node.summary.style.cssText = "";
@@ -349,8 +361,10 @@ export class ParagraphChatController {
         !this.drafts.has(id) &&
         document.activeElement !== node.input &&
         node.input.value !== record.draft
-      )
+      ) {
         node.input.value = record.draft;
+        resizeComposer(node.input);
+      }
       node.cancel.hidden = record.status !== "streaming";
       this.renderModels(node);
       this.updateSend(node);

@@ -593,7 +593,7 @@ test("controller summary UI renders plain-text title preserving currency ranges 
       transcript: { update() {} },
       status: { dataset: {}, textContent: "" },
       inputLabel: { textContent: "" },
-      input: { value: "" },
+      input: { value: "", style: {}, scrollHeight: 44 },
       cancel: { hidden: true },
       model: { value: "" },
       send: { disabled: false },

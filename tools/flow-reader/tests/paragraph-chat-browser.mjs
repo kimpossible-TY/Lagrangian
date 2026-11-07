@@ -400,6 +400,19 @@ try {
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+  const composerInput = second.locator("textarea");
+  const compactHeight = await composerInput.evaluate((input) => input.getBoundingClientRect().height);
+  check("Empty mobile composer begins compact", compactHeight <= 55);
+  check("Connection control is in the conversation header", await second.locator(".reader-chat-heading .reader-chat-settings-open").isVisible());
+  await composerInput.fill("First line\nSecond line\nThird line\nFourth line");
+  const expandedHeight = await composerInput.evaluate((input) => input.getBoundingClientRect().height);
+  check("Composer grows for multiline questions", expandedHeight > compactHeight + 20);
+  await composerInput.fill("");
+  check("Composer shrinks when text is cleared", (await composerInput.evaluate((input) => input.getBoundingClientRect().height)) <= 55);
+  if (process.env.FLOW_READER_CHAT_MOBILE_SCREENSHOT) {
+    await second.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: process.env.FLOW_READER_CHAT_MOBILE_SCREENSHOT });
+  }
   check(
     "Mobile expanded composer fits without page overflow",
     await second.evaluate((root) => {
