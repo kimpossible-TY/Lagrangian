@@ -1,4 +1,4 @@
-import { logoHomeURL, logoSwipe } from "../navigation/logo-home-swipe.js";
+import { logoHomeURL, logoGesture } from "../navigation/logo-home-swipe.js";
 
 /** HTML presentation only: ActivityNotice retains labels and release policy. */
 export class StatusLogo {
@@ -19,13 +19,15 @@ export class StatusLogo {
     this.popover = element.querySelector("#reader-logo-popover");
     this.popoverStatus = element.querySelector(".reader-logo-status") || this.popover;
     this.homeLink = element.querySelector(".reader-logo-home-link");
+    this.refreshButton = element.querySelector(".reader-logo-refresh");
+    this.refreshButton?.addEventListener("click", () => this.performAction(), { signal });
     this.homeURL = logoHomeURL(element.ownerDocument.defaultView?.location.pathname || "");
     if (this.homeLink) this.homeLink.hidden = !this.homeURL;
     this.trigger.setAttribute("aria-expanded", "false");
     this.trigger.setAttribute("aria-controls", "reader-logo-popover");
     this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
     if (!this.trigger.getAttribute?.("aria-description")) {
-      this.trigger.setAttribute("aria-description", "길게 누르거나 Shift+Enter로 새로고침");
+      this.trigger.setAttribute("aria-description", "Shift+Enter 또는 메뉴 버튼으로 새로고침");
     }
     this.trigger.addEventListener(
       "click",
@@ -48,98 +50,66 @@ export class StatusLogo {
       },
       { signal },
     );
-    this.trigger.addEventListener(
-      "pointerdown",
-      (event) => {
-        if (this.swipe) {
-          this.swipe = logoSwipe(this.swipe, { type: "down" });
-          this.cancelPress();
-          this.suppressClick = true;
-          return;
-        }
-        if (!event.isPrimary || event.button !== 0) return;
-        if (this.homeURL) {
-          this.swipe = logoSwipe(null, { type: "down", pointerId: event.pointerId,
-            isPrimary: event.isPrimary, button: event.button, x: event.clientX,
-            y: event.clientY, width: this.trigger.getBoundingClientRect().width });
-          this.trigger.setPointerCapture(event.pointerId);
-        }
-        this.cancelPress();
-        this.suppressClick = false;
-        this.press = { id: event.pointerId, x: event.clientX, y: event.clientY };
-        this.pressTimer = setTimeout(() => {
-          this.pressTimer = null;
-          if (!this.press) return;
-          this.suppressClick = true;
-          this.press = null;
-          this.performAction();
-        }, 500);
-      },
-      { signal },
-    );
     const doc = element.ownerDocument;
-    doc.addEventListener(
-      "pointermove",
-      (event) => {
-        if (this.swipe?.id === event.pointerId) {
-          this.swipe = logoSwipe(this.swipe, { type: "move", pointerId: event.pointerId, x: event.clientX, y: event.clientY });
-          if (!this.swipe.cancelled && this.swipe.dx > 0) {
-            this.trigger.style.setProperty("--logo-swipe-x", `${Math.min(24, this.swipe.dx)}px`);
-            this.trigger.classList.add("reader-logo-dragging");
-          } else {
-            this.resetSwipeVisual();
-          }
-        }
-        if (this.press?.id !== event.pointerId) return;
-        if (Math.hypot(event.clientX - this.press.x, event.clientY - this.press.y) > 10) {
-          this.suppressClick = true;
-          this.cancelPress();
-        }
-      },
-      { signal },
-    );
-    doc.addEventListener(
-      "pointerup",
-      (event) => {
-        if (this.swipe?.id === event.pointerId) {
-          const result = logoSwipe(this.swipe, { type: "up", pointerId: event.pointerId, x: event.clientX, y: event.clientY });
-          this.swipe = null;
-          this.resetSwipeVisual();
-          if (result.complete) {
-            this.suppressClick = true;
-            this.cancelPress();
-            element.ownerDocument.defaultView.location.assign(this.homeURL);
-          }
-        }
-        if (this.press?.id === event.pointerId) this.cancelPress();
-      },
-      { signal },
-    );
-    doc.addEventListener(
-      "pointercancel",
-      (event) => {
-        if (this.swipe?.id === event.pointerId) {
-          this.swipe = null;
-          this.resetSwipeVisual();
-          this.suppressClick = true;
-        }
-        if (this.press?.id === event.pointerId) this.cancelPress();
-      },
-      { signal },
-    );
-    doc.addEventListener(
-      "pointerdown",
-      (event) => {
-        if (this.swipe && event.pointerId !== this.swipe.id) {
-          this.swipe = logoSwipe(this.swipe, { type: "down" });
-          this.cancelPress();
-          this.suppressClick = true;
-          this.resetSwipeVisual();
-        }
-        if (!element.contains(event.target)) this.setPopoverOpen(false);
-      },
-      { signal },
-    );
+    this.trigger.addEventListener("pointerdown", (event) => {
+      if (!event.isPrimary || event.button !== 0) return;
+      if (this.gesture && this.gesture.phase !== "done") return;
+      this.suppressClick = false;
+      this.gesture = logoGesture(null, { type: "down", pointerId: event.pointerId,
+        isPrimary: event.isPrimary, button: event.button, x: event.clientX, y: event.clientY,
+        width: this.trigger.getBoundingClientRect?.().width || 0 });
+      if (!this.homeURL) return;
+      this.trigger.setPointerCapture(event.pointerId);
+      this.trigger.classList.add("reader-logo-pressing");
+      this.pressTimer = setTimeout(() => {
+        this.pressTimer = null;
+        this.gesture = logoGesture(this.gesture, { type: "hold" });
+        if (this.gesture?.action !== "home") return;
+        this.suppressClick = true;
+        this.trigger.classList.remove("reader-logo-pressing");
+        this.trigger.classList.add("reader-logo-confirmed");
+        doc.defaultView.navigator.vibrate?.(10);
+        this.navigationTimer = setTimeout(() => doc.defaultView.location.assign(this.homeURL), 100);
+      }, 500);
+    }, { signal });
+    doc.addEventListener("pointermove", (event) => {
+      if (this.gesture?.id !== event.pointerId) return;
+      this.gesture = logoGesture(this.gesture, { type: "move", pointerId: event.pointerId, x: event.clientX, y: event.clientY });
+      if (this.gesture.phase === "swiping") {
+        this.suppressClick = true;
+        this.cancelPress();
+        if (this.homeURL && !this.gesture.cancelled && this.gesture.dx > 0) {
+          this.trigger.style.setProperty("--logo-swipe-x", `${Math.min(24, this.gesture.dx)}px`);
+          this.trigger.classList.add("reader-logo-dragging");
+        } else this.resetSwipeVisual();
+      }
+    }, { signal });
+    doc.addEventListener("pointerup", (event) => {
+      if (this.gesture?.id !== event.pointerId) return;
+      this.gesture = logoGesture(this.gesture, { type: "up", pointerId: event.pointerId, x: event.clientX, y: event.clientY });
+      this.cancelPress();
+      this.resetSwipeVisual();
+      if (this.homeURL && this.gesture.action === "home") {
+        this.suppressClick = true;
+        doc.defaultView.location.assign(this.homeURL);
+      }
+    }, { signal });
+    doc.addEventListener("pointercancel", (event) => {
+      if (this.gesture?.id !== event.pointerId) return;
+      this.gesture = logoGesture(this.gesture, { type: "cancel", pointerId: event.pointerId });
+      this.cancelPress();
+      this.resetSwipeVisual();
+      this.suppressClick = true;
+    }, { signal });
+    doc.addEventListener("pointerdown", (event) => {
+      if (this.gesture && this.gesture.phase !== "done" && event.pointerId !== this.gesture.id) {
+        this.gesture = logoGesture(this.gesture, { type: "cancel", pointerId: this.gesture.id });
+        this.cancelPress();
+        this.resetSwipeVisual();
+        this.suppressClick = true;
+      }
+      if (!element.contains(event.target)) this.setPopoverOpen(false);
+    }, { signal });
     doc.addEventListener(
       "keydown",
       (event) => {
@@ -147,16 +117,17 @@ export class StatusLogo {
       },
       { signal },
     );
+    this.renderBadge();
     document.documentElement.dataset.readerLogo = "true";
   }
 
   resetSwipeVisual() {
-    this.trigger.classList.remove("reader-logo-dragging");
-    this.trigger.style.removeProperty("--logo-swipe-x");
+    this.trigger.classList?.remove("reader-logo-dragging");
+    this.trigger.style?.removeProperty("--logo-swipe-x");
   }
 
   description(text, korean) {
-    return this.homeURL ? `${text} · ${korean ? "오른쪽으로 밀어 홈으로 이동" : "Swipe right to go home"}` : text;
+    return this.homeURL ? `${text} · ${korean ? "길게 누르거나 오른쪽으로 밀어 홈으로 이동" : "Long-press or swipe right to go home"}` : text;
   }
 
   setPopoverOpen(open) {
@@ -168,7 +139,7 @@ export class StatusLogo {
   cancelPress() {
     clearTimeout(this.pressTimer);
     this.pressTimer = null;
-    this.press = null;
+    this.trigger.classList?.remove("reader-logo-pressing");
   }
 
   async performAction() {
@@ -242,13 +213,14 @@ export class StatusLogo {
       if (this.badge.textContent === "↑") this.badge.textContent = "";
     }
     const korean = this.notice?.korean ?? true;
+    if (this.refreshButton) this.refreshButton.textContent = korean ? "새로고침" : "Refresh";
     const description = korean
       ? hasUpdate
-        ? "길게 누르거나 Shift+Enter로 업데이트 적용"
-        : "길게 누르거나 Shift+Enter로 새로고침"
+        ? "Shift+Enter 또는 메뉴 버튼으로 업데이트 적용"
+        : "Shift+Enter 또는 메뉴 버튼으로 새로고침"
       : hasUpdate
-        ? "Long-press or Shift+Enter to apply update"
-        : "Long-press or Shift+Enter to refresh";
+        ? "Shift+Enter or popover button to apply update"
+        : "Shift+Enter or popover button to refresh";
     this.trigger.setAttribute("aria-description", this.description(description, korean));
   }
 
@@ -257,6 +229,7 @@ export class StatusLogo {
     this.notice = notice;
     this.offlineMode = offline;
     const korean = notice.korean;
+    if (this.refreshButton) this.refreshButton.textContent = korean ? "새로고침" : "Refresh";
     const queue = this.element.ownerDocument.querySelector("#reader-highlight-queue-status");
     const display =
       offline && ["ready", "reconnecting"].includes(phase)
@@ -305,11 +278,11 @@ export class StatusLogo {
     this.trigger.setAttribute("aria-keyshortcuts", "Shift+Enter");
     const description = korean
       ? hasUpdate
-        ? "길게 누르거나 Shift+Enter로 업데이트 적용"
-        : "길게 누르거나 Shift+Enter로 새로고침"
+        ? "Shift+Enter 또는 메뉴 버튼으로 업데이트 적용"
+        : "Shift+Enter 또는 메뉴 버튼으로 새로고침"
       : hasUpdate
-        ? "Long-press or Shift+Enter to apply update"
-        : "Long-press or Shift+Enter to refresh";
+        ? "Shift+Enter or popover button to apply update"
+        : "Shift+Enter or popover button to refresh";
     this.trigger.setAttribute("aria-description", this.description(description, korean));
     this.popoverStatus.textContent = hasUpdate
       ? `${label} · ${korean ? "업데이트 대기 중" : "Update waiting"}`
@@ -343,8 +316,9 @@ export class StatusLogo {
     clearTimeout(this.completed);
     this.cancelPress();
     this.listeners.abort();
-    if (this.swipe) this.resetSwipeVisual();
-    this.swipe = null;
+    this.resetSwipeVisual();
+    this.gesture = null;
+    clearTimeout(this.navigationTimer);
     clearTimeout(this.reloadTimer);
     this.setPopoverOpen(false);
     this.element.hidden = true;

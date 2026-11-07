@@ -44,6 +44,69 @@ try {
     await page.mouse.move(x + dx, y + dy, { steps: 5 });
     await page.mouse.up();
   };
+  const mouseStart = async () => {
+    const bounds = await brand.boundingBox();
+    const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    return { x, y };
+  };
+  const home = new URL("/", url).href;
+  await open(url);
+  await mouseStart();
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  assert.equal(new URL(page.url()).pathname, "/d/fixture/");
+  await mouseStart();
+  await page.waitForTimeout(550);
+  await page.waitForURL(home);
+  await page.mouse.up();
+
+  await open(url);
+  let navigations = 0;
+  const countHome = (frame) => { if (frame === page.mainFrame() && frame.url() === home) navigations++; };
+  page.on("framenavigated", countHome);
+  const start = await mouseStart();
+  await page.waitForTimeout(520);
+  await page.mouse.move(start.x + 80, start.y);
+  await page.mouse.up();
+  await page.waitForURL(home);
+  await page.waitForTimeout(200);
+  assert.equal(navigations, 1);
+  page.off("framenavigated", countHome);
+
+  await open(url);
+  const moveStart = await mouseStart();
+  await page.mouse.move(moveStart.x + 11, moveStart.y);
+  await page.waitForTimeout(550);
+  await page.mouse.up();
+  assert.equal(new URL(page.url()).pathname, "/d/fixture/");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await open(url);
+  await mouseStart();
+  assert.equal(await brand.evaluate((el) => getComputedStyle(el, "::after").animationName), "none");
+  await page.waitForURL(home);
+  await page.mouse.up();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  await open(url);
+  await brand.focus();
+  await Promise.all([page.waitForNavigation(), page.keyboard.press("Shift+Enter")]);
+  assert.equal(new URL(page.url()).pathname, "/d/fixture/");
+  await brand.click();
+  await Promise.all([page.waitForNavigation(), page.locator(".reader-logo-refresh").click()]);
+  assert.equal(new URL(page.url()).pathname, "/d/fixture/");
+
+  await open(url);
+  const touchBox = await brand.boundingBox();
+  const touchX = Math.round(touchBox.x + touchBox.width / 2), touchY = Math.round(touchBox.y + touchBox.height / 2);
+  const touchSession = await context.newCDPSession(page);
+  await touchSession.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: touchX, y: touchY, id: 1 }] });
+  await page.waitForURL(home);
+  await touchSession.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
   await open(url + "?terminal=1");
   for (const [dx, dy] of [[15, 0], [-80, 0], [15, 80]]) {
     await drag(dx, dy);

@@ -4,3 +4,6 @@
 - [x] Connect the shared Reader logo gesture and accessible Homepage link without changing refresh or click behavior.
 - [x] Add browser coverage for shared and standalone Readers, including terminal presentation.
 - [x] Validate the change and document unexecuted browser coverage.
+- [x] Replace competing gesture trackers with a single hold/swipe state machine and feedback.
+- [x] Move refresh to the popover and update accessible descriptions.
+- [x] Cover hold, cancellation, exclusivity, refresh and reduced motion in unit and browser fixtures.

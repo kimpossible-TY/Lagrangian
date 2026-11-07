@@ -602,7 +602,7 @@ test("status logo tap, dismissal, and deliberate pointer action", async () => {
     assert.equal(reloads, 0);
     harness.trigger.dispatchEvent(down);
     await new Promise((resolve) => setTimeout(resolve, 710));
-    assert.equal(reloads, 1);
+    assert.equal(reloads, 0, "standalone long press is inert");
   } finally {
     logo.dispose();
     [globalThis.document, globalThis.window] = previous;
