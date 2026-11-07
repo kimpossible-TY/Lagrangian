@@ -49,7 +49,7 @@
           aria-expanded="false"
           aria-controls="reader-logo-popover"
           aria-keyshortcuts="Shift+Enter"
-          aria-description="길게 누르거나 Shift+Enter로 새로고침"
+          aria-description="Shift+Enter 또는 메뉴 버튼으로 새로고침"
           aria-label="문서를 기다리는 중…"
         >
           <svg class="reader-logo-mark" viewBox="0 0 240 220" aria-hidden="true">
@@ -71,7 +71,7 @@
           </svg>
           <span class="reader-logo-badge" aria-hidden="true"></span>
         </button>
-        <div id="reader-logo-popover" hidden>문서를 기다리는 중…</div>
+        <div id="reader-logo-popover" hidden><span class="reader-logo-status">문서를 기다리는 중…</span><a href="/" class="reader-logo-home-link" aria-label="Lagrangian 홈으로" hidden>Lagrangian 홈으로</a><button type="button" class="reader-logo-refresh">새로고침</button></div>
       </div>
       <div class="reader-appearance">
         <button

@@ -245,6 +245,7 @@ test("an equal revision from another document cannot report the old content read
 
 function createLogoHarness() {
   const listeners = new Map();
+  const classes = new Set();
   const triggerAttrs = new Map([
     ["aria-label", "문서를 기다리는 중…"],
     ["aria-expanded", "false"],
@@ -255,6 +256,11 @@ function createLogoHarness() {
   let focusedElement = null;
 
   const trigger = {
+    classList: {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+      contains: (name) => classes.has(name),
+    },
     setAttribute: (k, v) => triggerAttrs.set(k, v),
     getAttribute: (k) => triggerAttrs.get(k) ?? null,
     hasAttribute: (k) => triggerAttrs.has(k),
@@ -338,6 +344,32 @@ function createLogoHarness() {
     getFocused: () => focusedElement,
   };
 }
+
+test("status logo clears confirmation after animation, pointerdown, and disposal", () => {
+  const previousDocument = globalThis.document;
+  const harness = createLogoHarness();
+  globalThis.document = { documentElement: { dataset: {} } };
+  const logo = new StatusLogo(harness.element);
+  const confirmed = "reader-logo-confirmed";
+  try {
+    harness.trigger.classList.add(confirmed);
+    harness.trigger.dispatchEvent({ type: "animationend", target: harness.trigger, animationName: "other" });
+    assert.equal(harness.trigger.classList.contains(confirmed), true);
+    harness.trigger.dispatchEvent({ type: "animationend", target: harness.trigger, animationName: "logo-confirm" });
+    assert.equal(harness.trigger.classList.contains(confirmed), false);
+
+    harness.trigger.classList.add(confirmed);
+    harness.trigger.dispatchEvent({ type: "pointerdown", isPrimary: false });
+    assert.equal(harness.trigger.classList.contains(confirmed), false);
+
+    harness.trigger.classList.add(confirmed);
+    logo.dispose();
+    assert.equal(harness.trigger.classList.contains(confirmed), false);
+  } finally {
+    logo.dispose();
+    globalThis.document = previousDocument;
+  }
+});
 
 test("status logo accessible name reflects state, language, and update readiness", () => {
   const previous = [globalThis.document, globalThis.window];
@@ -602,7 +634,7 @@ test("status logo tap, dismissal, and deliberate pointer action", async () => {
     assert.equal(reloads, 0);
     harness.trigger.dispatchEvent(down);
     await new Promise((resolve) => setTimeout(resolve, 710));
-    assert.equal(reloads, 1);
+    assert.equal(reloads, 0, "standalone long press is inert");
   } finally {
     logo.dispose();
     [globalThis.document, globalThis.window] = previous;
