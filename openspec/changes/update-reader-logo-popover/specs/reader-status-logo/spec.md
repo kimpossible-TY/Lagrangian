@@ -26,6 +26,11 @@ A single logo activation SHALL toggle an accessible speech-bubble popover with a
 - **WHEN** the reader taps or clicks the logo
 - **THEN** the popover explains the current logo state without invoking the refresh action
 
+#### Scenario: Update action is identifiable
+- **WHEN** an update is waiting
+- **THEN** the popover action identifies that it applies the update in the current language
+- **AND** it returns to a refresh label when no update is waiting
+
 #### Scenario: Reader dismisses status
 - **WHEN** the reader presses Escape, taps outside, or activates the logo again
 - **THEN** the popover closes

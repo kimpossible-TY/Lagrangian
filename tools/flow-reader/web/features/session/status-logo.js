@@ -1,5 +1,15 @@
 import { logoHomeURL, logoGesture } from "../navigation/logo-home-swipe.js";
 
+function actionLabel(korean, hasUpdate) {
+  return korean
+    ? hasUpdate
+      ? "업데이트 적용"
+      : "새로고침"
+    : hasUpdate
+      ? "Apply update"
+      : "Refresh";
+}
+
 /** HTML presentation only: ActivityNotice retains labels and release policy. */
 export class StatusLogo {
   constructor(element, { offline = null } = {}) {
@@ -219,7 +229,7 @@ export class StatusLogo {
       if (this.badge.textContent === "↑") this.badge.textContent = "";
     }
     const korean = this.notice?.korean ?? true;
-    if (this.refreshButton) this.refreshButton.textContent = korean ? "새로고침" : "Refresh";
+    if (this.refreshButton) this.refreshButton.textContent = actionLabel(korean, hasUpdate);
     const description = korean
       ? hasUpdate
         ? "Shift+Enter 또는 메뉴 버튼으로 업데이트 적용"
@@ -235,7 +245,6 @@ export class StatusLogo {
     this.notice = notice;
     this.offlineMode = offline;
     const korean = notice.korean;
-    if (this.refreshButton) this.refreshButton.textContent = korean ? "새로고침" : "Refresh";
     const queue = this.element.ownerDocument.querySelector("#reader-highlight-queue-status");
     const display =
       offline && ["ready", "reconnecting"].includes(phase)
@@ -258,6 +267,7 @@ export class StatusLogo {
     this.phase = phase;
     this.element.dataset.phase = display;
     const hasUpdate = this.hasWaitingUpdate;
+    if (this.refreshButton) this.refreshButton.textContent = actionLabel(korean, hasUpdate);
     if (hasUpdate) {
       this.element.dataset.updateWaiting = "true";
       this.badge.dataset.badge = "update";

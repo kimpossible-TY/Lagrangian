@@ -25,7 +25,6 @@ unpaired surrogate, and saving that context raised UnicodeEncodeError. A local
 browser fixture reproduced the HTTP 400 before the fix. After adjusting selection
 and context boundaries to preserve complete Unicode characters, both prefix and
 suffix boundary cases open successfully; the Chromium suite passes 45 checks.
-The installed Reader has not yet been updated or re-tested with this fix.
 The original affected paragraph was also loaded into an isolated local Reader
 with disposable storage and a fake provider. Selecting the same prose and
 inline-math range through Chrome opened the composer successfully with the
@@ -36,6 +35,15 @@ inputs (187 dependencies, warm local filesystem) gave median 4.5 ms for source
 signature and 8.4 ms for content fingerprint (maxima 4.6 and 30.7 ms). These
 operations recur during streaming; this small sample does not establish their
 aggregate cost or explain the live first-answer delay.
+
+Run 42359100049 installed Reader revision `afa20501` on 2026-11-07. The existing
+browser tab initially retained the previous service worker after a normal reload;
+using the Reader's update action activated the new client. In the installed
+Reader, selecting the previously failing prose-and-math range opened the chat,
+and a real GPT-6-Luna question displayed its first answer by the 9-second
+observation and completed by 15 seconds. The submitted question was not repeated
+in the composer. This one request does not isolate provider and transport times.
+iPhone Mirroring could not connect, so physical-device verification remains open.
 
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a

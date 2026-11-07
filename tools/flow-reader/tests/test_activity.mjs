@@ -291,6 +291,7 @@ function createLogoHarness() {
   };
 
   const popover = { textContent: "", hidden: true };
+  const refreshButton = { textContent: "", addEventListener: () => {} };
   const badge = { textContent: "", dataset: {} };
   const announcer = { textContent: "" };
   const label = { textContent: "" };
@@ -324,6 +325,7 @@ function createLogoHarness() {
       if (selector === "button") return trigger;
       if (selector === ".reader-logo-badge") return badge;
       if (selector === "#reader-logo-popover") return popover;
+      if (selector === ".reader-logo-refresh") return refreshButton;
       return null;
     },
   };
@@ -333,6 +335,7 @@ function createLogoHarness() {
     trigger,
     badge,
     popover,
+    refreshButton,
     dispatchDocument: (event) => {
       for (const handler of listeners.get(`document:${event.type}`) || []) handler(event);
     },
@@ -410,6 +413,11 @@ test("status logo accessible name reflects state, language, and update readiness
       hint: { textContent: "" },
     };
     logo.update("ready", noticeKo);
+    assert.equal(harness.refreshButton.textContent, "새로고침");
+    logo.setUpdateWaiting(true);
+    assert.equal(harness.refreshButton.textContent, "업데이트 적용");
+    logo.setUpdateWaiting(false);
+    assert.equal(harness.refreshButton.textContent, "새로고침");
     assert.equal(
       harness.trigger.getAttribute("aria-label"),
       "연결됨 · 최신 문서",
@@ -440,6 +448,7 @@ test("status logo accessible name reflects state, language, and update readiness
     );
 
     logo.setUpdateWaiting(true);
+    assert.equal(harness.refreshButton.textContent, "Apply update");
     assert.equal(
       harness.trigger.getAttribute("aria-label"),
       "Connected · document up to date",
@@ -451,6 +460,8 @@ test("status logo accessible name reflects state, language, and update readiness
       "description reflects update action when waiting",
     );
     assert.equal(harness.badge.textContent, "↑", "shows update badge");
+    logo.setUpdateWaiting(false);
+    assert.equal(harness.refreshButton.textContent, "Refresh");
 
     logo.dispose();
   } finally {

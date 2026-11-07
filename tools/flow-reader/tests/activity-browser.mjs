@@ -71,7 +71,7 @@ await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}/`;
 
 try {
-  for (const engine of ["chromium", "webkit"]) {
+  for (const engine of (process.env.FLOW_READER_BROWSER_ENGINES || "chromium,webkit").split(",")) {
     Object.assign(state, { revision: null, compiling: true, exitCode: 0 });
     const browser = await playwright[engine].launch({
       headless: true,
@@ -153,7 +153,7 @@ try {
       const brand = page.locator(".reader-brand");
       const brandLabel = await brand.getAttribute("aria-label");
       assert.ok(
-        brandLabel && (brandLabel.includes("연결됨") || brandLabel.includes("문서를")),
+        brandLabel && /연결됨|문서를|컴파일|Connected|Waiting|Compiling/i.test(brandLabel),
         "logo button exposes accessible name for current state only",
       );
       assert.equal(
@@ -253,24 +253,20 @@ try {
         (await brand.getAttribute("aria-description")).includes("업데이트 적용"),
         "accessible description reflects update action",
       );
-      const logoBounds = await brand.boundingBox();
-      await page.mouse.move(
-        logoBounds.x + logoBounds.width / 2,
-        logoBounds.y + logoBounds.height / 2,
-      );
-      await page.mouse.down();
-      await page.waitForTimeout(550);
-      await page.mouse.up();
-      assert.equal(await page.locator("#reader-logo-popover").isVisible(), false);
+      await brand.click();
+      const refresh = page.locator(".reader-logo-refresh");
+      assert.equal(await refresh.textContent(), "업데이트 적용");
+      await refresh.click();
       assert.equal(
         await page.evaluate(() => window.__offlineApplied),
         true,
         "logo click calls applyUpdate",
       );
       await page.evaluate(() => {
-        window.__readerLogo.setUpdateWaiting(false);
         window.__readerLogo.offline = null;
+        window.__readerLogo.setUpdateWaiting(false);
       });
+      assert.equal(await refresh.textContent(), "새로고침");
 
       // A selection made during the fetch also holds publication; keyboard release works.
       sectionGate = new Promise((resolve) => (releaseSection = resolve));

@@ -3,6 +3,7 @@ Readers need to understand the current status without accidentally refreshing or
 
 ## What Changes
 - Show the current localized status in a dismissible popover on logo activation.
+- Label a waiting-update action as applying an update, and otherwise label it refresh.
 - Move refresh or waiting-update application to a long press or Shift+Enter, preserving the selection-held guard.
 
 ## Capabilities
