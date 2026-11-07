@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatTokens, safeChatLink, chatStatus } from "../web/features/paragraph-chat/content.js";
+import {
+  chatTokens,
+  safeChatLink,
+  chatStatus,
+  stripMathDelimiters,
+} from "../web/features/paragraph-chat/content.js";
 
 const flatten = (tokens) => tokens.flatMap((token) => [token, ...flatten(token.children || [])]);
 test("Markdown keeps executable markup literal, disables embedded images and bounds nesting", () => {
@@ -64,4 +69,23 @@ test("Conversation labels retain partial, unresolved and unknown truthfulness", 
 test("unfinished explicit math delimiters stay literal", () => {
   const tokens = flatten(chatTokens("Unfinished \\(\\frac{1}"));
   assert.ok(tokens.some((t) => t.type === "text" && t.content.includes("\\(")));
+});
+
+test("stripMathDelimiters strips LaTeX delimiters to plain text", () => {
+  assert.equal(stripMathDelimiters("\\(e_1,e_2\\)"), "e_1,e_2");
+  assert.equal(stripMathDelimiters("\\[ X=3e_1+2e_2 \\]"), "X=3e_1+2e_2");
+  assert.equal(
+    stripMathDelimiters("Here is \\(e_1,e_2\\) and \\[ X=3e_1+2e_2 \\]"),
+    "Here is e_1,e_2 and X=3e_1+2e_2",
+  );
+  assert.equal(stripMathDelimiters("$$A=B$$ and $x$"), "A=B and x");
+  assert.equal(stripMathDelimiters("$5 and $10"), "$5 and $10");
+  assert.equal(stripMathDelimiters("Cost is \\$5 and \\$10"), "Cost is \\$5 and \\$10");
+  assert.equal(stripMathDelimiters("Single dollar \\$"), "Single dollar \\$");
+  assert.equal(stripMathDelimiters("$5 and $10 and $x$"), "$5 and $10 and x");
+  assert.equal(stripMathDelimiters("Budget is $5-$10"), "Budget is $5-$10");
+  assert.equal(stripMathDelimiters("$5–$10"), "$5–$10");
+  assert.equal(stripMathDelimiters("US$5–US$10"), "US$5–US$10");
+  assert.equal(stripMathDelimiters("$x^2$"), "x^2");
+  assert.equal(stripMathDelimiters("$2+3$"), "2+3");
 });

@@ -1,4 +1,4 @@
-import { ChatTranscript, chatStatus } from "./content.js";
+import { ChatTranscript, chatStatus, stripMathDelimiters } from "./content.js";
 import {
   ConversationState,
   conversationSummary,
@@ -23,9 +23,11 @@ export class ParagraphChatController {
     this.createAccountSettings();
     this.drafts = new Map();
     this.queues = new Map();
+    this.chosenModels = new Map();
     this.pending = false;
     this.account = { notice: "ChatGPT 연결 상태를 확인해 주세요." };
     this.models = [];
+    this.modelsLoaded = false;
     this.article.classList.add("reader-paragraph-chat");
     this.unresolved = element("section", "", "reader-chat reader-chat-unresolved");
     this.unresolved.setAttribute("aria-label", "Unresolved paragraph conversations");
@@ -72,6 +74,33 @@ export class ParagraphChatController {
 
   identity() {
     return this.state.snapshot && { ...this.state.snapshot };
+  }
+
+  getChosenModel(id) {
+    if (!id) return "";
+    if (this.chosenModels.has(id)) return this.chosenModels.get(id);
+    try {
+      const saved = globalThis.sessionStorage?.getItem(`reader_chat_model_${id}`);
+      if (saved) {
+        this.chosenModels.set(id, saved);
+        return saved;
+      }
+    } catch {}
+    this.chosenModels.set(id, "");
+    return "";
+  }
+
+  setChosenModel(id, modelId) {
+    if (!id) return;
+    const value = modelId || "";
+    this.chosenModels.set(id, value);
+    try {
+      if (value) {
+        globalThis.sessionStorage?.setItem(`reader_chat_model_${id}`, value);
+      } else {
+        globalThis.sessionStorage?.removeItem(`reader_chat_model_${id}`);
+      }
+    } catch {}
   }
 
   onDocument(manifest) {
@@ -202,8 +231,12 @@ export class ParagraphChatController {
     close.addEventListener("click", () => this.close(id));
     const model = element("select");
     model.setAttribute("aria-label", "ChatGPT model");
-    const actions = element("div", "", "reader-chat-composer-actions");
     model.className = "reader-chat-model";
+    model.addEventListener("change", () => {
+      this.setChosenModel(id, model.value);
+      this.updateSend(node);
+    });
+    const actions = element("div", "", "reader-chat-composer-actions");
     actions.append(model, account, cancel, send);
     form.append(inputLabel, input, actions);
     heading.append(close);
@@ -300,7 +333,7 @@ export class ParagraphChatController {
       }
       node.host = host;
       if (node.quote.textContent !== record.quote) node.quote.textContent = record.quote;
-      const title = conversationSummary(record);
+      const title = stripMathDelimiters(conversationSummary(record));
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
       node.transcript.update(record.thread, { visible: !node.panel.hidden });
@@ -363,22 +396,36 @@ export class ParagraphChatController {
   }
 
   renderModels(node) {
+    const id = node.root?.dataset?.conversationId;
     const signature = JSON.stringify(this.models);
-    if (node.modelsSignature === signature) return;
-    node.modelsSignature = signature;
-    const current = node.model.value;
-    const placeholder = element("option", "모델 선택");
-    placeholder.value = "";
-    node.model.replaceChildren(
-      placeholder,
-      ...this.models.map((model) => {
-        const option = element("option", model.label);
-        option.value = model.id;
-        return option;
-      }),
-    );
-    node.model.value = this.models.some((model) => model.id === current) ? current : "";
-    node.model.onchange = () => this.updateSend(node);
+    const signatureChanged = node.modelsSignature !== signature;
+    if (signatureChanged) {
+      node.modelsSignature = signature;
+      const placeholder = element("option", "모델 선택");
+      placeholder.value = "";
+      node.model.replaceChildren(
+        placeholder,
+        ...this.models.map((model) => {
+          const option = element("option", model.label);
+          option.value = model.id;
+          return option;
+        }),
+      );
+    }
+    const preferred = id && this.getChosenModel ? this.getChosenModel(id) : node.model.value;
+    const catalogLoaded = this.modelsLoaded !== undefined ? Boolean(this.modelsLoaded) : true;
+    const valid = this.models.some((model) => model.id === preferred);
+    const next = valid ? preferred : "";
+    if (node.model.value !== next) {
+      node.model.value = next;
+    }
+    if (id && this.setChosenModel && catalogLoaded && (!valid || preferred !== next)) {
+      this.setChosenModel(id, next);
+    }
+    node.model.onchange = () => {
+      if (id && this.setChosenModel) this.setChosenModel(id, node.model.value);
+      this.updateSend(node);
+    };
   }
 
   async auth(operation, extra = {}) {
@@ -403,10 +450,11 @@ export class ParagraphChatController {
       const status = await this.auth("status");
       if (generation !== this.state.generation) return;
       this.account = status;
-      if ((models || !this.models.length) && status.planEnabled) {
+      if ((models || !this.modelsLoaded) && status.planEnabled) {
         const result = await this.auth("models");
         if (generation !== this.state.generation) return;
-        this.models = result.models;
+        this.models = Array.isArray(result?.models) ? result.models : [];
+        this.modelsLoaded = true;
       }
       this.render();
     } catch (error) {
@@ -472,6 +520,7 @@ export class ParagraphChatController {
     if (!node.pendingMessage || node.pendingMessage.question !== question)
       node.pendingMessage = { question, id: crypto.randomUUID() };
     this.drafts.set(id, question);
+    if (this.setChosenModel) this.setChosenModel(id, node.model.value);
     node.sending = true;
     node.send.disabled = true;
     const ok = await this.action(id, "send", {

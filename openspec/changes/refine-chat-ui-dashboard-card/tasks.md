@@ -1,0 +1,4 @@
+- [x] 1. Strip raw LaTeX delimiters to plain text for collapsed paragraph-chat summaries before truncation while preserving literal/currency/escaped dollars and currency ranges ($5-$10, $5–$10, US$5–US$10).
+- [x] 2. Preserve chosen model per conversation across initial empty catalog load and deletion failures with authoritative memory fallback.
+- [x] 3. Add Tail Dashboard entry panel to Homepage aside.
+- [x] 4. Add regression tests for conversation switch, follow-up, model removal, catalog arrival lifecycle, storage delete failure, and currency boundary math summaries through controller UI.

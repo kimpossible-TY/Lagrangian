@@ -71,7 +71,9 @@ try {
   );
   const select = async (text) => {
     await page.evaluate(async (text) => {
-      const { logicalTextIndex, rangesFor } = await import("/rendering/math/identity.js");
+      const { logicalTextIndex, rangesFor } = await import(
+        new URL("rendering/math/identity.js", location.href).href
+      );
       const host = [...document.querySelectorAll("#reader-document [data-reader-key]")].find(
         (node) => logicalTextIndex(node).text.includes(text),
       );
@@ -197,7 +199,9 @@ try {
   check(
     "Late math cannot replace a newer answer and unsupported commands stay literal",
     await page.evaluate(async () => {
-      const { renderChatContent } = await import("/features/paragraph-chat/content.js");
+      const { renderChatContent } = await import(
+        new URL("features/paragraph-chat/content.js", location.href).href
+      );
       const math = globalThis.MathJax,
         original = math.tex2chtmlPromise;
       const target = document.createElement("div");
@@ -285,7 +289,9 @@ try {
   await first.getByRole("button", { name: "Close conversation", exact: true }).click();
   await page.waitForTimeout(500);
   const geometry = await first.evaluate(async (root) => {
-    const { documentInk } = await import("/features/paragraph-chat/geometry.js");
+    const { documentInk } = await import(
+      new URL("features/paragraph-chat/geometry.js", location.href).href
+    );
     const summary = root.querySelector(".reader-chat-summary").getBoundingClientRect();
     const article = document.querySelector("#reader-document"),
       area = article.getBoundingClientRect();
@@ -414,7 +420,9 @@ try {
   check(
     "Chat does not pollute canonical paragraph copy",
     await page.evaluate(async () => {
-      const { logicalTextIndex } = await import("/rendering/math/identity.js");
+      const { logicalTextIndex } = await import(
+        new URL("rendering/math/identity.js", location.href).href
+      );
       return (
         logicalTextIndex(document.querySelector("#first")).text ===
         "First paragraph keeps its own question."

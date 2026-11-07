@@ -1,5 +1,6 @@
 export type ChatSnapshot = { documentID: string; revision: string; service: unknown };
 export function sameChatSnapshot(left: ChatSnapshot | null, right: ChatSnapshot | null): boolean;
+export function stripMathDelimiters(text: string): string;
 export function conversationSummary(record: {
   quote: string;
   status: string;

@@ -67,6 +67,8 @@ markdown.block.ruler.before("fence", "reader_math_block", blockMath, {
   alt: ["paragraph", "reference", "blockquote", "list"],
 });
 
+export { stripMathDelimiters } from "../../reader-common/paragraph-chat/state.js";
+
 export function safeChatLink(value) {
   try {
     const url = new URL(value);
