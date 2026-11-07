@@ -1,5 +1,12 @@
 # Verification
 
+Historical evidence below describes the original `unify-homepage-reader` worktree.
+The later `remove-homepage-host-proof` change supersedes only the blanket proof
+gate for Homepage login without registration selection and logout. Its
+`homepage-account-auth` capability owns current account policy; its tasks record
+the current regression results. Original cookie/CSRF denial evidence below now
+applies to management mutations and identity disclosure, not those OAuth exceptions.
+
 ## Scope and delivered behavior
 
 Developed only in `/Users/taeyoung/Developer/lg-homepage-unify` on

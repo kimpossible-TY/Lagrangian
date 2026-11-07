@@ -91,13 +91,13 @@
                 spellcheck="false"
               /><button type="submit">이 Mac에서 관리</button>
               <p class="help">
-                홈 서버를 실행할 때 안내된 비공개 파일의 capability 값을 입력하세요. 확인값은
-                브라우저에 저장하지 않습니다.
+                계정 선택과 로그인 취소에는 홈 서버의 비공개 파일에 있는 capability 값을 입력하세요.
+                확인값은 브라우저에 저장하지 않습니다.
               </p>
             </form>
             <div id="account-controls" hidden>
-              <label for="account-picker">ChatGPT 계정</label
-              ><select id="account-picker" aria-label="ChatGPT 계정"></select
+              <label id="account-picker-label" for="account-picker" hidden>ChatGPT 계정</label
+              ><select id="account-picker" aria-label="ChatGPT 계정" hidden></select
               ><button id="login" type="button" data-oai-siwc-button>Continue with ChatGPT</button
               ><button id="cancel" class="secondary" type="button" hidden>로그인 취소</button
               ><button id="logout" class="secondary" type="button" hidden>로그아웃</button>

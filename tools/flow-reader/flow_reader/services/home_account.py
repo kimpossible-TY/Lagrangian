@@ -6,6 +6,8 @@ import time
 
 from flow_reader.services.chat_auth import ChatProviderError
 
+OAUTH_OPERATIONS = frozenset({"login", "logout"})
+
 
 class HomeAccount:
     def __init__(self, auth, provider, *, clock=time.monotonic):
@@ -44,20 +46,31 @@ class HomeAccount:
             return session
         return None
 
-    def create(self, handle, ingress, origin, *, manage=False):
+    def create(self, handle, ingress, origin, *, manage=False, oauth=False):
         with self.lock:
             self.sync()
             # Read-only ingress has no browser authority to retain or rotate.
-            # In particular, it must not evict a Mac management session.
-            if not manage:
+            # An OAuth-only request also must not evict or replace a management session.
+            if not manage and not oauth:
                 return "", {"csrf": "", "management": False, **self.envelope()}
-            if self.session(handle, ingress, origin):
+            existing = self.session(handle, ingress, origin)
+            if existing and existing["manage"] and not manage:
+                # A reload retains the HttpOnly cookie but loses module-memory
+                # proof. Supply only OAuth authority without revealing or rotating
+                # the management CSRF, or replacing the management session.
+                csrf = existing.setdefault("oauth_csrf", secrets.token_urlsafe(32))
+                return handle, {"csrf": csrf, "management": False, **self.envelope()}
+            if existing:
                 self.sessions.pop(handle)
             if len(self.sessions) >= 256:
-                oldest = min(self.sessions, key=lambda k: self.sessions[k]["seen"])
-                del self.sessions[oldest]
+                victims = [key for key, value in self.sessions.items() if not value["manage"]]
+                if not victims:
+                    if not manage:
+                        raise PermissionError("브라우저 세션 한도에 도달했습니다.")
+                    victims = list(self.sessions)
+                del self.sessions[min(victims, key=lambda key: self.sessions[key]["seen"])]
             handle, csrf, now = secrets.token_urlsafe(32), secrets.token_urlsafe(32), self.clock()
-            self.sessions[handle] = {"csrf": csrf, "manage": manage, "ingress": ingress,
+            self.sessions[handle] = {"csrf": csrf, "manage": manage, "oauth": oauth, "ingress": ingress,
                                      "origin": origin, "created": now, "seen": now}
             return handle, {"csrf": csrf, "management": manage, **self.envelope()}
 
@@ -94,7 +107,13 @@ class HomeAccount:
         with self.lock:
             self.sync()
             session = self.session(handle, ingress, origin)
-            if not session or not session["manage"] or not hmac.compare_digest(csrf, session["csrf"]):
+            management = bool(session and isinstance(csrf, str) and session["manage"]
+                              and hmac.compare_digest(csrf, session["csrf"]))
+            oauth = bool(session and isinstance(csrf, str) and (
+                (session["oauth"] and hmac.compare_digest(csrf, session["csrf"]))
+                or (session.get("oauth_csrf") and hmac.compare_digest(csrf, session["oauth_csrf"]))))
+            if (not (management or (oauth and operation in OAUTH_OPERATIONS))
+                    or (operation == "login" and registration and not management)):
                 raise PermissionError("Mac 확인 세션이 만료되었습니다. 다시 확인하세요.")
             if operation not in {"login", "cancel", "logout"}:
                 raise ValueError("Unknown account operation")
@@ -102,14 +121,16 @@ class HomeAccount:
             # authority while sign-out/revocation is in flight.
             self.invalidate()
             if operation == "login":
-                result = self.auth.login(registration)
+                result = self.auth.login(registration, open_browser=False)
             elif operation == "logout":
                 result = self.auth.logout()
             else:
                 self.auth.close()
                 result = {"notice": "로그인을 취소했습니다."}
             self.sync()
-            new_handle, proof = self.create("", ingress, origin, manage=True)
+            # Rotation must not promote OAuth-only authority to management.
+            new_handle, proof = self.create("", ingress, origin,
+                manage=management, oauth=oauth)
             # Logout leaves no management session, including the initiating tab.
             if operation == "logout":
                 self.sessions.pop(new_handle, None)

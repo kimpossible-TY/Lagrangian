@@ -119,18 +119,24 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(status, 200, raw)
         self.assertTrue(json.loads(raw))
 
-    def test_cookie_csrf_without_capability_cannot_mutate_or_read_identity(self):
+    def test_cookie_csrf_without_capability_permits_only_oauth_not_management_or_identity(self):
         headers = self.unlock()
         headers.pop("X-Reader-Host-Capability")
         status = json.loads(self.request("/api/home/account", headers=headers)[1])
         self.assertFalse(status["management"])
         self.assertNotIn("accounts", status)
-        for operation in ("login", "cancel", "logout"):
+        self.assertEqual(self.request("/api/home/account", method="POST", headers=headers,
+            body={"operation": "cancel"})[0], 403)
+        self.assertEqual(self.auth.calls, [])
+        for operation in ("login", "logout"):
+            headers = self.unlock()
+            headers.pop("X-Reader-Host-Capability")
             self.assertEqual(self.request("/api/home/account", method="POST", headers=headers,
-                body={"operation": operation})[0], 403)
+                body={"operation": operation})[0], 200)
+        for operation in ("login", "cancel", "logout"):
             self.assertEqual(self.request("/d/first/api/home/account", method="POST", headers=headers,
                 body={"operation": operation})[0], 404)
-        self.assertEqual(self.auth.calls, [])
+        self.assertEqual(self.auth.calls, ["login", "logout"])
 
     def test_non_loopback_and_proxy_deny_copied_proofs_for_every_operation(self):
         base = handler_for_reader(self.documents, self.inventory, self.account, capability="current-proof")

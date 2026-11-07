@@ -32,11 +32,18 @@ engine/protocol change and is not needed to merge the Python Homepage process.
 ### Security boundary
 Paths on one origin are not a security boundary. Keep exact admin Host/Origin,
 genuine 127.0.0.1 peer, forwarding-header rejection, management session and CSRF,
-and require the per-start capability for every credential mutation and privileged
-account status read. Keep proof in Homepage module memory only; never cookies,
+and require the per-start capability for cancel, registration selection and privileged
+account status read. Account policy now belongs to `homepage-account-auth` in
+`remove-homepage-host-proof`, which supersedes only this design's blanket
+capability gate for Homepage login without registration selection and logout.
+Those exceptions require an OAuth-only or management session with scoped CSRF
+and every independent local request guard. A retained management cookie may
+obtain separate OAuth-only CSRF without revealing or rotating management CSRF.
+Unauthorized GET account returns 200 sanitized public fallback; invalid Host
+returns 421 and mutation authorization failures return 403. Keep proof in Homepage module memory only; never cookies,
 URLs, DOM after entry, HTTP responses or local/session storage. Document JS can
 read sanitized status but cannot borrow an existing management cookie to gain
-credentials or mutation authority. CSP on Homepage disallows embedding; document
+credentials or management mutation authority. CSP on Homepage disallows embedding; document
 assets are allowlisted. Remote proxy ingress always denies mutations, even with
 copied capability/session/CSRF. No new TLS or proxy trust assumptions.
 

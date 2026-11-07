@@ -1,20 +1,24 @@
 """Isolated Homepage security, inventory and installed-asset contracts."""
 from concurrent.futures import ThreadPoolExecutor
+import base64
+import hashlib
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
 import re
+import socket
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flow_reader.services.homepage import LOOPBACK_HOST, HomeInventory, reader_url
 from flow_reader.services.home_account import HomeAccount
-from flow_reader.services.chat_auth import ChatProviderError
+from flow_reader.services.chat_auth import ChatAuth, ChatProviderError
 from flow_reader.server.home import handler_for_home, home_assets, claim_host
 from flow_reader.server.assets import reader_assets
 
@@ -24,14 +28,16 @@ class FakeAuth:
         self.path = directory / "fake-credentials.json"
         self.signed_in, self.pending, self.notice = False, False, ""
         self.calls = []
+        self.registrations = []
 
     def status(self):
         return {"signedIn": self.signed_in, "planEnabled": self.signed_in,
                 "active": "private-registration", "accounts": [{"id": "private-registration", "label": "private@example.invalid"}],
                 "pending": self.pending, "notice": self.notice}
 
-    def login(self, registration=None):
+    def login(self, registration=None, *, open_browser=True):
         self.calls.append("login")
+        self.registrations.append(registration)
         self.pending = True
         return {"authUrl": "https://auth.openai.com/authorize?state=fake-state"}
 
@@ -108,16 +114,14 @@ class HomeTests(unittest.TestCase):
             self.servers[ingress] = server
             self.addCleanup(lambda s=server, t=thread: (s.shutdown(), s.server_close(), t.join()))
 
-    def request(self, method="GET", path="/api/home/account", *, ingress="admin", headers=None, body=None):
+    def request(self, method="GET", path="/api/home/account", *, ingress="admin", headers=None, body=None, connect_host="127.0.0.1"):
         server = self.servers[ingress]
         origin = f"http://127.0.0.1:{server.server_port}" if ingress == "admin" else "https://home.example:8443"
         fields = {"Host": origin.split("//")[1], "Origin": origin, "Content-Type": "application/json"}
-        if ingress == "admin" and headers and "Cookie" in headers and (method == "GET" or "X-Reader-CSRF" in headers):
-            fields["X-Reader-Host-Capability"] = "host-proof"
         fields.update(headers or {})
         if fields.get("Origin") is None:
             fields.pop("Origin")
-        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+        connection = HTTPConnection(connect_host, server.server_port, timeout=3)
         connection.request(method, path, body=json.dumps(body or {}) if method == "POST" else None, headers=fields)
         response = connection.getresponse()
         payload, out = response.read(), dict(response.getheaders())
@@ -129,6 +133,185 @@ class HomeTests(unittest.TestCase):
             headers={"X-Reader-Host-Capability": "host-proof"} if ingress == "admin" else {})
         self.assertEqual(status, 200)
         return headers["Set-Cookie"].split(";")[0], json.loads(raw)
+
+    def oauth_session(self):
+        status, raw, headers = self.request("POST", "/api/home/session", body={"purpose": "oauth"})
+        self.assertEqual(status, 200)
+        proof = json.loads(raw)
+        self.assertFalse(proof["management"])
+        self.assertEqual(len(proof["csrf"]), 43)
+        return headers["Set-Cookie"].split(";")[0], proof
+
+    def test_local_oauth_without_host_proof_never_grants_management(self):
+        cookie, proof = self.oauth_session()
+        headers = {"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]}
+        status, raw, response = self.request("POST", headers=headers, body={"operation": "login"})
+        self.assertEqual(status, 200)
+        result = json.loads(raw)
+        self.assertTrue(result["authUrl"].startswith("https://auth.openai.com/"))
+        self.assertFalse(result["management"])
+        self.assertNotEqual(result["csrf"], proof["csrf"])
+        self.assertNotIn(cookie.split("=")[1], self.account.sessions)
+        cookie = response["Set-Cookie"].split(";")[0]
+        headers = {"Cookie": cookie, "X-Reader-CSRF": result["csrf"]}
+        for capability in ({}, {"X-Reader-Host-Capability": "host-proof"}):
+            with self.subTest(capability=bool(capability)):
+                status = json.loads(self.request(headers={"Cookie": cookie, **capability})[1])
+                self.assertFalse(status["management"])
+                self.assertNotIn("accounts", status)
+                self.assertEqual(self.request("POST", headers={**headers, **capability},
+                    body={"operation": "cancel"})[0], 403)
+        self.assertEqual(self.auth.calls, ["login"])
+        self.assertEqual(self.request("POST", headers=headers, body={"operation": "logout"})[0], 200)
+        self.assertEqual(self.auth.calls, ["login", "logout"])
+        self.assertFalse(self.account.sessions)
+
+    def test_real_oauth_start_preserves_pkce_state_nonce_and_server_only_verifier(self):
+        def discovery(url, *_args, **_kwargs):
+            self.assertEqual(url, "https://auth.openai.com/.well-known/openid-configuration")
+            return {"issuer": "https://auth.openai.com", **{name: "https://auth.openai.com/" + path
+                for name, path in (("authorization_endpoint", "authorize"), ("token_endpoint", "token"),
+                                   ("jwks_uri", "jwks"), ("revocation_endpoint", "revoke"))}}
+        directory = Path(self.temp.name) / "real-auth"
+        directory.mkdir(mode=0o700)
+        opened = []
+        # Same ChatAuth configuration as ReaderRuntime, with a spy replacing
+        # the real system opener. Homepage must leave navigation to home.js.
+        auth = ChatAuth(directory, request=discovery, open_browser=opened.append)
+        self.addCleanup(auth.close)
+        self.account.auth = auth
+        cookie, proof = self.oauth_session()
+        code, raw, _ = self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]},
+            body={"operation": "login"})
+        self.assertEqual(code, 200)
+        self.assertEqual(opened, [])
+        url = urlsplit(json.loads(raw)["authUrl"])
+        self.assertEqual((url.scheme, url.netloc, url.path), ("https", "auth.openai.com", "/authorize"))
+        params = {key: values[0] for key, values in parse_qs(url.query).items()}
+        self.assertEqual(params["state"], auth.pending["state"])
+        self.assertEqual(params["nonce"], auth.pending["nonce"])
+        self.assertGreaterEqual(len(params["state"]), 43)
+        self.assertEqual(params["code_challenge_method"], "S256")
+        expected = base64.urlsafe_b64encode(hashlib.sha256(auth.pending["verifier"].encode()).digest()).decode().rstrip("=")
+        self.assertEqual(params["code_challenge"], expected)
+        self.assertEqual(urlsplit(params["redirect_uri"]).hostname, "127.0.0.1")
+        self.assertNotIn(auth.pending["verifier"].encode(), raw)
+        for secret in (b"access_token", b"refresh_token", b"id_token"):
+            self.assertNotIn(secret, raw)
+        terminal_result = auth.login()
+        self.assertEqual(opened, [terminal_result["authUrl"]])
+
+    def test_retained_management_cookie_supplies_only_oauth_csrf_after_reload(self):
+        for operation in ("login", "logout"):
+            with self.subTest(operation=operation):
+                cookie, management = self.unlock()
+                handle = cookie.split("=")[1]
+                code, raw, response = self.request("POST", "/api/home/session",
+                    headers={"Cookie": cookie}, body={"purpose": "oauth"})
+                oauth = json.loads(raw)
+                self.assertEqual(code, 200)
+                self.assertEqual(response["Set-Cookie"].split(";")[0], cookie)
+                self.assertFalse(oauth["management"])
+                self.assertTrue(oauth["csrf"])
+                self.assertNotEqual(oauth["csrf"], management["csrf"])
+                self.assertEqual(self.account.sessions[handle]["csrf"], management["csrf"])
+                self.assertTrue(self.account.sessions[handle]["manage"])
+                # The new OAuth token cannot borrow management, even with proof.
+                for body in ({"operation": "cancel"},
+                             {"operation": "login", "registration": "private-registration"}):
+                    self.assertEqual(self.request("POST", headers={"Cookie": cookie,
+                        "X-Reader-CSRF": oauth["csrf"], "X-Reader-Host-Capability": "host-proof"},
+                        body=body)[0], 403)
+                self.assertTrue(json.loads(self.request(headers={"Cookie": cookie,
+                    "X-Reader-Host-Capability": "host-proof"})[1])["management"])
+                # The original management CSRF still works after OAuth creation.
+                self.assertEqual(self.account.sessions[handle]["csrf"], management["csrf"])
+                code, raw, _ = self.request("POST", headers={"Cookie": cookie,
+                    "X-Reader-CSRF": oauth["csrf"]}, body={"operation": operation})
+                self.assertEqual(code, 200)
+                self.assertFalse(json.loads(raw)["management"])
+        self.assertEqual(self.auth.calls, ["login", "logout"])
+
+    def test_registration_selection_requires_current_capability_and_management_csrf(self):
+        for scope in ("oauth", "management"):
+            for capability in (None, "wrong", "host-proof"):
+                for registration in (None, "", "private-registration", "unknown-registration"):
+                    with self.subTest(scope=scope, capability=capability, registration=registration):
+                        cookie, proof = self.oauth_session() if scope == "oauth" else self.unlock()
+                        headers = {"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]}
+                        if capability is not None:
+                            headers["X-Reader-Host-Capability"] = capability
+                        before = len(self.auth.calls)
+                        code, _, _ = self.request("POST", headers=headers,
+                            body={"operation": "login", "registration": registration})
+                        allowed = not registration or (scope == "management" and capability == "host-proof")
+                        self.assertEqual(code, 200 if allowed else 403)
+                        self.assertEqual(len(self.auth.calls), before + int(allowed))
+                        if allowed:
+                            self.assertEqual(self.auth.registrations[-1], registration)
+
+    def test_oauth_operations_retain_all_independent_request_guards(self):
+        for operation in ("login", "logout"):
+            with self.subTest(operation=operation):
+                cookie, proof = self.oauth_session()
+                headers = {"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]}
+                for forged in ({"Host": "attacker.invalid", "Origin": "http://attacker.invalid"},
+                               {"Origin": None}, {"Origin": "null"}, {"Origin": "https://attacker.invalid"},
+                               {"X-Reader-CSRF": ""}, {"X-Reader-CSRF": "wrong"}, {"Cookie": ""}):
+                    expected = 421 if "Host" in forged else 403
+                    self.assertEqual(self.request("POST", headers={**headers, **forged},
+                        body={"operation": operation})[0], expected)
+                for field in ("Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Tailscale-User-Login"):
+                    self.assertEqual(self.request("POST", headers={**headers, field: ""},
+                        body={"operation": operation})[0], 403)
+                    self.assertEqual(self.request("POST", "/api/home/session", headers={field: ""},
+                        body={"purpose": "oauth"})[0], 403)
+                self.assertEqual(self.request("POST", ingress="proxy", headers=headers,
+                    body={"operation": operation})[0], 403)
+                # No CSRF header, independently of a missing cookie.
+                self.assertEqual(self.request("POST", headers={"Cookie": cookie},
+                    body={"operation": operation})[0], 403)
+        self.assertEqual(self.request("POST", "/api/home/session", ingress="proxy",
+            body={"purpose": "oauth"})[0], 403)
+        self.assertEqual(self.auth.calls, [])
+
+    def test_oauth_sessions_expire_and_remain_bound_to_origin_and_ingress(self):
+        for elapsed in (901, 28801):
+            for operation in ("login", "logout"):
+                cookie, proof = self.oauth_session()
+                handle = cookie.split("=")[1]
+                origin = f"http://127.0.0.1:{self.servers['admin'].server_port}"
+                self.assertIsNone(self.account.session(handle, "proxy", origin))
+                with self.assertRaises(PermissionError):
+                    self.account.mutate(handle, proof["csrf"], "admin", "http://127.0.0.1:1", operation)
+                self.now += elapsed
+                self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]},
+                    body={"operation": operation})[0], 403)
+        self.assertEqual(self.auth.calls, [])
+
+    def test_real_non_loopback_socket_peer_cannot_obtain_or_use_oauth_authority(self):
+        # Discover the local interface address without sending any packets.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))
+            address = probe.getsockname()[0]
+        self.assertNotEqual(address, LOOPBACK_HOST)
+        server = ThreadingHTTPServer((address, 0), handler_for_home(self.inventory, self.account, capability="host-proof"))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
+        self.servers["nonloopback"] = server
+        origin = f"http://127.0.0.1:{server.server_port}"
+        handle, proof = self.account.create("", "admin", origin, manage=True)
+        cookie = "ReaderHomeAdmin=" + handle
+        for operation in ("login", "logout"):
+            self.assertEqual(self.request("POST", ingress="nonloopback", connect_host=address,
+                headers={"Host": f"127.0.0.1:{server.server_port}", "Origin": f"http://127.0.0.1:{server.server_port}",
+                         "Cookie": cookie, "X-Reader-CSRF": proof["csrf"], "X-Reader-Host-Capability": "host-proof"},
+                body={"operation": operation})[0], 403)
+        self.assertEqual(self.request("POST", "/api/home/session", ingress="nonloopback", connect_host=address,
+            headers={"Host": f"127.0.0.1:{server.server_port}", "Origin": f"http://127.0.0.1:{server.server_port}"},
+            body={"purpose": "oauth"})[0], 403)
+        self.assertEqual(self.auth.calls, [])
 
     def test_static_root_is_independent_and_document_routes_stay_document(self):
         self.assertIn(b"\xec\x83\x9d\xea\xb0\x81", self.request(path="/")[1])
@@ -231,9 +414,40 @@ class HomeTests(unittest.TestCase):
         # remove the existing management session.
         self.request("POST", "/api/home/session", headers={"Cookie": cookie})
         self.assertEqual(set(self.account.sessions), {handle})
-        self.assertTrue(json.loads(self.request(headers={"Cookie": cookie})[1])["management"])
-        self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]},
+        self.assertTrue(json.loads(self.request(headers={"Cookie": cookie, "X-Reader-Host-Capability": "host-proof"})[1])["management"])
+        self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"],
+            "X-Reader-Host-Capability": "host-proof"},
             body={"operation": "cancel"})[0], 200)
+
+    def test_oauth_session_flood_cannot_evict_management(self):
+        cookie, proof = self.unlock()
+        handle = cookie.split("=")[1]
+        status, raw, headers = self.request("POST", "/api/home/session",
+            headers={"Cookie": cookie}, body={"purpose": "oauth"})
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Set-Cookie"].split(";")[0], cookie)
+        self.assertTrue(json.loads(raw)["csrf"])
+        self.assertNotEqual(json.loads(raw)["csrf"], proof["csrf"])
+        self.assertTrue(self.account.sessions[handle]["manage"])
+        for _ in range(300):
+            created = self.request("POST", "/api/home/session", body={"purpose": "oauth"})
+            self.assertEqual(created[0], 200)
+            self.assertFalse(json.loads(created[1])["management"])
+        self.assertTrue(self.account.sessions[handle]["manage"])
+        self.assertLessEqual(len(self.account.sessions), 256)
+        self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"],
+            "X-Reader-Host-Capability": "host-proof"}, body={"operation": "cancel"})[0], 200)
+
+    def test_oauth_session_cannot_evict_a_full_management_session_table(self):
+        origin = f"http://127.0.0.1:{self.servers['admin'].server_port}"
+        sessions = [self.account.create("", "admin", origin, manage=True) for _ in range(256)]
+        self.assertEqual(self.request("POST", "/api/home/session", body={"purpose": "oauth"})[0], 403)
+        self.assertEqual(set(self.account.sessions), {handle for handle, _ in sessions})
+        handle, management = sessions[0]
+        same, oauth = self.account.create(handle, "admin", origin, oauth=True)
+        self.assertEqual(same, handle)
+        self.assertTrue(oauth["csrf"])
+        self.assertTrue(self.account.mutate(handle, management["csrf"], "admin", origin, "cancel")[1]["management"])
 
     def test_sessions_are_invisible_across_ingress_even_with_matching_origin(self):
         origin = "https://same.example"
@@ -271,10 +485,11 @@ class HomeTests(unittest.TestCase):
             catalog = pool.submit(self.request, path="/api/home/models", ingress="proxy")
             try:
                 self.assertTrue(entered.wait(1))
-                status = pool.submit(self.request, headers={"Cookie": cookie}).result(timeout=1)
+                status = pool.submit(self.request, headers={"Cookie": cookie, "X-Reader-Host-Capability": "host-proof"}).result(timeout=1)
                 self.assertTrue(json.loads(status[1])["management"])
                 mutation = pool.submit(self.request, "POST", headers={"Cookie": cookie,
-                    "X-Reader-CSRF": proof["csrf"]}, body={"operation": "cancel"}).result(timeout=1)
+                    "X-Reader-CSRF": proof["csrf"], "X-Reader-Host-Capability": "host-proof"},
+                    body={"operation": "cancel"}).result(timeout=1)
                 self.assertEqual(mutation[0], 200)
                 self.assertFalse(catalog.done())
             finally:
@@ -307,7 +522,8 @@ class HomeTests(unittest.TestCase):
         for _ in range(33):
             self.now += 880
             self.request(headers={"Cookie": cookie})
-        self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"]}, body={"operation": "cancel"})[0], 403)
+        self.assertEqual(self.request("POST", headers={"Cookie": cookie, "X-Reader-CSRF": proof["csrf"],
+            "X-Reader-Host-Capability": "host-proof"}, body={"operation": "cancel"})[0], 403)
 
     def test_inventory_sanitization_empty_error_and_stale(self):
         inventory = self.inventory

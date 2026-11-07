@@ -3,7 +3,7 @@
 ## 1. Shared routing and authority
 
 - [x] 1.1 Compose Homepage and prefixed document handlers; verify exact IDs, assets, worker scope, stale/cross-document requests and 307 compatibility with isolated HTTP tests.
-- [x] 1.2 Share ChatAuth/provider ownership and require capability on every mutation and privileged status; verify non-loopback/proxy 403 and cookie/CSRF without proof denial.
+- [x] 1.2 Share ChatAuth/provider ownership and require capability on management mutations and privileged status; verify non-loopback/proxy 403 and cookie/CSRF without proof denial for management. Homepage login without registration selection and logout now follow the superseding `homepage-account-auth` policy in `remove-homepage-host-proof`.
 - [x] 1.3 Exercise delivered Homepage module events to verify proof transmission, restart recovery, logout clearing and no browser-storage writes.
 
 ## 2. Runtime and lifecycle

@@ -420,10 +420,12 @@ migrates; shared mode prints a `documents` map of prefixed URLs.
 Private data rejects source/bundle/Git locations and filesystem-equivalent aliases
 before creation; the existing resolved-home dotfiles exception remains supported.
 
-Open the printed loopback URL. Explicitly enter the capability from its private
-file to manage accounts. The page retains it only in module memory and sends it
-with each account change and privileged status read. Cookie/CSRF alone is not
-sufficient on a shared origin. Restart and sign-out invalidate browser authority.
+Open the printed loopback URL. Continue with ChatGPT and sign-out work there
+without the host capability. Enter the capability from its private file to choose
+an existing account or cancel a pending login. The page retains it only in module
+memory and sends it with those management changes and privileged status reads.
+Cookie/CSRF alone is not sufficient for cancel or account identity. Restart and
+sign-out invalidate browser authority.
 SIWC consent still uses the Mac callback. Cancel/sign-out, failed refresh and
 unconfirmed remote revocation retain existing honest feedback and preserve drafts
 and history. No provider credential is returned to the browser.

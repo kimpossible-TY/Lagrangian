@@ -127,7 +127,7 @@ class ChatAuth:
                 raise ChatProviderError("Untrusted OpenAI discovery endpoint")
         return metadata
 
-    def login(self, registration=None):
+    def login(self, registration=None, *, open_browser=True):
         generation = self.close()
         metadata = self.discovery()
         with file_lock(self.directory / "auth.lock"):
@@ -180,7 +180,9 @@ class ChatAuth:
             # Deliberately omit ID-token hints: credentials never enter a browser URL.
             self.notice = "Complete sign-in in this Mac's browser. No question is sent automatically."
             url = metadata["authorization_endpoint"] + "?" + urlencode(params)
-        if self.open_browser:
+        # Homepage navigates its current browser; terminal callers retain the
+        # default system-browser opener contract.
+        if open_browser and self.open_browser:
             self.open_browser(url)
         return {"authUrl": url}
 
