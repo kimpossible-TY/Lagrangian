@@ -13,4 +13,5 @@
 - [x] Avoid showing the submitted draft twice during streaming, while retaining recovery and new follow-up drafts.
 - [x] Reduce composer footprint and localize known provider progress.
 - [x] Verify locally with focused tests and an isolated browser, including interruption and mobile layout.
-- [ ] Preserve rejected-request notices and explain stale-context reselection; verify retry and draft recovery in local browsers and the installed Reader.
+- [x] Preserve rejected-request notices and explain stale-context reselection; verify retry and draft recovery in local browsers and the installed Reader.
+- [ ] Investigate unsaved-draft recovery across explicit client updates and measure provider/tool/transport latency using content-free diagnostics.

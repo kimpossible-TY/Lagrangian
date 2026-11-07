@@ -57,7 +57,18 @@ fixture now waits for its rejection to be delivered before removing interception
 avoiding a WebKit test race. Focused Node checks (19), ESLint, changed-JS
 Prettier and strict OpenSpec validation pass. Existing unrelated formatting drift
 in reader.css remains; the changed status selector follows Prettier formatting.
-Installed-Reader recovery verification is pending.
+Run 42361254172 installed revision `bf4bdbed`. After activating the client update,
+the installed Reader showed the localized reselection notice and disabled Send
+for the old context. Entering a draft, closing the conversation, directly dragging
+the current prose-and-math paragraph and choosing Ask reopened the same history
+with that draft intact and Send enabled. A real GPT-6-Luna follow-up then searched
+the document and completed successfully. Observations showed document reading by
+12 seconds, thinking by 20 seconds, no answer yet at 28 seconds, partial text by
+39 seconds and completion by 51 seconds. These are UI observation bounds, not
+precise provider timings. The earlier pre-restart draft had failed to save and
+did not survive the full client reload; it was entered again before verifying
+reselection. Durability of unsaved drafts across explicit reloads and attribution
+of the live latency remain open, separate from the verified reselection recovery.
 
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
