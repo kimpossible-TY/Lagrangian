@@ -52,3 +52,22 @@ test("summary strips paired bold and math before truncating, preserving literal 
   ];
   assert.equal(conversationSummary(value), "Value x^2 and price $5-$10 · Unmatched ** and \\*\\*literal\\*\\* US$5–US$10");
 });
+
+test("summary protects literal operators, code and math while stripping bold", () => {
+  const value = record("literals");
+  for (const [input, expected] of [
+    ["2 ** 3 ** 2", "2 ** 3 ** 2"],
+    ["`__init__`", "`__init__`"],
+    ["foo__bar__baz", "foo__bar__baz"],
+    ["$a**b**c$", "a**b**c"],
+    ["**bold** and __bold__", "bold and bold"],
+    ["**Value $a**b**c$**", "Value a**b**c"],
+    ["unmatched **bold and __bold", "unmatched **bold and __bold"],
+    ["\\*\\*bold\\*\\* and \\_\\_bold\\_\\_", "\\*\\*bold\\*\\* and \\_\\_bold\\_\\_"],
+    ["$5-$10 and US$5–US$10", "$5-$10 and US$5–US$10"],
+    ["`$x**y**$` and **bold**", "`$x**y**$` and bold"],
+  ]) {
+    value.quote = input;
+    assert.equal(conversationSummary(value), expected, input);
+  }
+});

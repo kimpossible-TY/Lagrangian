@@ -16,7 +16,7 @@ The HTML paragraph-chat panel SHALL use shared design roles and system fonts, wi
 
 ### Requirement: Plain folded summaries
 
-Folded summaries SHALL strip paired unescaped Markdown bold markers and math delimiters before truncation, preserve unmatched and escaped bold markers and currency ranges, and render as text rather than HTML.
+Folded summaries SHALL strip paired unescaped Markdown bold markers outside inline code and math regions, then strip math delimiters before truncation. Bold delimiters must have non-whitespace content at both edges, and double underscores must have word boundaries. Summaries SHALL preserve inline code, unmatched and escaped bold markers and currency ranges, and render as text rather than HTML.
 
 #### Scenario: Bold mathematical answer
 

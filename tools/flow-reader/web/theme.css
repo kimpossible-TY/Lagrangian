@@ -10,7 +10,7 @@
   --highlight: #f3e4b3;
   --highlight-edge: #a88032;
   --selection: #c9dfd7;
-  --warning: #995020;
+  --warning: #964d1d;
   --review-ink: #b72d2d;
   /* Additive roles: existing Reader palette remains unchanged. */
   --color-page: var(--paper);

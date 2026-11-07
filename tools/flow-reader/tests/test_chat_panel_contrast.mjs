@@ -74,10 +74,14 @@ test("Chat colors and hover remain legible across themes and materials", () => {
     for (const backdrop of [0, 255]) {
       const alpha = Number(match[4]) / 100;
       const composite = match.slice(1, 4).map((channel) => Number(channel) * alpha + backdrop * (1 - alpha));
-      for (const foreground of ["--color-text"]) {
+      for (const foreground of ["--color-text", "--warning"]) {
         const ratio = contrast(rgb(resolve(`var(${foreground})`, values)), composite);
         assert.ok(ratio >= 4.5, `${name}, ${foreground} glass over ${backdrop}: ${ratio.toFixed(2)}:1`);
       }
+    }
+    for (const foreground of ["--color-text", "--warning"]) {
+      const ratio = contrast(rgb(resolve(`var(${foreground})`, values)), rgb(resolve("var(--glass-solid)", values)));
+      assert.ok(ratio >= 4.5, `${name}, ${foreground} on solid glass: ${ratio.toFixed(2)}:1`);
     }
   }
 });

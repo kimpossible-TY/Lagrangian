@@ -9,12 +9,12 @@ export function sameChatSnapshot(left, right) {
   );
 }
 
-export function stripMathDelimiters(text) {
+function mapMath(text, replace) {
   if (typeof text !== "string") return "";
   return text
-    .replace(/\\\[\s*([\s\S]*?)\s*(?:\\\]|$)/gu, "$1")
-    .replace(/\\\(\s*([\s\S]*?)\s*(?:\\\)|$)/gu, "$1")
-    .replace(/\$\$\s*([\s\S]*?)\s*(?:\$\$|$)/gu, "$1")
+    .replace(/\\\[\s*([\s\S]*?)\s*(?:\\\]|$)/gu, replace)
+    .replace(/\\\(\s*([\s\S]*?)\s*(?:\\\)|$)/gu, replace)
+    .replace(/\$\$\s*([\s\S]*?)\s*(?:\$\$|$)/gu, replace)
     .replace(
       /(^|[^\\])\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?!\d)/gu,
       (match, prefix, content, offset, fullText) => {
@@ -25,15 +25,44 @@ export function stripMathDelimiters(text) {
         if (/^(?:[A-Za-z]{1,3}\s*)?\d+(?:[.,]\d+)?\s*[-–—]\s*(?:[A-Za-z]{1,3})?$/u.test(content))
           return match;
         if (/\d/u.test(fullText[offset + match.length] || "")) return match;
-        return `${prefix}${content}`;
+        return `${prefix}${replace(match.slice(prefix.length), content)}`;
       },
     );
 }
 
-const plainSummary = (text) => stripMathDelimiters(text).replace(
-  /(?<![\\*])\*\*((?:\\.|[^*])+?)(?<!\\)\*\*(?!\*)|(?<![\\_])__((?:\\.|[^_])+?)(?<!\\)__(?!_)/gu,
-  (_match, stars, underscores) => stars ?? underscores,
-);
+export function stripMathDelimiters(text) {
+  return mapMath(text, (_match, content) => content);
+}
+
+const plainSummary = (text) => {
+  // Keep opaque spans intact while stripping bold; restore math before removing
+  // its delimiters, and restore code only after all markup processing.
+  let marker = "\uE000";
+  while (text.includes(marker)) marker += "\uE000";
+  const spans = [];
+  const protect = (value) => `${marker}${spans.push(value) - 1}${marker}`;
+  const restore = (value) => value.replace(
+    new RegExp(`${marker}(\\d+)${marker}`, "gu"),
+    (_match, index) => spans[Number(index)],
+  );
+  const code = [];
+  text = text.replace(/(?<![\\`])(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/gu, (span) => {
+    code.push(span);
+    return protect("");
+  });
+  // Code placeholders are restored separately, after math processing.
+  const codeCount = code.length;
+  text = mapMath(text, (match) => protect(match));
+  text = text.replace(
+    /(?<![\\*])\*\*(?!\s)((?:\\.|[^*])+?)(?<![\\\s])\*\*(?!\*)|(?<![\\\w])__(?!\s)((?:\\.|[^_])+?)(?<![\\\s])__(?!\w)/gu,
+    (_match, stars, underscores) => stars ?? underscores,
+  );
+  text = text.replace(new RegExp(`${marker}(\\d+)${marker}`, "gu"), (match, index) =>
+    Number(index) < codeCount ? match : spans[Number(index)]);
+  text = stripMathDelimiters(text);
+  for (let index = 0; index < codeCount; index++) spans[index] = code[index];
+  return restore(text);
+};
 
 const line = (text, limit) => {
   const value = text.replace(/\s+/gu, " ").trim();
