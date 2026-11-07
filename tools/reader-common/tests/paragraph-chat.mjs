@@ -40,3 +40,15 @@ test("summary uses the latest literal question and actual answer with honest par
   value.thread[3].status = "completed";
   assert.equal(conversationSummary(value), "A newer question? · The real latest answer");
 });
+
+
+test("summary strips paired bold and math before truncating, preserving literal markers", () => {
+  const value = record("bold");
+  value.quote = "**" + "a".repeat(139) + "**";
+  assert.equal(conversationSummary(value), "a".repeat(139));
+  value.thread = [
+    { role: "user", text: "**Value $x^2$** and __price__ $5-$10", status: "completed" },
+    { role: "assistant", text: "Unmatched ** and \\*\\*literal\\*\\* US$5–US$10", status: "completed" },
+  ];
+  assert.equal(conversationSummary(value), "Value x^2 and price $5-$10 · Unmatched ** and \\*\\*literal\\*\\* US$5–US$10");
+});

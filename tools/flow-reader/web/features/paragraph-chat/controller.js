@@ -1,4 +1,4 @@
-import { ChatTranscript, chatStatus, stripMathDelimiters } from "./content.js";
+import { ChatTranscript, chatStatus } from "./content.js";
 import {
   ConversationState,
   conversationSummary,
@@ -85,7 +85,9 @@ export class ParagraphChatController {
         this.chosenModels.set(id, saved);
         return saved;
       }
-    } catch {}
+    } catch {
+      // Keep the in-memory fallback when storage is unavailable.
+    }
     this.chosenModels.set(id, "");
     return "";
   }
@@ -100,7 +102,9 @@ export class ParagraphChatController {
       } else {
         globalThis.sessionStorage?.removeItem(`reader_chat_model_${id}`);
       }
-    } catch {}
+    } catch {
+      // The in-memory selection remains authoritative.
+    }
   }
 
   onDocument(manifest) {
@@ -333,7 +337,7 @@ export class ParagraphChatController {
       }
       node.host = host;
       if (node.quote.textContent !== record.quote) node.quote.textContent = record.quote;
-      const title = stripMathDelimiters(conversationSummary(record));
+      const title = conversationSummary(record);
       if (node.summary.textContent !== title) node.summary.textContent = title;
       node.summary.title = title;
       node.transcript.update(record.thread, { visible: !node.panel.hidden });

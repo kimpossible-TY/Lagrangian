@@ -16,7 +16,7 @@ export function stripMathDelimiters(text) {
     .replace(/\\\(\s*([\s\S]*?)\s*(?:\\\)|$)/gu, "$1")
     .replace(/\$\$\s*([\s\S]*?)\s*(?:\$\$|$)/gu, "$1")
     .replace(
-      /(^|[^\\])\$([^\s\$](?:[^\$\n]*?[^\s\$\\])?)\$(?!\d)/gu,
+      /(^|[^\\])\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?!\d)/gu,
       (match, prefix, content, offset, fullText) => {
         const openIdx = offset + prefix.length;
         const beforeOpen = fullText.slice(0, openIdx);
@@ -30,6 +30,11 @@ export function stripMathDelimiters(text) {
     );
 }
 
+const plainSummary = (text) => stripMathDelimiters(text).replace(
+  /(?<![\\*])\*\*((?:\\.|[^*])+?)(?<!\\)\*\*(?!\*)|(?<![\\_])__((?:\\.|[^_])+?)(?<!\\)__(?!_)/gu,
+  (_match, stars, underscores) => stars ?? underscores,
+);
+
 const line = (text, limit) => {
   const value = text.replace(/\s+/gu, " ").trim();
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
@@ -38,11 +43,11 @@ const line = (text, limit) => {
 /** Extract the latest question and its actual answer, never synthesize a claim. */
 export function conversationSummary(record) {
   const question = record.thread.findLastIndex((message) => message.role === "user");
-  if (question < 0) return line(stripMathDelimiters(record.quote || ""), 140);
+  if (question < 0) return line(plainSummary(record.quote || ""), 140);
   const answer = record.thread.slice(question + 1).find((message) => message.role === "assistant");
-  return `${line(stripMathDelimiters(record.thread[question]?.text || ""), 65)} · ${
+  return `${line(plainSummary(record.thread[question]?.text || ""), 65)} · ${
     answer?.text
-      ? `${answer.status === "completed" ? "" : "Partial: "}${line(stripMathDelimiters(answer.text), 90)}`
+      ? `${answer.status === "completed" ? "" : "Partial: "}${line(plainSummary(answer.text), 90)}`
       : record.status === "streaming"
         ? "Thinking…"
         : record.status === "failed"
