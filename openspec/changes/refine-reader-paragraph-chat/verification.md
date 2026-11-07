@@ -121,6 +121,15 @@ lint:readers ESLint command was executed directly. The canonical architecture
 document compiled to PDF and HTML, including the new recovery ownership text.
 Installed-Reader recovery verification is pending deployment.
 
+Run 42364707549 installed draft-recovery revision `6c690a00`, but its actual
+document did not become ready: recent compiler history recorded two native
+document failures with no ready browser device at 90.895 and 90.156 seconds. The
+disk report remained an older successful/content-accepted result, while live
+state had no accepted revision. The live draft-recovery exercise has not yet
+started. The temporary DevTools request condition was removed and disabled;
+startup deadline recovery continues under add-responsive-reader before resuming
+the real-browser check.
+
 The publication branch starts at the existing remote Homepage proposal and merges
 only current public main before applying the sanitized final implementation as a
 fresh commit. Earlier local implementation commits remain intact outside this

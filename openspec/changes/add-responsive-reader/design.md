@@ -1318,6 +1318,17 @@ Cached-shell update: Service Worker installation retains the current complete sh
 
 Deployment recovery under host contention: the CLI fallback now uses one Typst parallel job. This bounds Reader-native parallel work independently of the paged preview and retains the exact request inputs, artifact, deadlines and publication/source guards. An isolated PDE base compile passed content acceptance in 58.446 seconds with one job while normal parallel fallback repeatedly exceeded 90 seconds under concurrent host work. This is a host-load observation, not a controlled speed benchmark or iPhone memory result.
 
+Full-document deadline follow-up: local rollout `6c690a00` received no ready
+browser device and recorded two failed native document attempts at 90.895 and
+90.156 seconds, leaving no accepted revision while the previous successful disk
+report remained intact. `compile_project` now gives ordinary full-document work
+180 seconds; interactive work retains 90 seconds, source mapping retains 60, and
+explicit pinned device/reference diagnostics retain their independent 90-second
+limits. The fallback record separates its selection reason from a fixed
+`failure: timeout` classification for `TimeoutExpired`; it excludes the command,
+source paths and raw exception. Both executors still receive the same prepared
+request and pass the same acceptance and source-validation gates.
+
 ## Compact layout history
 
 The pinned Typst core stores up to four complete previous outputs solely to access

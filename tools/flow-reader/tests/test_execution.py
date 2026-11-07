@@ -93,6 +93,15 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(self.requests[0].inputs, self.requests[1].inputs)
         self.assertEqual((self.root / "main.typ").read_text(), "Hello")
 
+    def test_document_budget_is_bounded_separately_from_interactive_work_and_source_mapping(self):
+        compile_project(self.project(self.result), self.root / "output")
+        self.assertEqual([(r.purpose, r.timeout) for r in self.requests], [("document", 180), ("source-map", 60)])
+        for arguments, purpose in (({"geometry": {}}, "graphics"), ({"canvases": {}}, "canvases"),
+                                   ({"decorations": {}}, "decorations")):
+            self.requests.clear()
+            compile_project(self.project(self.result), self.root / "output", map_sources=False, **arguments)
+            self.assertEqual([(r.purpose, r.timeout) for r in self.requests], [(purpose, 90)])
+
     def test_paged_candidate_retains_executor_and_original_packages(self):
         project = replace(self.project(self.result), semantic_canvases=True)
         self.assertTrue(paged_candidate_compiles(project, self.root / "candidate.pdf"))

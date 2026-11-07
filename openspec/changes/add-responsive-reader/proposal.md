@@ -1,5 +1,11 @@
 # Responsive mobile reader alongside the paged preview
 
+Local dogfooding recovery: allow ordinary full-document execution a bounded
+180 seconds when preparing a large Reader after an update. Keep interactive
+requests at 90 seconds, source carriers at 60 seconds and explicit device checks
+at their existing 90-second limits. Identify native fallback timeouts in sanitized
+execution evidence without exposing failed command arguments.
+
 Redesign the complete HTML Reader reading-settings surface around immediate
 access to typography and appearance, with a clear hierarchy for offline reading,
 queued highlight requests and optional device computation. Preserve existing

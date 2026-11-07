@@ -37,11 +37,12 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
                            ("flow-canvases", canvases)):
             if value is not None:
                 inputs.append((key, json.dumps(value, separators=(",", ":"))))
+        purpose = ("graphics" if geometry is not None else "canvases" if canvases is not None
+                   else "decorations" if decorations is not None else "document")
         request = CompileRequest(
             compiler=project.compiler, root=root, packages=work / "packages", target="html",
             source=wrapper, fonts=tuple((root / font).resolve() for font in project.fonts),
-            inputs=tuple(inputs), purpose="graphics" if geometry is not None else
-            "canvases" if canvases is not None else "decorations" if decorations is not None else "document")
+            inputs=tuple(inputs), purpose=purpose, timeout=180 if purpose == "document" else 90)
         prepare_request = getattr(project.execute, "prepare_request", None)
         if callable(prepare_request):
             request = prepare_request(request)

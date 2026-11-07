@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 import secrets
 import re
+import subprocess
 import threading
 import time
 
@@ -322,6 +323,9 @@ class BrowserCompilePool:
             result = self.fallback(request)
             event["status"] = "result-received" if result.returncode == 0 else "failed"
             return result
+        except subprocess.TimeoutExpired:
+            event.update(status="failed", failure="timeout")
+            raise
         except Exception:
             event["status"] = "failed"
             raise

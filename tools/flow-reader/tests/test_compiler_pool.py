@@ -3,6 +3,7 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -47,6 +48,18 @@ class PoolTests(unittest.TestCase):
 
     def worker(self):
         return self.pool.register("engine", diagnostics_version=1)["worker"]
+
+    def test_native_deadline_is_identified_without_exposing_the_failed_command(self):
+        def timeout(_request):
+            raise subprocess.TimeoutExpired(["compiler", "/private/source"], 90)
+        self.pool.fallback = timeout
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.pool(self.request)
+        event = self.pool.status()["history"][0]
+        self.assertEqual(event["status"], "failed")
+        self.assertEqual(event["failure"], "timeout")
+        self.assertEqual(event["reason"], "no-ready-device")
+        self.assertNotIn("/private/source", json.dumps(event))
 
     def start(self, call=None):
         future = self.threads.submit(call or (lambda: self.pool.execute(self.snapshot, 30)))

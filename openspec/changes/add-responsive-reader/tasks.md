@@ -455,3 +455,7 @@ remote publication and physical-device/VoiceOver checks were not performed.
 - [x] Connect responsive panel placement, keyboard dismissal and focus return to the final layout, retaining native controls and the older-browser fallback.
 - [x] Verify actual Chromium/WebKit interactions, narrow/large viewports, light/dark themes, text scaling, interruption and accessibility fallbacks; record checked and unverified scenarios in `verification-reading-settings.md`.
 - [x] Deploy clean immutable Reader release with redesigned reading settings, verify HTTPS/local delivery, and record rollout evidence.
+
+## Large document startup recovery
+
+- [ ] Separate the ordinary document execution budget from interactive/source-map/diagnostic limits, identify native timeouts without private details, and verify local tests plus installed document readiness.

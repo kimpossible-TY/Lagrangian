@@ -858,6 +858,12 @@ The HTML Reader SHALL allocate native figure labels using measured free space, p
 The HTML Reader SHALL support injected local and browser compilation while retaining
 server-owned normalization, acceptance, source correspondence and final source writes.
 
+#### Scenario: Large ordinary document after service update
+- **WHEN** preparing an ordinary full Reader document requires longer than an interactive request
+- **THEN** its raw execution has a bounded 180-second budget
+- **AND** interactive requests, source mapping and explicit device diagnostics retain their existing limits
+- **AND** a native timeout is recorded with a fixed classification without command arguments or source paths.
+
 #### Scenario: Browser result follows the existing acceptance gate
 - **WHEN** a browser returns raw HTML, diagnostics and dependencies for an immutable task
 - **THEN** the server applies the same normalization and content audit as local compilation
