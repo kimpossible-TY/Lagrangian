@@ -514,3 +514,35 @@ test("before animation starts, RAF waits for the hide animation and queued reope
   await reopening;
   assert.equal(listenerCount(env.document, "keydown"), 1);
 });
+
+test("a manually opened menu preserves outside focus when closed during show", async (t) => {
+  const env = await setup(t);
+  env.api.enableLitUpdates();
+  env.menu.open = true;
+  await settle();
+  const outside = env.element("document-search");
+  pointer(env, outside);
+  outside.focus();
+  await settle();
+  env.api.flushCancel();
+  await settle();
+  assert.equal(env.menu.open, false);
+  assert.equal(env.document.activeElement, outside);
+  assert.equal(listenerCount(env.document, "focusin"), 0);
+  assert.equal(listenerCount(env.document, "keydown"), 0);
+});
+
+test("manual close and queued reopen focus the first menu item rather than trigger", async (t) => {
+  const env = await setup(t);
+  env.api.enableLitUpdates();
+  env.menu.open = true;
+  await settle();
+  await env.api.press("Escape");
+  env.menu.children[0].listeners.get("click")({ preventDefault() {}, stopPropagation() {} });
+  env.api.flushCancel();
+  await settle();
+  env.api.finishShow();
+  await settle();
+  assert.equal(env.document.activeElement, env.menu.children[1]);
+  assert.equal(listenerCount(env.document, "keydown"), 1);
+});

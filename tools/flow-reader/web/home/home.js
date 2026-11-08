@@ -86,6 +86,34 @@ function syncMenuFocus(menu) {
   }
 }
 
+function trackPendingFocus(record, target) {
+  const pending = { target, input: false, focusRevision: 0 };
+  pending.outsideFocus = () => {
+    const target = document.activeElement;
+    if (
+      record.pending === pending &&
+      (!record.alternatives.contains(target) || target === record.trigger)
+    )
+      pending.target = target;
+  };
+  pending.outsidePointer = (event) => {
+    if (record.pending === pending && !record.alternatives.contains(event.target)) {
+      pending.target = null;
+      queueMicrotask(() => {
+        if (record.pending === pending && !record.alternatives.contains(document.activeElement))
+          pending.target = document.activeElement;
+      });
+    }
+  };
+  if (record.pending) {
+    document.removeEventListener("focusin", record.pending.outsideFocus, true);
+    document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
+  }
+  record.pending = pending;
+  document.addEventListener("focusin", pending.outsideFocus, true);
+  document.addEventListener("pointerdown", pending.outsidePointer, true);
+}
+
 function documentCard(doc) {
   let record = documentCards.get(doc.id);
   if (!record) {
@@ -162,8 +190,12 @@ function documentCard(doc) {
         event.stopPropagation();
         life.reopen = !life.reopen;
         life.waitingHide = true;
+        if (life.reopen && record.pending?.target === trigger) record.pending.target = null;
         if (life.reopen) life.watchQueue();
-        else life.stopQueue();
+        else {
+          life.stopQueue();
+          if (record.pending) record.pending.target = trigger;
+        }
       },
       true,
     );
@@ -190,7 +222,13 @@ function documentCard(doc) {
       document.removeEventListener("pointerdown", pending.outsidePointer, true);
     });
     alternatives.addEventListener("wa-hide", () => {
-      record.lifecycle.hiding = true;
+      const life = record.lifecycle;
+      if (life.showing && !record.pending) {
+        const focused = document.activeElement;
+        const target = alternatives.contains(focused) && focused !== trigger ? trigger : focused;
+        trackPendingFocus(record, target);
+      }
+      life.hiding = true;
     });
     alternatives.addEventListener("wa-after-hide", () => {
       const life = record.lifecycle;
@@ -265,6 +303,7 @@ function documentCard(doc) {
     life.cancelKey = (event) => {
       if (event.key !== "Escape") return;
       life.stopQueue();
+      if (record.pending) record.pending.target = trigger;
       event.preventDefault();
       event.stopPropagation();
       trigger.focus({ preventScroll: true });
@@ -317,31 +356,7 @@ function documentCard(doc) {
   const focusedIndex = focusedEntry ? links.indexOf(focusedEntry) : -1;
   const movedToMenu = focusedIndex > 0 && active === focusedEntry.link;
   if (movedToMenu && !record.alternatives.open) {
-    const pending = { target: focusedEntry.item, input: false, focusRevision: 0 };
-    pending.outsideFocus = () => {
-      const target = document.activeElement;
-      if (
-        record.pending === pending &&
-        (!record.alternatives.contains(target) || target === record.trigger)
-      )
-        pending.target = target;
-    };
-    pending.outsidePointer = (event) => {
-      if (record.pending === pending && !record.alternatives.contains(event.target)) {
-        pending.target = null;
-        queueMicrotask(() => {
-          if (record.pending === pending && !record.alternatives.contains(document.activeElement))
-            pending.target = document.activeElement;
-        });
-      }
-    };
-    if (record.pending) {
-      document.removeEventListener("focusin", record.pending.outsideFocus, true);
-      document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
-    }
-    record.pending = pending;
-    document.addEventListener("focusin", pending.outsideFocus, true);
-    document.addEventListener("pointerdown", pending.outsidePointer, true);
+    trackPendingFocus(record, focusedEntry.item);
     const life = record.lifecycle;
     if (life.showing || life.hiding) {
       life.reopen = true;
