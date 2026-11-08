@@ -546,3 +546,113 @@ test("manual close and queued reopen focus the first menu item rather than trigg
   assert.equal(env.document.activeElement, env.menu.children[1]);
   assert.equal(listenerCount(env.document, "keydown"), 1);
 });
+
+for (const key of ["Enter", " "]) {
+  test(`manual opening preserves End selection through show and ${key}`, async (t) => {
+    const env = await setup(t);
+    env.api.enableLitUpdates();
+    env.menu.children[0].focus();
+    env.menu.open = true;
+    await settle();
+    await env.api.press("End");
+    await settle();
+    aligned(env.menu, env.document, c.url);
+    env.api.finishShow();
+    await settle();
+    aligned(env.menu, env.document, c.url);
+    assert.equal(await env.api.press(key), c.url);
+  });
+}
+
+test("manual opening without a user move retains vendor first-item focus", async (t) => {
+  const env = await setup(t);
+  env.api.enableLitUpdates();
+  env.menu.children[0].focus();
+  env.menu.open = true;
+  await settle();
+  env.api.finishShow();
+  await settle();
+  aligned(env.menu, env.document, a.url);
+  assert.equal(await env.api.press("Enter"), a.url);
+});
+
+test("manual opening preserves a pointer selection through show completion", async (t) => {
+  const env = await setup(t);
+  env.api.enableLitUpdates();
+  env.menu.children[0].focus();
+  env.menu.open = true;
+  await settle();
+  const desired = env.menu.children[3];
+  pointer(env, desired);
+  desired.focus();
+  await settle();
+  env.api.finishShow();
+  await settle();
+  aligned(env.menu, env.document, c.url);
+  assert.equal(await env.api.press(" "), c.url);
+});
+
+test("manual opening preserves outside focus after vendor show completion", async (t) => {
+  const env = await setup(t);
+  env.api.enableLitUpdates();
+  env.menu.children[0].focus();
+  env.menu.open = true;
+  await settle();
+  const outside = env.element("document-search");
+  outside.focus();
+  env.api.finishShow();
+  await settle();
+  assert.equal(env.document.activeElement, outside);
+});
+
+test("same-name direction reversal completes both helpers on one animation end", async (t) => {
+  const env = await opening(t);
+  env.api.flushRAF();
+  env.menu.menu.suppressCancel = true;
+  await env.api.press("Escape");
+  const hiding = env.api.hide();
+  env.menu.children[0].listeners.get("click")({ preventDefault() {}, stopPropagation() {} });
+  env.api.finishHide();
+  await env.showing;
+  await hiding;
+  await settle();
+  assert.equal(env.menu.open, true);
+  const reopening = env.api.show();
+  env.api.finishShow();
+  await reopening;
+  assert.equal(listenerCount(env.document, "keydown"), 1);
+});
+
+test("same Lit batch false then true does not remove the original keyboard handler", async (t) => {
+  const env = await setup(t, [b]);
+  env.api.enableLitUpdates();
+  env.title.children[0].focus();
+  env.inventory[0].variants = [html, a, b, c];
+  await env.click("refresh");
+  env.menu.open = false;
+  env.menu.open = true;
+  await settle();
+  assert.equal(listenerCount(env.document, "keydown"), 1);
+  env.api.finishShow();
+  await settle();
+  await env.api.press("End");
+  await settle();
+  aligned(env.menu, env.document, c.url);
+  assert.equal(await env.api.press("Enter"), c.url);
+});
+
+test("manual opening keeps ArrowDown then End intent through completion", async (t) => {
+  const env = await setup(t);
+  env.api.enableLitUpdates();
+  env.menu.children[0].focus();
+  env.menu.open = true;
+  await settle();
+  await env.api.press("ArrowDown");
+  await env.api.press("End");
+  await settle();
+  aligned(env.menu, env.document, c.url);
+  env.api.finishShow();
+  await settle();
+  aligned(env.menu, env.document, c.url);
+  assert.equal(await env.api.press("Enter"), c.url);
+});

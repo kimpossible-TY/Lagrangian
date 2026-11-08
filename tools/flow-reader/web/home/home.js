@@ -210,8 +210,8 @@ function documentCard(doc) {
         return;
       }
       life.showing = true;
+      if (!record.pending) trackPendingFocus(record, null);
       const pending = record.pending;
-      if (!pending) return;
       if (!pending.started) {
         pending.started = true;
         return;
@@ -223,10 +223,11 @@ function documentCard(doc) {
     });
     alternatives.addEventListener("wa-hide", () => {
       const life = record.lifecycle;
-      if (life.showing && !record.pending) {
+      if (life.showing && (!record.pending || record.pending.target === null)) {
         const focused = document.activeElement;
         const target = alternatives.contains(focused) && focused !== trigger ? trigger : focused;
-        trackPendingFocus(record, target);
+        if (record.pending) record.pending.target = target;
+        else trackPendingFocus(record, target);
       }
       life.hiding = true;
     });
