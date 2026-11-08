@@ -47,6 +47,9 @@ async function homepage(
         this.parent = null;
       }
     }
+    get parentElement() {
+      return this.parent || null;
+    }
     get firstElementChild() {
       return this.children[0] || null;
     }
@@ -322,12 +325,14 @@ test("library chooses safe HTML then Paged and retains a destination across poll
   ];
   const { element, click, document } = await homepage(t, { inventory });
   const card = element("document-list").children[0];
-  const [title, status, primary, alternatives] = card.children[0].children;
+  const [title, status] = card.children[0].children;
+  const alternatives = card.children[1];
+  const primary = title;
   const link = primary.children[0];
-  assert.equal(title.textContent, "원래 제목");
+  assert.equal(link.textContent, "원래 제목");
   assert.equal(status.dataset.state, "ready");
   assert.equal(link.href, "https://example.test/html");
-  assert.equal(link.textContent, "열기");
+  assert.equal(link.textContent, "원래 제목");
   assert.equal(alternatives.children[1].children[0].href, "https://example.test/paged");
   link.focus();
   inventory[0].state = "stale";
@@ -358,7 +363,9 @@ test("hidden alternatives return summary focus and retain surviving links", asyn
     },
   ];
   const { element, click, document } = await homepage(t, { inventory });
-  const [, , primary, alternatives] = element("document-list").children[0].children[0].children;
+  const card = element("document-list").children[0];
+  const [primary] = card.children[0].children;
+  const alternatives = card.children[1];
   const primaryLink = primary.children[0];
   const alternativeLink = alternatives.children[1].children[0];
   alternatives.open = true;
@@ -387,15 +394,16 @@ test("missing public address is independent of state and clears when a safe link
     },
   ];
   const { element, click } = await homepage(t, { inventory });
-  const [, status, primary, alternatives, noAddress] =
-    element("document-list").children[0].children[0].children;
+  const card = element("document-list").children[0];
+  const [primary, status, noAddress] = card.children[0].children;
+  const alternatives = card.children[1];
   assert.equal(status.dataset.state, "ready");
-  assert.equal(primary.children.length, 0);
+  assert.equal(primary.children[0].textContent, "문서");
   assert.equal(noAddress.hidden, false);
   assert.equal(noAddress.textContent, "공개 주소 없음");
   inventory[0].variants = [{ kind: "html", url: "javascript:alert(1)" }];
   await click("refresh");
-  assert.equal(primary.children.length, 0);
+  assert.equal(primary.children[0].textContent, "문서");
   assert.equal(noAddress.hidden, false);
   inventory[0].variants.push({ kind: "paged", url: "https://example.test/paged" });
   await click("refresh");
@@ -447,7 +455,9 @@ test("a focused surviving link keeps identity when promoted or demoted", async (
     },
   ];
   const { element, click, document } = await homepage(t, { inventory });
-  const [, , primary, alternatives] = element("document-list").children[0].children[0].children;
+  const card = element("document-list").children[0];
+  const [primary] = card.children[0].children;
+  const alternatives = card.children[1];
   const link = primary.children[0];
   link.focus();
   inventory[0].variants.push({ kind: "html", url: "https://example.test/html" });

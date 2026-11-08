@@ -7,8 +7,15 @@
     <title>Lagrangian · 내 문서</title>
     <link rel="icon" href="/favicon.png" type="image/png" />
     <script src="/features/appearance/theme.js"></script>
+    <link rel="stylesheet" href="/vendor/basecoat-1.1.0/basecoat.cdn.min.css" />
+    <link rel="stylesheet" href="/vendor/webawesome-3.14.0/styles/themes/default.css" />
     <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/home/home.css" />
+    <script type="module" src="/vendor/webawesome-3.14.0/components/dropdown/dropdown.js"></script>
+    <script
+      type="module"
+      src="/vendor/webawesome-3.14.0/components/dropdown-item/dropdown-item.js"
+    ></script>
     <script type="module" src="/home/home.js"></script>
   </head>
   <body>
@@ -45,6 +52,7 @@
               <circle cx="10" cy="10" r="6.5" />
               <path d="m15 15 5 5" /></svg
             ><input
+              class="input"
               id="document-search"
               type="search"
               placeholder="문서 제목으로 검색하기…"

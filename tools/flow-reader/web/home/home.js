@@ -76,31 +76,33 @@ function reconcileChildren(parent, children) {
 function documentCard(doc) {
   let record = documentCards.get(doc.id);
   if (!record) {
-    const card = node("article", "", "document-card");
+    const card = node("article", "", "document-card item");
     const info = node("div", "", "document-info");
     const title = node("h3");
+    const plainTitle = node("span");
     const status = node("p", "", "document-status");
-    const links = node("div", "", "reader-links");
-    const alternatives = node("details", "", "alternatives");
-    alternatives.append(node("summary", "다른 읽기 방식"));
-    const otherLinks = node("div", "", "alternative-links");
-    alternatives.append(otherLinks);
+    const alternatives = node("wa-dropdown", "", "alternatives");
+    alternatives.setAttribute("placement", "bottom-end");
+    const trigger = node("button", "⋯", "alternatives-trigger");
+    trigger.type = "button";
+    trigger.setAttribute("slot", "trigger");
+    trigger.setAttribute("aria-label", "다른 읽기 방식");
+    alternatives.append(trigger);
     const noAddress = node("p", "공개 주소 없음", "feedback");
-    info.append(title, status, links, alternatives, noAddress);
-    card.append(info);
+    info.append(title, status, noAddress);
+    card.append(info, alternatives);
     record = {
       card,
       title,
+      plainTitle,
       status,
-      links,
       alternatives,
-      otherLinks,
+      trigger,
       noAddress,
       variants: new Map(),
     };
     documentCards.set(doc.id, record);
   }
-  if (record.title.textContent !== doc.name) record.title.textContent = doc.name;
   const label = labels[doc.state] || labels.unknown;
   if (record.status.textContent !== label) record.status.textContent = label;
   record.status.dataset.state = doc.state;
@@ -116,32 +118,55 @@ function documentCard(doc) {
     occurrences.set(destination, index + 1);
     const key = `${destination}:${index}`;
     keys.add(key);
-    let element = record.variants.get(key);
-    if (!element) {
-      element = node("a", "", "reader-link");
-      record.variants.set(key, element);
+    let entry = record.variants.get(key);
+    if (!entry) {
+      const link = node("a", "", "reader-link");
+      const item = node("wa-dropdown-item");
+      item.append(link);
+      link.addEventListener("click", (event) => {
+        if (link.parentElement === item) event.preventDefault();
+      });
+      entry = { link, item };
+      record.variants.set(key, entry);
     }
-    if (element.href !== url) element.href = url;
-    element.dataset.kind = variant.kind;
-    const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
-    if (element.textContent !== title && element.textContent !== "열기")
-      element.textContent = title;
-    element.setAttribute("aria-label", `${doc.name} · ${element.textContent}`);
-    return [element];
+    entry.link.href = url;
+    entry.item.href = url;
+    entry.link.dataset.kind = variant.kind;
+    return [entry];
   });
-  for (const link of links.slice(1)) {
-    link.textContent = link.dataset.kind === "html" ? "HTML Reader" : "Paged Reader";
-    link.setAttribute("aria-label", `${doc.name} · ${link.textContent}`);
-  }
-  if (links.length) {
-    links[0].textContent = "열기";
-    links[0].setAttribute("aria-label", `${doc.name} · 열기`);
-  }
-  if (links.length < 2 && document.activeElement === record.alternatives.firstElementChild)
+  const active = document.activeElement;
+  if (
+    links.length < 2 &&
+    (active === record.trigger ||
+      (record.alternatives.contains(active) && !links.some((entry) => entry.link === active)))
+  ) {
     $("documents").focus({ preventScroll: true });
-  if (links.slice(1).includes(document.activeElement)) record.alternatives.open = true;
-  reconcileChildren(record.links, links.slice(0, 1));
-  reconcileChildren(record.otherLinks, links.slice(1));
+    record.alternatives.open = false;
+  }
+  if (links.slice(1).some((entry) => entry.link === active)) record.alternatives.open = true;
+  for (const [index, entry] of links.entries()) {
+    entry.link.textContent =
+      index === 0 ? doc.name : entry.link.dataset.kind === "html" ? "HTML Reader" : "Paged Reader";
+    entry.link.setAttribute(
+      "aria-label",
+      index === 0 ? `${doc.name} · 열기` : `${doc.name} · ${entry.link.textContent}`,
+    );
+    if (index > 0) {
+      entry.link.setAttribute("tabindex", "-1");
+      entry.link.setAttribute("aria-hidden", "true");
+      entry.item.setAttribute("aria-label", `${doc.name} · ${entry.link.textContent}`);
+    } else {
+      entry.link.removeAttribute("tabindex");
+      entry.link.removeAttribute("aria-hidden");
+    }
+    if (index > 0 && entry.link.parentElement !== entry.item) entry.item.append(entry.link);
+  }
+  record.plainTitle.textContent = doc.name;
+  reconcileChildren(record.title, links.length ? [links[0].link] : [record.plainTitle]);
+  reconcileChildren(record.alternatives, [
+    record.trigger,
+    ...links.slice(1).map((entry) => entry.item),
+  ]);
   record.alternatives.hidden = links.length < 2;
   record.noAddress.hidden = links.length > 0;
   for (const key of record.variants.keys()) {

@@ -156,7 +156,7 @@ with tempfile.TemporaryDirectory() as temporary:
     history = SourceHistoryClient(project, engine=sys.argv[1], change_file=root / 'common.json')
     history.seed(source_snapshots(project, []))
     assert history.location.path == root / 'common.json'
-from flow_reader.server.home import home_assets
+from flow_reader.server.home import home_assets, handler_for_home
 home = home_assets()
 assert (Path(state.__file__).parents[2] / 'home.py').is_file()
 assert home['/'].name == 'index.html' and home['/'].parent.name == 'home'
@@ -183,6 +183,18 @@ finally:
     server.shutdown()
     server.server_close()
     thread.join()
+home_server = ThreadingHTTPServer(('127.0.0.1', 0), handler_for_home(None, None))
+home_thread = threading.Thread(target=home_server.serve_forever, daemon=True)
+home_thread.start()
+try:
+    origin = f'http://127.0.0.1:{home_server.server_port}'
+    for route, path in home.items():
+        with urlopen(origin + route) as response:
+            assert response.read() == path.read_bytes(), route
+finally:
+    home_server.shutdown()
+    home_server.server_close()
+    home_thread.join()
 """
         result = json.loads(subprocess.check_output([sys.executable, "-c", script, str(engine)], cwd=release, text=True))
         self.assertGreater(result["assets"], 20)

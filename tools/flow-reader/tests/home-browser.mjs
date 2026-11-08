@@ -105,11 +105,11 @@ try {
     "primary link",
     (await page.getByRole("link", { name: "편미분방정식 · 열기" }).count()) === 1,
   );
-  const alternatives = page.locator(".document-card").first().locator("details");
-  await alternatives.locator("summary").click();
+  const alternatives = page.locator(".document-card").first().locator("wa-dropdown");
+  await alternatives.locator("button[slot=trigger]").click();
   check(
     "alternative reader link",
-    (await alternatives.getByRole("link", { name: /Paged Reader/ }).count()) > 0,
+    (await alternatives.getByRole("menuitem", { name: /Paged Reader/ }).count()) > 0,
   );
   check(
     "host has no Service Worker",
