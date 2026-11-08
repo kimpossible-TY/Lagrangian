@@ -29,13 +29,46 @@ DOCUMENTS = [
 DESTINATIONS = {
     "/example-html": "합성 HTML 목적지",
     "/example-paged": "합성 Paged 목적지",
+    "/example-paged-a": "합성 Paged A 목적지",
+    "/example-paged-b": "합성 Paged B 목적지",
 }
 
 
-def inventory(mode):
-    return {"documents": DOCUMENTS if mode == "documents" else [],
+def inventory(mode, port=8873):
+    documents = [{**doc, "variants": [
+        {**variant, "url": variant["url"].replace("127.0.0.1:8873", f"127.0.0.1:{port}")}
+        for variant in doc["variants"]]} for doc in DOCUMENTS] if mode == "documents" else []
+    return {"documents": documents,
             "loading": mode == "loading",
             "error": "합성 오류: 문서 목록을 확인하지 못했습니다." if mode == "error" else ""}
+
+
+def file_inventory(path, port):
+    # Only an explicitly named temporary synthetic fixture is read on each poll.
+    path = Path(path).resolve(strict=True)
+    if not path.is_relative_to(Path("/private/tmp")):
+        raise ValueError("Inventory fixture must be under /private/tmp")
+    data = json.loads(path.read_text())
+    if not isinstance(data, list):
+        raise ValueError("Inventory fixture must be a document list")
+    documents = []
+    for doc in data:
+        if not isinstance(doc, dict) or set(doc) != {"id", "name", "state", "variants"}:
+            raise ValueError("Invalid synthetic document")
+        if not all(isinstance(doc[key], str) for key in ("id", "name", "state")):
+            raise ValueError("Invalid synthetic document fields")
+        if not isinstance(doc["variants"], list):
+            raise ValueError("Invalid synthetic variants")
+        variants = []
+        for variant in doc["variants"]:
+            if (not isinstance(variant, dict) or set(variant) != {"kind", "path"}
+                    or variant["kind"] not in ("html", "paged")
+                    or variant["path"] not in DESTINATIONS):
+                raise ValueError("Invalid synthetic destination")
+            variants.append({"kind": variant["kind"],
+                             "url": f"http://127.0.0.1:{port}{variant['path']}"})
+        documents.append({**doc, "variants": variants})
+    return {"documents": documents, "loading": False, "error": ""}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -48,7 +81,12 @@ class Handler(BaseHTTPRequestHandler):
             if mode not in MODES:
                 self.send_error(400)
                 return
-            data = json.dumps(inventory(mode), ensure_ascii=False).encode()
+            try:
+                fixture = getattr(self.server, "inventory_file", None)
+                result = file_inventory(fixture, self.server.server_port) if fixture else inventory(mode, self.server.server_port)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                result = {"documents": [], "loading": False, "error": "합성 목록 파일을 읽지 못했습니다."}
+            data = json.dumps(result, ensure_ascii=False).encode()
             content_type = "application/json"
         elif path == "/api/home/account":
             data = json.dumps({"instance": "synthetic", "version": 1, "eligible": False}).encode()
@@ -80,9 +118,14 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=MODES, default="documents")
+    parser.add_argument("--port", type=int, default=8873)
+    parser.add_argument("--inventory-file", type=Path, help="Synthetic JSON document list under /private/tmp")
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", 8873), Handler)
+    if args.inventory_file:
+        file_inventory(args.inventory_file, args.port)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.mode = args.mode
+    server.inventory_file = args.inventory_file
     server.serve_forever()
 
 

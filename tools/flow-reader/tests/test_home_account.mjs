@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 // Exercise the delivered Homepage with explicit events and a scoped transport.
@@ -21,6 +22,13 @@ async function homepage(
       this.dataset = {};
       this.value = "";
       this.hidden = false;
+    }
+    set active(value) {
+      this._active = value;
+      this.tabindex = value ? "0" : "-1";
+    }
+    get active() {
+      return this._active;
     }
     addEventListener(name, listener) {
       this.listeners.set(name, listener);
@@ -92,7 +100,7 @@ async function homepage(
   const document = Object.assign(new Element(), {
     hidden: false,
     getElementById: element,
-    createElement: () => new Element(),
+    createElement: (tag) => Object.assign(new Element(), { localName: tag }),
     createTextNode: (text) => Object.assign(new Element(), { textContent: text }),
   });
   const window = new EventTarget();
@@ -157,7 +165,21 @@ async function homepage(
     }
     return { ok: true, json: async () => result };
   };
+  const observers = [];
+  class Observer {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe(target) {
+      this.target = target;
+    }
+    disconnect() {
+      this.target = null;
+    }
+  }
   const globals = {
+    MutationObserver: Observer,
     document,
     window,
     fetch,
@@ -185,6 +207,7 @@ async function homepage(
   };
   return {
     element,
+    observers,
     calls,
     destinations,
     click,
@@ -564,4 +587,143 @@ test("menu show restores a demoted destination after the library focuses its fir
   menu.children[1].focus();
   menu.listeners.get("wa-after-show")();
   assert.equal(document.activeElement, movedHost);
+});
+
+// Execute the shipped Web Awesome key and selection methods against the same
+// fake DOM as the Home tests. This models scheduling, not a real browser.
+function vendorActivation(menu, document) {
+  const source = readFileSync(
+    new URL("../web/vendor/webawesome-3.14.0/chunks/chunk.LOCSL3WJ.js", import.meta.url),
+    "utf8",
+  );
+  const keyStart = source.indexOf("    this.handleDocumentKeyDown = async (event) => {");
+  const keyEnd = source.indexOf("    /** Handles pointer down", keyStart);
+  const selectionStart = source.indexOf("  makeSelection(item, sourceEvent) {");
+  const selectionEnd = source.indexOf("  /** Syncs aria attributes", selectionStart);
+  assert.ok(
+    keyStart >= 0 && keyEnd > keyStart && selectionStart >= 0 && selectionEnd > selectionStart,
+  );
+  const registration = source.slice(keyStart, keyEnd);
+  const selection = source
+    .slice(selectionStart, selectionEnd)
+    .replace("  makeSelection(", "function makeSelection(");
+  class WaSelectEvent extends Event {
+    constructor(detail) {
+      super("wa-select", { cancelable: true });
+      this.detail = detail;
+    }
+  }
+  menu.localize = { dir: () => "ltr" };
+  menu.userTypedQuery = "";
+  menu.getCurrentSubmenuItem = () => null;
+  menu.getItems = () => menu.children.slice(1);
+  menu.getTrigger = () => menu.children[0];
+  menu.makeSelection = new Function("WaSelectEvent", `return (${selection});`)(WaSelectEvent);
+  const install = new Function(
+    "activeElements",
+    "isTopDismissible",
+    `return function() { ${registration} return this.handleDocumentKeyDown; };`,
+  )(
+    () => [document.activeElement],
+    () => true,
+  );
+  const handler = install.call(menu);
+  let selected;
+  for (const item of menu.children.slice(1))
+    item.navigate = () => {
+      selected = item.href;
+    };
+  return async (key) => {
+    menu.listeners.get("keydown")();
+    await handler({ key, preventDefault() {}, stopPropagation() {} });
+    return selected;
+  };
+}
+
+test("vendor selection follows the focused destination after show and slot resets", async (t) => {
+  const html = { kind: "html", url: "https://example.test/html" };
+  const a = { kind: "paged", url: "https://example.test/a" };
+  const b = { kind: "paged", url: "https://example.test/b" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+  const { element, click, document, observers } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const title = card.children[0].children[0];
+  const menu = card.children[1];
+  title.children[0].focus();
+  inventory[0].variants = [html, a, b];
+  await click("refresh");
+  let items = menu.children.slice(1);
+  const host = items[1];
+  // Model showMenu's first-item reset followed by its public completion event.
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  items[0].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [false, true],
+  );
+  assert.deepEqual(
+    items.map((item) => item.tabindex),
+    ["-1", "0"],
+  );
+  assert.equal(await vendorActivation(menu, document)("Enter"), b.url);
+  // Open, focus B, change siblings and model asynchronous slotchange after polling.
+  menu.open = true;
+  host.focus();
+  inventory[0].variants = [html, b, a];
+  await click("refresh");
+  items = menu.children.slice(1);
+  assert.equal(items[0], host);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  observers.find((observer) => observer.target === menu).callback();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [true, false],
+  );
+  inventory[0].variants = [html, a, b];
+  await click("refresh");
+  items = menu.children.slice(1);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  observers.find((observer) => observer.target === menu).callback();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [false, true],
+  );
+  assert.deepEqual(
+    items.map((item) => item.tabindex),
+    ["-1", "0"],
+  );
+  assert.equal(await vendorActivation(menu, document)(" "), b.url);
+  menu.open = true;
+  host.focus();
+  const extra = { kind: "paged", url: "https://example.test/extra" };
+  inventory[0].variants.push(extra);
+  await click("refresh");
+  items = menu.children.slice(1);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  observers.find((observer) => observer.target === menu).callback();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [false, true, false],
+  );
+  inventory[0].variants.pop();
+  await click("refresh");
+  items = menu.children.slice(1);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  // The capture listener repairs state even before the attribute observer fires.
+  assert.equal(await vendorActivation(menu, document)("Enter"), b.url);
 });

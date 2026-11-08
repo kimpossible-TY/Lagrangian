@@ -73,6 +73,19 @@ function reconcileChildren(parent, children) {
   }
 }
 
+// Web Awesome 3.14 marks `active` internal: keep this compatibility bridge
+// isolated and let the component update its own roving tabindex.
+function syncMenuFocus(menu) {
+  if (!menu.open) return;
+  const items = [...menu.children].filter((child) => child.localName === "wa-dropdown-item");
+  const focused = document.activeElement;
+  if (!items.includes(focused)) return;
+  for (const item of items) {
+    const shouldBeActive = item === focused;
+    if (item.active !== shouldBeActive) item.active = shouldBeActive;
+  }
+}
+
 function documentCard(doc) {
   let record = documentCards.get(doc.id);
   if (!record) {
@@ -88,6 +101,15 @@ function documentCard(doc) {
     trigger.setAttribute("slot", "trigger");
     trigger.setAttribute("aria-label", "다른 읽기 방식");
     alternatives.append(trigger);
+    alternatives.addEventListener("focusin", () => syncMenuFocus(alternatives));
+    // The component handles keys on document in the bubble phase.
+    alternatives.addEventListener("keydown", () => syncMenuFocus(alternatives), true);
+    const observer = new MutationObserver(() => syncMenuFocus(alternatives));
+    observer.observe(alternatives, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["tabindex"],
+    });
     const noAddress = node("p", "공개 주소 없음", "feedback");
     info.append(title, status, noAddress);
     card.append(info, alternatives);
@@ -100,6 +122,7 @@ function documentCard(doc) {
       trigger,
       noAddress,
       variants: new Map(),
+      observer,
     };
     documentCards.set(doc.id, record);
   }
@@ -150,8 +173,10 @@ function documentCard(doc) {
           record.alternatives.open &&
           focusedEntry.item.isConnected &&
           record.alternatives.contains(document.activeElement)
-        )
+        ) {
           focusedEntry.item.focus({ preventScroll: true });
+          syncMenuFocus(record.alternatives);
+        }
       },
       { once: true },
     );
@@ -185,6 +210,7 @@ function documentCard(doc) {
   if (focusedEntry && focusedIndex >= 0) {
     const target = focusedIndex === 0 ? focusedEntry.link : focusedEntry.item;
     if (document.activeElement !== target) target.focus({ preventScroll: true });
+    if (focusedIndex > 0) syncMenuFocus(record.alternatives);
   } else if (active === record.trigger && record.alternatives.hidden) {
     $("documents").focus({ preventScroll: true });
   }
@@ -204,7 +230,10 @@ function renderDocuments() {
   reconcileChildren(list, selected.map(documentCard));
   const ids = new Set(documents.map((doc) => doc.id));
   for (const id of documentCards.keys()) {
-    if (!ids.has(id)) documentCards.delete(id);
+    if (!ids.has(id)) {
+      documentCards.get(id).observer.disconnect();
+      documentCards.delete(id);
+    }
   }
   if (
     hadFocus &&

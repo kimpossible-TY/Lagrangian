@@ -1,6 +1,8 @@
 """HTTP contracts for the synthetic, read-only Homepage fixture."""
 from http.server import ThreadingHTTPServer
 import json
+from pathlib import Path
+import tempfile
 import threading
 import unittest
 from urllib.error import HTTPError
@@ -53,6 +55,27 @@ class HomePreviewTests(unittest.TestCase):
             self.get("/api/home/documents?mode=invalid")
         self.assertEqual(error.exception.code, 400)
         error.exception.close()
+
+
+    def test_inventory_file_is_reread_and_limited_to_synthetic_destinations(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as directory:
+            path = Path(directory) / "inventory.json"
+            doc = {"id": "fixture", "name": "합성 문서", "state": "ready", "variants": [
+                {"kind": "paged", "path": "/example-paged-b"}]}
+            path.write_text(json.dumps([doc]))
+            self.server.inventory_file = path
+            try:
+                first = json.loads(self.get("/api/home/documents"))
+                self.assertEqual(first["documents"][0]["variants"][0]["url"],
+                                 self.url + "/example-paged-b")
+                doc["variants"].append({"kind": "html", "path": "/example-html"})
+                path.write_text(json.dumps([doc]))
+                self.assertEqual(len(json.loads(self.get("/api/home/documents"))["documents"][0]["variants"]), 2)
+                doc["variants"][0]["path"] = "https://example.com/"
+                path.write_text(json.dumps([doc]))
+                self.assertTrue(json.loads(self.get("/api/home/documents"))["error"])
+            finally:
+                self.server.inventory_file = None
 
     def test_post_is_rejected(self):
         with self.assertRaises(HTTPError) as error:
