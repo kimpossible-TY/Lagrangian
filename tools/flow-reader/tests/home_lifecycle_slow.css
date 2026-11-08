@@ -1,0 +1,4 @@
+/* Test-only: extend the component's public animation duration token. */
+wa-dropdown {
+  --wa-transition-fast: 3000ms;
+}

@@ -109,11 +109,17 @@ function documentCard(doc) {
       const target = document.activeElement;
       if (!pending || target?.parentElement !== alternatives) return;
       if (pending.input) pending.target = target;
-      else
+      else {
+        const revision = pending.focusRevision;
         queueMicrotask(() => {
-          if (record.pending === pending && document.activeElement === target)
+          if (
+            record.pending === pending &&
+            pending.focusRevision === revision &&
+            document.activeElement === target
+          )
             pending.target = target;
         });
+      }
     });
     // The component handles keys on document in the bubble phase.
     alternatives.addEventListener(
@@ -145,7 +151,33 @@ function documentCard(doc) {
       },
       true,
     );
+    // A trigger click during a closing transition is deferred until the
+    // component has finished both outstanding animations and removed its keys.
+    trigger.addEventListener(
+      "click",
+      (event) => {
+        const life = record.lifecycle;
+        if (alternatives.open || (!life.showing && !life.hiding)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        life.reopen = !life.reopen;
+        life.waitingHide = true;
+        if (life.reopen) life.watchQueue();
+        else life.stopQueue();
+      },
+      true,
+    );
     alternatives.addEventListener("wa-show", () => {
+      const life = record.lifecycle;
+      if (life.showing || life.hiding) {
+        // A programmatic reopen can reach the component before the trigger
+        // guard. Its active popup causes an early return without key listeners.
+        life.reopen = true;
+        life.waitingHide = true;
+        life.watchQueue();
+        return;
+      }
+      life.showing = true;
       const pending = record.pending;
       if (!pending) return;
       if (!pending.started) {
@@ -157,7 +189,33 @@ function documentCard(doc) {
       document.removeEventListener("focusin", pending.outsideFocus, true);
       document.removeEventListener("pointerdown", pending.outsidePointer, true);
     });
+    alternatives.addEventListener("wa-hide", () => {
+      record.lifecycle.hiding = true;
+    });
+    alternatives.addEventListener("wa-after-hide", () => {
+      const life = record.lifecycle;
+      life.hiding = false;
+      if (life.reopen && alternatives.open) {
+        // The component retained an active popup on its early return. Complete
+        // one more close before reopening through its normal listener setup.
+        life.waitingHide = true;
+        alternatives.open = false;
+        return;
+      }
+      life.waitingHide = false;
+      life.drain();
+    });
     alternatives.addEventListener("wa-after-show", () => {
+      record.lifecycle.showing = false;
+      if (record.lifecycle.reopen) {
+        if (record.pending) record.pending.focusRevision++;
+        if (alternatives.open && !record.lifecycle.hiding) {
+          record.lifecycle.waitingHide = true;
+          alternatives.open = false;
+        }
+        record.lifecycle.drain();
+        return;
+      }
       const pending = record.pending;
       if (!pending) return;
       record.pending = null;
@@ -165,7 +223,8 @@ function documentCard(doc) {
       document.removeEventListener("pointerdown", pending.outsidePointer, true);
       const target = pending.target;
       if (target?.isConnected && alternatives.contains(document.activeElement)) {
-        target.focus({ preventScroll: true });
+        if (target === document.body) document.activeElement.blur();
+        else target.focus({ preventScroll: true });
         syncMenuFocus(alternatives);
       }
     });
@@ -190,6 +249,34 @@ function documentCard(doc) {
       observer,
       pending: null,
     };
+    const life = { showing: false, hiding: false, waitingHide: false, reopen: false };
+    life.stopQueue = () => {
+      life.reopen = false;
+      document.removeEventListener("pointerdown", life.cancelOutside, true);
+      document.removeEventListener("keydown", life.cancelKey, true);
+    };
+    life.watchQueue = () => {
+      document.addEventListener("pointerdown", life.cancelOutside, true);
+      document.addEventListener("keydown", life.cancelKey, true);
+    };
+    life.cancelOutside = (event) => {
+      if (!alternatives.contains(event.target)) life.stopQueue();
+    };
+    life.cancelKey = (event) => {
+      if (event.key !== "Escape") return;
+      life.stopQueue();
+      event.preventDefault();
+      event.stopPropagation();
+      trigger.focus({ preventScroll: true });
+    };
+    life.drain = () => {
+      if (!life.reopen || life.showing || life.hiding || life.waitingHide) return;
+      life.stopQueue();
+      if (!card.isConnected || alternatives.hidden) return;
+      if (record.pending) record.pending.started = false;
+      alternatives.open = true;
+    };
+    record.lifecycle = life;
     documentCards.set(doc.id, record);
   }
   const active = document.activeElement;
@@ -230,7 +317,7 @@ function documentCard(doc) {
   const focusedIndex = focusedEntry ? links.indexOf(focusedEntry) : -1;
   const movedToMenu = focusedIndex > 0 && active === focusedEntry.link;
   if (movedToMenu && !record.alternatives.open) {
-    const pending = { target: focusedEntry.item, input: false };
+    const pending = { target: focusedEntry.item, input: false, focusRevision: 0 };
     pending.outsideFocus = () => {
       const target = document.activeElement;
       if (
@@ -240,8 +327,13 @@ function documentCard(doc) {
         pending.target = target;
     };
     pending.outsidePointer = (event) => {
-      if (record.pending === pending && !record.alternatives.contains(event.target))
+      if (record.pending === pending && !record.alternatives.contains(event.target)) {
         pending.target = null;
+        queueMicrotask(() => {
+          if (record.pending === pending && !record.alternatives.contains(document.activeElement))
+            pending.target = document.activeElement;
+        });
+      }
     };
     if (record.pending) {
       document.removeEventListener("focusin", record.pending.outsideFocus, true);
@@ -250,7 +342,12 @@ function documentCard(doc) {
     record.pending = pending;
     document.addEventListener("focusin", pending.outsideFocus, true);
     document.addEventListener("pointerdown", pending.outsidePointer, true);
-    record.alternatives.open = true;
+    const life = record.lifecycle;
+    if (life.showing || life.hiding) {
+      life.reopen = true;
+      life.waitingHide = true;
+      life.watchQueue();
+    } else record.alternatives.open = true;
   }
   for (const [index, entry] of links.entries()) {
     entry.link.textContent =
@@ -313,6 +410,7 @@ function renderDocuments() {
     if (!ids.has(id)) {
       const record = documentCards.get(id);
       record.observer.disconnect();
+      record.lifecycle.stopQueue();
       if (record.pending) {
         document.removeEventListener("focusin", record.pending.outsideFocus, true);
         document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
