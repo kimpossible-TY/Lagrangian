@@ -12,7 +12,7 @@ The Homepage already owns inventory reconciliation and account controls. Its API
 
 ## Decisions
 
-Use a native modal dialog for settings and open it for the existing connection hash. This supplies modal keyboard and Escape behavior without a custom focus trap. Keep variant link nodes keyed across polls and reconcile their placement, selecting the first safe HTML then Paged destination. Use native details for alternatives. A separate primary link would duplicate destinations and complicate focus preservation.
+Use a native modal dialog for settings and open it for the existing connection hash. This supplies modal keyboard and Escape behavior without a custom focus trap. Keep variant link nodes keyed across polls and reconcile their placement, selecting the first safe HTML then Paged destination. The later `adopt-home-ui-components` change supersedes the original native details presentation: the document title is the primary link and a dropdown presents alternatives while retaining destination identity.
 
 ## Risks / Trade-offs
 

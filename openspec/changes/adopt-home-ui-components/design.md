@@ -6,7 +6,7 @@ The document title is the primary safe link, wraps without truncation, and is ad
 
 ## Decisions
 
-Keep Homepage inventory and account ownership. Use Basecoat precompiled styles for item, input and dialog patterns with existing shared theme tokens; use Web Awesome dropdown for alternatives. Pin and self-host the browser distribution and its transitive imports under explicit Homepage routes. Preserve keyed link nodes and open menu state across polls, restoring focus to the document section if a focused destination disappears. Native dialog continues to own modality and connection hash handling. Synthetic fixture serves the actual files without mutation endpoints.
+Keep Homepage inventory and account ownership. Use Basecoat precompiled Item and input styles with existing shared theme tokens; retain the existing native settings dialog and use Web Awesome dropdown for alternatives. This replaces the earlier native details decision in `simplify-homepage-library`. Pin and self-host the browser distribution and its transitive imports under explicit Homepage routes. Preserve keyed link nodes and open menu state across polls, restoring focus to the document section if a focused destination disappears. Native dialog continues to own modality and connection hash handling. Synthetic fixture serves the actual files without mutation endpoints.
 
 ## Risks
 

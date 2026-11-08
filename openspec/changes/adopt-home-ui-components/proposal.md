@@ -17,7 +17,7 @@ Document selection needs a compact, readable mobile layout with established acce
 
 ### Modified Capabilities
 
-None. The active homepage-library contract remains in force.
+The active `homepage-library` change is refined: the title is the primary link, and a dropdown replaces native details while preserving its safe-destination and focus contracts.
 
 ## Impact
 

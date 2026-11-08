@@ -350,7 +350,7 @@ test("library chooses safe HTML then Paged and retains a destination across poll
   assert.equal(document.activeElement, element("documents"));
 });
 
-test("hidden alternatives return summary focus and retain surviving links", async (t) => {
+test("hidden alternatives return trigger focus and retain surviving links", async (t) => {
   const inventory = [
     {
       id: "doc",
@@ -367,12 +367,14 @@ test("hidden alternatives return summary focus and retain surviving links", asyn
   const [primary] = card.children[0].children;
   const alternatives = card.children[1];
   const primaryLink = primary.children[0];
-  const alternativeLink = alternatives.children[1].children[0];
+  const alternativeHost = alternatives.children[1];
+  const alternativeLink = alternativeHost.children[0];
   alternatives.open = true;
-  alternativeLink.focus();
+  alternativeHost.focus();
   await click("refresh");
   assert.equal(alternatives.children[1].children[0], alternativeLink);
-  assert.equal(document.activeElement, alternativeLink);
+  assert.equal(document.activeElement, alternativeHost);
+  assert.equal(alternatives.open, true);
   alternatives.children[0].focus();
   inventory[0].variants.pop();
   await click("refresh");
@@ -445,7 +447,7 @@ test("action notice survives polling and is replaced or cleared by later authori
   assert.equal(calls.filter((c) => c.path.endsWith("models")).length, 0);
 });
 
-test("a focused surviving link keeps identity when promoted or demoted", async (t) => {
+test("focus follows a surviving destination between primary link and menu host", async (t) => {
   const inventory = [
     {
       id: "doc",
@@ -462,11 +464,104 @@ test("a focused surviving link keeps identity when promoted or demoted", async (
   link.focus();
   inventory[0].variants.push({ kind: "html", url: "https://example.test/html" });
   await click("refresh");
+  const host = alternatives.children[1];
   assert.equal(alternatives.open, true);
-  assert.equal(alternatives.children[1].children[0], link);
-  assert.equal(document.activeElement, link);
+  assert.equal(host.children[0], link);
+  assert.equal(document.activeElement, host);
+  await click("refresh");
+  assert.equal(alternatives.children[1], host);
+  assert.equal(document.activeElement, host);
+  assert.equal(alternatives.open, true);
   inventory[0].variants.pop();
   await click("refresh");
   assert.equal(primary.children[0], link);
   assert.equal(document.activeElement, link);
+  inventory[0].variants = [];
+  await click("refresh");
+  assert.equal(document.activeElement, element("documents"));
+});
+
+test("focused menu host promotes even when other alternatives remain", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "https://example.test/html" },
+        { kind: "paged", url: "https://example.test/paged" },
+        { kind: "paged", url: "https://example.test/other" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [primary] = card.children[0].children;
+  const menu = card.children[1];
+  const host = menu.children[1];
+  const link = host.children[0];
+  menu.open = true;
+  host.focus();
+  inventory[0].variants.shift();
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(document.activeElement, link);
+  assert.equal(menu.open, true);
+  assert.equal(menu.hidden, false);
+});
+
+test("removed focused menu destination returns focus to documents", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "https://example.test/html" },
+        { kind: "paged", url: "https://example.test/paged" },
+        { kind: "paged", url: "https://example.test/other" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const menu = element("document-list").children[0].children[1];
+  menu.open = true;
+  menu.children[1].focus();
+  inventory[0].variants.splice(1, 1);
+  await click("refresh");
+  assert.equal(document.activeElement, element("documents"));
+});
+
+test("menu show restores a demoted destination after the library focuses its first item", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "paged", url: "https://example.test/first" },
+        { kind: "paged", url: "https://example.test/second" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const primary = card.children[0].children[0];
+  const menu = card.children[1];
+  // Make the second Paged destination primary, then demote it behind two URLs.
+  inventory[0].variants.shift();
+  await click("refresh");
+  const link = primary.children[0];
+  link.focus();
+  inventory[0].variants.unshift(
+    { kind: "html", url: "https://example.test/html" },
+    { kind: "paged", url: "https://example.test/first" },
+  );
+  await click("refresh");
+  const movedHost = menu.children[2];
+  assert.equal(movedHost.children[0], link);
+  assert.equal(document.activeElement, movedHost);
+  menu.children[1].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, movedHost);
 });

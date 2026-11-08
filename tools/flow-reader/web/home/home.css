@@ -138,6 +138,10 @@ h1 {
   min-width: 0;
   background: transparent;
 }
+.search input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
 /* Basecoat Item supplies the row primitive; the home owns spacing and theme. */
 .document-card.item {
   display: flex;
@@ -207,6 +211,7 @@ wa-dropdown-item .reader-link {
   text-decoration: underline;
 }
 dialog {
+  margin: auto;
   width: min(36rem, calc(100% - 2rem));
   max-height: calc(100dvh - 2rem);
   overflow: auto;
@@ -237,6 +242,10 @@ dialog::backdrop {
   border-top: 1px solid var(--line);
   padding: 1rem 0;
   overflow-wrap: anywhere;
+}
+.service-panel summary {
+  min-height: 44px;
+  padding-block: 0.6rem;
 }
 .panel h2 {
   font-size: 1.1rem;
@@ -313,5 +322,5 @@ wa-dropdown {
   --wa-color-neutral-fill-normal: var(--wash);
   --wa-color-text-normal: var(--ink);
   --wa-color-border-normal: var(--line);
-  --wa-focus-ring-color: var(--color-action);
+  --wa-color-focus: var(--color-action);
 }

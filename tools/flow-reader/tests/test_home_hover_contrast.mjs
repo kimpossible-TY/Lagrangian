@@ -7,11 +7,14 @@ const home = postcss.parse(readFileSync(new URL("../web/home/home.css", import.m
 const theme = postcss.parse(readFileSync(new URL("../web/theme.css", import.meta.url), "utf8"));
 
 function declarations(rule) {
-  return Object.fromEntries(rule.nodes.filter((node) => node.type === "decl").map(({ prop, value }) => [prop, value]));
+  return Object.fromEntries(
+    rule.nodes.filter((node) => node.type === "decl").map(({ prop, value }) => [prop, value]),
+  );
 }
 
 function tokens(selector) {
-  const rule = theme.nodes.flatMap((node) => node.type === "atrule" ? node.nodes : [node])
+  const rule = theme.nodes
+    .flatMap((node) => (node.type === "atrule" ? node.nodes : [node]))
     .find((node) => node.type === "rule" && node.selector === selector);
   assert.ok(rule, `Missing theme selector ${selector}`);
   return declarations(rule);
@@ -28,8 +31,9 @@ function resolve(value, values, seen = new Set()) {
 
 function luminance(hex) {
   assert.match(hex, /^#[\da-f]{6}$/i, `Expected an opaque hex color, got ${hex}`);
-  const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
-    .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  const channels = [1, 3, 5]
+    .map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
   return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
 }
 
@@ -45,13 +49,21 @@ test("Homepage control hover colors retain text contrast in every theme and mate
   });
   for (const rule of hoverRules) {
     rule.walkDecls("opacity", ({ value }) => {
-      assert.match(value, /^(?:1(?:\.0+)?|100%)$/, `${rule.selector} reduces or obscures hover opacity`);
+      assert.match(
+        value,
+        /^(?:1(?:\.0+)?|100%)$/,
+        `${rule.selector} reduces or obscures hover opacity`,
+      );
     });
   }
 
   const controls = ["button:hover:not(:disabled)", ".reader-link:hover"];
-  const colorRules = hoverRules.filter((rule) => rule.nodes.some((node) =>
-    node.type === "decl" && ["color", "background", "background-color"].includes(node.prop)));
+  const colorRules = hoverRules.filter((rule) =>
+    rule.nodes.some(
+      (node) =>
+        node.type === "decl" && ["color", "background", "background-color"].includes(node.prop),
+    ),
+  );
   assert.equal(colorRules.length, 1, "Review all hover color overrides in this contract");
   const rule = colorRules[0];
   assert.deepEqual(rule.selectors, controls);
@@ -68,12 +80,34 @@ test("Homepage control hover colors retain text contrast in every theme and mate
   for (const [name, values] of Object.entries(themes)) {
     // Opaque control backgrounds have the same computed pair over glass and solid cards.
     for (const material of ["glass", "solid fallback"]) {
-      for (const control of ["primary button", "secondary button", "text-button", "reader-link", "secondary reader-link"]) {
+      for (const control of [
+        "primary button",
+        "secondary button",
+        "text-button",
+        "reader-link",
+        "secondary reader-link",
+      ]) {
         const foreground = resolve(hover.color, values);
         const background = resolve(hover.background, values);
         const ratio = contrast(foreground, background);
         assert.ok(ratio >= 4.5, `${name}, ${material}, ${control}: ${ratio.toFixed(2)}:1`);
       }
     }
+  }
+});
+
+test("search placeholder follows theme contrast in light and dark modes", () => {
+  const rule = home.nodes.find(
+    (entry) => entry.type === "rule" && entry.selector === ".search input::placeholder",
+  );
+  assert.ok(rule);
+  const color = declarations(rule).color;
+  const light = tokens(":root");
+  for (const values of [
+    light,
+    { ...light, ...tokens(':root[data-theme="dark"]') },
+    { ...light, ...tokens(':root:not([data-theme="light"])') },
+  ]) {
+    assert.ok(contrast(resolve(color, values), resolve("var(--surface)", values)) >= 4.5);
   }
 });

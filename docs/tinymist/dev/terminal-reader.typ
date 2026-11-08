@@ -403,8 +403,8 @@ inside that prefix. `/d/<id>/paged/` redirects to the existing native paged view
 its engine/protocol and origin are unchanged. Homepage reads loaded inventory
 and accepted-state status; opening it never starts inference or compilation.
 Configured document compilation starts when the Reader service starts. Search by
-title, then choose the primary `열기` link: a safe HTML URL is preferred, with
-a safe Paged URL as fallback. Other safe variants appear under `다른 읽기 방식`.
+title, then select the document title: a safe HTML URL is preferred, with
+a safe Paged URL as fallback. Other safe variants appear in the row’s `⋯` menu.
 The Homepage settings contain `화면 모드` for device, light or dark appearance.
 
 For development, use an isolated ReaderManager configuration and private ChatAuth

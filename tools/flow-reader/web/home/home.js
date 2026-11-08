@@ -103,6 +103,10 @@ function documentCard(doc) {
     };
     documentCards.set(doc.id, record);
   }
+  const active = document.activeElement;
+  const focusedEntry = [...record.variants.values()].find(
+    (entry) => active === entry.link || active === entry.item,
+  );
   const label = labels[doc.state] || labels.unknown;
   if (record.status.textContent !== label) record.status.textContent = label;
   record.status.dataset.state = doc.state;
@@ -134,16 +138,24 @@ function documentCard(doc) {
     entry.link.dataset.kind = variant.kind;
     return [entry];
   });
-  const active = document.activeElement;
-  if (
-    links.length < 2 &&
-    (active === record.trigger ||
-      (record.alternatives.contains(active) && !links.some((entry) => entry.link === active)))
-  ) {
-    $("documents").focus({ preventScroll: true });
-    record.alternatives.open = false;
+  const focusedIndex = focusedEntry ? links.indexOf(focusedEntry) : -1;
+  const movedToMenu = focusedIndex > 0 && active === focusedEntry.link;
+  if (movedToMenu && !record.alternatives.open) {
+    record.alternatives.open = true;
+    // Web Awesome focuses the first item after showing; retain the moved destination.
+    record.alternatives.addEventListener(
+      "wa-after-show",
+      () => {
+        if (
+          record.alternatives.open &&
+          focusedEntry.item.isConnected &&
+          record.alternatives.contains(document.activeElement)
+        )
+          focusedEntry.item.focus({ preventScroll: true });
+      },
+      { once: true },
+    );
   }
-  if (links.slice(1).some((entry) => entry.link === active)) record.alternatives.open = true;
   for (const [index, entry] of links.entries()) {
     entry.link.textContent =
       index === 0 ? doc.name : entry.link.dataset.kind === "html" ? "HTML Reader" : "Paged Reader";
@@ -168,7 +180,14 @@ function documentCard(doc) {
     ...links.slice(1).map((entry) => entry.item),
   ]);
   record.alternatives.hidden = links.length < 2;
+  if (record.alternatives.hidden) record.alternatives.open = false;
   record.noAddress.hidden = links.length > 0;
+  if (focusedEntry && focusedIndex >= 0) {
+    const target = focusedIndex === 0 ? focusedEntry.link : focusedEntry.item;
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+  } else if (active === record.trigger && record.alternatives.hidden) {
+    $("documents").focus({ preventScroll: true });
+  }
   for (const key of record.variants.keys()) {
     if (!keys.has(key)) record.variants.delete(key);
   }
@@ -187,7 +206,12 @@ function renderDocuments() {
   for (const id of documentCards.keys()) {
     if (!ids.has(id)) documentCards.delete(id);
   }
-  if (hadFocus && document.activeElement !== focused && document.activeElement !== $("documents")) {
+  if (
+    hadFocus &&
+    document.activeElement !== focused &&
+    !list.contains(document.activeElement) &&
+    document.activeElement !== $("documents")
+  ) {
     // A removed document/destination must leave focus somewhere discoverable.
     const target = focused.isConnected && list.contains(focused) ? focused : $("documents");
     target.focus({ preventScroll: true });

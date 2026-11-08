@@ -9,7 +9,7 @@ The Homepage SHALL show document names, actual states, count and search, with on
 
 #### Scenario: Preferred destination
 - **WHEN** a document has a safe HTML URL
-- **THEN** its primary 열기 link uses that URL; otherwise it uses a safe Paged URL if available
+- **THEN** its primary document-title link uses that URL; otherwise it uses a safe Paged URL if available
 
 #### Scenario: Inventory polling
 - **WHEN** polling retains a valid reader link
@@ -20,8 +20,12 @@ The Homepage SHALL show document names, actual states, count and search, with on
 - **THEN** the document shows a public-address-unavailable explanation independently of its state
 
 #### Scenario: Alternatives disappear
-- **WHEN** polling hides the alternatives containing the focused summary
+- **WHEN** polling hides the alternatives while their trigger is focused
 - **THEN** focus moves to the documents section
+
+#### Scenario: A focused destination changes presentation
+- **WHEN** a focused surviving destination moves between the primary link and an alternative menu item
+- **THEN** focus follows it to the corresponding link or menu item
 
 ### Requirement: Accessible Homepage settings
 The Homepage SHALL place appearance, account and service information in a named native dialog while preserving existing authentication authority and explicit action requirements.
