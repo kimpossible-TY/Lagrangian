@@ -23,6 +23,7 @@ let documents = [],
   oauthEligible = false,
   version = -1,
   instance = "",
+  actionNotice = "",
   generation = 0,
   disposed = false,
   timer,
@@ -84,9 +85,19 @@ function documentCard(doc) {
     alternatives.append(node("summary", "다른 읽기 방식"));
     const otherLinks = node("div", "", "alternative-links");
     alternatives.append(otherLinks);
-    info.append(title, status, links, alternatives);
+    const noAddress = node("p", "공개 주소 없음", "feedback");
+    info.append(title, status, links, alternatives, noAddress);
     card.append(info);
-    record = { card, title, status, links, alternatives, otherLinks, variants: new Map() };
+    record = {
+      card,
+      title,
+      status,
+      links,
+      alternatives,
+      otherLinks,
+      noAddress,
+      variants: new Map(),
+    };
     documentCards.set(doc.id, record);
   }
   if (record.title.textContent !== doc.name) record.title.textContent = doc.name;
@@ -126,10 +137,13 @@ function documentCard(doc) {
     links[0].textContent = "열기";
     links[0].setAttribute("aria-label", `${doc.name} · 열기`);
   }
+  if (links.length < 2 && document.activeElement === record.alternatives.firstElementChild)
+    $("documents").focus({ preventScroll: true });
   if (links.slice(1).includes(document.activeElement)) record.alternatives.open = true;
   reconcileChildren(record.links, links.slice(0, 1));
   reconcileChildren(record.otherLinks, links.slice(1));
   record.alternatives.hidden = links.length < 2;
+  record.noAddress.hidden = links.length > 0;
   for (const key of record.variants.keys()) {
     if (!keys.has(key)) record.variants.delete(key);
   }
@@ -148,7 +162,7 @@ function renderDocuments() {
   for (const id of documentCards.keys()) {
     if (!ids.has(id)) documentCards.delete(id);
   }
-  if (hadFocus && document.activeElement !== focused) {
+  if (hadFocus && document.activeElement !== focused && document.activeElement !== $("documents")) {
     // A removed document/destination must leave focus somewhere discoverable.
     const target = focused.isConnected && list.contains(focused) ? focused : $("documents");
     target.focus({ preventScroll: true });
@@ -162,11 +176,17 @@ function renderDocuments() {
 }
 
 function adopt(result) {
-  if (instance === result.instance && result.version > version) csrf = "";
+  if (instance === result.instance && result.version > version) {
+    csrf = "";
+    actionNotice = "";
+    $("account-notice").textContent = "";
+  }
   if (instance && instance !== result.instance) {
     csrf = "";
     capability = "";
     management = false;
+    actionNotice = "";
+    $("account-notice").textContent = "";
   }
   if (instance === result.instance && result.version < version) return false;
   instance = result.instance;
@@ -188,7 +208,7 @@ function renderAccount(result) {
     : result.signedIn
       ? "플랜 사용 권한은 확인되지 않았습니다."
       : "ChatGPT 연결 후 문서에서 대화를 시작할 수 있어요.";
-  $("account-notice").textContent = result.notice || "";
+  $("account-notice").textContent = actionNotice || result.notice || "";
   $("management-hint").textContent = result.eligible
     ? management
       ? "이 Mac에서 관리 중"
@@ -291,6 +311,8 @@ async function refresh() {
 async function change(operation) {
   if (busy || disposed || !oauthEligible || (operation === "cancel" && !management)) return;
   busy = true;
+  actionNotice = "";
+  $("account-notice").textContent = "";
   generation++;
   clearTimeout(timer);
   for (const controller of controllers) controller.abort();
@@ -314,6 +336,13 @@ async function change(operation) {
     const status = await request("account");
     if (disposed || current !== generation) return;
     renderAccount(status);
+    if (
+      instance !== result.instance ||
+      version !== result.version ||
+      status.instance !== result.instance ||
+      status.version !== result.version
+    )
+      return;
     if (result.authUrl) {
       const url = new URL(result.authUrl);
       if (url.origin !== "https://auth.openai.com")
@@ -322,8 +351,11 @@ async function change(operation) {
       $("login-link").hidden = false;
       location.assign(url.href);
     }
+    actionNotice = result.notice || "";
     $("account-notice").textContent =
-      result.notice || status.notice || "이 Mac의 브라우저에서 로그인을 완료하세요.";
+      actionNotice ||
+      status.notice ||
+      (result.authUrl ? "이 Mac의 브라우저에서 로그인을 완료하세요." : "");
     channel?.postMessage("changed");
   } catch (error) {
     if (!disposed && current === generation) {
@@ -341,6 +373,8 @@ $("unlock").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (busy) return;
   busy = true;
+  actionNotice = "";
+  $("account-notice").textContent = "";
   generation++;
   const current = generation,
     proof = $("host-proof").value;
@@ -421,6 +455,8 @@ if (channel)
   channel.onmessage = () => {
     generation++;
     csrf = "";
+    actionNotice = "";
+    $("account-notice").textContent = "";
     unavailable();
     refresh();
   };

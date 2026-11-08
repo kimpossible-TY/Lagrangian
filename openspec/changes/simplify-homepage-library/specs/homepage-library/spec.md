@@ -15,6 +15,14 @@ The Homepage SHALL show document names, actual states, count and search, with on
 - **WHEN** polling retains a valid reader link
 - **THEN** its DOM identity and keyboard focus remain stable; if the focused destination is removed, focus moves to the documents section
 
+#### Scenario: No safe destination
+- **WHEN** no variant has a safe public URL
+- **THEN** the document shows a public-address-unavailable explanation independently of its state
+
+#### Scenario: Alternatives disappear
+- **WHEN** polling hides the alternatives containing the focused summary
+- **THEN** focus moves to the documents section
+
 ### Requirement: Accessible Homepage settings
 The Homepage SHALL place appearance, account and service information in a named native dialog while preserving existing authentication authority and explicit action requirements.
 
@@ -29,3 +37,7 @@ The Homepage SHALL place appearance, account and service information in a named 
 #### Scenario: Appearance
 - **WHEN** the user chooses 화면 모드
 - **THEN** the existing shared theme preference offers system, light and dark
+
+#### Scenario: Explicit account notice
+- **WHEN** an explicit account action returns a notice
+- **THEN** ordinary polling preserves it until a new explicit action or a different host instance or account version supersedes it

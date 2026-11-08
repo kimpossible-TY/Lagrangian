@@ -93,7 +93,13 @@ async function homepage(
     createTextNode: (text) => Object.assign(new Element(), { textContent: text }),
   });
   const window = new EventTarget();
-  const state = { instance: "first-start", version: 0, signedIn: true, pending: false };
+  const state = {
+    instance: "first-start",
+    version: 0,
+    signedIn: true,
+    pending: false,
+    notices: {},
+  };
   let csrf = "",
     managementSession = retainedManagementCookie;
   const calls = [],
@@ -134,6 +140,7 @@ async function homepage(
         version: state.version,
         csrf,
         management: manage && operation !== "logout",
+        notice: state.notices[operation] || "",
         ...(operation === "login" ? { authUrl } : {}),
       };
     } else if (path.endsWith("account")) {
@@ -282,6 +289,8 @@ test("login never navigates to an untrusted provider URL", async (t) => {
   assert.deepEqual(destinations, []);
   assert.equal(element("account-controls").hidden, true);
   assert.match(element("account-notice").textContent, /로그인 주소/);
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, "");
 });
 
 test("settings opens for connection hashes and explicit controls", async (t) => {
@@ -334,4 +343,120 @@ test("library chooses safe HTML then Paged and retains a destination across poll
   assert.equal(primary.children[0].href, "https://example.test/paged");
   assert.equal(alternatives.hidden, true);
   assert.equal(document.activeElement, element("documents"));
+});
+
+test("hidden alternatives return summary focus and retain surviving links", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "https://example.test/html" },
+        { kind: "paged", url: "https://example.test/paged" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const [, , primary, alternatives] = element("document-list").children[0].children[0].children;
+  const primaryLink = primary.children[0];
+  const alternativeLink = alternatives.children[1].children[0];
+  alternatives.open = true;
+  alternativeLink.focus();
+  await click("refresh");
+  assert.equal(alternatives.children[1].children[0], alternativeLink);
+  assert.equal(document.activeElement, alternativeLink);
+  alternatives.children[0].focus();
+  inventory[0].variants.pop();
+  await click("refresh");
+  assert.equal(alternatives.hidden, true);
+  assert.equal(document.activeElement, element("documents"));
+  assert.equal(primary.children[0], primaryLink);
+});
+
+test("missing public address is independent of state and clears when a safe link returns", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: null },
+        { kind: "paged", url: null },
+      ],
+    },
+  ];
+  const { element, click } = await homepage(t, { inventory });
+  const [, status, primary, alternatives, noAddress] =
+    element("document-list").children[0].children[0].children;
+  assert.equal(status.dataset.state, "ready");
+  assert.equal(primary.children.length, 0);
+  assert.equal(noAddress.hidden, false);
+  assert.equal(noAddress.textContent, "공개 주소 없음");
+  inventory[0].variants = [{ kind: "html", url: "javascript:alert(1)" }];
+  await click("refresh");
+  assert.equal(primary.children.length, 0);
+  assert.equal(noAddress.hidden, false);
+  inventory[0].variants.push({ kind: "paged", url: "https://example.test/paged" });
+  await click("refresh");
+  assert.equal(primary.children[0].href, "https://example.test/paged");
+  assert.equal(alternatives.hidden, true);
+  assert.equal(noAddress.hidden, true);
+  inventory[0].variants = [{ kind: "html", url: null }];
+  await click("refresh");
+  assert.equal(noAddress.hidden, false);
+  inventory[0].variants = [{ kind: "html", url: "https://example.test/html" }];
+  await click("refresh");
+  assert.equal(primary.children[0].href, "https://example.test/html");
+  assert.equal(noAddress.hidden, true);
+});
+
+test("action notice survives polling and is replaced or cleared by later authority", async (t) => {
+  const { element, click, state, calls } = await homepage(t);
+  state.notices.logout = "Remote revocation was not confirmed.";
+  state.notices.login = "New login notice";
+  await click("logout");
+  assert.equal(element("account-notice").textContent, state.notices.logout);
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, state.notices.logout);
+  await click("login");
+  assert.equal(element("account-notice").textContent, state.notices.login);
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, state.notices.login);
+  state.version++;
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, "");
+  state.notices.logout = "Host-specific notice";
+  await click("logout");
+  assert.equal(element("account-notice").textContent, state.notices.logout);
+  state.instance = "new-host";
+  state.version = 0;
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, "");
+  assert.equal(calls.filter((c) => c.path.endsWith("account") && c.method === "POST").length, 3);
+  assert.equal(calls.filter((c) => c.path.endsWith("models")).length, 0);
+});
+
+test("a focused surviving link keeps identity when promoted or demoted", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [{ kind: "paged", url: "https://example.test/paged" }],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const [, , primary, alternatives] = element("document-list").children[0].children[0].children;
+  const link = primary.children[0];
+  link.focus();
+  inventory[0].variants.push({ kind: "html", url: "https://example.test/html" });
+  await click("refresh");
+  assert.equal(alternatives.open, true);
+  assert.equal(alternatives.children[1].children[0], link);
+  assert.equal(document.activeElement, link);
+  inventory[0].variants.pop();
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(document.activeElement, link);
 });
