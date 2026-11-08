@@ -350,6 +350,36 @@ test("programmatic reopen during hide is closed again before the next show", asy
   assert.equal(await env.api.press("Enter"), destination);
 });
 
+for (const cancel of ["Escape", "outside", "trigger"]) {
+  test(`programmatic early reopen canceled by ${cancel} remains closed`, async (t) => {
+    const env = await setup(t, [b]);
+    env.api.enableLitUpdates();
+    env.title.children[0].focus();
+    env.inventory[0].variants = [html, a, b, c];
+    await env.click("refresh");
+    await env.api.press("Escape");
+    env.menu.open = true;
+    await settle();
+    if (cancel === "Escape") {
+      const event = new Event("keydown", { cancelable: true });
+      Object.defineProperty(event, "key", { value: "Escape" });
+      env.document.dispatchEvent(event);
+    } else if (cancel === "outside") {
+      pointer(env, env.element("document-search"));
+    } else {
+      env.menu.children[0].listeners.get("click")({ preventDefault() {}, stopPropagation() {} });
+    }
+    env.api.flushCancel();
+    await settle();
+    env.api.finishHide();
+    await settle();
+    assert.equal(env.menu.open, false);
+    assert.equal(env.menu.popup.active, false);
+    assert.equal(listenerCount(env.document, "keydown"), 0);
+    assert.equal(listenerCount(env.document, "pointerdown"), 0);
+  });
+}
+
 test("ordinary close then reopen registers one keyboard listener and Escape closes once", async (t) => {
   const env = await setup(t, [b]);
   env.api.enableLitUpdates();

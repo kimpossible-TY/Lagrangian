@@ -185,6 +185,13 @@ function documentCard(doc) {
       "click",
       (event) => {
         const life = record.lifecycle;
+        if (alternatives.open && life.reopen) {
+          event.preventDefault();
+          event.stopPropagation();
+          life.cancelQueue();
+          if (record.pending) record.pending.target = trigger;
+          return;
+        }
         if (alternatives.open || (!life.showing && !life.hiding)) return;
         event.preventDefault();
         event.stopPropagation();
@@ -234,7 +241,7 @@ function documentCard(doc) {
     alternatives.addEventListener("wa-after-hide", () => {
       const life = record.lifecycle;
       life.hiding = false;
-      if (life.reopen && alternatives.open) {
+      if (life.waitingHide && alternatives.open) {
         // The component retained an active popup on its early return. Complete
         // one more close before reopening through its normal listener setup.
         life.waitingHide = true;
@@ -294,16 +301,20 @@ function documentCard(doc) {
       document.removeEventListener("pointerdown", life.cancelOutside, true);
       document.removeEventListener("keydown", life.cancelKey, true);
     };
+    life.cancelQueue = () => {
+      life.stopQueue();
+      if (alternatives.open) alternatives.open = false;
+    };
     life.watchQueue = () => {
       document.addEventListener("pointerdown", life.cancelOutside, true);
       document.addEventListener("keydown", life.cancelKey, true);
     };
     life.cancelOutside = (event) => {
-      if (!alternatives.contains(event.target)) life.stopQueue();
+      if (!alternatives.contains(event.target)) life.cancelQueue();
     };
     life.cancelKey = (event) => {
       if (event.key !== "Escape") return;
-      life.stopQueue();
+      life.cancelQueue();
       if (record.pending) record.pending.target = trigger;
       event.preventDefault();
       event.stopPropagation();
