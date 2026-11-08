@@ -9,6 +9,8 @@ async function homepage(
     eligible = true,
     retainedManagementCookie = false,
     authUrl = "https://auth.openai.com/authorize?state=fixture",
+    hash = "",
+    inventory = [],
   } = {},
 ) {
   class Element extends EventTarget {
@@ -24,16 +26,56 @@ async function homepage(
       this.listeners.set(name, listener);
     }
     replaceChildren(...children) {
-      this.children = children;
+      this.children = [];
+      this.append(...children);
     }
     append(...children) {
-      this.children.push(...children);
+      for (const child of children) this.insertBefore(child, null);
+    }
+    insertBefore(child, before) {
+      child.remove();
+      const index = before ? this.children.indexOf(before) : this.children.length;
+      this.children.splice(index, 0, child);
+      child.parent = this;
+    }
+    remove() {
+      if (this.parent) {
+        if (this === document.activeElement || this.contains(document.activeElement))
+          document.activeElement = null;
+        const index = this.parent.children.indexOf(this);
+        if (index >= 0) this.parent.children.splice(index, 1);
+        this.parent = null;
+      }
+    }
+    get firstElementChild() {
+      return this.children[0] || null;
+    }
+    get nextElementSibling() {
+      if (!this.parent) return null;
+      return this.parent.children[this.parent.children.indexOf(this) + 1] || null;
+    }
+    setAttribute(name, value) {
+      this[name] = value;
+    }
+    get isConnected() {
+      return Boolean(this.parent);
     }
     removeAttribute(name) {
       delete this[name];
     }
-    contains() {
-      return false;
+    showModal() {
+      this.open = true;
+    }
+    close() {
+      this.open = false;
+    }
+    focus() {
+      this.focused = true;
+      document.activeElement = this;
+    }
+    scrollIntoView() {}
+    contains(child) {
+      return this.children.some((item) => item === child || item.contains(child));
     }
     querySelectorAll() {
       return [];
@@ -48,6 +90,7 @@ async function homepage(
     hidden: false,
     getElementById: element,
     createElement: () => new Element(),
+    createTextNode: (text) => Object.assign(new Element(), { textContent: text }),
   });
   const window = new EventTarget();
   const state = { instance: "first-start", version: 0, signedIn: true, pending: false };
@@ -59,7 +102,7 @@ async function homepage(
     calls.push({ path, ...options });
     const capability = options.headers["X-Reader-Host-Capability"];
     let result = { instance: state.instance, version: state.version };
-    if (path.endsWith("documents")) result = { documents: [], loading: false };
+    if (path.endsWith("documents")) result = { documents: inventory, loading: false };
     if (path.endsWith("session")) {
       assert.ok(eligible);
       const manage = capability === "private-proof";
@@ -109,7 +152,7 @@ async function homepage(
     window,
     fetch,
     BroadcastChannel: undefined,
-    location: { assign: (url) => destinations.push(url) },
+    location: { hash, assign: (url) => destinations.push(url) },
     localStorage: { setItem: () => assert.fail("proof/CSRF must not enter storage") },
     sessionStorage: { setItem: () => assert.fail("proof/CSRF must not enter storage") },
   };
@@ -130,7 +173,17 @@ async function homepage(
     await element("unlock").listeners.get("submit")({ preventDefault() {} });
     assert.equal(element("host-proof").value, "");
   };
-  return { element, calls, destinations, click, unlock, state };
+  return {
+    element,
+    calls,
+    destinations,
+    click,
+    unlock,
+    state,
+    window,
+    document,
+    location: globals.location,
+  };
 }
 
 test("local login/logout work before unlock with OAuth CSRF and direct OpenAI navigation", async (t) => {
@@ -229,4 +282,56 @@ test("login never navigates to an untrusted provider URL", async (t) => {
   assert.deepEqual(destinations, []);
   assert.equal(element("account-controls").hidden, true);
   assert.match(element("account-notice").textContent, /로그인 주소/);
+});
+
+test("settings opens for connection hashes and explicit controls", async (t) => {
+  const { element, click, window, location } = await homepage(t, { hash: "#connection" });
+  assert.equal(element("settings").open, true);
+  assert.equal(element("connection").focused, true);
+  click("settings-close");
+  assert.equal(element("settings").open, false);
+  click("settings-open");
+  assert.equal(element("settings").open, true);
+  click("settings-close");
+  location.hash = "#connection";
+  window.dispatchEvent(new Event("hashchange"));
+  assert.equal(element("settings").open, true);
+});
+
+test("library chooses safe HTML then Paged and retains a destination across polls", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "원래 제목",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "javascript:alert(1)" },
+        { kind: "paged", url: "https://example.test/paged" },
+        { kind: "html", url: "https://example.test/html" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [title, status, primary, alternatives] = card.children[0].children;
+  const link = primary.children[0];
+  assert.equal(title.textContent, "원래 제목");
+  assert.equal(status.dataset.state, "ready");
+  assert.equal(link.href, "https://example.test/html");
+  assert.equal(link.textContent, "열기");
+  assert.equal(alternatives.children[1].children[0].href, "https://example.test/paged");
+  link.focus();
+  inventory[0].state = "stale";
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(document.activeElement, link);
+  assert.equal(status.dataset.state, "stale");
+  inventory[0].variants = [
+    { kind: "html", url: "javascript:alert(1)" },
+    { kind: "paged", url: "https://example.test/paged" },
+  ];
+  await click("refresh");
+  assert.equal(primary.children[0].href, "https://example.test/paged");
+  assert.equal(alternatives.hidden, true);
+  assert.equal(document.activeElement, element("documents"));
 });

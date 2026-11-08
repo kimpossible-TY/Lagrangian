@@ -386,7 +386,7 @@ starts a model turn. Conversations and drafts belong to the host's private local
 store outside the source project and survive reopening the terminal.
 
 Continue with ChatGPT must be initiated from this Mac's loopback Homepage. It opens
-the system browser for SIWC consent; remote views can choose account models and
+the current browser for SIWC consent; remote views can choose account models and
 chat after host authorization, but cannot manage credentials. No API key or
 existing Codex profile is imported. Node.js is required for ID-token signature
 verification. The host exposes only bounded search/read tools for the current
@@ -402,7 +402,10 @@ The trailing slash is canonical. Document assets, APIs and offline workers stay
 inside that prefix. `/d/<id>/paged/` redirects to the existing native paged view;
 its engine/protocol and origin are unchanged. Homepage reads loaded inventory
 and accepted-state status; opening it never starts inference or compilation.
-Configured document compilation starts when the Reader service starts.
+Configured document compilation starts when the Reader service starts. Search by
+title, then choose the primary `열기` link: a safe HTML URL is preferred, with
+a safe Paged URL as fallback. Other safe variants appear under `다른 읽기 방식`.
+The Homepage settings contain `화면 모드` for device, light or dark appearance.
 
 For development, use an isolated ReaderManager configuration and private ChatAuth
 directory outside source projects. This starts an isolated shared Reader without
@@ -420,7 +423,8 @@ migrates; shared mode prints a `documents` map of prefixed URLs.
 Private data rejects source/bundle/Git locations and filesystem-equivalent aliases
 before creation; the existing resolved-home dotfiles exception remains supported.
 
-Open the printed loopback URL. Continue with ChatGPT and sign-out work there
+Open the printed loopback URL and manage accounts under Homepage `설정` →
+`ChatGPT 연결`. Continue with ChatGPT and sign-out work there
 without the host capability. Enter the capability from its private file to choose
 an existing account or cancel a pending login. The page retains it only in module
 memory and sends it with those management changes and privileged status reads.
@@ -431,7 +435,8 @@ unconfirmed remote revocation retain existing honest feedback and preserve draft
 and history. No provider credential is returned to the browser.
 
 Local Host/Origin must use exact `127.0.0.1`, never `localhost` or `::1`.
-Document account dialogs link to `/` on their current ingress. Remote visitors
+Document account dialogs link to `/#connection` on their current ingress. Both
+initial navigation and hash changes open settings at the account area. Remote visitors
 receive sanitized status and cannot manage accounts even with copied proofs.
 For later HTTPS activation, configure a shared `publicURL` and separate
 `proxyPort`, or use `--public-origin https://reader.example --proxy-port 8770`.

@@ -9,11 +9,6 @@ const labels = {
   unknown: "상태 미확인",
   stale: "이전 관찰 · 재확인 필요",
 };
-const icons = {
-  html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v15M12 5C8 2 4 3 2 4v15c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1Z"/></svg>',
-  paged:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2h9l5 5v15H5ZM14 2v6h5M8 12h8M8 16h6"/></svg>',
-};
 const node = (tag, text, className) => {
   const result = document.createElement(tag);
   if (text) result.textContent = text;
@@ -81,51 +76,60 @@ function documentCard(doc) {
   let record = documentCards.get(doc.id);
   if (!record) {
     const card = node("article", "", "document-card");
-    const preview = node("div", "", "preview");
-    preview.setAttribute("aria-hidden", "true");
-    preview.append(node("span", "∫ f(x) dx", "formula"), node("small", "READ · THINK · CONNECT"));
     const info = node("div", "", "document-info");
     const title = node("h3");
     const status = node("p", "", "document-status");
     const links = node("div", "", "reader-links");
-    info.append(title, status, links);
-    card.append(preview, info);
-    record = { card, title, status, links, variants: new Map() };
+    const alternatives = node("details", "", "alternatives");
+    alternatives.append(node("summary", "다른 읽기 방식"));
+    const otherLinks = node("div", "", "alternative-links");
+    alternatives.append(otherLinks);
+    info.append(title, status, links, alternatives);
+    card.append(info);
+    record = { card, title, status, links, alternatives, otherLinks, variants: new Map() };
     documentCards.set(doc.id, record);
   }
   if (record.title.textContent !== doc.name) record.title.textContent = doc.name;
   const label = labels[doc.state] || labels.unknown;
   if (record.status.textContent !== label) record.status.textContent = label;
   record.status.dataset.state = doc.state;
-  const variants = [...doc.variants].sort(
-    (a, b) => Number(b.kind === "html") - Number(a.kind === "html"),
-  );
+  const priority = (kind) => (kind === "html" ? 0 : kind === "paged" ? 1 : 2);
+  const variants = [...doc.variants].sort((a, b) => priority(a.kind) - priority(b.kind));
   const keys = new Set();
-  const links = variants.map((variant, index) => {
-    const key = `${variant.kind}:${index}`;
-    keys.add(key);
-    const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
+  const occurrences = new Map();
+  const links = variants.flatMap((variant) => {
     const url = readerLink(variant.url);
-    let item = record.variants.get(key);
-    if (!item || item.linked !== Boolean(url)) {
-      const element = url
-        ? node("a", "", `reader-link${variant.kind === "html" ? "" : " secondary"}`)
-        : node("span", `${title} · 공개 주소 없음`, "unavailable-link");
-      if (url) {
-        // These icons are fixed application constants, never inventory markup.
-        element.innerHTML = icons[variant.kind] || "";
-        element.append(document.createTextNode(title));
-      }
-      item = { element, linked: Boolean(url) };
-      record.variants.set(key, item);
+    if (!url) return [];
+    const destination = `${variant.kind}:${url}`;
+    const index = occurrences.get(destination) || 0;
+    occurrences.set(destination, index + 1);
+    const key = `${destination}:${index}`;
+    keys.add(key);
+    let element = record.variants.get(key);
+    if (!element) {
+      element = node("a", "", "reader-link");
+      record.variants.set(key, element);
     }
-    if (url) {
-      if (item.element.href !== url) item.element.href = url;
-      item.element.setAttribute("aria-label", `${doc.name} · ${title}`);
-    }
-    return item.element;
+    if (element.href !== url) element.href = url;
+    element.dataset.kind = variant.kind;
+    const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
+    if (element.textContent !== title && element.textContent !== "열기")
+      element.textContent = title;
+    element.setAttribute("aria-label", `${doc.name} · ${element.textContent}`);
+    return [element];
   });
-  reconcileChildren(record.links, links);
+  for (const link of links.slice(1)) {
+    link.textContent = link.dataset.kind === "html" ? "HTML Reader" : "Paged Reader";
+    link.setAttribute("aria-label", `${doc.name} · ${link.textContent}`);
+  }
+  if (links.length) {
+    links[0].textContent = "열기";
+    links[0].setAttribute("aria-label", `${doc.name} · 열기`);
+  }
+  if (links.slice(1).includes(document.activeElement)) record.alternatives.open = true;
+  reconcileChildren(record.links, links.slice(0, 1));
+  reconcileChildren(record.otherLinks, links.slice(1));
+  record.alternatives.hidden = links.length < 2;
   for (const key of record.variants.keys()) {
     if (!keys.has(key)) record.variants.delete(key);
   }
@@ -374,6 +378,17 @@ $("models").addEventListener("click", async () => {
     $("models").disabled = false;
   }
 });
+const settings = $("settings");
+$("settings-open").addEventListener("click", () => settings.showModal());
+$("settings-close").addEventListener("click", () => settings.close());
+function openConnection() {
+  if (location.hash !== "#connection") return;
+  if (!settings.open) settings.showModal();
+  $("connection").focus({ preventScroll: true });
+  $("connection").scrollIntoView({ block: "start" });
+}
+window.addEventListener("hashchange", openConnection);
+openConnection();
 $("document-search").addEventListener("input", renderDocuments);
 $("refresh").addEventListener("click", refresh);
 document.addEventListener("visibilitychange", () => {
