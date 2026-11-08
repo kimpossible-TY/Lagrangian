@@ -380,6 +380,55 @@ for (const cancel of ["Escape", "outside", "trigger"]) {
   });
 }
 
+for (const move of ["default", "End", "search", "trigger", "pointer-search", "pointer-trigger"]) {
+  test(`overlapping manual openings preserve new menu ${move} focus`, async (t) => {
+    const env = await setup(t);
+    env.inventory.push({
+      id: "other",
+      name: "다른 문서",
+      state: "ready",
+      variants: [html, a, b, c],
+    });
+    await env.click("refresh");
+    const other = env.element("document-list").children[1].children[1];
+    const otherApi = vendor(other, env.document);
+    env.menu.open = true;
+    env.menu.children[0].focus();
+    const oldShow = env.api.show();
+    other.children[0].focus();
+    other.open = true;
+    const newShow = otherApi.show();
+    env.menu.open = false;
+    const oldHide = env.api.hide();
+    if (move === "End") await otherApi.press("End");
+    if (move === "search" || move === "pointer-search") {
+      if (move === "pointer-search") pointer(env, env.element("document-search"));
+      env.element("document-search").focus();
+    }
+    if (move === "trigger" || move === "pointer-trigger") {
+      other.children[1].focus();
+      if (move === "pointer-trigger") pointer(env, other.children[0]);
+      other.children[0].focus();
+    }
+    env.api.finishShow();
+    await Promise.all([oldShow, oldHide]);
+    await settle();
+    otherApi.finishShow();
+    await newShow;
+    await settle();
+    const expected = move.endsWith("search")
+      ? env.element("document-search")
+      : move.endsWith("trigger")
+        ? other.children[0]
+        : move === "End"
+          ? other.children[3]
+          : other.children[1];
+    assert.equal(env.document.activeElement, expected);
+    if (move === "End") assert.equal(await otherApi.press("Enter"), c.url);
+    assert.equal(listenerCount(env.document, "focusin"), 0);
+  });
+}
+
 test("ordinary close then reopen registers one keyboard listener and Escape closes once", async (t) => {
   const env = await setup(t, [b]);
   env.api.enableLitUpdates();

@@ -58,6 +58,7 @@ async function request(path, body, headers = {}) {
   }
 }
 const documentCards = new Map();
+let restoringMenuFocus = false;
 
 // Leave already ordered nodes in place: removing/reinserting a focused link
 // during a status poll would send keyboard focus back to the document body.
@@ -90,6 +91,18 @@ function trackPendingFocus(record, target) {
   const pending = { target, input: false, focusRevision: 0 };
   pending.outsideFocus = () => {
     const target = document.activeElement;
+    // Another opening can briefly focus its first item before restoring its
+    // own pending destination. Neither focus represents a new user move.
+    const otherOpening = [...documentCards.values()].find(
+      (other) =>
+        other !== record &&
+        other.lifecycle.showing &&
+        !other.alternatives.open &&
+        target?.parentElement === other.alternatives &&
+        target !== other.trigger &&
+        !other.pending?.input,
+    );
+    if (restoringMenuFocus || otherOpening) return;
     if (
       record.pending === pending &&
       (!record.alternatives.contains(target) || target === record.trigger)
@@ -135,7 +148,7 @@ function documentCard(doc) {
       syncMenuFocus(alternatives);
       const pending = record.pending;
       const target = document.activeElement;
-      if (!pending || target?.parentElement !== alternatives) return;
+      if (!pending || target === trigger || target?.parentElement !== alternatives) return;
       if (pending.input) pending.target = target;
       else {
         const revision = pending.focusRevision;
@@ -270,7 +283,14 @@ function documentCard(doc) {
       const target = pending.target;
       if (target?.isConnected && alternatives.contains(document.activeElement)) {
         if (target === document.body) document.activeElement.blur();
-        else target.focus({ preventScroll: true });
+        else {
+          restoringMenuFocus = true;
+          try {
+            target.focus({ preventScroll: true });
+          } finally {
+            restoringMenuFocus = false;
+          }
+        }
         syncMenuFocus(alternatives);
       }
     });
