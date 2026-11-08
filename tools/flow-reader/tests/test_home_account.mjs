@@ -727,3 +727,148 @@ test("vendor selection follows the focused destination after show and slot reset
   // The capture listener repairs state even before the attribute observer fires.
   assert.equal(await vendorActivation(menu, document)("Enter"), b.url);
 });
+
+for (const [key, expectedIndex, activation] of [
+  ["ArrowUp", 0, "Enter"],
+  ["ArrowDown", 2, " "],
+]) {
+  test(`opening preserves the latest ${key} destination through ${activation}`, async (t) => {
+    const html = { kind: "html", url: "https://example.test/html" };
+    const a = { kind: "paged", url: "https://example.test/a" };
+    const b = { kind: "paged", url: "https://example.test/b" };
+    const c = { kind: "paged", url: "https://example.test/c" };
+    const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+    const { element, click, document } = await homepage(t, { inventory });
+    const card = element("document-list").children[0];
+    const menu = card.children[1];
+    card.children[0].children[0].children[0].focus();
+    inventory[0].variants = [html, a, b, c];
+    await click("refresh");
+    const items = menu.children.slice(1);
+    for (const item of items) {
+      const originalFocus = item.focus.bind(item);
+      item.focus = (...args) => {
+        originalFocus(...args);
+        menu.listeners.get("focusin")();
+      };
+      item.scrollIntoView = () => {};
+    }
+    await vendorActivation(menu, document)(key);
+    assert.equal(document.activeElement, items[expectedIndex]);
+    // Model the component's first-item reset immediately before wa-after-show.
+    items.forEach((item, index) => {
+      item.active = index === 0;
+    });
+    items[0].focus();
+    menu.listeners.get("wa-after-show")();
+    assert.equal(document.activeElement, items[expectedIndex]);
+    assert.deepEqual(
+      items.map((item) => item.active),
+      items.map((item) => item === items[expectedIndex]),
+    );
+    assert.deepEqual(
+      items.map((item) => item.tabindex),
+      items.map((item) => (item === items[expectedIndex] ? "0" : "-1")),
+    );
+    assert.equal(await vendorActivation(menu, document)(activation), items[expectedIndex].href);
+  });
+}
+
+for (const close of [false, true]) {
+  test(`opening preserves ${close ? "trigger after close" : "focus outside"}`, async (t) => {
+    const inventory = [
+      {
+        id: "doc",
+        name: "문서",
+        state: "ready",
+        variants: [{ kind: "paged", url: "https://example.test/b" }],
+      },
+    ];
+    const { element, click, document } = await homepage(t, { inventory });
+    const card = element("document-list").children[0];
+    const menu = card.children[1];
+    card.children[0].children[0].children[0].focus();
+    inventory[0].variants.unshift(
+      { kind: "html", url: "https://example.test/html" },
+      { kind: "paged", url: "https://example.test/a" },
+    );
+    await click("refresh");
+    const outside = close ? menu.children[0] : element("document-search");
+    if (!close) outside.parent = document;
+    if (close) menu.open = false;
+    outside.focus();
+    document.listeners.get("focusin")();
+    menu.children[1].focus();
+    menu.listeners.get("wa-after-show")();
+    assert.equal(document.activeElement, outside);
+  });
+}
+
+test("pointer intent during opening survives the vendor first-item reset", async (t) => {
+  const b = { kind: "paged", url: "https://example.test/b" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const menu = card.children[1];
+  card.children[0].children[0].children[0].focus();
+  inventory[0].variants = [
+    { kind: "html", url: "https://example.test/html" },
+    { kind: "paged", url: "https://example.test/a" },
+    b,
+    { kind: "paged", url: "https://example.test/c" },
+  ];
+  await click("refresh");
+  const desired = menu.children[3];
+  menu.listeners.get("pointerdown")({ target: { closest: () => desired } });
+  desired.focus();
+  menu.listeners.get("focusin")();
+  await Promise.resolve();
+  menu.children[1].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, desired);
+  assert.equal(await vendorActivation(menu, document)("Enter"), desired.href);
+});
+
+for (const remove of [false, true]) {
+  test(`pending destination ${remove ? "removal" : "promotion"} updates restoration`, async (t) => {
+    const b = { kind: "paged", url: "https://example.test/b" };
+    const html = { kind: "html", url: "https://example.test/html" };
+    const a = { kind: "paged", url: "https://example.test/a" };
+    const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+    const { element, click, document } = await homepage(t, { inventory });
+    const card = element("document-list").children[0];
+    const title = card.children[0].children[0];
+    const menu = card.children[1];
+    title.children[0].focus();
+    inventory[0].variants = [html, a, b];
+    await click("refresh");
+    inventory[0].variants = remove ? [html, a] : [b, a];
+    const documents = element("documents");
+    documents.parent = document;
+    await click("refresh");
+    const expected = remove ? documents : title.children[0];
+    menu.children[1].focus();
+    menu.listeners.get("wa-after-show")();
+    assert.equal(document.activeElement, expected);
+  });
+}
+
+test("a new opening invalidates an earlier pending restoration", async (t) => {
+  const b = { kind: "paged", url: "https://example.test/b" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const menu = card.children[1];
+  card.children[0].children[0].children[0].focus();
+  inventory[0].variants = [
+    { kind: "html", url: "https://example.test/html" },
+    { kind: "paged", url: "https://example.test/a" },
+    b,
+  ];
+  await click("refresh");
+  menu.listeners.get("wa-show")();
+  menu.listeners.get("wa-show")();
+  menu.children[1].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, menu.children[1]);
+});

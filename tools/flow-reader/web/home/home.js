@@ -101,9 +101,74 @@ function documentCard(doc) {
     trigger.setAttribute("slot", "trigger");
     trigger.setAttribute("aria-label", "다른 읽기 방식");
     alternatives.append(trigger);
-    alternatives.addEventListener("focusin", () => syncMenuFocus(alternatives));
+    // Focus caused by a user key/pointer is synchronous; the component's
+    // first-item focus occurs immediately before wa-after-show instead.
+    alternatives.addEventListener("focusin", () => {
+      syncMenuFocus(alternatives);
+      const pending = record.pending;
+      const target = document.activeElement;
+      if (!pending || target?.parentElement !== alternatives) return;
+      if (pending.input) pending.target = target;
+      else
+        queueMicrotask(() => {
+          if (record.pending === pending && document.activeElement === target)
+            pending.target = target;
+        });
+    });
     // The component handles keys on document in the bubble phase.
-    alternatives.addEventListener("keydown", () => syncMenuFocus(alternatives), true);
+    alternatives.addEventListener(
+      "keydown",
+      () => {
+        syncMenuFocus(alternatives);
+        const pending = record.pending;
+        if (!pending) return;
+        const input = {};
+        pending.input = input;
+        queueMicrotask(() => {
+          if (record.pending === pending && pending.input === input) pending.input = false;
+        });
+      },
+      true,
+    );
+    alternatives.addEventListener(
+      "pointerdown",
+      (event) => {
+        const pending = record.pending;
+        if (!pending) return;
+        const item = event.target?.closest?.("wa-dropdown-item");
+        if (item?.parentElement === alternatives) pending.target = item;
+        const input = {};
+        pending.input = input;
+        queueMicrotask(() => {
+          if (record.pending === pending && pending.input === input) pending.input = false;
+        });
+      },
+      true,
+    );
+    alternatives.addEventListener("wa-show", () => {
+      const pending = record.pending;
+      if (!pending) return;
+      if (!pending.started) {
+        pending.started = true;
+        return;
+      }
+      // A later opening supersedes any unfinished restoration from an earlier one.
+      record.pending = null;
+      document.removeEventListener("focusin", pending.outsideFocus, true);
+      document.removeEventListener("pointerdown", pending.outsidePointer, true);
+    });
+    alternatives.addEventListener("wa-after-show", () => {
+      const pending = record.pending;
+      if (!pending) return;
+      record.pending = null;
+      document.removeEventListener("focusin", pending.outsideFocus, true);
+      document.removeEventListener("pointerdown", pending.outsidePointer, true);
+      const target = pending.target;
+      if (target?.isConnected && alternatives.contains(document.activeElement)) {
+        target.focus({ preventScroll: true });
+        syncMenuFocus(alternatives);
+      }
+    });
     const observer = new MutationObserver(() => syncMenuFocus(alternatives));
     observer.observe(alternatives, {
       subtree: true,
@@ -123,6 +188,7 @@ function documentCard(doc) {
       noAddress,
       variants: new Map(),
       observer,
+      pending: null,
     };
     documentCards.set(doc.id, record);
   }
@@ -164,22 +230,27 @@ function documentCard(doc) {
   const focusedIndex = focusedEntry ? links.indexOf(focusedEntry) : -1;
   const movedToMenu = focusedIndex > 0 && active === focusedEntry.link;
   if (movedToMenu && !record.alternatives.open) {
+    const pending = { target: focusedEntry.item, input: false };
+    pending.outsideFocus = () => {
+      const target = document.activeElement;
+      if (
+        record.pending === pending &&
+        (!record.alternatives.contains(target) || target === record.trigger)
+      )
+        pending.target = target;
+    };
+    pending.outsidePointer = (event) => {
+      if (record.pending === pending && !record.alternatives.contains(event.target))
+        pending.target = null;
+    };
+    if (record.pending) {
+      document.removeEventListener("focusin", record.pending.outsideFocus, true);
+      document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
+    }
+    record.pending = pending;
+    document.addEventListener("focusin", pending.outsideFocus, true);
+    document.addEventListener("pointerdown", pending.outsidePointer, true);
     record.alternatives.open = true;
-    // Web Awesome focuses the first item after showing; retain the moved destination.
-    record.alternatives.addEventListener(
-      "wa-after-show",
-      () => {
-        if (
-          record.alternatives.open &&
-          focusedEntry.item.isConnected &&
-          record.alternatives.contains(document.activeElement)
-        ) {
-          focusedEntry.item.focus({ preventScroll: true });
-          syncMenuFocus(record.alternatives);
-        }
-      },
-      { once: true },
-    );
   }
   for (const [index, entry] of links.entries()) {
     entry.link.textContent =
@@ -204,6 +275,15 @@ function documentCard(doc) {
     record.trigger,
     ...links.slice(1).map((entry) => entry.item),
   ]);
+  if (record.pending) {
+    const target = record.pending.target;
+    const previous = [...record.variants.values()].find((entry) => entry.item === target);
+    if (previous) {
+      const position = links.indexOf(previous);
+      if (position === 0) record.pending.target = previous.link;
+      else if (position < 0) record.pending.target = $("documents");
+    }
+  }
   record.alternatives.hidden = links.length < 2;
   if (record.alternatives.hidden) record.alternatives.open = false;
   record.noAddress.hidden = links.length > 0;
@@ -231,7 +311,13 @@ function renderDocuments() {
   const ids = new Set(documents.map((doc) => doc.id));
   for (const id of documentCards.keys()) {
     if (!ids.has(id)) {
-      documentCards.get(id).observer.disconnect();
+      const record = documentCards.get(id);
+      record.observer.disconnect();
+      if (record.pending) {
+        document.removeEventListener("focusin", record.pending.outsideFocus, true);
+        document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
+      }
+      record.pending = null;
       documentCards.delete(id);
     }
   }
