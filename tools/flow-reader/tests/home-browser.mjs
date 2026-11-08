@@ -60,7 +60,7 @@ try {
   await focusPage.clock.install();
   await focusPage.goto(url);
   const pollingLink = focusPage.getByRole("link", {
-    name: "편미분방정식 · HTML Reader",
+    name: "편미분방정식 · 열기",
     exact: true,
   });
   await pollingLink.waitFor();
@@ -100,9 +100,16 @@ try {
   await control({ mode: "ready" });
   const readerLogo = await page.locator(".reader-logo-base").getAttribute("d");
   check("actual Reader logo path", readerLogo.startsWith("M31 29 C48 45"));
+  check("dashboard removed", (await page.getByText("Tail Dashboard").count()) === 0);
   check(
-    "desktop two-column composition",
-    await page.locator(".layout").evaluate((el) => getComputedStyle(el).display === "grid"),
+    "primary link",
+    (await page.getByRole("link", { name: "편미분방정식 · 열기" }).count()) === 1,
+  );
+  const alternatives = page.locator(".document-card").first().locator("details");
+  await alternatives.locator("summary").click();
+  check(
+    "alternative reader link",
+    (await alternatives.getByRole("link", { name: /Paged Reader/ }).count()) > 0,
   );
   check(
     "host has no Service Worker",
@@ -125,6 +132,14 @@ try {
   );
   await mkdir(artifacts, { recursive: true });
   await page.screenshot({ path: `${artifacts}/desktop.png`, fullPage: true });
+  await page.evaluate(() => {
+    location.hash = "#connection";
+  });
+  await page.locator("#settings").waitFor({ state: "visible" });
+  check("hashchange opens account settings", await page.locator("#settings").isVisible());
+  await page.locator("#settings-close").click();
+  await page.evaluate(() => history.replaceState(null, "", location.pathname));
+  await page.locator("#settings-open").click();
   await page.locator("#reader-theme").selectOption("dark");
   check(
     "Reader theme preference reused",
@@ -139,7 +154,7 @@ try {
       route.fulfill({ contentType: "text/html", body: "<title>OpenAI login fixture</title>" }),
     );
     const retainedPage = await retainedContext.newPage();
-    await retainedPage.goto(url);
+    await retainedPage.goto(url + "#connection");
     await retainedPage.locator("#host-proof").fill("fixture-host-proof");
     await retainedPage.locator("#unlock button").click();
     await retainedPage.locator("#unlock").waitFor({ state: "hidden" });
@@ -199,6 +214,7 @@ try {
     (await control({})).authCalls.filter((v) => v === "login").length === loginsBefore + 1,
   );
   await page.goBack();
+  await page.locator("#settings-open").click();
   await page.waitForFunction(
     () => document.querySelector("#account-label").textContent === "로그인 대기 중",
   );
@@ -213,7 +229,7 @@ try {
     ),
   );
   await control({ interrupted: true });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.locator("#login").waitFor({ state: "visible" });
   check(
     "interrupted login feedback",
@@ -222,18 +238,20 @@ try {
   await page.locator("#login").click();
   await page.waitForURL("https://auth.openai.com/**");
   await page.goBack();
+  await page.locator("#settings-open").click();
   await page.locator("#host-proof").fill("fixture-host-proof");
   await page.locator("#unlock button").click();
   await page.locator("#cancel").waitFor({ state: "visible" });
   await page.locator("#cancel").click();
   await page.locator("#login").waitFor({ state: "visible" });
   await control({ signedIn: true });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.waitForFunction(
     () => document.querySelector("#account-label").textContent === "연결됨",
   );
   check("sign-in rotates authority", await page.locator("#unlock").isVisible());
   await page.reload();
+  await page.locator("#settings-open").click();
   await page.locator("#logout").waitFor({ state: "visible" });
   await control({ catalogFailure: true });
   await page.locator("#models").click();
@@ -319,7 +337,7 @@ try {
     await oldGate;
     await route.fulfill({ response, body }).catch(() => {});
   });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await oldReady;
   const logoutRequest = page.waitForRequest(
     (request) => request.url() === url + "api/home/account" && request.method() === "POST",
@@ -348,7 +366,7 @@ try {
   );
   await second.close();
   await control({ mode: "timeout" });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.waitForFunction(
     () => document.querySelector(".document-status").dataset.state === "stale",
   );
@@ -357,14 +375,14 @@ try {
     (await page.locator(".document-status").first().textContent()).includes("이전"),
   );
   await control({ mode: "empty" });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.waitForFunction(() => document.querySelectorAll(".document-card").length === 0);
   check(
     "empty configured inventory",
     (await page.locator("#inventory-message").textContent()).includes("등록된 문서"),
   );
   await control({ mode: "error" });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.waitForFunction(() =>
     document
       .querySelector("#inventory-message")
@@ -376,22 +394,20 @@ try {
   );
   await page.screenshot({ path: `${artifacts}/error-empty.png`, fullPage: true });
   await control({ mode: "ready" });
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.locator(".document-card").first().waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   check(
     "mobile no horizontal overflow",
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
   );
+  await page.locator("#settings-close").click();
+  await page.locator("#settings-open").click();
+  check("mobile settings visible", await page.locator("#settings").isVisible());
+  await page.keyboard.press("Escape");
   check(
-    "mobile single column",
-    await page.locator(".layout").evaluate((el) => getComputedStyle(el).display === "block"),
-  );
-  check(
-    "account follows documents",
-    await page
-      .locator("#connection")
-      .evaluate((el) => el.offsetTop > document.querySelector("#documents").offsetTop),
+    "Escape restores focus",
+    await page.locator("#settings-open").evaluate((el) => document.activeElement === el),
   );
   await page.screenshot({ path: `${artifacts}/mobile.png`, fullPage: true });
   const touchContext = await browser.newContext({
@@ -416,10 +432,12 @@ try {
   await (await refreshedDocuments).finished();
   await touch.evaluate(() => new Promise(requestAnimationFrame));
   const touchTargets = await touch.evaluate(() =>
-    [...document.querySelectorAll(".reader-link")].map((el) => {
-      const bounds = el.getBoundingClientRect();
-      return { connected: el.isConnected, width: bounds.width, height: bounds.height };
-    }),
+    [...document.querySelectorAll(".reader-link")]
+      .filter((el) => el.getClientRects().length)
+      .map((el) => {
+        const bounds = el.getBoundingClientRect();
+        return { connected: el.isConnected, width: bounds.width, height: bounds.height };
+      }),
   );
   check(
     "touch reader links have usable targets",
@@ -441,13 +459,13 @@ try {
       body: "<title>Reader navigation fixture</title><p>Existing document origin</p>",
     }),
   );
-  await page.getByRole("link", { name: "편미분방정식 · HTML Reader" }).click();
+  await page.getByRole("link", { name: "편미분방정식 · 열기" }).click();
   await page.waitForURL("https://html.example/");
   await page.goBack();
   await page.locator(".document-card").first().waitFor();
   check("direct Reader navigation and history", page.url() === url);
   await context.setOffline(true);
-  await page.locator("#refresh").click();
+  await page.evaluate(() => document.querySelector("#refresh").click());
   await page.waitForFunction(
     () => document.querySelector("#account-label").textContent === "상태 미확인",
   );

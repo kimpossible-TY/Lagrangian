@@ -9,11 +9,6 @@ const labels = {
   unknown: "상태 미확인",
   stale: "이전 관찰 · 재확인 필요",
 };
-const icons = {
-  html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v15M12 5C8 2 4 3 2 4v15c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1Z"/></svg>',
-  paged:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2h9l5 5v15H5ZM14 2v6h5M8 12h8M8 16h6"/></svg>',
-};
 const node = (tag, text, className) => {
   const result = document.createElement(tag);
   if (text) result.textContent = text;
@@ -28,6 +23,7 @@ let documents = [],
   oauthEligible = false,
   version = -1,
   instance = "",
+  actionNotice = "",
   generation = 0,
   disposed = false,
   timer,
@@ -81,51 +77,73 @@ function documentCard(doc) {
   let record = documentCards.get(doc.id);
   if (!record) {
     const card = node("article", "", "document-card");
-    const preview = node("div", "", "preview");
-    preview.setAttribute("aria-hidden", "true");
-    preview.append(node("span", "∫ f(x) dx", "formula"), node("small", "READ · THINK · CONNECT"));
     const info = node("div", "", "document-info");
     const title = node("h3");
     const status = node("p", "", "document-status");
     const links = node("div", "", "reader-links");
-    info.append(title, status, links);
-    card.append(preview, info);
-    record = { card, title, status, links, variants: new Map() };
+    const alternatives = node("details", "", "alternatives");
+    alternatives.append(node("summary", "다른 읽기 방식"));
+    const otherLinks = node("div", "", "alternative-links");
+    alternatives.append(otherLinks);
+    const noAddress = node("p", "공개 주소 없음", "feedback");
+    info.append(title, status, links, alternatives, noAddress);
+    card.append(info);
+    record = {
+      card,
+      title,
+      status,
+      links,
+      alternatives,
+      otherLinks,
+      noAddress,
+      variants: new Map(),
+    };
     documentCards.set(doc.id, record);
   }
   if (record.title.textContent !== doc.name) record.title.textContent = doc.name;
   const label = labels[doc.state] || labels.unknown;
   if (record.status.textContent !== label) record.status.textContent = label;
   record.status.dataset.state = doc.state;
-  const variants = [...doc.variants].sort(
-    (a, b) => Number(b.kind === "html") - Number(a.kind === "html"),
-  );
+  const priority = (kind) => (kind === "html" ? 0 : kind === "paged" ? 1 : 2);
+  const variants = [...doc.variants].sort((a, b) => priority(a.kind) - priority(b.kind));
   const keys = new Set();
-  const links = variants.map((variant, index) => {
-    const key = `${variant.kind}:${index}`;
-    keys.add(key);
-    const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
+  const occurrences = new Map();
+  const links = variants.flatMap((variant) => {
     const url = readerLink(variant.url);
-    let item = record.variants.get(key);
-    if (!item || item.linked !== Boolean(url)) {
-      const element = url
-        ? node("a", "", `reader-link${variant.kind === "html" ? "" : " secondary"}`)
-        : node("span", `${title} · 공개 주소 없음`, "unavailable-link");
-      if (url) {
-        // These icons are fixed application constants, never inventory markup.
-        element.innerHTML = icons[variant.kind] || "";
-        element.append(document.createTextNode(title));
-      }
-      item = { element, linked: Boolean(url) };
-      record.variants.set(key, item);
+    if (!url) return [];
+    const destination = `${variant.kind}:${url}`;
+    const index = occurrences.get(destination) || 0;
+    occurrences.set(destination, index + 1);
+    const key = `${destination}:${index}`;
+    keys.add(key);
+    let element = record.variants.get(key);
+    if (!element) {
+      element = node("a", "", "reader-link");
+      record.variants.set(key, element);
     }
-    if (url) {
-      if (item.element.href !== url) item.element.href = url;
-      item.element.setAttribute("aria-label", `${doc.name} · ${title}`);
-    }
-    return item.element;
+    if (element.href !== url) element.href = url;
+    element.dataset.kind = variant.kind;
+    const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
+    if (element.textContent !== title && element.textContent !== "열기")
+      element.textContent = title;
+    element.setAttribute("aria-label", `${doc.name} · ${element.textContent}`);
+    return [element];
   });
-  reconcileChildren(record.links, links);
+  for (const link of links.slice(1)) {
+    link.textContent = link.dataset.kind === "html" ? "HTML Reader" : "Paged Reader";
+    link.setAttribute("aria-label", `${doc.name} · ${link.textContent}`);
+  }
+  if (links.length) {
+    links[0].textContent = "열기";
+    links[0].setAttribute("aria-label", `${doc.name} · 열기`);
+  }
+  if (links.length < 2 && document.activeElement === record.alternatives.firstElementChild)
+    $("documents").focus({ preventScroll: true });
+  if (links.slice(1).includes(document.activeElement)) record.alternatives.open = true;
+  reconcileChildren(record.links, links.slice(0, 1));
+  reconcileChildren(record.otherLinks, links.slice(1));
+  record.alternatives.hidden = links.length < 2;
+  record.noAddress.hidden = links.length > 0;
   for (const key of record.variants.keys()) {
     if (!keys.has(key)) record.variants.delete(key);
   }
@@ -144,7 +162,7 @@ function renderDocuments() {
   for (const id of documentCards.keys()) {
     if (!ids.has(id)) documentCards.delete(id);
   }
-  if (hadFocus && document.activeElement !== focused) {
+  if (hadFocus && document.activeElement !== focused && document.activeElement !== $("documents")) {
     // A removed document/destination must leave focus somewhere discoverable.
     const target = focused.isConnected && list.contains(focused) ? focused : $("documents");
     target.focus({ preventScroll: true });
@@ -158,11 +176,17 @@ function renderDocuments() {
 }
 
 function adopt(result) {
-  if (instance === result.instance && result.version > version) csrf = "";
+  if (instance === result.instance && result.version > version) {
+    csrf = "";
+    actionNotice = "";
+    $("account-notice").textContent = "";
+  }
   if (instance && instance !== result.instance) {
     csrf = "";
     capability = "";
     management = false;
+    actionNotice = "";
+    $("account-notice").textContent = "";
   }
   if (instance === result.instance && result.version < version) return false;
   instance = result.instance;
@@ -184,7 +208,7 @@ function renderAccount(result) {
     : result.signedIn
       ? "플랜 사용 권한은 확인되지 않았습니다."
       : "ChatGPT 연결 후 문서에서 대화를 시작할 수 있어요.";
-  $("account-notice").textContent = result.notice || "";
+  $("account-notice").textContent = actionNotice || result.notice || "";
   $("management-hint").textContent = result.eligible
     ? management
       ? "이 Mac에서 관리 중"
@@ -287,6 +311,8 @@ async function refresh() {
 async function change(operation) {
   if (busy || disposed || !oauthEligible || (operation === "cancel" && !management)) return;
   busy = true;
+  actionNotice = "";
+  $("account-notice").textContent = "";
   generation++;
   clearTimeout(timer);
   for (const controller of controllers) controller.abort();
@@ -310,6 +336,13 @@ async function change(operation) {
     const status = await request("account");
     if (disposed || current !== generation) return;
     renderAccount(status);
+    if (
+      instance !== result.instance ||
+      version !== result.version ||
+      status.instance !== result.instance ||
+      status.version !== result.version
+    )
+      return;
     if (result.authUrl) {
       const url = new URL(result.authUrl);
       if (url.origin !== "https://auth.openai.com")
@@ -318,8 +351,11 @@ async function change(operation) {
       $("login-link").hidden = false;
       location.assign(url.href);
     }
+    actionNotice = result.notice || "";
     $("account-notice").textContent =
-      result.notice || status.notice || "이 Mac의 브라우저에서 로그인을 완료하세요.";
+      actionNotice ||
+      status.notice ||
+      (result.authUrl ? "이 Mac의 브라우저에서 로그인을 완료하세요." : "");
     channel?.postMessage("changed");
   } catch (error) {
     if (!disposed && current === generation) {
@@ -337,6 +373,8 @@ $("unlock").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (busy) return;
   busy = true;
+  actionNotice = "";
+  $("account-notice").textContent = "";
   generation++;
   const current = generation,
     proof = $("host-proof").value;
@@ -374,6 +412,17 @@ $("models").addEventListener("click", async () => {
     $("models").disabled = false;
   }
 });
+const settings = $("settings");
+$("settings-open").addEventListener("click", () => settings.showModal());
+$("settings-close").addEventListener("click", () => settings.close());
+function openConnection() {
+  if (location.hash !== "#connection") return;
+  if (!settings.open) settings.showModal();
+  $("connection").focus({ preventScroll: true });
+  $("connection").scrollIntoView({ block: "start" });
+}
+window.addEventListener("hashchange", openConnection);
+openConnection();
 $("document-search").addEventListener("input", renderDocuments);
 $("refresh").addEventListener("click", refresh);
 document.addEventListener("visibilitychange", () => {
@@ -406,6 +455,8 @@ if (channel)
   channel.onmessage = () => {
     generation++;
     csrf = "";
+    actionNotice = "";
+    $("account-notice").textContent = "";
     unavailable();
     refresh();
   };

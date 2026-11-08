@@ -33,50 +33,42 @@
           /></svg
         ><span>Lagrangian</span></a
       >
-      <nav aria-label="홈 탐색">
-        <a href="#documents">내 문서</a><a href="#connection">연결 상태</a>
-      </nav>
-      <label class="theme-label" for="reader-theme"
-        ><span>화면 테마</span
-        ><select id="reader-theme" aria-label="화면 테마">
-          <option value="system">자동</option>
-          <option value="light">라이트</option>
-          <option value="dark">다크</option>
-        </select></label
-      >
+      <button id="settings-open" type="button">설정</button>
     </header>
     <main>
-      <div class="intro">
-        <p class="eyebrow">LAGRANGIAN READER</p>
-        <h1>생각이 이어지는 곳</h1>
-        <p>문서를 열고, 읽고, 대화를 이어가세요.</p>
-      </div>
-      <div class="layout">
-        <section id="documents" aria-labelledby="documents-title" tabindex="-1">
-          <div class="section-heading">
-            <h2 id="documents-title">내 문서 <span id="document-count"></span></h2>
-            <label class="search"
-              ><span class="sr-only">문서 제목 검색</span
-              ><svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="10" cy="10" r="6.5" />
-                <path d="m15 15 5 5" /></svg
-              ><input
-                id="document-search"
-                type="search"
-                placeholder="문서 제목으로 검색하기…"
-                autocomplete="off"
-            /></label>
-          </div>
-          <p id="inventory-message" class="feedback" role="status">문서 목록을 확인하는 중…</p>
-          <div id="document-list"></div>
-          <button id="refresh" class="text-button" type="button">상태 새로고침</button>
-        </section>
-        <aside id="connection" tabindex="-1" aria-label="연결 상태">
-          <section class="panel dashboard-panel" aria-labelledby="dashboard-title">
-            <h2 id="dashboard-title">Tail Dashboard</h2>
-            <p class="help">Mac 데몬 및 백그라운드 파이프라인 상태를 확인합니다.</p>
-            <a class="reader-link" href="https://kimtaeyoungs-macbook-air-daemon.tail8adc61.ts.net/dashboard" rel="noopener">Tail Dashboard ↗</a>
-          </section>
+      <section id="documents" aria-labelledby="documents-title" tabindex="-1">
+        <div class="section-heading">
+          <h1 id="documents-title">내 문서 <span id="document-count"></span></h1>
+          <label class="search"
+            ><span class="sr-only">문서 제목 검색</span
+            ><svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10" cy="10" r="6.5" />
+              <path d="m15 15 5 5" /></svg
+            ><input
+              id="document-search"
+              type="search"
+              placeholder="문서 제목으로 검색하기…"
+              autocomplete="off"
+          /></label>
+        </div>
+        <p id="inventory-message" class="feedback" role="status">문서 목록을 확인하는 중…</p>
+        <div id="document-list"></div>
+        <button id="refresh" class="text-button" type="button">상태 새로고침</button>
+      </section>
+      <dialog id="settings" aria-labelledby="settings-title">
+        <div class="settings-heading">
+          <h2 id="settings-title">설정</h2>
+          <button id="settings-close" type="button" aria-label="설정 닫기">닫기</button>
+        </div>
+        <label class="theme-label" for="reader-theme"
+          >화면 모드
+          <select id="reader-theme">
+            <option value="system">기기 설정 따름</option>
+            <option value="light">라이트</option>
+            <option value="dark">다크</option>
+          </select>
+        </label>
+        <div id="connection" tabindex="-1">
           <section class="panel" aria-labelledby="account-title">
             <h2 id="account-title">
               <span class="connection-icon" aria-hidden="true">◎</span> ChatGPT 연결
@@ -117,8 +109,8 @@
             <p id="model-notice" class="help"></p>
             <ul id="model-list"></ul>
           </section>
-          <section class="panel service-panel" aria-labelledby="service-title">
-            <h2 id="service-title">서비스 상태</h2>
+          <details class="panel service-panel">
+            <summary id="service-title">서비스 상태</summary>
             <dl>
               <div>
                 <dt>호스트</dt>
@@ -134,10 +126,9 @@
               </div>
             </dl>
             <p class="help">마지막 관찰 이후 문서 상태가 달라질 수 있어요.</p>
-          </section>
-        </aside>
-      </div>
+          </details>
+        </div>
+      </dialog>
     </main>
-    <footer>읽고, 생각하고, 다시 이어서.</footer>
   </body>
 </html>
