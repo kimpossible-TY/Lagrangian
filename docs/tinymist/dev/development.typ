@@ -158,7 +158,7 @@ not validate or supply a macOS executable. Native macOS artifacts are built by
 the `flow-engine` GitHub Actions workflow on an Apple Silicon `macos-latest`
 runner. Local app packaging reuses that executable with `--engine`.
 
-`.github/workflows/flow-engine.yml` is the only GitHub Actions workflow. It
+`.github/workflows/flow-engine.yml` builds and publishes the engine. It
 runs on every push to `main` and when someone dispatches it
 (`workflow_dispatch`). It does not run on pull requests. A push that only
 changes `docs/**`, `openspec/**`, or Markdown does not start the job. Dispatch
@@ -389,6 +389,41 @@ Playwright prerequisites; native terminal and physical-device checks remain
 separate. When moving assets, verify imports, build inputs, static routes and the
 installed layout, then generate new release artifacts without rewriting immutable
 releases.
+
+== Reader CI and duplication pilot
+
+`.github/workflows/reader-quality.yml` runs on pull requests, pushes to `main`
+and manual dispatch. Its Reader lint and tests job runs `yarn lint:readers`,
+`yarn test:architecture` and `yarn test:readers` on macOS. It is independent of
+engine caching and delivery, and uses the same local commands. Branch protection
+must select this check separately if it is to block merges; this workflow does
+not change repository protection or gate the separate engine deployment.
+
+The separate Reader duplication job is a report-only trial, including tool
+installation and scan failures. It pins the official npm `jscpd` package to
+5.4.3 and uses its prebuilt binary, without a Rust build or project dependency
+changes. Locally, use an installed jscpd 5.4.3 (for example via Homebrew):
+
+```sh
+jscpd --version
+yarn report:duplicates
+```
+
+`.jscpd.json` limits the pilot to Reader JavaScript, TypeScript and Python.
+It compares JS and TS together, ignores whitespace and comments, and reports
+matches of at least 10 lines and 80 tokens. Tests, fixtures, declarations,
+vendor and generated output are excluded. Swift and Rust are not covered.
+Only token matching runs: no semantic model download, remote embeddings or
+source transmission to a jscpd service.
+
+JSON, HTML and Markdown reports are written to `dist/reports/jscpd`. CI appends
+the report to the job summary and retains the reports as a run artifact for
+14 days. No duplication percentage or new-clone threshold is enforced. A scan
+that analyzes no files is reported as a tool failure, not a clean baseline;
+the advisory job still cannot fail the workflow. Review matches for shared
+policy or invariants before extracting code. Similar syntax alone is not a
+reason to merge distinct behavior. Do not make the advisory job a required
+branch-protection check during the pilot.
 
 Report checks actually run and skipped coverage. Do not broaden testing after
 relevant checks pass unless the change or new evidence warrants it.

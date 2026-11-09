@@ -2,7 +2,7 @@ name: Flow engine
 
 # Builds the Apple Silicon flow engine on a GitHub-hosted macOS runner.
 # Runs on pushes to main, except documentation-only changes, and on manual
-# dispatch. This is the only GitHub Actions workflow in the repo.
+# dispatch. Reader checks run separately in reader-quality.yml.
 #
 # fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
 # requires sibling files flow-engine, flow-engine.sha256, and release.json
