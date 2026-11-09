@@ -99,7 +99,7 @@ Retain dependency and build caches in Cloud. Await the actual job result and rep
 
 The configured Cloud environment produces Linux binaries. A Linux build does not validate or supply a macOS executable. Native macOS artifacts are built by the `flow-engine` GitHub Actions workflow on an Apple Silicon `macos-latest` runner. Local app packaging reuses that executable with `--engine`.
 
-`.github/workflows/flow-engine.yml` builds and publishes the engine. It runs on every push to `main` and when someone dispatches it (`workflow_dispatch`). It does not run on pull requests. A push that only changes `docs/**`, `openspec/**`, or Markdown does not start the job. Dispatch it on the same ref that `fetch-engine --branch` will search: a run started with `--ref main` is a successful run for `--branch main`. Push runs are included because `fetch-engine` does not filter on the event.
+`.github/workflows/flow-engine.yml` is the only GitHub Actions workflow. It runs on every push to `main` and when someone dispatches it (`workflow_dispatch`). It does not run on pull requests. A push that only changes `docs/**`, `openspec/**`, or Markdown does not start the job. Dispatch it on the same ref that `fetch-engine --branch` will search: a run started with `--ref main` is a successful run for `--branch main`. Push runs are included because `fetch-engine` does not filter on the event.
 
 Before building, the job hashes engine inputs: Rust sources, every `Cargo.toml` and `Cargo.lock`, `rust-toolchain.toml`, the scripts the workflow uses to stage assets and build, the preview and localization sources those scripts embed, other crate and vendor inputs, and the runner OS and architecture. It looks through the newest successful runs on `main`, and on the current ref when that ref is not `main`, for a retained artifact with that hash. The hash is a separate artifact named `flow-engine-input-<hash>`. The artifact `fetch-engine` downloads stays `flow-engine-darwin-arm64`. Its files stay the unsigned `flow-engine`, `flow-engine.sha256`, `release.json` (including `engineBuild`), and `Lagrangian.app`.
 
@@ -180,19 +180,26 @@ Commands below run from the repository root. Start with the affected scope and w
 
 Local checks use these package scripts. The base reader suite can report skipped optional compiler/editor fixtures; it does not prove browser or physical-device coverage. Required integration runs must provision prerequisites and fail rather than silently skip. Browser fixtures assert their own compiler and Playwright prerequisites; native terminal and physical-device checks remain separate. When moving assets, verify imports, build inputs, static routes and the installed layout, then generate new release artifacts without rewriting immutable releases.
 
-### Reader CI and duplication pilot
+### Local Reader review checks and duplication pilot
 
-`.github/workflows/reader-quality.yml` runs on pull requests, pushes to `main` and manual dispatch. Its Reader lint and tests job runs `yarn lint:readers`, `yarn test:architecture` and `yarn test:readers` on macOS. It is independent of engine caching and delivery, and uses the same local commands. Branch protection must select this check separately if it is to block merges; this workflow does not change repository protection or gate the separate engine deployment.
+Run the existing lint and dependency-boundary checks from the repository root. With frontend dependencies already installed, npm can run these package scripts without a global Yarn executable:
 
-The separate Reader duplication job is a report-only trial, including tool installation and scan failures. It pins the official npm `jscpd` package to 5.4.3 and uses its prebuilt binary, without a Rust build or project dependency changes. Locally, use an installed jscpd 5.4.3 (for example via Homebrew):
+```sh
+npm run lint:readers
+npm run test:architecture
+```
+
+For an advisory duplication report, use the installed jscpd 5.4.3 binary (for example from Homebrew). This command does not install packages or modify source:
 
 ```sh
 jscpd --version
-yarn report:duplicates
+npm run report:duplicates
 ```
 
 `.jscpd.json` limits the pilot to Reader JavaScript, TypeScript and Python. It compares JS and TS together, ignores whitespace and comments, and reports matches of at least 10 lines and 80 tokens. Tests, fixtures, declarations, vendor and generated output are excluded. Swift and Rust are not covered. Only token matching runs: no semantic model download, remote embeddings or source transmission to a jscpd service.
 
-JSON, HTML and Markdown reports are written to `dist/reports/jscpd`. CI appends the report to the job summary and retains the reports as a run artifact for 14 days. No duplication percentage or new-clone threshold is enforced. A scan that analyzes no files is reported as a tool failure, not a clean baseline; the advisory job still cannot fail the workflow. Review matches for shared policy or invariants before extracting code. Similar syntax alone is not a reason to merge distinct behavior. Do not make the advisory job a required branch-protection check during the pilot.
+JSON, HTML and Markdown reports are written to `dist/reports/jscpd`. Duplicate matches do not fail the command: no percentage or new-clone threshold is enforced. Tool errors and an empty scan still return a failure so they cannot be mistaken for a clean baseline. Run the report separately from required checks; this pilot adds no CI workflow, hook or merge gate.
+
+Review the reports for shared policy or invariants before extracting code. Similar syntax alone is not a reason to merge distinct behavior. The report is a review aid, not proof of sound architecture or a request to refactor.
 
 Report checks actually run and skipped coverage. Do not broaden testing after relevant checks pass unless the change or new evidence warrants it.
