@@ -14,15 +14,21 @@ On a `/d/<id>/` document route the shared HTML Reader SHALL navigate to the Home
 #### Scenario: Exclusive gestures
 - **WHEN** a completed hold is followed by a swipe before release
 - **THEN** only one home navigation occurs
-- **WHEN** movement exceeds the hold slop before completion
-- **THEN** the hold timer is cancelled and only a qualifying swipe can navigate
 
 ### Requirement: One primary pointer owns the gesture
-A gesture SHALL require a single primary pointer pressing the primary button; other buttons SHALL NOT start or extend it and a competing pointer SHALL cancel a gesture that has not committed. Classification lives in [`logo-home-swipe.js`](../../../../../tools/flow-reader/web/features/navigation/logo-home-swipe.js) and the effects in [`status-logo.js`](../../../../../tools/flow-reader/web/features/session/status-logo.js).
+A gesture SHALL start only from a primary pointer pressing the primary button on the logo. Other buttons SHALL NOT start, extend or cancel it under the same pointer ID; a pointerdown from a different pointer ID SHALL cancel an uncommitted gesture whatever its button. Classification: [`logo-home-swipe.js`](../../../../../tools/flow-reader/web/features/navigation/logo-home-swipe.js); effects: [`status-logo.js`](../../../../../tools/flow-reader/web/features/session/status-logo.js).
 
-#### Scenario: Competing input
-- **WHEN** a non-primary or right-button press arrives, or a second pointer joins an uncommitted gesture
-- **THEN** no gesture starts from that input and the uncommitted gesture is cancelled without navigation
+#### Scenario: Gesture start input
+- **WHEN** a non-primary pointer or a button other than the primary one presses the logo with no gesture in progress
+- **THEN** no gesture starts from that input
+
+#### Scenario: Same pointer ID keeps the gesture
+- **WHEN** another button presses with the same pointer ID while a gesture is uncommitted
+- **THEN** the press neither extends the gesture nor cancels it
+
+#### Scenario: Different pointer ID cancels the gesture
+- **WHEN** a pointerdown from a different pointer ID lands inside or outside the logo while a gesture is uncommitted
+- **THEN** the uncommitted gesture is cancelled without navigation
 
 ### Requirement: Home navigation follows the shared route
 The Homepage gesture and link SHALL be available only under `/d/<id>/`. The standalone Reader served at `/` SHALL NOT expose Homepage navigation, a hold, a swipe or the Homepage link. The terminal presentation runs this same HTML Reader, so it follows the route and the input the host forwards. The paged preview frontend SHALL remain unchanged.
@@ -40,7 +46,7 @@ The Homepage gesture and link SHALL be available only under `/d/<id>/`. The stan
 - **THEN** the Homepage navigation matches the browser document's behavior
 
 ### Requirement: Hold commits before release and swipe at release
-A 500 ms hold SHALL commit only while the pointer is still in the valid pressing state, and commitment SHALL show confirmation feedback for 100 ms before the adapter navigates. A qualifying swipe SHALL be a separate contract that navigates at pointer release without the hold timer and without that confirmation. A leftward or predominantly vertical movement SHALL NOT complete a swipe.
+A 500 ms hold SHALL commit only when its scheduled callback runs while the pointer is still in the valid pressing state, and commitment SHALL show confirmation feedback for 100 ms before the adapter navigates. A qualifying swipe SHALL be a separate contract that navigates at pointer release without the hold timer and without that confirmation. A leftward or predominantly vertical movement SHALL NOT complete a swipe.
 
 #### Scenario: Hold home
 - **WHEN** a reader holds the shared logo for 500 ms without moving more than 10 CSS pixels
@@ -50,12 +56,23 @@ A 500 ms hold SHALL commit only while the pointer is still in the valid pressing
 - **WHEN** the reader prefers reduced motion and holds the logo
 - **THEN** a static held indicator replaces the ring animation and the press scale
 
-### Requirement: Cancellation has pre-commit and post-commit boundaries
-Before commitment, an early release, pointer cancellation, movement more than 10 CSS pixels from the press point or a competing pointer SHALL cancel the hold without confirmation or navigation. After commitment, release, cancellation, movement and later pointers SHALL NOT revoke the scheduled navigation; disposing the logo SHALL clear the scheduled navigation.
+### Requirement: Hold cancellation leaves swipe completion intact
+Movement more than 10 CSS pixels from the press point SHALL cancel only the hold confirmation and hold-triggered navigation; the same gesture SHALL still navigate at pointer release when its swipe qualifies. An early release SHALL end that gesture without navigation, and a separate qualifying swipe SHALL still navigate at its own release.
 
-#### Scenario: Cancelled before commitment
-- **WHEN** the pointer releases early, is cancelled, moves more than 10 CSS pixels or loses to a competing pointer before the hold commits
-- **THEN** no confirmation shows and no Homepage navigation occurs
+#### Scenario: Slop cancels only the hold
+- **WHEN** the pointer moves more than 10 CSS pixels and then completes a qualifying swipe before release
+- **THEN** the Homepage navigation occurs at that release without hold confirmation
+
+#### Scenario: Early release leaves a later swipe available
+- **WHEN** the pointer releases before the hold commits
+- **THEN** that gesture does not navigate and a later qualifying swipe still navigates at its own release
+
+### Requirement: Gesture termination and committed navigation
+A `pointercancel` or a pointerdown from a different pointer ID SHALL end an uncommitted gesture without navigation, and later gestures SHALL remain available. After commitment, release, cancellation, movement and later pointers SHALL NOT revoke the scheduled navigation; disposing the logo SHALL clear the scheduled navigation.
+
+#### Scenario: Pointer cancellation ends the gesture
+- **WHEN** `pointercancel` or a pointerdown from a different pointer ID occurs before commitment
+- **THEN** the gesture ends without navigation
 
 #### Scenario: Committed hold is not revoked
 - **WHEN** the pointer releases, is cancelled, moves or is joined by another pointer after the hold committed
