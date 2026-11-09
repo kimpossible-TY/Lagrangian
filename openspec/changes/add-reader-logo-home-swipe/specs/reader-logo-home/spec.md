@@ -57,14 +57,14 @@ A 500 ms hold SHALL commit only when its scheduled callback runs while the point
 - **THEN** a static held indicator replaces the ring animation and the press scale
 
 ### Requirement: Hold cancellation leaves swipe completion intact
-Movement more than 10 CSS pixels from the press point SHALL cancel only the hold confirmation and hold-triggered navigation; the same gesture SHALL still navigate at pointer release when its swipe qualifies. An early release SHALL end that gesture without navigation, and a separate qualifying swipe SHALL still navigate at its own release.
+Before hold commitment, movement more than 10 CSS pixels from the press point SHALL cancel only the pending hold, and the same gesture SHALL still navigate at its release when the swipe qualifies. A release SHALL also clear the pending hold; a release that qualifies as a swipe SHALL navigate at that release, and a release that does not qualify as a swipe SHALL end without navigation.
 
 #### Scenario: Slop cancels only the hold
 - **WHEN** the pointer moves more than 10 CSS pixels and then completes a qualifying swipe before release
 - **THEN** the Homepage navigation occurs at that release without hold confirmation
 
-#### Scenario: Early release leaves a later swipe available
-- **WHEN** the pointer releases before the hold commits
+#### Scenario: Non-qualifying release cancels the hold
+- **WHEN** the pointer releases before hold commitment without meeting the swipe thresholds
 - **THEN** that gesture does not navigate and a later qualifying swipe still navigates at its own release
 
 ### Requirement: Gesture termination and committed navigation

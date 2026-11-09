@@ -6,13 +6,13 @@ The HTML Reader recognizes shared mode from the server's `/d/<id>/` document rou
 
 Hold and swipe commit on separate contracts:
 
-- **Hold.** On the shared route the adapter starts a 500 ms timer on an accepted pointerdown and sends `hold` to the classifier, which accepts it only from the unmoved `pressing` phase. Commitment happens when that scheduled callback runs and the classifier accepts it; 500 ms is the timer delay, not a wall-clock precision guarantee. Commitment yields `longpress-fired` with `action: "home"`: the adapter shows the confirmed feedback, vibrates where supported, and schedules navigation after the 100 ms confirmation.
+- **Hold.** On the shared route the adapter starts a 500 ms timer on an accepted pointerdown and sends `hold` to the classifier, which accepts it only from the valid `pressing` phase, within 10 CSS pixels of the press point. Commitment happens when that scheduled callback runs and the classifier accepts it; 500 ms is the timer delay, not a wall-clock precision guarantee. Commitment yields `longpress-fired` with `action: "home"`: the adapter shows the confirmed feedback, vibrates where supported, and schedules navigation after the 100 ms confirmation.
 - **Swipe.** The classifier enters `swiping` once movement exceeds 10 CSS pixels and `pointerup` completes it when `dx >= min(60, 0.4 * width)` and `|dx| > 2 * |dy|` without a cancel. The adapter navigates at that release, with no hold timer and no confirmation delay.
 
 Cancelling a hold is not the same as ending a gesture, and none of the outcomes below touches a committed navigation:
 
 - **Movement more than 10 CSS pixels** from the press point clears `pressTimer` as the phase becomes `swiping`. That loses only the hold confirmation and hold-triggered navigation; the same gesture still navigates at `pointerup` when its swipe qualifies.
-- **An early `pointerup`** ends that gesture as `done` without navigation, and a later pointerdown starts a new gesture that can still swipe home and navigate at its own release.
+- **Before hold commitment, `pointerup`** clears the pending hold work and completes the same gesture as `done`. A qualifying swipe navigates at that release; a release that does not qualify ends without navigation.
 - **`pointercancel` or a pointerdown from a different pointer ID** ends the uncommitted gesture as `done` without navigation, leaving later gestures free in the same way.
 - **After commitment** the classifier reports `longpress-fired` or `done` and returns no further action, while the adapter keeps the pending `navigationTimer`. Release, cancellation, movement and later pointers therefore do not revoke the scheduled navigation. `dispose()` is the lifecycle boundary that clears `navigationTimer` and `reloadTimer`; no other path releases a committed navigation.
 
