@@ -6,7 +6,7 @@ The HTML Reader recognizes shared mode from the server's `/d/<id>/` document rou
 
 Hold and swipe commit on separate contracts:
 
-- **Hold.** On the shared route the adapter starts a 500 ms timer on an accepted pointerdown and sends `hold` to the classifier, which accepts it only from the valid `pressing` phase, within 10 CSS pixels of the press point. Commitment happens when that scheduled callback runs and the classifier accepts it; 500 ms is the timer delay, not a wall-clock precision guarantee. Commitment yields `longpress-fired` with `action: "home"`: the adapter shows the confirmed feedback, vibrates where supported, and schedules navigation after the 100 ms confirmation.
+- **Hold.** On the shared route the adapter starts a 500 ms timer on an accepted pointerdown and sends `hold` to the classifier, which accepts it only from the valid `pressing` phase, within 10 CSS pixels of the press point. Commitment happens when that scheduled callback runs and the classifier accepts it; 500 ms is the timer delay, not a wall-clock precision guarantee. Commitment yields `longpress-fired` with `action: "home"`: the adapter starts confirmation feedback, vibrates where supported, and schedules navigation with a 100 ms delay. A later pointerdown on the logo may clear the feedback without cancelling that reservation.
 - **Swipe.** The classifier enters `swiping` once movement exceeds 10 CSS pixels and `pointerup` completes it when `dx >= min(60, 0.4 * width)` and `|dx| > 2 * |dy|` without a cancel. The adapter navigates at that release, with no hold timer and no confirmation delay.
 
 Cancelling a hold is not the same as ending a gesture, and none of the outcomes below touches a committed navigation:

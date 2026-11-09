@@ -46,7 +46,7 @@ The Homepage gesture and link SHALL be available only under `/d/<id>/`. The stan
 - **THEN** the Homepage navigation matches the browser document's behavior
 
 ### Requirement: Hold commits before release and swipe at release
-A 500 ms hold SHALL commit only when its scheduled callback runs while the pointer is still in the valid pressing state, and commitment SHALL show confirmation feedback for 100 ms before the adapter navigates. A qualifying swipe SHALL be a separate contract that navigates at pointer release without the hold timer and without that confirmation. A leftward or predominantly vertical movement SHALL NOT complete a swipe.
+A 500 ms hold SHALL commit only when its scheduled callback runs in the valid pressing state. Commitment SHALL start confirmation feedback and schedule navigation with a 100 ms delay; later input may clear the feedback without revoking navigation. A qualifying swipe SHALL navigate at release without the hold timer or that delay. Leftward or predominantly vertical movement SHALL NOT complete a swipe.
 
 #### Scenario: Hold home
 - **WHEN** a reader holds the shared logo for 500 ms without moving more than 10 CSS pixels
