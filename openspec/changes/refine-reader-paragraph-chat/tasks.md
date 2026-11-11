@@ -17,3 +17,10 @@
 - [x] Recover unacknowledged drafts across reload/client updates without overwriting host drafts or resending accepted messages; verify server-rejected autosave, storage failure and reload recovery in Chromium/WebKit. Installed-browser fault injection remains unverified; see verification.md.
 - [x] Measure live provider/tool/local-processing latency using bounded content-free diagnostics.
 - [x] Reduce duplicate full source checks during streaming while preserving event/tool guards and idle cancellation; verify locally and in the installed Reader.
+
+## Document exploration limits (2026-11-11)
+
+- [x] Accept round 9 and later in the existing content-free timing report while retaining its independent 96-event bound.
+- [x] Verify that diagnostic saturation does not terminate exploration; record Python gates, optional skips and remaining GUI/live coverage.
+
+Verification: focused Python 38 OK without skips; reader-services 380 tests OK with 61 optional skips. The 18-tool-round turn completes after the 96-event report fills, and the report includes round 9 and later without content. Commands, skip causes and remaining GUI/live coverage are recorded in [the matching exploration follow-up](../add-reader-paragraph-chat/tasks.md#document-exploration-limits-2026-11-11).

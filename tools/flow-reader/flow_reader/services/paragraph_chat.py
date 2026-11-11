@@ -92,17 +92,14 @@ def attach(record, passages, revision):
 class DocumentTools:
     def __init__(self, document_id, snapshot, fresh):
         self.document_id, self.snapshot, self.fresh = document_id, snapshot, fresh
-        self.calls = 0
-        self.characters = 0
 
     def __call__(self, name, arguments):
-        self.calls += 1
         if not self.fresh():
             raise RevisionChanged("Document changed during tool use")
-        if (self.calls > 24 or self.characters > 96000 or not isinstance(arguments, dict)
+        if (not isinstance(arguments, dict)
                 or arguments.get("documentID") != self.document_id
                 or arguments.get("revision") != self.snapshot.revision):
-            raise ValueError("Document-tool identity or budget mismatch")
+            raise ValueError("Document-tool identity mismatch")
         offset, limit = arguments.get("offset"), arguments.get("limit")
         if type(offset) is not int or offset < 0 or type(limit) is not int or limit < 1:
             raise ValueError("Invalid pagination")
@@ -143,9 +140,6 @@ class DocumentTools:
                           "nextOffset": offset + limit if offset + limit < len(text) else None}
         else:
             raise ValueError("Unsupported document tool")
-        self.characters += len(json.dumps(result))
-        if self.characters > 96000:
-            raise ValueError("Document-tool character budget exceeded")
         return {"documentID": self.document_id, "revision": self.snapshot.revision, **result}
 
 
@@ -320,7 +314,7 @@ class ParagraphChat:
         outcome = "failed"
         def measure(stage, round_index=0):
             # Never accept model text, tool arguments, identities or transport details.
-            if stage not in stages or type(round_index) is not int or not 0 <= round_index <= 8:
+            if stage not in stages or type(round_index) is not int or round_index < 0:
                 return
             with metrics_lock:
                 if len(marks) < 96:

@@ -243,6 +243,21 @@ Reader의 로컬 대화 기록이 권위 있는 기록이어야 하며(SHALL), �
 - **THEN** 승인된 현재 문서와 리비전에 한정된 search_current_document/read_passage 함수를 페이지 단위로 호출할 수 있다
 - **AND** 임의 파일 경로, 셸, 외부 문서, hosted MCP/file_search/tool_search는 제공되지 않는다
 
+#### Scenario: 누적 제한 없는 문서 탐색과 종료
+
+- **WHEN** 같은 턴에서 9회 이상 문서 도구 조회, 한 응답의 26개 도구 호출 또는 유효한 passage 페이지의 누적 96000자 초과 조회가 필요하다
+- **THEN** Reader SHALL 누적 회차·호출·출력 문자 제한 없이 전체 continuation output과 모든 call_id/result를 다음 요청으로 전달한다
+- **AND** Reader SHALL delta 또는 completed-output의 정상 텍스트 답변까지 같은 턴을 계속한다
+- **AND** 강제 최종 답변 요청, 대체 누적 cap, 자동 질문 재전송, 조용한 도구 기록 삭제·요약을 넣지 않는다
+- **AND** 매 호출의 문서/revision/freshness, 정확한 인자 키, query/pagination 및 search/list 20개·passage 8000자 개별 페이지 검증을 유지한다
+
+#### Scenario: 긴 탐색 중 중단과 실제 upstream 실패
+
+- **WHEN** 이전 누적 경계를 넘은 뒤 사용자가 취소하거나 Reader가 종료되거나 문서 리비전·승인 소스가 바뀌거나 실제 upstream 오류가 발생한다
+- **THEN** Reader SHALL 기존 interrupted/failed 경로로 종료하고 대기 중인 upstream과 작업을 해제한다
+- **AND** 질문·부분 답변·새 follow-up 초안과 다른 문단 대화를 보존하고 자동 재전송하지 않는다
+- **AND** 도구 allowlist, store:false, stream:true 및 모델별 reasoning 설정을 유지한다
+
 #### Scenario: rename과 restart
 
 - **WHEN** 서비스만 재시작한다

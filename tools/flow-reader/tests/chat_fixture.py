@@ -35,6 +35,12 @@ class FakeOpenAI:
         self.refreshes = 0
         self.revocations = 0
         self.requests = []
+        self.tool_rounds = 2
+        self.calls_per_round = 1
+        self.defer_terminal = False
+        self.fallback_text = False
+        self.tool_outputs = []
+        self.tool_text_delta = ""
         self.stream_started = threading.Event()
         self.stream_closed = threading.Event()
         owner = self
@@ -75,7 +81,9 @@ class FakeOpenAI:
                     return self.reply({}, 404)
                 body = json.loads(raw)
                 owner.requests.append((self.path, body))
-                if owner.mode == "http-failure":
+                outputs = [item for item in body["input"] if item.get("type") == "function_call_output"]
+                terminal = not owner.defer_terminal or len(outputs) >= owner.tool_rounds * owner.calls_per_round
+                if terminal and owner.mode == "http-failure":
                     return self.reply({"secret": "never-relay-this"}, 401)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -83,7 +91,8 @@ class FakeOpenAI:
                 def emit(value):
                     self.wfile.write(("data: " + json.dumps(value) + "\n\n").encode())
                     self.wfile.flush()
-                if owner.mode == "stall":
+                if terminal and owner.mode == "stall":
+                    emit({"type": "response.output_text.delta", "delta": "Incomplete "})
                     emit({"type": "response.in_progress"})
                     owner.stream_started.set()
                     self.connection.settimeout(5)
@@ -92,12 +101,13 @@ class FakeOpenAI:
                     finally:
                         owner.stream_closed.set()
                     return
-                if owner.mode == "disconnect":
+                if terminal and owner.mode in {"disconnect", "failed", "incomplete"}:
                     emit({"type": "response.output_text.delta", "delta": "Incomplete "})
+                    if owner.mode != "disconnect":
+                        emit({"type": "response." + owner.mode})
                     return
                 context = json.loads(body["input"][0]["content"].split("\n", 1)[1])
-                outputs = [item for item in body["input"] if item.get("type") == "function_call_output"]
-                if len(outputs) < 2:
+                if len(outputs) < owner.tool_rounds * owner.calls_per_round:
                     arguments = {"documentID": context["documentID"], "revision": context["revision"],
                                  "offset": 0, "limit": 5 if not outputs else 8000}
                     if outputs:
@@ -105,12 +115,19 @@ class FakeOpenAI:
                         arguments["key"] = matches[0]["key"]
                     else:
                         arguments["query"] = "context"
-                    call = {"type": "function_call", "call_id": "call-" + str(len(outputs)),
-                            "namespace": "current_document", "name": "read_passage" if outputs else "search_current_document",
-                            "arguments": json.dumps(arguments)}
-                    if owner.mode == "unsupported-tool":
-                        call["name"] = "exec_command"
-                    emit({"type": "response.completed", "response": {"status": "completed", "output": [call]}})
+                    calls = [{"type": "function_call", "call_id": "call-" + str(len(outputs) + index),
+                              "namespace": "current_document", "name": "read_passage" if outputs else "search_current_document",
+                              "arguments": json.dumps(arguments)} for index in range(owner.calls_per_round)]
+                    if owner.mode == "unsupported-tool" and (not owner.defer_terminal or
+                            len(outputs) >= (owner.tool_rounds - 1) * owner.calls_per_round):
+                        calls[-1]["name"] = "exec_command"
+                    output = [{"type": "reasoning", "id": "reasoning-" + str(len(outputs)), "summary": []},
+                              {"type": "message", "role": "assistant", "content": [
+                                  {"type": "output_text", "text": "Checking accepted passages."}]}, *calls]
+                    owner.tool_outputs.append(output)
+                    if owner.tool_text_delta and len(outputs) == (owner.tool_rounds - 1) * owner.calls_per_round:
+                        emit({"type": "response.output_text.delta", "delta": owner.tool_text_delta})
+                    emit({"type": "response.completed", "response": {"status": "completed", "output": output}})
                     return
                 if owner.mode == "markdown":
                     text = r"""**끝점이 고정되어 있기 때문입니다.** 허용되는 변분은 \(\delta q(t_1)=\delta q(t_2)=0\)을 만족합니다.
@@ -132,9 +149,10 @@ class FakeOpenAI:
                     emit({"type": "response.completed", "response": {"status": "completed", "output": []}})
                     return
                 emit({"type": "response.in_progress"})
-                for delta in ("The accepted context ", "supports this answer. ", "<img src=x onerror=alert(1)>"):
-                    emit({"type": "response.output_text.delta", "delta": delta})
-                    time.sleep(0.12)
+                if not owner.fallback_text:
+                    for delta in ("The accepted context ", "supports this answer. ", "<img src=x onerror=alert(1)>"):
+                        emit({"type": "response.output_text.delta", "delta": delta})
+                        time.sleep(0.12)
                 emit({"type": "response.completed", "response": {"status": "completed", "output": [
                     {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "The accepted context supports this answer."}]}]}})
             def log_message(self, *_args):
