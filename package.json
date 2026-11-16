@@ -65,7 +65,8 @@
     "lint:readers": "eslint tools/reader-common tools/flow-reader/web tools/flow-reader/terminal tools/flow-reader/terminal.mjs tools/flow-reader/tests tools/typst-preview-frontend/src tools/typst-dom/src --max-warnings 0",
     "test:architecture": "node --test tools/reader-common/tests/architecture.mjs",
     "test:reader-services": "python3 scripts/test-reader-services.py",
-    "test:reader-integration": "python3 scripts/test-reader-services.py --require-integration"
+    "test:reader-integration": "python3 scripts/test-reader-services.py --require-integration",
+    "report:duplicates": "jscpd --config .jscpd.json"
   },
   "dependencies": {},
   "devDependencies": {

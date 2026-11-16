@@ -390,5 +390,41 @@ separate. When moving assets, verify imports, build inputs, static routes and th
 installed layout, then generate new release artifacts without rewriting immutable
 releases.
 
+== Local Reader review checks and duplication pilot
+
+Run the existing lint and dependency-boundary checks from the repository root.
+With frontend dependencies already installed, npm can run these package scripts
+without a global Yarn executable:
+
+```sh
+npm run lint:readers
+npm run test:architecture
+```
+
+For an advisory duplication report, use the installed jscpd 5.4.3 binary (for
+example from Homebrew). This command does not install packages or modify source:
+
+```sh
+jscpd --version
+npm run report:duplicates
+```
+
+`.jscpd.json` limits the pilot to Reader JavaScript, TypeScript and Python.
+It compares JS and TS together, ignores whitespace and comments, and reports
+matches of at least 10 lines and 80 tokens. Tests, fixtures, declarations,
+vendor and generated output are excluded. Swift and Rust are not covered.
+Only token matching runs: no semantic model download, remote embeddings or
+source transmission to a jscpd service.
+
+JSON, HTML and Markdown reports are written to `dist/reports/jscpd`. Duplicate
+matches do not fail the command: no percentage or new-clone threshold is
+enforced. Tool errors and an empty scan still return a failure so they cannot
+be mistaken for a clean baseline. Run the report separately from required
+checks; this pilot adds no CI workflow, hook or merge gate.
+
+Review the reports for shared policy or invariants before extracting code.
+Similar syntax alone is not a reason to merge distinct behavior. The report
+is a review aid, not proof of sound architecture or a request to refactor.
+
 Report checks actually run and skipped coverage. Do not broaden testing after
 relevant checks pass unless the change or new evidence warrants it.
