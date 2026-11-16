@@ -1,0 +1,413 @@
+#!/usr/bin/env python3
+"""Run Reader services from existing Flow project profiles, independently of PDF."""
+
+from contextlib import contextmanager
+import fcntl
+import json
+import os
+from pathlib import Path
+import plistlib
+import re
+import subprocess
+import sys
+import time
+from urllib.parse import urlsplit
+from urllib.request import Request, HTTPRedirectHandler, build_opener
+
+from flow_reader.resources import READER_ROOT as HERE
+from flow_reader.compiler.project import document_identity
+from flow_reader.services.editor_sync import EditorAttachments
+DEFAULT_DATA = Path.home() / "Library/Application Support/Lagrangian/reader"
+LABEL_PREFIX = "io.github.kimpossible-ty.lagrangian.reader."
+LEGACY_LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
+
+
+class NoReaderRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+def run(arguments, *, check=True, timeout=20):
+    result = subprocess.run(list(map(str, arguments)), text=True, capture_output=True, timeout=timeout)
+    if check and result.returncode:
+        raise ValueError(result.stderr.strip() or result.stdout.strip() or "Command failed")
+    return result.stdout
+
+
+def atomic_write(path, content, mode=0o600):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
+    try:
+        with temporary.open("xb") as stream:
+            os.chmod(temporary, mode)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+class ReaderManager:
+    def __init__(self, data=None, agents=None):
+        self.data = Path(data or os.environ.get("FLOW_READER_DATA_DIR", DEFAULT_DATA)).resolve()
+        self.agents = Path(agents or Path.home() / "Library/LaunchAgents")
+        self.launcher = self.data / "bin/flow-reader"
+
+    @contextmanager
+    def locked(self, *, timeout=0):
+        self.data.mkdir(parents=True, exist_ok=True)
+        with (self.data / "control.lock").open("a") as lock:
+            deadline = time.monotonic() + timeout if timeout else None
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if deadline is None or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(.02)
+            yield
+
+    def config(self):
+        config = json.loads((self.data / "config.json").read_text())
+        if config.get("schemaVersion") != 1 or not isinstance(config.get("services"), list):
+            raise ValueError("Unsupported reader configuration")
+        for key in ("flowManager", "python", "compiler"):
+            path = Path(config.get(key, ""))
+            if not path.is_absolute() or not os.access(path, os.X_OK):
+                raise ValueError(f"Missing executable: {key}")
+        if config.get("engine") and (not Path(config["engine"]).is_absolute()
+                                     or not os.access(config["engine"], os.X_OK)):
+            raise ValueError("Missing executable: engine")
+        return config
+
+    def parent_profiles(self):
+        """Read configured parents without a launch plan or lifecycle operation."""
+        config = self.config()
+        parents = json.loads(run([config["flowManager"], "--profiles"]))["profiles"]
+        if not isinstance(parents, list):
+            raise ValueError("Invalid Flow profiles")
+        return parents
+
+    def profiles(self):
+        config = self.config()
+        parents = self.parent_profiles()
+        by_id = {profile["id"]: profile for profile in parents}
+        ids, ports, result = set(by_id), {profile["port"] for profile in parents}, []
+        focus_files = {str(Path(p["focusFile"]).resolve()) for p in parents if p.get("focusFile")}
+        change_files = {}
+        for service in config["services"]:
+            identifier, parent_id = service.get("id"), service.get("parentID")
+            if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", identifier) or identifier in ids:
+                raise ValueError("Invalid or duplicate reader ID")
+            if parent_id not in by_id:
+                raise ValueError(f"Missing Flow parent profile: {parent_id}")
+            port = service.get("port")
+            if type(port) is not int or not 1024 <= port <= 65535 or port in ports:
+                raise ValueError("Reader port conflicts with an existing Flow service")
+            url = service.get("publicURL", "")
+            if url:
+                parsed = urlsplit(url)
+                if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+                        or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+                    raise ValueError("Reader public URL must be an HTTPS origin")
+            parent = by_id[parent_id]
+            focus_file = Path(service.get("focusFile", str(self.data / "documents" / identifier / "focus.json")))
+            if not focus_file.is_absolute() or str(focus_file.resolve()) in focus_files:
+                raise ValueError("Reader focusFile must be absolute and separate from other services")
+            focus_files.add(str(focus_file.resolve()))
+            semantic_canvases = service.get("semanticCanvases", False)
+            if type(semantic_canvases) is not bool:
+                raise ValueError("Reader semanticCanvases must be a boolean")
+            extra_fonts = service.get("extraFonts", [])
+            if (not isinstance(extra_fonts, list) or len(extra_fonts) > 32
+                    or any(not isinstance(font, str) or not font.strip() for font in extra_fonts)):
+                raise ValueError("Reader extraFonts must contain at most 32 font paths")
+            if parent_id not in change_files:
+                plan = json.loads(run([config["flowManager"], "--launch-plan", parent_id]))
+                if not isinstance(plan, dict) or ("environment" in plan and not isinstance(plan["environment"], dict)):
+                    raise ValueError("Invalid Flow parent launch plan")
+                environment = plan.get("environment", {})
+                change_file = environment.get("TINYMIST_PREVIEW_CHANGE_FILE")
+                if "TINYMIST_PREVIEW_CHANGE_FILE" in environment:
+                    if not isinstance(change_file, str) or not Path(change_file).is_absolute():
+                        raise ValueError("Flow parent changeFile must be absolute")
+                    change_file = str(Path(change_file).resolve())
+                change_files[parent_id] = change_file
+            profile = {**parent, "id": identifier, "parentID": parent_id,
+                       "name": parent["name"] + " · Reader", "port": port,
+                       "focusFile": str(focus_file.resolve()),
+                       "label": self.reader_label(identifier), "publicURL": url,
+                       "originalURL": parent.get("publicURL") or f"http://127.0.0.1:{parent['port']}/",
+                       "development": bool(service.get("development", False)),
+                       "semanticCanvases": semantic_canvases,
+                       "fonts": list(dict.fromkeys([*parent["fonts"], *extra_fonts]))}
+            if change_files[parent_id]:
+                profile["changeFile"] = change_files[parent_id]
+            result.append(profile)
+            ids.add(identifier)
+            ports.add(port)
+        return result
+
+    def reader_label(self, identifier):
+        """Retain a legacy launchd identity only when its persisted job exists."""
+        legacy = self.agents / (LEGACY_LABEL_PREFIX + identifier + ".plist")
+        prefix = LEGACY_LABEL_PREFIX if legacy.exists() else LABEL_PREFIX
+        return prefix + identifier
+
+    def profile(self, identifier):
+        return next((profile for profile in self.profiles() if profile["id"] == identifier), None)
+
+    def arguments(self, profile):
+        config = self.config()
+        root = Path(profile["root"])
+        entry = root / profile["entry"]
+        if not entry.resolve().is_relative_to(root.resolve()) or not entry.is_file():
+            raise ValueError("The Flow entrypoint must exist inside its project root")
+        if not Path(profile["packages"]).is_dir():
+            raise ValueError("The Flow package directory does not exist")
+        arguments = [config["python"], str(HERE / "serve.py"), "--root", str(root),
+                     "--entry", profile["entry"], "--package-path", profile["packages"],
+                     "--compiler", config["compiler"], "--output", str(self.data / "documents" / profile["id"]),
+                     "--focus-file", profile["focusFile"],
+                     "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
+        if config.get("homepageURL"):
+            from flow_reader.services.homepage import reader_url
+            homepage = reader_url(config["homepageURL"])
+            if not homepage:
+                raise ValueError("Invalid Homepage origin")
+            arguments.extend(["--homepage-url", homepage])
+        engine = config.get("engine") or os.environ.get("FLOW_ENGINE_PATH")
+        if profile.get("publicURL"):
+            arguments.extend(["--public-url", profile["publicURL"]])
+        if not engine:
+            sibling = Path(config["flowManager"]).parent / "flow-engine"
+            if os.access(sibling, os.X_OK):
+                engine = str(sibling)
+        if engine:
+            arguments.extend(["--engine", engine])
+        if config.get("browserCompiler"):
+            directory = Path(config["browserCompiler"])
+            if not (directory / "manifest.json").is_file():
+                raise ValueError("The configured browser compiler is missing")
+            arguments.extend(["--browser-compiler", str(directory)])
+        if profile.get("changeFile"):
+            arguments.extend(["--change-file", profile["changeFile"]])
+        for font in profile["fonts"]:
+            if not (root / font).exists():
+                raise ValueError("A configured Flow font directory is missing")
+            arguments.extend(["--font-path", font])
+        if profile["development"]:
+            arguments.append("--allow-incomplete")
+        if profile.get("semanticCanvases"):
+            arguments.append("--semantic-canvases")
+        return arguments
+
+    def match_document(self, root, entry, identifier=None):
+        root = Path(root).resolve()
+        entry = (root / entry).resolve()
+        entry.relative_to(root)
+        matches = [profile for profile in self.profiles()
+                   if Path(profile["root"]).resolve() == root
+                   and (Path(profile["root"]) / profile["entry"]).resolve() == entry
+                   and (identifier is None or profile["id"] == identifier)]
+        if not matches:
+            raise ValueError("No managed HTML Reader matches this project and entry; configure its HTML profile first")
+        if len(matches) != 1:
+            raise ValueError("Multiple HTML Readers match this document; select --reader-service ID")
+        return matches[0]
+
+    @staticmethod
+    def request(url, path, payload=None, *, timeout=2):
+        request = Request(url + path, None if payload is None else json.dumps(payload).encode(),
+                          {"Content-Type": "application/json"})
+        with build_opener(NoReaderRedirect).open(request, timeout=timeout) as response:
+            return json.loads(response.read(1024 * 1024))
+
+    def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
+               owner_pid=None, control_file=None):
+        """Reuse the normal HTML lifecycle/plan; never start a presentation-owned compiler."""
+        profile = self.match_document(root, entry, identifier)
+        if self.job_pid(profile) is None:
+            self.control("start", profile)
+        url = f"http://127.0.0.1:{profile['port']}/"
+        expected_document = document_identity(profile["root"], profile["entry"])
+        deadline = time.monotonic() + 15
+        while True:
+            pid = self.job_pid(profile)
+            try:
+                state = self.request(url, "api/state")
+                break
+            except (OSError, ValueError):
+                if time.monotonic() >= deadline:
+                    raise ValueError("The managed HTML Reader did not become reachable") from None
+                time.sleep(.1)
+        if not isinstance(state, dict):
+            raise ValueError("Invalid managed HTML Reader response")
+        service = state.get("service")
+        if (not pid or not isinstance(service, dict) or service.get("pid") != pid
+                or type(service.get("startedAt")) is not int or state.get("documentID") != expected_document):
+            raise ValueError("The HTML Reader port does not match the managed process and document")
+        plan = {"url": url, "documentID": expected_document, "service": service}
+        if editor_server:
+            if state.get("editorAttachments") != 1:
+                raise ValueError("The installed HTML Reader needs an upgrade for shared editor attachments; no separate Reader was started")
+            attachments = EditorAttachments(self.data / "documents" / profile["id"], expected_document, service)
+            with self.locked(timeout=2):
+                token, path = attachments.register(editor_server, nvim, owner_pid, control_file)
+            try:
+                if self.request(url, "api/editor-attachment", {"token": token}).get("connected") is not True:
+                    raise ValueError("The HTML Reader rejected the editor attachment")
+            except BaseException:
+                path.unlink(missing_ok=True)
+                raise
+            plan.update(editorAttachment=token, attachmentFile=str(path))
+        return plan
+
+    def agent(self, profile):
+        return {"Label": profile["label"], "ProgramArguments": [str(self.launcher), "--serve", profile["id"]],
+                "AssociatedBundleIdentifiers": ["io.github.kimpossible-ty.lagrangian"],
+                "WorkingDirectory": str(self.data), "RunAtLoad": True, "KeepAlive": True,
+                "ThrottleInterval": 10, "ProcessType": "Interactive",
+                "EnvironmentVariables": {"FLOW_READER_DATA_DIR": str(self.data), "PYTHONDONTWRITEBYTECODE": "1"},
+                "StandardOutPath": str(self.data / "logs" / (profile["id"] + ".out.log")),
+                "StandardErrorPath": str(self.data / "logs" / (profile["id"] + ".err.log"))}
+
+    def job_pid(self, profile, *, timeout=20):
+        status = run(["/bin/launchctl", "print", f"gui/{os.getuid()}/{profile['label']}"], check=False, timeout=timeout)
+        match = re.search(r"(?m)^\s*pid = (\d+)\s*$", status)
+        return int(match[1]) if match else None
+
+    def owns_agent(self, profile):
+        path = self.agents / (profile["label"] + ".plist")
+        if not path.exists():
+            return False
+        agent = plistlib.loads(path.read_bytes())
+        arguments = agent.get("ProgramArguments") if isinstance(agent, dict) else None
+        expected = self.agent(profile)["ProgramArguments"]
+        if (not isinstance(arguments, list) or len(arguments) != len(expected)
+                or arguments[1:] != expected[1:] or not isinstance(arguments[0], str)):
+            return False
+        if arguments[0] == expected[0]:
+            return True
+        try:
+            return Path(arguments[0]).resolve() == Path(expected[0]).resolve()
+        except (OSError, RuntimeError):
+            return False
+
+    def wait_unloaded(self, target):
+        # bootout can return while launchd still reports the terminating job.
+        # A following start must not mistake that old PID for a running Reader.
+        deadline = time.monotonic() + 10
+        while run(["/bin/launchctl", "print", target], check=False).strip():
+            if time.monotonic() >= deadline:
+                raise ValueError("The Reader job has not finished stopping")
+            time.sleep(.1)
+
+    def control(self, action, profile):
+        if action not in {"start", "stop", "restart"}:
+            raise ValueError("Expected start, stop, or restart")
+        with self.locked():
+            target = f"gui/{os.getuid()}/{profile['label']}"
+            path = self.agents / (profile["label"] + ".plist")
+            pid = self.job_pid(profile)
+            if (path.exists() or pid) and not self.owns_agent(profile):
+                raise ValueError("The reader will not replace a LaunchAgent it does not own")
+            if action == "stop":
+                run(["/bin/launchctl", "disable", target])
+                run(["/bin/launchctl", "bootout", target], check=False)
+                self.wait_unloaded(target)
+                return
+            self.arguments(profile)
+            owners = run(["/usr/sbin/lsof", "-nP", f"-iTCP:{profile['port']}", "-sTCP:LISTEN", "-t"], check=False)
+            owner_ids = {int(value) for value in owners.split()}
+            if owner_ids and owner_ids != {pid}:
+                raise ValueError("Another process owns the reader port")
+            if action == "start" and pid:
+                return
+            (self.data / "logs").mkdir(parents=True, exist_ok=True)
+            atomic_write(path, plistlib.dumps(self.agent(profile)))
+            run(["/bin/launchctl", "bootout", target], check=False)
+            self.wait_unloaded(target)
+            run(["/bin/launchctl", "enable", target])
+            for attempt in range(5):
+                try:
+                    run(["/bin/launchctl", "bootstrap", f"gui/{os.getuid()}", path])
+                    return
+                except ValueError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(.3)
+
+
+def main(argv=None):
+    arguments = sys.argv[1:] if argv is None else argv
+    manager = ReaderManager()
+    if arguments[:1] == ["--attach"]:
+        import argparse
+        parser = argparse.ArgumentParser(description="Attach presentation to the managed HTML Reader")
+        parser.add_argument("--root", required=True)
+        parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service")
+        parser.add_argument("--editor-server")
+        parser.add_argument("--nvim", default="nvim")
+        parser.add_argument("--owner-pid", type=int)
+        parser.add_argument("--control-file")
+        options = parser.parse_args(arguments[1:])
+        print(json.dumps(manager.attach(options.root, options.entry, identifier=options.reader_service,
+                                       editor_server=options.editor_server, nvim=options.nvim,
+                                       owner_pid=options.owner_pid, control_file=options.control_file)))
+        return
+    if arguments == ["--profiles"]:
+        print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))
+        return
+    if not arguments or len(arguments) not in {2, 3}:
+        raise ValueError("Commands: --profiles, --focus ID, --launch-plan ID, --agent-plist ID, --status ID, --serve ID, --control start|stop|restart ID")
+    profile = manager.profile(arguments[-1])
+    if profile is None:
+        raise ValueError("Unknown reader profile")
+    action = arguments[0]
+    if len(arguments) != (3 if action == "--control" else 2):
+        raise ValueError("Unexpected reader command arguments")
+    if action == "--focus":
+        from flow_reader.services.codex_context import read_reader
+        pid = manager.job_pid(profile)
+        if pid is None:
+            print(json.dumps({"status": "not_ready", "service_matches": False,
+                              "selection_usable": False, "needs_reselection": True}))
+        else:
+            print(json.dumps(read_reader(f"http://127.0.0.1:{profile['port']}/", expected_pid=pid,
+                                        project=profile["root"],
+                                        document=Path(profile["root"]) / profile["entry"]), ensure_ascii=False))
+    elif action == "--launch-plan":
+        print(json.dumps({"arguments": manager.arguments(profile), "agent": manager.agent(profile)}))
+    elif action == "--agent-plist":
+        sys.stdout.buffer.write(plistlib.dumps(manager.agent(profile)))
+    elif action == "--status":
+        pid = manager.job_pid(profile)
+        print(json.dumps({"id": profile["id"], "running": pid is not None, "pid": pid,
+                          "label": profile["label"], "managedByApp": manager.owns_agent(profile),
+                          "url": profile["publicURL"] or f"http://127.0.0.1:{profile['port']}/"}))
+    elif action == "--serve":
+        command = manager.arguments(profile)
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+        os.execv(command[0], command)
+    elif action == "--control" and len(arguments) == 3:
+        manager.control(arguments[1], profile)
+    else:
+        raise ValueError("Unknown reader command")
+
+
+def cli():
+    """Preserve the supported command's concise error and exit-code contract."""
+    try:
+        main()
+        return 0
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())
