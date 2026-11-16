@@ -406,6 +406,112 @@ test("hidden alternatives return trigger focus and retain surviving links", asyn
   assert.equal(primary.children[0], primaryLink);
 });
 
+test("alternative ordinals use only safe menu peers and preserve destinations, nodes and focus", async (t) => {
+  const html = (name) => ({ kind: "html", url: `https://example.test/${name}` });
+  const paged = (name) => ({ kind: "paged", url: `https://example.test/${name}` });
+  const first = html("first"),
+    second = html("second"),
+    third = html("third");
+  const pagedA = paged("paged-a"),
+    pagedB = paged("paged-b");
+  const unsafe = { kind: "html", url: "javascript:alert(1)" };
+  const inventory = [
+    { id: "doc", name: "문서", state: "ready", variants: [first, pagedA, unsafe] },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const primary = card.children[0].children[0];
+  const primaryLink = primary.children[0];
+  const menu = card.children[1];
+  const items = () => menu.children.slice(1);
+  const checkMenu = (names, urls) => {
+    assert.deepEqual(
+      items().map((item) => item.children[0].textContent),
+      names,
+    );
+    assert.deepEqual(
+      items().map((item) => item.href),
+      urls,
+    );
+    for (const [index, item] of items().entries()) {
+      assert.equal(item.children[0].href, urls[index]);
+      assert.equal(item["aria-label"], `문서 · ${names[index]}`);
+      assert.equal(item.children[0]["aria-label"], item["aria-label"]);
+    }
+    assert.equal(primary.children[0], primaryLink);
+    assert.equal(primaryLink.textContent, "문서");
+    assert.equal(primaryLink["aria-label"], "문서 · 열기");
+  };
+  checkMenu(["Paged Reader"], [pagedA.url]);
+  inventory[0].variants.push(second);
+  await click("refresh");
+  checkMenu(["HTML Reader", "Paged Reader"], [second.url, pagedA.url]);
+  inventory[0].variants.push(third, pagedB, pagedA);
+  await click("refresh");
+  checkMenu(
+    ["HTML Reader 1", "HTML Reader 2", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
+    [second.url, third.url, pagedA.url, pagedB.url, pagedA.url],
+  );
+  const retained = items().map((item) => ({ item, link: item.children[0] }));
+  assert.notEqual(retained[2].item, retained[4].item, "Duplicate URL occurrences remain distinct");
+  menu.open = true;
+  retained[1].item.focus();
+  await click("refresh");
+  assert.deepEqual(
+    items(),
+    retained.map((entry) => entry.item),
+  );
+  for (const entry of retained) assert.equal(entry.item.children[0], entry.link);
+  assert.equal(document.activeElement, retained[1].item);
+  assert.equal(retained[1].item.active, true);
+  assert.equal(retained[1].item.tabindex, "0");
+  // Removing a peer changes only its surviving sibling's ordinal/accessible label.
+  inventory[0].variants = inventory[0].variants.filter((variant) => variant !== second);
+  await click("refresh");
+  checkMenu(
+    ["HTML Reader", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
+    [third.url, pagedA.url, pagedB.url, pagedA.url],
+  );
+  assert.equal(items()[0], retained[1].item);
+  assert.equal(items()[0].children[0], retained[1].link);
+  assert.equal(document.activeElement, retained[1].item);
+  assert.equal(menu.open, true);
+});
+
+test("ordinal labels follow a surviving destination through primary promotion and demotion", async (t) => {
+  const pagedA = { kind: "paged", url: "https://example.test/a" };
+  const pagedB = { kind: "paged", url: "https://example.test/b" };
+  const html = { kind: "html", url: "https://example.test/html" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [html, pagedA, pagedB] }];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const primary = card.children[0].children[0];
+  const menu = card.children[1];
+  const host = menu.children[1],
+    link = host.children[0];
+  assert.equal(link.textContent, "Paged Reader 1");
+  menu.open = true;
+  host.focus();
+  inventory[0].variants.shift();
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(link.textContent, "문서");
+  assert.equal(link["aria-label"], "문서 · 열기");
+  assert.equal(link.href, pagedA.url);
+  assert.equal(document.activeElement, link);
+  assert.equal(menu.children[1].children[0].textContent, "Paged Reader");
+  inventory[0].variants.unshift(html);
+  await click("refresh");
+  assert.equal(menu.children[1], host);
+  assert.equal(host.children[0], link);
+  assert.equal(link.textContent, "Paged Reader 1");
+  assert.equal(host["aria-label"], "문서 · Paged Reader 1");
+  assert.equal(link.href, pagedA.url);
+  assert.equal(document.activeElement, host);
+  assert.equal(host.active, true);
+  assert.equal(host.tabindex, "0");
+});
+
 test("missing public address is independent of state and clears when a safe link returns", async (t) => {
   const inventory = [
     {

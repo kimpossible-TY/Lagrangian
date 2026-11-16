@@ -116,6 +116,13 @@ select {
   text-decoration: none;
   color: var(--ink);
 }
+.brand span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#settings-open {
+  flex-shrink: 0;
+}
 .reader-logo-mark {
   flex: none;
   width: 2rem;

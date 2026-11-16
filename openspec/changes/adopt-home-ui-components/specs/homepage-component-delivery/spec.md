@@ -14,6 +14,13 @@ The Homepage SHALL present a responsive document library using locally delivered
 - **WHEN** the Homepage is served from an installed reader
 - **THEN** its component assets and their dependencies are available from explicit local routes without external requests
 
+#### Scenario: Multiple alternatives of the same kind
+
+- **WHEN** the safe alternatives menu contains multiple entries of the same kind, excluding the primary title
+- **THEN** those entries append one-based numbers in displayed order to their existing kind labels, and accessible labels match the visible distinction
+- **AND** a unique kind keeps its unnumbered label, the primary remains the document name, and all safe occurrences retain their destinations and keyed identity
+- **AND** numbers describe current menu positions rather than service aliases; labels expose neither URLs nor internal profile paths
+
 ### Requirement: Composed paper and green document library
 
 The Homepage SHALL retain document selection as its primary purpose and follow the adopted 2026-11-16 measurements in design: aligned framing, solid independently bounded document surfaces, restrained elevation and deliberate typography. It SHALL reuse existing shared light/dark roles and the system font stack, with additional Home presentation tokens owned only by `home.css`.

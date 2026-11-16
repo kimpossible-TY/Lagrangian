@@ -396,9 +396,21 @@ function documentCard(doc) {
       life.watchQueue();
     } else record.alternatives.open = true;
   }
+  const alternativeCounts = new Map();
+  const alternativeNumbers = new Map();
+  for (const entry of links.slice(1)) {
+    const kind = entry.link.dataset.kind;
+    alternativeCounts.set(kind, (alternativeCounts.get(kind) || 0) + 1);
+  }
   for (const [index, entry] of links.entries()) {
-    entry.link.textContent =
-      index === 0 ? doc.name : entry.link.dataset.kind === "html" ? "HTML Reader" : "Paged Reader";
+    if (index === 0) entry.link.textContent = doc.name;
+    else {
+      const kind = entry.link.dataset.kind;
+      const name = kind === "html" ? "HTML Reader" : "Paged Reader";
+      const number = (alternativeNumbers.get(kind) || 0) + 1;
+      alternativeNumbers.set(kind, number);
+      entry.link.textContent = alternativeCounts.get(kind) > 1 ? `${name} ${number}` : name;
+    }
     entry.link.setAttribute(
       "aria-label",
       index === 0 ? `${doc.name} · 열기` : `${doc.name} · ${entry.link.textContent}`,
