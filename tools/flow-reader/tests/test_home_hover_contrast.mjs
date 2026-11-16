@@ -79,10 +79,12 @@ function foreground(paint, parent) {
   return !paint.color || paint.color === "inherit" ? parent : paint.color;
 }
 function edge(paint, property = "border") {
-  const value = paint[property + "-color"] || paint[property];
-  const color = /var\(--[\w-]+\)|#[\da-f]{6}\b|currentColor/.exec(value || "")?.[0];
-  assert.ok(color, `Missing visible ${property} color: ${value}`);
-  return color;
+  if (paint[property + "-color"] !== undefined) return paint[property + "-color"];
+  const value = paint[property];
+  // Deliberately support width + solid + a complete color, not arbitrary CSS syntax.
+  const shorthand = /^(?:\d+(?:\.\d+)?(?:px|rem|em))\s+solid\s+(.+)$/s.exec(value || "");
+  assert.ok(shorthand, `Unsupported ${property} shorthand: ${value}`);
+  return shorthand[1];
 }
 function palettes(root = home) {
   const light = tokens(":root");
@@ -334,4 +336,40 @@ test("low-contrast declaration mutations are rejected without changing product f
       name + " must fail numerical contrast",
     );
   }
+});
+
+test("edge checks preserve complete composite colors through longhands and shorthands", () => {
+  for (const [selector, property, prefix, lowWeight] of [
+    ["select", "border-color", "", 5],
+    [".alternatives-trigger", "border-color", "", 0],
+    [".search", "border", "1px solid ", 5],
+    [":focus-visible", "outline", "3px solid ", 5],
+    [".search:focus-within", "outline-color", "", 5],
+  ]) {
+    const fixture = (weight) => {
+      const root = home.clone();
+      const rule =
+        root.nodes.find((entry) => entry.type === "rule" && entry.selector === selector) ||
+        root.nodes.find((entry) => entry.type === "rule" && entry.selectors.includes(selector));
+      assert.ok(rule, selector);
+      rule.append({
+        prop: property,
+        value: `${prefix}color-mix(in srgb, var(--muted) ${weight}%, var(--surface))`,
+      });
+      return root;
+    };
+    // Supported high-contrast composites must still pass the actual declaration path.
+    verifyEdges(fixture(85));
+    assert.throws(
+      () => verifyEdges(fixture(lowWeight)),
+      /:1 </,
+      `${selector} ${property} must use the whole mixed color`,
+    );
+  }
+  for (const property of ["border", "outline"])
+    assert.throws(
+      () => edge({ [property]: "solid 1px var(--muted)" }, property),
+      /Unsupported .* shorthand/,
+      "Unrecognized syntax must not succeed via an inner token",
+    );
 });
