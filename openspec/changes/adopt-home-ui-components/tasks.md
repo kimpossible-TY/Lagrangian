@@ -16,5 +16,11 @@ The three checked items above describe the earlier component delivery. Rendered 
 - [x] Verify synthetic HTTP fixture delivery and homepage contracts with the existing Python tests.
 - [x] Connect numerical contrast checks to actual control/status declarations and retain negative-case regression coverage.
 - [x] Disambiguate repeated safe menu alternatives with positional labels while preserving primary naming, destinations, keyed nodes and focus; keep header/count spacing and enlarged brand text resilient.
-- [ ] Verify rendered layouts, representative states, zoom, accessibility preferences and interrupted interactions against the coverage matrix, recording the actual source revision and unverified cases.
-- [ ] Review implementation correctness, documentation consistency, visual quality and actual interaction evidence before integration.
+- [x] Verify and accept rendered layouts, representative states/preferences, reduced-viewport reflow and text-enlargement simulation within the user-selected headless coverage, recording the source revision and unverified native cases.
+- [x] Complete the integration review of implementation correctness, documentation consistency and visual/interaction evidence within the accepted headless scope, retaining native limitations separately.
+
+## Coverage note
+
+Product verification revision: `dba8b2868d96eebe12eca5ee97979ca9f62b0088`. The user-selected headless acceptance covers the basic responsive/theme and supplied preference/state evidence, 640×400 light/dark reflow (90 contract checks, exit 0), and text-200% simulation with 19 newly reviewed PNGs. No additional product finding was confirmed.
+
+Raw CSS zoom2 and strict-focus failures remain preserved. Reflow and standard HTML dialog control comparisons classify these as simulation/diagnostic limitations, with no observed background-control focus leakage; this is not an overall pass for the earlier harnesses. Actual browser/text 200%, Safari/native input, physical devices, VoiceOver, full accessibility conformance and performance remain unverified.
