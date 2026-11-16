@@ -15,6 +15,9 @@ def document_prefix(identifier):
         raise ValueError("Invalid Reader route ID")
     return f"/d/{identifier}/"
 
+def preview_prefix(identifier):
+    return document_prefix(identifier).replace("/d/", "/p/", 1)
+
 
 def reader_url(value):
     """Accept configured origins only; never paths, credentials or redirects."""
@@ -41,9 +44,10 @@ def public_reader_url(value):
 
 class HomeInventory:
     """One bounded background observation; reading never invokes manager.control."""
-    def __init__(self, manager, *, clock=time.time, interval=30, loaded=None):
+    def __init__(self, manager, *, clock=time.time, interval=30, loaded=None, preview_origins=None):
         self.manager, self.clock, self.interval = manager, clock, interval
         self.loaded = loaded
+        self.preview_origins = preview_origins
         self.lock = threading.RLock()
         self.documents, self.profiles, self.observations = [], {}, {}
         self.error, self.checked, self.started = None, None, None
@@ -71,13 +75,20 @@ class HomeInventory:
             for parent in parents:
                 variants = [{"kind": "paged", "public": public_reader_url(parent.get("publicURL", "")),
                              "local": reader_url(f"http://{LOOPBACK_HOST}:{parent['port']}/")}]
+                if self.preview_origins is not None:
+                    public = public_reader_url(self.preview_origins[0])
+                    local = reader_url(self.preview_origins[1])
+                    prefix = preview_prefix(parent["id"]).lstrip("/")
+                    variants[0] = {"kind": "paged", "public": public + prefix if public else None,
+                                   "local": local + prefix if local else None}
                 for profile in children.get(parent["id"], []):
                     if self.loaded is not None:
                         prefix = document_prefix(profile["id"])
                         public = public_reader_url(profile.get("publicURL", ""))
                         local = reader_url(f"http://{LOOPBACK_HOST}:{profile['port']}/")
-                        variants[0] = {"kind": "paged", "public": public + prefix.lstrip("/") + "paged/" if public else None,
-                                       "local": local + prefix.lstrip("/") + "paged/"}
+                        if self.preview_origins is None:
+                            variants[0] = {"kind": "paged", "public": public + prefix.lstrip("/") + "paged/" if public else None,
+                                           "local": local + prefix.lstrip("/") + "paged/"}
                         variants.append({"kind": "html", "public": public + prefix.lstrip("/") if public else None,
                                          "local": local + prefix.lstrip("/")})
                         probes[profile["id"]] = profile

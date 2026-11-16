@@ -13,6 +13,7 @@ from flow_reader.server.http import handler_for
 from flow_reader.server.watch import watch
 from flow_reader.server.home import claim_host
 from flow_reader.server.routing import handler_for_reader, handler_for_legacy
+from flow_reader.server.preview_proxy import PreviewProxy
 from flow_reader.services.source_history import SourceHistoryClient
 from flow_reader.services.manager import ReaderManager
 from flow_reader.services.homepage import HomeInventory, LOOPBACK_HOST, document_prefix
@@ -96,6 +97,9 @@ class ReaderRuntime:
         port = args.port or shared.get("port", 8769)
         public = args.public_origin or shared.get("publicURL") or None
         proxy_port = args.proxy_port if args.proxy_port is not None else shared.get("proxyPort")
+        self.previews = PreviewProxy(parents, reserved_ports={port, proxy_port,
+            *(p.get("legacyPort", p["port"]) for p in profiles)})
+        self.stack.callback(self.previews.close)
         plans = {p["id"]: argument_parser().parse_args(manager.document_arguments(p)[2:]) for p in profiles}
         if bool(public) != (proxy_port is not None):
             raise ValueError("Shared public origin and read-only proxy port must be configured together")
@@ -123,13 +127,16 @@ class ReaderRuntime:
         inventory = self.inventory = HomeInventory(manager, loaded=(parents, profiles, self.documents))
         self.stack.callback(inventory.close)
         self.admin = self.bind(port, handler_for_reader(self.documents, inventory, account,
-                               capability=capability))
+                               capability=capability, previews=self.previews,
+                               preview_parents={p["id"]: p["parentID"] for p in profiles}))
         self.origin = f"http://{LOOPBACK_HOST}:{self.admin.server_port}/"
+        inventory.preview_origins = (public, self.origin)
         for profile in profiles:
             profile.update(port=self.admin.server_port, publicURL=public or "")
         if proxy_port is not None:
             self.bind(proxy_port, handler_for_reader(self.documents, inventory, account,
-                      capability=capability, ingress="proxy", public_origin=public))
+                      capability=capability, ingress="proxy", public_origin=public, previews=self.previews,
+                      preview_parents={p["id"]: p["parentID"] for p in profiles}))
         for profile in profiles:
             legacy_port = profile.get("legacyPort", plans[profile["id"]].port)
             if legacy_port in {self.admin.server_port, proxy_port}:
@@ -163,6 +170,8 @@ class ReaderRuntime:
 
     def close(self):
         self.stopped.set()
+        if getattr(self, "previews", None) is not None:
+            self.previews.close()
         for server, thread in self.threads:
             server.shutdown()
             thread.join(timeout=2)
