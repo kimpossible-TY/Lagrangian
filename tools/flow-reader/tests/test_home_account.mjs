@@ -12,6 +12,7 @@ async function homepage(
     authUrl = "https://auth.openai.com/authorize?state=fixture",
     hash = "",
     inventory = [],
+    documentsFail = false,
   } = {},
 ) {
   class Element extends EventTarget {
@@ -110,6 +111,7 @@ async function homepage(
     signedIn: true,
     pending: false,
     notices: {},
+    documentsFail,
   };
   let csrf = "",
     managementSession = retainedManagementCookie;
@@ -119,7 +121,15 @@ async function homepage(
     calls.push({ path, ...options });
     const capability = options.headers["X-Reader-Host-Capability"];
     let result = { instance: state.instance, version: state.version };
-    if (path.endsWith("documents")) result = { documents: inventory, loading: false };
+    if (path.endsWith("documents")) {
+      if (state.documentsFail)
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: "Synthetic documents failure" }),
+        };
+      result = { documents: inventory, loading: false };
+    }
     if (path.endsWith("session")) {
       assert.ok(eligible);
       const manage = capability === "private-proof";
@@ -218,6 +228,110 @@ async function homepage(
     location: globals.location,
   };
 }
+
+test("initial documents failure does not claim a retained list or confirmed count", async (t) => {
+  const { element, calls } = await homepage(t, { documentsFail: true });
+  assert.doesNotMatch(element("inventory-message").textContent, /이전 목록/);
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 불러오지 못했습니다. 상태 새로고침으로 다시 확인해 주세요.",
+  );
+  assert.equal(element("inventory-message").dataset.error, "stale");
+  assert.equal(element("document-list").children.length, 0);
+  assert.equal(element("document-count").textContent, "");
+  assert.equal(element("host-state").textContent, "연결 확인 필요");
+  assert.ok(
+    calls.filter((call) => call.path.endsWith("documents")).every((call) => call.method === "GET"),
+  );
+});
+
+test("documents failure retains actual stale entries, count, identity and focus", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [{ kind: "html", url: "https://example.test/html" }],
+    },
+  ];
+  const { element, state, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const link = card.children[0].children[0].children[0];
+  link.focus();
+  state.documentsFail = true;
+  await click("refresh");
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 갱신하지 못했습니다. 이전 목록입니다.",
+  );
+  assert.equal(element("inventory-message").dataset.error, "stale");
+  assert.equal(element("document-count").textContent, "1");
+  assert.equal(element("document-list").children[0], card);
+  assert.equal(card.children[0].children[0].children[0], link);
+  assert.equal(link.href, inventory[0].variants[0].url);
+  assert.equal(card.children[0].children[1].dataset.state, "stale");
+  assert.equal(document.activeElement, link);
+  element("document-search").value = "no match";
+  element("document-search").listeners.get("input")();
+  assert.equal(element("document-list").children.length, 0);
+  assert.equal(element("document-count").textContent, "1");
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 갱신하지 못했습니다. 이전 목록입니다.",
+  );
+});
+
+test("documents failure after a known empty inventory does not claim previous documents", async (t) => {
+  const { element, state, click } = await homepage(t);
+  assert.equal(element("document-count").textContent, "0");
+  state.documentsFail = true;
+  await click("refresh");
+  assert.doesNotMatch(element("inventory-message").textContent, /이전 목록/);
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 불러오지 못했습니다. 상태 새로고침으로 다시 확인해 주세요.",
+  );
+  assert.equal(element("document-list").children.length, 0);
+  assert.equal(element("document-count").textContent, "0");
+  assert.equal(element("inventory-message").dataset.error, "stale");
+  element("document-search").value = "no match";
+  element("document-search").listeners.get("input")();
+  assert.match(element("inventory-message").textContent, /상태 새로고침/);
+});
+
+for (const initialFailure of [true, false])
+  test(`documents refresh recovers message, count and status after ${initialFailure ? "initial" : "retained"} failure`, async (t) => {
+    const inventory = [
+      {
+        id: "doc",
+        name: "문서",
+        state: "ready",
+        variants: [{ kind: "html", url: "https://example.test/html" }],
+      },
+    ];
+    const { element, state, click } = await homepage(t, {
+      inventory,
+      documentsFail: initialFailure,
+    });
+    const priorCard = element("document-list").children[0];
+    if (!initialFailure) {
+      state.documentsFail = true;
+      await click("refresh");
+      assert.equal(priorCard.children[0].children[1].dataset.state, "stale");
+    }
+    assert.equal(element("inventory-message").dataset.error, "stale");
+    assert.equal(element("document-count").textContent, initialFailure ? "" : "1");
+    state.documentsFail = false;
+    await click("refresh");
+    assert.equal(element("inventory-message").textContent, "");
+    assert.equal(element("inventory-message").dataset.error, "");
+    assert.equal(element("document-count").textContent, "1");
+    assert.equal(element("document-list").children.length, 1);
+    const card = element("document-list").children[0];
+    assert.equal(card.children[0].children[1].dataset.state, "ready");
+    assert.equal(element("host-state").textContent, "연결됨");
+    if (priorCard) assert.equal(card, priorCard);
+  });
 
 test("local login/logout work before unlock with OAuth CSRF and direct OpenAI navigation", async (t) => {
   const { element, calls, destinations, click } = await homepage(t);

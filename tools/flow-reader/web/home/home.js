@@ -614,7 +614,9 @@ async function refresh() {
         if (disposed || current !== generation) return;
         $("host-state").textContent = "연결 확인 필요";
         documents = documents.map((d) => ({ ...d, state: "stale" }));
-        $("inventory-message").textContent = "문서 목록을 갱신하지 못했습니다. 이전 목록입니다.";
+        $("inventory-message").textContent = documents.length
+          ? "문서 목록을 갱신하지 못했습니다. 이전 목록입니다."
+          : "문서 목록을 불러오지 못했습니다. 상태 새로고침으로 다시 확인해 주세요.";
         $("inventory-message").dataset.error = "stale";
         renderDocuments();
       }),
