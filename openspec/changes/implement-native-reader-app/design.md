@@ -71,3 +71,79 @@ Node extracts actual fixture formula/shape expressions and calls the prebuilt co
 ## Migration Plan
 
 NA02/03/04/05 start from this commit and implement only their own files. NA05/06 adds sources/resources to canonical packaging lists; NA01 intentionally does not edit those lists. NA06 integrates and builds with the prebuilt engine, NA07 independently tests, PM allocates GUI/review/audit gates. No app install/restart, CI dispatch or push occurs here. Rollback is dropping this unintegrated commit; no live state was migrated.
+
+## NA09 shared image supplement (2026-11-17)
+
+The frozen NA01 API remains source-compatible. NA09 temporarily owns the shared
+model/importer and metadata propagation under the PM's 21-file correction scope.
+The existing host/shared store/PreparedAdoption and PDFKit original-page component
+remain their respective owners; this change does not replace them. The initial
+probe/runtime/transport status above describes historical NA01 evidence, not the
+current integrated component state.
+
+Schema 1 adds optional node `imageLayout`. It contains required `naturalUnit`
+(`px` or `pt`), `placement` (`inline` or `block`), `fit` (`fill`), optional
+`width`/`height` (`{value,unit}` with `px`, `pt`, or `em`), optional `loading`
+(`lazy`, `eager`) and `decoding` (`async`, `sync`, `auto`). Values must be finite,
+positive and at most 4096; resolved native dimensions are also bounded by 4096pt.
+CSS px means 72/96 logical AppKit points, pt means one logical point, and em uses
+the current native text font size. Pixel dimensions of decoded rasters remain
+separate from authored dimensions. Two specified dimensions fill the authored box;
+one dimension derives the other from the intrinsic aspect ratio. Natural sizes
+use `naturalUnit`. No implicit max-width shrink overrides explicit dimensions.
+Native inline images stay indivisible; oversized inline images are diagnosed.
+Block images flush preceding/following inline pieces. Existing page-object and
+asset/decompressed-pixel budgets still apply.
+
+The importer accepts only image HTML width/height numeric attributes and CSS
+width/height in px/pt/em plus display:inline/block. CSS overrides the matching
+HTML attribute; the other attribute remains effective. In particular, actual
+compiler width-only styling can coexist with an explicit natural height attribute:
+32pt style width plus HTML height=12 means 32x9pt, not an inferred 32x16pt. This
+adapter preserves accepted HTML semantics; it does not repair compiler/source
+aspect discrepancies. Loading/decoding hints are retained and validated; native
+preparation fully decodes bytes before adoption, so lazy/async are satisfied by
+eager preparation rather than permitting an unpainted adopted placeholder.
+General CSS, percentages, calc(), cover/contain, external URLs and unknown hints
+remain unsupported. Compiler inline SVG em/pt/px sizing and display:block are
+translated to the same typed supplement; validated SVG paint bytes remain intact.
+
+`image-layout-v1` is dynamically required when image attributes/layout or symbol
+overflow need the supplement. Once required, every image has explicit layout
+metadata (legacy images retain their previous point-sized natural behavior).
+An old semantic-tree-v1-only document/request remains supported. A client lacking
+the required supplement is explicitly refused before document, asset, or action
+publication, including cache hits. Cache identity remains accepted revision/input/
+service, independent of requested capability order. Native transport advertises
+the supported set and validates dynamic response requirements. Unknown/missing
+supplement keys, invalid combinations, missing capability and lost per-image
+metadata reject through both the public decoder and generic Codable recovery.
+Defaulted memberwise initialization preserves existing source callers.
+
+SVG `overflow` grammar is limited to `symbol`, with visible/hidden. The frozen
+painter's independent hidden-clip oracle fails (800 blue pixels versus expected
+400); importer rejects hidden with `unsupported-svg-symbol-hidden-clip` pending
+a bounded correction by the read-only painter owner. Visible works on real raw
+compiler input. The required native hidden-clip test remains failing, not skipped.
+The existing native safe SVG decoder and painter own geometry/clipping/paint;
+NA09 only extends the import wire subset. Compiler root style overflow:visible is
+preserved alongside its existing sizing style. Arbitrary CSS/overflow, entities,
+external or unresolved references and cycles reject. Digest-bound external SVG
+asset bytes are validated without reserialization. Inline SVG uses the existing
+normalized serialization. No glyph path becomes inferred text, source range or
+label-level accessibility semantics.
+
+Generation rebinding has one model copy operation. Transport, session candidates,
+host fixture provider, generic disk recovery and native layout consume the same
+metadata. RecoveryStore and Operations are unchanged. Evidence is newly compiled
+raw HTML through SectionBundle/import/Swift/native paint, kept separately from
+controlled rich-asset fixtures, and actual HTTP/import/session/restore behavior.
+The original-page and unchanged-HTML/input-refresh compiler regressions remain.
+Required test skips fail; actual commands/exits/counts/hashes/paint are retained
+under `test-output/contract-closure/NA09` outside the worktree.
+
+NA10 may consume the existing native object interfaces for a separate TeX answer
+branch with explicit asynchronous preparation and lifetime guards. NA09 does not
+change the frozen MathML helper/painter or add operations. TeX, F04 ordered vector
+deltas/full original-page fidelity, full app/GUI/VoiceOver and runtime delivery
+remain separate gates. Existing PDF component evidence is preserved.

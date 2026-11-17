@@ -23,3 +23,10 @@
 ## Workflow follow-up
 
 - Archive only after all implementation and required independent acceptance gates actually pass. P0 independent review/testing is separate and remains pending.
+
+## 4. NA09 bounded shared image correction
+
+- [x] 4.1 Add typed image units/layout and dynamic capability negotiation across importer/server/Swift/cache, preserving old schema-1 callers and rejection policy.
+- [x] 4.2 Verify newly compiled raw rich/inline PNG/JPEG/labeled CeTZ through decode, transport/session/host copy, generic recovery and native paint; retain independent negatives and original-page/input-refresh regressions.
+- [x] 4.3 Run Contract/Objects/Services, affected interaction/session/recovery regressions, OpenSpec strict and canonical Typst compilation with exact source binding and no required skips; retain the hidden-clip failure separately and keep full app/GUI/TeX/delivery gates open.
+- [ ] 4.4 Bounded painter-owner correction: make symbol overflow=hidden clip its viewport (400px independent blue-area oracle; currently 800px), then enable hidden import and pass the retained required negative/paint checks. NativeReaderObjectRenderer.swift remains read-only for NA09.

@@ -215,5 +215,37 @@
     "blueRectangleArea": 1152,
     "thirdPageText": "Original Three\nPage Three replacement.",
     "scope": "Author-written source text/order/point-size/color-area oracle; PDFKit text extraction spacing recorded, no glyph-cluster or verified source mapping assertion."
-  }
+  },
+  "rawImageLayouts": [
+    {
+      "mime": "image/png",
+      "widthPt": 18,
+      "heightPt": 9,
+      "placement": "block"
+    },
+    {
+      "mime": "image/jpeg",
+      "widthPt": 18,
+      "heightPt": 9,
+      "placement": "inline"
+    },
+    {
+      "mime": "image/png",
+      "widthPt": 48,
+      "heightPt": 18,
+      "placement": "block"
+    },
+    {
+      "mime": "image/jpeg",
+      "widthPt": 32,
+      "heightPt": 9,
+      "placement": "inline"
+    },
+    {
+      "mime": "image/png",
+      "widthPt": 18,
+      "heightPt": 15,
+      "placement": "inline"
+    }
+  ]
 }

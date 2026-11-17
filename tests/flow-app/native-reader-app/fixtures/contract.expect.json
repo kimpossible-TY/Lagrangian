@@ -17,5 +17,6 @@
   "figureCaption": "Figure 1: Blue rectangle",
   "annotationTarget": "mark:term",
   "figureSVGContains": ["viewBox=\"0 0 48 24\"", "#2060c0", "M 0 0v 24h 48v -24Z"],
-  "externalLink": "https://example.org/reader"
+  "externalLink": "https://example.org/reader",
+  "requiredCapabilities": ["image-layout-v1", "semantic-tree-v1"]
 }

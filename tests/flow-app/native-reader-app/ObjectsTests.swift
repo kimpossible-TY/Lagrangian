@@ -140,6 +140,12 @@ private final class OriginalPreparationGate: @unchecked Sendable {
     @MainActor static func main() async throws {
         let mode = CommandLine.arguments[1], root = URL(fileURLWithPath: CommandLine.arguments[2])
         let oracle = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))) as! [String: Any]
+        if mode == "symbol-overflow" {
+            do { try symbolOverflow(root: root) }
+            catch { fputs("symbol overflow oracle failed: \(error)\n", stderr); exit(1) }
+            return
+        }
+        if mode == "raw-import" { try await rawImport(root: root, oracle: oracle); return }
         if mode == "original-pages" { try await originalPages(root: root, oracle: oracle); return }
         if mode == "input-refresh" { try await inputRefresh(root: root); return }
         if mode == "assets" {
@@ -498,7 +504,7 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         try write(processRecords, root.appendingPathComponent("native-worker-executions.json"))
         let result: [String: Any] = ["matrix": matrix, "inlineBrokenCases": broken, "vectorBlueArea": vc.blue, "negativeFailures": 0, "richAssetCases": richResults.count / 2, "labeledBlackInk": black, "labeledBlueInk": labeledCounts.blue,
             "verified": ["native vector paths", "whole-formula display selection", "semantic AX handoff", "merged/header table", "native inline flow", "bounded cache/cancel/stale"],
-            "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "compiler importer symbol overflow/image dimensions", "complete CeTZ/decorations", "offline product runtime delivery"]]
+            "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "complete CeTZ/decorations", "offline product runtime delivery"]]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
     }
 }
@@ -868,5 +874,85 @@ extension ObjectsTests {
         let result: [String: Any] = ["freshInputAdopted": true, "sameHTMLRevision": identity.revision,
             "negativeCases": negatives, "adoptedSnapshots": 36, "scope": "fixture expected bindings; no backend accepted-publication or source authority"]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+    }
+}
+
+extension ObjectsTests {
+    @MainActor static func rawImport(root: URL, oracle: [String: Any]) async throws {
+        let raw = try Data(contentsOf: root.appendingPathComponent("raw-native.json"))
+        let document = try NativeReaderDocument.decode(raw)
+        let roundtrip = try NativeReaderDocument.decode(JSONEncoder().encode(document))
+        try require(roundtrip == document, "raw Codable exact tree")
+        let assets = try Dictionary(uniqueKeysWithValues: document.assets.map { ($0.id, try Data(contentsOf: root.appendingPathComponent("raw-assets/" + $0.id))) })
+        let config = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("worker-config.json"))) as! [String: String]
+        let executions = ExecutionLog()
+        let worker = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: URL(fileURLWithPath: config["helper"]!), runtime: URL(fileURLWithPath: config["runtime"]!), record: { executions.append($0) })
+        let context = NativeObjectContext(identity: document.identity, snapshotGeneration: document.generation, generation: 1,
+            width: 640, fontSize: 20, fontName: "system", theme: .light, mode: .reflow, pageHeight: 800)
+        let plan = try await NativeReaderPagedLayout.layout(document: document, context: context, assets: assets,
+            math: { n, w in try await worker.calculate(n.math!, context: context, width: w) })
+        let canvas = try bitmap(plan.size, dark: false)
+        NativeReaderObjectRenderer.draw(plan, in: canvas)
+        try savePNG(canvas, root.appendingPathComponent("raw-native-paint.png"))
+        let descriptors = Dictionary(uniqueKeysWithValues: document.assets.map { ($0.id, $0) })
+        let images = plan.regions.filter { $0.node.kind == .image }
+        let rasters = images.filter { descriptors[$0.node.assetID!]!.mime != "image/svg+xml" }
+        let expected = oracle["rawImageLayouts"] as! [[String: Any]]
+        try require(rasters.count == expected.count, "all actual compiler rasters")
+        var frames = [[String: Any]]()
+        for (region, exp) in zip(rasters, expected) {
+            let frame = region.frames[0], layout = region.node.imageLayout!
+            try require(frame.width == exp["widthPt"] as! Double && frame.height == exp["heightPt"] as! Double, "independent authored image size")
+            try require(layout.placement.rawValue == exp["placement"] as! String && descriptors[region.node.assetID!]!.mime == exp["mime"] as! String, "original display order/type")
+            try require(layout.loading == .lazy && layout.decoding == .async, "loading/decoding retained")
+            // The original image is 24x12 pixels. Sample four independently
+            // authored quadrants at their scaled native frames, including stretch.
+            let a = sample(canvas, Int(frame.minX + frame.width / 4), Int(frame.minY + frame.height / 4))
+            let b = sample(canvas, Int(frame.minX + frame.width * 3 / 4), Int(frame.minY + frame.height / 4))
+            let c = sample(canvas, Int(frame.minX + frame.width / 4), Int(frame.minY + frame.height * 3 / 4))
+            try require(a[0] > 180 && a[1] < 90 && b[1] > 180 && b[0] < 90 && c[2] > 180 && c[0] < 90, "actual raw raster painted at authored frame")
+            let siblings = plan.items.filter { $0.nodeID != region.node.id && $0.frame.intersects(CGRect(x: 0, y: frame.minY + 0.1, width: 640, height: max(0.1, frame.height - 0.2))) }
+            if layout.placement == .inline {
+                try require(siblings.contains { $0.frame.maxX <= frame.minX } && siblings.contains { $0.frame.minX >= frame.maxX }, "inline stays between original text")
+            } else {
+                try require(siblings.isEmpty, "block occupies its own native line")
+            }
+            frames.append(["node": region.node.id, "widthPt": frame.width, "heightPt": frame.height, "placement": layout.placement.rawValue])
+        }
+        // Full raw labeled vector is handed through the actual semantic plan.
+        let labeledBlock = document.blocks.first { $0.orderedNodes.contains { $0.kind == .caption && $0.canonicalText.contains("Labeled CeTZ") } }!
+        let labeledNode = labeledBlock.orderedNodes.first { $0.kind == .image }!
+        let frame = images.first { $0.node.id == labeledNode.id }!.frames[0]
+        var black = 0
+        for y in (Int(frame.minY) + 4)..<(Int(frame.maxY) - 4) { for x in (Int(frame.minX) + 4)..<(Int(frame.maxX) - 4) {
+            if sample(canvas, x, y).allSatisfy({ $0 < 50 }) { black += 1 }
+        } }
+        try require(black > 80, "raw labeled CeTZ glyph paint")
+        // No invented label text/range: compiler's glyph paths remain an image.
+        try require(labeledNode.canonicalText.isEmpty && labeledNode.children.isEmpty, "no inferred glyph semantics")
+        let data = try Data(contentsOf: root.appendingPathComponent("raw-labeled.svg"))
+        try require(String(decoding: data, as: UTF8.self).contains("overflow=\"visible\""), "raw symbol overflow retained")
+        try write(try JSONSerialization.jsonObject(with: JSONEncoder().encode(executions.values)), root.appendingPathComponent("raw-worker-executions.json"))
+        let result: [String: Any] = ["rasterCases": rasters.count, "paintedAssets": images.count, "frames": frames, "labeledBlackInk": black,
+            "unsupported": ["label-level source/AX meaning absent from compiler glyph paths", "general CSS", "GUI/VoiceOver", "delivered runtime"], "skips": 0]
+        print(String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self))
+    }
+}
+
+extension ObjectsTests {
+    @MainActor static func symbolOverflow(root: URL) throws {
+        var overflowPaints = [[String: Any]]()
+        for overflow in ["visible", "hidden"] {
+            let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 40\"><defs><symbol id=\"s\" viewBox=\"0 0 20 20\" overflow=\"" + overflow + "\"><rect x=\"-10\" y=\"0\" width=\"40\" height=\"20\" fill=\"#2060c0\"/></symbol></defs><use href=\"#s\" x=\"30\" y=\"10\" width=\"20\" height=\"20\"/></svg>"
+            let scene = try NativeVectorScene.decode(Data(svg.utf8), dark: false)
+            let ctx = try bitmap(CGSize(width: 100, height: 40), dark: false)
+            scene.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: 100, height: 40))
+            let blue = pixels(ctx, dark: false).blue
+            try savePNG(ctx, root.appendingPathComponent("overflow-" + overflow + ".png"))
+            try write(["overflow": overflow, "bluePixels": blue], root.appendingPathComponent("overflow-" + overflow + ".json"))
+            try require(blue == (overflow == "visible" ? 800 : 400), "independent symbol overflow clip area: " + overflow + ":" + String(blue))
+            overflowPaints.append(["overflow": overflow, "bluePixels": blue])
+        }
+        print(String(decoding: try JSONSerialization.data(withJSONObject: overflowPaints), as: UTF8.self))
     }
 }

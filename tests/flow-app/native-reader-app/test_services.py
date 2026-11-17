@@ -2,6 +2,7 @@
 No managed services, real provider/account, GUI activation or Rust builds.
 """
 import copy
+import dataclasses
 import hashlib
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -23,18 +24,22 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[3]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
-OUT = DEV / 'test-output/services/adoption-v3' / os.environ.get('NA04_RUN', 'run-' + str(time.time_ns()))
-if not OUT.resolve().is_relative_to(DEV / 'test-output/services/adoption-v3') or OUT.exists():
+CLOSURE = Path(os.environ["NA09_ROOT"]).resolve() if os.environ.get("NA09_ROOT") else None
+EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/services/adoption-v3'
+ISOLATED = CLOSURE if CLOSURE else DEV
+OUT = EVIDENCE / os.environ.get('NA04_RUN', 'services-' + str(time.time_ns()))
+if not OUT.resolve().is_relative_to(EVIDENCE) or OUT.exists():
     raise RuntimeError('NA04 evidence directory must be new under adoption-v3; preserve historical bytes')
 OUT.mkdir(parents=True, exist_ok=True)
-for name, value in {'TMPDIR': DEV / 'tmp/services', 'CLANG_MODULE_CACHE_PATH': DEV / 'cache/services/clang',
-                    'SWIFT_MODULECACHE_PATH': DEV / 'cache/services/swift'}.items():
+for name, value in {'TMPDIR': ISOLATED / 'tmp/services', 'CLANG_MODULE_CACHE_PATH': ISOLATED / 'cache/services/clang',
+                    'SWIFT_MODULECACHE_PATH': ISOLATED / 'cache/services/swift'}.items():
     value.mkdir(parents=True, exist_ok=True)
     os.environ[name] = str(value)
 tempfile.tempdir = os.environ['TMPDIR']
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(REPO / 'tools/flow-reader'))
 sys.path.insert(0, str(REPO / 'tools/flow-reader/tests'))
+from flow_reader.compiler.execution import local_compile
 from flow_reader.compiler.project import Project
 from flow_reader.compiler.inputs import input_fingerprint, source_signature
 from flow_reader.document.sections import split_document
@@ -92,11 +97,11 @@ class FixtureProvider:
 class NativeServiceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.work = Path(tempfile.mkdtemp(prefix='native-services-', dir=DEV / 'tmp/services'))
+        cls.work = Path(tempfile.mkdtemp(prefix='native-services-', dir=ISOLATED / 'tmp/services'))
         compiler = Path(shutil.which('typst') or '/missing')
         if not compiler.is_file() or not shutil.which('sandbox-exec'):
             raise RuntimeError('prebuilt typst and sandbox-exec required; missing is failure')
-        cls.cache = DEV / 'cache/services/typst-packages'
+        cls.cache = ISOLATED / 'cache/services/typst-packages'
         if not cls.cache.exists():
             shutil.copytree(Path.home() / 'Library/Caches/typst/packages', cls.cache)
         os.environ['TYPST_PACKAGE_CACHE_PATH'] = str(cls.cache)
@@ -137,8 +142,8 @@ class NativeServiceTests(unittest.TestCase):
             'packageHashes': {str(p.relative_to(project.packages)): digest(p) for p in project.packages.rglob('*') if p.is_file()},
             'sourceMapping': 'actual compiler default map_sources=True; tested exact math excerpt separately'})
         cls.binary = OUT / 'ServiceTests'
-        sources = [REPO / 'apps/macos' / (n + '.swift') for n in ('NativeReaderDocument', 'NativeReaderOperations',
-            'NativeReaderTransport', 'NativeReaderSession', 'NativeReaderActions', 'NativeReaderChatView', 'NativeReaderRecoveryStore')]
+        manifest = json.loads((REPO / 'apps/macos/sources.json').read_text())
+        sources = [REPO / 'apps/macos' / n for n in [*[n for n in manifest['core'] if n != 'CLI.swift'], *manifest['native'], 'NativeReaderWindowController.swift']]
         build = command(['swiftc', '-parse-as-library', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-macosx13.0',
             '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'], *sources, REPO / 'tests/flow-app/native-reader-app/ServiceTests.swift', '-o', cls.binary])
         if build.returncode:
@@ -164,7 +169,7 @@ class NativeServiceTests(unittest.TestCase):
         self.shared = self.serve(handler_for_reader({'first': self.state}, self.inventory,
             HomeAccount(self.auth, self.provider), capability='test-proof'))
         self.context = {'documentID': self.state.document_id, 'serviceID': service_id(self.state.focus.service),
-            'revision': self.state.revision, 'schemaVersion': 1, 'capabilities': ['semantic-tree-v1'],
+            'revision': self.state.revision, 'schemaVersion': 1, 'capabilities': ['image-layout-v1', 'semantic-tree-v1'],
             'generation': 1, 'requestID': str(uuid4()), 'viewID': str(uuid4())}
         code, raw, headers = self.get_document()
         self.assertEqual(code, 200, raw)
@@ -210,6 +215,60 @@ class NativeServiceTests(unittest.TestCase):
         code, raw, _ = self.request('/api/native-chat', body={**self.context, 'operation': operation, **fields})
         self.assertEqual(code, 200, raw)
         return json.loads(raw)
+
+    def test_dynamic_capability_negotiation_and_warm_cache(self):
+        old = {**self.context, 'capabilities': ['semantic-tree-v1']}
+        for _ in range(2):
+            self.assertEqual(self.get_document(old)[0], 400)
+            self.assertEqual(self.get_document()[0], 200)
+            self.assertEqual(self.action('last-change', capabilities=['semantic-tree-v1'])[0], 400)
+            query = {k: v for k, v in old.items() if k != 'inputID'}
+            query['capabilities'] = 'semantic-tree-v1'
+            self.assertEqual(self.request('/api/native-assets/' + self.document['assets'][0]['id'] + '?' + urlencode(query))[0], 400)
+        reordered = {**self.context, 'capabilities': ['semantic-tree-v1', 'image-layout-v1']}
+        self.assertEqual(json.loads(self.get_document(reordered)[1]), self.document)
+        for caps in [[], ['semantic-tree-v1', 'semantic-tree-v1'], ['semantic-tree-v1', 'future-image-v9']]:
+            self.assertEqual(self.get_document({**self.context, 'capabilities': caps})[0], 400)
+        # A fresh real compile with legacy semantics remains usable by old clients.
+        self.entry.write_text('Legacy semantic-only document.\n')
+        self.state.compile()
+        self.assertTrue(self.state.report['contentGatePassed'])
+        legacy = {**old, 'revision': self.state.revision}
+        code, raw, _ = self.get_document(legacy)
+        self.assertEqual(code, 200, raw)
+        self.assertEqual(json.loads(raw)['requiredCapabilities'], ['semantic-tree-v1'])
+        self.assertEqual(json.loads(self.get_document({**legacy, 'capabilities': self.context['capabilities']})[1])['requiredCapabilities'], ['semantic-tree-v1'])
+
+    def test_raw_compiler_http_metadata_session_and_generic_recovery(self):
+        source = self.work / 'raw-source'; source.mkdir()
+        shutil.copyfile(REPO / 'tests/flow-app/native-reader-app/fixtures/objects.typ', source / 'main.typ')
+        image_input = Path(os.environ.get('NA09_IMAGE_INPUT', str(DEV / 'test-output/objects/fidelity-v2/final2/source')))
+        for name in ['pattern.png', 'pattern.jpg']:
+            shutil.copyfile(image_input / name, source / name)
+        def execute(request):
+            result = local_compile(dataclasses.replace(request, inputs=(*request.inputs, ('fidelity-v2', 'true'))))
+            COMMANDS.append(dict(operation='raw-compiler', target=request.target, exit=result.returncode, stderr=result.stderr))
+            save('raw-compiler-commands.json', COMMANDS)
+            return result
+        attachment = OUT / 'raw-attachment.json'
+        attachment.write_text('{}')
+        output = OUT / 'raw-pipeline'; output.mkdir()
+        save('raw-compiler-commands.json', [])
+        project = Project(source, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=str(self.wrapper), execute=execute)
+        state = ReaderState(project, self.work / 'raw-output', '', False)
+        self.addCleanup(state.close)
+        state.compile()
+        self.assertTrue(state.report.get('contentGatePassed'), state.report)
+        server = self.serve(handler_for(state))
+        save('raw-attachment.json', dict(url=f'http://127.0.0.1:{server.server_port}/', documentID=state.document_id, service=state.focus.service))
+        result = command([self.binary, 'raw-contract', attachment, state.revision, output], timeout=180)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['skips'], 0)
+        self.assertGreaterEqual(report['layouts'], 8)
+        (OUT / 'raw-compiler.html').write_bytes(state.document)
+        save('raw-pipeline-results.json', report)
+        save('raw-source-hashes.json', {str(p): digest(p) for p in [source / 'main.typ', source / 'pattern.png', source / 'pattern.jpg']})
 
     def test_root_and_registered_prefix_actual_compiler_tree_and_asset_binding(self):
         code, raw, _ = self.get_document(shared=True)
@@ -362,7 +421,7 @@ class NativeServiceTests(unittest.TestCase):
         other = ReaderState(Project(other_root, Path('main.typ'), REPO/'tools/flow-reader/packages', compiler=str(self.wrapper)), self.work/'other-output', '', False)
         self.addCleanup(other.close); other.compile(); self.assertIsNotNone(other.revision)
         server = self.serve(handler_for_reader({'first':self.state, 'second':other}, self.inventory, HomeAccount(self.auth,self.provider), capability='fixture'))
-        fields = {k:v for k,v in self.context.items() if k != 'inputID'}; fields['capabilities']='semantic-tree-v1'
+        fields = {k:v for k,v in self.context.items() if k != 'inputID'}; fields['capabilities']='image-layout-v1,semantic-tree-v1'
         conn = HTTPConnection('127.0.0.1',server.server_port,timeout=5)
         conn.request('GET','/d/second/api/native-document?'+urlencode(fields),headers={'Origin':f'http://127.0.0.1:{server.server_port}'})
         response=conn.getresponse(); self.assertEqual(response.status,409); response.read(); conn.close()

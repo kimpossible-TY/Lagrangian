@@ -169,7 +169,7 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
         return ["documentID": context.target.documentID, "serviceID": context.target.serviceID,
                 "revision": context.target.revision, "generation": context.generation,
                 "viewID": context.viewID.uuidString.lowercased(), "requestID": context.requestID.uuidString.lowercased(),
-                "schemaVersion": 1, "capabilities": ["semantic-tree-v1"]]
+                "schemaVersion": 1, "capabilities": NativeReaderDocument.supportedCapabilities.sorted()]
     }
 
     func request(path: String, fields: [String: Any], get: Bool = false) throws -> URLRequest {
@@ -206,7 +206,8 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
         }
         guard let head = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
               head["schemaVersion"] as? Int == 1,
-              head["requiredCapabilities"] as? [String] == ["semantic-tree-v1"],
+              let required = head["requiredCapabilities"] as? [String],
+              Set(required).isSubset(of: NativeReaderDocument.supportedCapabilities),
               head["generation"] as? Int == context.generation,
               let identity = head["identity"] as? [String: String],
               identity == ["documentID": context.target.documentID, "serviceID": context.target.serviceID,

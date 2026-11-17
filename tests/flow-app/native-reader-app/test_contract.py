@@ -18,6 +18,9 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
+CLOSURE = Path(os.environ["NA09_ROOT"]).resolve() if os.environ.get("NA09_ROOT") else None
+EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/contract'
+ISOLATED = CLOSURE if CLOSURE else DEV
 sys.path.insert(0, str(REPO / 'tools/flow-reader'))
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.project import Project, document_identity
@@ -37,8 +40,8 @@ def save(path, value):
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ.get('NA01_OUTPUT', str(DEV / 'test-output/contract/contract-run'))).resolve()
-        if not cls.out.is_relative_to(DEV / 'test-output/contract') or cls.out.exists():
+        cls.out = Path(os.environ.get('NA01_OUTPUT', str(EVIDENCE / 'contract'))).resolve()
+        if not cls.out.is_relative_to(EVIDENCE) or cls.out.exists():
             raise RuntimeError('NA01_OUTPUT must be a fresh directory under test-output/contract')
         cls.out.mkdir(parents=True)
         cls.commands = []
@@ -55,12 +58,12 @@ class ContractTests(unittest.TestCase):
         compiler = Path(shutil.which('typst') or '/missing')
         if not compiler.is_file() or not shutil.which('sandbox-exec'):
             raise RuntimeError('prebuilt typst and sandbox-exec required')
-        for name, value in {'TMPDIR': DEV / 'tmp/contract', 'CLANG_MODULE_CACHE_PATH': DEV / 'cache/contract/clang',
-                            'SWIFT_MODULECACHE_PATH': DEV / 'cache/contract/swift'}.items():
+        for name, value in {'TMPDIR': ISOLATED / 'tmp/contract', 'CLANG_MODULE_CACHE_PATH': ISOLATED / 'cache/contract/clang',
+                            'SWIFT_MODULECACHE_PATH': ISOLATED / 'cache/contract/swift'}.items():
             Path(value).mkdir(parents=True, exist_ok=True)
             os.environ[name] = str(value)
         # Only copy the existing local cache; deny network in every compiler run.
-        cache = DEV / 'cache/contract/test-packages'
+        cache = ISOLATED / 'cache/contract/test-packages'
         if not cache.exists():
             shutil.copytree(Path.home() / 'Library/Caches/typst/packages', cache)
         os.environ['TYPST_PACKAGE_CACHE_PATH'] = str(cache)
@@ -135,6 +138,7 @@ class ContractTests(unittest.TestCase):
         return [n for b in self.model['blocks'] for n in walk(b)]
 
     def test_real_order_and_transport(self):
+        self.assertEqual(self.model['requiredCapabilities'], self.oracle['requiredCapabilities'])
         self.assertEqual([b['kind'] for b in self.model['blocks']], self.oracle['kinds'])
         self.assertEqual([b['canonicalText'] for b in self.model['blocks']], self.oracle['texts'])
         self.assertGreater(len(self.bundle.documents), 1)
@@ -178,6 +182,44 @@ class ContractTests(unittest.TestCase):
         bundle.assets[key] = b'wrong bytes'
         with self.assertRaisesRegex(NativeImportError, 'asset-digest-mismatch'):
             import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+
+    def test_image_layout_units_css_and_atomic_negatives(self):
+        data = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 12"><rect width="24" height="12" fill="#2060c0"/></svg>'
+        key = hashlib.sha256(data).hexdigest() + '.svg'
+        def image(attrs):
+            return SectionBundle({'revision': 'image', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body><p>A<img src="api/assets/' + key + '" ' + attrs + '>Z</p></body></html>').encode()}, {key: data}, [])
+        result = import_accepted_document(image('width="24" height="12" style="width: 48pt; height: 18pt; display: block" loading="lazy" decoding="async"'), document_id='fixture', service_id='offline', generation=1)
+        layout = result.document['blocks'][0]['children'][1]['imageLayout']
+        self.assertEqual(layout, dict(naturalUnit='pt', width=dict(value=48, unit='pt'), height=dict(value=18, unit='pt'), placement='block', fit='fill', loading='lazy', decoding='async'))
+        self.assertEqual(result.assets[key], data)  # Original digest-bound SVG bytes.
+        for attrs in ['width="0"', 'width="NaN"', 'height="inf"', 'width="4097"', 'width="-1"',
+                      'width="20%"', 'width="1e999"', 'width', 'style', 'loading="auto"', 'decoding="lazy"',
+                      'style="width: calc(1pt + 2pt)"', 'style="width: 2pt; width: 3pt"',
+                      'style="position: absolute"', 'style="display: none"', 'style="overflow: visible"',
+                      'style="object-fit: cover"', 'style="background: url(https://example.org/x)"']:
+            with self.subTest(attrs=attrs), self.assertRaises(NativeImportError):
+                import_accepted_document(image(attrs), document_id='fixture', service_id='offline', generation=1)
+        for overflow in ['visible']:
+            raw = '<svg viewBox="0 0 20 20"><defs><symbol id="s" overflow="' + overflow + '"><rect width="20" height="20"/></symbol></defs><use href="#s"/></svg>'
+            b = SectionBundle({'revision': 'svg', 'sections': [{'id': 's'}]}, {'s': ('<html><body>' + raw + '</body></html>').encode()}, {}, [])
+            imported = import_accepted_document(b, document_id='fixture', service_id='offline', generation=1)
+            self.assertIn(('overflow="' + overflow + '"').encode(), next(iter(imported.assets.values())))
+            self.assertIn('image-layout-v1', imported.document['requiredCapabilities'])
+        for svg in ['<svg viewBox="0 0 20 20"><symbol overflow="hidden"/></svg>',
+                    '<svg viewBox="0 0 20 20" overflow="visible"/>',
+                    '<svg viewBox="0 0 20 20"><symbol overflow="scroll"/></svg>',
+                    '<svg viewBox="0 0 20 20"><g overflow="hidden"/></svg>',
+                    '<svg viewBox="0 0 20 20"><use href="#missing"/></svg>',
+                    '<svg viewBox="0 0 20 20"><defs><g id="a"><use href="#a"/></g></defs><use href="#a"/></svg>',
+                    '<svg viewBox="0 0 20 20"><use href="https://example.org/x"/></svg>',
+                    '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///private/x">]><svg viewBox="0 0 20 20">&x;</svg>',
+                    '<svg viewBox="0 0 20 20" style="filter: blur(2px)"/>']:
+            b = SectionBundle({'revision': 'svg', 'sections': [{'id': 's'}]}, {'s': ('<html><body>' + svg + '</body></html>').encode()}, {}, [])
+            with self.subTest(svg=svg), self.assertRaises(NativeImportError):
+                import_accepted_document(b, document_id='fixture', service_id='offline', generation=1)
+        old = SectionBundle({'revision': 'legacy', 'sections': [{'id': 's'}]}, {'s': b'<html><body><p>Old semantic tree.</p></body></html>'}, {}, [])
+        self.assertEqual(import_accepted_document(old, document_id='fixture', service_id='offline', generation=1).document['requiredCapabilities'], ['semantic-tree-v1'])
 
     def test_independent_units(self):
         for case in self.oracle['unicodeCases']:

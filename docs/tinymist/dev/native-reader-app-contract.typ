@@ -1,9 +1,9 @@
 #set page(paper: "a4", margin: 16mm)
 #set text(size: 9pt)
 
-= Native Reader app contract — NA01
+= Native Reader app contract — NA01 / NA09
 
-Schema 1 belongs to NA01. The commit containing this file is the shared contract
+NA01 established schema 1; NA09 owns the bounded image supplement correction. The commit containing this file is the shared contract
 input for NA02 text, NA03 objects, NA04 services and NA05 shell. Record that exact
 SHA before implementing; return shared-model changes to NA01. The executable API
 and compile commands are fixed in `openspec/changes/implement-native-reader-app/design.md`.
@@ -57,7 +57,7 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F01], [NA05/06], [Home/project/settings/document windows; existing ProjectService.], [Persistence/recovery and isolated shell/app tests.],
   [F02], [NA04/05/06], [Request → service → accepted document → painted frame.], [Cancellation, nonblocking UI, one open; no readiness from command exit.],
   [F03], [NA01/02/06], [Ordered typed tree, heading/style/link/anchors; real importer.], [NA01 fixture contract tested; broader content, paint/outline/AX remain.],
-  [F04], [NA03/06], [Separate paged vector/glyph consumer linked by revision.], [Unsupported here: deltas, page fidelity, selection; PDF-only fails final gate.],
+  [F04], [NA03/06], [Existing isolated PDFKit original-page component plus semantic reflow.], [Ordered vector deltas/full page fidelity and integrated source/GUI gates remain; NA09 preserves PDF/input-refresh tests.],
   [F05], [NA03/06], [MathML+text/number, cell/span/header, vector asset/caption/annotation.], [Fixture paint feasible; general math/CeTZ/decoration/reflow fidelity unverified.],
   [F06], [NA02/04/06], [Grapheme selection fragments and ticket-bound verified excerpt.], [Pointer/keyboard/copy/AX and service ack; no source reconstructed from math.],
   [F07], [NA04/06], [Optimistic native mark over existing guarded highlight.], [Server freshness/lock/receipt, uncertain result, no automatic resend.],
@@ -106,3 +106,60 @@ plus NA03/05/06 helper/runtime packaging and separate dependency write scope.
 No dependencies, lockfiles, P0 source, source list, HTTP server or installed services
 are modified. P0 independent review/testing and final native app/fidelity/GUI gates
 remain with PM and later owners.
+
+
+== NA09 image/layout supplement
+
+The historical executed scope above records NA01's original probe. Current NA09
+recompiles the raw rich fixture and exercises the production importer, Swift model,
+HTTP transport, session candidate, host fixture generation copy, generic recovery
+and native painter. Controlled rich assets remain independent evidence. No raw HTML
+attributes are deleted to pass import. External SVG bytes retain their digest;
+inline SVG retains the accepted normalized serialization.
+
+Schema 1 adds `imageLayout` to image nodes. Required fields are `naturalUnit`
+(px/pt), `placement` (inline/block) and `fit` (fill). Optional width/height are
+value/unit pairs (px/pt/em); loading is lazy/eager and decoding is async/sync/auto.
+Numbers must be finite, positive, at most 4096; native resolved sides are at most
+4096pt. CSS px is 72/96 logical points, pt is one point, and em follows current
+native font size. Natural raster pixels remain separate from logical dimensions.
+Two specified dimensions fill that box; a single dimension uses intrinsic aspect.
+CSS overrides only its matching HTML attribute. Raw width-only style 32pt plus
+HTML height=12 is 32×9pt, preserving both original attributes. Compiler/source
+aspect discrepancies are not inferred away. Explicit sizes are not silently
+shrunk to fit a line. Inline objects remain indivisible; block images flush the
+line before and after paint. Existing page/pixel/byte budgets remain enforced.
+
+Only numeric HTML width/height and CSS width/height in px/pt/em plus
+`display: inline`/`display: block` are supported. Unknown CSS, percentages, calc,
+object-fit cover/contain and external resources reject. Loading/decoding hints
+survive as typed metadata; native preparation fully decodes before adoption.
+Compiler SVG root em sizing uses this same model. Symbol overflow attributes
+allow visible/hidden only on symbol; the existing safe SVG painter owns clipping.
+The frozen painter currently ignores hidden clipping: the independent oracle
+observes 800 blue pixels instead of 400. Import therefore explicitly refuses hidden
+with `unsupported-svg-symbol-hidden-clip` until that read-only owner is corrected.
+The required native hidden-clip test remains failed, not skipped or diluted.
+Visible raw compiler import and paint pass. Compiler root style overflow:visible is preserved. Entities, unresolved/external
+references, cycles, arbitrary overflow/CSS and invalid MIME/hash/budgets reject.
+Glyph label paint does not create source ranges, text or label-level AX meaning.
+
+The dynamic required capability is `image-layout-v1`. Every image in a supplemented
+snapshot carries metadata; legacy images keep their old point natural-size policy.
+Old semantic-tree-v1 documents remain valid. Old clients explicitly fail on new
+meaning, even for warmed document/asset/action caches. New clients advertise the
+supported set and decode dynamic requirements. Public and generic Codable decoders
+reject unknown/missing supplement fields or missing capability. Defaulted Swift
+memberwise initialization preserves old callers. One rebinding operation preserves
+metadata across session and host copies; generic RecoveryStore roundtrips use the
+same model without a duplicate store or new operation.
+
+Evidence: `/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/contract-closure/NA09`.
+Commands, actual exits/counts/skips, source/asset hashes and offscreen paint remain
+separate from unsupported scope. Contract/Objects/Services and affected native
+interaction/ReadingSession/recovery behaviors run on the current host with Swift 5,
+warnings-as-errors, arm64 macOS13 target. This is not macOS13 runtime certification.
+NA10's separate TeX answer path may use existing object interfaces with asynchronous
+lifetime guards; NA09 does not edit the frozen MathML helper/painter. Full app,
+GUI/VoiceOver, F04 ordered deltas/full page fidelity, TeX and runtime delivery remain
+open gates. No live installation, service restart, push, Rust or Cloud build occurs.

@@ -25,14 +25,17 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
+CLOSURE = Path(os.environ["NA09_ROOT"]).resolve() if os.environ.get("NA09_ROOT") else None
+EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/objects'
+ISOLATED = CLOSURE if CLOSURE else DEV
 RUNTIME = DEV / 'dependencies/mathjax413'
 OWNED = ['apps/macos/NativeReaderObjectRenderer.swift', 'apps/macos/NativeReaderPagedLayout.swift',
          'tools/flow-reader/native/math_layout.mjs', 'tests/flow-app/native-reader-app/ObjectsTests.swift',
          'tests/flow-app/native-reader-app/test_objects.py',
          'tests/flow-app/native-reader-app/fixtures/objects.typ',
          'tests/flow-app/native-reader-app/fixtures/objects.expect.json']
-for name, value in {'TMPDIR': DEV / 'tmp/objects', 'CLANG_MODULE_CACHE_PATH': DEV / 'cache/objects/clang',
-                    'SWIFT_MODULECACHE_PATH': DEV / 'cache/objects/swift'}.items():
+for name, value in {'TMPDIR': ISOLATED / 'tmp/objects', 'CLANG_MODULE_CACHE_PATH': ISOLATED / 'cache/objects/clang',
+                    'SWIFT_MODULECACHE_PATH': ISOLATED / 'cache/objects/swift'}.items():
     value.mkdir(parents=True, exist_ok=True)
     os.environ[name] = str(value)
 sys.path.insert(0, str(REPO / 'tools/flow-reader'))
@@ -66,7 +69,7 @@ def prepare_input_refresh(output, compiler):
     entry.write_text('#set page(width: 320pt, height: 360pt, margin: 20pt)\n'
                      '#set text(size: 14pt)\nStable input refresh office 한글.\n')
     packages = REPO / 'tools/flow-reader/packages'
-    cache = DEV / 'cache/objects/typst-packages'
+    cache = ISOLATED / 'cache/objects/typst-packages'
     if not cache.is_dir():
         raise RuntimeError('existing copied package cache required')
     profile = '(version 1)(allow default)(deny network*)' + ''.join(
@@ -117,8 +120,8 @@ def prepare_input_refresh(output, compiler):
 class ObjectsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ.get('NA03_OUTPUT', str(DEV / 'test-output/objects/original-pages-v3' / ('run-' + str(time.time_ns()))))).resolve()
-        if not cls.out.is_relative_to(DEV / 'test-output/objects') or cls.out.exists():
+        cls.out = Path(os.environ.get('NA03_OUTPUT', str(EVIDENCE / ('objects-' + str(time.time_ns()))))).resolve()
+        if not cls.out.is_relative_to(EVIDENCE) or cls.out.exists():
             raise RuntimeError('NA03_OUTPUT must be a fresh DevSSD object evidence directory')
         cls.out.mkdir(parents=True)
         cls.commands = []
@@ -151,7 +154,7 @@ class ObjectsTests(unittest.TestCase):
                 raise RuntimeError('exact offline 4.1.3 runtime required')
         # Existing cache only. Missing cache is a blocker, never a download.
         source_cache = Path.home() / 'Library/Caches/typst/packages'
-        cache = DEV / 'cache/objects/typst-packages'
+        cache = ISOLATED / 'cache/objects/typst-packages'
         if not cache.exists():
             if not source_cache.is_dir():
                 raise RuntimeError('existing local package cache missing')
@@ -238,11 +241,12 @@ class ObjectsTests(unittest.TestCase):
         (cls.out / 'raw-labeled.svg').write_text(svgs[-1])
         rich_bundle = split_document(raw, cls.rich_report['revision'], max_blocks=2)
         cls.blockers = []
+        cls.raw_imports = {}
         for label, candidate in [('full-rich-compiler', rich_bundle),
                                  ('labeled-cetz', SectionBundle({'revision': cls.rich_report['revision'], 'sections': [{'id': 'probe'}]},
                                                               {'probe': ('<html><body><figure>' + svgs[-1] + '</figure></body></html>').encode()}, {}, []))]:
             try:
-                import_accepted_document(candidate, document_id='objects', service_id='isolated', generation=1, identity_scope='fixture')
+                cls.raw_imports[label] = import_accepted_document(candidate, document_id='objects', service_id='isolated', generation=1, identity_scope='fixture')
             except NativeImportError as error:
                 cls.blockers.append(dict(construct=label, code=str(error), fixtureSHA256=digest(source / 'main.typ'),
                     htmlSHA256=hashlib.sha256(b''.join(candidate.documents.values())).hexdigest(), compilerExit=cls.rich_report['exitCode']))
@@ -259,6 +263,18 @@ class ObjectsTests(unittest.TestCase):
                         fixtureSHA256=digest(source / 'main.typ'), htmlSHA256=hashlib.sha256(tags[0]).hexdigest(), tag=tags[0].decode()))
                 break
         save(cls.out / 'importer-blockers.json', cls.blockers)
+        if cls.blockers:
+            raise RuntimeError('raw compiler import remains blocked: ' + repr(cls.blockers))
+        raw_import = cls.raw_imports['full-rich-compiler']
+        save(cls.out / 'raw-native.json', raw_import.document)
+        (cls.out / 'raw-assets').mkdir()
+        for key, value in raw_import.assets.items():
+            (cls.out / 'raw-assets' / key).write_bytes(value)
+        # The exact newly compiled tree, no controlled additions/revision.
+        save(cls.out / 'raw-origin.json', dict(revision=cls.rich_report['revision'],
+            htmlSHA256=digest(cls.out / 'rich-compiled/document.html'), sourceSHA256=digest(source / 'main.typ'),
+            assets={key: hashlib.sha256(value).hexdigest() for key, value in raw_import.assets.items()},
+            scope='actual compiler SectionBundle, fixture authority; raw HTML unmodified'))
         command([cls.binary, 'requests', cls.out, HERE / 'fixtures/objects.expect.json'])
         cls.helper_command = ['/usr/bin/sandbox-exec', '-p', '(version 1)(allow default)(deny network*)(deny file-write*)',
                               node, REPO / 'tools/flow-reader/native/math_layout.mjs', '--runtime', RUNTIME]
@@ -268,6 +284,8 @@ class ObjectsTests(unittest.TestCase):
             raw = command(cls.helper_command, json.dumps(request['input']), timeout=15)
             save(cls.out / 'math' / (request['id'] + '.json'), json.loads(raw))
         save(cls.out / 'worker-config.json', dict(node=node, helper=str(REPO / 'tools/flow-reader/native/math_layout.mjs'), runtime=str(RUNTIME)))
+        cls.raw_result = json.loads(command([cls.binary, 'raw-import', cls.out, HERE / 'fixtures/objects.expect.json']))
+        save(cls.out / 'raw-paint.json', cls.raw_result)
         cls.result = json.loads(command([cls.binary, 'verify', cls.out, HERE / 'fixtures/objects.expect.json'], timeout=120))
         save(cls.out / 'native-results.json', cls.result)
         # Retain tool/runtime/source/oracle/package provenance even when later
@@ -292,7 +310,7 @@ class ObjectsTests(unittest.TestCase):
     def test_original_compiler_pages_pdfkit(self):
         original = self.out / 'original'
         original.mkdir()
-        cache = DEV / 'cache/objects/typst-packages'
+        cache = ISOLATED / 'cache/objects/typst-packages'
         packages = REPO / 'tools/flow-reader/packages'
         # Test-only captured input fingerprint. This is not an issued server
         # accepted-publication token; the production host must supply its owner.
@@ -373,17 +391,26 @@ class ObjectsTests(unittest.TestCase):
         save(self.out / 'refresh/native-results.json', result)
         self.assertTrue(result['freshInputAdopted'])
 
-    def test_actual_labeled_compiler_import_gate_is_explicit(self):
+    def test_actual_labeled_compiler_raw_import_and_paint(self):
         self.assertEqual(self.rich_report['exitCode'], 0)
-        codes = {b['construct']: b['code'] for b in self.blockers}
-        self.assertEqual(codes.get('labeled-cetz'), 'unsupported-svg-primitive')
-        self.assertEqual(codes.get('compiler-raster-attributes'), 'unsupported-attribute')
+        self.assertTrue(self.rich_report['contentGatePassed'])
+        self.assertEqual(self.blockers, [])
+        raw = self.raw_imports['full-rich-compiler']
+        self.assertEqual(raw.document['identity']['revision'], self.rich_report['revision'])
+        self.assertEqual(raw.document['requiredCapabilities'], ['image-layout-v1', 'semantic-tree-v1'])
+        self.assertEqual(self.raw_result['rasterCases'], len(self.oracle['rawImageLayouts']))
+        self.assertGreater(self.raw_result['paintedAssets'], 4)
+        self.assertGreater(self.raw_result['labeledBlackInk'], 80)
         self.assertEqual(self.result['richAssetCases'], 15)
         origin = json.loads((self.out / 'snapshot-origin.json').read_text())
-        self.assertEqual(self.model['identity']['scope'], 'fixture')
         self.assertNotEqual(origin['compilerBaseRevision'], self.model['identity']['revision'])
         self.assertEqual(origin['fixtureRevision'], self.model['identity']['revision'])
-        self.assertGreater(self.result['labeledBlackInk'], 80)
+
+    def test_svg_symbol_overflow_clip_policy(self):
+        # Required independent native oracle. Keep a renderer defect visible;
+        # raw import success must never mask hidden/visible clip disagreement.
+        result = json.loads(self.command([self.binary, 'symbol-overflow', self.out, HERE / 'fixtures/objects.expect.json']))
+        self.assertEqual(result, [{'overflow': 'visible', 'bluePixels': 800}, {'overflow': 'hidden', 'bluePixels': 400}])
 
     def test_actual_compiler_independent_semantics(self):
         cells = [n for n in self.nodes if n['kind'] == 'cell']

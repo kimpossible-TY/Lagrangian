@@ -359,7 +359,6 @@ struct NativeReaderFixtureProvider: NativeReaderDocumentProviding {
   func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument {
     let value = try await load()
     guard value.identity == context.target else { throw NativeReaderContractError.wrongTarget }
-    return NativeReaderDocument(schemaVersion: value.schemaVersion, identity: value.identity, generation: context.generation,
-      requiredCapabilities: value.requiredCapabilities, blocks: value.blocks, assets: value.assets, diagnostics: value.diagnostics)
+    return value.rebinding(generation: context.generation)
   }
 }

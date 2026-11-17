@@ -231,8 +231,7 @@ import Foundation
         let current = epoch
         let generation = try store.beginRequest()
         let document = snapshot.document
-        let candidate = NativeReaderDocument(schemaVersion: document.schemaVersion, identity: document.identity, generation: generation,
-            requiredCapabilities: document.requiredCapabilities, blocks: document.blocks, assets: document.assets, diagnostics: document.diagnostics)
+        let candidate = document.rebinding(generation: generation)
         let request = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
         pending = Candidate(document: candidate, context: request, restoration: snapshot.restoration)
         isReadOnly = true; state = .loading; failure = nil; onChange?()

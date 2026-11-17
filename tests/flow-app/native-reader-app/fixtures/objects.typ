@@ -66,6 +66,9 @@ See @formula and @blue.
   #figure(context { if target() == "html" { html.frame(labeled) } else { labeled } }, caption: [Labeled CeTZ]) <labeled>
   #figure(image("pattern.png"), caption: [Raster PNG]) <raster>
   Inline #box(image("pattern.jpg")) end.
+  #figure(image("pattern.png", width: 48pt, height: 18pt, fit: "stretch"), caption: [Authored stretch])
+  Width-only #box(image("pattern.jpg", width: 32pt)) tail.
+  Height-only #box(image("pattern.png", height: 15pt)) tail.
 ]
 
 ]
