@@ -61,12 +61,15 @@ class ExternalEngineBundle(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # The external engine treats /var and /private/var as different project roots.
-        temp = tempfile.TemporaryDirectory(prefix='.flow-bundle-tests-', dir=Path.home()); cls.addClassCleanup(temp.cleanup)
+        temp = tempfile.TemporaryDirectory(prefix='.flow-bundle-tests-'); cls.addClassCleanup(temp.cleanup)
         cls.root = Path(temp.name).resolve()
         cls.app = cls.root / 'built/Lagrangian.app'
         cls.engine = Path(os.environ['FLOW_TEST_ENGINE']).expanduser().resolve()
         cls.input_hash = package.digest(cls.engine)
-        cls.env = {'FLOW_DATA_DIR': str(cls.root / 'data'), 'FLOW_LOG_DIR': str(cls.root / 'logs')}
+        cls.env = {'FLOW_DEV_ROOT': str(cls.root),
+                   'FLOW_DATA_DIR': str(cls.root / 'home/Library/Application Support/Lagrangian'),
+                   'FLOW_LOG_DIR': str(cls.root / 'home/Library/Logs/Lagrangian')}
+        cls.data = Path(cls.env['FLOW_DATA_DIR'])
         with patch.dict(os.environ, cls.env):
             package.build(argparse.Namespace(engine=cls.engine, output=cls.app, version='0.1.0', identity=os.environ.get('FLOW_TEST_SIGN_IDENTITY', '-')))
 
@@ -74,12 +77,40 @@ class ExternalEngineBundle(unittest.TestCase):
         with patch.dict(os.environ, self.env):
             manifest = package.validate(self.app)
             self.assertEqual(manifest['engineSource'], 'external')
+            self.assertIn('-warnings-as-errors', manifest['appBuild']['compilerArgv'])
+            self.assertIn('arm64-apple-macosx13.0' if package.platform.machine() == 'arm64' else 'x86_64-apple-macosx13.0', manifest['appBuild']['compilerArgv'])
+            self.assertEqual(manifest['appBuild']['environment']['TMPDIR'], os.environ['TMPDIR'])
+            for relative, expected in manifest['appBuild']['sourceSHA256'].items():
+                self.assertEqual(package.digest(ROOT / relative), expected)
+            self.assertEqual(package.bundle_checksum(self.app), json.loads((self.app.parent / 'release.json').read_text())['bundleChecksum'])
             self.assertEqual(manifest['engineInputSHA256'], self.input_hash)
             self.assertEqual(manifest['engineVersion'], package.capture([self.engine, '--version']))
             destination = self.root / 'installed/Lagrangian.app'
             package.replace_app(self.app, destination, self.root / 'install-data')
             self.assertEqual(package.validate(destination)['engineSHA256'], manifest['engineSHA256'])
         self.assertEqual(package.digest(self.engine), self.input_hash)
+
+    def test_dev_root_isolates_migration_and_cli_without_live_launchctl(self):
+        isolated = self.root / 'cli-isolated'
+        home = isolated / 'home'
+        legacy = home / 'Library/Application Support/tinymist-flow'
+        legacy.mkdir(parents=True)
+        settings = {'schemaVersion': 1, 'selectedID': '', 'profiles': []}
+        (legacy / 'profiles.json').write_text(json.dumps(settings))
+        argv = [package.executable(self.app), '--dev-root', str(isolated)]
+        result = subprocess.run([*argv, '--migrate-data'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        destination = home / 'Library/Application Support/Lagrangian/profiles.json'
+        self.assertEqual(json.loads(destination.read_text()), settings)
+        self.assertTrue(legacy.is_symlink())
+        result = subprocess.run([*argv, '--profiles'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), settings)
+        for operation in (['--control', 'stop', 'fixture'], ['--login', 'off'], ['--status', 'fixture'], ['--background']):
+            result = subprocess.run([*argv, *operation], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('disabled with a dev root', result.stderr)
+        self.assertFalse((home / 'Library/LaunchAgents').exists())
 
     def test_preview_delivers_both_themes_through_configured_origin(self):
         project = self.root / 'project'; project.mkdir()
@@ -88,7 +119,7 @@ class ExternalEngineBundle(unittest.TestCase):
                                         '#set text(fill: if dark { white } else { black })\nFlow integration fixture\n')
         with socket.socket() as reservation:
             reservation.bind(('127.0.0.1', 0)); port = reservation.getsockname()[1]
-        data = self.root / 'data'; data.mkdir(exist_ok=True)
+        data = self.data; data.mkdir(parents=True, exist_ok=True)
         origin = 'https://preview.example'
         profile = {'id': 'fixture', 'name': 'Fixture', 'root': str(project), 'entry': 'main.typ', 'fonts': [],
                    'packages': '', 'port': port, 'publicURL': origin, 'label': 'com.example.flow.fixture'}

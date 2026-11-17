@@ -1,4 +1,7 @@
 import Foundation
+#if NATIVE_SHELL_TESTS
+import AppKit
+#endif
 
 private final class TestAgents: ProjectControlling {
   private let lock = NSLock()
@@ -100,17 +103,63 @@ private final class Fixture {
 
 @main
 enum ReadingSessionTests {
-  static func main() throws {
+  @MainActor static func main() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     try Data("Fixture".utf8).write(to: root.appendingPathComponent("main.typ"))
     let scenario = CommandLine.arguments[1]
+    if scenario.hasPrefix("native-") {
+      #if NATIVE_SHELL_TESTS
+      try nativeScenario(scenario, root: root)
+      print("passed")
+      return
+      #else
+      throw FlowError(message: "Native shell tests require the AppKit build")
+      #endif
+    }
     let fixture = Fixture(root: root)
     let controller = fixture.controller!
     defer { fixture.finish() }
 
     switch scenario {
+    case "dev-isolation":
+      let live = root.appendingPathComponent("live")
+      let dev = root.appendingPathComponent("isolated")
+      let config = try FlowRuntimeConfiguration(arguments: ["--dev-root", dev.path, "--profiles"],
+        variables: ["FLOW_DATA_DIR": live.path, "FLOW_LOG_DIR": live.path],
+        userHome: live, executable: root.appendingPathComponent("flow"))
+      try require(config.environment.userHome.path == dev.appendingPathComponent("home").path, "home not isolated")
+      for path in [config.environment.support, config.environment.logRoot, config.environment.agents] {
+        try require(path.path.hasPrefix(dev.path + "/home/Library/"), "isolated path escaped")
+      }
+      let legacy = config.environment.userHome.appendingPathComponent(AppDataMigration.legacySupportPath)
+      try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+      try Data("retained".utf8).write(to: legacy.appendingPathComponent("marker"))
+      try AppDataMigration.migrateDefaults(home: config.environment.userHome, variables: config.variables)
+      try require(FileManager.default.fileExists(atPath: config.environment.support.appendingPathComponent("marker").path), "isolated migration failed")
+      try require(!FileManager.default.fileExists(atPath: live.path), "live root touched")
+      for arguments in [["--dev-root", live.path], ["--dev-root", "/"], ["--dev-root", "relative"],
+                        ["--native-reader-fixture", "/tmp/fixture"],
+                        ["--dev-root", dev.path, "--control", "stop", "fixture"],
+                        ["--dev-root", dev.path, "--status", "fixture"]] {
+        do {
+          _ = try FlowRuntimeConfiguration(arguments: arguments, variables: [:], userHome: live,
+                                           executable: root.appendingPathComponent("flow"))
+          throw FlowError(message: "unsafe dev configuration accepted")
+        } catch let error as FlowError {
+          try require(error.message != "unsafe dev configuration accepted", error.message)
+        }
+      }
+      let escaped = root.appendingPathComponent("escaped")
+      try FileManager.default.createDirectory(at: escaped, withIntermediateDirectories: true)
+      try FileManager.default.createSymbolicLink(at: escaped.appendingPathComponent("home"), withDestinationURL: live)
+      do {
+        _ = try FlowRuntimeConfiguration(arguments: ["--dev-root", escaped.path], variables: [:],
+          userHome: live, executable: root.appendingPathComponent("flow"))
+        throw FlowError(message: "symlink escape accepted")
+      } catch let error as FlowError { try require(error.message != "symlink escape accepted", error.message) }
+
     case "read-once":
       try fixture.begin()
       controller.read()
@@ -360,3 +409,169 @@ enum ReadingSessionTests {
     }
   }
 }
+
+
+#if NATIVE_SHELL_TESTS
+@MainActor private final class TestNativePresenter: NativeReaderDocumentPresenting {
+  var documents: [NativeReaderDocument] = []
+  var callback: ((NativeReadProgress) -> Void)?
+  var cancels = 0
+  func present(_ document: NativeReaderDocument, progress: @escaping (NativeReadProgress) -> Void) {
+    documents.append(document)
+    callback = progress
+    progress(.windowInitialized)
+  }
+  func cancel() { cancels += 1; callback = nil }
+}
+
+@MainActor private func nativeScenario(_ name: String, root: URL) throws {
+  _ = NSApplication.shared
+  NSApp.setActivationPolicy(.prohibited)
+  let profile = Profile(id: "fixture", name: "Native fixture", root: root.path, entry: "main.typ",
+    fonts: [], packages: "", port: 24650, publicURL: "", label: "test.native.fixture")
+  if name == "native-progress" || name == "native-stale" || name == "native-timeout" {
+    let agents = TestAgents()
+    var callback: ((NativeReadProgress) -> Void)?
+    var cancellations = 0, requests = 0, browserOpens = 0
+    let controller = ReadingSessionController(launchAgents: agents, onChange: { _ in },
+      openBrowser: { _ in browserOpens += 1; return true },
+      nativeRead: { _, progress in
+        requests += 1
+        callback = progress
+        return { cancellations += 1 }
+      }, validate: { _ in precondition(!Thread.isMainThread) },
+      startupTimeout: name == "native-timeout" ? 0.08 : 2)
+    defer { controller.dispose() }
+    controller.select(profile)
+    controller.read()
+    controller.read()
+    try spin { callback != nil }
+    var responsive = false
+    DispatchQueue.main.async { responsive = true }
+    try spin { responsive }
+    try require(requests == 1 && agents.events.isEmpty && browserOpens == 0, "native request duplicated or touched external service")
+    callback?(.painted)
+    drain()
+    try require(controller.snapshot.phase == .requested, "paint before acceptance was trusted")
+    callback?(.accepted)
+    try spin { controller.snapshot.phase == .accepted }
+    try require(controller.snapshot.isBusy, "semantic acceptance claimed paint readiness")
+    if name == "native-stale" {
+      controller.select(nil)
+      callback?(.windowInitialized)
+      callback?(.painted)
+      drain()
+      try require(controller.snapshot.profileID == nil && controller.snapshot.phase != .painted && cancellations == 1,
+                  "stale callback survived selection")
+    } else if name == "native-timeout" {
+      try spin { controller.snapshot.phase == .failed }
+      callback?(.windowInitialized)
+      callback?(.painted)
+      drain()
+      try require(cancellations == 1 && controller.snapshot.phase == .failed, "timeout did not cancel presentation")
+    } else {
+      callback?(.windowInitialized)
+      try spin { controller.snapshot.phase == .windowInitialized }
+      try require(controller.snapshot.isBusy, "window creation was reported as paint")
+      callback?(.painted)
+      try spin { controller.snapshot.phase == .painted }
+      try require(!controller.snapshot.isBusy, "paint did not release busy state")
+      controller.setSleeping(true)
+      callback?(.painted)
+      drain()
+      try require(controller.snapshot.phase == .sleeping && cancellations == 1, "sleep left native request alive")
+    }
+    return
+  }
+  if name == "native-external" || name == "native-save" {
+    let environment = AppEnvironment(variables: [:], userHome: root, executable: root.appendingPathComponent("flow"))
+    let agents = TestAgents()
+    let persistence = SettingsStore(directory: environment.support)
+    let app = FlowApp(environment: environment,
+      projectService: ProjectService(store: persistence, launchAgents: agents))
+    var nativeRequests = 0, externalOpens = 0
+    var probes: [(PreviewReadiness) -> Void] = []
+    app.session = ReadingSessionController(launchAgents: agents,
+      onChange: { [weak app] in app?.render($0) },
+      openBrowser: { _ in externalOpens += 1; return true },
+      nativeRead: { selected, progress in
+        nativeRequests += 1
+        if name == "native-save" {
+          precondition(selected.name == "Saved native fixture")
+          precondition((try? persistence.load().profiles.first?.name) == selected.name)
+        }
+        progress(.accepted); progress(.windowInitialized); progress(.painted)
+        return {}
+      }, probe: { _, completion in probes.append(completion); return {} })
+    app.settings = Settings(selectedID: profile.id, profiles: [profile])
+    try persistence.save(app.settings)
+    app.buildWindow()
+    app.populate()
+    defer { app.session.dispose(); app.window.close() }
+    if name == "native-external" {
+      app.openExternalPreview()
+      try spin { !probes.isEmpty }
+      try require(externalOpens == 0 && nativeRequests == 0, "external action conflated native readiness")
+      probes[0](.ready)
+      try spin { externalOpens == 1 }
+      try require(agents.events == ["start:fixture"], "external lifecycle changed")
+    } else {
+      app.fields["name"]!.stringValue = "Saved native fixture"
+      app.openPreview()
+      try spin { app.snapshot?.phase == .painted }
+      try require(nativeRequests == 1 && externalOpens == 0 && agents.events.isEmpty,
+                  "native settings save duplicated service or browser ownership")
+    }
+    try require(!app.window.isVisible, "headless action activated the app")
+    return
+  }
+  if name == "native-unavailable" {
+    let environment = AppEnvironment(variables: [:], userHome: root, executable: root.appendingPathComponent("flow"))
+    let app = FlowApp(environment: environment, isolated: true)
+    app.settings = Settings(selectedID: profile.id, profiles: [profile])
+    app.buildWindow()
+    app.populate()
+    defer { app.session.dispose(); app.window.close() }
+    app.openPreview()
+    try spin { app.snapshot?.phase == .failed }
+    try require(app.detail.stringValue.contains("서비스가 아직"), "unavailable service was hidden")
+    try require(app.nativeWindow == nil && !app.window.isVisible, "unavailable read activated a window")
+    try require(!app.enabled(#selector(FlowApp.toggleLogin)), "isolated login mutation enabled")
+    try require(!app.enabled(#selector(FlowApp.start)), "isolated launchd control enabled")
+    return
+  }
+  let fixtureURL = URL(fileURLWithPath: CommandLine.arguments[2])
+  let provider = NativeReaderFixtureProvider(url: fixtureURL)
+  let presenter = TestNativePresenter()
+  let controller = NativeReaderWindowController(provider: provider,
+    target: { _ in try await provider.load().identity }, presenter: presenter)
+  defer { controller.dispose() }
+  var events: [NativeReadProgress] = []
+  let cancel = controller.open(profile) { events.append($0) }
+  try spin { !presenter.documents.isEmpty }
+  try require(controller.store.document != nil && presenter.documents.count == 1, "fixture not adopted exactly once")
+  try require(events.count == 2, "semantic/window stages conflated")
+  if name == "native-fixture-shell" {
+    let shell = NativeReaderShellWindow(show: false)
+    shell.present(presenter.documents[0]) { events.append($0) }
+    defer { shell.window?.close() }
+    try require(shell.isWindowLoaded && shell.window?.isVisible == false, "headless shell state: loaded=\(shell.isWindowLoaded), visible=\(String(describing: shell.window?.isVisible))")
+    try require(shell.notice.stringValue.contains("아직"), "shell claimed complete reader support")
+    try require(!shell.body.string.isEmpty, "real fixture text missing from shell")
+    try require(!events.contains { if case .painted = $0 { return true }; return false }, "shell initialization claimed paint")
+  } else if name == "native-fixture-cancel" {
+    let late = presenter.callback
+    cancel()
+    let count = events.count
+    late?(.painted)
+    drain()
+    try require(events.count == count && presenter.cancels > 0, "cancelled presenter acknowledged paint")
+    _ = controller.open(profile) { events.append($0) }
+    try spin { presenter.documents.count == 2 }
+    // Cancelling the older request must leave the new request alive.
+    cancel()
+    presenter.callback?(.painted)
+    try require(events.contains { if case .painted = $0 { return true }; return false }, "old cancellation killed new view")
+  } else { throw FlowError(message: "Unknown native test") }
+}
+#endif

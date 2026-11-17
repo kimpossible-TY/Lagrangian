@@ -19,11 +19,11 @@ class ReadingUI(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(prefix='flow-ui-tests-')
         cls.addClassCleanup(temp.cleanup)
         cls.executable = Path(temp.name) / 'flow-ui-tests'
-        subprocess.run([
-            '/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
+        package.run([
+            '/usr/bin/swiftc', *package.swift_flags(),
             *(p for p in package.swift_sources() if p.name != 'main.swift'),
             ROOT / 'tests/flow-app/FlowAppTests.swift', '-o', cls.executable,
-        ], check=True)
+        ])
 
     def scenario(self, name):
         result = subprocess.run([self.executable, name], capture_output=True, text=True, timeout=15)
@@ -46,6 +46,36 @@ class ReadingUI(unittest.TestCase):
 
     def test_sleep_during_settings_save_cancels_pending_read(self):
         self.scenario('sleep-save')
+
+
+@unittest.skipUnless(sys.platform == 'darwin', 'AppKit tests require macOS')
+class NativeShell(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import os
+        temp = tempfile.TemporaryDirectory(prefix='native-shell-tests-')
+        cls.addClassCleanup(temp.cleanup)
+        cls.executable = Path(temp.name) / 'native-shell-tests'
+        package.run(['/usr/bin/swiftc', *package.swift_flags(), '-D', 'NATIVE_SHELL_TESTS',
+            *(p for p in package.swift_sources() if p.name != 'main.swift'),
+            ROOT / 'tests/flow-app/ReadingSessionTests.swift', '-o', cls.executable])
+        cls.fixture = os.environ.get('FLOW_NATIVE_FIXTURE')
+
+    def scenario(self, name, fixture=False):
+        if fixture and not self.fixture:
+            self.fail('FLOW_NATIVE_FIXTURE must select the actual NA01 fixture, not a synthetic response')
+        result = subprocess.run([self.executable, name, *([self.fixture] if fixture else [])],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_semantic_acceptance_window_initialization_and_paint_are_distinct(self): self.scenario('native-progress')
+    def test_project_switch_rejects_late_paint(self): self.scenario('native-stale')
+    def test_paint_deadline_cancels_request(self): self.scenario('native-timeout')
+    def test_external_action_preserves_existing_service_and_browser_readiness(self): self.scenario('native-external')
+    def test_native_read_saves_settings_before_request(self): self.scenario('native-save')
+    def test_default_native_read_is_honestly_unavailable(self): self.scenario('native-unavailable')
+    def test_real_fixture_initializes_shell_without_activating_window_or_claiming_paint(self): self.scenario('native-fixture-shell', True)
+    def test_cancelled_view_rejects_late_ack_and_preserves_new_request(self): self.scenario('native-fixture-cancel', True)
 
 
 if __name__ == '__main__':

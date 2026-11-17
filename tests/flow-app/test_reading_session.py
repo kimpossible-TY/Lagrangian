@@ -24,17 +24,19 @@ class ReadingSessions(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(prefix='flow-reading-tests-')
         cls.addClassCleanup(temp.cleanup)
         cls.executable = Path(temp.name) / 'reading-tests'
-        subprocess.run([
-            '/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
+        package.run([
+            '/usr/bin/swiftc', *package.swift_flags(),
             *package.swift_sources(include_app=False),
             ROOT / 'tests/flow-app/ReadingSessionTests.swift', '-o', cls.executable,
-        ], check=True)
+        ])
 
     def scenario(self, name, *args):
         result = subprocess.run([self.executable, name, *map(str, args)], capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
+
+    def test_explicit_dev_root_isolates_migration_home_data_logs_and_agents(self): self.scenario('dev-isolation')
 
     def test_readiness_stages_and_double_read(self): self.scenario('read-once')
     def test_main_thread_stays_responsive_and_stop_is_serialized(self): self.scenario('responsive-and-serialized-stop')

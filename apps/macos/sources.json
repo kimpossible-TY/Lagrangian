@@ -9,10 +9,13 @@
     "EngineLaunch.swift",
     "ProjectService.swift",
     "PreviewReadiness.swift",
+    "NativeReaderDocument.swift",
+    "NativeReaderOperations.swift",
     "ReadingSessionController.swift",
     "CLI.swift"
   ],
   "app": [
+    "NativeReaderWindowController.swift",
     "NativeReadingEnvironment.swift",
     "FlowApp.swift",
     "main.swift"

@@ -44,7 +44,41 @@ def swift_sources(include_app=True):
     return [directory / name for section in sections for name in manifest[section]]
 
 def run(args, **kwargs):
-    return subprocess.run([str(a) for a in args], check=True, **kwargs)
+    argv = [str(a) for a in args]
+    started = time.monotonic()
+    status = None
+    try:
+        result = subprocess.run(argv, check=True, **kwargs)
+        status = result.returncode
+        return result
+    except subprocess.CalledProcessError as error:
+        status = error.returncode
+        raise
+    finally:
+        if evidence := os.environ.get('FLOW_BUILD_EVIDENCE'):
+            path = Path(evidence)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            environment = kwargs.get('env', os.environ)
+            with path.open('a') as stream:
+                stream.write(json.dumps({'argv': argv, 'exit': status,
+                    'elapsedSeconds': time.monotonic() - started,
+                    'environment': {key: environment.get(key) for key in
+                        ('TMPDIR', 'CLANG_MODULE_CACHE_PATH', 'SWIFT_MODULECACHE_PATH')}}) + '\n')
+
+
+def swift_flags():
+    flags = ['-swift-version', '5', '-warnings-as-errors',
+             '-target', platform.machine() + '-apple-macosx13.0']
+    if cache := os.environ.get('SWIFT_MODULECACHE_PATH'):
+        flags += ['-module-cache-path', cache]
+    return flags
+
+
+def bundle_checksum(app):
+    # Paths plus file bytes bind a fresh signed bundle independently of source/engine metadata.
+    files = {str(path.relative_to(app)): digest(path) for path in sorted(app.rglob('*')) if path.is_file()}
+    return hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
 
 def capture(args, **kwargs):
     return subprocess.check_output([str(a) for a in args], text=True, **kwargs).strip()
@@ -166,7 +200,8 @@ def build(args):
         manifest = build_bundle(args, staged, engine, engine_version, engine_build)
         if app.exists(): shutil.rmtree(app)
         os.replace(staged, app)
-    write_json(app.parent / 'release.json', {**manifest, 'appExecutableSHA256': digest(executable(app))})
+    write_json(app.parent / 'release.json', {**manifest, 'appExecutableSHA256': digest(executable(app)),
+                                           'bundleChecksum': bundle_checksum(app)})
     print(app)
 
 def build_bundle(args, app, engine, engine_version, engine_build=None):
@@ -175,8 +210,11 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     mac.mkdir(parents=True); resources.mkdir()
     engine_input_hash = digest(engine)
     shutil.copy2(engine, mac / 'flow-engine')
-    run(['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors', '-O',
-         *swift_sources(), '-o', mac / APP_EXECUTABLE])
+    compiler_argv = ['/usr/bin/swiftc', *swift_flags(), '-O',
+                     *swift_sources(), '-o', mac / APP_EXECUTABLE]
+    compile_started = time.monotonic()
+    run(compiler_argv)
+    compile_elapsed = time.monotonic() - compile_started
     with tempfile.TemporaryDirectory() as tmp:
         iconset = Path(tmp) / 'Flow.iconset'; iconset.mkdir()
         for size in (16, 32, 128, 256, 512):
@@ -208,6 +246,31 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
                 'engineInputSHA256': engine_input_hash,
                 'engineSHA256': digest(mac / 'flow-engine'), 'signing': 'ad-hoc' if identity == '-' else identity,
                 'builtAt': dt.datetime.now(dt.timezone.utc).isoformat()}
+    manifest['appBuild'] = {
+        'compilerArgv': list(map(str, compiler_argv)), 'compileElapsedSeconds': compile_elapsed,
+        'swiftVersion': capture(['/usr/bin/swiftc', '--version']),
+        'os': platform.platform(), 'sdkPath': capture(['/usr/bin/xcrun', '--show-sdk-path']),
+        'sdkVersion': capture(['/usr/bin/xcrun', '--show-sdk-version']),
+        'target': platform.machine() + '-apple-macosx13.0',
+        'environment': {key: os.environ.get(key) for key in
+                        ('TMPDIR', 'CLANG_MODULE_CACHE_PATH', 'SWIFT_MODULECACHE_PATH')},
+        'sourceSHA256': {str(path.relative_to(ROOT)): digest(path) for path in
+                          [*swift_sources(), ROOT / 'apps/macos/sources.json', Path(__file__).resolve()]}}
+    # An external app's revision identifies that app, never this build's engine source by inference.
+    input_manifest = engine.parent.parent / 'Resources/release.json'
+    manifest['engineInputProvenance'] = {'path': str(engine), 'sourceRevision': None,
+        'binaryReportedCommit': (re.search(r'Commit SHA:\s+([0-9a-f]{40})', engine_version).group(1)
+                                 if re.search(r'Commit SHA:\s+([0-9a-f]{40})', engine_version) else None)}
+    if input_manifest.is_file():
+        previous = json.loads(input_manifest.read_text())
+        manifest['engineInputProvenance'].update({
+            'manifestPath': str(input_manifest), 'manifestSHA256': digest(input_manifest),
+            'inputAppSourceRevision': previous.get('sourceRevision'),
+            'inputAppSourceDirty': previous.get('sourceDirty'),
+            'declaredEngineSHA256': previous.get('engineSHA256'),
+            'matchesDeclaredEngine': previous.get('engineSHA256') == engine_input_hash,
+            'sourceRevision': previous.get('sourceRevision') if previous.get('engineSource') == 'native' else None,
+            'engineSource': previous.get('engineSource'), 'engineBuild': previous.get('engineBuild')})
     if identity != '-':
         certificate = signing_certificate(mac / 'flow-engine')
         if not certificate: raise ValueError('Certificate signing produced no certificate')

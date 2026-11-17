@@ -1,7 +1,7 @@
 import Foundation
 
 enum ReadingSessionPhase {
-  case idle, validating, requested, running, ready, stopped, sleeping, failed
+  case idle, validating, requested, running, ready, accepted, windowInitialized, painted, stopped, sleeping, failed
 }
 
 struct ReadingSessionSnapshot {
@@ -13,7 +13,7 @@ struct ReadingSessionSnapshot {
   var isBusy = false
 }
 
-private final class ReadingOperationTicket {
+final class ReadingOperationTicket {
   private let lock = NSLock()
   private var cancelled = false
   var isCancelled: Bool {
@@ -32,6 +32,10 @@ private final class ReadingOperationTicket {
 /// Platform sleep/network/power events are supplied by the AppKit composition.
 final class ReadingSessionController {
   typealias Probe = (Profile, @escaping (PreviewReadiness) -> Void) -> () -> Void
+  typealias NativeRead = @MainActor (Profile, @escaping (NativeReadProgress) -> Void) -> () -> Void
+  private let nativeRead: NativeRead?
+  private var cancelNativeRead: (() -> Void)?
+  private var nativeStage = 0
   private let launchAgents: ProjectControlling
   private let probe: Probe
   private let validate: (Profile) throws -> Void
@@ -67,11 +71,13 @@ final class ReadingSessionController {
     launchAgents: ProjectControlling,
     onChange: @escaping (ReadingSessionSnapshot) -> Void,
     openBrowser: @escaping (URL) -> Bool,
+    nativeRead: NativeRead? = nil,
     probe: @escaping Probe = PreviewReadinessProbe.start,
     validate: @escaping (Profile) throws -> Void = { try $0.validate(checkFiles: true) },
     startupTimeout: TimeInterval = 30,
     retryInterval: TimeInterval = 0.5
   ) {
+    self.nativeRead = nativeRead
     self.launchAgents = launchAgents
     self.onChange = onChange
     self.openBrowser = openBrowser
@@ -95,6 +101,62 @@ final class ReadingSessionController {
   }
 
   func read() {
+    guard !disposed, !sleeping, !commandRunning, deadline == nil, let profile else { return }
+    if let nativeRead {
+      invalidate()
+      let current = generation
+      let ticket = operation
+      commandRunning = true
+      deadline = Date().addingTimeInterval(startupTimeout)
+      let timeout = DispatchWorkItem { [weak self] in
+        guard let self, self.isCurrent(current) else { return }
+        self.fail("네이티브 읽기 시간이 초과되었습니다. 다시 시도하세요.")
+      }
+      deadlineTimer = timeout
+      DispatchQueue.main.asyncAfter(deadline: .now() + startupTimeout, execute: timeout)
+      publish(.validating, "설정을 확인하는 중…")
+      worker.async {
+        guard !ticket.isCancelled else { return }
+        let result = Result { try self.validate(profile) }
+        DispatchQueue.main.async {
+          guard self.isCurrent(current) else { return }
+          self.commandRunning = false
+          if case .failure(let error) = result { self.fail(error.localizedDescription); return }
+          self.publish(.requested, "네이티브 문서를 요청하는 중…")
+          guard self.isCurrent(current) else { return }
+          let cancel = nativeRead(profile) { [weak self = self] progress in
+            DispatchQueue.main.async {
+              guard let self, self.isCurrent(current), !self.sleeping else { return }
+              switch progress {
+              case .accepted:
+                guard self.nativeStage == 0 else { return }
+                self.nativeStage = 1
+                self.publish(.accepted, "의미 문서 수락됨 · 네이티브 표시를 기다리는 중…")
+              case .windowInitialized:
+                guard self.nativeStage == 1 else { return }
+                self.nativeStage = 2
+                self.publish(.windowInitialized, "네이티브 창 초기화됨 · 그리기를 기다리는 중…")
+              case .painted:
+                guard self.nativeStage == 2 else { return }
+                self.nativeStage = 3
+                self.deadline = nil
+                self.deadlineTimer?.cancel()
+                self.deadlineTimer = nil
+                self.publish(.painted, "네이티브 문서 그리기 확인됨")
+              case .failed(let reason): self.fail(reason)
+              }
+            }
+          }
+          if self.isCurrent(current) { self.cancelNativeRead = cancel } else { cancel() }
+        }
+      }
+    } else {
+      readExternally()
+    }
+  }
+
+  /// Existing paged/browser lifecycle remains an explicit external action.
+  func readExternally() {
     guard !disposed, !sleeping, !commandRunning, deadline == nil, let profile else { return }
     beginCommand("start", profile: profile, open: true)
   }
@@ -182,7 +244,7 @@ final class ReadingSessionController {
   func refresh() { refresh(forceDocument: true) }
 
   private func refresh(forceDocument: Bool) {
-    guard !disposed, !sleeping, !commandRunning else { return }
+    guard !disposed, !sleeping, !commandRunning, cancelNativeRead == nil else { return }
     guard let profile else {
       publish(.idle, "프로젝트를 추가해 시작하세요")
       return
@@ -358,6 +420,10 @@ final class ReadingSessionController {
 
   private func invalidate() {
     generation += 1
+    let cancel = cancelNativeRead
+    cancelNativeRead = nil
+    nativeStage = 0
+    cancel?()
     operation.cancel()
     operation = ReadingOperationTicket()
     cancelCurrentProbe()
@@ -387,5 +453,88 @@ final class ReadingSessionController {
     snapshot.detail = detail ?? profile?.url ?? ""
     snapshot.isBusy = commandRunning || deadline != nil
     onChange(snapshot)
+  }
+}
+
+
+/// Presentation acknowledgments are separate from service or semantic readiness.
+enum NativeReadProgress { case accepted, windowInitialized, painted, failed(String) }
+
+/// Parsed before migration. HOME is never changed; all app-owned roots move together.
+struct FlowRuntimeConfiguration {
+  let arguments: [String]
+  let environment: AppEnvironment
+  let variables: [String: String]
+  let isolated: Bool
+  let fixture: URL?
+
+  init(arguments: [String], variables: [String: String], userHome: URL,
+       executable: URL) throws {
+    var remaining = arguments
+    func option(_ name: String) throws -> String? {
+      guard let index = remaining.firstIndex(of: name) else { return nil }
+      guard index + 1 < remaining.count, !remaining[index + 1].hasPrefix("--") else {
+        throw FlowError(message: "Missing value for \(name)")
+      }
+      let value = remaining[index + 1]
+      remaining.removeSubrange(index...index + 1)
+      guard !remaining.contains(name) else { throw FlowError(message: "Duplicate \(name)") }
+      return value
+    }
+    let rootPath = try option("--dev-root") ?? variables["FLOW_DEV_ROOT"]
+    let fixturePath = try option("--native-reader-fixture")
+    var vars = variables
+    var home = userHome
+    if let rootPath {
+      guard rootPath.hasPrefix("/") else { throw FlowError(message: "Dev root must be absolute") }
+      let root = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().standardizedFileURL
+      let live = userHome.resolvingSymlinksInPath().standardizedFileURL.path
+      guard root.path != "/", root.path != live, !live.hasPrefix(root.path + "/"),
+            !root.path.hasPrefix(live + "/Library/") else {
+        throw FlowError(message: "Dev root must be separate from the live home and Library")
+      }
+      home = root.appendingPathComponent("home")
+      // AppEnvironment owns these conventions; defaults and migrations share the same home.
+      vars.removeValue(forKey: "FLOW_DATA_DIR")
+      vars.removeValue(forKey: "FLOW_LOG_DIR")
+      for directory in [home, home.appendingPathComponent("Library/Application Support/Lagrangian"),
+                        home.appendingPathComponent("Library/Logs/Lagrangian"),
+                        home.appendingPathComponent("Library/LaunchAgents")] {
+        // URL resolution may ignore dangling symlinks; reject those explicitly too.
+        var component = directory
+        while component.path.hasPrefix(root.path + "/") || component.path == root.path {
+          guard (try? FileManager.default.destinationOfSymbolicLink(atPath: component.path)) == nil else {
+            throw FlowError(message: "Dev path contains a symbolic link")
+          }
+          component.deleteLastPathComponent()
+        }
+        let resolved = directory.resolvingSymlinksInPath().standardizedFileURL.path
+        guard resolved.hasPrefix(root.path + "/") else {
+          throw FlowError(message: "Dev path escapes its isolated root")
+        }
+      }
+      if ["--control", "--login", "--status", "--background"].contains(remaining.first ?? "") {
+        throw FlowError(message: "LaunchAgent operations are disabled with a dev root")
+      }
+    }
+    guard fixturePath == nil || rootPath != nil else {
+      throw FlowError(message: "Native fixture requires an explicit dev root")
+    }
+    if let fixturePath, !fixturePath.hasPrefix("/") {
+      throw FlowError(message: "Native fixture path must be absolute")
+    }
+    self.arguments = remaining
+    self.variables = vars
+    self.isolated = rootPath != nil
+    self.fixture = fixturePath.map { URL(fileURLWithPath: $0) }
+    self.environment = AppEnvironment(variables: vars, userHome: home, executable: executable)
+  }
+}
+
+/// Dev windows cannot inspect or mutate the user's launchd domain.
+final class IsolatedProjectController: ProjectControlling {
+  func jobPID(_ label: String) -> Int? { nil }
+  func control(_ action: String, _ profile: Profile) throws {
+    throw FlowError(message: "격리 모드에서는 LaunchAgent 제어를 사용할 수 없습니다.")
   }
 }

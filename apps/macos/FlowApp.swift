@@ -2,15 +2,34 @@ import AppKit
 import UniformTypeIdentifiers
 
 final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+  let isolated: Bool
+  let fixture: URL?
+  var nativeWindow: NativeReaderWindowController?
+  var nativeReadOverride: ReadingSessionController.NativeRead?
   let environment: AppEnvironment
   let store: SettingsStore
   let launchAgents: LaunchAgentService
   let projectService: ProjectService
   var settings = Settings()
   lazy var session = ReadingSessionController(
-    launchAgents: launchAgents,
+    launchAgents: isolated ? IsolatedProjectController() : launchAgents,
     onChange: { [weak self] snapshot in self?.render(snapshot) },
-    openBrowser: { NSWorkspace.shared.open($0) }
+    openBrowser: { NSWorkspace.shared.open($0) },
+    nativeRead: { [weak self] profile, progress in
+      guard let self else { return {} }
+      if let read = self.nativeReadOverride { return read(profile, progress) }
+      guard let fixture = self.fixture, self.isolated else {
+        progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 외부 Reader 열기를 사용할 수 있습니다."))
+        return {}
+      }
+      if self.nativeWindow == nil {
+        let provider = NativeReaderFixtureProvider(url: fixture)
+        self.nativeWindow = NativeReaderWindowController(provider: provider, target: { _ in
+          try await provider.load().identity
+        })
+      }
+      return self.nativeWindow!.open(profile, progress: progress)
+    }
   )
   lazy var readingEnvironment = NativeReadingEnvironment(
     onSleep: { [weak self] in self?.sleepChanged($0) },
@@ -22,13 +41,18 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   var loginEnabled = false
   var readingIntent = 0
 
-  init(environment: AppEnvironment, projectService: ProjectService? = nil) {
+  init(environment: AppEnvironment, projectService: ProjectService? = nil,
+       isolated: Bool = false, fixture: URL? = nil) {
+    self.isolated = isolated
+    self.fixture = fixture
     self.environment = environment
     store = SettingsStore(directory: environment.support)
     launchAgents = LaunchAgentService(environment: environment)
-    self.projectService = projectService ?? ProjectService(store: store, launchAgents: launchAgents)
+    self.projectService = projectService ?? ProjectService(store: store, launchAgents: isolated ? IsolatedProjectController() : launchAgents)
     super.init()
   }
+  var settingsTabs: NSTabView?
+  @objc func showSettings() { showWindow(); settingsTabs?.selectTabViewItem(at: 1) }
   var statusItem: NSStatusItem!
   var window: NSWindow!
   let picker = NSPopUpButton()
@@ -53,7 +77,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     mutate(
       "프로젝트 설정을 불러오는 중…",
       work: {
-        (try store.load(), agents.loginEnabled())
+        (try store.load(), self.isolated ? false : agents.loginEnabled())
       },
       success: { [weak self] loaded in
         guard let self else { return }
@@ -68,6 +92,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     readingIntent += 1
     readingEnvironment.dispose()
     session.dispose()
+    nativeWindow?.dispose()
   }
   func sleepChanged(_ sleeping: Bool) {
     if sleeping { readingIntent += 1 }
@@ -82,6 +107,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     for (title, selector, key) in [
       ("Lagrangian 열기…", #selector(showWindow), ","),
       ("읽기 시작", #selector(openPreview), "o"),
+      ("외부 Reader 열기", #selector(openExternalPreview), ""),
+      ("프로젝트 설정", #selector(showSettings), ""),
       ("선택한 프로젝트 시작", #selector(start), ""),
       ("선택한 프로젝트 중지", #selector(stop), ""),
       ("선택한 프로젝트 재시작", #selector(restart), ""),
@@ -118,8 +145,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func buildWindow() {
     window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 700, height: 720),
-      styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+      contentRect: NSRect(x: 0, y: 0, width: 760, height: 900),
+      styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+    window.minSize = NSSize(width: 720, height: 860)
     window.title = LagrangianIdentity.appName
     window.isReleasedWhenClosed = false
     window.center()
@@ -166,7 +194,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     content.addArrangedSubview(detail)
     content.addArrangedSubview(
       NSStackView(views: [
-        button("읽기 시작", #selector(openPreview)), button("주소 복사", #selector(copyURL)),
+        button("읽기 시작", #selector(openPreview)), button("외부 Reader", #selector(openExternalPreview)),
+        button("주소 복사", #selector(copyURL)),
         button("시작", #selector(start)), button("중지", #selector(stop)),
         button("재시작", #selector(restart)), button("로그", #selector(openLogs)),
       ]))
@@ -186,10 +215,27 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     grid.rowSpacing = 10
     grid.columnSpacing = 12
     grid.xPlacement = .leading
-    content.addArrangedSubview(grid)
+    let settingsPanel = NSStackView(views: [grid])
+    settingsPanel.orientation = .vertical
+    settingsPanel.alignment = .leading
+    let tabs = NSTabView()
+    tabs.tabViewType = .topTabsBezelBorder
+    let home = NSTabViewItem(identifier: "home")
+    home.label = "홈"
+    let summary = NSTextField(wrappingLabelWithString: "프로젝트를 선택하고 읽기를 시작하세요. 문서 창은 앱 안에서 열립니다. 외부 Reader는 기존 프리뷰를 엽니다.")
+    home.view = summary
+    let project = NSTabViewItem(identifier: "settings")
+    project.label = "프로젝트 설정"
+    project.view = settingsPanel
+    tabs.addTabViewItem(home)
+    tabs.addTabViewItem(project)
+    tabs.widthAnchor.constraint(equalToConstant: 640).isActive = true
+    tabs.heightAnchor.constraint(equalToConstant: 290).isActive = true
+    settingsTabs = tabs
+    content.addArrangedSubview(tabs)
     let hint = NSTextField(
       wrappingLabelWithString:
-        "읽기 시작은 설정을 확인하고 문서가 준비되면 브라우저를 엽니다. 변경한 설정은 먼저 저장됩니다. 글꼴 경로는 프로젝트 기준이며, HTTPS 주소는 Tail Hosting에서 연결하세요."
+        "읽기 시작은 설정을 확인하고 네이티브 문서를 요청합니다. 외부 Reader 열기는 기존 브라우저 프리뷰를 엽니다. 변경한 설정은 먼저 저장됩니다. 글꼴 경로는 프로젝트 기준이며, HTTPS 주소는 Tail Hosting에서 연결하세요."
     )
     hint.font = .systemFont(ofSize: 11)
     hint.textColor = .secondaryLabelColor
@@ -244,10 +290,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func enabled(_ action: Selector?) -> Bool {
     guard let action else { return true }
+    if isolated && [#selector(toggleLogin), #selector(start), #selector(stop),
+                    #selector(restart), #selector(openExternalPreview)].contains(action) { return false }
     if [#selector(addProject), #selector(toggleLogin)].contains(action) {
       return !mutating && snapshot?.isBusy != true
     }
-    if [#selector(openPreview), #selector(start), #selector(restart), #selector(save)].contains(
+    if [#selector(openPreview), #selector(openExternalPreview), #selector(start), #selector(restart), #selector(save)].contains(
       action)
     {
       return active != nil && !mutating && snapshot?.isBusy != true
@@ -287,6 +335,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
   }
   @objc func showWindow() {
+    guard NSApp.activationPolicy() != .prohibited else { return }
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
   }
@@ -345,13 +394,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     updated.publicURL = value("publicURL")
     return updated
   }
-  func saveProfile(readAfterSaving: Bool) {
+  func saveProfile(readAfterSaving: Bool, external: Bool = false) {
     guard !mutating else { return }
     let intent = readingIntent
     do {
       let updated = try editedProfile()
       if updated == active {
-        if readAfterSaving { session.read() }
+        if readAfterSaving { external ? session.readExternally() : session.read() }
         return
       }
       let previous = settings
@@ -365,13 +414,15 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
           guard let self else { return }
           self.settings = next
           self.populate()
-          if readAfterSaving && self.readingIntent == intent { self.session.read() }
+          if readAfterSaving && self.readingIntent == intent {
+            external ? self.session.readExternally() : self.session.read()
+          }
         })
     } catch { session.reportFailure(error) }
   }
   @objc func save() { saveProfile(readAfterSaving: false) }
   func perform(_ action: String) {
-    guard !mutating else { return }
+    guard !mutating, !isolated else { return }
     readingIntent += 1
     session.control(action)
   }
@@ -382,6 +433,11 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard enabled(#selector(openPreview)) else { return }
     readingIntent += 1
     saveProfile(readAfterSaving: true)
+  }
+  @objc func openExternalPreview() {
+    guard enabled(#selector(openExternalPreview)) else { return }
+    readingIntent += 1
+    saveProfile(readAfterSaving: true, external: true)
   }
   @objc func copyURL() {
     if let p = active {
@@ -404,6 +460,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     ])
   }
   @objc func toggleLogin() {
+    guard !isolated else { return }
     let desired = login.state == .on
     login.state = loginEnabled ? .on : .off
     let agents = launchAgents
