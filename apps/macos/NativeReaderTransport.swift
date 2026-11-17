@@ -298,6 +298,7 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
     private let editor: NativeReaderManagedEditor?
     private var transport: NativeReaderTransport?
     private var actions: NativeReaderActions?
+    private var pageTransport: NativeReaderOriginalPageTransport?
     private var epoch = 0
     private var disposed = false
 
@@ -319,10 +320,13 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
                 (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID, editor: editor)
                 guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
             }
-            await transport?.dispose()
+            let oldPages = pageTransport, oldTransport = transport
+            await oldPages?.dispose()
+            await oldTransport?.dispose()
             guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
             let next = NativeReaderTransport(attachment: attachment, network: resolver.network)
             transport = next; actions = NativeReaderActions(transport: next)
+            pageTransport = NativeReaderOriginalPageTransport(transport: next)
         }
         return identity
     }
@@ -330,10 +334,22 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         guard !disposed, let transport else { throw NativeReaderOperationFailure.unavailable }
         return try await transport.document(for: context)
     }
+    func originalPages(for context: NativeReaderRequestContext) async throws -> NativeOriginalPageDelivery {
+        guard !disposed, let pageTransport else { throw NativeReaderOperationFailure.unavailable }
+        return try await pageTransport.pages(for: context)
+    }
     func currentActions() throws -> NativeReaderActions {
         guard !disposed, let actions else { throw NativeReaderOperationFailure.unavailable }
         return actions
     }
-    func invalidate() async { epoch += 1; await transport?.invalidate() }
-    func dispose() async { disposed = true; epoch += 1; await transport?.dispose() }
+    func invalidate() async {
+        epoch += 1
+        let pages = pageTransport, document = transport
+        await pages?.invalidate(); await document?.invalidate()
+    }
+    func dispose() async {
+        disposed = true; epoch += 1
+        let pages = pageTransport, document = transport
+        await pages?.dispose(); await document?.dispose()
+    }
 }

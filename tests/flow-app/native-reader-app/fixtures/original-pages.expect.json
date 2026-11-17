@@ -1,0 +1,11 @@
+{
+  "pages": 256,
+  "nearText": "FarNeedle0",
+  "farText": "FarNeedle255",
+  "maximumRasterPages": 3,
+  "maximumRasterBytes": 16777216,
+  "maximumTextPages": 8,
+  "maximumTextBytes": 1048576,
+  "sourceAnchors": "unsupported",
+  "delivery": "immutable-pdf-full-reset"
+}

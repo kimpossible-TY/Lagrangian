@@ -41,3 +41,10 @@
 - [x] 5.5 F5: verify lost-Send exact history acknowledgment, new-question permission, missing/mismatched history explicit retry and newer private-draft protection through the native Refresh conversation button, including disk-restored pending question/model and late-response guards.
 - [x] 5.6 F6: verify actual final host block/inline image line fragments and logical copy/AX/selection offsets.
 - [x] 5.7 Bind NA10 pinned answer-math worker/context in the actual host and verify reconfiguration/missing-runtime behavior, affected regressions, canonical Typst and strict OpenSpec with exact source/commit evidence.
+
+## 6. NA12 accepted original PDF mode
+
+- [x] 6.1 Bind accepted HTML plus stable PDF dependencies to scoped immutable PDF manifest/resources; verify stale/tamper/failure/same-HTML-new-input/restart guards.
+- [x] 6.2 Compose original-page transport/view with canonical store and PreparedAdoption; verify visible paint, mode/held/cancel/dispose and typed recovery.
+- [x] 6.3 Execute actual 256-page lazy navigation/search/selection/zoom/eviction and measure cache bytes/render count/RSS; verify safe link callbacks and explicit unsupported source anchors.
+- [x] 6.4 Run affected regressions, strict OpenSpec and canonical Typst; hand off exact two Swift files, service DTO/routes, final source SHA and remaining registry/app/GUI gates to D/NA06.

@@ -125,3 +125,11 @@ A supported block image SHALL have presentation line boundaries before and after
 - **WHEN** an accepted paragraph contains before, image and after content
 - **THEN** final native glyph line fragments place block image content on three ordered lines
 - **AND** the inline control remains on one line while both preserve exact logical selections/copy/AX text
+
+### Requirement: Original pages preserve reflow authority boundaries
+Original PDF display SHALL compose the existing canonical store and prepared adoption. Display-only PDF text/bounds and offline PDF recovery SHALL NOT grant semantic source/chat authority. Hidden mode preparation or paint SHALL NOT acknowledge visible-mode Read success. Native reflow's retained layout and fresh source-operation guards SHALL remain intact.
+
+#### Scenario: Enter original mode and return to reflow
+- **WHEN** the reader switches between original pages and native reflow
+- **THEN** each mode owns its geometry/selection and only its visible actual draw acknowledges paint
+- **AND** source actions in original mode are explicitly unsupported while validated reflow actions keep their original path

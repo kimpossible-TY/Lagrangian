@@ -239,3 +239,16 @@ pending question/model separately from a newer private composer draft. Optional
 fields decode older schema-1 snapshots without changing document/input/revision,
 hash, atomic-write, privacy or source authority checks. No credentials or source
 excerpts are added. Supplement evidence is under `test-output/core-review-fixes/v2-ui`.
+
+== NA12 original PDF supplement
+
+The original-page capability is `original-pdf-full-v1`, a scoped immutable PDF
+full-snapshot/reset contract over the existing accepted HTML owner. See
+#link("native-reader-original-pages.typ")[the original-page contract] for exact
+publication bindings, native composition, bounds, actions and verification.
+Reflow retained layout, fresh source operations, local display versus remote32
+selection and pending question/model recovery retain the ec2 correction contract.
+Only visible-mode actual paint acknowledges Read. PDF text/bounds grant no source
+authority; page source actions are unsupported. Raw engine diff-v1 native
+consumption, final registry/app/delivery and actual GUI/VoiceOver remain separate
+gates. The optional typed PDF recovery supplement reuses the existing atomic store.

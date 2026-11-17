@@ -41,16 +41,37 @@ struct NativeReaderRecoveredDraft: Codable {
     var pendingModel: String? = nil
 }
 
+/// Optional full-PDF display recovery supplements the existing typed/atomic store.
+/// No source anchors, credentials, service control or alternate disk owner.
+struct NativeOriginalPageRecovery: Codable {
+    let publication: NativeOriginalPagePublication
+    let data: Data
+    let viewport: NativeReaderOriginalPageView.Recovery
+    func validate(document: NativeReaderDocument) throws {
+        guard let view = UUID(uuidString: publication.viewID), let request = UUID(uuidString: publication.requestID) else { throw NativeOriginalPageError.binding }
+        let context = NativeReaderRequestContext(requestID: request, viewID: view, generation: publication.generation, target: document.identity)
+        try publication.validate(context: context)
+        guard data.count == publication.byteCount,
+              NativeReaderRecoverySnapshot.digest(data) == publication.pdfSHA256,
+              viewport.identity == document.identity, viewport.fingerprint == publication.inputFingerprint,
+              viewport.digest == publication.pdfSHA256, (0..<2048).contains(viewport.page),
+              viewport.scale == nil || (viewport.scale!.isFinite && (0.1...8).contains(viewport.scale!)),
+              [viewport.offsetX, viewport.offsetY].allSatisfy({ $0 == nil || ($0!.isFinite && (0...4096).contains($0!)) }) else { throw NativeOriginalPageError.binding }
+    }
+}
+
 struct NativeReaderRecoverySnapshot: Codable {
     let document: NativeReaderDocument
     let assets: [String: Data]
     let restoration: NativeReaderRestoration
     let drafts: [NativeReaderRecoveredDraft]
     var reviewMarks: [NativeReaderReviewMark] = []
+    var originalPages: NativeOriginalPageRecovery? = nil // Optional schema-1 default.
 
     func validate() throws {
         try document.validate()
         try restoration.validate(in: document)
+        try originalPages?.validate(document: document)
         guard reviewMarks.count <= 256 else { throw NativeReaderContractError.invalidDocument }
         for mark in reviewMarks { try mark.validate(in: document) }
         guard assets.count == document.assets.count, drafts.count <= 128,

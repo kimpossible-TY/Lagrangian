@@ -186,3 +186,20 @@ OfflineReader also owns waiting-shell update notification and explicit activatio
 The Service Worker activates only on that request, and the page reloads after
 controller change. Compiler diagnostics require the current declared evidence
 contract before dispatch; ordinary execution retains legacy compatibility.
+
+= Native original PDF pages
+
+`server/native_pages.py` owns immutable full-PDF publications over AcceptedSnapshot
+and Project.execute, including stable HTML/PDF dependency bindings and scoped
+manifest/resources. The existing HTTP owner retains Host/Origin/prefix guards.
+`NativeReaderOriginalPageTransport.swift` validates that service publication;
+`NativeReaderOriginalPageView.swift` owns viewport paint, display selection,
+search and explicit safe URI/GoTo callbacks. The private PDFKit worker/cache and
+safety scan remain in `NativeReaderPagedLayout.swift`. WindowController composes
+both native modes through Session.PreparedAdoption and the canonical semantic
+store. Session holds replacements for local page selection independently of
+semantic/source selection. RecoveryStore alone owns typed, hashed atomic disk
+storage, with an optional bounded accepted-PDF/viewport supplement. PDF text and
+coordinates never supply source authority. Full reset is implemented; engine raw
+diff-v1 native consumption is unverified. Packaging/source registry remains the
+delivery owner's responsibility; headless paint is separate from GUI acceptance.

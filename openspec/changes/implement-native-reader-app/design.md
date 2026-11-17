@@ -206,3 +206,75 @@ pending question/model separately from a newer private composer draft. Optional
 fields decode older schema-1 snapshots without changing document/input/revision,
 hash, atomic-write, privacy or source authority checks. No credentials or source
 excerpts are added. Supplement evidence is under `test-output/core-review-fixes/v2-ui`.
+
+## NA12 original PDF publication and native mode
+
+`server/native_pages.py` is the full-PDF publication adapter over
+`AcceptedSnapshot.capture/current` and `Project.execute(CompileRequest(target='pdf'))`.
+It captures the accepted HTML input, stabilizes the union of HTML and discovered
+PDF dependencies, and rechecks signatures and content fingerprints before
+publishing. Compilation holds a separate nonblocking compiler lock, never the
+publication lock. Failed/stale candidates retain the last immutable publication.
+The publication has a service-bound random incarnation and monotonic sequence;
+a byte digest alone is not authority. Same HTML/PDF bytes with a new saved input
+receive a new publication. Scoped manifest/resource GETs retain the existing
+registered-prefix, Host/Origin, exact field, UUID and budget guards.
+
+The native contract is `original-pdf-full-v1`, schema 1, delivered by
+`api/native-pages` and its exact returned `api/native-pages/<publicationID>/<sequence>.pdf`.
+The manifest binds document/service/revision, request/view/generation, union,
+HTML and PDF input fingerprints, PDF SHA256/count, incarnation/sequence and
+explicit `sourceAnchors: unsupported`. This is an immutable PDF full snapshot/reset.
+The engine raw diff-v1 stream has no verified native consumer in this change.
+
+`NativeReaderOriginalPageTransport.swift` validates the service attachment,
+publication envelope and exact resource before local geometry inspection.
+`NativeReaderOriginalPageView.swift` displays one viewport using a serial PDFKit
+worker. Geometry preflight is bounded to 2048 pages, 16MiB PDF bytes and 100000
+reachable PDF objects. Production preparation retains geometry without eager
+rasters/text/character boxes. Raster cache: at most 3 entries/16MiB; text cache:
+at most 8 pages/1MiB, at most 250000 UTF16 units per page. Search scans one page at
+a time, with at most 256 exact results, a 256-unit query, 4Mi scanned UTF16 units and a cooperative five-second deadline. Unsupported/budget
+failures are explicit; PDFKit internal allocations are separately observed by RSS.
+The previous eager component path remains bounded to 32 pages for its old tests.
+
+WindowController composes these through the existing Session.PreparedAdoption and
+single canonical semantic store. It prepares before publication, validates page
+adoption before canonical mutation, then synchronously installs. Requested mode
+and visible mode differ until adoption succeeds. Only actual draw in the visible
+mode can acknowledge Read. Hidden reflow preparation/draw cannot acknowledge an
+original page. Page text selection is local display evidence, separately holding
+session replacement. Mode changes, zoom and navigation require explicit release.
+Cancel/dispose revoke late work; the retained accepted view survives failures.
+Reflow retainedPreparationKey, local display versus remote32 selection, explicit
+close/reopen and chat/math ownership remain unchanged.
+
+URI and GoTo annotations become inert validated data, then explicit native
+callbacks. HTTP/HTTPS/mailto without credentials or controls are allowed; GoTo
+requires the same prepared artifact, finite coordinates and an in-range page.
+No PDFView.performAction, JavaScript, forms, launch, embedding or remote actions
+are executed. PDF text/bounds are display/search evidence, never glyph/source
+ranges. Page mode hides/guards source/highlight/chat commands so it cannot send
+hidden old reflow selections. Verified reflow source actions keep their existing
+owner. Prebuilt engine probes document the tested CLI surface; engine Rust API
+source is not evidence of a successful source-anchor invocation.
+
+An optional typed PDF/viewport supplement uses NativeReaderRecoveryStore's
+existing bounded, hashed atomic envelope, permissions and file limits. It retains
+accepted PDF bytes/metadata and a matching page/scale, no new credentials or source
+excerpts. Old schema1 defaults and pending question/model bounds remain. Offline
+restoration uses the same prepare/adopt path and remains read-only.
+
+C owns the two new Swift files and service adapter only. Canonical sources.json,
+FlowApp/main, packaging and runtime delivery are read-only here. The test harness
+compiles current canonical sources plus the actual two new files explicitly.
+Final registry integration and app/delivery/GUI/VoiceOver acceptance belong to
+D/NA06; a headless component paint is not a packaged application acceptance.
+
+
+Native original pages use an NSScrollView viewport over the single page document
+view. Document extent follows the prepared raster at logical zoom; viewport width
+changes fit preparation independently, so zoomed page bottoms remain reachable.
+Recovery retains bounded unscaled page-display offsets with optional old-schema
+defaults, clamps them to the restored viewport, and does not create source ranges.
+Pointer release checks the original snapshot/page/operation before selection.
