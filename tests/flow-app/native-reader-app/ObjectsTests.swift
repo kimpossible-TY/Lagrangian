@@ -3,6 +3,7 @@ import CoreText
 import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
+import PDFKit
 
 // Headless executable: no NSApplication, windows, account or live services.
 private final class ExecutionLog: @unchecked Sendable {
@@ -10,6 +11,19 @@ private final class ExecutionLog: @unchecked Sendable {
     private var entries = [NativeMathExecution]()
     func append(_ value: NativeMathExecution) { lock.lock(); entries.append(value); lock.unlock() }
     var values: [NativeMathExecution] { lock.lock(); defer { lock.unlock() }; return entries }
+}
+
+private final class OriginalPreparationGate: @unchecked Sendable {
+    let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+    private let lock = NSLock(); private var timedOutValue = false
+    func progress(_ phase: NativeOriginalPreparationPhase) {
+        if phase == .page(1) {
+            entered.signal()
+            if release.wait(timeout: .now() + 5) != .success { lock.lock(); timedOutValue = true; lock.unlock() }
+        }
+    }
+    func waitUntilEntered() -> Bool { entered.wait(timeout: .now() + 5) == .success }
+    var timedOut: Bool { lock.lock(); defer { lock.unlock() }; return timedOutValue }
 }
 
 @main struct ObjectsTests {
@@ -126,6 +140,7 @@ private final class ExecutionLog: @unchecked Sendable {
     @MainActor static func main() async throws {
         let mode = CommandLine.arguments[1], root = URL(fileURLWithPath: CommandLine.arguments[2])
         let oracle = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))) as! [String: Any]
+        if mode == "original-pages" { try await originalPages(root: root, oracle: oracle); return }
         if mode == "assets" {
             let source = root.appendingPathComponent("source")
             let ctx = try bitmap(CGSize(width: 24, height: 12), dark: false)
@@ -483,6 +498,283 @@ private final class ExecutionLog: @unchecked Sendable {
         let result: [String: Any] = ["matrix": matrix, "inlineBrokenCases": broken, "vectorBlueArea": vc.blue, "negativeFailures": 0, "richAssetCases": richResults.count / 2, "labeledBlackInk": black, "labeledBlueInk": labeledCounts.blue,
             "verified": ["native vector paths", "whole-formula display selection", "semantic AX handoff", "merged/header table", "native inline flow", "bounded cache/cancel/stale"],
             "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "compiler importer symbol overflow/image dimensions", "complete CeTZ/decorations", "offline product runtime delivery"]]
+        print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+    }
+}
+
+
+extension ObjectsTests {
+    @MainActor static func originalPages(root: URL, oracle: [String: Any]) async throws {
+        let folder = root.appendingPathComponent("original")
+        let inputs = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("inputs.json"))) as! [String: [String: Any]]
+        let expected = oracle["originalPagesV3"] as! [String: Any]
+        let base = try Data(contentsOf: folder.appendingPathComponent("base/document.pdf"))
+        let three = try Data(contentsOf: folder.appendingPathComponent("three/document.pdf"))
+        let viewID = UUID(), preparer = NativeOriginalPagePreparer(), store = NativeOriginalPageStore(viewID: UUID())
+        // The test host supplies expectations; none are issued server publication.
+        func binding(_ data: Data, name: String = "base", request: Int = 1, viewGeneration: Int = 0, sequence: Int = 1,
+                     identity: NativeDocumentIdentity? = nil, fingerprint: String? = nil, rotation: Int = 0, count: Int = 2) -> NativeOriginalPageBinding {
+            let metadata = inputs[name]!
+            let target = identity ?? NativeDocumentIdentity(documentID: "objects-original", serviceID: "fixture-service",
+                revision: metadata["htmlSHA256"] as! String, scope: .fixture)
+            return NativeOriginalPageBinding(identity: target, inputFingerprint: fingerprint ?? metadata["capturedFingerprint"] as! String,
+                snapshotGeneration: name == "three" ? 2 : 1, requestGeneration: request, viewID: viewID, viewGeneration: viewGeneration,
+                publicationSequence: sequence, pdfSHA256: shaBytes(data), pages: (0..<count).map {
+                    NativeOriginalPageGeometry(index: $0, mediaBox: CGRect(x: 0, y: 0, width: 320, height: 360), cropBox: CGRect(x: 0, y: 0, width: 320, height: 360), rotation: $0 == 0 ? rotation : 0)
+                })
+        }
+        func modify(_ b: NativeOriginalPageBinding, _ fields: [String: Any]) throws -> NativeOriginalPageBinding {
+            var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(b)) as! [String: Any]
+            for (key, value) in fields { object[key] = value }
+            return try JSONDecoder().decode(NativeOriginalPageBinding.self, from: JSONSerialization.data(withJSONObject: object))
+        }
+        let baseBinding = binding(base)
+        let consumer = NativeOriginalPageStore(viewID: viewID)
+        let ticket = try consumer.begin(expected: baseBinding)
+        let first = try await preparer.prepare(NativeOriginalPageSupplement(binding: baseBinding, data: base), expected: baseBinding)
+        try require(!first.preparationWasMainThread, "original heavy prepare off UI")
+        try require(first.pages.count == expected["pageCount"] as! Int, "actual compiler PDF page count")
+        let expectedTexts = expected["texts"] as! [String]
+        var pageEvidence = [[String: Any]]()
+        func metrics(_ image: CGImage) throws -> [String: Any] {
+            let ctx = try bitmap(CGSize(width: image.width, height: image.height), dark: false)
+            ctx.translateBy(x: 0, y: CGFloat(image.height)); ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
+            var ink = 0, blueWeight: Double = 0, box = CGRect.null
+            for y in 0..<ctx.height { for x in 0..<ctx.width {
+                let i = y * ctx.bytesPerRow + x * 4
+                let r = Double(data[i]), g = Double(data[i+1]), b = Double(data[i+2])
+                if min(r, g, b) < 235 { ink += 1 }
+                let a = (255-r)/223, c = (255-g)/159, d = (255-b)/63
+                if a > 0.05 && abs(a-c) < 0.015 && abs(a-d) < 0.035 {
+                    blueWeight += a; box = box.union(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            } }
+            return ["ink": ink, "weightedBlueArea": blueWeight, "blueBounds": [box.minX, box.minY, box.width, box.height]]
+        }
+        for (index, page) in first.pages.enumerated() {
+            try require(page.text == expectedTexts[index], "independent per-page display text/order")
+            try require(page.offsets == NativeTextOffsets(page.text), "PDF Unicode scalar maps")
+            try require(page.pdfCharacterCount == page.text.utf16.count, "fixture PDF index correspondence only")
+            try require(page.characterBounds.count == page.pdfCharacterCount, "actual character box calls")
+            let nonempty = page.characterBounds.filter { !$0.isNull && !$0.isEmpty }
+            try require(nonempty.count > 16, "actual character bounds, not glyph-cluster proof")
+            let result = try metrics(page.image)
+            try require(result["ink"] as! Int > 100, "native original page ink")
+            if index == 0 { try require(abs((result["weightedBlueArea"] as! Double) - (expected["blueRectangleArea"] as! Double)) < 5, "independent blue rectangle area") }
+            let destination = CGImageDestinationCreateWithURL(folder.appendingPathComponent("page-\(index).png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
+            CGImageDestinationAddImage(destination, page.image, nil); try require(CGImageDestinationFinalize(destination), "PDF page PNG")
+            pageEvidence.append(["page": index, "text": page.text, "utf16": page.text.utf16.count, "scalars": page.text.unicodeScalars.count,
+                "pdfCharacters": page.pdfCharacterCount, "nonemptyBounds": nonempty.count, "bounds": page.characterBounds.map { [$0.minX, $0.minY, $0.width, $0.height] }, "paint": result])
+        }
+        try consumer.adopt(first, for: ticket)
+        try require(consumer.paintAcknowledgment == nil, "adoption is not paint acknowledgment")
+        let canvas = try bitmap(CGSize(width: 640, height: 800), dark: false)
+        let ack = try consumer.paint(in: canvas)
+        try require(ack.snapshotID == first.id && ack.pdfSHA256 == baseBinding.pdfSHA256, "actual native draw acknowledgment")
+        try require(pixels(canvas, dark: false).ink > 100, "paint acknowledgment backed by actual ink")
+        let office = try await first.access.search("office")[0]
+        let officeView = try consumer.viewRect(forPageRect: office.pageBounds)
+        var officeInk = 0
+        for y in Int(floor(officeView.minY))..<Int(ceil(officeView.maxY)) { for x in Int(floor(officeView.minX))..<Int(ceil(officeView.maxX)) {
+            if sample(canvas, x, y).allSatisfy({ $0 < 100 }) { officeInk += 1 }
+        } }
+        try require(officeInk > 5, "PDF point selection bounds align with actual native paint")
+        let rectangleSelection = try await first.access.selection(page: 0, rectangle: office.pageBounds)
+        try require(rectangleSelection.displayText == "office", "actual PDFKit rectangle selection")
+        let all = try await first.access.search("Page")
+        try require(all.map(\.pageIndex) == [0, 1], "PDFKit search page reading order")
+        var searchEvidence = [[String: Any]]()
+        for query in expected["queries"] as! [String] {
+            let found = try await first.access.search(query)
+            try require(!found.isEmpty && found.allSatisfy { $0.displayText == query }, "actual PDFKit Unicode search/selection")
+            for selected in found {
+                try require(!selected.pageBounds.isEmpty, "native selection bounds")
+                let again = try await first.access.selection(page: selected.pageIndex, rangeUTF16: selected.rangeUTF16)
+                try require(again == selected, "exact PDFKit range selection")
+                searchEvidence.append(["query": query, "page": selected.pageIndex, "range": [selected.rangeUTF16.lowerBound, selected.rangeUTF16.upperBound], "text": selected.displayText])
+            }
+        }
+        let unicode = try await first.access.search("👩‍👩‍👧‍👦")[0]
+        let privateBoard = NSPasteboard(name: NSPasteboard.Name("NA03-original-pages-" + UUID().uuidString))
+        try require(unicode.copyDisplayText(to: privateBoard) && privateBoard.string(forType: .string) == "👩‍👩‍👧‍👦", "private native pasteboard display copy")
+        privateBoard.clearContents()
+        var negatives = [String]()
+        func reject(_ name: String, _ operation: () async throws -> Void) async throws {
+            do { try await operation() } catch { negatives.append(name); return }
+            throw NSError(domain: "original PDF negative accepted: " + name, code: 1)
+        }
+        try expectFailure("PDF source authority unavailable", { _ = try unicode.verifiedSourceAnchor() })
+        negatives.append("no-verified-source-anchor")
+        try await reject("surrogate-boundary", { _ = try await first.access.selection(page: 0, rangeUTF16: unicode.rangeUTF16.lowerBound..<(unicode.rangeUTF16.lowerBound+1)) })
+        try await reject("search-budget", { _ = try await first.access.search("Page", maximum: 1) })
+        let rawBinding = try JSONSerialization.jsonObject(with: JSONEncoder().encode(baseBinding)) as! [String: Any]
+        for key in ["serviceID", "documentID", "revision"] {
+            var identity = rawBinding["identity"] as! [String: Any]; identity[key] = "wrong"
+            let wrong = try modify(baseBinding, ["identity": identity])
+            try await reject("wrong-" + key, { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: wrong, data: base), expected: baseBinding) })
+        }
+        for (key, value) in [("inputFingerprint", String(repeating: "f", count: 64)), ("pdfSHA256", String(repeating: "e", count: 64)), ("viewID", UUID().uuidString)] {
+            let wrong = try modify(baseBinding, [key: value])
+            try await reject("wrong-" + key, { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: wrong, data: base), expected: baseBinding) })
+        }
+        for key in ["snapshotGeneration", "requestGeneration", "viewGeneration"] {
+            let wrong = try modify(baseBinding, [key: 99])
+            try await reject("wrong-" + key, { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: wrong, data: base), expected: baseBinding) })
+        }
+        let digestMismatch = try modify(baseBinding, ["pdfSHA256": String(repeating: "a", count: 64)])
+        try await reject("actual-byte-hash", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: digestMismatch, data: base), expected: digestMismatch) })
+        let wrongGeometry = NativeOriginalPageGeometry(index: 0, mediaBox: baseBinding.pages[0].mediaBox, cropBox: CGRect(x: 0, y: 0, width: 319, height: 360), rotation: 0)
+        let wrongBoxes = try modify(baseBinding, ["pages": try JSONSerialization.jsonObject(with: JSONEncoder().encode([wrongGeometry, baseBinding.pages[1]]))])
+        try await reject("actual-point-geometry", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: wrongBoxes, data: base), expected: wrongBoxes) })
+        let order = try modify(baseBinding, ["pages": (rawBinding["pages"] as! [Any]).reversed().map { $0 }])
+        try await reject("page-order", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: order, data: base), expected: order) })
+        let countWrong = binding(base, count: 1)
+        try await reject("page-count", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: countWrong, data: base), expected: countWrong) })
+        var limit = NativeOriginalPageLimits(); limit.bytes = 1
+        let byteLimit = limit
+        try await reject("byte-budget", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: baseBinding, data: base), expected: baseBinding, limits: byteLimit) })
+        limit = NativeOriginalPageLimits(); limit.pixels = 1; let pixelLimit = limit
+        try await reject("pixel-budget", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: baseBinding, data: base), expected: baseBinding, limits: pixelLimit) })
+        limit = NativeOriginalPageLimits(); limit.characters = 1; let textLimit = limit
+        try await reject("text-budget", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: baseBinding, data: base), expected: baseBinding, limits: textLimit) })
+        limit = NativeOriginalPageLimits(); limit.graphObjects = 1; let graphLimit = limit
+        try await reject("graph-budget", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: baseBinding, data: base), expected: baseBinding, limits: graphLimit) })
+        let truncated = Data(base.dropLast(32)), truncatedBinding = binding(truncated)
+        try await reject("truncated-PDF", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: truncatedBinding, data: truncated), expected: truncatedBinding) })
+        let encryptedDocument = PDFDocument(data: base)!
+        let encrypted = encryptedDocument.dataRepresentation(options: [PDFDocumentWriteOption.ownerPasswordOption: "fixture-owner", PDFDocumentWriteOption.userPasswordOption: "fixture-user"])!
+        try encrypted.write(to: folder.appendingPathComponent("encrypted-control.pdf"))
+        let encryptedBinding = binding(encrypted)
+        try await reject("encrypted-PDF", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: encryptedBinding, data: encrypted), expected: encryptedBinding) })
+        for name in ["js", "launch", "url", "remote", "form", "unit"] {
+            let data = try Data(contentsOf: folder.appendingPathComponent(name + ".pdf")), b = binding(data, count: 1)
+            try await reject("active-" + name, { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: b, data: data), expected: b) })
+        }
+        let annotationDocument = PDFDocument(data: base)!
+        let annotation = PDFAnnotation(bounds: CGRect(x: 20, y: 20, width: 30, height: 20), forType: .link, withProperties: nil)
+        annotation.action = PDFActionURL(url: URL(string: "https://example.invalid/never")!)
+        annotationDocument.page(at: 0)!.addAnnotation(annotation)
+        let actionData = annotationDocument.dataRepresentation()!, actionBinding = binding(actionData)
+        try actionData.write(to: folder.appendingPathComponent("annotation-url-control.pdf"))
+        try await reject("annotation-URL-action", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: actionBinding, data: actionData), expected: actionBinding) })
+        try require(consumer.accepted?.id == first.id, "all preparation failures preserve accepted PDF")
+        let drift = try Data(contentsOf: folder.appendingPathComponent("drift/document.pdf"))
+        let driftSupplied = binding(drift, name: "drift", fingerprint: inputs["drift"]!["finalFingerprint"] as? String)
+        let driftExpected = binding(drift, name: "drift")
+        try await reject("actual-HTML-PDF-input-drift", { _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: driftSupplied, data: drift), expected: driftExpected) })
+        let gate = OriginalPreparationGate()
+        let pending = Task { try await preparer.prepare(NativeOriginalPageSupplement(binding: baseBinding, data: base), expected: baseBinding, progress: { gate.progress($0) }) }
+        let entered = await Task.detached { gate.waitUntilEntered() }.value
+        try require(entered, "actual PDF prepare reached second-page barrier")
+        pending.cancel(); gate.release.signal()
+        try await reject("mid-prepare-cancel", { _ = try await pending.value })
+        try require(!gate.timedOut && consumer.accepted?.id == first.id, "cancelled work cannot replace accepted PDF")
+        let secondBinding = binding(base, request: 2, sequence: 2)
+        let lateTicket = try consumer.begin(expected: secondBinding)
+        let second = try await preparer.prepare(NativeOriginalPageSupplement(binding: secondBinding, data: base), expected: secondBinding)
+        consumer.cancel()
+        try expectFailure("late-cancelled-publication", { try consumer.adopt(second, for: lateTicket) }); negatives.append("late-cancelled-publication")
+        let heldBinding = binding(base, request: 3, sequence: 2)
+        let heldTicket = try consumer.begin(expected: heldBinding)
+        let held = try await preparer.prepare(NativeOriginalPageSupplement(binding: heldBinding, data: base), expected: heldBinding)
+        let selected = try await first.access.search("한글")[0], selectionTicket = UUID()
+        try consumer.hold(selected, ticket: selectionTicket)
+        try expectFailure("held-selection-adoption", { try consumer.adopt(held, for: heldTicket) }); negatives.append("held-selection-adoption")
+        consumer.release(ticket: UUID())
+        try expectFailure("old-selection-ticket", { try consumer.resize(width: 640) }); negatives.append("old-selection-ticket")
+        consumer.release(ticket: selectionTicket); try consumer.adopt(held, for: heldTicket)
+        let oldSnapshotBinding = try modify(binding(base, request: 4, sequence: 3), ["snapshotGeneration": 0])
+        let oldSnapshotTicket = try consumer.begin(expected: oldSnapshotBinding)
+        let oldSnapshot = try await preparer.prepare(NativeOriginalPageSupplement(binding: oldSnapshotBinding, data: base), expected: oldSnapshotBinding)
+        try expectFailure("snapshot-generation-regression", { try consumer.adopt(oldSnapshot, for: oldSnapshotTicket) }); negatives.append("snapshot-generation-regression")
+        let sameRevisionInput = binding(base, request: 5, sequence: 3, fingerprint: String(repeating: "b", count: 64))
+        let wrongInputTicket = try consumer.begin(expected: sameRevisionInput)
+        let wrongInputPages = try await preparer.prepare(NativeOriginalPageSupplement(binding: sameRevisionInput, data: base), expected: sameRevisionInput)
+        try expectFailure("same-revision-different-input", { try consumer.adopt(wrongInputPages, for: wrongInputTicket) }); negatives.append("same-revision-different-input")
+        try consumer.resize(width: 640); try require(consumer.displayedScale == 2, "native fit-width scale")
+        let renderTicket = try consumer.beginRender()
+        let highResolution = try await held.access.render(page: renderTicket.pageIndex, scale: renderTicket.rasterScale)
+        try require(highResolution.image.width == 640 && highResolution.image.height == 720, "actual PDFKit scale rerender")
+        let highMetrics = try metrics(highResolution.image)
+        try require(abs(highMetrics["weightedBlueArea"] as! Double - 4 * 1152) < 12, "scale rerender independent ink area")
+        try consumer.adoptRender(highResolution, for: renderTicket)
+        try require(consumer.paintAcknowledgment == nil, "rerender adoption still not paint ack")
+        let highAck = try consumer.paint(in: canvas)
+        try require(highAck.scale == 2 && highAck.rasterScale == 2, "paint uses current native high-resolution render")
+        try await reject("rerender-pixel-budget", { _ = try await held.access.render(page: 0, scale: 8, maximumPixels: 10) })
+        let lateRenderTicket = try consumer.beginRender()
+        let lateRender = try await held.access.render(page: 0, scale: lateRenderTicket.rasterScale)
+        try consumer.jump(to: 1);
+        try expectFailure("late-scale-page-render", { try consumer.adoptRender(lateRender, for: lateRenderTicket) }); negatives.append("late-scale-page-render")
+        try require(consumer.pageIndex == 1, "native page jump")
+        let needle = try await held.access.search("needle")[0]
+        let viewRect = try consumer.viewRect(forPageRect: needle.pageBounds), back = try consumer.pageRect(forViewRect: viewRect)
+        try require(abs(back.minX - needle.pageBounds.minX) < 0.0001 && abs(back.minY - needle.pageBounds.minY) < 0.0001, "native PDF point/view coordinate roundtrip")
+        try consumer.setScale(1.5); try consumer.resize(width: 960); try require(consumer.displayedScale == 1.5, "fixed scale survives resize")
+        try consumer.setScale(nil); try require(consumer.displayedScale == 3, "fit mode restored")
+        let beforeResize = binding(base, request: 6, viewGeneration: consumer.viewGeneration, sequence: 3)
+        let resizeTicket = try consumer.begin(expected: beforeResize)
+        let resizeResult = try await preparer.prepare(NativeOriginalPageSupplement(binding: beforeResize, data: base), expected: beforeResize)
+        try consumer.resize(width: 480)
+        try expectFailure("late-resize-result", { try consumer.adopt(resizeResult, for: resizeTicket) }); negatives.append("late-resize-result")
+        let threeBinding = binding(three, name: "three", request: 7, viewGeneration: consumer.viewGeneration, sequence: 3, count: 3)
+        let threeTicket = try consumer.begin(expected: threeBinding)
+        let replacement = try await preparer.prepare(NativeOriginalPageSupplement(binding: threeBinding, data: three), expected: threeBinding)
+        try require(replacement.pages[2].text == expected["thirdPageText"] as! String, "independent replacement page text")
+        try consumer.adopt(replacement, for: threeTicket)
+        try require(consumer.accepted?.pages.count == 3 && consumer.paintAcknowledgment == nil, "full replacement page-count change, no false paint ack")
+        try consumer.jump(to: 2)
+        let thirdAck = try consumer.paint(in: canvas)
+        try require(thirdAck.pdfSHA256 == threeBinding.pdfSHA256 && thirdAck.pageIndex == 2, "replacement actual paint acknowledgment")
+        try expectFailure("stale-selection-result", { try consumer.hold(selected, ticket: UUID()) }); negatives.append("stale-selection-result")
+        try expectFailure("page-jump-bounds", { try consumer.jump(to: 3) }); negatives.append("page-jump-bounds")
+        try expectFailure("unimplemented-diff-v1", { try consumer.applyVectorDelta(Data("diff-v1".utf8)) }); negatives.append("unimplemented-diff-v1")
+        consumer.reset(); try require(consumer.accepted == nil && consumer.pageIndex == 0, "explicit reset")
+        try expectFailure("reset-paint", { _ = try consumer.paint(in: canvas) }); negatives.append("reset-paint")
+        let replayBinding = binding(three, name: "three", request: 8, viewGeneration: consumer.viewGeneration, sequence: 3, count: 3)
+        let replayTicket = try consumer.begin(expected: replayBinding)
+        let replay = try await preparer.prepare(NativeOriginalPageSupplement(binding: replayBinding, data: three), expected: replayBinding)
+        try expectFailure("ordered-publication-replay-after-reset", { try consumer.adopt(replay, for: replayTicket) }); negatives.append("ordered-publication-replay-after-reset")
+        let rotatedDocument = PDFDocument(data: base)!; rotatedDocument.page(at: 0)!.rotation = 90
+        let rotated = rotatedDocument.dataRepresentation()!; try rotated.write(to: folder.appendingPathComponent("rotated-control.pdf"))
+        let rotatedBinding = binding(rotated, rotation: 90)
+        let rotatedPages = try await preparer.prepare(NativeOriginalPageSupplement(binding: rotatedBinding, data: rotated), expected: rotatedBinding)
+        try require(rotatedPages.pages[0].image.width == 360 && rotatedPages.pages[0].image.height == 320, "actual rotated PDF aspect/point geometry")
+        let rotatedConsumer = NativeOriginalPageStore(viewID: viewID)
+        try rotatedConsumer.adopt(rotatedPages, for: rotatedConsumer.begin(expected: rotatedBinding))
+        let rotatedCanvas = try bitmap(CGSize(width: 640, height: 800), dark: false)
+        _ = try rotatedConsumer.paint(in: rotatedCanvas)
+        let rotatedOffice = try await rotatedPages.access.search("office")[0]
+        let rotatedViewBounds = try rotatedConsumer.viewRect(forPageRect: rotatedOffice.pageBounds)
+        var rotatedOfficeInk = 0
+        for y in Int(floor(rotatedViewBounds.minY))..<Int(ceil(rotatedViewBounds.maxY)) { for x in Int(floor(rotatedViewBounds.minX))..<Int(ceil(rotatedViewBounds.maxX)) {
+            if sample(rotatedCanvas, x, y).allSatisfy({ $0 < 150 }) { rotatedOfficeInk += 1 }
+        } }
+        try require(rotatedOfficeInk > 5, "rotated PDF character geometry aligns with actual paint")
+        let rotatedDestination = CGImageDestinationCreateWithURL(folder.appendingPathComponent("rotated-native.png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(rotatedDestination, rotatedPages.pages[0].image, nil)
+        try require(CGImageDestinationFinalize(rotatedDestination), "rotated PDF PNG")
+        let rotatedMetrics = try metrics(rotatedPages.pages[0].image)
+        try require(abs(rotatedMetrics["weightedBlueArea"] as! Double - 1152) < 5, "rotated PDF original ink area")
+        let restarted = NativeDocumentIdentity(documentID: "objects-original", serviceID: "fixture-new-incarnation", revision: threeBinding.identity.revision, scope: .fixture)
+        let restartBinding = binding(three, name: "three", request: 9, viewGeneration: consumer.viewGeneration, sequence: 0, identity: restarted, count: 3)
+        let restartTicket = try consumer.begin(expected: restartBinding)
+        let restart = try await preparer.prepare(NativeOriginalPageSupplement(binding: restartBinding, data: three), expected: restartBinding)
+        try consumer.adopt(restart, for: restartTicket)
+        consumer.dispose()
+        try expectFailure("disposed-publication", { _ = try consumer.begin(expected: restartBinding) }); negatives.append("disposed-publication")
+        try expectFailure("cross-view-binding", { _ = try store.begin(expected: baseBinding) }); negatives.append("cross-view-binding")
+        try write(negatives, folder.appendingPathComponent("negative-results.json"))
+        try write(searchEvidence, folder.appendingPathComponent("selection-search-results.json"))
+        try write(pageEvidence, folder.appendingPathComponent("page-results.json"))
+        try JSONEncoder().encode(baseBinding).write(to: folder.appendingPathComponent("expected-binding.json"))
+        let result: [String: Any] = ["pageCount": first.pages.count, "replacementPageCount": replacement.pages.count,
+            "negativeCases": negatives.count, "preparationWasMainThread": first.preparationWasMainThread, "painted": true,
+            "scaledRender": highMetrics, "scaledPixelSize": [highResolution.image.width, highResolution.image.height],
+            "paintAcknowledgment": ["viewID": ack.viewID.uuidString, "viewGeneration": ack.viewGeneration, "page": ack.pageIndex, "scale": ack.scale, "rasterScale": ack.rasterScale, "pdfSHA256": ack.pdfSHA256],
+            "scope": "fixture-binding; PDFKit character boxes/UTF16 verified here, not glyph clusters, source anchors, backend accepted publication, GUI/VO or diff-v1"]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
     }
 }

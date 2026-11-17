@@ -38,7 +38,7 @@ for name, value in {'TMPDIR': DEV / 'tmp/objects', 'CLANG_MODULE_CACHE_PATH': DE
 sys.path.insert(0, str(REPO / 'tools/flow-reader'))
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.project import Project
-from flow_reader.compiler.execution import local_compile
+from flow_reader.compiler.execution import local_compile, CompileRequest
 from flow_reader.document.sections import split_document, SectionBundle
 from flow_reader.document.native_document import import_accepted_document, NativeImportError
 
@@ -60,7 +60,7 @@ def walk(node):
 class ObjectsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ.get('NA03_OUTPUT', str(DEV / 'test-output/objects/fidelity-v2' / ('run-' + str(time.time_ns()))))).resolve()
+        cls.out = Path(os.environ.get('NA03_OUTPUT', str(DEV / 'test-output/objects/original-pages-v3' / ('run-' + str(time.time_ns()))))).resolve()
         if not cls.out.is_relative_to(DEV / 'test-output/objects') or cls.out.exists():
             raise RuntimeError('NA03_OUTPUT must be a fresh DevSSD object evidence directory')
         cls.out.mkdir(parents=True)
@@ -124,6 +124,7 @@ class ObjectsTests(unittest.TestCase):
             'with open(' + repr(str(cls.out / 'compiler-argv.jsonl')) + ',"a") as f: f.write(json.dumps(dict(argv=sys.argv[1:],time=time.time()))+"\\n")\n' +
             'os.execv("/usr/bin/sandbox-exec", ["sandbox-exec","-p",' + repr(profile) + ',' + repr(str(compiler)) + '] + sys.argv[1:])\n')
         wrapper.chmod(0o700)
+        cls.compiler = compiler
 
         def execute(request):
             p = local_compile(request)
@@ -230,6 +231,85 @@ class ObjectsTests(unittest.TestCase):
             cacheHashes={str(p.relative_to(cache)): digest(p) for p in cache.rglob('*') if p.is_file()},
             scope='headless current host; macOS13 deployment target only; no GUI, VoiceOver, print-page parity, app delivery or source verification',
             provisionalRuntime='scratch only; not shipped resources'))
+
+    def test_original_compiler_pages_pdfkit(self):
+        original = self.out / 'original'
+        original.mkdir()
+        cache = DEV / 'cache/objects/typst-packages'
+        packages = REPO / 'tools/flow-reader/packages'
+        # Test-only captured input fingerprint. This is not an issued server
+        # accepted-publication token; the production host must supply its owner.
+        cache_manifest = json.loads((self.out / 'provenance.json').read_text())['cacheHashes']
+        def pair(name, count=2, mutate=False):
+            folder = original / name; folder.mkdir(); source = folder / 'source'; source.mkdir()
+            shutil.copyfile(HERE / 'fixtures/objects.typ', source / 'main.typ')
+            flags = (('original-pages-v3', 'true'), ('original-page-count', str(count)))
+            def fingerprint():
+                manifest = dict(sourceSHA256=digest(source / 'main.typ'), inputs=flags,
+                    compilerSHA256=digest(self.compiler), cacheHashes=cache_manifest, timestamp=0)
+                return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+            captured = fingerprint()
+            profile = '(version 1)(allow default)(deny network*)' + ''.join(
+                '(deny file-write* (subpath ' + json.dumps(str(p)) + '))' for p in [REPO, source, packages, cache])
+            wrapper = folder / 'offline-typst'
+            wrapper.write_text('#!' + sys.executable + '\nimport os,sys,json\n' +
+                'with open(' + repr(str(folder / 'compiler-argv.jsonl')) + ',"a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\n' +
+                'os.execv("/usr/bin/sandbox-exec",["sandbox-exec","-p",' + repr(profile) + ',' + repr(str(self.compiler)) + ']+sys.argv[1:])\n')
+            wrapper.chmod(0o700)
+            phases = []
+            for target in ['html', 'pdf']:
+                if target == 'pdf' and mutate:
+                    shutil.copyfile(source / 'main.typ', folder / 'before-main.typ')
+                    (source / 'main.typ').write_text((source / 'main.typ').read_text().replace('Page One office', 'Changed One office'))
+                before = fingerprint()
+                result = local_compile(CompileRequest(str(wrapper), source, packages, target,
+                    entry=source / 'main.typ', inputs=flags, timestamp=0))
+                phases.append(dict(target=target, exit=result.returncode, stderr=result.stderr,
+                    elapsed=result.elapsed_seconds, fingerprintBefore=before, fingerprintAfter=fingerprint(),
+                    dependencies={p: digest(p) for p in result.dependencies if Path(p).is_file()}))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                (folder / ('document.' + target)).write_bytes(result.artifact)
+            after = fingerprint()
+            record = dict(capturedFingerprint=captured, finalFingerprint=after,
+                fixtureInputConsistent=captured == after and all(x['fingerprintBefore'] == captured and x['fingerprintAfter'] == captured for x in phases),
+                pdfSHA256=digest(folder / 'document.pdf'), htmlSHA256=digest(folder / 'document.html'),
+                sourceSHA256=digest(source / 'main.typ'), phases=phases, scope='compiler-owned fixture, not accepted-publication authority')
+            save(folder / 'binding-inputs.json', record)
+            return record
+        inputs = {'base': pair('base'), 'three': pair('three', 3), 'drift': pair('drift', mutate=True)}
+        self.assertTrue(inputs['base']['fixtureInputConsistent'])
+        self.assertTrue(inputs['three']['fixtureInputConsistent'])
+        self.assertFalse(inputs['drift']['fixtureInputConsistent'])
+        save(original / 'inputs.json', inputs)
+        # Independently generated active-content negatives contain a real xref,
+        # valid page tree and inert page stream. They are never displayed.
+        def active_pdf(action):
+            catalog = '<< /Type /Catalog /Pages 2 0 R ' + ('' if action == 'unit' else '/AcroForm 6 0 R' if action == 'form' else '/OpenAction 6 0 R') + ' >>'
+            payload = {'js': '<< /S /JavaScript /JS (never-execute) >>',
+                       'launch': '<< /S /Launch /F (file:///never) >>',
+                       'url': '<< /S /URI /URI (https://example.invalid/never) >>',
+                       'remote': '<< /S /GoToR /F (file:///never.pdf) /D [0 /Fit] >>',
+                       'form': '<< /Fields [] >>', 'unit': '<< >>'}[action]
+            objects = [catalog, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 320 360] /Contents 4 0 R ' + ('/UserUnit 2' if action == 'unit' else '') + ' >>',
+                '<< /Length 0 >>\nstream\n\nendstream', '<< >>', payload]
+            data = b'%PDF-1.7\n'; offsets = [0]
+            for i, obj in enumerate(objects, 1):
+                offsets.append(len(data)); data += f'{i} 0 obj\n{obj}\nendobj\n'.encode()
+            xref = len(data)
+            data += f'xref\n0 {len(offsets)}\n0000000000 65535 f \n'.encode()
+            data += ''.join(f'{v:010} 00000 n \n' for v in offsets[1:]).encode()
+            data += f'trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode()
+            return data
+        for action in ['js', 'launch', 'url', 'remote', 'form', 'unit']:
+            (original / (action + '.pdf')).write_bytes(active_pdf(action))
+        native = json.loads(self.command([self.binary, 'original-pages', self.out, HERE / 'fixtures/objects.expect.json'], timeout=120))
+        save(original / 'native-results.json', native)
+        self.assertEqual(native['pageCount'], 2)
+        self.assertEqual(native['replacementPageCount'], 3)
+        self.assertFalse(native['preparationWasMainThread'])
+        self.assertGreaterEqual(native['negativeCases'], 20)
+        self.assertTrue(native['painted'])
 
     def test_actual_labeled_compiler_import_gate_is_explicit(self):
         self.assertEqual(self.rich_report['exitCode'], 0)
