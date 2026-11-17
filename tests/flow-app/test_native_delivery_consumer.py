@@ -199,6 +199,32 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
             self.assertEqual(self.tree(self.cache/self.run_id),before)
         finally:marker.unlink()
 
+    def test_successful_refetch_is_atomic_and_bounded(self):
+        original=self.tree(self.cache/self.run_id)
+        r=self.command('successful-refetch',['python3','scripts/flow-app.py','fetch-engine','--run-id',self.run_id])
+        self.assertEqual(r.returncode,0,r.stderr)
+        self.assertEqual(r.stdout.strip(),str(self.engine))
+        self.assertEqual(self.tree(self.cache/self.run_id),original)
+        self.assertFalse(list(self.cache.glob('.incoming-*')))
+        c=json.loads(self.receipt.read_text())
+        self.assertEqual(c['deliveryBinding']['sourceRevision'],self.head)
+        self.assertEqual(c['deliveryBinding']['signing'],'ad-hoc')
+        self.assertEqual(c['runRecord']['databaseId'],int(self.run_id))
+
+    def test_producer_without_portable_payload_fails_before_install(self):
+        negative=self.root/'missing-producer';negative.mkdir()
+        artifact=negative/'artifact';artifact.mkdir()
+        for name in ['flow-engine','flow-engine.sha256','release.json']:
+            shutil.copy2(self.artifact/name,artifact/name)
+        shutil.copytree(self.app,negative/'output/Lagrangian.app',symlinks=True)
+        env=dict(self.env,NA14_FIXTURE_ROOT=str(negative),NA14_FIXTURE_ENGINE=str(artifact))
+        fetched=self.command('missing-producer-fetch',['python3','scripts/flow-app.py','fetch-engine','--run-id',self.run_id],env)
+        self.assertEqual(fetched.returncode,0,fetched.stderr)
+        r=self.command('missing-producer-build',['python3','scripts/flow-app.py','build','--engine',negative/'cache'/self.run_id/'flow-engine'],env)
+        self.assertNotEqual(r.returncode,0)
+        self.assertIn('Producer artifact missing current portable',r.stderr)
+        self.assertEqual(self.tree(negative/'output/Lagrangian.app'),self.original_app)
+
     def test_actual_interrupt_preserves_stage(self):
         before=self.tree(self.cache/self.run_id)
         argv=['python3','scripts/flow-app.py','build','--engine',str(self.engine)]

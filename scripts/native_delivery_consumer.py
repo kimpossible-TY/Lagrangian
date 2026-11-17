@@ -13,7 +13,7 @@ import reader_bundle
 
 CONTEXT = 'native-delivery-context.json'
 FIELDS = {'schemaVersion', 'repository', 'runId', 'runHeadSHA', 'enginePath',
-          'engineInputSHA256', 'artifactInventorySHA256'}
+          'engineInputSHA256', 'artifactInventorySHA256', 'runRecord', 'deliveryBinding'}
 
 
 def artifact_digest(owner, root):
@@ -23,10 +23,21 @@ def artifact_digest(owner, root):
 
 def context(package, artifact, destination, repo, record):
     owner = package.delivery_module()
+    manifest = artifact / package.APP_BUNDLE / 'Contents/Resources/native-reader' / owner.MANIFEST
+    binding = None
+    if manifest.is_file():
+        m = owner.read(manifest)
+        binding = {key:m.get(key) for key in ('sourceRevision', 'engineInputSHA256', 'helperSHA256',
+                   'runtimeManifestSHA256', 'readerBundleChecksum', 'payloadSHA256', 'signing')}
+        binding.update(relativeRoot=package.APP_BUNDLE + '/Contents/Resources/native-reader',
+                       deliveryManifestSHA256=package.digest(manifest),
+                       sourceFilesSHA256=hashlib.sha256(owner.encoded(m.get('sourceFiles'))).hexdigest())
     return dict(schemaVersion=1, repository=repo, runId=str(record['databaseId']),
                 runHeadSHA=record['headSha'], enginePath=str(destination / 'flow-engine'),
                 engineInputSHA256=package.verify_engine_payload(artifact),
-                artifactInventorySHA256=artifact_digest(owner, artifact))
+                artifactInventorySHA256=artifact_digest(owner, artifact), deliveryBinding=binding,
+                runRecord={key:record.get(key) for key in ('databaseId', 'headSha', 'workflowName',
+                                                         'headBranch', 'conclusion', 'status', 'url')})
 
 
 def current_delivery(package, root, engine):

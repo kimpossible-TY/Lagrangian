@@ -215,6 +215,18 @@ def build(args):
     engine, engine_version = resolve_engine(args.engine)
     app = args.output.expanduser().resolve()
     if app.name != APP_BUNDLE: raise ValueError('Unexpected output app name')
+    selected_identity = None
+    if not getattr(args, 'management_only', False):
+        requested = getattr(args, 'identity', None) or os.environ.get('FLOW_SIGN_IDENTITY')
+        if not requested and not (signing_data_directory() / 'signing.json').exists():
+            raise ValueError('Native delivery requires an explicit signing identity; refusing implicit ad-hoc fallback')
+        selected_identity = resolve_signing_identity(requested)
+        if selected_identity != '-':
+            matches = [sha for sha, name in signing_identities().items()
+                       if selected_identity.upper() == sha or selected_identity == name]
+            if len(matches) != 1:
+                raise ValueError('Selected signing identity is unavailable; refusing ad-hoc fallback')
+            selected_identity = matches[0]
     app.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.flow-build-', dir=app.parent) as tmp:
         staged = Path(tmp) / app.name
@@ -228,16 +240,7 @@ def build(args):
             if context is not None:
                 candidate_args.engine_provenance = payload.parents[3] / 'release.json'
             if payload is not None:
-                requested = getattr(args, 'identity', None) or os.environ.get('FLOW_SIGN_IDENTITY')
-                if not requested and not (signing_data_directory() / 'signing.json').exists():
-                    raise ValueError('Native delivery requires an explicit signing identity; refusing implicit ad-hoc fallback')
-                candidate_args.identity = resolve_signing_identity(requested)
-                if candidate_args.identity != '-':
-                    matches = [sha for sha, name in signing_identities().items()
-                               if candidate_args.identity.upper() == sha or candidate_args.identity == name]
-                    if len(matches) != 1:
-                        raise ValueError('Selected signing identity is unavailable; refusing ad-hoc fallback')
-                    candidate_args.identity = matches[0]
+                candidate_args.identity = selected_identity
             manifest = build_bundle(candidate_args, staged, engine, engine_version, engine_build)
             if payload is not None:
                 native_delivery_consumer.current_delivery(SimpleNamespace(**globals()), payload, engine)
@@ -496,7 +499,6 @@ def install_engine_payload(repo, run_id, dest, record=None):
     dest.parent.mkdir(parents=True, exist_ok=True)
     incoming = Path(tempfile.mkdtemp(prefix='.incoming-' + dest.name + '-', dir=dest.parent))
     incoming.rmdir()
-    installed = False
     try:
         with tempfile.TemporaryDirectory(prefix='flow-engine-download-') as tmp:
             download = Path(tmp) / 'artifact'
@@ -514,9 +516,10 @@ def install_engine_payload(repo, run_id, dest, record=None):
             write_json(incoming / native_delivery_consumer.CONTEXT,
                        native_delivery_consumer.context(SimpleNamespace(**globals()), incoming, dest, repo, record))
         delivery_module().publish_verified(incoming, dest, verify_engine_payload)
-        installed = True
     finally:
-        if not installed and incoming.exists(): shutil.rmtree(incoming, ignore_errors=True)
+        # After exchange this path holds the previous valid cache; the newly
+        # published destination is already complete. Never leave a second cache.
+        if incoming.exists(): shutil.rmtree(incoming, ignore_errors=True)
 
 def fetch_engine(args):
     """Download a verified macOS arm64 engine artifact. This does not compile Rust."""

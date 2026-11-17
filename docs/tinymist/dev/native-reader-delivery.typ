@@ -183,8 +183,9 @@ are excluded from inspection; no user clipboard is inspected or changed.
 The golden old CLI remains fetch-engine --run-id R, fetch-reader-bundle --run-id R,
 then build --engine with the printed engine path. Checkout HEAD must be run head H.
 Fetch writes schema-1 native-delivery-context.json beside the engine. It binds the
-repository, validated run ID/head, canonical engine path/hash and artifact inventory
-digest. Fixed artifact-relative paths and the existing inventory owner reject
+repository, validated run record/ID/head, canonical engine path/hash and artifact
+inventory digest. Its delivery binding explicitly records sourceFiles, manifest,
+payload, helper, runtime and reader digests, signing and the fixed relative root. Fixed artifact-relative paths and the existing inventory owner reject
 escaping symlinks. The context is a locator, not server authority: build re-views
 exact R and re-downloads that artifact, comparing the full inventory before using
 its payload. It verifies the artifact app seal, application release/sidecar,
