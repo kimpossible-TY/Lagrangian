@@ -260,6 +260,87 @@
             "sha256": "75e46166ae1ae312e188a35beb74254ab15cc7e3c7ae1d70ea1b5bd9eb1d0752"
           }
         ]
+      },
+      {
+        "revision": "8744c1b3db0b494f2e36529df281be993ccf11b4",
+        "baseRevision": "09e78630a6afb51436e45da140c3588c82c295f5",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderChatView.swift",
+            "baseSHA256": "2d5325e2b145c9a34e1a5f3341f1a6f910672966f21ad61100ac749e680a1b05",
+            "sha256": "f149260d01d094e7cd1c56abee2aeb169d2ef4c3d64ef5802beec5b36b49d31d"
+          },
+          {
+            "path": "apps/macos/NativeReaderOriginalPageView.swift",
+            "baseSHA256": "753e335feda14d4ff49d829f510e4b8a609ae8762c8b82877df2ce21b2d5815e",
+            "sha256": "0bbcae41c04aef9f4e12c4d16807df6efd96ee900c8dccc37a1e3478f631ef9d"
+          },
+          {
+            "path": "apps/macos/NativeReaderRecoveryStore.swift",
+            "baseSHA256": "900e63ddba3064f50c6395ae7de32797297f92c129d143204cdab117d4ee3d27",
+            "sha256": "51883deaa75f4fb757c44bf362a961d2108e11d297fab6b363c103fc5e9314da"
+          },
+          {
+            "path": "apps/macos/NativeReaderSession.swift",
+            "baseSHA256": "4d322ef1a4da2a622e72eeb1e4e0dce222952a3560e64e18894a0120610b11f5",
+            "sha256": "d3863963f93e0467233b6a0c4e23d29b930fc81d05335045dc00e63d0dd119f7"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "2753ba1f7dff2db4f237ab745de9d0dadf218392bf3d25bc01f791aca293e3f9",
+            "sha256": "bc5001ebc43b40637b39bcf42434c508727d1a2b1b7db70f3c1b727f935b87e5"
+          },
+          {
+            "path": "docs/tinymist/dev/native-reader-app-contract.typ",
+            "baseSHA256": "1a5fce1e3c4c46ec8224a1f941f335353d4321cd003f5f52398acd2828519031",
+            "sha256": "b2cbe4bd69805f85b261a261b9f7848063ee10bc0eb2d10c7862cc3b6056b386"
+          },
+          {
+            "path": "docs/tinymist/dev/native-reader-app-verification.typ",
+            "baseSHA256": "babe2ad52d1eeab5dfd685fd004d6c282f25b6d425f54e58bccb1199b096ab63",
+            "sha256": "e1a351dd2ad95ef5270c4a3acdfd8fa9392fe99fdd2be1fa44d1d54564b2589e"
+          },
+          {
+            "path": "docs/tinymist/dev/native-reader-original-pages.typ",
+            "baseSHA256": "a7203a8e72b61bada3e1ffc970460f35a95475ab2661d88b20841b9b816b16fa",
+            "sha256": "6ec4fabb487669eedc35c3b35b70b4a2d7b5dcc42fe8963f9d14246492a2ca78"
+          },
+          {
+            "path": "docs/tinymist/dev/reader-architecture.typ",
+            "baseSHA256": "887a3a74e0a140d33e12c373560dffb1bbc9928797b49edeb9d589f356d7a074",
+            "sha256": "ba724cf87e524f944f2c71bc89c4ce8693e990631854a7958ae875a7ab04dbc5"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/design.md",
+            "baseSHA256": "fbdc0a11b6cb4324a4584025d5cfe1b3480feec2928ad55a37f5e8a3105abf22",
+            "sha256": "7ac815ecf254bf33bac8952c8ee374e80919dc996b62e0dc52c6851028e8c0f9"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/specs/native-reader/spec.md",
+            "baseSHA256": "8f6b5bde34ad8fc293863f65ec52e3a3227ded7f83c60a8ab8a566d1fae0dd95",
+            "sha256": "8baba2104f9a8be69e0283d08f06981f78623eee4988476020a2c3178a535d4b"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/tasks.md",
+            "baseSHA256": "043945cbaffd5403d0cb163cbcd91c738646fbddc2298f0801d0200c95585dad",
+            "sha256": "e692d9493e0e7eab3b43a842825fd5599c213478165bc69f1b4c20559ab40cb0"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/OriginalPageTests.swift",
+            "baseSHA256": "eb6f9c508a28a80f12b79f0742c81a2f950ddbf1af562174b7364aa0c0f0abfc",
+            "sha256": "5763f2c317ec40293ceceb00e5515123d60e9dad63a7f624851995c6c8cc4eac"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_app_integration.py",
+            "baseSHA256": "2a15e38895d9b029bdf0c23b4a6e8f26a88839d80ca49ab374fe7df8448f1f27",
+            "sha256": "ae5555c0b2cb623dd6de1ab1082aac1c6a9f06d1f9e65359662c15c3122275d8"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_original_pages.py",
+            "baseSHA256": "9225073bac7b947d49b115ea77b929463e18c567a845c0e93bad11e8b31a377e",
+            "sha256": "5173b6e2702c78c9a1c54f598e9dec4c35706132dc19e636c66c36aca75efb12"
+          }
+        ]
       }
     ]
   }

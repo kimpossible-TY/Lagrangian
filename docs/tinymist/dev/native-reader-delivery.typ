@@ -183,7 +183,7 @@ are excluded from inspection; no user clipboard is inspected or changed.
 
 The common integrated_sources owner reads tracked sourceProvenance in
 backend-delivery.json, already included in sourceFiles and the delivery
-distribution manifest. The registered production correction is full revision
+distribution manifest. The first registered production correction is full revision
 `338304a374bdd75ba76151a34bc8c284510ce725`, relative to
 `09c5186bff1850b17f6e85fe2f3115153520bc94`. Its exact 30 source/test/document
 paths bind both original and corrected SHA-256 values. Historical core ec2,
@@ -199,7 +199,12 @@ is exempt. A future added file must explicitly bind verified original absence
 and its actual corrected digest. Rehashing changed current bytes cannot repair a
 fixed correction mismatch.
 
-Only the fixed338 correction is registered now. Later NA06 corrections and new
+The second registered production correction is `8744c1b3db0b494f2e36529df281be993ccf11b4`,
+relative to `09e78630a6afb51436e45da140c3588c82c295f5`, with exactly15 paths and
+Git-object original/corrected SHA-256 values. It is applied after338; the old
+338 inventory and historical C/G1/P0/published records are not rewritten using
+current bytes. It contains the completed C1–C3/F15/F16 source changes only,
+not a new app/runtime/reader artifact or actual engine provenance proof. Later corrections and new
 API owners must first supply PM-transferred exact fixed commits and inventories.
 Their registration must include actual Swift source-list or backend packaging
 changes where needed; nonexistent files and pending owner SHAs are not registered.

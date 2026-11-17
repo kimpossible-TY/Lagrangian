@@ -131,3 +131,10 @@ The producer SHALL archive the exact current-H signed payload with ordinary mode
 - **WHEN** current run H reuses engine source E from an earlier artifact
 - **THEN** only authenticated engine bytes/checksum/provenance are reused
 - **AND** the current app and tar are produced anew with H, never copied from the retained app
+
+
+#### Scenario: Sequential completed native source correction
+- **WHEN** the fixed8744 source correction relative to fixed09e is registered after338
+- **THEN** its exact15 original/corrected Git-object hashes and ancestry are validated without rewriting historical records
+- **AND** actual8744 code is rejected with the old338-only inventory, while the clean current assembled source binds through the existing common owner
+- **AND** no pending NA15/16 revision, engine provenance, runtime/reader/app or PM receipt is invented
