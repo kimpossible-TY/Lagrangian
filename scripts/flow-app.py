@@ -23,6 +23,9 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import flow_engine_runs
+import native_delivery_consumer
+import copy
+from types import SimpleNamespace
 import importlib.util
 
 def delivery_module():
@@ -215,9 +218,30 @@ def build(args):
     app.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.flow-build-', dir=app.parent) as tmp:
         staged = Path(tmp) / app.name
-        manifest = build_bundle(args, staged, engine, engine_version, engine_build)
-        if app.exists(): shutil.rmtree(app)
-        os.replace(staged, app)
+        # Context teardown checks inputs again before publication, so a failure
+        # or interruption cannot replace a previously verified app.
+        with native_delivery_consumer.consume(SimpleNamespace(**globals()), engine,
+                explicit=getattr(args, 'delivery', None), management_only=getattr(args, 'management_only', False)) as (payload, context):
+            candidate_args = copy.copy(args)
+            candidate_args.delivery = payload
+            candidate_args.delivery_context = context
+            if context is not None:
+                candidate_args.engine_provenance = payload.parents[3] / 'release.json'
+            if payload is not None:
+                requested = getattr(args, 'identity', None) or os.environ.get('FLOW_SIGN_IDENTITY')
+                if not requested and not (signing_data_directory() / 'signing.json').exists():
+                    raise ValueError('Native delivery requires an explicit signing identity; refusing implicit ad-hoc fallback')
+                candidate_args.identity = resolve_signing_identity(requested)
+                if candidate_args.identity != '-':
+                    matches = [sha for sha, name in signing_identities().items()
+                               if candidate_args.identity.upper() == sha or candidate_args.identity == name]
+                    if len(matches) != 1:
+                        raise ValueError('Selected signing identity is unavailable; refusing ad-hoc fallback')
+                    candidate_args.identity = matches[0]
+            manifest = build_bundle(candidate_args, staged, engine, engine_version, engine_build)
+            if payload is not None:
+                native_delivery_consumer.current_delivery(SimpleNamespace(**globals()), payload, engine)
+        delivery_module().publish_verified(staged, app, validate)
     write_json(app.parent / 'release.json', {**manifest, 'appExecutableSHA256': digest(executable(app)),
                                            'bundleChecksum': bundle_checksum(app)})
     print(app)
@@ -265,6 +289,7 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
                 'engineInputSHA256': engine_input_hash,
                 'engineSHA256': digest(mac / 'flow-engine'), 'signing': 'ad-hoc' if identity == '-' else identity,
                 'builtAt': dt.datetime.now(dt.timezone.utc).isoformat()}
+    manifest['managementOnly'] = not bool(getattr(args, 'delivery', None))
     manifest['appBuild'] = {
         'compilerArgv': list(map(str, compiler_argv)), 'compileElapsedSeconds': compile_elapsed,
         'swiftVersion': capture(['/usr/bin/swiftc', '--version']),
@@ -308,9 +333,7 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
         payload = delivery_module().verify(delivery)
         if payload['sourceRevision'] != manifest['sourceRevision'] or payload['sourceFiles'] != source_before or payload['engineInputSHA256'] != engine_input_hash:
             raise ValueError('Native delivery must match current source and engine input')
-        if payload['signing'] != manifest['signing']:
-            raise ValueError('Native delivery signing identity mismatch')
-        shutil.copytree(delivery, resources / 'native-reader', symlinks=True)
+        payload = delivery_module().copy_signed(delivery, resources / 'native-reader', identity)
         manifest['deployment'] = {}
         for image in (mac / APP_EXECUTABLE, mac / 'flow-engine'):
             inspected = delivery_module().image_info(image, app)
@@ -318,6 +341,9 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
         manifest['nativeDeliverySHA256'] = digest(resources / 'native-reader/delivery-manifest.json')
         manifest['nativeDeliveryPayloadSHA256'] = payload['payloadSHA256']
         manifest['nativeDeliveryCapabilities'] = payload['capabilities']
+        if context := getattr(args, 'delivery_context', None):
+            manifest['nativeDeliveryInput'] = context
+        manifest['nativeRuntimeManifestSHA256'] = payload['runtimeManifestSHA256']
         if source_before != delivery_module().source_binding(ROOT):
             raise ValueError('Source changed during app build')
     write_json(resources / 'release.json', manifest)
@@ -466,10 +492,10 @@ def clear_quarantine(path):
         if error.returncode != 1:
             raise
 
-def install_engine_payload(repo, run_id, dest):
+def install_engine_payload(repo, run_id, dest, record=None):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    incoming = dest.parent / ('.incoming-' + dest.name)
-    if incoming.exists(): shutil.rmtree(incoming)
+    incoming = Path(tempfile.mkdtemp(prefix='.incoming-' + dest.name + '-', dir=dest.parent))
+    incoming.rmdir()
     installed = False
     try:
         with tempfile.TemporaryDirectory(prefix='flow-engine-download-') as tmp:
@@ -484,8 +510,10 @@ def install_engine_payload(repo, run_id, dest):
         clear_quarantine(incoming)
         if sys.platform == 'darwin':
             resolve_engine(engine)
-        if dest.exists(): shutil.rmtree(dest)
-        os.replace(incoming, dest)
+        if record is not None:
+            write_json(incoming / native_delivery_consumer.CONTEXT,
+                       native_delivery_consumer.context(SimpleNamespace(**globals()), incoming, dest, repo, record))
+        delivery_module().publish_verified(incoming, dest, verify_engine_payload)
         installed = True
     finally:
         if not installed and incoming.exists(): shutil.rmtree(incoming, ignore_errors=True)
@@ -511,9 +539,11 @@ def fetch_engine(args):
             raise ValueError(str(error) + '. Dispatch one with: gh workflow run ' + ENGINE_WORKFLOW + ' --ref ' + branch) from error
         raise
     run_id = str(record['databaseId'])
-    dest = (args.dest or engine_cache_dir(run_id)).expanduser()
+    dest = (args.dest or engine_cache_dir(run_id)).expanduser().absolute()
+    if dest.resolve() != dest or dest.is_symlink():
+        raise ValueError('Engine destination must be canonical without symlink aliases')
     ensure_outside_target(dest)
-    install_engine_payload(repo, run_id, dest)
+    install_engine_payload(repo, run_id, dest, record)
     engine = dest / 'flow-engine'
     print('Verified flow-engine run ' + run_id + ' SHA-256 ' + digest(engine), file=sys.stderr)
     print(engine)
@@ -1613,7 +1643,7 @@ def restore_hosting(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest='command', required=True)
-    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
+    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--management-only', action='store_true', help='Explicit nonshipping management fixture; require-delivery verification rejects it'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
     fetch = sub.add_parser('fetch-engine', help='Download a macOS arm64 engine built by GitHub Actions without compiling Rust')
     fetch.add_argument('--branch', default='main', help='Branch whose latest successful flow-engine run is downloaded')
     fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run. Pass the same id to scripts/fetch-reader-bundle.py so the engine and the reader come from one run')

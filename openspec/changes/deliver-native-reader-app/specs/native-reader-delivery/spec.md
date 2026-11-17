@@ -83,3 +83,21 @@ The final app, runtime, reader and delivery source binding SHALL equal the froze
 - **WHEN** a new inspection root is set up and a separate smoke is executed
 - **THEN** inspection remains running=false and smoke processes/ports are cleaned
 - **AND** only named private-board copy and explicit owned source/service fixtures are used
+
+### Requirement: Existing updater CLI consumes same-run portable delivery
+The old fetch/reader/build CLI SHALL consume same-run current portable delivery or fail before install. Build SHALL reauthenticate its bounded engine-local context through existing run/artifact, inventory, reader and signing owners. H SHALL bind checkout/app/delivery/runtime/reader; verified engine source E MAY be older. Invalid inputs SHALL preserve valid previous stages without dependency or implicit ad-hoc fallback.
+
+#### Scenario: Current app on an engine cache hit
+- **WHEN** R publishes current H app/payload/reader with a verified engine built at older E
+- **THEN** the old sequence compiles current Swift/resources with that payload and passes require-delivery integrity
+- **AND** stdout retains engine path, reader path and final app path compatibility
+
+#### Scenario: Invalid delivery or interrupted build
+- **WHEN** delivery is absent, modified, stale, mixed, replayed or signing/input verification fails or build is interrupted
+- **THEN** the consumer exits nonzero before install and preserves valid previous stages
+- **AND** no dependency acquisition or implicit ad-hoc fallback occurs
+
+#### Scenario: Different explicit local signing identity
+- **WHEN** a verified artifact is consumed with a different available certificate
+- **THEN** only copied candidate images are signed and post-sign runtime/delivery hashes are rebound before the outer seal
+- **AND** original artifact checksums and signing provenance remain distinct from local output identities

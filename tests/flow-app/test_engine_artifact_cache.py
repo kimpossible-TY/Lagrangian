@@ -231,6 +231,10 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 return {str(p.relative_to(repo)): package.digest(p) for p in repo.rglob('*') if p.is_file()}
             class Delivery:
                 @staticmethod
+                def copy_signed(source, output, identity):
+                    shutil.copytree(source, output, symlinks=True)
+                    return Delivery.verify(source)
+                @staticmethod
                 def source_binding(path): return source_binding(path)
                 @staticmethod
                 def image_info(path, root):
@@ -239,7 +243,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 def verify(path):
                     return {'sourceRevision':revision[0], 'sourceFiles':source_binding(repo),
                             'engineInputSHA256':package.digest(engine), 'signing':'ad-hoc',
-                            'payloadSHA256':package.bundle_checksum(payload), 'capabilities':{'fixture':True}}
+                            'payloadSHA256':package.bundle_checksum(payload), 'runtimeManifestSHA256':'fixture', 'capabilities':{'fixture':True}}
             def capture(argv, **kwargs):
                 args = list(map(str, argv))
                 if args[:2] == ['git','-C']:
