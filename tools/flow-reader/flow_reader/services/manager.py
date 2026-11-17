@@ -2,6 +2,7 @@
 """Run Reader services from existing Flow project profiles, independently of PDF."""
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 import fcntl
 import json
 import os
@@ -48,11 +49,23 @@ def atomic_write(path, content, mode=0o600):
         temporary.unlink(missing_ok=True)
 
 
+@dataclass(frozen=True)
+class ReaderExecutables:
+    """Concrete local operations supplied by a verified host, never config or HTTP."""
+    python: str
+    compiler: str
+    flow_manager: str
+    engine: str
+    manager: str
+
+
 class ReaderManager:
-    def __init__(self, data=None, agents=None):
+    def __init__(self, data=None, agents=None, *, executables=None):
         self.data = Path(data or os.environ.get("FLOW_READER_DATA_DIR", DEFAULT_DATA)).resolve()
         self.agents = Path(agents or Path.home() / "Library/LaunchAgents")
-        self.launcher = self.data / "bin/flow-reader"
+        self.executables = executables
+        self.installed_launcher = self.data / "bin/flow-reader"
+        self.launcher = Path(executables.manager) if executables is not None else self.installed_launcher
 
     @contextmanager
     def locked(self, *, timeout=0):
@@ -73,6 +86,20 @@ class ReaderManager:
         config = json.loads((self.data / "config.json").read_text())
         if config.get("schemaVersion") != 1 or not isinstance(config.get("services"), list):
             raise ValueError("Unsupported reader configuration")
+        if self.executables is not None:
+            # Keep schema/path declarations valid without consulting unused external
+            # executables. Only these concrete operations can be substituted.
+            for key in ("flowManager", "python", "compiler"):
+                if not isinstance(config.get(key), str) or not Path(config[key]).is_absolute():
+                    raise ValueError(f"Missing executable: {key}")
+            if config.get("engine") and (not isinstance(config["engine"], str)
+                                         or not Path(config["engine"]).is_absolute()):
+                raise ValueError("Missing executable: engine")
+            config = {**config, "flowManager": self.executables.flow_manager,
+                      "python": self.executables.python, "compiler": self.executables.compiler,
+                      "engine": self.executables.engine}
+            if not self.launcher.is_absolute() or not os.access(self.launcher, os.X_OK):
+                raise ValueError("Missing executable: reader manager")
         for key in ("flowManager", "python", "compiler"):
             path = Path(config.get(key, ""))
             if not path.is_absolute() or not os.access(path, os.X_OK):
@@ -194,11 +221,16 @@ class ReaderManager:
     def profile(self, identifier):
         return next((profile for profile in self.profiles() if profile["id"] == identifier), None)
 
+    def server_arguments(self, arguments):
+        config = self.config()
+        prefix = ([str(self.launcher), "--backend"] if self.executables is not None
+                  else [config["python"], str(HERE / "serve.py")])
+        return [*prefix, *arguments]
+
     def arguments(self, profile):
         if profile.get("shared"):
             self.document_arguments(profile)
-            config = self.config()
-            return [config["python"], str(HERE / "serve.py"), "--managed", "--data", str(self.data)]
+            return self.server_arguments(["--managed", "--data", str(self.data)])
         return self.document_arguments(profile)
 
     def document_arguments(self, profile):
@@ -210,11 +242,11 @@ class ReaderManager:
             raise ValueError("The Flow entrypoint must exist inside its project root")
         if not Path(profile["packages"]).is_dir():
             raise ValueError("The Flow package directory does not exist")
-        arguments = [config["python"], str(HERE / "serve.py"), "--root", str(root),
+        arguments = self.server_arguments(["--root", str(root),
                      "--entry", profile["entry"], "--package-path", profile["packages"],
                      "--compiler", config["compiler"], "--output", str(self.data / "documents" / profile["id"]),
                      "--focus-file", profile["focusFile"],
-                     "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
+                     "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"])
         if config.get("homepageURL"):
             from flow_reader.services.homepage import reader_url
             homepage = reader_url(config["homepageURL"])
@@ -333,10 +365,13 @@ class ReaderManager:
         if (not isinstance(arguments, list) or len(arguments) != len(expected)
                 or arguments[1:] != expected[1:] or not isinstance(arguments[0], str)):
             return False
-        if arguments[0] == expected[0]:
+        # Preserve recognition of this same manager's installed launcher during
+        # explicit host substitution; unrelated executables/documents still reject.
+        launchers = [self.launcher, self.installed_launcher] if self.executables is not None else [self.launcher]
+        if arguments[0] in [str(path) for path in launchers]:
             return True
         try:
-            return Path(arguments[0]).resolve() == Path(expected[0]).resolve()
+            return any(Path(arguments[0]).resolve() == path.resolve() for path in launchers)
         except (OSError, RuntimeError):
             return False
 
@@ -391,12 +426,11 @@ class ReaderManager:
                     time.sleep(.3)
 
 
-def main(argv=None):
+def main(argv=None, *, manager=None):
     arguments = sys.argv[1:] if argv is None else argv
-    manager = ReaderManager()
+    manager = manager if manager is not None else ReaderManager()
     if arguments == ["--serve-all"]:
-        config = manager.config()
-        command = [config["python"], str(HERE / "serve.py"), "--managed", "--data", str(manager.data)]
+        command = manager.server_arguments(["--managed", "--data", str(manager.data)])
         os.execv(command[0], command)
         return
     if arguments[:1] == ["--attach"]:
@@ -454,10 +488,10 @@ def main(argv=None):
         raise ValueError("Unknown reader command")
 
 
-def cli():
+def cli(argv=None, *, manager=None):
     """Preserve the supported command's concise error and exit-code contract."""
     try:
-        main()
+        main(argv, manager=manager)
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)

@@ -47,8 +47,8 @@
   "macOS13Execution": "unverified",
   "manager": {
     "entrypoint": "tools/flow-reader/manage.py",
-    "configuration": "Existing ReaderManager config/profile/lifecycle; no implicit installation or migration",
-    "requiredInjectionHandoff": "Provide bundle-relative interpreter/compiler operations when provisioning or rebinding managed service configuration."
+    "configuration": "Existing schema/profile/lifecycle unchanged; ReaderManager receives optional concrete executable bindings from authenticated app composition. Config bytes are not rewritten.",
+    "composition": "Parent and managed child authenticate their own app seal/release/manifest and inject the same local ReaderExecutables. No env or HTTP binding authority."
   },
   "initialCapabilities": {
     "coreSource": "9b2dc87651eb16a809bb48dbe4539614cfe30d6a",

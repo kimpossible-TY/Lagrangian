@@ -79,15 +79,19 @@ Python installer and acquisition evidence remain isolated build inputs.
 The native composition verifies the outer app seal and exact delivery/release
 binding before supplying existing runtime and manager initializer arguments.
 The shell entrypoint uses bundled Python, clears development module/dyld
-overrides, and the Python launcher checks the full payload inventory. Manager
-configuration must select the exact bundled interpreter and compiler. There is
+overrides, and the Python launcher checks the full payload inventory. ReaderManager receives the exact bundled interpreter, compiler, Flow manager
+and engine through its optional concrete executable operations. Existing
+schema-1 config files can retain their external executable paths unchanged. There is
 no source checkout, Homebrew, global module, PATH or scratch fallback.
 
 ReaderManager retains profile matching, managed lifecycle, configuration
 validation and source/account authority. Staging does not install a service or
-rewrite live configuration. Provisioning or relocating an existing managed
-service requires the owning configuration writer to rebind those executable
-paths. Missing configuration fails explicitly. A loopback fixture and a contract
+rewrite live configuration. The owner still validates config/profile/source/lifecycle policy. Both the
+parent launcher and shared backend child authenticate their own outer app seal,
+release/manifest pair and file inventory before constructing those operations.
+The child reenters the same app-relative composition and the managed server
+accepts its explicit manager factory. No remote field or environment value
+creates trusted executable bindings. Missing configuration fails explicitly. A loopback fixture and a contract
 fake provider can verify delivery without implying a live service or account.
 
 == Acceptance and owner handoff

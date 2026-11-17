@@ -315,28 +315,42 @@ def stage_candidate(args):
     return {'status':'verified', 'output':str(output), 'manifestSHA256':sha(output / MANIFEST)}
 
 
-def launch_manager(arguments):
+def bundled_manager():
+    """Authenticate this app before constructing concrete manager operations."""
     root = Path(__file__).resolve().parent
-    m = verify(root, signatures=False)  # Outer seal is checked by Swift before this invocation.
+    contents = root.parents[1]
+    require(root == contents / 'Resources/native-reader' and contents.name == 'Contents', 'not an app delivery layout')
+    run(['/usr/bin/codesign', '--verify', '--deep', '--strict', contents.parent])
+    m = verify(root, signatures=False)
+    release = read(contents / 'Resources/release.json')
+    require(release.get('nativeDeliverySHA256') == sha(root / MANIFEST)
+            and release.get('sourceRevision') == m['sourceRevision']
+            and release.get('engineInputSHA256') == m['engineInputSHA256'], 'app/delivery binding mismatch')
+    require(sha(contents / 'MacOS/flow-engine') == release.get('engineSHA256'), 'app/engine binding mismatch')
     require(Path(sys.executable).resolve() == (root / m['entrypoints']['python']).resolve(), 'external Python interpreter')
     os.environ['PATH'] = str(root / 'runtime/node/bin') + ':/usr/bin:/bin'
     os.environ['TYPST_PACKAGE_CACHE_PATH'] = str(root / 'typst-packages')
     os.environ['SSL_CERT_FILE'] = str(root / 'certificates/cacert.pem')
     os.environ['SSL_CERT_DIR'] = str(root / 'certificates')
     os.environ['PYTHONNOUSERSITE'] = '1'
-    os.environ['FLOW_ENGINE_PATH'] = str(root.parents[1] / 'MacOS/flow-engine')
+    os.environ['FLOW_ENGINE_PATH'] = str(contents / 'MacOS/flow-engine')
     sys.path[:] = [str(root / 'tools/flow-reader'), *[p for p in sys.path if p and Path(p).resolve().is_relative_to(root / 'python')]]
-    from flow_reader.services.manager import ReaderManager, cli
-    # Keep service/config validation in the existing manager. Never execute a
-    # configured external interpreter/compiler as a fallback to bundled bytes.
-    manager = ReaderManager()
-    configuration = manager.config()
-    require(Path(configuration['flowManager']).resolve() == (root.parents[1] / 'MacOS/Lagrangian').resolve(), 'external managed Flow executable')
-    require(not configuration.get('engine') or Path(configuration['engine']).resolve() == (root.parents[1] / 'MacOS/flow-engine').resolve(), 'external managed engine')
-    for key, entry in [('python','python'), ('compiler','compiler')]:
-        require(Path(configuration[key]).resolve() == (root / m['entrypoints'][entry]).resolve(), 'managed configuration needs bundled ' + key + ' rebinding')
-    sys.argv = [str(root / 'tools/flow-reader/manage.py'), *arguments]
-    return cli()
+    from flow_reader.services.manager import ReaderManager, ReaderExecutables
+    return ReaderManager(executables=ReaderExecutables(
+        python=str(root / m['entrypoints']['python']), compiler=str(root / m['entrypoints']['compiler']),
+        flow_manager=str(contents / 'MacOS/Lagrangian'), engine=str(contents / 'MacOS/flow-engine'),
+        manager=str(root / m['entrypoints']['manager'])))
+
+
+def launch_manager(arguments):
+    manager = bundled_manager()
+    if arguments[:1] == ['--backend']:
+        from functools import partial
+        from flow_reader.services.manager import ReaderManager
+        from flow_reader.server.cli import main
+        return main(arguments[1:], manager_factory=partial(ReaderManager, executables=manager.executables))
+    from flow_reader.services.manager import cli
+    return cli(arguments, manager=manager)
 
 
 def fetch(record, output):

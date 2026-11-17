@@ -17,4 +17,10 @@
 
 ## Initial-stage acceptance boundary
 
-These tasks cover initial delivery production and its isolated checks. Final NA06 core/NA12 page source rebinding and NA08 review, managed-service configuration provisioning, GUI/VoiceOver, live account/provider use and execution on macOS 13 remain explicit external gates. They are not inferred from local integrity or a fake process provider. The source-bound final commit, raw results and remaining-owner handoff are recorded outside the immutable plan in `test-output/delivery-production/NA13`.
+These tasks cover initial delivery production and its isolated checks. Final NA06 core/NA12 page source rebinding and NA08 review, GUI/VoiceOver, live account/provider use and execution on macOS 13 remain explicit external gates. They are not inferred from local integrity or a fake process provider. The source-bound final commit, raw results and remaining-owner handoff are recorded outside the immutable plan in `test-output/delivery-production/NA13`.
+
+## 4. Default manager configuration correction
+- [x] 4.1 Add optional concrete executable operations in ReaderManager and preserve nonbundle schema/profile/source/lifecycle behavior; verify targeted manager tests.
+- [x] 4.2 Reenter verified app composition for shared children through one optional managed-server factory; keep external config bytes unchanged.
+- [x] 4.3 Supply required relocated installed-layout regression for with external paths, actual foreground/shared backend, fake process attachment, tamper/mismatch/env negatives and affected packaging/native checks.
+- [x] 4.4 Freeze source/test commit and isolated v2 build/evidence procedure; execute one app build and bind actual post-freeze results outside the source tree. PM final acceptance remains separate.

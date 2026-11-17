@@ -18,6 +18,7 @@ from flow_reader.services.manager import (
     LEGACY_LABEL_PREFIX,
     LABEL_PREFIX,
     ReaderManager,
+    ReaderExecutables,
     main,
 )
 from flow_reader.compiler.project import document_identity
@@ -471,6 +472,109 @@ class ReaderManagerTests(unittest.TestCase):
                 self.manager.control("stop", profile)
         self.assertEqual([call.args[0][1] for call in command.call_args_list],
                          ["disable", "bootout", "print"])
+
+
+class ReaderExecutableBindingTests(unittest.TestCase):
+    setUpBase = ReaderManagerTests.setUp
+    save = ReaderManagerTests.save
+    attachment_state = ReaderManagerTests.attachment_state
+    def setUp(self):
+        self.setUpBase()
+        paths=[]
+        for name in ('python','compiler','flow','engine','manager'):
+            path=self.root/'verified bundle'/name
+            path.parent.mkdir(exist_ok=True)
+            path.write_text('#!/bin/sh\nexit 99\n');path.chmod(0o755);paths.append(str(path))
+        self.bindings=ReaderExecutables(*paths)
+        for key in ('python','compiler','flowManager','engine'):
+            self.config[key]='/__na13_external_fixture__/'+key
+        self.save()
+        self.original=(self.manager.data/'config.json').read_bytes()
+        self.bound=ReaderManager(self.manager.data,self.manager.agents,executables=self.bindings)
+
+    def test_bound_config_selects_concrete_executables_without_writing_or_accessing_external_paths(self):
+        real_access=os.access
+        def access(path,mode):
+            self.assertNotIn('/__na13_external_fixture__/',str(path))
+            return real_access(path,mode)
+        with patch('flow_reader.services.manager.os.access',side_effect=access):
+            config=self.bound.config()
+        self.assertEqual(config['python'],self.bindings.python)
+        self.assertEqual(config['compiler'],self.bindings.compiler)
+        self.assertEqual(config['flowManager'],self.bindings.flow_manager)
+        self.assertEqual(config['engine'],self.bindings.engine)
+        self.assertEqual(config['services'],self.config['services'])
+        self.assertEqual((self.bound.data/'config.json').read_bytes(),self.original)
+        with self.assertRaisesRegex(ValueError,'Missing executable'):
+            self.manager.config()
+
+    def test_injection_preserves_schema_source_and_shared_policy_failures(self):
+        for change in ({'schemaVersion':2},{'services':{}},{'python':'relative-path'}):
+            with self.subTest(change=change):
+                (self.bound.data/'config.json').write_text(json.dumps({**self.config,**change}))
+                with self.assertRaises(ValueError):self.bound.config()
+        (self.bound.data/'config.json').write_bytes(self.original)
+        profile=self.resolve_bound()
+        with self.assertRaises(ValueError):self.bound.document_arguments({**profile,'entry':'../outside.typ'})
+        self.config['shared']={'port':True};self.save()
+        with self.assertRaises(ValueError):self.bound.shared_settings()
+
+    def resolve_bound(self):
+        with patch('flow_reader.services.manager.run',return_value=json.dumps({'profiles':[self.parent]})) as run:
+            profile=self.bound.profiles()[0]
+        self.assertTrue(all(call.args[0][0]==self.bindings.flow_manager for call in run.call_args_list))
+        return profile
+
+    def test_document_shared_and_serve_all_plans_use_same_bound_launcher(self):
+        profile=self.resolve_bound()
+        plan=self.bound.document_arguments(profile)
+        self.assertEqual(plan[:2],[self.bindings.manager,'--backend'])
+        self.assertEqual(plan[plan.index('--compiler')+1],self.bindings.compiler)
+        self.assertEqual(plan[plan.index('--engine')+1],self.bindings.engine)
+        self.config['shared']={'port':8769};self.save()
+        profile=self.resolve_bound()
+        plan=self.bound.arguments(profile)
+        self.assertEqual(plan,[self.bindings.manager,'--backend','--managed','--data',str(self.bound.data)])
+        with patch('flow_reader.services.manager.os.execv') as execute:
+            main(['--serve-all'],manager=self.bound)
+        execute.assert_called_once_with(plan[0],plan)
+        self.assertEqual((self.bound.data/'config.json').read_bytes(),json.dumps(self.config).encode())
+
+    def test_bound_cli_profiles_launch_plan_and_attach_keep_owner_validation(self):
+        profile=self.resolve_bound()
+        with patch('flow_reader.services.manager.run',return_value=json.dumps({'profiles':[self.parent]})), \
+             patch.object(self.bound,'job_pid',return_value=os.getpid()), \
+             patch.object(self.bound,'request',return_value=self.attachment_state(profile)), \
+             patch.object(self.bound,'control') as control:
+            for argv in (['--profiles'],['--launch-plan',profile['id']],['--attach','--root',profile['root'],'--entry',profile['entry']]):
+                out=io.StringIO()
+                with redirect_stdout(out):main(argv,manager=self.bound)
+                value=json.loads(out.getvalue())
+                if argv[0]=='--launch-plan':self.assertEqual(value['arguments'][:2],[self.bindings.manager,'--backend'])
+            control.assert_not_called()
+        self.assertEqual((self.bound.data/'config.json').read_bytes(),self.original)
+
+    def test_bound_and_previous_owned_launchers_do_not_authorize_unrelated_agents(self):
+        profile=self.resolve_bound();self.bound.agents.mkdir()
+        file=self.bound.agents/(profile['label']+'.plist')
+        for launcher,identifier,expected in [(str(self.bound.launcher),profile['id'],True),(str(self.bound.installed_launcher),profile['id'],True),(str(self.root/'unrelated/flow-reader'),profile['id'],False),(str(self.bound.launcher),'another-document',False)]:
+            file.write_bytes(plistlib.dumps({'ProgramArguments':[launcher,'--serve',identifier]}))
+            self.assertEqual(self.bound.owns_agent(profile),expected)
+
+    def test_managed_server_factory_is_optional_and_receives_explicit_bound_manager(self):
+        from unittest.mock import Mock
+        from flow_reader.server import cli as server
+        runtime=Mock();runtime.start.return_value={}
+        created=[]
+        def factory(**kwargs):
+            result=ReaderManager(executables=self.bindings,**kwargs);created.append(result);return result
+        with patch.object(server,'ReaderRuntime',return_value=runtime) as create, \
+             patch.object(server.signal,'signal'),redirect_stdout(io.StringIO()):
+            server.main(['--managed','--data',str(self.bound.data)],manager_factory=factory)
+        self.assertIs(created[0].executables,self.bindings)
+        self.assertIs(create.call_args.args[1],created[0])
+        runtime.close.assert_called_once()
+
 
 
 class ReaderCommandTests(unittest.TestCase):

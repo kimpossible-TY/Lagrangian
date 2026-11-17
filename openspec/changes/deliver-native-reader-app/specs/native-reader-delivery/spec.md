@@ -41,3 +41,15 @@ Verification SHALL record actual commands, inputs, exits and skips. Required ins
 - **WHEN** core or original-page integration has not been rebound to final owner commits
 - **THEN** the initial app can pass delivery integrity checks
 - **AND** final application acceptance remains explicitly blocked
+
+### Requirement: Existing manager configuration remains usable
+A verified app SHALL supply concrete executable operations through ReaderManager without rewriting existing schema-1 config. ReaderManager SHALL retain config, profile, source and lifecycle policy. Shared backend children SHALL authenticate and consume the same bundle bindings. HTTP fields and environment values SHALL NOT establish trusted executable identity.
+
+#### Scenario: Relocated app with legacy external executable paths
+- **WHEN** an existing valid config refers to external Python, compiler, Flow and engine paths
+- **THEN** the relocated bundled manager uses verified bundled executables and retains identical config bytes
+- **AND** profiles, launch plans, attachment validation and shared child compilation use the existing owners
+
+#### Scenario: Invalid binding or configuration
+- **WHEN** the app seal, manifest, release pair, required executable or schema is invalid
+- **THEN** launch fails closed without external executable fallback or configuration mutation

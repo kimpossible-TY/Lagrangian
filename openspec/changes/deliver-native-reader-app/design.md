@@ -11,12 +11,12 @@ Produce a relocatable, hash-bound runtime and backend with a fresh native app in
 - Use the official Python.org framework payload without installing its package. Rewrite only copied Mach-O framework references to loader-relative paths, sign every copied Mach-O, and inventory the resulting bytes. Preserve original archives, signatures, licenses and input hashes separately.
 - Supply official Typst prebuilt for backend compilation because the installed engine lacks the backend's CLI flags. Preserve the existing engine independently for preview and source history.
 - Place backend, reader-common, interpreter, compiler and runtime in one app-relative delivery root. The copied verifier is also the backend launcher. Swift validates the outer seal and delivery inventory off the main thread before invoking existing manager operations.
-- Keep ReaderManager authoritative for profiles, service startup and source/account policy. Bundling supplies executable paths, not a new service lifecycle. Missing configuration or a required manager injection API is an explicit handoff, never implicit installation.
+- Keep ReaderManager authoritative for profiles, service startup and source/account policy. Bundling supplies executable paths, not a new service lifecycle. The owner accepts optional concrete ReaderExecutables; its original config file is never rewritten. Manager and shared child independently authenticate the app and inject those operations through an optional managed-server factory. Missing configuration still fails; no implicit installation occurs.
 - Write candidates beside the destination and exchange only after verification; failed candidates preserve accepted stages. Outer signing occurs after internal signatures and manifests.
 
 ## Risks / Trade-offs
 - [Modified Python framework bytes] → preserve distribution provenance and verify all load paths, signatures and post-sign hashes.
-- [Existing service configuration refers to old runtime paths] → fail closed and report the manager configuration handoff; do not migrate live data.
+- [Existing config refers to old executables] → substitute only authenticated concrete executable operations in ReaderManager while preserving schema/profile/source validation and config bytes. Child reentry repeats seal/release/inventory verification; environment and HTTP cannot mint bindings.
 - [macOS 13 is unavailable] → inspect every arm64 Mach-O deployment target and report runtime certification as unverified.
 - [Core/page integration is pending] → bind initial source and helper exactly, then resume this session for final rebinding.
 
