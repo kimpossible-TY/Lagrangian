@@ -163,6 +163,7 @@ class ObjectsTests(unittest.TestCase):
         packages = REPO / 'tools/flow-reader/packages'
         source = cls.out / 'source'; source.mkdir()
         shutil.copyfile(HERE / 'fixtures/objects.typ', source / 'main.typ')
+        (source / 'symbol-hidden.svg').write_text(json.loads((HERE / 'fixtures/objects.expect.json').read_text())['hiddenSymbolSVG'])
         cls.binary = cls.out / 'ObjectsTests'
         command(['swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-macosx13.0',
                  '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'],
@@ -274,7 +275,8 @@ class ObjectsTests(unittest.TestCase):
         save(cls.out / 'raw-origin.json', dict(revision=cls.rich_report['revision'],
             htmlSHA256=digest(cls.out / 'rich-compiled/document.html'), sourceSHA256=digest(source / 'main.typ'),
             assets={key: hashlib.sha256(value).hexdigest() for key, value in raw_import.assets.items()},
-            scope='actual compiler SectionBundle, fixture authority; raw HTML unmodified'))
+            scope='actual compiler SectionBundle, fixture authority; raw HTML unmodified',
+            dependencyHashes={p: digest(p) for p in cls.rich_report['dependencies'] if Path(p).is_file()}))
         command([cls.binary, 'requests', cls.out, HERE / 'fixtures/objects.expect.json'])
         cls.helper_command = ['/usr/bin/sandbox-exec', '-p', '(version 1)(allow default)(deny network*)(deny file-write*)',
                               node, REPO / 'tools/flow-reader/native/math_layout.mjs', '--runtime', RUNTIME]
@@ -401,16 +403,22 @@ class ObjectsTests(unittest.TestCase):
         self.assertEqual(self.raw_result['rasterCases'], len(self.oracle['rawImageLayouts']))
         self.assertGreater(self.raw_result['paintedAssets'], 4)
         self.assertGreater(self.raw_result['labeledBlackInk'], 80)
+        self.assertEqual(self.raw_result['rawHiddenBluePixels'], self.oracle['hiddenSymbolBluePixels'])
         self.assertEqual(self.result['richAssetCases'], 15)
         origin = json.loads((self.out / 'snapshot-origin.json').read_text())
         self.assertNotEqual(origin['compilerBaseRevision'], self.model['identity']['revision'])
         self.assertEqual(origin['fixtureRevision'], self.model['identity']['revision'])
 
     def test_svg_symbol_overflow_clip_policy(self):
-        # Required independent native oracle. Keep a renderer defect visible;
-        # raw import success must never mask hidden/visible clip disagreement.
+        # Required independent pixel masks, including instance/viewBox transforms;
+        # neither raw import nor nonempty paint can substitute for these masks.
         result = json.loads(self.command([self.binary, 'symbol-overflow', self.out, HERE / 'fixtures/objects.expect.json']))
-        self.assertEqual(result, [{'overflow': 'visible', 'bluePixels': 800}, {'overflow': 'hidden', 'bluePixels': 400}])
+        save(self.out / 'symbol-overflow-results.json', result)
+        self.assertEqual([(r['case'], r['bluePixels']) for r in result[:2]], [('visible', 800), ('hidden', 400)])
+        self.assertEqual(len(result), 17)
+        self.assertTrue(all(r['bluePixels'] == r['expectedBluePixels'] for r in result))
+        negatives = json.loads((self.out / 'overflow-negative-results.json').read_text())
+        self.assertEqual(len(negatives), 11)
 
     def test_actual_compiler_independent_semantics(self):
         cells = [n for n in self.nodes if n['kind'] == 'cell']

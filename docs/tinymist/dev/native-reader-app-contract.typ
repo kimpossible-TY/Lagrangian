@@ -136,12 +136,26 @@ object-fit cover/contain and external resources reject. Loading/decoding hints
 survive as typed metadata; native preparation fully decodes before adoption.
 Compiler SVG root em sizing uses this same model. Symbol overflow attributes
 allow visible/hidden only on symbol; the existing safe SVG painter owns clipping.
-The frozen painter currently ignores hidden clipping: the independent oracle
-observes 800 blue pixels instead of 400. Import therefore explicitly refuses hidden
-with `unsupported-svg-symbol-hidden-clip` until that read-only owner is corrected.
-The required native hidden-clip test remains failed, not skipped or diluted.
-Visible raw compiler import and paint pass. Compiler root style overflow:visible is preserved. Entities, unresolved/external
-references, cycles, arbitrary overflow/CSS and invalid MIME/hash/budgets reject.
+The original 4f1b88ae proof observed hidden painting 800 pixels rather than 400.
+That report remains immutable. PM transferred the one native painter file to the
+same NA09 session for v2; the earlier read-only limit was file allocation, not a
+user prohibition. The sole NativeSafeSVG owner now emits explicit per-instance
+viewport clips and viewBox matrices for the existing native decoder. Original
+asset bytes and symbol overflow declarations remain unchanged; internal shared
+content and collision-free clip IDs avoid per-instance content duplication.
+Generated references, transforms, depth, work and node budgets are revalidated.
+Seventeen independent pixel masks verify visible 800/hidden 400, transform/aspect
+alignment, multiple instances, nested clips/symbols/use references and opacity.
+Eleven dedicated negatives include generated node/depth and viewport-scale limits.
+Unresolvable implicit or font-relative symbol viewport sizes remain explicitly
+unsupported; unitless/px/pt numeric dimensions resolve from use or symbol.
+Compiler SVG base64 data images retain their original bytes through strict MIME,
+base64, UTF8, 8MiB and SVG checks in the existing importer asset owner. Native
+pixel/decompressed and digest checks remain unchanged. Newly compiled raw source
+embeds a hidden SVG; its actual full native plan paints the exact 400-pixel mask.
+Compiler root style overflow:visible remains preserved. Entities, unresolved or
+external references, cycles, arbitrary overflow/CSS and invalid MIME/hash/budgets
+still reject.
 Glyph label paint does not create source ranges, text or label-level AX meaning.
 
 The dynamic required capability is `image-layout-v1`. Every image in a supplemented
@@ -154,12 +168,16 @@ memberwise initialization preserves old callers. One rebinding operation preserv
 metadata across session and host copies; generic RecoveryStore roundtrips use the
 same model without a duplicate store or new operation.
 
-Evidence: `/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/contract-closure/NA09`.
+Evidence: `/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/contract-closure/NA09/v2`.
+The original 69-pass/1-error report is preserved. The affected Contract, Objects,
+Services and actual raw-fixture host entrypoints run for v2. Unchanged text and
+ReadingSession evidence retains its v1 revision and is not counted as a v2 run.
 Commands, actual exits/counts/skips, source/asset hashes and offscreen paint remain
 separate from unsupported scope. Contract/Objects/Services and affected native
 interaction/ReadingSession/recovery behaviors run on the current host with Swift 5,
 warnings-as-errors, arm64 macOS13 target. This is not macOS13 runtime certification.
 NA10's separate TeX answer path may use existing object interfaces with asynchronous
-lifetime guards; NA09 does not edit the frozen MathML helper/painter. Full app,
+lifetime guards; the frozen MathML helper and public painter API remain unchanged.
+Only the explicitly transferred internal clip preparation changes. Full app,
 GUI/VoiceOver, F04 ordered deltas/full page fidelity, TeX and runtime delivery remain
 open gates. No live installation, service restart, push, Rust or Cloud build occurs.

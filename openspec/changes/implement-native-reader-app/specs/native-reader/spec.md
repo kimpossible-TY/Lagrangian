@@ -66,3 +66,15 @@ SHALL reject atomically through import, transport and generic recovery decoding.
 - **WHEN** a complete snapshot passes through HTTP, Codable disk recovery, session candidate or host fixture generation rebinding
 - **THEN** every image supplement and required capability remains identical
 - **AND** unknown fields, missing required metadata or invalid combinations fail without replacing accepted content
+
+#### Scenario: A hidden symbol has distinct native instances
+- **WHEN** hidden symbols use different viewports, viewBox origins, aspect alignment, transforms or nested clip references
+- **THEN** the sole native SVG owner preserves each viewport clip with exact native pixel-mask evidence
+- **AND** generated safe serialization retains reference identity without duplicate content IDs
+- **AND** it revalidates generated nodes, depth, work and composed transforms before native decode
+- **AND** unresolvable symbol viewport sizes are explicitly unsupported
+
+#### Scenario: Compiler emits a base64 SVG image
+- **WHEN** newly compiled accepted HTML carries a supported SVG base64 data image
+- **THEN** the importer validates strict encoding, size, SVG references and content before publication
+- **AND** original SVG asset bytes and authored image layout survive HTTP, recovery and native paint

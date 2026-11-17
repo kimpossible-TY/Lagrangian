@@ -245,6 +245,8 @@ class NativeServiceTests(unittest.TestCase):
         image_input = Path(os.environ.get('NA09_IMAGE_INPUT', str(DEV / 'test-output/objects/fidelity-v2/final2/source')))
         for name in ['pattern.png', 'pattern.jpg']:
             shutil.copyfile(image_input / name, source / name)
+        oracle = json.loads((REPO / 'tests/flow-app/native-reader-app/fixtures/objects.expect.json').read_text())
+        (source / 'symbol-hidden.svg').write_text(oracle['hiddenSymbolSVG'])
         def execute(request):
             result = local_compile(dataclasses.replace(request, inputs=(*request.inputs, ('fidelity-v2', 'true'))))
             COMMANDS.append(dict(operation='raw-compiler', target=request.target, exit=result.returncode, stderr=result.stderr))
@@ -268,7 +270,7 @@ class NativeServiceTests(unittest.TestCase):
         self.assertGreaterEqual(report['layouts'], 8)
         (OUT / 'raw-compiler.html').write_bytes(state.document)
         save('raw-pipeline-results.json', report)
-        save('raw-source-hashes.json', {str(p): digest(p) for p in [source / 'main.typ', source / 'pattern.png', source / 'pattern.jpg']})
+        save('raw-source-hashes.json', {str(p): digest(p) for p in [source / 'main.typ', source / 'pattern.png', source / 'pattern.jpg', source / 'symbol-hidden.svg']})
 
     def test_root_and_registered_prefix_actual_compiler_tree_and_asset_binding(self):
         code, raw, _ = self.get_document(shared=True)

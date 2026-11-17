@@ -544,6 +544,7 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             throw result.failure ?? NativeObjectError.unsupported("svg-xml")
         }
         try result.validate(root)
+        try result.clipHiddenSymbolInstances(root)
         return result
     }
     func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -722,6 +723,105 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             for child in e.children + e.refs.compactMap({ ids[$0] }) { try walk(child, transform, depth + 1) }
         }
         try walk(root, .identity, 0)
+    }
+    // CoreSVG ignores symbol overflow and parts of its viewBox mapping. Express
+    // hidden instances with validated SVG groups/transforms/clips before decode;
+    // primitive painting remains with the existing native consumer.
+    private func clipHiddenSymbolInstances(_ root: Element) throws {
+        let originalElements = elements
+        let uses = originalElements.filter { e in
+            e.name == "use" && e.refs.contains { ids[$0]?.name == "symbol" && ids[$0]?.attrs["overflow"] == "hidden" }
+        }
+        guard !uses.isEmpty else { return }
+        func side(_ raw: String?) throws -> CGFloat {
+            guard let raw = raw else { throw NativeObjectError.unsupported("svg-symbol-viewport-size") }
+            let suffix = raw.hasSuffix("pt") ? "pt" : raw.hasSuffix("px") ? "px" : ""
+            let value = suffix.isEmpty ? raw : String(raw.dropLast(2))
+            guard let n = Double(value), n.isFinite, n > 0, n <= 1e8 else {
+                // Do not guess an implicit or font-relative viewport from the
+                // root, especially when a symbol is itself instanced elsewhere.
+                throw NativeObjectError.unsupported("svg-symbol-viewport-size")
+            }
+            return CGFloat(n * (suffix == "pt" ? 4.0 / 3 : 1))
+        }
+        var serial = 0
+        func identifier() -> String {
+            var value: String
+            repeat { serial += 1; value = "native-symbol-clip-\(serial)" } while ids[value] != nil
+            return value
+        }
+        func register(_ element: Element) throws {
+            guard elements.count < 20000 else { throw NativeObjectError.budget }
+            try attributesChecked(element); elements.append(element)
+        }
+        let definitions = Element("defs", [:])
+        var contents = [ObjectIdentifier: Element](), wrappers = [ObjectIdentifier: Element]()
+        for use in uses {
+            guard let symbol = use.refs.compactMap({ ids[$0] }).first(where: { $0.name == "symbol" }) else {
+                throw NativeObjectError.unsupported("svg-symbol-reference")
+            }
+            let w = try side(use.attrs["width"] ?? symbol.attrs["width"])
+            let h = try side(use.attrs["height"] ?? symbol.attrs["height"])
+            let x = CGFloat(Double(use.attrs["x"] ?? "0") ?? 0), y = CGFloat(Double(use.attrs["y"] ?? "0") ?? 0)
+            var sx: CGFloat = 1, sy: CGFloat = 1, tx = x, ty = y
+            if let raw = symbol.attrs["viewBox"] {
+                let v = try numbers(raw)
+                sx = w / v[2]; sy = h / v[3]
+                let aspect = symbol.attrs["preserveAspectRatio"] ?? "xMidYMid meet"
+                if aspect != "none" {
+                    sx = aspect.hasSuffix("slice") ? max(sx, sy) : min(sx, sy); sy = sx
+                    let align: CGFloat = aspect.hasPrefix("xMinYMin") ? 0 : aspect.hasPrefix("xMaxYMax") ? 1 : 0.5
+                    tx += (w - v[2] * sx) * align; ty += (h - v[3] * sy) * align
+                }
+                tx -= v[0] * sx; ty -= v[1] * sy
+            }
+            let content: Element
+            if let existing = contents[ObjectIdentifier(symbol)] { content = existing }
+            else {
+                var attrs = symbol.attrs
+                for key in ["id", "viewBox", "width", "height", "preserveAspectRatio", "overflow"] { attrs.removeValue(forKey: key) }
+                let id = identifier(); attrs["id"] = id
+                content = Element("g", attrs)
+                // Move, do not duplicate IDs or expand a symbol per instance.
+                // Original symbol overflow remains in the validated declaration;
+                // caller asset/HTML bytes are never changed.
+                content.children = symbol.children; symbol.children = []
+                try register(content); ids[id] = content
+                contents[ObjectIdentifier(symbol)] = content; definitions.children.append(content)
+            }
+            let id = identifier()
+            let rect = Element("rect", ["x": String(Double(x)), "y": String(Double(y)), "width": String(Double(w)), "height": String(Double(h))])
+            let clip = Element("clipPath", ["id": id, "clipPathUnits": "userSpaceOnUse"])
+            clip.children = [rect]; ids[id] = clip; definitions.children.append(clip)
+            let clipped = Element("g", ["clip-path": "url(#\(id))"])
+            let mapped = Element("g", ["transform": "matrix(\(sx),0,0,\(sy),\(tx - x),\(ty - y))"])
+            let transformed = Element("g", [:]), originalClip = Element("g", [:])
+            let translated = Element("g", ["transform": "translate(\(x),\(y))"])
+            if let transform = use.attrs.removeValue(forKey: "transform") { transformed.attrs["transform"] = transform }
+            if let oldClip = use.attrs.removeValue(forKey: "clip-path") { originalClip.attrs["clip-path"] = oldClip }
+            var instance = transformed
+            if let originalID = use.attrs.removeValue(forKey: "id") {
+                // CoreSVG also omits a referenced root group's transform. Keep
+                // the reference ID on a neutral parent, with the transform below.
+                instance = Element("g", ["id": originalID])
+                instance.children = [transformed]; ids[originalID] = instance
+                try register(instance)
+            }
+            for key in ["x", "y", "width", "height"] { use.attrs.removeValue(forKey: key) }
+            use.attrs["xlink:href"] = "#" + content.attrs["id"]!
+            use.transform = .identity; use.refs.removeAll()
+            mapped.children = [use]; originalClip.children = [mapped]
+            translated.children = [originalClip]; clipped.children = [translated]; transformed.children = [clipped]
+            wrappers[ObjectIdentifier(use)] = instance
+            for element in [rect, clip, clipped, mapped, originalClip, translated, transformed] { try register(element) }
+        }
+        for parent in originalElements + Array(contents.values) {
+            parent.children = parent.children.map { wrappers[ObjectIdentifier($0)] ?? $0 }
+        }
+        try register(definitions); root.children.insert(definitions, at: 0)
+        // Recheck generated IDs, references and composed viewport transforms at
+        // the same trust boundary, including total work, depth and node budgets.
+        try validate(root)
     }
     // Lexical/arity/flag/finite/current-point validation, including SVG arc A/a.
     // AppKit handles the curve; this prevents malformed path parser fallbacks.

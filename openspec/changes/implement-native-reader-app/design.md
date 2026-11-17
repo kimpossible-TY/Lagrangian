@@ -75,7 +75,9 @@ NA02/03/04/05 start from this commit and implement only their own files. NA05/06
 ## NA09 shared image supplement (2026-11-17)
 
 The frozen NA01 API remains source-compatible. NA09 temporarily owns the shared
-model/importer and metadata propagation under the PM's 21-file correction scope.
+model/importer and metadata propagation under the PM's original 21-file correction
+scope, plus the explicitly transferred NativeReaderObjectRenderer.swift clip owner
+for the bounded v2 correction. The original plan JSON/ID remains immutable.
 The existing host/shared store/PreparedAdoption and PDFKit original-page component
 remain their respective owners; this change does not replace them. The initial
 probe/runtime/transport status above describes historical NA01 evidence, not the
@@ -120,18 +122,41 @@ supplement keys, invalid combinations, missing capability and lost per-image
 metadata reject through both the public decoder and generic Codable recovery.
 Defaulted memberwise initialization preserves existing source callers.
 
-SVG `overflow` grammar is limited to `symbol`, with visible/hidden. The frozen
-painter's independent hidden-clip oracle fails (800 blue pixels versus expected
-400); importer rejects hidden with `unsupported-svg-symbol-hidden-clip` pending
-a bounded correction by the read-only painter owner. Visible works on real raw
-compiler input. The required native hidden-clip test remains failing, not skipped.
-The existing native safe SVG decoder and painter own geometry/clipping/paint;
-NA09 only extends the import wire subset. Compiler root style overflow:visible is
-preserved alongside its existing sizing style. Arbitrary CSS/overflow, entities,
-external or unresolved references and cycles reject. Digest-bound external SVG
-asset bytes are validated without reserialization. Inline SVG uses the existing
-normalized serialization. No glyph path becomes inferred text, source range or
-label-level accessibility semantics.
+SVG `overflow` grammar is limited to `symbol`, with visible/hidden. At 4f1b88ae,
+the independent hidden-clip oracle exposed CoreSVG painting 800 blue pixels rather
+than the required 400; that evidence and its temporary importer rejection remain
+in the original evidence directory. PM explicitly transferred the one painter
+file to this same NA09 session for v2. The earlier read-only boundary was the PM's
+initial file allocation, not a user prohibition on fixing the native painter.
+
+The sole NativeSafeSVG owner now resolves each hidden use's bounded viewport,
+viewBox origin, meet/slice/none alignment and transform. It serializes shared
+content groups and per-instance clips/matrices for the existing native decoder;
+there is no second painter. Original symbol overflow declarations remain present,
+and caller HTML/asset bytes remain unchanged. Existing IDs are moved, not copied;
+fresh internal clip IDs cannot collide with input IDs. Reference-root transforms,
+use-local clips, symbol clips and parent clips retain their distinct coordinate
+systems. Generated nodes/references/matrices pass the same validation again,
+including depth, expanded work, composed transforms and node limits. Implicit or
+font-relative symbol viewports without resolvable numeric dimensions remain
+explicitly unsupported; unitless/px/pt use or symbol dimensions are resolved.
+
+The compiler's SVG base64 data images pass through the same importer asset owner
+as revision-addressed SVG: strict MIME prefix/base64/UTF8 and an 8MiB byte limit,
+then the existing SVG validation, with original digest-bound bytes retained.
+No raster data-image separator or source/transport authority is duplicated.
+Native pixel/decompressed limits and MIME/hash checks remain unchanged.
+
+Visible compiler SVG and its root sizing/overflow style remain supported. Hidden
+import is enabled only after the independent 800/400 clip proof passes. Seventeen
+independent native pixel masks cover viewport alignment, transforms, multiple use
+instances, nested symbols/use references, ID collision, local/parent/symbol clip
+intersection and isolated opacity. Eleven dedicated negatives include generated
+node/depth and viewport-transform budgets. A newly compiled source also embeds the
+original hidden SVG bytes: raw import and full-plan native paint retain its exact
+400-pixel mask, separately from controlled rich snapshots. Arbitrary CSS/overflow,
+entities, external/unresolved references and cycles still reject. No glyph path
+becomes inferred text, source range or label-level accessibility semantics.
 
 Generation rebinding has one model copy operation. Transport, session candidates,
 host fixture provider, generic disk recovery and native layout consume the same
@@ -140,10 +165,15 @@ raw HTML through SectionBundle/import/Swift/native paint, kept separately from
 controlled rich-asset fixtures, and actual HTTP/import/session/restore behavior.
 The original-page and unchanged-HTML/input-refresh compiler regressions remain.
 Required test skips fail; actual commands/exits/counts/hashes/paint are retained
-under `test-output/contract-closure/NA09` outside the worktree.
+under `test-output/contract-closure/NA09/v2` outside the worktree. The original
+69-pass/1-error report and raw binding remain intact. Host integration consumes
+the newly compiled raw fixture; it is offscreen component proof, not full app/GUI
+acceptance. Unaffected TextInteraction/ReadingSession evidence remains explicitly
+bound to v1 instead of being relabeled as v2 execution.
 
 NA10 may consume the existing native object interfaces for a separate TeX answer
 branch with explicit asynchronous preparation and lifetime guards. NA09 does not
-change the frozen MathML helper/painter or add operations. TeX, F04 ordered vector
+change the frozen MathML helper or any public painter/operation API; only the
+transferred internal clip normalization changes. TeX, F04 ordered vector
 deltas/full original-page fidelity, full app/GUI/VoiceOver and runtime delivery
 remain separate gates. Existing PDF component evidence is preserved.

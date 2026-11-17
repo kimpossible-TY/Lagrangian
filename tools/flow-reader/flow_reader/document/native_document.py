@@ -6,6 +6,8 @@ Assets are returned separately for the existing revision-bound asset delivery ow
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
+import binascii
 import hashlib
 from html import escape
 from html.parser import HTMLParser
@@ -134,11 +136,6 @@ def _svg(n):
         for k, v in e.attrs.items():
             if k == "overflow" and (e.tag != "symbol" or v not in {"visible", "hidden"}):
                 raise NativeImportError("unsupported-svg-overflow")
-            if k == "overflow" and v == "hidden":
-                # The frozen native painter currently paints this as visible.
-                # Reject rather than erase the attribute or fake correct paint;
-                # its sole owner must fix viewport clipping before enabling it.
-                raise NativeImportError("unsupported-svg-symbol-hidden-clip")
             if k == "style":
                 # Geometry/paint validation remains with the existing native SVG
                 # owner. The wire subset never accepts arbitrary CSS.
@@ -264,7 +261,10 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
         if mime == "image/svg+xml":
             if b"<!" in data:
                 raise NativeImportError("unsupported-declaration")
-            tree = _Tree(data.decode("utf-8"))
+            try:
+                tree = _Tree(data.decode("utf-8"))
+            except UnicodeError:
+                raise NativeImportError("invalid-svg-encoding") from None
             roots = [e for e in tree.root.children if isinstance(e, _Element)]
             if len(roots) != 1 or roots[0].tag != "svg":
                 raise NativeImportError("invalid-svg")
@@ -352,13 +352,28 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
                 value["imageLayout"] = layout
         elif n.tag == "img":
             source = attrs.get("src", "")
-            match = re.fullmatch(r"api/assets/([0-9a-f]{64}\.(svg|png|jpg|webp|gif))", source)
-            if not match or match[1] not in bundle.assets:
-                raise NativeImportError("unresolved-asset")
-            mime = {"svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}[match[2]]
-            original = bundle.assets[match[1]]
-            if hashlib.sha256(original).hexdigest() != match[1].split(".")[0]:
-                raise NativeImportError("asset-digest-mismatch")
+            prefix = "data:image/svg+xml;base64,"
+            if source.startswith(prefix):
+                # SectionBundle already separates raster data images. The native
+                # SVG owner validates the same digest-bound bytes for either a
+                # compiler SVG data URI or an existing revision asset reference.
+                if len(source) > len(prefix) + 4 * ((8 * 1024 * 1024 + 2) // 3):
+                    raise NativeImportError("asset-limit")
+                try:
+                    original = base64.b64decode(source[len(prefix):], validate=True)
+                except (binascii.Error, ValueError):
+                    raise NativeImportError("invalid-svg-data-image") from None
+                if not original or len(original) > 8 * 1024 * 1024:
+                    raise NativeImportError("asset-limit")
+                mime = "image/svg+xml"
+            else:
+                match = re.fullmatch(r"api/assets/([0-9a-f]{64}\.(svg|png|jpg|webp|gif))", source)
+                if not match or match[1] not in bundle.assets:
+                    raise NativeImportError("unresolved-asset")
+                mime = {"svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}[match[2]]
+                original = bundle.assets[match[1]]
+                if hashlib.sha256(original).hexdigest() != match[1].split(".")[0]:
+                    raise NativeImportError("asset-digest-mismatch")
             key = asset(original, mime)
             value.update(kind="image", assetID=key, alt=attrs.get("alt", ""))
             overflow = mime == "image/svg+xml" and any("overflow" in e.attrs for e in _walk(_Tree(original.decode("utf-8")).root))

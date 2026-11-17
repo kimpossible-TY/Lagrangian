@@ -69,6 +69,7 @@ See @formula and @blue.
   #figure(image("pattern.png", width: 48pt, height: 18pt, fit: "stretch"), caption: [Authored stretch])
   Width-only #box(image("pattern.jpg", width: 32pt)) tail.
   Height-only #box(image("pattern.png", height: 15pt)) tail.
+  #figure(image("symbol-hidden.svg", width: 100pt, height: 40pt, fit: "stretch"), caption: [Hidden symbol clip])
 ]
 
 ]

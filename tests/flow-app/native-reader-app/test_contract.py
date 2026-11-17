@@ -4,6 +4,7 @@ Run python3 -B -m unittest discover -s tests/flow-app/native-reader-app -p test_
 All artifacts/caches are isolated on DevSSD. No server, live service or GUI is used.
 """
 import copy
+import base64
 import hashlib
 import json
 import os
@@ -200,14 +201,13 @@ class ContractTests(unittest.TestCase):
                       'style="object-fit: cover"', 'style="background: url(https://example.org/x)"']:
             with self.subTest(attrs=attrs), self.assertRaises(NativeImportError):
                 import_accepted_document(image(attrs), document_id='fixture', service_id='offline', generation=1)
-        for overflow in ['visible']:
-            raw = '<svg viewBox="0 0 20 20"><defs><symbol id="s" overflow="' + overflow + '"><rect width="20" height="20"/></symbol></defs><use href="#s"/></svg>'
+        for overflow in ['visible', 'hidden']:
+            raw = '<svg viewBox="0 0 20 20"><defs><symbol id="s" viewBox="0 0 20 20" overflow="' + overflow + '"><rect width="20" height="20"/></symbol></defs><use href="#s" width="20" height="20"/></svg>'
             b = SectionBundle({'revision': 'svg', 'sections': [{'id': 's'}]}, {'s': ('<html><body>' + raw + '</body></html>').encode()}, {}, [])
             imported = import_accepted_document(b, document_id='fixture', service_id='offline', generation=1)
             self.assertIn(('overflow="' + overflow + '"').encode(), next(iter(imported.assets.values())))
             self.assertIn('image-layout-v1', imported.document['requiredCapabilities'])
-        for svg in ['<svg viewBox="0 0 20 20"><symbol overflow="hidden"/></svg>',
-                    '<svg viewBox="0 0 20 20" overflow="visible"/>',
+        for svg in ['<svg viewBox="0 0 20 20" overflow="visible"/>',
                     '<svg viewBox="0 0 20 20"><symbol overflow="scroll"/></svg>',
                     '<svg viewBox="0 0 20 20"><g overflow="hidden"/></svg>',
                     '<svg viewBox="0 0 20 20"><use href="#missing"/></svg>',
@@ -220,6 +220,33 @@ class ContractTests(unittest.TestCase):
                 import_accepted_document(b, document_id='fixture', service_id='offline', generation=1)
         old = SectionBundle({'revision': 'legacy', 'sections': [{'id': 's'}]}, {'s': b'<html><body><p>Old semantic tree.</p></body></html>'}, {}, [])
         self.assertEqual(import_accepted_document(old, document_id='fixture', service_id='offline', generation=1).document['requiredCapabilities'], ['semantic-tree-v1'])
+
+    def test_compiler_svg_data_uri_retains_bytes_and_rejects_unsafe_input(self):
+        svg = json.loads((HERE / 'fixtures/objects.expect.json').read_text())['hiddenSymbolSVG'].encode()
+        def bundle(source):
+            html = '<html><body><img src="' + source + '" width="100" height="40" style="width: 100pt; height: 40pt; display: block"></body></html>'
+            return SectionBundle({'revision': 'svg-data-image', 'sections': [{'id': 's'}]}, {'s': html.encode()}, {}, [])
+        def uri(data):
+            return 'data:image/svg+xml;base64,' + base64.b64encode(data).decode()
+        imported = import_accepted_document(bundle(uri(svg)), document_id='fixture', service_id='offline', generation=1)
+        key = hashlib.sha256(svg).hexdigest() + '.svg'
+        self.assertEqual(imported.assets[key], svg)
+        node = imported.document['blocks'][0]
+        self.assertEqual(node['assetID'], key)
+        self.assertEqual(node['imageLayout']['width'], dict(value=100, unit='pt'))
+        self.assertEqual(imported.document['requiredCapabilities'], ['image-layout-v1', 'semantic-tree-v1'])
+        bad = [('invalid-base64', 'data:image/svg+xml;base64,!!!!'), ('invalid-encoding', uri(b'\xff')),
+               ('wrong-mime-content', uri(b'\x89PNG\r\n\x1a\n')), ('empty', uri(b'')),
+               ('external', uri(b'<svg viewBox="0 0 20 20"><use href="https://example.org/x"/></svg>')),
+               ('unresolved', uri(b'<svg viewBox="0 0 20 20"><use href="#absent"/></svg>')),
+               ('cycle', uri(b'<svg viewBox="0 0 20 20"><symbol id="s" overflow="hidden"><use href="#s"/></symbol><use href="#s"/></svg>')),
+               ('entity', uri(b'<!DOCTYPE svg [<!ENTITY e SYSTEM "file:///private/x">]><svg>&e;</svg>')),
+               ('active', uri(b'<svg viewBox="0 0 20 20"><script/></svg>')),
+               ('unknown-mime', 'data:application/xml;base64,' + base64.b64encode(svg).decode()),
+               ('byte-budget', 'data:image/svg+xml;base64,' + 'A' * (4 * ((8 * 1024 * 1024 + 2) // 3) + 4))]
+        for name, source in bad:
+            with self.subTest(name=name), self.assertRaises(NativeImportError):
+                import_accepted_document(bundle(source), document_id='fixture', service_id='offline', generation=1)
 
     def test_independent_units(self):
         for case in self.oracle['unicodeCases']:
