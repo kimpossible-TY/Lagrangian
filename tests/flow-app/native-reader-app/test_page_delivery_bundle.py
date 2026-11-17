@@ -199,7 +199,9 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
             with self.assertRaises(ValueError):delivery.verify(self.root,signatures=False)
         finally:file.write_bytes(original)
 
-    def test_post_sign_tamper_and_external_symlink_reject(self):
+    # Destructive Mach-O mutation runs after positive child execution: restoring
+    # bytes does not synchronously restore the kernel's executable validation.
+    def test_z_post_sign_tamper_and_external_symlink_reject(self):
         file=self.root/'compiler/typst';original=file.read_bytes()
         try:
             with file.open('ab') as stream:stream.write(b'post-sign tamper')
