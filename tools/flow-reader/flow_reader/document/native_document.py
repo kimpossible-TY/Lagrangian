@@ -6,14 +6,21 @@ Assets are returned separately for the existing revision-bound asset delivery ow
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
+import binascii
 import hashlib
 from html import escape
 from html.parser import HTMLParser
 import json
+import math
 import re
 from urllib.parse import urlsplit
 
 from flow_reader.document.sections import heading_level
+
+
+SUPPORTED_CAPABILITIES = frozenset({"semantic-tree-v1", "image-layout-v1"})
+IMAGE_LAYOUT_CAPABILITY = "image-layout-v1"
 
 
 class NativeImportError(ValueError):
@@ -66,6 +73,13 @@ class _Tree(HTMLParser):
             raise NativeImportError("malformed-html")
         self.stack.pop()
 
+    def handle_decl(self, decl):
+        if decl.lower() != "doctype html" or len(self.stack) != 1:
+            raise NativeImportError("unsupported-declaration")
+
+    def unknown_decl(self, data):
+        raise NativeImportError("unsupported-declaration")
+
     def handle_data(self, value):
         self.stack[-1].children.append(value)
 
@@ -105,7 +119,59 @@ def _mathml(n):
 
 def _svg(n):
     tags = {t.lower(): t for t in "svg g path defs symbol use rect circle ellipse line polyline polygon clipPath linearGradient radialGradient stop".split()}
-    names = {a.lower(): a for a in "xmlns xmlns:xlink aria-label viewBox preserveAspectRatio width height x y x1 y1 x2 y2 cx cy r rx ry d points transform id fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-miterlimit stroke-dasharray stroke-dashoffset stroke-opacity opacity clip-path clip-rule clipPathUnits gradientUnits gradientTransform offset stop-color stop-opacity href xlink:href style class".split()}
+    names = {a.lower(): a for a in "xmlns xmlns:xlink aria-label viewBox preserveAspectRatio width height x y x1 y1 x2 y2 cx cy r rx ry d points transform id fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-miterlimit stroke-dasharray stroke-dashoffset stroke-opacity opacity clip-path clip-rule clipPathUnits gradientUnits gradientTransform offset stop-color stop-opacity href xlink:href style class overflow".split()}
+    elements = list(_walk(n))
+    if len(elements) > 20000:
+        raise NativeImportError("svg-budget")
+    ids = {}
+    for e in elements:
+        if "id" in e.attrs:
+            identifier = _token(e.attrs["id"])
+            if identifier in ids:
+                raise NativeImportError("duplicate-svg-id")
+            ids[identifier] = e
+    references = {}
+    for e in elements:
+        refs = []
+        for k, v in e.attrs.items():
+            if k == "overflow" and (e.tag != "symbol" or v not in {"visible", "hidden"}):
+                raise NativeImportError("unsupported-svg-overflow")
+            if k == "style":
+                # Geometry/paint validation remains with the existing native SVG
+                # owner. The wire subset never accepts arbitrary CSS.
+                allowed = {"fill", "stroke", "fill-opacity", "stroke-opacity", "opacity", "stroke-width", "clip-path", "fill-rule", "clip-rule"}
+                for declaration in (v or "").split(";"):
+                    if not declaration.strip():
+                        continue
+                    parts = declaration.split(":")
+                    if len(parts) != 2:
+                        raise NativeImportError("unsupported-svg-style")
+                    key, value = (p.strip() for p in parts)
+                    if key in {"width", "height"} and e.tag == "svg" and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:em|pt|px)", value):
+                        continue
+                    if key == "display" and e.tag == "svg" and value == "block":
+                        continue
+                    if key == "overflow" and e.tag == "svg" and value == "visible":
+                        continue
+                    if key not in allowed:
+                        raise NativeImportError("unsupported-svg-style")
+            if k in {"href", "xlink:href"} or "url(" in (v or "").lower():
+                match = re.fullmatch(r"#([A-Za-z0-9_.:-]{1,128})" if k in {"href", "xlink:href"} else r"url\(#([A-Za-z0-9_.:-]{1,128})\)", v or "")
+                if not match or match[1] not in ids:
+                    raise NativeImportError("unresolved-or-external-svg-reference")
+                refs.append(ids[match[1]])
+        references[e] = refs
+    work = 0
+    def check(e, active, depth):
+        nonlocal work
+        work += 1
+        if e in active or depth > 128:
+            raise NativeImportError("svg-reference-cycle-or-depth")
+        if work > 300000:
+            raise NativeImportError("svg-budget")
+        for child in [c for c in e.children if isinstance(c, _Element)] + references[e]:
+            check(child, active | {e}, depth + 1)
+    check(n, set(), 0)
     def xml(e):
         if e.tag not in tags or set(e.attrs) - names.keys():
             raise NativeImportError("unsupported-svg-primitive")
@@ -121,6 +187,56 @@ def _svg(n):
     return xml(n)
 
 
+
+def _image_layout(attrs, *, natural_unit, svg_overflow=False, svg=False):
+    """HTML pixels are CSS px (96/in); compiler style pt is logical 72/in.
+
+    Two explicit dimensions use HTML's default object-fit:fill. One dimension
+    derives the other from the intrinsic ratio. No implicit responsive shrinking.
+    Scheduling hints survive; bytes are eagerly prepared before native adoption.
+    """
+    if not svg_overflow and not set(attrs) & {"width", "height", "style", "loading", "decoding"}:
+        return None
+    if any(attrs[key] is None for key in {"width", "height", "style", "loading", "decoding"} & attrs.keys()):
+        raise NativeImportError("invalid-image-attribute")
+    def length(raw, css=False):
+        if raw is None:
+            return None
+        match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)(px|pt|em)" if css else r"([0-9]+(?:\.[0-9]+)?)", raw)
+        if not match:
+            raise NativeImportError("unsupported-image-length")
+        value = float(match[1])
+        if not math.isfinite(value) or not 0 < value <= 4096:
+            raise NativeImportError("image-layout-budget")
+        return {"value": value, "unit": match[2] if css else "px"}
+    layout = {"naturalUnit": natural_unit, "placement": "inline", "fit": "fill"}
+    for key in ["width", "height"]:
+        if key in attrs:
+            layout[key] = length(attrs[key], css=svg and bool(re.search(r"[a-z]$", attrs[key])))
+    seen = set()
+    for declaration in attrs.get("style", "").split(";"):
+        if not declaration.strip():
+            continue
+        parts = [p.strip() for p in declaration.split(":")]
+        if len(parts) != 2 or parts[0] in seen:
+            raise NativeImportError("unsupported-image-style")
+        key, value = parts
+        seen.add(key)
+        if key == "display" and value in {"inline", "block"}:
+            layout["placement"] = value
+        elif key in {"width", "height"}:
+            layout[key] = length(value, css=True)
+        elif svg and key == "overflow" and value == "visible":
+            pass  # Preserved by the SVG scene, not a layout property.
+        else:
+            raise NativeImportError("unsupported-image-style")
+    for key, allowed in [("loading", {"lazy", "eager"}), ("decoding", {"async", "sync", "auto"})]:
+        if key in attrs:
+            if attrs[key] not in allowed:
+                raise NativeImportError("unsupported-image-" + key)
+            layout[key] = attrs[key]
+    return layout
+
 def import_accepted_document(bundle, *, document_id: str, service_id: str,
                              generation: int, identity_scope: str = "service",
                              required_capabilities=("semantic-tree-v1",)) -> ImportedNativeDocument:
@@ -133,20 +249,26 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
     revision = _token(bundle.manifest["revision"])
     if type(generation) is not int or generation < 0 or identity_scope not in {"fixture", "service"}:
         raise NativeImportError("invalid-generation-or-scope")
-    if set(required_capabilities) - {"semantic-tree-v1"}:
+    if set(required_capabilities) - SUPPORTED_CAPABILITIES:
         raise NativeImportError("unsupported-required-capability")
     identity = {"documentID": _token(document_id), "serviceID": _token(service_id),
                 "revision": revision, "scope": identity_scope}
     blocks, assets, descriptors, diagnostics, seen_anchors = [], {}, {}, [], set()
     counter = 0
+    required = set(required_capabilities) | {"semantic-tree-v1"}
 
     def asset(data, mime):
         if mime == "image/svg+xml":
-            tree = _Tree(data.decode("utf-8"))
+            if b"<!" in data:
+                raise NativeImportError("unsupported-declaration")
+            try:
+                tree = _Tree(data.decode("utf-8"))
+            except UnicodeError:
+                raise NativeImportError("invalid-svg-encoding") from None
             roots = [e for e in tree.root.children if isinstance(e, _Element)]
             if len(roots) != 1 or roots[0].tag != "svg":
                 raise NativeImportError("invalid-svg")
-            data = _svg(roots[0]).encode()
+            _svg(roots[0])  # Validate, retain original digest-bound bytes.
         digest = hashlib.sha256(data).hexdigest()
         extension = {"image/svg+xml": "svg", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}.get(mime)
         if not extension:
@@ -175,7 +297,7 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
                             "th": {"colspan", "rowspan", "scope"},
                             "span": {"data-flow-mark", "data-flow-targets"},
                             "mrow": {"data-flow-mark"},
-                            "img": {"src", "alt", "loading", "decoding"}}.get(n.tag, set())
+                            "img": {"src", "alt", "width", "height", "style", "loading", "decoding"}}.get(n.tag, set())
         if n.tag not in {"math", "svg"} and set(attrs) - allowed:
             raise NativeImportError("unsupported-attribute")
         if attrs.get("role") not in {None, "heading"} or (attrs.get("role") == "heading" and heading_level(n.tag, attrs) is None):
@@ -224,19 +346,44 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
         elif n.tag == "svg":
             # Preserve compiler vector bytes; do not claim general native SVG support.
             value.update(kind="image", assetID=asset(_svg(n).encode(), "image/svg+xml"), alt=attrs.get("aria-label", ""))
+            layout = _image_layout({k: v for k, v in attrs.items() if k in {"style", "width", "height"}},
+                natural_unit="pt", svg=True, svg_overflow=any("overflow" in e.attrs for e in _walk(n)))
+            if layout is not None:
+                value["imageLayout"] = layout
         elif n.tag == "img":
             source = attrs.get("src", "")
-            match = re.fullmatch(r"api/assets/([0-9a-f]{64}\.(svg|png|jpg|webp|gif))", source)
-            if not match or match[1] not in bundle.assets:
-                raise NativeImportError("unresolved-asset")
-            mime = {"svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}[match[2]]
-            original = bundle.assets[match[1]]
-            if hashlib.sha256(original).hexdigest() != match[1].split(".")[0]:
-                raise NativeImportError("asset-digest-mismatch")
+            prefix = "data:image/svg+xml;base64,"
+            if source.startswith(prefix):
+                # SectionBundle already separates raster data images. The native
+                # SVG owner validates the same digest-bound bytes for either a
+                # compiler SVG data URI or an existing revision asset reference.
+                if len(source) > len(prefix) + 4 * ((8 * 1024 * 1024 + 2) // 3):
+                    raise NativeImportError("asset-limit")
+                try:
+                    original = base64.b64decode(source[len(prefix):], validate=True)
+                except (binascii.Error, ValueError):
+                    raise NativeImportError("invalid-svg-data-image") from None
+                if not original or len(original) > 8 * 1024 * 1024:
+                    raise NativeImportError("asset-limit")
+                mime = "image/svg+xml"
+            else:
+                match = re.fullmatch(r"api/assets/([0-9a-f]{64}\.(svg|png|jpg|webp|gif))", source)
+                if not match or match[1] not in bundle.assets:
+                    raise NativeImportError("unresolved-asset")
+                mime = {"svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}[match[2]]
+                original = bundle.assets[match[1]]
+                if hashlib.sha256(original).hexdigest() != match[1].split(".")[0]:
+                    raise NativeImportError("asset-digest-mismatch")
             key = asset(original, mime)
             value.update(kind="image", assetID=key, alt=attrs.get("alt", ""))
+            overflow = mime == "image/svg+xml" and any("overflow" in e.attrs for e in _walk(_Tree(original.decode("utf-8")).root))
+            layout = _image_layout(attrs, natural_unit="pt" if mime == "image/svg+xml" else "px", svg_overflow=overflow)
+            if layout is not None:
+                value["imageLayout"] = layout
         else:
             raise NativeImportError("unsupported-element")
+        if "imageLayout" in value:
+            required.add(IMAGE_LAYOUT_CAPABILITY)
         if "flow-equation" in classes:
             value["kind"] = "equation"
         if "flow-equation-number" in classes:
@@ -297,6 +444,12 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
         raise NativeImportError("invalid-anchor-target")
     if not blocks:
         raise NativeImportError("empty-document")
+    if IMAGE_LAYOUT_CAPABILITY in required:
+        # A supplemented snapshot is complete: a missing per-image supplement
+        # cannot look like successful legacy decoding after a lossy DTO copy.
+        for n in all_nodes:
+            if n["kind"] == "image" and "imageLayout" not in n:
+                n["imageLayout"] = {"naturalUnit": "pt", "placement": "inline", "fit": "fill"}
     return ImportedNativeDocument({"schemaVersion": 1, "identity": identity, "generation": generation,
-        "requiredCapabilities": list(required_capabilities), "blocks": blocks,
+        "requiredCapabilities": sorted(required), "blocks": blocks,
         "assets": list(descriptors.values()), "diagnostics": diagnostics}, assets)

@@ -71,3 +71,113 @@ Node extracts actual fixture formula/shape expressions and calls the prebuilt co
 ## Migration Plan
 
 NA02/03/04/05 start from this commit and implement only their own files. NA05/06 adds sources/resources to canonical packaging lists; NA01 intentionally does not edit those lists. NA06 integrates and builds with the prebuilt engine, NA07 independently tests, PM allocates GUI/review/audit gates. No app install/restart, CI dispatch or push occurs here. Rollback is dropping this unintegrated commit; no live state was migrated.
+
+## NA09 shared image supplement (2026-11-17)
+
+The frozen NA01 API remains source-compatible. NA09 temporarily owns the shared
+model/importer and metadata propagation under the PM's original 21-file correction
+scope, plus the explicitly transferred NativeReaderObjectRenderer.swift clip owner
+for the bounded v2 correction. The original plan JSON/ID remains immutable.
+The existing host/shared store/PreparedAdoption and PDFKit original-page component
+remain their respective owners; this change does not replace them. The initial
+probe/runtime/transport status above describes historical NA01 evidence, not the
+current integrated component state.
+
+Schema 1 adds optional node `imageLayout`. It contains required `naturalUnit`
+(`px` or `pt`), `placement` (`inline` or `block`), `fit` (`fill`), optional
+`width`/`height` (`{value,unit}` with `px`, `pt`, or `em`), optional `loading`
+(`lazy`, `eager`) and `decoding` (`async`, `sync`, `auto`). Values must be finite,
+positive and at most 4096; resolved native dimensions are also bounded by 4096pt.
+CSS px means 72/96 logical AppKit points, pt means one logical point, and em uses
+the current native text font size. Pixel dimensions of decoded rasters remain
+separate from authored dimensions. Two specified dimensions fill the authored box;
+one dimension derives the other from the intrinsic aspect ratio. Natural sizes
+use `naturalUnit`. No implicit max-width shrink overrides explicit dimensions.
+Native inline images stay indivisible; oversized inline images are diagnosed.
+Block images flush preceding/following inline pieces. Existing page-object and
+asset/decompressed-pixel budgets still apply.
+
+The importer accepts only image HTML width/height numeric attributes and CSS
+width/height in px/pt/em plus display:inline/block. CSS overrides the matching
+HTML attribute; the other attribute remains effective. In particular, actual
+compiler width-only styling can coexist with an explicit natural height attribute:
+32pt style width plus HTML height=12 means 32x9pt, not an inferred 32x16pt. This
+adapter preserves accepted HTML semantics; it does not repair compiler/source
+aspect discrepancies. Loading/decoding hints are retained and validated; native
+preparation fully decodes bytes before adoption, so lazy/async are satisfied by
+eager preparation rather than permitting an unpainted adopted placeholder.
+General CSS, percentages, calc(), cover/contain, external URLs and unknown hints
+remain unsupported. Compiler inline SVG em/pt/px sizing and display:block are
+translated to the same typed supplement; validated SVG paint bytes remain intact.
+
+`image-layout-v1` is dynamically required when image attributes/layout or symbol
+overflow need the supplement. Once required, every image has explicit layout
+metadata (legacy images retain their previous point-sized natural behavior).
+An old semantic-tree-v1-only document/request remains supported. A client lacking
+the required supplement is explicitly refused before document, asset, or action
+publication, including cache hits. Cache identity remains accepted revision/input/
+service, independent of requested capability order. Native transport advertises
+the supported set and validates dynamic response requirements. Unknown/missing
+supplement keys, invalid combinations, missing capability and lost per-image
+metadata reject through both the public decoder and generic Codable recovery.
+Defaulted memberwise initialization preserves existing source callers.
+
+SVG `overflow` grammar is limited to `symbol`, with visible/hidden. At 4f1b88ae,
+the independent hidden-clip oracle exposed CoreSVG painting 800 blue pixels rather
+than the required 400; that evidence and its temporary importer rejection remain
+in the original evidence directory. PM explicitly transferred the one painter
+file to this same NA09 session for v2. The earlier read-only boundary was the PM's
+initial file allocation, not a user prohibition on fixing the native painter.
+
+The sole NativeSafeSVG owner now resolves each hidden use's bounded viewport,
+viewBox origin, meet/slice/none alignment and transform. It serializes shared
+content groups and per-instance clips/matrices for the existing native decoder;
+there is no second painter. Original symbol overflow declarations remain present,
+and caller HTML/asset bytes remain unchanged. Existing IDs are moved, not copied;
+fresh internal clip IDs cannot collide with input IDs. Reference-root transforms,
+use-local clips, symbol clips and parent clips retain their distinct coordinate
+systems. Generated nodes/references/matrices pass the same validation again,
+including depth, expanded work, composed transforms and node limits. Implicit or
+font-relative symbol viewports without resolvable numeric dimensions remain
+explicitly unsupported; unitless/px/pt use or symbol dimensions are resolved.
+
+The compiler's SVG base64 data images pass through the same importer asset owner
+as revision-addressed SVG: strict MIME prefix/base64/UTF8 and an 8MiB byte limit,
+then the existing SVG validation, with original digest-bound bytes retained.
+No raster data-image separator or source/transport authority is duplicated.
+Native pixel/decompressed limits and MIME/hash checks remain unchanged.
+
+Visible compiler SVG and its root sizing/overflow style remain supported. Hidden
+import is enabled only after the independent 800/400 clip proof passes. Seventeen
+independent native pixel masks cover viewport alignment, transforms, multiple use
+instances, nested symbols/use references, ID collision, local/parent/symbol clip
+intersection and isolated opacity. Eleven dedicated negatives include generated
+node/depth and viewport-transform budgets. A newly compiled source also embeds the
+original hidden SVG bytes: raw import and full-plan native paint retain its exact
+400-pixel mask, separately from controlled rich snapshots. Arbitrary CSS/overflow,
+entities, external/unresolved references and cycles still reject. No glyph path
+becomes inferred text, source range or label-level accessibility semantics.
+
+Generation rebinding has one model copy operation. Transport, session candidates,
+host fixture provider, generic disk recovery and native layout consume the same
+metadata. RecoveryStore and Operations are unchanged. The full raw host probe
+also exposed an empty compiler alt being used as an invalid prepared-object label;
+the host now uses its existing generic image-role fallback for empty alt, while
+the model's original empty alt and absence of label/source meaning remain intact.
+No source/chat/auth/lifecycle owner changes. Evidence is newly compiled
+raw HTML through SectionBundle/import/Swift/native paint, kept separately from
+controlled rich-asset fixtures, and actual HTTP/import/session/restore behavior.
+The original-page and unchanged-HTML/input-refresh compiler regressions remain.
+Required test skips fail; actual commands/exits/counts/hashes/paint are retained
+under `test-output/contract-closure/NA09/v2` outside the worktree. The original
+69-pass/1-error report and raw binding remain intact. Host integration consumes
+the newly compiled raw fixture; it is offscreen component proof, not full app/GUI
+acceptance. Unaffected TextInteraction/ReadingSession evidence remains explicitly
+bound to v1 instead of being relabeled as v2 execution.
+
+NA10 may consume the existing native object interfaces for a separate TeX answer
+branch with explicit asynchronous preparation and lifetime guards. NA09 does not
+change the frozen MathML helper or any public painter/operation API; only the
+transferred internal clip normalization changes. TeX, F04 ordered vector
+deltas/full original-page fidelity, full app/GUI/VoiceOver and runtime delivery
+remain separate gates. Existing PDF component evidence is preserved.

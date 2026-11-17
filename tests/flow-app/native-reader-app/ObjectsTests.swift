@@ -140,6 +140,12 @@ private final class OriginalPreparationGate: @unchecked Sendable {
     @MainActor static func main() async throws {
         let mode = CommandLine.arguments[1], root = URL(fileURLWithPath: CommandLine.arguments[2])
         let oracle = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))) as! [String: Any]
+        if mode == "symbol-overflow" {
+            do { try symbolOverflow(root: root) }
+            catch { fputs("symbol overflow oracle failed: \(error)\n", stderr); exit(1) }
+            return
+        }
+        if mode == "raw-import" { try await rawImport(root: root, oracle: oracle); return }
         if mode == "original-pages" { try await originalPages(root: root, oracle: oracle); return }
         if mode == "input-refresh" { try await inputRefresh(root: root); return }
         if mode == "assets" {
@@ -498,7 +504,7 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         try write(processRecords, root.appendingPathComponent("native-worker-executions.json"))
         let result: [String: Any] = ["matrix": matrix, "inlineBrokenCases": broken, "vectorBlueArea": vc.blue, "negativeFailures": 0, "richAssetCases": richResults.count / 2, "labeledBlackInk": black, "labeledBlueInk": labeledCounts.blue,
             "verified": ["native vector paths", "whole-formula display selection", "semantic AX handoff", "merged/header table", "native inline flow", "bounded cache/cancel/stale"],
-            "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "compiler importer symbol overflow/image dimensions", "complete CeTZ/decorations", "offline product runtime delivery"]]
+            "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "complete CeTZ/decorations", "offline product runtime delivery"]]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
     }
 }
@@ -868,5 +874,170 @@ extension ObjectsTests {
         let result: [String: Any] = ["freshInputAdopted": true, "sameHTMLRevision": identity.revision,
             "negativeCases": negatives, "adoptedSnapshots": 36, "scope": "fixture expected bindings; no backend accepted-publication or source authority"]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+    }
+}
+
+extension ObjectsTests {
+    @MainActor static func rawImport(root: URL, oracle: [String: Any]) async throws {
+        let raw = try Data(contentsOf: root.appendingPathComponent("raw-native.json"))
+        let document = try NativeReaderDocument.decode(raw)
+        let roundtrip = try NativeReaderDocument.decode(JSONEncoder().encode(document))
+        try require(roundtrip == document, "raw Codable exact tree")
+        let assets = try Dictionary(uniqueKeysWithValues: document.assets.map { ($0.id, try Data(contentsOf: root.appendingPathComponent("raw-assets/" + $0.id))) })
+        let config = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("worker-config.json"))) as! [String: String]
+        let executions = ExecutionLog()
+        let worker = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: URL(fileURLWithPath: config["helper"]!), runtime: URL(fileURLWithPath: config["runtime"]!), record: { executions.append($0) })
+        let context = NativeObjectContext(identity: document.identity, snapshotGeneration: document.generation, generation: 1,
+            width: 640, fontSize: 20, fontName: "system", theme: .light, mode: .reflow, pageHeight: 800)
+        let plan = try await NativeReaderPagedLayout.layout(document: document, context: context, assets: assets,
+            math: { n, w in try await worker.calculate(n.math!, context: context, width: w) })
+        let canvas = try bitmap(plan.size, dark: false)
+        NativeReaderObjectRenderer.draw(plan, in: canvas)
+        try savePNG(canvas, root.appendingPathComponent("raw-native-paint.png"))
+        let descriptors = Dictionary(uniqueKeysWithValues: document.assets.map { ($0.id, $0) })
+        let images = plan.regions.filter { $0.node.kind == .image }
+        let rasters = images.filter { descriptors[$0.node.assetID!]!.mime != "image/svg+xml" }
+        let expected = oracle["rawImageLayouts"] as! [[String: Any]]
+        try require(rasters.count == expected.count, "all actual compiler rasters")
+        var frames = [[String: Any]]()
+        for (region, exp) in zip(rasters, expected) {
+            let frame = region.frames[0], layout = region.node.imageLayout!
+            try require(frame.width == exp["widthPt"] as! Double && frame.height == exp["heightPt"] as! Double, "independent authored image size")
+            try require(layout.placement.rawValue == exp["placement"] as! String && descriptors[region.node.assetID!]!.mime == exp["mime"] as! String, "original display order/type")
+            try require(layout.loading == .lazy && layout.decoding == .async, "loading/decoding retained")
+            // The original image is 24x12 pixels. Sample four independently
+            // authored quadrants at their scaled native frames, including stretch.
+            let a = sample(canvas, Int(frame.minX + frame.width / 4), Int(frame.minY + frame.height / 4))
+            let b = sample(canvas, Int(frame.minX + frame.width * 3 / 4), Int(frame.minY + frame.height / 4))
+            let c = sample(canvas, Int(frame.minX + frame.width / 4), Int(frame.minY + frame.height * 3 / 4))
+            try require(a[0] > 180 && a[1] < 90 && b[1] > 180 && b[0] < 90 && c[2] > 180 && c[0] < 90, "actual raw raster painted at authored frame")
+            let siblings = plan.items.filter { $0.nodeID != region.node.id && $0.frame.intersects(CGRect(x: 0, y: frame.minY + 0.1, width: 640, height: max(0.1, frame.height - 0.2))) }
+            if layout.placement == .inline {
+                try require(siblings.contains { $0.frame.maxX <= frame.minX } && siblings.contains { $0.frame.minX >= frame.maxX }, "inline stays between original text")
+            } else {
+                try require(siblings.isEmpty, "block occupies its own native line")
+            }
+            frames.append(["node": region.node.id, "widthPt": frame.width, "heightPt": frame.height, "placement": layout.placement.rawValue])
+        }
+        // Full raw labeled vector is handed through the actual semantic plan.
+        let labeledBlock = document.blocks.first { $0.orderedNodes.contains { $0.kind == .caption && $0.canonicalText.contains("Labeled CeTZ") } }!
+        let labeledNode = labeledBlock.orderedNodes.first { $0.kind == .image }!
+        let frame = images.first { $0.node.id == labeledNode.id }!.frames[0]
+        var black = 0
+        for y in (Int(frame.minY) + 4)..<(Int(frame.maxY) - 4) { for x in (Int(frame.minX) + 4)..<(Int(frame.maxX) - 4) {
+            if sample(canvas, x, y).allSatisfy({ $0 < 50 }) { black += 1 }
+        } }
+        try require(black > 80, "raw labeled CeTZ glyph paint")
+        // No invented label text/range: compiler's glyph paths remain an image.
+        try require(labeledNode.canonicalText.isEmpty && labeledNode.children.isEmpty, "no inferred glyph semantics")
+        let data = try Data(contentsOf: root.appendingPathComponent("raw-labeled.svg"))
+        try require(String(decoding: data, as: UTF8.self).contains("overflow=\"visible\""), "raw symbol overflow retained")
+        let originalHidden = Data((oracle["hiddenSymbolSVG"] as! String).utf8)
+        let hiddenID = shaBytes(originalHidden) + ".svg"
+        try require(assets[hiddenID] == originalHidden, "raw compiler retains exact hidden asset bytes")
+        let hidden = images.first { $0.node.assetID == hiddenID }!
+        let hiddenFrame = hidden.frames[0]
+        try require(hiddenFrame.size == CGSize(width: 100, height: 40), "raw hidden authored viewport")
+        // Crop the actual full plan at its authored frame and align its native
+        // origin to device pixels, avoiding fractional baseline antialias edges.
+        let hiddenCanvas = try bitmap(hiddenFrame.size, dark: false)
+        hiddenCanvas.translateBy(x: -hiddenFrame.minX, y: -hiddenFrame.minY)
+        NativeReaderObjectRenderer.draw(plan, in: hiddenCanvas)
+        let hiddenBlue = pixels(hiddenCanvas, dark: false).blue
+        try require(hiddenBlue == oracle["hiddenSymbolBluePixels"] as! Int, "raw full-plan hidden clip exact blue area")
+        for y in 0..<40 { for x in 0..<100 {
+            let p = sample(hiddenCanvas, x, y)
+            let isBlue = p[2] > p[0] + 20 && p[2] > p[1] + 20
+            let expectedBlue = (30..<50).contains(x) && (10..<30).contains(y)
+            try require(isBlue == expectedBlue, "raw full-plan hidden exact mask")
+        } }
+        try savePNG(hiddenCanvas, root.appendingPathComponent("raw-hidden-plan-crop.png"))
+        try write(try JSONSerialization.jsonObject(with: JSONEncoder().encode(executions.values)), root.appendingPathComponent("raw-worker-executions.json"))
+        let result: [String: Any] = ["rasterCases": rasters.count, "paintedAssets": images.count, "frames": frames, "labeledBlackInk": black,
+            "rawHiddenBluePixels": hiddenBlue, "hiddenAssetSHA256": shaBytes(originalHidden),
+            "unsupported": ["label-level source/AX meaning absent from compiler glyph paths", "general CSS", "GUI/VoiceOver", "delivered runtime"], "skips": 0]
+        print(String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self))
+    }
+}
+
+extension ObjectsTests {
+    @MainActor static func symbolOverflow(root: URL) throws {
+        let ink = "<rect x=\"-10\" y=\"0\" width=\"40\" height=\"20\" fill=\"#2060c0\"/>"
+        func symbol(_ overflow: String, extra: String = "", content: String? = nil) -> String {
+            "<symbol id=\"s\" viewBox=\"0 0 20 20\" overflow=\"" + overflow + "\" " + extra + ">" + (content ?? ink) + "</symbol>"
+        }
+        func use(_ extra: String = "") -> String { "<use href=\"#s\" x=\"30\" y=\"10\" width=\"20\" height=\"20\" " + extra + "/>" }
+        struct Case {
+            let name: String, body: String
+            let size: CGSize
+            let boxes: [CGRect]
+            var rgb: [Int]? = nil
+        }
+        let small = CGSize(width: 100, height: 40), large = CGSize(width: 160, height: 100)
+        var cases = [Case]()
+        for overflow in ["visible", "hidden"] {
+            cases.append(Case(name: overflow, body: "<defs>" + symbol(overflow) + "</defs>" + use(), size: small,
+                boxes: [CGRect(x: overflow == "visible" ? 20 : 30, y: 10, width: overflow == "visible" ? 40 : 20, height: 20)]))
+        }
+        cases.append(Case(name: "transformed", body: "<defs>" + symbol("hidden") + "</defs><g transform=\"translate(10,5)\">" + use("transform=\"scale(2)\"") + "</g>", size: large, boxes: [CGRect(x: 70, y: 25, width: 40, height: 40)]))
+        cases.append(Case(name: "multiple-instances", body: "<defs>" + symbol("hidden") + "</defs><use href=\"#s\" x=\"10\" y=\"10\" width=\"20\" height=\"20\"/><use href=\"#s\" x=\"70\" y=\"20\" width=\"40\" height=\"40\"/>", size: large, boxes: [CGRect(x: 10, y: 10, width: 20, height: 20), CGRect(x: 70, y: 20, width: 40, height: 40)]))
+        for (aspect, y, height) in [("xMidYMid meet", 20, 20), ("xMinYMin meet", 10, 20), ("xMaxYMax meet", 30, 20), ("none", 10, 40)] {
+            let differentViewBox = "<symbol id=\"s\" viewBox=\"10 20 20 10\" preserveAspectRatio=\"" + aspect + "\" overflow=\"hidden\"><rect x=\"0\" y=\"20\" width=\"40\" height=\"10\" fill=\"#2060c0\"/></symbol>"
+            cases.append(Case(name: "viewport-" + aspect.replacingOccurrences(of: " ", with: "-"), body: "<defs>" + differentViewBox + "</defs><use href=\"#s\" x=\"30\" y=\"10\" width=\"40\" height=\"40\"/>", size: large, boxes: [CGRect(x: 30, y: y, width: 40, height: height)]))
+        }
+        cases.append(Case(name: "nested-clips", body: "<defs><clipPath id=\"outer\"><rect x=\"35\" y=\"0\" width=\"10\" height=\"60\"/></clipPath><clipPath id=\"inner\"><rect width=\"10\" height=\"20\"/></clipPath>" + symbol("hidden", extra: "clip-path=\"url(#inner)\"") + "</defs><g clip-path=\"url(#outer)\">" + use() + "</g>", size: large, boxes: [CGRect(x: 35, y: 10, width: 5, height: 20)]))
+        cases.append(Case(name: "use-of-use-id-collision", body: "<defs><path id=\"native-symbol-clip-1\" d=\"M0 0L1 1\"/>" + symbol("hidden") + "<use id=\"instance\" href=\"#s\" x=\"0\" y=\"0\" width=\"20\" height=\"20\" transform=\"translate(10,10)\"/></defs><use href=\"#instance\" x=\"20\"/><use href=\"#instance\" x=\"70\"/>", size: large, boxes: [CGRect(x: 30, y: 10, width: 20, height: 20), CGRect(x: 80, y: 10, width: 20, height: 20)]))
+        cases.append(Case(name: "nested-symbols", body: "<defs>" + symbol("hidden") + "<symbol id=\"outer\" viewBox=\"0 0 20 20\" overflow=\"hidden\"><use href=\"#s\" width=\"20\" height=\"20\"/></symbol></defs><use href=\"#outer\" x=\"30\" y=\"10\" width=\"40\" height=\"40\"/>", size: large, boxes: [CGRect(x: 30, y: 10, width: 40, height: 40)]))
+        cases.append(Case(name: "use-clip", body: "<defs><clipPath id=\"useclip\"><rect x=\"5\" width=\"5\" height=\"20\"/></clipPath>" + symbol("hidden") + "</defs>" + use("clip-path=\"url(#useclip)\""), size: small, boxes: [CGRect(x: 35, y: 10, width: 5, height: 20)]))
+        cases.append(Case(name: "viewport-slice", body: "<defs><symbol id=\"s\" viewBox=\"0 0 20 10\" preserveAspectRatio=\"xMidYMid slice\" overflow=\"hidden\"><rect x=\"-10\" width=\"40\" height=\"10\" fill=\"#2060c0\"/></symbol></defs>" + use(), size: small, boxes: [CGRect(x: 30, y: 10, width: 20, height: 20)]))
+        cases.append(Case(name: "no-viewbox", body: "<defs><symbol id=\"s\" overflow=\"hidden\">" + ink + "</symbol></defs>" + use(), size: small, boxes: [CGRect(x: 30, y: 10, width: 20, height: 20)]))
+        cases.append(Case(name: "symbol-dimensions", body: "<defs>" + symbol("hidden", extra: "width=\"20\" height=\"20\"") + "</defs><use href=\"#s\" x=\"30\" y=\"10\"/>", size: small, boxes: [CGRect(x: 30, y: 10, width: 20, height: 20)]))
+        cases.append(Case(name: "point-viewport", body: "<defs>" + symbol("hidden") + "</defs><use href=\"#s\" x=\"30\" y=\"10\" width=\"15pt\" height=\"15pt\"/>", size: small, boxes: [CGRect(x: 30, y: 10, width: 20, height: 20)]))
+        cases.append(Case(name: "isolated-opacity", body: "<defs>" + symbol("hidden") + "</defs><g opacity=\"0.5\">" + use() + use() + "</g>", size: small, boxes: [CGRect(x: 30, y: 10, width: 20, height: 20)], rgb: [143, 175, 223]))
+        var records = [[String: Any]]()
+        for c in cases {
+            let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 \(Int(c.size.width)) \(Int(c.size.height))\">" + c.body + "</svg>"
+            try Data(svg.utf8).write(to: root.appendingPathComponent("overflow-" + c.name + ".svg"))
+            let scene = try NativeVectorScene.decode(Data(svg.utf8), dark: false)
+            let ctx = try bitmap(c.size, dark: false)
+            scene.draw(in: ctx, rect: CGRect(origin: .zero, size: c.size))
+            let blue = pixels(ctx, dark: false).blue
+            let expected = Int(c.boxes.reduce(0) { $0 + $1.width * $1.height })
+            let record: [String: Any] = ["case": c.name, "bluePixels": blue, "expectedBluePixels": expected, "inputSHA256": sha(svg)]
+            try savePNG(ctx, root.appendingPathComponent("overflow-" + c.name + ".png"))
+            try write(record, root.appendingPathComponent("overflow-" + c.name + ".json"))
+            try require(blue == expected, "symbol viewport blue area: " + c.name + ":" + String(blue) + " expected " + String(expected))
+            for y in 0..<Int(c.size.height) { for x in 0..<Int(c.size.width) {
+                let p = sample(ctx, x, y), isBlue = p[2] > p[0] + 20 && p[2] > p[1] + 20
+                let expectedBlue = c.boxes.contains { $0.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) }
+                try require(isBlue == expectedBlue, "symbol viewport exact pixel mask: " + c.name)
+            } }
+            if let rgb = c.rgb {
+                try require(zip(sample(ctx, 40, 20), rgb).allSatisfy { abs($0 - $1) <= 1 }, "isolated opacity after clip")
+            }
+            records.append(record)
+        }
+        var rejected = [String]()
+        var negatives: [(String, String)] = [
+            ("implicit-viewport", "<defs>" + symbol("hidden") + "</defs><use href=\"#s\"/>"),
+            ("font-relative-viewport", "<defs>" + symbol("hidden") + "</defs><use href=\"#s\" width=\"2em\" height=\"2em\"/>"),
+            ("zero-viewport", "<defs>" + symbol("hidden") + "</defs><use href=\"#s\" width=\"0\" height=\"20\"/>"),
+            ("external-hidden", "<defs>" + symbol("hidden") + "</defs><use href=\"https://example.org/s\" width=\"20\" height=\"20\"/>"),
+            ("unresolved-hidden", "<use href=\"#missing\" width=\"20\" height=\"20\"/>"),
+            ("cyclic-hidden", "<defs>" + symbol("hidden", content: "<use href=\"#s\" width=\"20\" height=\"20\"/>") + "</defs>" + use()),
+            ("transform-budget-hidden", "<defs>" + symbol("hidden") + "</defs><g transform=\"scale(100000000)\">" + use("transform=\"scale(100000000)\"") + "</g>")]
+        negatives.append(("generated-depth-budget", "<defs>" + symbol("hidden") + "</defs>" + String(repeating: "<g>", count: 123) + use() + String(repeating: "</g>", count: 123)))
+        negatives.append(("generated-node-budget", "<defs>" + symbol("hidden") + "</defs>" + String(repeating: "<g/>", count: 19990) + use()))
+        negatives.append(("viewport-transform-budget", "<defs><symbol id=\"s\" viewBox=\"0 0 0.00000001 0.00000001\" overflow=\"hidden\">" + ink + "</symbol></defs>" + use()))
+        for (name, body) in negatives {
+            let svg = "<svg viewBox=\"0 0 100 40\">" + body + "</svg>"
+            _ = try expectFailure(name) { _ = try NativeVectorScene.decode(Data(svg.utf8), dark: false) }
+            rejected.append(name)
+        }
+        let pixelInput = "<svg viewBox=\"0 0 100 40\"><defs>" + symbol("hidden") + "</defs>" + use() + "</svg>"
+        _ = try expectFailure("hidden-pixel-budget") { _ = try NativeVectorScene.decode(Data(pixelInput.utf8), dark: false, pixelBudget: 1024) }
+        rejected.append("hidden-pixel-budget")
+        try write(rejected, root.appendingPathComponent("overflow-negative-results.json"))
+        print(String(decoding: try JSONSerialization.data(withJSONObject: records), as: UTF8.self))
     }
 }

@@ -6,7 +6,7 @@ import sqlite3
 from urllib.parse import parse_qs
 from uuid import UUID
 
-from flow_reader.document.native_document import import_accepted_document
+from flow_reader.document.native_document import import_accepted_document, SUPPORTED_CAPABILITIES, NativeImportError
 from flow_reader.document.passages import normalized, locate_passages
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
@@ -46,7 +46,11 @@ class NativeReaderService:
             raise ValueError("Invalid generation")
         for key in ("requestID", "viewID"):
             uuid(request.get(key))
-        if type(request.get("schemaVersion")) is not int or request["schemaVersion"] != 1 or request.get("capabilities") != ["semantic-tree-v1"]:
+        capabilities = request.get("capabilities")
+        if (type(request.get("schemaVersion")) is not int or request["schemaVersion"] != 1
+                or not isinstance(capabilities, list) or any(not isinstance(c, str) for c in capabilities)
+                or len(set(capabilities)) != len(capabilities) or "semantic-tree-v1" not in capabilities
+                or set(capabilities) - SUPPORTED_CAPABILITIES):
             raise ValueError("Unsupported native contract")
 
     def snapshot(self, request):
@@ -54,6 +58,7 @@ class NativeReaderService:
         snapshot = AcceptedSnapshot.capture(self.state, request["revision"])
         if snapshot is None or not snapshot.current(self.state):
             raise RevisionChanged("Accepted native inputs changed")
+        self.negotiated(snapshot, request)
         return snapshot
 
     def imported(self, snapshot):
@@ -69,6 +74,14 @@ class NativeReaderService:
             self.cached = key, result
         return self.cached[1]
 
+    def negotiated(self, snapshot, request):
+        # Cache identity is accepted input, independent of client capability/order.
+        # Recheck every request, including assets and actions on a warm cache.
+        imported = self.imported(snapshot)
+        if not set(imported.document["requiredCapabilities"]).issubset(request["capabilities"]):
+            raise NativeImportError("unsupported-required-capability")
+        return imported
+
     def query(self, query):
         fields = parse_qs(query, strict_parsing=True)
         required = {"documentID", "serviceID", "revision", "generation", "schemaVersion", "capabilities", "requestID", "viewID"}
@@ -81,8 +94,9 @@ class NativeReaderService:
 
     def asset(self, query, identifier):
         with self.state.lock:
-            snapshot = self.snapshot(self.query(query))
-            imported = self.imported(snapshot)
+            request = self.query(query)
+            snapshot = self.snapshot(request)
+            imported = self.negotiated(snapshot, request)
             if identifier not in imported.assets:
                 return None
             descriptor = next(a for a in imported.document["assets"] if a["id"] == identifier)
@@ -94,7 +108,7 @@ class NativeReaderService:
         request = self.query(query)
         with self.state.lock:
             snapshot = self.snapshot(request)
-            imported = self.imported(snapshot)
+            imported = self.negotiated(snapshot, request)
             document = {**imported.document, "generation": request["generation"]}
             data = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode()
             if len(data) > MAX_DOCUMENT:

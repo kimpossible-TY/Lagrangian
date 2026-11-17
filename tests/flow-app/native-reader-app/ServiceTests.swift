@@ -3,7 +3,7 @@ import Foundation
 
 private enum TestFailure: Error { case assertion(String) }
 @MainActor private var assertions = 0
-@MainActor private func require(_ condition: Bool, _ label: String) throws {
+@MainActor private func serviceCheck(_ condition: Bool, _ label: String) throws {
     assertions += 1
     if !condition { throw TestFailure.assertion(label) }
 }
@@ -76,6 +76,9 @@ private actor AttachTrace {
 @main struct ServiceTests {
     @MainActor static func main() async {
         do {
+            if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "raw-contract" {
+                try await rawPipeline(CommandLine.arguments); return
+            }
             try await run()
             let report: [String: Any] = ["assertions": assertions, "scope": "real owned HTTP + compiler/source mapping; injected/fake provider, lifecycle/network/storage; headless AppKit activation prohibited", "skips": 0, "adoptionAssertions": adoptionAssertions, "adoptionScope": "real Session/common-store with deterministic preparation/adopter fixture; no integrated text/object UI"]
             print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
@@ -104,46 +107,46 @@ private actor AttachTrace {
         let view = AdoptionFixture(), session: NativeReaderSession
         session = make(view)
         session.refresh(); try await waitFor { session.state == .reading }
-        try require(session.store === view.store, "one shared common store")
+        try serviceCheck(session.store === view.store, "one shared common store")
         let old = session.store.document!, oldContext = session.context!
         let selected = NativeReaderSelection(ticket: UUID(), blockID: old.blocks[0].id,
             rangeUTF16: 0..<old.blocks[0].displayText.utf16.count, exact: old.blocks[0].displayText)
         let originalEvents = view.events
         view.blocked = true
         session.refresh(); try await waitFor { view.preparationCount == 2 }
-        try require(session.store.document == old && view.body == old && session.context == oldContext, "slow preparation retains model body and context")
-        try require(view.events == originalEvents + ["prepare:2:0"] && view.publications == 1, "no premature adoption")
+        try serviceCheck(session.store.document == old && view.body == old && session.context == oldContext, "slow preparation retains model body and context")
+        try serviceCheck(view.events == originalEvents + ["prepare:2:0"] && view.publications == 1, "no premature adoption")
         try session.hold(selected)
-        try require(session.store.selection == selected, "old content remains selectable during preparation")
+        try serviceCheck(session.store.selection == selected, "old content remains selectable during preparation")
         try await rejects("pending preparation cannot authorize mutation") { try session.authorize(oldContext, selection: selected.ticket) }
         view.resume(2); try await waitFor { session.state == .reading }
-        try require(session.store.document == old && view.body == old && session.store.selection == selected, "selection holds completed preparation")
+        try serviceCheck(session.store.document == old && view.body == old && session.store.selection == selected, "selection holds completed preparation")
         view.layout = 1
         session.preparationChanged()
         await settled()
-        try require(view.preparationCount == 2, "held resize does not start premature preparation")
+        try serviceCheck(view.preparationCount == 2, "held resize does not start premature preparation")
         // New accepted candidate supersedes the older held candidate, without a
         // second store or a publication until the explicit matching release.
         session.refresh(); try await waitFor { session.state == .reading }
         let newestGeneration = session.store.generation
-        try require(newestGeneration > old.generation && view.preparationCount == 2, "newest held candidate retained")
+        try serviceCheck(newestGeneration > old.generation && view.preparationCount == 2, "newest held candidate retained")
         let newerSelection = NativeReaderSelection(ticket: UUID(), fragments: selected.fragments)
         try session.hold(newerSelection)
         session.acknowledge(ticket: selected.ticket)
-        try require(session.store.selection == newerSelection && view.publications == 1, "late old ticket cannot clear newer user selection")
+        try serviceCheck(session.store.selection == newerSelection && view.publications == 1, "late old ticket cannot clear newer user selection")
         // Simulate NA02's actual callback order: shared store releases first,
         // selectionReleased(ticket:) then informs Session. No source result does this.
         session.store.releaseSelection(ticket: newerSelection.ticket)
         session.acknowledge(ticket: newerSelection.ticket)
         try await waitFor { view.preparationCount == 3 }
-        try require(session.store.document == old && view.body == old && session.context == oldContext, "explicit release still awaits latest object preparation")
-        try require(view.events.last == "prepare:3:1", "release prepares latest resized key")
+        try serviceCheck(session.store.document == old && view.body == old && session.context == oldContext, "explicit release still awaits latest object preparation")
+        try serviceCheck(view.events.last == "prepare:3:1", "release prepares latest resized key")
         view.resume(3); try await waitFor { session.context?.generation == newestGeneration }
-        try require(session.store.document == view.body && session.store.document?.generation == newestGeneration, "newest candidate publishes with body once")
-        try require(view.publications == 2 && view.adopterCalls == 2, "Session never repeats view publication")
-        try require(Array(view.events.suffix(3)) == ["prepared:3:1", "adopt:3:1", "install:3:1"], "atomic adapter transaction order")
+        try serviceCheck(session.store.document == view.body && session.store.document?.generation == newestGeneration, "newest candidate publishes with body once")
+        try serviceCheck(view.publications == 2 && view.adopterCalls == 2, "Session never repeats view publication")
+        try serviceCheck(Array(view.events.suffix(3)) == ["prepared:3:1", "adopt:3:1", "install:3:1"], "atomic adapter transaction order")
         session.acknowledge(ticket: newerSelection.ticket); await settled()
-        try require(view.publications == 2 && view.preparationCount == 3, "duplicate release never republishes")
+        try serviceCheck(view.publications == 2 && view.preparationCount == 3, "duplicate release never republishes")
 
         // Both explicit resize notifications and key drift detected after await
         // must reprepare the retained candidate, without another network request.
@@ -156,13 +159,13 @@ private actor AttachTrace {
         resize.layout += 1; resizedSession.preparationChanged()
         try await waitFor { resize.preparationCount == 3 }
         resize.resume(2); await settled()
-        try require(resize.publications == 1 && resizedSession.context == resizedContext && resize.body == resizedOld, "resize rejects obsolete late preparation")
+        try serviceCheck(resize.publications == 1 && resizedSession.context == resizedContext && resize.body == resizedOld, "resize rejects obsolete late preparation")
         resize.resume(3); try await waitFor { resize.publications == 2 }
-        try require(resizedSession.store.document == resize.body && resize.events.last == "install:3:1", "resize adopts latest key")
+        try serviceCheck(resizedSession.store.document == resize.body && resize.events.last == "install:3:1", "resize adopts latest key")
         resizedSession.refresh(); try await waitFor { resize.preparationCount == 4 }
         resize.layout += 1 // Deliberately omit notification; isCurrent detects this.
         resize.resume(4); try await waitFor { resize.preparationCount == 5 }
-        try require(resize.publications == 2 && resize.events.last == "prepare:5:2", "key drift reparses newest layout rather than dropping candidate")
+        try serviceCheck(resize.publications == 2 && resize.events.last == "prepare:5:2", "key drift reparses newest layout rather than dropping candidate")
         resize.resume(5); try await waitFor { resize.publications == 3 }
 
         let newer = AdoptionFixture(), newerSession: NativeReaderSession
@@ -172,9 +175,9 @@ private actor AttachTrace {
         newerSession.refresh(); try await waitFor { newer.preparationCount == 2 }
         newerSession.refresh(); try await waitFor { newer.preparationCount == 3 }
         newer.resume(2); await settled()
-        try require(newer.publications == 1 && newer.body == newerSession.store.document, "newer refresh revokes older preparation")
+        try serviceCheck(newer.publications == 1 && newer.body == newerSession.store.document, "newer refresh revokes older preparation")
         newer.resume(3); try await waitFor { newer.publications == 2 }
-        try require(newerSession.context?.generation == 3, "newer refresh alone publishes")
+        try serviceCheck(newerSession.context?.generation == 3, "newer refresh alone publishes")
 
         for mode in ["prepare", "adopter", "noop"] {
             let failingView = AdoptionFixture(), failingSession: NativeReaderSession
@@ -185,13 +188,13 @@ private actor AttachTrace {
             failingView.failAdopter = mode == "adopter"
             failingView.noOpAdopter = mode == "noop"
             failingSession.refresh(); try await waitFor { failingSession.state == .offline }
-            try require(failingView.body == baseline && failingSession.store.document == baseline && failingSession.context == baselineContext,
+            try serviceCheck(failingView.body == baseline && failingSession.store.document == baseline && failingSession.context == baselineContext,
                         "\(mode) failure preserves previous published model/body/context")
-            try require(failingSession.isReadOnly && failingView.publications == 1, "\(mode) cannot fabricate readiness")
+            try serviceCheck(failingSession.isReadOnly && failingView.publications == 1, "\(mode) cannot fabricate readiness")
             try await rejects("\(mode) disables mutations") { try failingSession.authorize(baselineContext!) }
             failingView.failPreparation = false; failingView.failAdopter = false; failingView.noOpAdopter = false
             failingSession.preparationChanged(); try await waitFor { failingSession.state == .reading }
-            try require(failingView.preparationCount == 3 && failingView.publications == 2, "\(mode) retry retains valid newest candidate")
+            try serviceCheck(failingView.preparationCount == 3 && failingView.publications == 2, "\(mode) retry retains valid newest candidate")
             failingSession.event(.dispose)
         }
 
@@ -209,9 +212,9 @@ private actor AttachTrace {
             default: interruptedSession.event(.dispose)
             }
             interrupted.resume(2); await settled()
-            try require(interrupted.body == baseline && interruptedSession.store.document == baseline && interruptedSession.context == baselineContext,
+            try serviceCheck(interrupted.body == baseline && interruptedSession.store.document == baseline && interruptedSession.context == baselineContext,
                         "\(event) rejects noncooperative late prepare without replacing old body")
-            try require(interrupted.publications == 1 && interruptedSession.isReadOnly, "\(event) cannot authorize stale mutation")
+            try serviceCheck(interrupted.publications == 1 && interruptedSession.isReadOnly, "\(event) cannot authorize stale mutation")
             interruptedSession.event(.dispose)
         }
 
@@ -223,7 +226,7 @@ private actor AttachTrace {
         viewCancelledSession.refresh(); try await waitFor { viewCancelled.preparationCount == 2 }
         viewCancelled.store.cancel() // NA02 cancel revokes this same shared generation.
         viewCancelled.resume(2); try await waitFor { viewCancelledSession.state == .offline }
-        try require(viewCancelled.body == cancelledBody && viewCancelledSession.context == cancelledContext && viewCancelled.publications == 1,
+        try serviceCheck(viewCancelled.body == cancelledBody && viewCancelledSession.context == cancelledContext && viewCancelled.publications == 1,
                     "common-store cancellation alone invalidates obsolete preparation")
         try await rejects("common-store cancellation cannot authorize old operations") { try viewCancelledSession.authorize(cancelledContext!) }
         viewCancelledSession.event(.dispose)
@@ -234,19 +237,19 @@ private actor AttachTrace {
         recoveredSession = make(recovered); recovered.blocked = true
         let recovering = Task { try await recoveredSession.restore(snapshot, matching: identity) }
         try await waitFor { recovered.preparationCount == 1 }
-        try require(recovered.body == nil && recoveredSession.store.document == nil && recoveredSession.context == nil, "offline restore cannot publish unprepared objects")
-        try require(recoveredSession.isReadOnly, "recovery preparation is read-only")
+        try serviceCheck(recovered.body == nil && recoveredSession.store.document == nil && recoveredSession.context == nil, "offline restore cannot publish unprepared objects")
+        try serviceCheck(recoveredSession.isReadOnly, "recovery preparation is read-only")
         recovered.resume(1); try await recovering.value
-        try require(recovered.publications == 1 && recoveredSession.store.document == recovered.body && recoveredSession.state == .offline, "prepared offline restore publishes atomically")
+        try serviceCheck(recovered.publications == 1 && recoveredSession.store.document == recovered.body && recoveredSession.state == .offline, "prepared offline restore publishes atomically")
         try await rejects("prepared recovery still cannot mutate") { try recoveredSession.authorize(recoveredSession.context!) }
         let recoveredOld = recovered.body, recoveredContext = recoveredSession.context
         try await recoveredSession.restore(snapshot, matching: identity) // Held by recovered selection.
-        try require(recovered.preparationCount == 1 && recovered.body == recoveredOld && recoveredSession.context == recoveredContext, "held recovery retains old body")
+        try serviceCheck(recovered.preparationCount == 1 && recovered.body == recoveredOld && recoveredSession.context == recoveredContext, "held recovery retains old body")
         let recoveredTicket = recoveredSession.store.selection!.ticket
         recoveredSession.acknowledge(ticket: recoveredTicket)
         try await waitFor { recovered.preparationCount == 2 }
         recovered.resume(2); try await waitFor { recovered.publications == 2 }
-        try require(recoveredSession.isReadOnly && recoveredSession.state == .offline, "released recovery stays read-only")
+        try serviceCheck(recoveredSession.isReadOnly && recoveredSession.state == .offline, "released recovery stays read-only")
         recoveredSession.event(.dispose)
 
         let cancelledRecovery = AdoptionFixture(), cancelledRecoverySession: NativeReaderSession
@@ -255,7 +258,7 @@ private actor AttachTrace {
         try await waitFor { cancelledRecovery.preparationCount == 1 }
         cancelledRecoverySession.event(.sleep); cancelledRecovery.resume(1)
         try await rejects("sleep revokes pending recovery preparation") { try await recoveryTask.value }
-        try require(cancelledRecoverySession.state == .sleeping && cancelledRecovery.body == nil && cancelledRecoverySession.context == nil, "late recovery cannot wake or publish")
+        try serviceCheck(cancelledRecoverySession.state == .sleeping && cancelledRecovery.body == nil && cancelledRecoverySession.context == nil, "late recovery cannot wake or publish")
 
         let externallyCancelled = AdoptionFixture(), externallyCancelledSession: NativeReaderSession
         externallyCancelledSession = make(externallyCancelled); externallyCancelled.blocked = true
@@ -263,7 +266,7 @@ private actor AttachTrace {
         try await waitFor { externallyCancelled.preparationCount == 1 }
         externalTask.cancel(); externallyCancelled.resume(1)
         try await rejects("caller cancellation after awaited recovery prepare") { try await externalTask.value }
-        try require(externallyCancelledSession.store.document == nil && externallyCancelledSession.context == nil &&
+        try serviceCheck(externallyCancelledSession.store.document == nil && externallyCancelledSession.context == nil &&
                     externallyCancelled.publications == 0 && externallyCancelledSession.isReadOnly, "cancelled recovery cannot publish or enable mutation")
         externallyCancelledSession.event(.dispose)
 
@@ -274,7 +277,7 @@ private actor AttachTrace {
                 return .init(isCurrent: { true }, adopt: { try wrongStore.adopt(candidate, for: request) })
             })
         mismatched.refresh(); try await waitFor { mismatched.state == .offline }
-        try require(mismatched.store.document == nil && wrongStore.document == nil && mismatched.context == nil,
+        try serviceCheck(mismatched.store.document == nil && wrongStore.document == nil && mismatched.context == nil,
                     "different viewID/store cannot publish through an adopter")
         mismatched.event(.dispose)
 
@@ -288,7 +291,7 @@ private actor AttachTrace {
                         generation: targetGate.store.generation, target: identity)); return identity })
         targetSession.refresh(); try await waitFor { targetGate.preparationCount == 1 }
         targetSession.cancel(); targetGate.resume(1); await settled()
-        try require(await targetCalls.value() == 0 && targetSession.store.document == nil, "cancel after awaited target cannot invoke provider")
+        try serviceCheck(await targetCalls.value() == 0 && targetSession.store.document == nil, "cancel after awaited target cannot invoke provider")
 
         // Wrong candidates are rejected before any preparation can publish.
         let invalid = AdoptionFixture()
@@ -297,7 +300,7 @@ private actor AttachTrace {
                 viewID: context.viewID, generation: context.generation + 1, target: identity)) }),
             target: { identity }, prepare: { try await invalid.prepare($0, $1) })
         invalidSession.refresh(); try await waitFor { invalidSession.state == .offline }
-        try require(invalid.preparationCount == 0 && invalidSession.context == nil, "wrong generation never reaches preparer")
+        try serviceCheck(invalid.preparationCount == 0 && invalidSession.context == nil, "wrong generation never reaches preparer")
 
         session.event(.dispose); resizedSession.event(.dispose); newerSession.event(.dispose)
         cancelledRecoverySession.event(.dispose); targetSession.event(.dispose); invalidSession.event(.dispose)
@@ -307,7 +310,7 @@ private actor AttachTrace {
     @MainActor private static func run() async throws {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
-        try require(app.activationPolicy() == .prohibited, "headless activation")
+        try serviceCheck(app.activationPolicy() == .prohibited, "headless activation")
         let args = CommandLine.arguments
         let raw = try Data(contentsOf: URL(fileURLWithPath: args[1]))
         let attachment = try NativeReaderAttachment(data: raw)
@@ -317,11 +320,11 @@ private actor AttachTrace {
         let network = NativeReaderNetwork.urlSession()
         let transport = NativeReaderTransport(attachment: attachment, network: network)
         let document = try await transport.document(for: context)
-        try require(document.identity == identity && document.blocks.count == 4, "accepted full real tree")
-        try require(document.blocks[0].canonicalText == "First paragraph keeps its own question.", "independent literal oracle")
+        try serviceCheck(document.identity == identity && document.blocks.count == 4, "accepted full real tree")
+        try serviceCheck(document.blocks[0].canonicalText == "First paragraph keeps its own question.", "independent literal oracle")
         let prefixed = NativeReaderTransport(attachment: shared, network: network)
         let same = try await prefixed.document(for: context)
-        try require(document == same, "registered prefix same exact tree")
+        try serviceCheck(document == same, "registered prefix same exact tree")
         let argsCounter = Counter()
         let resolver = NativeReaderManagedResolver(attach: { argv in
             _ = await argsCounter.increment()
@@ -329,11 +332,11 @@ private actor AttachTrace {
             return raw
         }, network: network)
         let resolved = try await resolver.resolve(root: "/isolated/project", entry: "main.typ", readerID: "exact")
-        try require(resolved.1 == identity, "manager observed incarnation/revision")
-        try require(await argsCounter.value() == 1, "manager attach once")
+        try serviceCheck(resolved.1 == identity, "manager observed incarnation/revision")
+        try serviceCheck(await argsCounter.value() == 1, "manager attach once")
         let managed = NativeReaderManagedClient(resolver: resolver, root: "/isolated/project", entry: "main.typ", readerID: "exact")
         let managedIdentity = try await managed.target()
-        try require(managedIdentity == identity, "managed profile identity")
+        try serviceCheck(managedIdentity == identity, "managed profile identity")
         _ = try await managed.document(for: context)
         _ = try await managed.currentActions()
         await managed.invalidate()
@@ -360,9 +363,9 @@ private actor AttachTrace {
         let initialTarget = try await reconnect.target()
         let sameTarget = try await reconnect.target()
         let restartedTarget = try await reconnect.target()
-        try require(initialTarget == sameTarget && restartedTarget.serviceID != initialTarget.serviceID, "injected managed restart binds new incarnation")
+        try serviceCheck(initialTarget == sameTarget && restartedTarget.serviceID != initialTarget.serviceID, "injected managed restart binds new incarnation")
         let registrations = await trace.snapshot()
-        try require(registrations.count == 4 && registrations.filter({ $0.contains("--editor-server") }).count == 2, "one editor registration per incarnation")
+        try serviceCheck(registrations.count == 4 && registrations.filter({ $0.contains("--editor-server") }).count == 2, "one editor registration per incarnation")
         await reconnect.dispose()
         var invalidAttachment = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
         for url in ["http://127.0.0.1:1234/p/preview/", "https://evil.invalid/", "http://127.0.0.1:1234/d/../", "http://127.0.0.1:1234/?token=x"] {
@@ -374,34 +377,34 @@ private actor AttachTrace {
         let actions = NativeReaderActions(transport: transport)
         try await actions.updateSelection(selection, context: context)
         let locate = try await actions.perform(NativeReaderSourceRequest(context: context, selection: selection, action: .locate, receiptID: UUID()))
-        try require(locate.status == .verified && locate.destinationAnchor != nil, "real guarded locate")
+        try serviceCheck(locate.status == .verified && locate.destinationAnchor != nil, "real guarded locate")
         let math = document.blocks[2]
         let mathSelection = NativeReaderSelection(ticket: UUID(), blockID: math.id, rangeUTF16: 0..<math.displayText.utf16.count, exact: math.displayText)
         try await actions.updateSelection(mathSelection, context: context)
         let excerpt = try await actions.perform(NativeReaderSourceRequest(context: context, selection: mathSelection, action: .excerpt, receiptID: UUID()))
-        try require(excerpt.status == .verified && excerpt.verifiedText == "$alpha + beta$", "actual source-mapped excerpt")
+        try serviceCheck(excerpt.status == .verified && excerpt.verifiedText == "$alpha + beta$", "actual source-mapped excerpt")
         let highlight = try await actions.perform(NativeReaderSourceRequest(context: context, selection: mathSelection, action: .highlight, receiptID: UUID()))
-        try require(highlight.status == .rejected, "missing editor attachment cannot write")
+        try serviceCheck(highlight.status == .rejected, "missing editor attachment cannot write")
         let receipt = try await actions.receipt(for: NativeReaderSourceRequest(context: context, selection: mathSelection, action: .highlight, receiptID: UUID()))
-        try require(receipt.status == .uncertain, "missing receipt honest unknown")
+        try serviceCheck(receipt.status == .uncertain, "missing receipt honest unknown")
         try await actions.updateSelection(selection, context: context)
         let opened = try await actions.perform(.open(selection), context: context)
-        try require(opened.messages.isEmpty, "open no inference")
+        try serviceCheck(opened.messages.isEmpty, "open no inference")
         let draft = try await actions.perform(.draft(conversation: opened.conversationID, version: opened.version, text: "Question"), context: context)
-        try require(draft.version > opened.version && draft.messages.isEmpty, "draft no inference")
+        try serviceCheck(draft.version > opened.version && draft.messages.isEmpty, "draft no inference")
         let account = try await actions.account(context: context)
-        try require(account.models == ["fixture-model"], "existing model catalog")
+        try serviceCheck(account.models == ["fixture-model"], "existing model catalog")
         let message = UUID()
         let sent = try await actions.perform(.send(conversation: draft.conversationID, version: draft.version, message: message, question: "Question", model: "fixture-model"), context: context)
-        try require(sent.messages.contains(where: { $0.id == message }), "explicit send stable message")
+        try serviceCheck(sent.messages.contains(where: { $0.id == message }), "explicit send stable message")
         let duplicate = try await actions.perform(.send(conversation: draft.conversationID, version: sent.version, message: message, question: "Question", model: "fixture-model"), context: context)
-        try require(duplicate.messages.filter({ $0.id == message }).count == 1, "server UUID dedup")
+        try serviceCheck(duplicate.messages.filter({ $0.id == message }).count == 1, "server UUID dedup")
         var observed = 0
         for try await state in actions.observe(conversation: opened.conversationID, context: context) {
             observed += 1
-            try require(state.version >= sent.version && state.sequence >= 0, "bounded real SSE monotonic")
+            try serviceCheck(state.version >= sent.version && state.sequence >= 0, "bounded real SSE monotonic")
         }
-        try require(observed > 0, "SSE delivered")
+        try serviceCheck(observed > 0, "SSE delivered")
         try await actions.updateSelection(mathSelection, context: context)
         try await rejects("selection changed blocks send") {
             _ = try await actions.perform(.send(conversation: opened.conversationID, version: duplicate.version, message: UUID(), question: "stale", model: "fixture-model"), context: context)
@@ -432,8 +435,8 @@ private actor AttachTrace {
             _ = try await lostActions.perform(.send(conversation: lostOpen.conversationID, version: lostOpen.version, message: lostID, question: "lost", model: "fixture-model"), context: context)
         }
         let history = try await lostActions.history(context: context)
-        try require(history.contains(where: { $0.state.messages.contains(where: { $0.id == lostID }) }), "lost ack authoritative history")
-        try require(await dropCount.value() == 1, "uncertain send never replayed")
+        try serviceCheck(history.contains(where: { $0.state.messages.contains(where: { $0.id == lostID }) }), "lost ack authoritative history")
+        try serviceCheck(await dropCount.value() == 1, "uncertain send never replayed")
 
         // Parser boundaries include split UTF8, malformed UTF8, truncation and stale.
         var parser = NativeReaderSSEParser()
@@ -441,7 +444,7 @@ private actor AttachTrace {
         var parsed = [Data]()
         for byte in event { parsed += try parser.feed(Data([byte])) }
         try parser.finish()
-        try require(parsed.count == 1 && String(data: parsed[0], encoding: .utf8) == "{\"text\":\"한😀\"}", "split UTF8 and CRLF SSE")
+        try serviceCheck(parsed.count == 1 && String(data: parsed[0], encoding: .utf8) == "{\"text\":\"한😀\"}", "split UTF8 and CRLF SSE")
         try await rejects("malformed SSE") { var p = NativeReaderSSEParser(); _ = try p.feed(Data([0xff,10])) }
         try await rejects("stale SSE") { var p = NativeReaderSSEParser(); _ = try p.feed(Data("event: stale\ndata: {}\n\n".utf8)) }
         try await rejects("truncated SSE") { var p = NativeReaderSSEParser(); _ = try p.feed(Data("data: {}".utf8)); try p.finish() }
@@ -449,7 +452,7 @@ private actor AttachTrace {
 
         var assetBytes: [String: Data] = [:]
         for asset in document.assets { assetBytes[asset.id] = try await transport.asset(asset, context: context) }
-        try require(!assetBytes.isEmpty, "real revision-bound assets verified")
+        try serviceCheck(!assetBytes.isEmpty, "real revision-bound assets verified")
         let responseData = try JSONEncoder().encode(document)
         let responseHeaders = ["content-type": "application/json", "x-native-input-id": String(repeating: "a", count: 64)]
         for change in ["schema", "capability", "revision"] {
@@ -479,14 +482,14 @@ private actor AttachTrace {
         let firstContext = session.context!
         try session.hold(selection)
         session.refresh(); try await waitFor { session.state == .reading }
-        try require(session.context == firstContext, "selection holds publication")
+        try serviceCheck(session.context == firstContext, "selection holds publication")
         let newer = NativeReaderSelection(ticket: UUID(), fragments: selection.fragments)
         try session.hold(newer)
         session.acknowledge(ticket: selection.ticket)
-        try require(session.store.selection?.ticket == newer.ticket, "late ack preserves new selection")
+        try serviceCheck(session.store.selection?.ticket == newer.ticket, "late ack preserves new selection")
         session.acknowledge(ticket: newer.ticket)
         try await waitFor { session.state == .reading && session.context != firstContext }
-        try require(session.context != firstContext && session.store.selection == nil, "latest pending publication after release")
+        try serviceCheck(session.context != firstContext && session.store.selection == nil, "latest pending publication after release")
         let root = URL(fileURLWithPath: args[4])
         let recovery = NativeReaderRecoveryStore(root: root)
         let restoration = NativeReaderRestoration(blockID: document.blocks[0].id, offset: 0.25, zoom: 1.5,
@@ -495,16 +498,16 @@ private actor AttachTrace {
             drafts: [NativeReaderRecoveredDraft(conversationID: opened.conversationID, version: draft.version, text: "Only composer text", pendingMessageID: nil)])
         let review = NativeReaderLocalReview()
         try review.add(NativeReaderReviewMark(id: UUID(), identity: identity, selection: restoration), document: document)
-        try require(review.marks.count == 1, "native review local paint")
-        review.undo(); try require(review.marks.isEmpty, "review undo")
+        try serviceCheck(review.marks.count == 1, "native review local paint")
+        review.undo(); try serviceCheck(review.marks.isEmpty, "review undo")
         try review.add(NativeReaderReviewMark(id: UUID(), identity: identity, selection: restoration), document: document)
-        review.clear(); try require(review.marks.isEmpty, "review clear")
+        review.clear(); try serviceCheck(review.marks.isEmpty, "review clear")
         try await recovery.save(snapshot)
         let loaded = try await recovery.load(identity: identity)
-        try require(loaded.document == document && loaded.restoration == restoration, "atomic digest-checked snapshot")
+        try serviceCheck(loaded.document == document && loaded.restoration == restoration, "atomic digest-checked snapshot")
         let offline = NativeReaderSession(provider: provider, target: { identity })
         try await offline.restore(loaded, matching: identity)
-        try require(offline.state == .offline && offline.store.selection?.ticket == selection.ticket, "offline read-only selection restoration")
+        try serviceCheck(offline.state == .offline && offline.store.selection?.ticket == selection.ticket, "offline read-only selection restoration")
         try await rejects("offline source/chat refusal") { try offline.authorize(offline.context!) }
         let wrong = NativeDocumentIdentity(documentID: identity.documentID, serviceID: "reader:1:1", revision: identity.revision, scope: .service)
         try await rejects("recovery wrong service") { _ = try await recovery.load(identity: wrong) }
@@ -512,14 +515,14 @@ private actor AttachTrace {
         var bytes = try Data(contentsOf: file); bytes[bytes.count/2] ^= 1; try bytes.write(to: file)
         try await rejects("corrupt recovery digest") { _ = try await recovery.load(identity: identity) }
         try await recovery.save(snapshot)
-        try require(try await recovery.load(identity: identity).document == document, "atomic replacement after corrupt snapshot")
+        try serviceCheck(try await recovery.load(identity: identity).document == document, "atomic replacement after corrupt snapshot")
         let canceledSave = Task { () throws -> Void in
             try Task.checkCancellation()
             try await recovery.save(snapshot)
         }
         canceledSave.cancel()
         try await rejects("canceled snapshot preserves old commit") { try await canceledSave.value }
-        try require(try await recovery.load(identity: identity).document == document, "old snapshot survives canceled save")
+        try serviceCheck(try await recovery.load(identity: identity).document == document, "old snapshot survives canceled save")
         let linkRoot = root.deletingLastPathComponent().appendingPathComponent("recovery-link")
         try FileManager.default.createSymbolicLink(at: linkRoot, withDestinationURL: root)
         let symlinkStore = NativeReaderRecoveryStore(root: linkRoot)
@@ -528,32 +531,78 @@ private actor AttachTrace {
         let failing = NativeReaderSession(provider: Provider(load: { _ in _ = await failedCounter.increment(); throw URLError(.timedOut) }), target: { identity }, wait: { _ in await Task.yield() })
         failing.refresh(); try await waitFor { failing.state == .offline }
         try await Task.sleep(nanoseconds: 30_000_000)
-        try require(await failedCounter.value() == 4, "bounded reconnect attempts")
+        try serviceCheck(await failedCounter.value() == 4, "bounded reconnect attempts")
         session.event(.power(constrained: true)); session.event(.sleep)
-        try require(session.state == .sleeping && session.store.document != nil, "sleep retains accepted")
-        session.event(.network(false)); try require(session.state == .offline, "network offline")
+        try serviceCheck(session.state == .sleeping && session.store.document != nil, "sleep retains accepted")
+        session.event(.network(false)); try serviceCheck(session.state == .offline, "network offline")
         session.event(.dispose); session.refresh(); session.event(.wake)
-        try require(session.state == .disposed && session.store.document != nil, "dispose rejects callbacks retains accepted")
+        try serviceCheck(session.state == .disposed && session.store.document != nil, "dispose rejects callbacks retains accepted")
         failing.event(.dispose); offline.event(.dispose)
 
         try await adoptionRegressions(document, identity, loaded)
         let safe = NativeReaderAnswerPart.attributed("# Heading\n**bold** `<script>`\n<script>alert(1)</script>\n$$\nx^2\n$$")
-        try require(safe.string.contains("<script>alert(1)</script>"), "HTML remains literal native text")
-        try require(safe.string.contains("native layout unavailable"), "honest math fallback")
+        try serviceCheck(safe.string.contains("<script>alert(1)</script>"), "HTML remains literal native text")
+        try serviceCheck(safe.string.contains("native layout unavailable"), "honest math fallback")
         let view = NativeReaderChatView(actions: actions, context: context, authorize: {})
         if let record = await actions.conversation(opened.conversationID) { view.present(record) }
         view.presentAccount(account)
-        try require(view.composer.isRichText == false && view.answer.isEditable == false, "native composer/answer")
-        try require(app.windows.allSatisfy({ !$0.isVisible }) && app.activationPolicy() == .prohibited, "no visible GUI windows or foreground activation")
+        try serviceCheck(view.composer.isRichText == false && view.answer.isEditable == false, "native composer/answer")
+        try serviceCheck(app.windows.allSatisfy({ !$0.isVisible }) && app.activationPolicy() == .prohibited, "no visible GUI windows or foreground activation")
         var persisted: NativeReaderRecoveredDraft?
         view.persistDraft = { persisted = $0 }
         view.composer.string = "Newer local draft"
         view.textDidChange(Notification(name: NSText.didChangeNotification))
         if let record = await actions.conversation(opened.conversationID) { view.present(record) }
-        try require(view.composer.string == "Newer local draft" && persisted?.text == "Newer local draft", "late history cannot clear newer local draft")
+        try serviceCheck(view.composer.string == "Newer local draft" && persisted?.text == "Newer local draft", "late history cannot clear newer local draft")
         view.dispose()
-        try require(!view.sendButton.isEnabled, "disposed UI cannot send")
+        try serviceCheck(!view.sendButton.isEnabled, "disposed UI cannot send")
         await transport.dispose()
         try await rejects("disposed transport") { _ = try await transport.document(for: context) }
+    }
+}
+
+extension ServiceTests {
+    @MainActor static func rawPipeline(_ args: [String]) async throws {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        try serviceCheck(app.activationPolicy() == .prohibited, "raw headless activation")
+        let attachment = try NativeReaderAttachment(data: Data(contentsOf: URL(fileURLWithPath: args[2])))
+        let identity = NativeDocumentIdentity(documentID: attachment.documentID, serviceID: attachment.serviceID, revision: args[3], scope: .service)
+        let context = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 17, target: identity)
+        let transport = NativeReaderTransport(attachment: attachment, network: .urlSession())
+        let document = try await transport.document(for: context)
+        let layouts = document.blocks.flatMap(\.orderedNodes).compactMap(\.imageLayout)
+        try serviceCheck(document.requiredCapabilities == ["image-layout-v1", "semantic-tree-v1"] && layouts.count >= 8, "full raw HTTP supplement")
+        var assets = [String: Data]()
+        for descriptor in document.assets { assets[descriptor.id] = try await transport.asset(descriptor, context: context) }
+        let root = URL(fileURLWithPath: args[4])
+        let recovery = NativeReaderRecoveryStore(root: root.appendingPathComponent("recovery"))
+        let snapshot = NativeReaderRecoverySnapshot(document: document, assets: assets, restoration: .initial, drafts: [])
+        try await recovery.save(snapshot)
+        let loaded = try await recovery.load(identity: identity)
+        try serviceCheck(loaded.document == document && loaded.assets == assets, "raw generic Codable disk roundtrip")
+        let session = NativeReaderSession(provider: Provider(load: { document.rebinding(generation: $0.generation) }), target: { identity })
+        _ = try session.store.beginRequest()
+        _ = try session.store.beginRequest()
+        try await session.restore(loaded, matching: identity)
+        try serviceCheck(session.context!.generation != document.generation, "raw restore actually rebinds generation")
+        try serviceCheck(session.store.document!.blocks == document.blocks && session.store.document!.requiredCapabilities == document.requiredCapabilities, "raw session candidate preserves every supplement")
+        try await rejects("offline raw source permission") { try session.authorize(session.context!) }
+        // Exercise pending candidate/adoption, not just a standalone DTO copy.
+        session.refresh()
+        try await waitFor { session.state == .reading }
+        try serviceCheck(session.store.document!.blocks == document.blocks, "raw live session candidate preserves metadata")
+        let fixtureIdentity = NativeDocumentIdentity(documentID: identity.documentID, serviceID: identity.serviceID, revision: identity.revision, scope: .fixture)
+        let fixture = NativeReaderDocument(schemaVersion: document.schemaVersion, identity: fixtureIdentity, generation: document.generation,
+            requiredCapabilities: document.requiredCapabilities, blocks: document.blocks, assets: document.assets, diagnostics: document.diagnostics)
+        let fixtureURL = root.appendingPathComponent("raw-fixture.json")
+        try JSONEncoder().encode(fixture).write(to: fixtureURL)
+        let provider = NativeReaderFixtureProvider(url: fixtureURL)
+        let fixtureContext = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 99, target: fixtureIdentity)
+        let copied = try await provider.document(for: fixtureContext)
+        try serviceCheck(copied.blocks == fixture.blocks && copied.requiredCapabilities == fixture.requiredCapabilities && copied.generation == 99, "production host fixture copy")
+        session.event(.dispose)
+        let output: [String: Any] = ["assertions": assertions, "layouts": layouts.count, "assets": assets.count, "transport": "actual raw compiler HTTP", "metadata": "generic Codable recovery + session restore/live candidate + host fixture provider", "skips": 0]
+        print(String(decoding: try JSONSerialization.data(withJSONObject: output), as: UTF8.self))
     }
 }

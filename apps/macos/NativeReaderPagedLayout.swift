@@ -264,6 +264,12 @@ private final class NativeObjectBuilder {
                 pixelBudget: 16 * 1024 * 1024 - cost)
             cost += scene.decodedCost; try check(); decodedAssets[id] = scene
         }
+        if let layout = node.imageLayout {
+            let size = try layout.size(naturalWidth: Double(scene.intrinsicSize.width), naturalHeight: Double(scene.intrinsicSize.height), fontSize: context.fontSize)
+            // Explicit authored size is not a responsive max-width. Inline
+            // overflow stays indivisible and is diagnosed by the flow owner.
+            return (scene, CGFloat(size.width), CGFloat(size.height))
+        }
         let w = min(width, scene.intrinsicSize.width), h = scene.intrinsicSize.height * w / scene.intrinsicSize.width
         return (scene, w, h)
     }
@@ -337,7 +343,9 @@ private final class NativeObjectBuilder {
             case .link: for child in n.children { try await visit(child, traits: traits, link: n.link) }
             case .image:
                 let (scene, w, h) = try image(n, width: width)
+                if n.imageLayout?.placement == .block { flush() }
                 add(Piece(node: n, paint: .vector(scene), width: w, ascent: h, descent: 0))
+                if n.imageLayout?.placement == .block { flush() }
             case .table, .tableHead, .tableBody, .row: throw NativeObjectError.unsupported("nested-table-layout")
             default: for child in n.children { try await visit(child, traits: traits, link: link) }
             }

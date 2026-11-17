@@ -79,6 +79,68 @@ func reject(_ expected: NativeReaderContractError, _ body: () throws -> Void) th
         try reject(.invalidDocument) { _ = try NativeReaderDocument.decode(mutated {
             var blocks = $0["blocks"] as! [[String: Any]]; blocks[1]["rangeUTF16"] = [0, 1]; $0["blocks"] = blocks
         }) }
+        try require(document.requiredCapabilities == oracle["requiredCapabilities"] as! [String], "dynamic image capability")
+        let supplemented = nodes.filter { $0.imageLayout != nil }
+        try require(!supplemented.isEmpty, "raw compiler SVG layout")
+        let roundtrip = try NativeReaderDocument.decode(JSONEncoder().encode(document))
+        try require(roundtrip == document, "metadata Codable roundtrip")
+        try reject(.unsupportedRequiredCapability) { _ = try NativeReaderDocument.decode(data, capabilities: ["semantic-tree-v1"]) }
+        let rebound = document.rebinding(generation: 42)
+        try require(rebound.blocks == document.blocks && rebound.requiredCapabilities == document.requiredCapabilities && rebound.generation == 42, "generation metadata copy")
+        let widthOnly = NativeImageLayout(naturalUnit: .px, placement: .inline, fit: .fill,
+            width: NativeImageLength(value: 32, unit: .pt), height: nil, loading: nil, decoding: nil)
+        let ratioSize = try widthOnly.size(naturalWidth: 24, naturalHeight: 12, fontSize: 20)
+        try require(ratioSize.width == 32 && ratioSize.height == 16, "single dimension intrinsic aspect")
+        let heightOnly = NativeImageLayout(naturalUnit: .px, placement: .block, fit: .fill,
+            width: nil, height: NativeImageLength(value: 2, unit: .em), loading: .lazy, decoding: .async)
+        let emSize = try heightOnly.size(naturalWidth: 24, naturalHeight: 12, fontSize: 15)
+        try require(emSize.width == 60 && emSize.height == 30, "em uses current logical font")
+        var legacy = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        func removeLayout(_ value: [String: Any]) -> [String: Any] {
+            var node = value; node.removeValue(forKey: "imageLayout")
+            node["children"] = (node["children"] as! [[String: Any]]).map(removeLayout)
+            return node
+        }
+        legacy["blocks"] = (legacy["blocks"] as! [[String: Any]]).map(removeLayout)
+        legacy["requiredCapabilities"] = ["semantic-tree-v1"]
+        let legacyData = try JSONSerialization.data(withJSONObject: legacy)
+        let legacyDocument = try NativeReaderDocument.decode(legacyData, capabilities: ["semantic-tree-v1"])
+        try require(legacyDocument.blocks.flatMap(\.orderedNodes).allSatisfy { $0.imageLayout == nil }, "old semantic tree still supported")
+        var supplementNegatives = [String]()
+        for name in ["missing-cap", "lost-layout", "unknown-layout", "unknown-node", "null-layout", "missing-placement", "unknown-unit", "zero", "huge", "unknown-fit"] {
+            var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            if name == "missing-cap" { object["requiredCapabilities"] = ["semantic-tree-v1"] }
+            func change(_ node: [String: Any]) -> [String: Any] {
+                var n = node
+                if var layout = n["imageLayout"] as? [String: Any] {
+                    switch name {
+                    case "lost-layout": n.removeValue(forKey: "imageLayout")
+                    case "unknown-node": n["futureLayout"] = layout
+                    case "null-layout": n["imageLayout"] = NSNull()
+                    default:
+                        if name == "unknown-layout" { layout["rotation"] = 90 }
+                        if name == "missing-placement" { layout.removeValue(forKey: "placement") }
+                        if name == "unknown-unit" { layout["width"] = ["value": 10, "unit": "%"] }
+                        if name == "zero" { layout["width"] = ["value": 0, "unit": "pt"] }
+                        if name == "huge" { layout["height"] = ["value": 4097, "unit": "px"] }
+                        if name == "unknown-fit" { layout["fit"] = "cover" }
+                        n["imageLayout"] = layout
+                    }
+                }
+                n["children"] = (n["children"] as! [[String: Any]]).map(change)
+                return n
+            }
+            object["blocks"] = (object["blocks"] as! [[String: Any]]).map(change)
+            let bytes = try JSONSerialization.data(withJSONObject: object)
+            var rejected = false
+            do { _ = try NativeReaderDocument.decode(bytes) } catch { rejected = true }
+            try require(rejected, "reject supplement " + name)
+            // Recovery uses generic JSONDecoder, which must reject identically.
+            rejected = false
+            do { _ = try JSONDecoder().decode(NativeReaderDocument.self, from: bytes) } catch { rejected = true }
+            try require(rejected, "generic decoder rejects " + name)
+            supplementNegatives.append(name)
+        }
         var matrix = [[String: Any]]()
         // CoreText text-layout contract only. This is neither GUI nor object fidelity.
         for width in [320.0, 640.0, 960.0] {
@@ -112,7 +174,7 @@ func reject(_ expected: NativeReaderContractError, _ body: () throws -> Void) th
                 matrix.append(["widthPt": width, "fontPt": size, "lines": lineCount, "resolvedFonts": paintedFontNames.sorted(), "status": "pass"])
             }
         }
-        let output: [String: Any] = ["status": "pass", "matrix": matrix, "scope": "headless contract/CoreText; objects and GUI remain separate", "negativeCases": 11]
+        let output: [String: Any] = ["status": "pass", "matrix": matrix, "scope": "headless contract/CoreText; objects and GUI remain separate", "negativeCases": 11, "supplementNegatives": supplementNegatives]
         print(String(decoding: try JSONSerialization.data(withJSONObject: output, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self))
     }
 }
