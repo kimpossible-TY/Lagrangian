@@ -1,7 +1,7 @@
 #set page(paper: "a4", margin: 16mm)
 #set text(size: 9pt)
 
-= Native reader delivery — NA13
+= Native reader delivery — NA13 and NA14
 
 Engine reuse and app production have independent lifetimes. Both cache paths
 build current Swift, branding, backend, reader-common and computation payloads.
@@ -76,8 +76,10 @@ is tested offline and does not prove a live provider/account exchange.
 The original signed
 Python installer and acquisition evidence remain isolated build inputs.
 
-The native composition verifies the outer app seal and exact delivery/release
-binding before supplying existing runtime and manager initializer arguments.
+At startup, Swift synchronously verifies the outer app seal, release/manifest
+digest binding and entrypoint paths before app.run(). Manager operations run
+in a detached task. The bundled Python launcher and shared child each verify
+the full delivery inventory before constructing trusted executable operations.
 The shell entrypoint uses bundled Python, clears development module/dyld
 overrides, and the Python launcher checks the full payload inventory. ReaderManager receives the exact bundled interpreter, compiler, Flow manager
 and engine through its optional concrete executable operations. Existing
@@ -176,8 +178,98 @@ and OS denial of the real user home. Body/verified Source copy uses the named
 private board. Composer/answer Cut/Copy/Paste and external links/editor actions
 are excluded from inspection; no user clipboard is inspected or changed.
 
-The readonly updater/fetch/reuse consumer is separately audited: CI publishes
-the current app/reader, and the updater fetches the same run and checks out its
-source SHA, but its existing local app build omits --delivery. This does not
-prove portable-payload propagation through that updater. No updater/live state
-is changed here. Actual final PM receipt remains absent; acceptance stays 2.
+== Existing updater consumer — NA14
+
+The golden old CLI remains fetch-engine --run-id R, fetch-reader-bundle --run-id R,
+then build --engine with the printed engine path. Checkout HEAD must be run head H.
+Fetch writes schema-1 native-delivery-context.json beside the engine. It binds the
+repository, validated run record/ID/head, canonical engine path/hash and artifact
+inventory digest. Its delivery binding explicitly records sourceFiles, manifest,
+payload, helper, runtime and reader digests, signing and the fixed relative root. Fixed artifact-relative paths and the existing inventory owner reject
+escaping symlinks. The context is a locator, not server authority: build re-views
+exact R and re-downloads that artifact, comparing the full inventory before using
+its payload. It verifies the artifact app seal, application release/sidecar,
+current sourceFiles (including the new consumer), helper, runtime and reader.
+The separate reader artifact is checked with the existing same-R manifest/archive
+owner. No latest lookup, mtime, global last-run database or installed-app inference
+is used. Download success alone does not mean app production success.
+
+The current payload must exist in the artifact app. Old engine build provenance
+E is permitted, while app/delivery/runtime/reader and run H agree. Build compiles
+current Swift/resources, never copies an old signed app as its final result.
+Explicit --delivery follows the same source/engine checks and cannot override a
+run-bound payload. A standalone engine needs explicit delivery; --management-only
+is a labelled nonshipping fixture that fails require-delivery. Missing identity
+cannot silently select ad-hoc signing. An explicit identity or saved certificate
+is required; explicit '-' is isolated ad-hoc evidence only.
+
+A different local certificate signs only a copied temporary candidate. The existing
+runtime inventory/verifier rebinds post-sign Node bytes, the stager signs internal
+images/nested bundles, and delivery/runtime hashes are updated before the outer
+app seal. Original artifact digests, runtime hash, signing identity and run/source
+context are preserved in nativeDeliveryInput; output hashes remain separate.
+Failure, interruption or input drift leaves a valid previous app/cache stage
+unchanged. There is no local dependency acquisition fallback. A run lacking the
+current portable payload fails before install and requires a producer repair.
+
+Offline transport and service spies are simulations. Actual current Swift build,
+codesign and require-delivery verification are separately recorded in the NA14
+handoff. No live updater file, installer, restart, launchctl, remote CI or push is
+part of this validation. The installed old updater is not assumed updated by a
+repo script edit. Current integration is staged; GUI inspection remains partial,
+official final review needs fixes and PM acceptance is incomplete. Exact new
+source/executable GUI/AX, delta review and final integration remain PM gates.
+Actual final PM receipt remains absent; acceptance stays 2.
+
+== Permission-preserving producer/consumer transport
+
+`upload-artifact@v4` documents directory mode 755 and regular-file mode 644.
+Uploading the signed app directory directly loses required executable/resource
+modes and may omit hidden payload. The producer now uploads only
+`native-delivery-artifact.tar` and `native-delivery-artifact.json` under the stable
+artifact name. The tar preserves the extracted legacy engine/app layout,
+normal directory/file modes, internal relative links and hidden files. Cache hits
+reuse only engine bytes/checksum/provenance E; both paths build the current H app
+and produce a new R/H-bound transport. Current GitHub run/repository environment
+or explicit stage arguments supply R/repository; source H comes from the verified
+clean application and checkout. Genuine engineBuild provenance remains required.
+The retained 09c app lacks that field and still fails official artifact staging.
+Synthetic offline profile/R/H metadata is a test input, never actual CI evidence.
+
+The JSON schema binds repository, numeric R, exact H, raw tar SHA-256 and the
+complete inventory (kind, ordinary permission mode, byte count/hash or link).
+Consumer run selection still belongs to flow_engine_runs. Before any extraction,
+the shared reader archive owner hashes the raw tar and bounds raw/PAX headers.
+Limits: 2 GiB archive/total bytes, 256 MiB per entry, 30000 logical entries,
+64 KiB PAX metadata per header and 16 MiB transport manifest. It rejects absolute,
+root/traversal/duplicate paths, hardlinks/devices/FIFOs, sparse/special modes,
+escaping/missing/cyclic links and links used as parents. It verifies exact modes,
+member sizes/hashes and creates files/directories before symlinks. Parent tar
+structure and trailing bytes are checked, and archive bytes are hashed again
+following extraction. All work is in an owned temporary candidate. Existing
+atomic publication exchanges only verified stages; failure or interruption keeps
+the prior valid output.
+
+Fetch rejects legacy flat portable artifacts. There is no fallback when either
+transport file is missing or invalid. The engine cache-reuse owner alone can read
+older flat artifacts for their three authenticated engine files; it discards the
+old app. A fetched cache stores the raw envelope separately from extracted files.
+Only the external `flow-engine` gets the historical 755 normalization, after hash
+authentication; its before/after mode and unchanged binary digest are bound apart
+from raw archive/manifest/inventory digests. Signed payload modes are never
+repaired from a corrupted flat tree or rehashed as if valid. Build re-downloads
+the exact R/H envelope and same-run reader, compares raw and normalized bindings,
+and then uses the existing full inventory/signing/source owners. Current Swift
+and resources are rebuilt, internal images are re-signed only in the owned
+candidate if required, manifests bind post-sign bytes, and the outer seal is last.
+New transport/helper and shared archive-owner source hashes are part of delivery
+sourceBinding. The old CLI stdout/process sequence remains unchanged.
+
+Local tests use explicit offline GHA/gh/run/ZIP fixtures and genuine prebuilt
+engine/Swift/codesign/runtime verification. The positive fixture does not confer
+GitHub authority on its synthetic engineBuild metadata. Archive tamper, budgets,
+links, mixed R/H/reader, raw digest replay, signed modes, stale sources, identity
+failure and after-hash/interrupt preservation remain separate negatives. No actual
+CI, Rust build, install, service restart, GUI or live account/provider is implied.
+This transport component remains separate from the concurrent UI correction and
+formal final integration/review/GUI/Docs acceptance.

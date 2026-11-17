@@ -36,3 +36,17 @@ These tasks cover initial delivery production and its isolated checks. Final NA0
 - [x] 6.2 Supply fresh final-source runtime/reader/delivery/app binding and bounded source/native/packaged regression procedure; preserve prior artifacts.
 - [x] 6.3 Supply canonical G1 storage composition for a new setup-only inspection root, separate actual HTTP/privateboard smoke and explicit reviewer commands.
 - [x] 6.4 Record exact final SHA/source bytes, actual exits/skips/cleanup and external gates in final-app-v1; freeze the worktree for review.
+
+## 7. NA14 old updater consumer (new execution scope)
+- [x] 7.1 Connect engine-local run context, exact-R artifact reauthentication and current portable payload/source/reader checks to the unchanged golden CLI.
+- [x] 7.2 Reuse signing/inventory and atomic publication owners; preserve artifact provenance and refuse implicit delivery/ad-hoc fallback.
+- [x] 7.3 Correct D01 cache semantics, D02 existing capability deltas and D04 startup/inventory responsibility; update canonical and generated guidance.
+- [x] 7.4 Execute offline golden CLI positive with actual fresh current Swift/codesign/require-delivery and negatives (round2: 9 tests, zero skips); provide affected cache/bundle/reader/shell regression and final frozen-source rebinding harness. Exact final rerun exits and artifact digests are recorded externally in test-output/updater-delivery-consumer/final-binding.json. Transport/run/build-profile metadata is a labelled fixture; frozen NA13 lacks retained engineBuild, so actual shipping provenance is unverified.
+- [ ] 7.5 PM: integrate final UI/source, complete delta official Code/Docs review and exact-executable GUI/AX/final QA, supply actual PM acceptance. No live deployment is claimed.
+
+## 8. Producer/consumer permission-preserving transport
+- [x] 8.1 Merge fixed NA14 consumer and preserve immutable 09c artifacts/provenance.
+- [x] 8.2 Share bounded safe tar extraction with reader archive owner; bind current R/H/raw archive and authenticated external-engine normalization separately.
+- [x] 8.3 Publish current app/tar on both cache paths and retain only engine E inputs on reuse; reject flat/tampered transport without fallback.
+- [x] 8.4 Supply focused archive/cache/reader and actual lossy-ZIP old CLI regression/negative/interrupt procedures with explicitly offline provenance fixtures.
+- [x] 8.5 Supply fixed-source producer/consumer assembly and evidence binding procedure; execute actual proof after freeze and record final integration gates outside source.

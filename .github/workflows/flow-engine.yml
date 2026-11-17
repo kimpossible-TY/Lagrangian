@@ -5,9 +5,10 @@ name: Flow engine
 # dispatch. This is the only GitHub Actions workflow in the repo.
 #
 # fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
-# requires sibling files flow-engine, flow-engine.sha256, and release.json
-# (plus Lagrangian.app from this job). Do not rename that artifact or add
-# files inside it. The engine-input hash lives in a separate artifact named
+# authenticates native-delivery-artifact.json and native-delivery-artifact.tar.
+# The tar preserves flow-engine, flow-engine.sha256, release.json and this job's
+# signed Lagrangian.app, including modes, symlinks and hidden payload files.
+# Keep that artifact name. The engine-input hash lives in a separate artifact named
 # flow-engine-input-<hash>.
 #
 # Every successful run also uploads the HTML Reader for this commit, on an
@@ -159,7 +160,7 @@ jobs:
             --app dist/Lagrangian.app \
             --engine dist/engine-input/flow-engine \
             --output dist/flow-engine-darwin-arm64
-          du -sh dist/flow-engine-darwin-arm64 dist/flow-engine-darwin-arm64/flow-engine dist/flow-engine-darwin-arm64/Lagrangian.app
+          du -sh dist/flow-engine-darwin-arm64 dist/flow-engine-darwin-arm64/native-delivery-artifact.tar
 
       - name: Record the published engine
         env:
@@ -178,7 +179,7 @@ jobs:
             if [ "$ENGINE_CACHE_HIT" = true ]; then
               echo "- Reused run: \`$ENGINE_SOURCE_RUN\`"
             fi
-            echo "- SHA-256: \`$(awk '{print $1}' dist/flow-engine-darwin-arm64/flow-engine.sha256)\`"
+            echo "- SHA-256: \`$(awk '{print $1}' dist/engine-input/flow-engine.sha256)\`"
             echo "- Reader bundle: \`reader-bundle-${{ github.sha }}\` and \`flow-reader-bundle\`"
             echo "- Reader headSha: \`$(python3 -c 'import json; print(json.load(open("dist/reader-bundle/reader-bundle.json"))["headSha"])')\`"
             echo "- Reader bundleChecksum: \`$(python3 -c 'import json; print(json.load(open("dist/reader-bundle/reader-bundle.json"))["bundleChecksum"])')\`"
@@ -189,10 +190,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flow-engine-darwin-arm64
-          path: dist/flow-engine-darwin-arm64
+          path: |
+            dist/flow-engine-darwin-arm64/native-delivery-artifact.json
+            dist/flow-engine-darwin-arm64/native-delivery-artifact.tar
           retention-days: 30
           if-no-files-found: error
-          compression-level: 6
+          compression-level: 0
 
       - name: Upload engine input hash
         uses: actions/upload-artifact@v4

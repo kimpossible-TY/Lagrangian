@@ -83,3 +83,39 @@ The final app, runtime, reader and delivery source binding SHALL equal the froze
 - **WHEN** a new inspection root is set up and a separate smoke is executed
 - **THEN** inspection remains running=false and smoke processes/ports are cleaned
 - **AND** only named private-board copy and explicit owned source/service fixtures are used
+
+### Requirement: Existing updater CLI consumes same-run portable delivery
+The old fetch/reader/build CLI SHALL consume same-run current portable delivery or fail before install. Build SHALL reauthenticate its bounded engine-local context through existing run/artifact, inventory, reader and signing owners. H SHALL bind checkout/app/delivery/runtime/reader; verified engine source E MAY be older. Invalid inputs SHALL preserve valid previous stages without dependency or implicit ad-hoc fallback.
+
+#### Scenario: Current app on an engine cache hit
+- **WHEN** R publishes current H app/payload/reader with a verified engine built at older E
+- **THEN** the old sequence compiles current Swift/resources with that payload and passes require-delivery integrity
+- **AND** stdout retains engine path, reader path and final app path compatibility
+
+#### Scenario: Invalid delivery or interrupted build
+- **WHEN** delivery is absent, modified, stale, mixed, replayed or signing/input verification fails or build is interrupted
+- **THEN** the consumer exits nonzero before install and preserves valid previous stages
+- **AND** no dependency acquisition or implicit ad-hoc fallback occurs
+
+#### Scenario: Different explicit local signing identity
+- **WHEN** a verified artifact is consumed with a different available certificate
+- **THEN** only copied candidate images are signed and post-sign runtime/delivery hashes are rebound before the outer seal
+- **AND** original artifact checksums and signing provenance remain distinct from local output identities
+
+### Requirement: Permission-preserving current-run native artifact
+The producer SHALL archive the exact current-H signed payload with ordinary modes, internal links and hidden files before upload. The consumer SHALL bind R/H, raw archive/inventory digests and the separate authenticated engine-mode normalization. Shared bounded archive, inventory, signing and atomic owners SHALL reject invalid inputs without flat/scratch/installed fallback or loss of a valid stage.
+
+#### Scenario: Upload v4 normalizes envelope modes
+- **WHEN** zip transport sets envelope regular files to 644
+- **THEN** the inner signed file modes, internal relative links and hidden payload are restored exactly from the verified tar
+- **AND** the old fetch/reader/build CLI produces current Swift/resources with require-delivery integrity
+
+#### Scenario: Unsafe or changed archive
+- **WHEN** a transport has missing files, wrong R/H, digest replay, duplicate/escaping paths, special types/modes, cyclic links, oversized entries/metadata or after-hash drift
+- **THEN** it fails before executing untrusted inputs or publishing the candidate
+- **AND** interruption or verification failure preserves the previous valid stage
+
+#### Scenario: Previous engine cache input
+- **WHEN** current run H reuses engine source E from an earlier artifact
+- **THEN** only authenticated engine bytes/checksum/provenance are reused
+- **AND** the current app and tar are produced anew with H, never copied from the retained app

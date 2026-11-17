@@ -181,6 +181,10 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         self.assertIn('build-engine-input --jobs', workflow)
         self.assertNotIn('build --build-engine', workflow)
         self.assertIn('--engine dist/engine-input/flow-engine', workflow)
+        upload=workflow.split('- name: Upload Apple Silicon flow engine',1)[1].split('- name: Upload engine input hash',1)[0]
+        self.assertIn('native-delivery-artifact.tar',upload)
+        self.assertIn('native-delivery-artifact.json',upload)
+        self.assertIn('compression-level: 0',upload)
 
     def test_cache_hit_discards_previous_app_and_rejects_corrupt_engine(self):
         import hashlib
@@ -207,6 +211,30 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                     reuse.download_payload('fixture/repo','2',destination)
                 self.assertEqual((destination / 'flow-engine').read_bytes(), engine)
 
+    def test_archived_cache_hit_reuses_only_engine_and_rejects_raw_tamper(self):
+        import hashlib, shutil, tempfile
+        from unittest.mock import patch
+        import native_delivery_artifact as transport
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();payload=root/'payload';payload.mkdir()
+            data=b'previous-engine';digest=hashlib.sha256(data).hexdigest()
+            (payload/'flow-engine').write_bytes(data)
+            (payload/'flow-engine.sha256').write_text(digest)
+            (payload/'release.json').write_text(json.dumps({'engineInputSHA256':digest,'engineBuild':{'target':reuse.ENGINE_TARGET,'profile':reuse.ENGINE_PROFILE}}))
+            write(payload/'Lagrangian.app/Contents/MacOS/Lagrangian','old app is never reused')
+            wrapper=root/'archive';transport.pack(payload,wrapper,repository='fixture/repo',run_id='1',head='a'*40)
+            def gh(args,repo_cwd=None):shutil.copytree(wrapper,Path(args[-1]));return ''
+            dest=root/'engine-input'
+            with patch.object(reuse,'_gh',gh):
+                self.assertEqual(reuse.download_payload('fixture/repo','1',dest,head='a'*40),digest)
+                self.assertEqual({p.name for p in dest.iterdir()},{'flow-engine','flow-engine.sha256','release.json'})
+                self.assertEqual((dest/'flow-engine').stat().st_mode&0o777,0o755)
+                with self.assertRaises(ValueError):reuse.download_payload('fixture/repo','1',dest,head='b'*40)
+                self.assertEqual((dest/'flow-engine').read_bytes(),data)
+                with (wrapper/transport.ARCHIVE).open('ab') as stream:stream.write(b'tamper')
+                with self.assertRaises(ValueError):reuse.download_payload('fixture/repo','1',dest)
+                self.assertEqual((dest/'flow-engine').read_bytes(),data)
+
     def test_hit_and_miss_build_current_swift_resources_backend_and_helper(self):
         import argparse
         import hashlib
@@ -231,6 +259,10 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 return {str(p.relative_to(repo)): package.digest(p) for p in repo.rglob('*') if p.is_file()}
             class Delivery:
                 @staticmethod
+                def copy_signed(source, output, identity):
+                    shutil.copytree(source, output, symlinks=True)
+                    return Delivery.verify(source)
+                @staticmethod
                 def source_binding(path): return source_binding(path)
                 @staticmethod
                 def image_info(path, root):
@@ -239,7 +271,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 def verify(path):
                     return {'sourceRevision':revision[0], 'sourceFiles':source_binding(repo),
                             'engineInputSHA256':package.digest(engine), 'signing':'ad-hoc',
-                            'payloadSHA256':package.bundle_checksum(payload), 'capabilities':{'fixture':True}}
+                            'payloadSHA256':package.bundle_checksum(payload), 'runtimeManifestSHA256':'fixture', 'capabilities':{'fixture':True}}
             def capture(argv, **kwargs):
                 args = list(map(str, argv))
                 if args[:2] == ['git','-C']:

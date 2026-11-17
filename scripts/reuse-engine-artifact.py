@@ -2,8 +2,9 @@
 """Republish a retained flow-engine artifact when engine inputs match.
 
 fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
-requires flow-engine, flow-engine.sha256, and release.json beside each
-other. This script never renames that artifact or writes into it. The input
+authenticates its native-delivery tar envelope before extracting the sibling
+engine files and current app. Reuse copies only the three engine contract files,
+including from retained legacy flat artifacts. It never writes into the input. The input
 hash is recorded in a separate artifact, flow-engine-input-<hash>, so a later
 run can find a match without downloading the engine.
 """
@@ -21,6 +22,7 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import flow_engine_runs
+import native_delivery_artifact
 
 ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
 MARKER_PREFIX = 'flow-engine-input-'
@@ -133,20 +135,19 @@ def summarize(text):
                 handle.write('\n')
 
 
-def download_payload(repo, run_id, dest: Path):
+def download_payload(repo, run_id, dest: Path, *, head=None):
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.engine-download-', dir=dest.parent) as tmp:
         download = Path(tmp) / 'artifact'
         _gh(['run', 'download', str(run_id), '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', str(download)])
-        payload = locate_payload(download)
-        digest = verify_payload(payload)
-        candidate = Path(tmp) / 'engine-only'; candidate.mkdir()
-        for name in ('flow-engine', 'flow-engine.sha256', 'release.json'):
-            shutil.copy2(payload / name, candidate / name)
+        with native_delivery_artifact.reuse_payload(download, repository=repo, run_id=run_id, head=head) as payload:
+            digest = verify_payload(payload)
+            candidate = Path(tmp) / 'engine-only'; candidate.mkdir()
+            for name in ('flow-engine', 'flow-engine.sha256', 'release.json'):
+                shutil.copy2(payload / name, candidate / name)
+        (candidate / 'flow-engine').chmod(0o755)
         verify_payload(candidate)
-        if dest.exists():
-            shutil.rmtree(dest)
-        os.replace(candidate, dest)
+        native_delivery_artifact.owner().publish_verified(candidate, dest, verify_payload)
         return digest
 
 
@@ -180,7 +181,7 @@ def main(argv=None):
         return
     run_id = str(match['databaseId'])
     dest = Path(os.environ.get('ENGINE_ARTIFACT_DIR', 'dist/flow-engine-darwin-arm64'))
-    engine_sha = download_payload(repo, run_id, dest)
+    engine_sha = download_payload(repo, run_id, dest, head=flow_engine_runs.parse_sha(match.get('headSha')))
     set_output('hit', 'true')
     set_output('source_run', run_id)
     set_output('source_url', match.get('url') or '')

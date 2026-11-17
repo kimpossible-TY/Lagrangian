@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import struct
 import subprocess
@@ -141,9 +142,9 @@ class ExternalEngineBundle(unittest.TestCase):
             package.validate(cls.app)
             return
         with patch.dict(os.environ, cls.env):
-            package.build(argparse.Namespace(engine=cls.engine, output=cls.app, version='0.1.0', identity=os.environ.get('FLOW_TEST_SIGN_IDENTITY', '-')))
+            package.build(argparse.Namespace(engine=cls.engine, output=cls.app, version='0.1.0', management_only=True, identity=os.environ.get('FLOW_TEST_SIGN_IDENTITY', '-')))
 
-    def test_provenance_signature_and_isolated_install(self):
+    def test_provenance_signature_and_isolated_copy(self):
         with patch.dict(os.environ, self.env):
             manifest = package.validate(self.app)
             self.assertEqual(manifest['engineSource'], 'external')
@@ -156,7 +157,9 @@ class ExternalEngineBundle(unittest.TestCase):
             self.assertEqual(manifest['engineInputSHA256'], self.input_hash)
             self.assertEqual(manifest['engineVersion'], package.capture([self.engine, '--version']))
             destination = self.root / 'installed/Lagrangian.app'
-            package.replace_app(self.app, destination, self.root / 'install-data')
+            # Check relocated signed bytes without installer or service calls.
+            shutil.copytree(self.app, destination, symlinks=True)
+            self.assertEqual(package.bundle_checksum(destination), package.bundle_checksum(self.app))
             self.assertEqual(package.validate(destination)['engineSHA256'], manifest['engineSHA256'])
         self.assertEqual(package.digest(self.engine), self.input_hash)
 
@@ -239,7 +242,7 @@ class ExternalEngineBundle(unittest.TestCase):
         with patch.object(package, 'DATA', self.root / 'signing-data'), patch.dict(os.environ, FLOW_SIGN_IDENTITY=''):
             package.configure_signing(argparse.Namespace(identity=identity))
             configured_identity = package.resolve_signing_identity()
-            package.build(argparse.Namespace(engine=self.engine, output=changed, version='0.1.1', identity=None))
+            package.build(argparse.Namespace(engine=self.engine, output=changed, version='0.1.1', management_only=True, identity=None))
         manifest = package.validate(changed)
         self.assertEqual(manifest['signing'], configured_identity)
         self.assertEqual(manifest['signingCertificateSHA256'], package.validate(self.app)['signingCertificateSHA256'])
