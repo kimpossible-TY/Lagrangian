@@ -270,3 +270,11 @@ Source coordinates and registration details remain private to those owners;
 no source writer or HTTP registration authority is added. Native service restart
 requires new editor consent. See #link("native-reader-editor-actions.typ")[NA15
 contracts, bounds, headless evidence and pending delivery/GUI acceptance].
+
+The NA15 receipt coordinator also persists the pre-effect private registration
+fingerprint and treats replaced control/registration lifetimes and legacy rows
+without that proof as unknown without replay. Native sync requires a locally
+registered boolean nativeJumpOnly marker; HTTP consent alone cannot promote a
+terminal attachment. FlowApp shares descriptor/consent adoption and native Read
+composition with prohibited-activation, hidden-window AppKit control fixtures;
+those exercise production callbacks without claiming real GUI acceptance.

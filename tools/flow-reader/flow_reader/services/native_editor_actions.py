@@ -43,6 +43,11 @@ class NativeEditorActions:
         EditorAttachments.private(self.path)
         db = sqlite3.connect(self.path, timeout=2)
         db.execute("CREATE TABLE IF NOT EXISTS jumps (id TEXT PRIMARY KEY, binding TEXT NOT NULL, status TEXT NOT NULL)")
+        if "registration" not in {row[1] for row in db.execute("PRAGMA table_info(jumps)")}:
+            # Old receipts prove no registration lifetime. Retain their UUIDs to
+            # prevent replay, but never adopt their old successful status.
+            db.execute("ALTER TABLE jumps ADD COLUMN registration TEXT")
+            db.commit()
         return db
 
     @staticmethod
@@ -66,16 +71,18 @@ class NativeEditorActions:
         record = self.state.editor_attachments.record(request.get("editorAttachment"))
         # Native consent always names a local controller lifetime. Legacy terminal
         # registrations remain readable, but cannot implicitly opt native views in.
-        if not record or not record.get("controlFile") or record["service"] != self.state.focus.service:
+        if (not record or record.get("nativeJumpOnly") is not True or not record.get("controlFile")
+                or record["service"] != self.state.focus.service):
             return None
         try:
             path = self.state.editor_attachments.directory / (request["editorAttachment"] + ".json")
             control = Path(record["controlFile"])
             EditorAttachments.private(control)
-            stamps = tuple((info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+            stamps = tuple((info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns,
+                            info.st_size, info.st_uid, info.st_mode)
                            for info in (path.stat(), control.stat(), os.stat(record["executable"])))
             return record, stamps
-        except OSError:
+        except (OSError, ValueError):
             return None
 
     def active(self, request):
@@ -140,10 +147,18 @@ class NativeEditorActions:
             receipt = identifier(request.get("receiptID"))
             binding = self.binding(request)
             with closing(self.database()) as db:
-                row = db.execute("SELECT binding,status FROM jumps WHERE id=?", (receipt,)).fetchone()
+                row = db.execute("SELECT binding,status,registration FROM jumps WHERE id=?", (receipt,)).fetchone()
                 if row and row[0] != binding:
                     return {"status": "unknown" if operation == "receipt" else "refused"}
-                if not self.active(request) or self.registration(request) is None:
+                registration = self.registration(request)
+                if row and (row[2] is None or registration is None or row[2] != digest(registration)):
+                    # The effect may already have occurred. A different live
+                    # registration at the same token cannot confirm it, nor may
+                    # duplicate prepare/jump dispatch into the replacement editor.
+                    db.execute("UPDATE jumps SET status='unknown' WHERE id=?", (receipt,))
+                    db.commit()
+                    return {"status": "unknown"}
+                if not self.active(request) or registration is None:
                     # An invalidated receipt binding cannot prove that an earlier
                     # RPC had no effect. Do not clear the client's uncertain state.
                     return {"status": "unknown" if operation == "receipt" else "stale"}
@@ -171,7 +186,8 @@ class NativeEditorActions:
                 if db.execute("SELECT count(*) FROM jumps").fetchone()[0] >= 4096:
                     return {"status": "unavailable"}
                 # No automatic redispatch, even if RPC or persistence later fails.
-                db.execute("INSERT INTO jumps VALUES (?,?,?)", (receipt, binding, "unknown"))
+                db.execute("INSERT INTO jumps (id,binding,status,registration) VALUES (?,?,?,?)",
+                           (receipt, binding, "unknown", digest(pending["registration"])))
                 db.commit()
 
         # Sync/close may revoke work queued for the effect gate. Final validation

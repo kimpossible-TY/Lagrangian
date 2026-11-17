@@ -89,3 +89,10 @@ or close official final GUI/VO/OS13/live/packaging acceptance.
 - [x] 10.2 Verify actual compiler -> Swift native action -> production HTTP -> registered headless Neovim with an independent cursor/buffer oracle, plus freshness/lifetime/duplicate/cancel/new-selection/unknown-receipt negatives and zero source writes.
 - [x] 10.3 Run affected Services/source/editor/terminal/Neovim regressions, full production Swift warnings-as-errors/macOS13 compile, canonical Typst and strict OpenSpec; report exact delivery/inventory delta and immutable-source evidence.
 - [ ] 10.4 Integration PM binds the new component/source/backend/reader/app artifacts and obtains real F10 native interaction/visual acceptance; NA16 follows the verified shared-file handoff separately.
+
+## 11. NA15 supervised rework (same component, additional commit)
+
+- [x] 11.1 Bind consumed receipts to the private exact pre-effect registration/control lifetime; fail closed on replaced or missing legacy fingerprints without replay.
+- [x] 11.2 Require the exact local nativeJumpOnly boolean proof and verify legacy/native scope separation.
+- [x] 11.3 Exercise original receipt preservation through real offscreen TextView/host control callbacks, shared FlowApp consent/Read composition and actual HTTP/Neovim with an independent oracle; keep real GUI acceptance open.
+- [x] 11.4 Run the affected final subset, production Swift/macOS13 warnings-as-errors and canonical validation, then bind the additional clean commit and exact delivery delta/evidence hashes without changing original artifacts or pins.

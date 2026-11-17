@@ -240,3 +240,16 @@ process discovery, default opt-in or HTTP registration authority.
 - **THEN** the attachment/source adapter refuses it before any source or buffer write
 - **AND** legacy terminal source-write attachments retain their existing explicit contract
 - **AND** host close/dispose revokes native consent even during pending managed resolution while document reopening remains possible
+
+#### Scenario: The same token names a replaced registration after movement
+- **WHEN** an effect receipt is read or its prepare/jump is duplicated after registration address/file or control-file replacement
+- **THEN** its persisted pre-effect registration fingerprint fails and the result remains unknown without redispatch to either editor
+- **AND** an older database row without the fingerprint also remains consumed and unknown
+
+#### Scenario: Local movement proof and actual offscreen controls
+- **WHEN** HTTP supplies a consent UUID with a legacy token or a nonboolean nativeJumpOnly marker
+- **THEN** native synchronization is unavailable and performs no effect, while existing legacy writes retain their explicit contract
+- **WHEN** prohibited-activation hidden-window AppKit selects text and invokes Locate then Check Result after a lost response and repeated Locate
+- **THEN** production callbacks query the original receipt UUID without another jump
+- **AND** a raw independent editor oracle verifies actual file/line/UTF-8 column and preserved buffers/source bytes
+- **AND** this evidence is reported separately from real GUI acceptance

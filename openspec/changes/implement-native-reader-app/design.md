@@ -470,3 +470,20 @@ private record without granting write authority. Swift also rejects Highlight
 under this consent. Legacy terminal records retain their fields and behavior.
 Host close/dispose explicitly revokes native editor consent and supersedes pending
 managed resolution; reopening the document does not silently restore consent.
+
+### NA15 supervised receipt lifetime and control-event evidence
+
+Consumed UUID rows also bind the exact private pre-effect registration fingerprint,
+including control/executable/registration file identities. Receipt or duplicate
+prepare/jump after replacement returns unknown and cannot redispatch. A nullable
+column migrates old rows; missing fingerprints never adopt historical success.
+Native sync additionally requires `nativeJumpOnly is True` on the local record;
+HTTP consent cannot promote a legacy token. Existing terminal writes retain their owner.
+
+Offscreen tests use NSApp .prohibited, show:false and avoidActivation:true. They
+select the actual TextView and invoke production Locate/Check Result controls,
+through shared FlowApp Read/descriptor adoption, production HTTP and actual Neovim.
+An independent Python RPC oracle observes the effect and byte preservation.
+Only inventory/consent decision and fault delivery are injected. The already
+implemented original-receipt preservation is exercised, not duplicated. Actual
+chooser/alert, foreground GUI and final installed-app acceptance remain open.

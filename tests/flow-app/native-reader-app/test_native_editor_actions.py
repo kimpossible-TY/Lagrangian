@@ -34,7 +34,7 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
     def run_swift(self,mode):
         config=self.work/'attachment.json'
         config.write_text(json.dumps(dict(url=self.base_url,documentID=self.state.document_id,service=self.state.focus.service,
-            editorAttachment=self.token,consentID=self.request['consentID'],revision=self.state.revision,nativeEditorActions=1)))
+            editorAttachment=self.token,consentID=self.request['consentID'],revision=self.state.revision,nativeEditorActions=1,root=str(self.root),entry=self.entry.name)))
         config.chmod(0o600)
         marker=self.work/'gate'
         errors=[]
@@ -43,12 +43,14 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
                 deadline=time.monotonic()+15
                 while not marker.exists() and time.monotonic()<deadline: time.sleep(.01)
                 if not marker.exists(): raise RuntimeError('Swift gate unavailable')
-                if mode=='source-change': self.entry.write_text(self.original.replace('target','edited'))
+                if mode in ('source-change','ui-stale'): self.entry.write_text(self.original.replace('target','edited'))
+                elif mode=='ui-registration-replaced':
+                    record=json.loads(self.record_path.read_text()); record['address']=str(self.work/'replacement.sock'); self.record_path.write_text(json.dumps(record))
                 else: self.record_path.unlink()
                 Path(str(marker)+'.done').write_text('done')
             except Exception as e: errors.append(str(e))
         thread=None
-        if mode in ('source-change','wrong-attachment'):
+        if mode in ('source-change','wrong-attachment','ui-stale','ui-registration-replaced'):
             thread=threading.Thread(target=mutate); thread.start()
         start=time.monotonic()
         result=subprocess.run([str(self.binary),str(config),mode,str(marker)],capture_output=True,text=True,timeout=35)
@@ -59,9 +61,9 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         self.save('swift-result.json',summary)
         after=self.oracle(); self.save('after.json',after)
         self.assertEqual(after['buffers'],self.before['buffers'])
-        expected=self.original.replace('target','edited') if mode=='source-change' else self.original
+        expected=self.original.replace('target','edited') if mode in ('source-change','ui-stale') else self.original
         self.assertEqual(self.entry.read_text(),expected)
-        if mode in ('jump','managed','lost-receipt','lost-receipt-unread','cancel-after','late-result'):
+        if mode in ('jump','managed','lost-receipt','lost-receipt-unread','cancel-after','late-result','ui-jump','ui-lost','ui-new-selection','ui-registration-replaced'):
             self.assertEqual((after['file'],after['line'],after['columnUTF8']),(str(self.entry),3,len('Préface 한글 '.encode())))
         else: self.assertEqual(after,self.before)
         return summary
@@ -102,6 +104,25 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         descriptor.write_text(json.dumps(dict(address=str(self.socket),executable=shutil.which('nvim'),ownerPID=self.editor.pid,controlFile=str(self.control))))
         descriptor.chmod(0o600)
         self.run_swift('managed-pending-close')
+
+    def ui_fixture(self,mode):
+        descriptor=self.work/'editor.json'
+        descriptor.write_text(json.dumps(dict(address=str(self.socket),executable=shutil.which('nvim'),ownerPID=self.editor.pid,controlFile=str(self.control))))
+        descriptor.chmod(0o644 if mode=='ui-invalid-descriptor' else 0o600)
+        result=self.run_swift(mode)
+        self.assertTrue(result['offscreenAppKit']);self.assertTrue(result['productionControlCallbacks'])
+        self.assertEqual(result['activationPolicy'],'prohibited');self.assertEqual(result['visibleWindows'],0)
+        return result
+
+    def test_rework_offscreen_production_control_jump(self): self.ui_fixture('ui-jump')
+    def test_rework_offscreen_lost_repeat_locate_queries_original_receipt(self): self.ui_fixture('ui-lost')
+    def test_rework_offscreen_new_selection_rejects_old_receipt(self): self.ui_fixture('ui-new-selection')
+    def test_rework_offscreen_close_before_dispatch(self): self.ui_fixture('ui-close')
+    def test_rework_offscreen_changed_source_before_dispatch(self): self.ui_fixture('ui-stale')
+    def test_rework_offscreen_replaced_registration_keeps_unknown(self): self.ui_fixture('ui-registration-replaced')
+    def test_rework_flowapp_no_consent_has_no_native_editor(self): self.ui_fixture('ui-no-consent')
+    def test_rework_flowapp_declined_consent_has_no_native_editor(self): self.ui_fixture('ui-declined')
+    def test_rework_flowapp_invalid_descriptor_never_asks_consent(self): self.ui_fixture('ui-invalid-descriptor')
 
 
 if __name__=='__main__': unittest.main()

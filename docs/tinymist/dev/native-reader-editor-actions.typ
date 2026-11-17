@@ -129,3 +129,32 @@ receipt UUID on repeated clicks. `pendingEditorReceiptID()` exposes only that
 bounded correlation ID from the action owner. No newer action may replace an
 unresolved receipt or cause automatic dispatch; receipt feedback still validates
 the current native request and selection before adoption.
+
+= NA15 supervised receipt-lifetime correction
+
+A request digest alone cannot confirm an editor effect after a private token's
+registration changes. Consumed receipts now also persist the exact registration
+fingerprint captured before the effect: record fields and registration/control/
+executable device, inode, timestamps, size, ownership and mode. Replacing an
+address, registration file or control-file lifetime makes receipt, duplicate
+prepare and duplicate jump return unknown without redispatch. The old UUID stays
+consumed. Existing database rows gain a nullable fingerprint column; rows without
+that proof remain unknown even if their historical status was jumped. No private
+fingerprint or record is returned to native feedback.
+
+Native coordination requires the local record's `nativeJumpOnly` value to be
+exactly boolean true. An HTTP-supplied consent UUID cannot promote a legacy
+terminal token or a malformed marker. The legacy write resolver remains unchanged.
+
+The supervised fixture uses NSApplication's prohibited activation policy and
+explicitly hidden native windows. FlowApp's Read closure and the offscreen tests
+share `readNative`; descriptor validation and adoption share
+`connectEditor(descriptor:for:consent:)`. Only the explicit consent decision and
+local manager inventory are injected. The test changes the actual TextView
+selection and invokes the host Locate/Check Result selectors, exercising the
+production callbacks and real HTTP/editor effect. Lost acknowledgment, repeated
+Locate and Check Result query the original UUID. New selection, close, changed
+source and replaced registration retain their failure boundaries. Independent
+Python RPC observes file, line, UTF-8 column and every loaded buffer. This proves
+offscreen AppKit control events; the chooser/alert and real GUI/foreground, visual,
+VoiceOver and OS13 runtime acceptance remain unverified.

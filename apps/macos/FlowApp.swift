@@ -6,6 +6,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let isolated: Bool
   let fixture: URL?
   let noActivate: Bool
+  let showNativeWindow: Bool
   let nativeRuntime: NativeReaderRuntime?
   let copyText: (String) -> Bool
   /// Stable per isolated home so an independent inspector can read only its board.
@@ -31,6 +32,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     openBrowser: { NSWorkspace.shared.open($0) },
     nativeRead: { [weak self] profile, progress in
       guard let self else { return {} }
+      return self.readNative(profile, progress: progress)
+    }
+  )
+  /// The same production composition is called by Read and isolated offscreen
+  /// tests; service inventory and window visibility remain explicit inputs.
+  @MainActor func readNative(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
       if let read = self.nativeReadOverride { return read(profile, progress) }
       if self.nativeProfile != profile {
         self.nativeWindow?.dispose(); self.nativeWindow = nil; self.nativeProfile = profile
@@ -47,7 +54,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return bytes
               }.value
-            }, runtime: self.nativeRuntime, avoidActivation: self.noActivate,
+            }, runtime: self.nativeRuntime, show: self.showNativeWindow, avoidActivation: self.noActivate,
                offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         } else {
           guard let resolver = self.managedResolver else {
@@ -63,15 +70,14 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               for asset in document.assets { assets[asset.id] = try await actions.transport.asset(asset, context: context) }
               return assets
             }, runtime: self.nativeRuntime, actions: { try await client.currentActions() },
-            invalidate: { await client.invalidate() }, avoidActivation: self.noActivate,
+            invalidate: { await client.invalidate() }, show: self.showNativeWindow, avoidActivation: self.noActivate,
                offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         }
         self.nativeWindow?.copyText = self.copyText
         self.nativeWindow?.openHomepage = { NSWorkspace.shared.open($0) }
       }
       return self.nativeWindow!.open(profile, progress: progress)
-    }
-  )
+  }
   lazy var readingEnvironment = NativeReadingEnvironment(
     onSleep: { [weak self] in self?.sleepChanged($0) },
     onNetwork: { [weak self] in self?.session.networkChanged() },
@@ -84,8 +90,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
   init(environment: AppEnvironment, projectService: ProjectService? = nil,
        isolated: Bool = false, fixture: URL? = nil,
-       noActivate: Bool = false, nativeRuntime: NativeReaderRuntime? = nil, nativeManager: URL? = nil) {
+       noActivate: Bool = false, nativeRuntime: NativeReaderRuntime? = nil, nativeManager: URL? = nil, showNativeWindow: Bool = true) {
     self.noActivate = noActivate
+    self.showNativeWindow = showNativeWindow
     self.nativeRuntime = nativeRuntime
     self.isolated = isolated
     self.fixture = fixture
@@ -123,15 +130,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       guard let self, response == .OK, let url = panel.url, self.active?.id == profile.id else { return }
       Task { @MainActor in
         do {
-          let editor = try await Task.detached { try NativeReaderManagedEditor.consentedDescriptor(url) }.value
-          guard self.active?.id == profile.id else { return }
-          let consent = NSAlert()
-          consent.messageText = "Connect this editor for the selected project?"
-          consent.informativeText = "Only explicit Locate Source actions may move its cursor. Unsaved buffers and source files are preserved. Closing the connection or restarting the service requires new consent."
-          consent.addButton(withTitle: "Connect"); consent.addButton(withTitle: "Cancel")
-          guard consent.runModal() == .alertFirstButtonReturn else { return }
-          self.consentedEditors[profile.id] = editor
-          self.nativeWindow?.dispose(); self.nativeWindow = nil
+          _ = try await self.connectEditor(descriptor: url, for: profile) {
+            let consent = NSAlert()
+            consent.messageText = "Connect this editor for the selected project?"
+            consent.informativeText = "Only explicit Locate Source actions may move its cursor. Unsaved buffers and source files are preserved. Closing the connection or restarting the service requires new consent."
+            consent.addButton(withTitle: "Connect"); consent.addButton(withTitle: "Cancel")
+            return consent.runModal() == .alertFirstButtonReturn
+          }
         } catch {
           let alert = NSAlert(); alert.messageText = "Editor descriptor unavailable"
           alert.informativeText = "Use an existing private local descriptor with an exact executable, address, live owner and private control file."
@@ -139,6 +144,17 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
       }
     }
+  }
+  /// Descriptor validation and adoption have one owner. Only the explicit UI
+  /// consent decision is supplied as an operation; no process/port discovery.
+  @MainActor @discardableResult func connectEditor(descriptor: URL, for profile: Profile,
+                                                   consent: () -> Bool) async throws -> Bool {
+    let editor = try await Task.detached { try NativeReaderManagedEditor.consentedDescriptor(descriptor) }.value
+    guard active == profile else { throw NativeReaderContractError.wrongTarget }
+    guard consent() else { return false }
+    consentedEditors[profile.id] = editor
+    nativeWindow?.dispose(); nativeWindow = nil
+    return true
   }
   @MainActor @objc func disconnectEditor() {
     guard let profile = active else { return }

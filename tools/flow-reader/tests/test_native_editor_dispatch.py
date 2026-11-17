@@ -1,5 +1,6 @@
 """NA15 actual saved compiler/source/HTTP/Neovim fixture. No GUI or user services."""
 import copy
+from contextlib import closing
 import hashlib
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -7,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -122,15 +124,15 @@ class CompilerEditorFixture(unittest.TestCase):
         if self.editor.poll() is None:
             self.editor.terminate(); self.editor.wait(timeout=5)
 
-    def rpc(self, lua):
+    def rpc(self, lua, address=None):
         # Independent editor oracle: raw nvim API, never reader.cursor/jump result.
         expression = 'luaeval('+vim_string('vim.json.encode((function() '+lua+' end)())')+')'
-        r = subprocess.run([shutil.which('nvim'), '--server', str(self.socket), '--remote-expr', expression], capture_output=True, text=True, timeout=5)
+        r = subprocess.run([shutil.which('nvim'), '--server', str(address or self.socket), '--remote-expr', expression], capture_output=True, text=True, timeout=5)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
 
-    def oracle(self):
-        return self.rpc('local c=vim.api.nvim_win_get_cursor(0); local b={}; for _,n in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(n) then table.insert(b,{name=vim.api.nvim_buf_get_name(n),lines=vim.api.nvim_buf_get_lines(n,0,-1,false),modified=vim.bo[n].modified}) end end; return {file=vim.api.nvim_buf_get_name(0),line=c[1],columnUTF8=c[2],buffers=b}')
+    def oracle(self, address=None):
+        return self.rpc('local c=vim.api.nvim_win_get_cursor(0); local b={}; for _,n in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(n) then table.insert(b,{name=vim.api.nvim_buf_get_name(n),lines=vim.api.nvim_buf_get_lines(n,0,-1,false),modified=vim.bo[n].modified}) end end; return {file=vim.api.nvim_buf_get_name(0),line=c[1],columnUTF8=c[2],buffers=b}',address)
 
     def http(self, method, path, body=None, headers=None):
         h={'Origin':self.base_url.rstrip('/'), 'Content-Type':'application/json'}
@@ -144,7 +146,7 @@ class CompilerEditorFixture(unittest.TestCase):
         status,raw,_=self.http('POST','/api/native-editor',{**(request or self.request),'operation':operation},headers)
         self.assertEqual(status,code,raw)
         value=json.loads(raw)
-        self.assertFalse({'path','source_hash','line','column','editorAttachment','address','executable'} & value.keys())
+        self.assertFalse({'path','source_hash','line','column','editorAttachment','address','executable','registration','fingerprint'} & value.keys())
         self.assertNotIn(str(self.root),raw.decode()); self.assertNotIn(self.token,raw.decode()); self.assertNotIn(str(self.socket),raw.decode())
         return value
 
@@ -370,6 +372,77 @@ class NativeEditorDispatchTests(CompilerEditorFixture):
         after=self.oracle();self.save('after.json',after)
         self.assertEqual((after['line'],after['columnUTF8']),(3,len('Préface 한글 '.encode())))
         self.assertEqual(after['buffers'],self.before['buffers']);self.assertEqual(self.entry.read_text(),self.original)
+
+    def test_rework_registration_replacement_receipt_never_moves_either_editor(self):
+        other=self.work/'other.sock'
+        setup='lua vim.opt.rtp:append('+json.dumps(str(REPO/'editors/neovim'))+"); require('tinymist.reader').setup({auto_open=false, root="+json.dumps(str(self.root))+'})'
+        process=subprocess.Popen([shutil.which('nvim'),'--headless','-u','NONE','-i','NONE','-n','--listen',str(other),'-c',setup,str(self.entry)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda:(process.terminate(),process.wait(timeout=5)) if process.poll() is None else None)
+        deadline=time.monotonic()+5
+        while not other.exists() and process.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+        self.assertTrue(other.exists())
+        self.assertEqual(self.action('prepare')['status'],'ready')
+        self.assertEqual(self.action('jump')['status'],'jumped')
+        self.assertEqual(self.oracle()['line'],3)
+        self.rpc('vim.api.nvim_win_set_cursor(0,{1,0}); return true')
+        first,second=self.oracle(),self.oracle(other)
+        original=self.record_path.read_bytes();record=json.loads(original);record['address']=str(other)
+        self.record_path.write_text(json.dumps(record))
+        self.assertIsNotNone(self.state.editor_attachments.record(self.token),'replacement remains a valid locally owned registration')
+        results={}
+        for operation in ('receipt','prepare','jump','receipt'):
+            results[operation]=self.action(operation)['status'];self.assertEqual(results[operation],'unknown')
+            self.assertEqual(self.oracle(),first);self.assertEqual(self.oracle(other),second)
+            self.assertEqual(self.entry.read_text(),self.original)
+        self.record_path.write_bytes(original)
+        self.assertEqual(self.action('receipt')['status'],'unknown')
+        self.save('rework-registration-receipt.json',dict(before='jumped',replacementLocallyValid=True,after=results,originalOracle=first,replacementOracle=second,redispatch=0))
+
+    def test_rework_control_replace_and_recreate_invalidate_persisted_receipt(self):
+        results=[]
+        for kind in ('replace','recreate','registration-recreate'):
+            self.request['receiptID']=str(uuid4())
+            self.assertEqual(self.action('prepare')['status'],'ready');self.assertEqual(self.action('jump')['status'],'jumped')
+            self.rpc('vim.api.nvim_win_set_cursor(0,{1,0}); return true');before=self.oracle()
+            if kind=='registration-recreate':
+                raw=self.record_path.read_bytes();self.record_path.unlink();self.record_path.write_bytes(raw);self.record_path.chmod(0o600)
+            elif kind=='replace':
+                replacement=self.work/'replacement-control';replacement.write_bytes(self.control.read_bytes());replacement.chmod(0o600);replacement.replace(self.control)
+            else:
+                raw=self.control.read_bytes();self.control.unlink();self.control.write_bytes(raw);self.control.chmod(0o600)
+            self.assertIsNotNone(self.state.editor_attachments.record(self.token))
+            for operation in ('receipt','prepare','jump'):
+                self.assertEqual(self.action(operation)['status'],'unknown');self.assert_unchanged(before)
+            results.append(dict(lifetimeChange=kind,receipt='unknown',redispatch=0))
+        self.save('rework-control-receipts.json',results)
+
+    def test_rework_legacy_receipt_without_fingerprint_is_unknown_and_never_replayed(self):
+        path=self.state._native_editor_actions.path;path.touch(mode=0o600)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute('CREATE TABLE jumps (id TEXT PRIMARY KEY,binding TEXT NOT NULL,status TEXT NOT NULL)')
+            db.execute('INSERT INTO jumps VALUES (?,?,?)',(self.request['receiptID'],NativeEditorActions.binding(self.request),'jumped'))
+            db.commit()
+        for operation in ('receipt','prepare','jump'):
+            self.assertEqual(self.action(operation)['status'],'unknown');self.assert_unchanged(self.before)
+        with closing(sqlite3.connect(path)) as db:
+            row=db.execute('SELECT status,registration FROM jumps').fetchone()
+        self.assertEqual(row,('unknown',None))
+        self.save('rework-legacy-receipt.json',dict(syntheticOldSchema=True,status=row[0],fingerprint=row[1],redispatch=0))
+
+    def test_rework_legacy_or_nonboolean_marker_cannot_grant_native_authority(self):
+        legacy,path=self.state.editor_attachments.register(str(self.socket),shutil.which('nvim'),self.editor.pid,str(self.control))
+        self.assertIsNotNone(self.state.editor_attachments.resolve(legacy),'legacy source-write resolver remains available')
+        for marker in (None,False,1,'true'):
+            record=json.loads(path.read_text())
+            if marker is None:record.pop('nativeJumpOnly',None)
+            else:record['nativeJumpOnly']=marker
+            path.write_text(json.dumps(record))
+            request={**self.request,'viewID':str(uuid4()),'consentID':str(uuid4()),'editorAttachment':legacy,'receiptID':str(uuid4())}
+            self.assertEqual(self.action('sync',request)['status'],'unavailable')
+            self.action('sync',{**request,'nativeJumpOnly':True},code=400)
+            for operation in ('prepare','jump'):self.assertEqual(self.action(operation,request)['status'],'stale')
+            self.assert_unchanged(self.before)
+        self.save('rework-marker-proof.json',dict(nativeRegistration=True,legacyHTTPConsentDenied=True,nonBooleanMarkersDenied=True,legacyWriteResolverPreserved=True))
 
 
 def serve_fixture(config):

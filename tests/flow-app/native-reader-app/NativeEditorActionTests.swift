@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 private actor Gate {
     var reached = false
@@ -27,15 +28,163 @@ private actor Trace {
     func append(_ value: String) { operations.append(value) }
 }
 
+private actor UITrace {
+    var events = [[String: String]]()
+    var attachments = [Bool]()
+    func attachment(consented: Bool) { attachments.append(consented) }
+    func record(_ payload: [String: Any]) {
+        events.append(["operation": payload["operation"] as? String ?? "", "receiptID": payload["receiptID"] as? String ?? ""])
+    }
+    var jumpIDs: [String] { events.filter { $0["operation"] == "jump" }.map { $0["receiptID"]! } }
+    var jumps: Int { jumpIDs.count }
+    var receipts: [String] { events.filter { $0["operation"] == "receipt" }.map { $0["receiptID"]! } }
+}
+
 @main struct NativeEditorActionTests {
     static func require(_ value: Bool) throws {
         if !value { throw NativeReaderOperationFailure.rejected(code: "test-assertion") }
     }
+    @MainActor private static func until(_ predicate: () -> Bool) async throws {
+        for _ in 0..<800 {
+            if predicate() { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw NativeReaderOperationFailure.rejected(code: "offscreen-event-timeout")
+    }
+
+    /// Actual AppKit controls -> production host callbacks -> managed client ->
+    /// production HTTP. Only local inventory, consent decision and faults inject.
+    @MainActor private static func offscreen(_ config: Data, mode: String, marker: String) async throws {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        try require(app.activationPolicy() == .prohibited)
+        let value = try JSONSerialization.jsonObject(with: config) as! [String: Any]
+        let directory = URL(fileURLWithPath: marker).deletingLastPathComponent()
+        let descriptor = directory.appendingPathComponent("editor.json")
+        let attachment = try NativeReaderAttachment(data: config)
+        let profile = Profile(id: "na15-offscreen", name: "Isolated native events", root: value["root"] as! String,
+            entry: value["entry"] as! String, fonts: [], packages: "", port: attachment.baseURL.port!, publicURL: "", label: "na15-offscreen")
+        let flow = FlowApp(environment: AppEnvironment(variables: [:], userHome: directory.appendingPathComponent("app-home")),
+                           isolated: true, noActivate: true, showNativeWindow: false)
+        flow.settings.profiles = [profile]; flow.settings.selectedID = profile.id
+        let trace = UITrace(), loss = Loss(), gate = Gate()
+        let real = NativeReaderNetwork.urlSession()
+        let network = NativeReaderNetwork(send: { request, limit in
+            let payload = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            if request.url?.path.hasSuffix("/api/native-editor") == true, let payload { await trace.record(payload) }
+            let response = try await real.send(request, limit)
+            if let operation = payload?["operation"] as? String {
+                if ["ui-lost", "ui-new-selection", "ui-registration-replaced"].contains(mode), operation == "jump", await loss.drop() {
+                    throw URLError(.networkConnectionLost)
+                }
+                if ["ui-close", "ui-stale"].contains(mode), operation == "prepare" { await gate.stop() }
+            }
+            return response
+        }, stream: real.stream)
+        flow.managedResolver = NativeReaderManagedResolver(attach: { argv in
+            await trace.attachment(consented: argv.contains("--native-editor-consent"))
+            return config
+        }, network: network)
+        var consentCalls = 0
+        if mode != "ui-no-consent" {
+            do {
+                let adopted = try await flow.connectEditor(descriptor: descriptor, for: profile) {
+                    consentCalls += 1; return mode != "ui-declined"
+                }
+                try require(adopted == (mode != "ui-declined"))
+                try require(mode != "ui-invalid-descriptor")
+            } catch {
+                try require(mode == "ui-invalid-descriptor" && consentCalls == 0)
+            }
+        }
+        _ = flow.readNative(profile, progress: { _ in })
+        guard let window = flow.nativeWindow else { throw NativeReaderOperationFailure.unavailable }
+        defer { window.dispose() }
+        try await until { window.store.document != nil && window.textView.textMap != nil && window.session.state == .reading }
+        guard let block = window.store.document?.blocks.first(where: { $0.canonicalText == "Préface 한글 target passage." }) else {
+            throw NativeReaderContractError.invalidDocument
+        }
+        let start = "Préface 한글 ".utf16.count
+        func select(_ lower: Int, _ upper: Int) throws {
+            try window.textView.select(from: .init(blockID: block.id, utf16: lower, affinity: .downstream),
+                                       to: .init(blockID: block.id, utf16: upper, affinity: .upstream))
+            window.textView.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification))
+        }
+        try select(start, start + 6)
+        try await until { window.store.selection?.fragments.first?.exact == "target" }
+        let originalTicket = window.store.selection!.ticket
+        window.hostWindow.locateSelected() // Same selector installed on the native button.
+        if ["ui-close", "ui-stale"].contains(mode) {
+            try await gate.wait()
+            if mode == "ui-close" {
+                window.hostWindow.window?.performClose(nil)
+                await gate.open()
+                try await Task.sleep(nanoseconds: 150_000_000)
+                window.hostWindow.locateSelected()
+                try require(await trace.jumps == 0)
+            } else {
+                let file = URL(fileURLWithPath: marker)
+                try Data("ready".utf8).write(to: file)
+                try await until { FileManager.default.fileExists(atPath: marker + ".done") }
+                await gate.open()
+                try await until { window.hostWindow.notice.stringValue.contains("changed") }
+                try require(window.store.selection?.ticket == originalTicket)
+            }
+        } else if ["ui-no-consent", "ui-declined", "ui-invalid-descriptor"].contains(mode) {
+            try await until { window.hostWindow.notice.stringValue.contains("No explicitly connected editor") }
+            try require(await trace.jumps == 0)
+            try require(await trace.attachments == [false])
+        } else if mode == "ui-jump" {
+            try await until { window.hostWindow.notice.stringValue == "Editor moved to the verified saved source." }
+            window.hostWindow.editorReceipt()
+            try await until { window.hostWindow.notice.stringValue == "Editor moved to the verified saved source." }
+            try require(await trace.jumps == 1)
+        } else {
+            try await until { window.hostWindow.notice.stringValue.contains("effect is unknown") }
+            if mode == "ui-registration-replaced" {
+                try Data("ready".utf8).write(to: URL(fileURLWithPath: marker))
+                try await until { FileManager.default.fileExists(atPath: marker + ".done") }
+            }
+            if mode == "ui-new-selection" {
+                try select(0, 7)
+                try await until { window.store.selection?.ticket != originalTicket }
+                window.hostWindow.editorReceipt()
+                try await until { window.hostWindow.notice.stringValue.contains("unavailable for this selection") }
+                try require(await trace.receipts.isEmpty)
+            } else {
+                window.hostWindow.locateSelected() // Must keep the first uncertain UUID.
+                try await until { window.hostWindow.notice.stringValue.contains("before requesting another move") }
+                window.hostWindow.editorReceipt()
+                try await until {
+                    mode == "ui-registration-replaced" ? window.hostWindow.notice.stringValue.contains("effect is unknown")
+                        : window.hostWindow.notice.stringValue == "Editor moved to the verified saved source."
+                }
+                let first = await trace.jumpIDs, reads = await trace.receipts
+                try require(first.count == 1 && reads == first)
+                if mode == "ui-registration-replaced" {
+                    window.hostWindow.locateSelected()
+                    try await until { window.hostWindow.notice.stringValue.contains("before requesting another move") }
+                }
+            }
+            try require(await trace.jumps == 1)
+        }
+        try require(app.activationPolicy() == .prohibited && app.windows.allSatisfy { !$0.isVisible })
+        if !["ui-no-consent", "ui-declined", "ui-invalid-descriptor"].contains(mode) { try require(await trace.attachments == [true]) }
+        let events = await trace.events
+        let result: [String: Any] = ["mode": mode, "nativeGUI": "not-run", "offscreenAppKit": true,
+            "activationPolicy": "prohibited", "visibleWindows": 0, "events": events,
+            "consentCalls": consentCalls, "notice": window.hostWindow.notice.stringValue,
+            "productionFlowAppComposition": true, "productionControlCallbacks": true,
+            "assertions": 10, "skips": 0]
+        print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
+    }
+
     static func main() async throws {
         let args = CommandLine.arguments
         let config = try Data(contentsOf: URL(fileURLWithPath: args[1]))
         let mode = args[2]
         let object = try JSONSerialization.jsonObject(with: config) as! [String: Any]
+        if mode.hasPrefix("ui-") { try await offscreen(config, mode: mode, marker: args[3]); return }
         if mode == "descriptor" {
             let directory = URL(fileURLWithPath: args[1]).deletingLastPathComponent()
             let descriptor = directory.appendingPathComponent("editor.json")
