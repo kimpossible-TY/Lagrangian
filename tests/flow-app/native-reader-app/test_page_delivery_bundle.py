@@ -121,6 +121,7 @@ url=sys.argv[1]+'api/native-document?'+urllib.parse.urlencode(fields)
 request=urllib.request.Request(url,headers={'Origin':sys.argv[1].rstrip('/')})
 with urllib.request.urlopen(request,timeout=10) as response:print(response.read().decode())
 '''
+        cls.query_code=query_code
         document=json.loads(cls.command([cls.python,'-s','-B','-c',query_code,f'http://127.0.0.1:{cls.port}/',json.dumps(state)],loopback=True).stdout)
         save(cls.out/'document.json',document)
         def nodes(values):
@@ -179,6 +180,11 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
         self.assertTrue(all(self.result[k]>10 for k in ('above','below','rule')))
         self.assertEqual(self.result['requiredSkip'],0)
         self.assertFalse(self.result['GUI'])
+        self.assertGreater(self.result['originalPDFPages'],0)
+        self.assertGreater(self.result['originalPDFPaintCount'],0)
+        self.assertEqual(self.result['originalSourceAnchors'],'unsupported')
+        self.assertEqual(self.result['originalDelivery'],'immutable-pdf-full-reset')
+        self.assertEqual(delivery.sha(self.out/'installed-original.pdf'),self.result['originalPDFSHA256'])
 
     def test_missing_interpreter_node_compiler_module_and_image_reject(self):
         for name in ['python/bin/python3.13','runtime/node/bin/node','compiler/typst','runtime/node_modules/@mathjax/src/cjs/mathjax.js','tools/flow-reader/manage.py','python/lib/libssl.3.dylib','certificates/cacert.pem']:
@@ -286,6 +292,15 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
                 attached=json.loads(self.command([self.python,'-s','-B','-c',self.attach_code(),self.root,self.project,child.pid],loopback=True).stdout)
                 self.assertEqual(attached['url'],f'http://127.0.0.1:{shared}/d/reader/')
                 self.assertEqual(attached['service']['pid'],child.pid)
+                scoped=self.out/'shared-native';scoped.mkdir()
+                document=json.loads(self.command([self.python,'-s','-B','-c',self.query_code,attached['url'],json.dumps(state)],loopback=True).stdout)
+                save(scoped/'document.json',document)
+                save(scoped/'attachment.json',{'root':str(self.project),'attachment':attached})
+                for name in ['math.json','paint-math.json']:shutil.copy2(self.out/name,scoped/name)
+                self.command([self.binary,self.app,scoped,'--document'],loopback=True)
+                painted=json.loads((scoped/'installed-native-results.json').read_text())
+                self.assertGreater(painted['originalPDFPaintCount'],0)
+                self.assertEqual(delivery.sha(scoped/'installed-original.pdf'),painted['originalPDFSHA256'])
                 save(self.out/'shared-binding-proof.json',{'argv':argv,'pid':child.pid,'process':process,'plan':plan,'state':state,'compilerReport':report,'attachment':attached,'configBeforeSHA256':hashlib.sha256(original).hexdigest(),'configUnchanged':file.read_bytes()==original,'lifecycle':'contract fake PID for attach; actual foreground --serve-all child; no launchctl'})
                 self.assertEqual(file.read_bytes(),original)
             finally:
@@ -317,8 +332,9 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
         self.assertFalse(Path(str(output)+'.lock').exists())
 
     def test_final_app_acceptance_stays_distinct_from_delivery_integrity(self):
-        self.assertEqual(self.manifest['capabilities']['originalPages'],'pending NA12')
-        self.assertEqual(self.manifest['capabilities']['GUI'],'unverified')
+        self.assertEqual(self.manifest['capabilities']['originalPages'],'original-pdf-full-v1')
+        self.assertEqual(self.manifest['capabilities']['GUI'],'unverified; pre-GUI candidate')
+        self.assertEqual(self.manifest['capabilities']['sourceRevision'],self.manifest['sourceRevision'])
         self.assertFalse((self.out/'home/Library/LaunchAgents').exists())
 
     @classmethod

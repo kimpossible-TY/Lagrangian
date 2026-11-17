@@ -24,3 +24,9 @@ These tasks cover initial delivery production and its isolated checks. Final NA0
 - [x] 4.2 Reenter verified app composition for shared children through one optional managed-server factory; keep external config bytes unchanged.
 - [x] 4.3 Supply required relocated installed-layout regression for with external paths, actual foreground/shared backend, fake process attachment, tamper/mismatch/env negatives and affected packaging/native checks.
 - [x] 4.4 Freeze source/test commit and isolated v2 build/evidence procedure; execute one app build and bind actual post-freeze results outside the source tree. PM final acceptance remains separate.
+
+## 5. C/core integration and receipt mechanism
+- [x] 5.1 Merge immutable C76f5 including ec2 normally; register actual Swift page sources and bind owner/source/backend bytes without modifying C implementations.
+- [x] 5.2 Supply explicit external PM receipt validation and meaningful negative fixtures, keeping actual final gate evidence absent.
+- [x] 5.3 Supply current-inventory relocated PDF/math/default/shared child regression and preserve v1/v2 artifacts; record actual raw registry prerequisites and failures separately.
+- [x] 5.4 Freeze integration code/test bytes and execute isolated one-build procedure; bind actual results and remaining gates in external c-merge-v1 evidence. No GUI preparation is included.

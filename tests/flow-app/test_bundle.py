@@ -56,6 +56,73 @@ def document_frame(port, path, origin):
         raise RuntimeError('No compiled document frame received')
 
 
+# Synthetic receipts exercise the mechanism only; they are never PM acceptance.
+receipt_spec = importlib.util.spec_from_file_location('delivery_receipt', ROOT / 'scripts/verify-native-reader-app.py')
+receipt_verifier = importlib.util.module_from_spec(receipt_spec); receipt_spec.loader.exec_module(receipt_verifier)
+
+
+class PMReceiptTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix='pm-receipt-mechanism-'); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name); self.path = self.root / 'fixture-receipt.json'
+        self.source, self.app = 'a' * 40, 'b' * 64
+        self.receipt = dict(schemaVersion=1, kind='external-pm-acceptance', decision='accepted',
+            recordedBy='SYNTHETIC MECHANISM FIXTURE ONLY', sourceRevision=self.source, bundleChecksum=self.app, gates={})
+        for name in receipt_verifier.GATES:
+            evidence = dict(gate=name, status='passed', sourceRevision=self.source, bundleChecksum=self.app,
+                            requiredSkips=0, tests=1, fixtureOnly=True)
+            self.artifact(name, evidence)
+        self.write()
+
+    def artifact(self, name, evidence):
+        path = self.root / (name + '.json'); path.write_text(json.dumps(evidence))
+        self.receipt['gates'][name] = dict(artifact=path.name, sha256=package.digest(path), status='passed')
+
+    def write(self): self.path.write_text(json.dumps(self.receipt))
+    def verify(self): return receipt_verifier.acceptance_receipt(self.path, self.source, self.app)
+
+    def test_explicit_synthetic_fixture_records_only_external_decision(self):
+        result = self.verify()
+        self.assertEqual(set(result['gates']), set(receipt_verifier.GATES))
+        self.assertIn('does not authenticate', result['meaning'])
+        self.assertEqual(result['recordedBy'], 'SYNTHETIC MECHANISM FIXTURE ONLY')
+
+    def test_source_and_signed_app_replay_reject(self):
+        for source, app in [('c'*40, self.app), (self.source, 'd'*64)]:
+            with self.subTest(source=source, app=app), self.assertRaises(ValueError):
+                receipt_verifier.acceptance_receipt(self.path, source, app)
+
+    def test_missing_receipt_gate_or_artifact_reject(self):
+        with self.assertRaises(ValueError): receipt_verifier.acceptance_receipt(None, self.source, self.app)
+        saved = self.receipt['gates'].pop('AX'); self.write()
+        with self.assertRaises(ValueError): self.verify()
+        self.receipt['gates']['AX'] = saved; self.write(); (self.root/'AX.json').unlink()
+        with self.assertRaises(OSError): self.verify()
+
+    def test_artifact_tamper_and_path_escape_reject(self):
+        artifact=self.root/'source.json'; original=artifact.read_bytes(); artifact.write_bytes(original+b' ')
+        with self.assertRaises(ValueError): self.verify()
+        artifact.write_bytes(original)
+        self.receipt['gates']['source']['artifact']='../outside.json'; self.write()
+        with self.assertRaises(ValueError): self.verify()
+        self.receipt['gates']['source']['artifact']='escape.json'; (self.root/'escape.json').symlink_to('/etc/hosts'); self.write()
+        with self.assertRaises(ValueError): self.verify()
+
+    def test_failed_pending_stale_and_required_skip_artifacts_reject(self):
+        original=json.loads((self.root/'requiredtests.json').read_text())
+        for changes in [{'status':'failed'}, {'status':'pending'}, {'requiredSkips':1}, {'requiredSkips':False},
+                        {'sourceRevision':'0'*40}, {'bundleChecksum':'0'*64}, {'tests':0}, {'gate':'AX'}]:
+            with self.subTest(changes=changes):
+                self.artifact('requiredtests', {**original, **changes}); self.write()
+                with self.assertRaises(ValueError): self.verify()
+
+    def test_unaccepted_decision_and_gate_status_reject(self):
+        self.receipt['decision']='pending'; self.write()
+        with self.assertRaises(ValueError): self.verify()
+        self.receipt['decision']='accepted'; self.receipt['gates']['nativeGUI']['status']='failed'; self.write()
+        with self.assertRaises(ValueError): self.verify()
+
+
 @unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('FLOW_TEST_ENGINE'), 'Set FLOW_TEST_ENGINE on macOS for integration checks')
 class ExternalEngineBundle(unittest.TestCase):
     @classmethod

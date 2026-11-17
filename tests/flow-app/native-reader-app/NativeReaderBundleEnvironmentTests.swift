@@ -11,7 +11,8 @@ func checkDelivery(_ value: Bool, _ message: String) throws {
   static func main() async {
     do { try await run() } catch { fputs("DELIVERY PROBE: \(error)\n", stderr); exit(1) }
   }
-  static func run() async throws {
+  @MainActor static func run() async throws {
+    _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
     let app = URL(fileURLWithPath: CommandLine.arguments[1])
     let output = URL(fileURLWithPath: CommandLine.arguments[2])
     let executable = app.appendingPathComponent("Contents/MacOS/Lagrangian")
@@ -71,6 +72,34 @@ func checkDelivery(_ value: Bool, _ message: String) throws {
       result["nativeDocumentBlocks"] = document.blocks.count
       result["nativeDocumentID"] = target.documentID
       result["managedAttachProcessProvider"] = "contract fake; actual loopback backend"
+      let pages = try await client.originalPages(for: request)
+      let supplement = try await pages.supplement(context: request, viewGeneration: 0)
+      let preparer = NativeOriginalPagePreparer()
+      var limits = NativeOriginalPageLimits(); limits.lazy = true
+      let prepared = try await preparer.prepare(supplement, expected: supplement.binding, limits: limits)
+      let view = NativeReaderOriginalPageView(viewID: request.viewID)
+      let ticket = try view.store.begin(expected: supplement.binding)
+      try view.store.adopt(prepared, for: ticket)
+      view.installed()
+      for _ in 0..<500 {
+        if view.isPreparedForPaint { break }
+        try await Task.sleep(nanoseconds: 10_000_000)
+      }
+      try checkDelivery(view.isPreparedForPaint, "original PDF raster unavailable")
+      guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        throw FlowError(message: "original PDF bitmap")
+      }
+      view.cacheDisplay(in: view.bounds, to: bitmap)
+      try checkDelivery(view.paintCount > 0 && view.store.paintAcknowledgment != nil, "original PDF did not paint")
+      try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("installed-original-page.png"))
+      try pages.data.write(to: output.appendingPathComponent("installed-original.pdf"))
+      try JSONEncoder().encode(pages.publication).write(to: output.appendingPathComponent("installed-original-publication.json"))
+      result["originalPDFPages"] = supplement.binding.pages.count
+      result["originalPDFSHA256"] = pages.publication.pdfSHA256
+      result["originalPDFPaintCount"] = view.paintCount
+      result["originalSourceAnchors"] = pages.publication.sourceAnchors
+      result["originalDelivery"] = pages.publication.delivery
+      view.dispose()
       await client.dispose()
     }
     try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted,.sortedKeys]).write(to: output.appendingPathComponent("installed-native-results.json"))

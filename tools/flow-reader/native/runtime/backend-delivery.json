@@ -50,13 +50,6 @@
     "configuration": "Existing schema/profile/lifecycle unchanged; ReaderManager receives optional concrete executable bindings from authenticated app composition. Config bytes are not rewritten.",
     "composition": "Parent and managed child authenticate their own app seal/release/manifest and inject the same local ReaderExecutables. No env or HTTP binding authority."
   },
-  "initialCapabilities": {
-    "coreSource": "9b2dc87651eb16a809bb48dbe4539614cfe30d6a",
-    "originalPages": "pending NA12",
-    "coreFixes": "pending NA06",
-    "GUI": "unverified",
-    "liveChat": "unverified"
-  },
   "typstPackages": [
     {
       "path": "preview/tiptoe/0.4.0",
@@ -92,5 +85,18 @@
     "license": "certifi-2026.10.23.dist-info/licenses/LICENSE",
     "licenseSHA256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
     "policy": "Official Python installer recommended certifi trust data, process-local only; no account, keychain or system changes."
+  },
+  "capabilities": {
+    "coreSource": "ec2c4af91988f0db66d494cea97a551ffd7cf180",
+    "originalPages": "original-pdf-full-v1",
+    "coreFixes": "integrated; final review pending",
+    "GUI": "unverified; pre-GUI candidate",
+    "liveChat": "unverified",
+    "originalPagesSource": "76f5ac13df10c2c16824323ab65fbf397ce4de7c",
+    "sourceAnchors": "unsupported",
+    "rawDiffNativeConsumer": "unverified; immutable PDF full reset only",
+    "pdfSelection": "page-local display only",
+    "macOS13Execution": "unverified",
+    "VoiceOverSpeech": "unverified"
   }
 }

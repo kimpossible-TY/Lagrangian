@@ -94,23 +94,60 @@ accepts its explicit manager factory. No remote field or environment value
 creates trusted executable bindings. Missing configuration fails explicitly. A loopback fixture and a contract
 fake provider can verify delivery without implying a live service or account.
 
-== Acceptance and owner handoff
+== Integrated owner binding and acceptance
 
-Initial source is frozen `9b2dc87651eb16a809bb48dbe4539614cfe30d6a`, preserving
-the original 882 ancestor. The actual final NA10 helper is
-`dc100395fc2ea1299c99ec90c201faaed80a1ca5ad0fefaa5d2451278e4a5d76`;
-the old NA11 staged helper is historical and remains untouched. MathML, TeX and
-base/AMS already belong to the verified packages; no package lock delta is needed.
+The original 882 contract and `9b2dc87651eb16a809bb48dbe4539614cfe30d6a`
+remain ancestors. A normal no-ff merge integrates core correction
+`ec2c4af91988f0db66d494cea97a551ffd7cf180` and original-page owner
+`76f5ac13df10c2c16824323ab65fbf397ce4de7c`. Both new Swift files are
+registered in canonical `sources.json`; the same owner backend HTTP and
+`native_pages.py` are shipped in the current reader inventory. Staging checks
+ancestry and exact owner-file bytes; the app/delivery source revision names the
+current clean integration commit. Core integration does not imply final review.
 
-`verify-native-reader-app.py --acceptance` remains nonzero while final NA06 core
-and NA12 original-page rebinding, GUI/VoiceOver, live chat/account and macOS 13
-execution remain open. Current-host local app integrity, headless native paint,
-source-denied offline execution and local cache fixtures are distinct evidence.
-A macOS 13 deployment target and inspected dependency closure do not certify
-execution on macOS 13. A required installed-layout prerequisite or skip fails the
-required suite; the existing optional certificate check is reported separately.
+Original mode uses `original-pdf-full-v1`, an immutable full-PDF/reset publication
+with accepted HTML/PDF input fingerprints, publication identity, sequence and
+PDF digest. It supplies page-local display selection. Original source anchors
+and source jumps remain unsupported; raw engine diff-v1 native consumption is
+unverified. Verified semantic reflow source actions retain their existing owner.
+The actual final helper is
+`dc100395fc2ea1299c99ec90c201faaed80a1ca5ad0fefaa5d2451278e4a5d76`.
+Existing runtime component source provenance and its immutable dependency bytes
+remain distinct from the new app source revision. Input engine hash, engine
+build/version provenance, signed engine hash, signed runtime inventory and outer
+app checksum are separate identities. Prior stages are preserved.
 
-No command here authorizes live installation, launchd changes, application
-activation, push, manual CI, Cloud execution or a Rust source build. The final
-core/page commits must be rebound in the same delivery session before complete
-application acceptance and NA08's final inventory review.
+This build is a pre-GUI candidate. `--acceptance` requires an explicitly supplied
+external PM receipt; absence or rejection returns exit 2 while valid delivery
+integrity remains independently reportable. Normal app launch has no receipt
+dependency. Receipt validation records a PM decision, and cannot authenticate
+review quality, PM authority or user permission.
+
+```sh
+python3 scripts/verify-native-reader-app.py <app> --require-delivery   --source-revision <exact-app-commit> --acceptance   --pm-acceptance-receipt <external-evidence>/acceptance.json
+```
+
+The JSON receipt has `schemaVersion: 1`, `kind: external-pm-acceptance`,
+`decision: accepted`, a nonempty `recordedBy`, exact `sourceRevision` and signed
+`bundleChecksum`. Its `gates` object has exactly `source`, `runtime`,
+`requiredtests`, `code-review`, `docs`, `nativeGUI`, `AX`. Each gate carries
+`status: passed`, an artifact path relative to the receipt directory and the
+artifact's `sha256`. Absolute paths, parent traversal and escaping symlinks fail.
+Each bounded JSON artifact repeats its `gate`, `status: passed`, exact app/source
+binding and integer `requiredSkips: 0`; requiredtests also records positive integer
+`tests`. Missing, tampered, failed, stale or required-skipped evidence is rejected.
+Synthetic passing receipts in tests verify only this mechanism and are never
+published as actual PM acceptance.
+
+Formal Review/Docs/Tester/native GUI/AX artifacts have not been supplied for this
+candidate. Its actual acceptance result remains exit 2. Current-host local app
+integrity, headless PDF/math paint, source-denied execution and local cache
+fixtures are distinct evidence. A macOS 13 deployment target and inspected
+closure do not certify macOS 13 execution. Live provider/account and VoiceOver
+speech remain unverified; recording a gate does not relabel those coverage facts.
+Required suite prerequisites/skips fail; the historical optional certificate
+check is separate.
+
+No command here authorizes live installation, launchd changes, activation, push,
+manual CI, Cloud or Rust compilation. GUI preparation is deliberately excluded;
+its future fixed commit requires a new source binding/build in this session.

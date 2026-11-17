@@ -53,3 +53,20 @@ A verified app SHALL supply concrete executable operations through ReaderManager
 #### Scenario: Invalid binding or configuration
 - **WHEN** the app seal, manifest, release pair, required executable or schema is invalid
 - **THEN** launch fails closed without external executable fallback or configuration mutation
+
+### Requirement: Integrated sources and external PM acceptance receipt
+Delivery SHALL bind integrated owner commits, canonical sources and packaged bytes. Acceptance SHALL require an explicit PM receipt binding the exact source revision, signed app checksum and named gate artifact digests/statuses with zero required skips. Normal launch SHALL require no receipt. Recording a PM decision SHALL NOT authenticate review quality, user permission or untested runtime coverage.
+
+#### Scenario: Pre-GUI candidate without final gate evidence
+- **WHEN** owner integration and current-host delivery pass but a complete external PM receipt is absent
+- **THEN** integrity can pass and acceptance returns nonzero with the missing receipt diagnostic
+- **AND** core/page integration is reported accurately without false pending-source claims
+
+#### Scenario: Replayed or invalid PM evidence
+- **WHEN** receipt/artifact bytes, app/source identities, statuses or required skip counts are missing, stale, tampered, failed or skipped
+- **THEN** acceptance fails closed independently of normal app operation
+
+#### Scenario: Explicit PM decision is recorded
+- **WHEN** source/runtime/requiredtests/code-review/docs/nativeGUI/AX artifacts match the current app/source, digests, passed statuses and zero required skips
+- **THEN** the verifier records the external PM decision
+- **AND** synthetic test receipts remain mechanism-only evidence and are never actual acceptance

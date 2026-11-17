@@ -20,5 +20,12 @@ Produce a relocatable, hash-bound runtime and backend with a fresh native app in
 - [macOS 13 is unavailable] → inspect every arm64 Mach-O deployment target and report runtime certification as unverified.
 - [Core/page integration is pending] → bind initial source and helper exactly, then resume this session for final rebinding.
 
+## Integrated owner sources and external PM decision
+C 76f5ac13 (including core ec2c4af9) is integrated with a normal no-ff merge, preserving 9b/882 ancestry. Canonical sources.json registers the actual page view/transport; C implementation bytes remain immutable. The input and delivery manifests bind owner commit ancestry and actual merged files, current source revision and current reader inventory. Runtime dependency and engine build provenance remain separate from app source identity.
+
+The verifier takes --acceptance plus --pm-acceptance-receipt. The receipt binds the exact app source revision and signed bundle checksum to seven named gate artifact digests/statuses: source, runtime, requiredtests, code-review, docs, nativeGUI and AX. Bounded relative JSON artifacts repeat gate/app/source/status and requiredSkips=0; requiredtests requires positive test count. Missing/stale/tampered/failed/required-skipped receipts return acceptance exit2, independently of integrity. A structurally valid receipt records an external PM decision and does not establish authority, review quality or user permission. Test passes use clearly synthetic mechanism fixtures only.
+
+This is a pre-GUI candidate: actual formal final gate evidence remains absent. Integration is complete while review is pending. Original source anchors/jumps remain unsupported; PDF selection is page-local display only and rawdiff-v1 native consumption remains unverified. Current-host/minOS evidence does not certify actual OS13 runtime, live provider use or VoiceOver speech.
+
 ## Migration Plan
 No live migration is executed. Build and verify isolated candidates, review the source-bound manifest, and hand exact outputs to NA06/NA08. Keep the immutable NA11 stage untouched. A future approved pipeline installation uses the standard updater.

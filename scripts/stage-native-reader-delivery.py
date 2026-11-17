@@ -159,11 +159,30 @@ def relocate_python(root):
 
 def source_binding(root):
     sources = read(root / 'apps/macos/sources.json')
-    paths = ['apps/macos/sources.json', 'scripts/flow-app.py', 'scripts/stage-native-reader-delivery.py',
+    paths = ['apps/macos/sources.json', 'scripts/flow-app.py', 'scripts/stage-native-reader-delivery.py', 'scripts/verify-native-reader-app.py',
              'scripts/prepare-native-reader-runtime.mjs', 'assets/branding/lagrangian.png', 'docs/tinymist/flow-app.typ',
              *[str(RUNTIME_POLICY / n) for n in ['node-distribution.json', 'backend-delivery.json', 'package.json', 'package-lock.json', 'THIRD-PARTY-NOTICES.md']],
              *['apps/macos/' + n for section in ('core', 'native', 'app') for n in sources[section]]]
     return {name: sha(root / name) for name in sorted(paths)}
+
+
+def integrated_sources(root):
+    """Bind the immutable owner commits and their actual merged files."""
+    capabilities = read(root / RUNTIME_POLICY / 'backend-delivery.json')['capabilities']
+    core, pages = capabilities['coreSource'], capabilities['originalPagesSource']
+    base = '9b2dc87651eb16a809bb48dbe4539614cfe30d6a'
+    for ancestor, descendant in [(base, core), (core, pages), (pages, 'HEAD')]:
+        run(['git', '-C', root, 'merge-base', '--is-ancestor', ancestor, descendant])
+    core_files = run(['git', '-C', root, 'diff', '--name-only', base, core]).splitlines()
+    page_files = run(['git', '-C', root, 'diff', '--name-only', core, pages]).splitlines()
+    records = {}
+    for name in sorted(set(core_files + page_files)):
+        revision = pages if name in page_files else core
+        blob = subprocess.check_output(['git', '-C', str(root), 'show', revision + ':' + name])
+        digest = hashlib.sha256(blob).hexdigest()
+        require(sha(root / name) == digest, 'integrated owner source drift: ' + name)
+        records[name] = digest
+    return {'coreRevision':core, 'pageRevision':pages, 'files':records}
 
 
 def verify(root, expected=None, signatures=True):
@@ -186,7 +205,7 @@ def verify(root, expected=None, signatures=True):
     reader = read(root / 'reader-bundle.json')
     require(reader['headSha'] == m['sourceRevision'] and reader['bundleChecksum'] == m['readerBundleChecksum'], 'stale reader source')
     if expected:
-        for key in ('sourceRevision', 'sourceFiles', 'engineInputSHA256', 'helperSHA256', 'runtimeManifestSHA256', 'readerBundleChecksum'):
+        for key in ('sourceRevision', 'sourceFiles', 'integratedSources', 'engineInputSHA256', 'helperSHA256', 'runtimeManifestSHA256', 'readerBundleChecksum'):
             require(m.get(key) == expected.get(key), 'stale input binding: ' + key)
     if signatures:
         for image in m['images']:
@@ -241,6 +260,7 @@ def stage_candidate(args):
     current = reader_bundle.manifest_files(reader_bundle.collect_entries(repo, worktree=True))
     require(reader_bundle.bundle_checksum(expected['sourceRevision'], current) == rb['bundleChecksum'], 'stale current backend/resources')
     policy = read(repo / RUNTIME_POLICY / 'backend-delivery.json')
+    require(expected['integratedSources'] == integrated_sources(repo), 'integrated owner binding mismatch')
     require(sha(args.python_archive) == policy['python']['archive']['sha256'], 'Python distribution hash')
     signature = run(['/usr/sbin/pkgutil', '--check-signature', args.python_archive])
     require('Python Software Foundation (' + policy['python']['signature']['team'] + ')' in signature and 'Status: signed' in signature, 'Python installer signature')
@@ -306,7 +326,8 @@ def stage_candidate(args):
         run([candidate / ep['node'], '-e', "import(process.argv[1]).then(m=>m.verify(process.argv[2],process.argv[3]))", (candidate / 'runtime/verify-runtime.mjs').as_uri(), candidate / 'runtime', candidate / ep['node']])
         m = {**expected, 'schema':1, 'entrypoints':ep, 'images':images,
              'signing': 'ad-hoc' if args.identity == '-' else args.identity,
-             'distribution':policy, 'stageArgv':sys.argv, 'capabilities':policy['initialCapabilities']}
+             'distribution':policy, 'stageArgv':sys.argv, 'capabilities':{**policy['capabilities'], 'sourceRevision':expected['sourceRevision']},
+             'integratedSources':expected['integratedSources']}
         m['files'] = payload_files(candidate); m['payloadSHA256'] = hashlib.sha256(encoded(m['files'])).hexdigest()
         write(candidate / MANIFEST, m)
         verify(candidate, expected)
@@ -482,6 +503,7 @@ def main():
     elif args.command == 'binding':
         rb = read(args.reader_bundle / 'reader-bundle.json')
         value = {'schema':1, 'sourceRevision':run(['git','-C',args.backend,'rev-parse','HEAD']).strip(),
+                 'integratedSources':integrated_sources(args.backend),
                  'sourceFiles':source_binding(args.backend), 'engineInputSHA256':sha(args.engine),
                  'helperSHA256':sha(args.helper), 'runtimeManifestSHA256':sha(args.runtime_source / 'runtime-manifest.json'),
                  'readerBundleChecksum':rb['bundleChecksum']}
