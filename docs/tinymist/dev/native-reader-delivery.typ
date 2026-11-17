@@ -182,9 +182,16 @@ are excluded from inspection; no user clipboard is inspected or changed.
 
 The golden old CLI remains fetch-engine --run-id R, fetch-reader-bundle --run-id R,
 then build --engine with the printed engine path. Checkout HEAD must be run head H.
-Fetch writes schema-1 native-delivery-context.json beside the engine. It binds the
+Fetch writes schema-2 native-delivery-context.json beside the engine; the current
+consumer accepts only context schema 2. It binds the
 repository, validated run record/ID/head, canonical engine path/hash and artifact
-inventory digest. Its delivery binding explicitly records sourceFiles, manifest,
+inventory digest. The transport binding separately records raw archive,
+manifest and raw-inventory digests, plus the normalized inventory digest after
+authenticated external-engine mode normalization. The top-level
+artifactInventorySHA256 is that normalized inventory digest; it does not replace
+the raw archive SHA-256. The producer's schema-1 JSON transport envelope is a
+different format from this schema-2 context. The context's delivery binding
+explicitly records sourceFiles, manifest,
 payload, helper, runtime and reader digests, signing and the fixed relative root. Fixed artifact-relative paths and the existing inventory owner reject
 escaping symlinks. The context is a locator, not server authority: build re-views
 exact R and re-downloads that artifact, comparing the full inventory before using
