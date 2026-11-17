@@ -1,6 +1,7 @@
 {
   "core": [
     "AppEnvironment.swift",
+    "NativeReaderBundleEnvironment.swift",
     "AppDataMigration.swift",
     "Profiles.swift",
     "SettingsStore.swift",

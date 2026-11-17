@@ -138,48 +138,25 @@ export function fontPreservation(root) {
   });
   return { noticesSHA256: sha(notice), fontCount: fonts.length, classes, terms, fonts };
 }
-export function nodePolicy(exe) {
+export function nodePolicy(exe, distribution) {
   must(path.isAbsolute(exe), 'node-absolute-required');
   const real = fs.realpathSync(exe);
-  const info = JSON.parse(command(real, ['-p', 'JSON.stringify({version:process.version,arch:process.arch,platform:process.platform,execPath:process.execPath})']));
-  must(info.version === 'v26.13.1' && info.arch === 'arm64' && info.platform === 'darwin', 'node-incompatible');
-  const loadCommands = command('/usr/bin/otool', ['-l', real]);
-  const dylibs = command('/usr/bin/otool', ['-L', real]);
-  const minOS = /\bminos (\d+\.\d+(?:\.\d+)?)/.exec(loadCommands)?.[1];
-  must(minOS, 'node-minOS-missing');
+  const info = JSON.parse(command(real, ['-p', 'JSON.stringify({version:process.version,arch:process.arch,platform:process.platform})']));
+  must(distribution?.schema === 1 && distribution.version === 'v22.23.5' &&
+    info.version === distribution.version && info.arch === distribution.arch && info.platform === distribution.platform, 'node-incompatible');
+  const loads = command('/usr/bin/otool', ['-arch', 'arm64', '-l', real]);
+  const deps = command('/usr/bin/otool', ['-arch', 'arm64', '-L', real]).split('\n').slice(1).map(l => l.trim().split(' (compatibility')[0]).filter(Boolean);
+  const minOS = /\bminos (\d+\.\d+(?:\.\d+)?)/.exec(loads)?.[1] ?? /\bversion (\d+\.\d+(?:\.\d+)?)/.exec(loads)?.[1];
+  const number = v => v.split('.').reduce((n, p, i) => n + Number(p) * 100 ** (2 - i), 0);
+  must(minOS && number(minOS) <= number(distribution.maximumMinOS), 'node-minOS-incompatible');
+  must(deps.every(d => d.startsWith('/usr/lib/') || d.startsWith('/System/Library/')), 'node-external-dylib');
+  must(!loads.includes('LC_RPATH'), 'node-external-rpath');
   const license = path.resolve(real, '../../LICENSE');
-  must(fs.existsSync(license), 'node-license-missing');
-  const hostLibraries = [], seen = new Set();
-  function inspect(image, inherited = []) {
-    const loads = command('/usr/bin/otool', ['-l', image]);
-    const rpaths = [...loads.matchAll(/\bpath (.+) \(offset \d+\)/g)].map(m => m[1]);
-    const expand = p => p.replace('@loader_path', path.dirname(image)).replace('@executable_path', path.dirname(real));
-    const search = [...rpaths.map(expand), ...inherited];
-    const dependencies = command('/usr/bin/otool', ['-L', image]).split('\n').slice(1).map(l => l.trim().split(' (compatibility')[0]).filter(Boolean);
-    for (let dep of dependencies) {
-      if (dep.startsWith('/usr/lib/') || dep.startsWith('/System/Library/')) continue;
-      if (dep.startsWith('@rpath/')) dep = search.map(p => path.join(p, dep.slice(7))).find(p => fs.existsSync(p));
-      else dep = expand(dep);
-      must(dep && fs.existsSync(dep), 'node-dylib-missing');
-      dep = fs.realpathSync(dep);
-      if (seen.has(dep) || dep === real) continue;
-      seen.add(dep);
-      const lc = command('/usr/bin/otool', ['-l', dep]);
-      hostLibraries.push({ path: dep, sha256: sha(fs.readFileSync(dep)), minOS: /\bminos (\d+\.\d+(?:\.\d+)?)/.exec(lc)?.[1] ?? null });
-      inspect(dep, search);
-    }
-  }
-  inspect(real);
-  hostLibraries.sort((a, b) => a.path.localeCompare(b.path));
-  const versionNumber = v => v.split('.').reduce((n, p, i) => n + Number(p) * 100 ** (2 - i), 0);
-  const effectiveMinOS = [minOS, ...hostLibraries.map(p => p.minOS).filter(Boolean)].sort((a, b) => versionNumber(b) - versionNumber(a))[0];
-  const hostOS = command('/usr/bin/sw_vers', ['-productVersion']).trim();
-  must(versionNumber(hostOS) >= versionNumber(effectiveMinOS), 'node-host-OS-incompatible');
-  return { policy: 'host-required', executable: real, ...info, sha256: sha(fs.readFileSync(real)), minOS,
-    hostOS, effectiveMinOS, loadCommands, dylibs,
-    hostLibraries,
-    license: { path: license, sha256: sha(fs.readFileSync(license)) },
-    requirement: 'Exact absolute executable, version, arch and SHA256; host Homebrew dylibs must remain available. Not standalone. App must preflight and show runtime unavailable/incompatible with configured path. macOS13.0 execution unsupported; this host proof does not certify macOS13.' };
+  must(sha(fs.readFileSync(license)) === distribution.license.sha256, 'node-license-mismatch');
+  return { policy: 'portable-bundled', executable: 'node/bin/node', ...info, sha256: sha(fs.readFileSync(real)),
+    minOS, effectiveMinOS: minOS, dependencies: deps, hostLibraries: [],
+    license: { path: 'node/LICENSE', sha256: distribution.license.sha256 },
+    distributionSHA256: sha(encode(distribution)), macOS13Execution: 'unverified' };
 }
 const filtered = root => inventory(root).filter(f => !['runtime-manifest.json'].includes(f.path));
 export function verify(root, exe) {
@@ -189,8 +166,8 @@ export function verify(root, exe) {
   must(m.schema === 2 && safe(m.entrypoint) && m.entrypoint === 'helper.mjs', 'manifest-schema-entrypoint');
   must(encode(filtered(root)) === encode(m.files), 'payload-tamper-or-missing');
   must(sha(encode(m.files)) === m.payloadSHA256, 'payload-digest-mismatch');
-  const n = nodePolicy(exe);
-  must(n.executable === m.node.executable && n.sha256 === m.node.sha256 && n.version === m.node.version && n.arch === m.node.arch && n.loadCommands === m.node.loadCommands && n.dylibs === m.node.dylibs && encode(n.hostLibraries) === encode(m.node.hostLibraries) && n.license.sha256 === m.node.license.sha256, 'node-incompatible');
+  const n = nodePolicy(exe, json(path.join(root, 'node-distribution.json')));
+  must(fs.realpathSync(exe) === fs.realpathSync(path.join(root, m.node.executable)) && encode(n) === encode(m.node), 'node-incompatible');
   must(sha(fs.readFileSync(path.join(root, m.entrypoint))) === m.helperSHA256, 'helper-mismatch');
   const deps = packages(root);
   must(encode(deps) === encode(m.packages), 'package-manifest-mismatch');
@@ -213,7 +190,10 @@ export function prepare(options) {
     must(sha(fs.readFileSync(path.join(source, name))) === sha(fs.readFileSync(path.join(repo, 'tools/flow-reader/native/runtime', name))), 'noncanonical-runtime-input');
   packages(source);
   fontPreservation(source);
-  const node = nodePolicy(options.node);
+  const distributionFile = options['node-distribution'] ?? path.join(repo, 'tools/flow-reader/native/runtime/node-distribution.json');
+  const distribution = json(distributionFile);
+  must(sha(fs.readFileSync(options.node)) === distribution.executableSHA256, 'node-distribution-bytes');
+  nodePolicy(options.node, distribution);
   const proof = options['proof-input'] ? json(options['proof-input']) : {
     helperSHA256: sha(fs.readFileSync(helper)), scope: 'Helper bytes only; no caller-supplied painter/model/fixture acceptance evidence.'
   };
@@ -230,8 +210,13 @@ export function prepare(options) {
       fs.cpSync(path.join(source, name), path.join(temp, name), { recursive: true, verbatimSymlinks: true });
     fs.copyFileSync(helper, path.join(temp, 'helper.mjs'));
     fs.copyFileSync(fileURLToPath(import.meta.url), path.join(temp, 'verify-runtime.mjs'));
-    fs.mkdirSync(path.join(temp, 'licenses'));
-    fs.copyFileSync(node.license.path, path.join(temp, 'licenses/Node-LICENSE'));
+    fs.mkdirSync(path.join(temp, 'node/bin'), { recursive: true });
+    fs.copyFileSync(options.node, path.join(temp, 'node/bin/node'));
+    fs.chmodSync(path.join(temp, 'node/bin/node'), 0o755);
+    fs.copyFileSync(path.resolve(options.node, '../../LICENSE'), path.join(temp, 'node/LICENSE'));
+    fs.copyFileSync(distributionFile, path.join(temp, 'node-distribution.json'));
+    command('/usr/bin/codesign', ['--force', '--sign', options.identity ?? '-', path.join(temp, 'node/bin/node')]);
+    const node = nodePolicy(path.join(temp, 'node/bin/node'), distribution);
     write(path.join(temp, 'proof-input.json'), proof);
     const sourceSHA = command('/usr/bin/git', ['-C', repo, 'rev-parse', 'HEAD']).trim();
     const dirty = command('/usr/bin/git', ['-C', repo, 'status', '--porcelain']);
@@ -244,12 +229,12 @@ export function prepare(options) {
       fontPreservation: fontPreservation(temp),
       resources: files.filter(f => /mathjax.*(?:dynamic|woff|svg|mathml|liteAdaptor|metrics|input\/tex)/i.test(f.path)).map(f => f.path),
       prepare: { argv: [process.execPath, ...process.argv.slice(1)], exit: 0 }, verifyReportSHA256: sha(encode(report)),
-      scope: 'Initial frozen MathML only. NA08 must rerun with final NA10 TeX helper. No app/GUI/full fidelity acceptance.' };
+      scope: 'Hash-bound caller helper and portable Node. Package/SRI/font preservation only; no final app/GUI/OS13 acceptance.' };
     write(path.join(temp, 'runtime-manifest.json'), manifest);
-    verify(temp, options.node);
+    verify(temp, path.join(temp, 'node/bin/node'));
     if (fs.existsSync(output)) {
       must(fs.lstatSync(output).isDirectory(), 'output-type');
-      verify(output, options.node); // never overwrite a damaged/unknown existing stage
+      verify(output, path.join(output, 'node/bin/node')); // never overwrite a damaged/unknown existing stage
       // Darwin atomic directory exchange; crash before/after leaves valid output.
       command('/usr/bin/python3', ['-c', 'import ctypes,sys; c=ctypes.CDLL(None,use_errno=True); r=c.renamex_np(sys.argv[1].encode(),sys.argv[2].encode(),2); assert r==0,ctypes.get_errno()', temp, output]);
     } else fs.renameSync(temp, output);
@@ -260,10 +245,11 @@ export function prepare(options) {
   }
 }
 function main() {
+  if (process.argv.includes('--help')) { process.stdout.write('Usage: prepare-native-reader-runtime.mjs --runtime-source ROOT --helper FILE --node OFFICIAL_NODE --output ROOT [--proof-input JSON] [--node-distribution JSON] [--identity ID]\n       verify-runtime.mjs --verify ROOT --node ROOT/node/bin/node\n'); return; }
   const o = {};
   for (let i = 2; i < process.argv.length; i += 2) {
     const key = process.argv[i];
-    must(['--runtime-source', '--helper', '--node', '--output', '--verify', '--proof-input'].includes(key) && process.argv[i + 1] && !o[key.slice(2)], 'arguments');
+    must(['--runtime-source', '--helper', '--node', '--output', '--verify', '--proof-input', '--node-distribution', '--identity'].includes(key) && process.argv[i + 1] && !o[key.slice(2)], 'arguments');
     o[key.slice(2)] = process.argv[i + 1];
   }
   must(o.node && (o.verify ? Object.keys(o).length === 2 : ['runtime-source', 'helper', 'output'].every(k => o[k])), 'arguments');

@@ -63,13 +63,16 @@ class ExternalEngineBundle(unittest.TestCase):
         # The external engine treats /var and /private/var as different project roots.
         temp = tempfile.TemporaryDirectory(prefix='.flow-bundle-tests-'); cls.addClassCleanup(temp.cleanup)
         cls.root = Path(temp.name).resolve()
-        cls.app = cls.root / 'built/Lagrangian.app'
+        cls.app = Path(os.environ['FLOW_TEST_APP']).resolve() if os.environ.get('FLOW_TEST_APP') else cls.root / 'built/Lagrangian.app'
         cls.engine = Path(os.environ['FLOW_TEST_ENGINE']).expanduser().resolve()
         cls.input_hash = package.digest(cls.engine)
         cls.env = {'FLOW_DEV_ROOT': str(cls.root),
                    'FLOW_DATA_DIR': str(cls.root / 'home/Library/Application Support/Lagrangian'),
                    'FLOW_LOG_DIR': str(cls.root / 'home/Library/Logs/Lagrangian')}
         cls.data = Path(cls.env['FLOW_DATA_DIR'])
+        if os.environ.get('FLOW_TEST_APP'):
+            package.validate(cls.app)
+            return
         with patch.dict(os.environ, cls.env):
             package.build(argparse.Namespace(engine=cls.engine, output=cls.app, version='0.1.0', identity=os.environ.get('FLOW_TEST_SIGN_IDENTITY', '-')))
 
@@ -116,11 +119,15 @@ class ExternalEngineBundle(unittest.TestCase):
         report = self.root / 'native-delivery.json'
         result = subprocess.run([sys.executable, ROOT / 'scripts/verify-native-reader-app.py', self.app,
                                  '--output', report], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        expected = 0 if package.validate(self.app).get('nativeDeliverySHA256') else 2
+        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         status = json.loads(report.read_text())
         self.assertEqual(status['integrity'], 'verified')
-        self.assertEqual(status['status'], 'runtime-delivery-blocked')
-        self.assertEqual(status['exit'], 2)
+        self.assertEqual(status['status'], 'delivery-integrity-verified' if expected == 0 else 'runtime-delivery-blocked')
+        self.assertEqual(status['exit'], expected)
+        if expected == 0:
+            result = subprocess.run([sys.executable, ROOT / 'scripts/verify-native-reader-app.py', self.app, '--acceptance'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
     def test_preview_delivers_both_themes_through_configured_origin(self):
         project = self.root / 'project'; project.mkdir()

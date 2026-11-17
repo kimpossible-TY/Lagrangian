@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _SCRIPTS = Path(__file__).resolve().parent
@@ -66,10 +67,10 @@ def locate_payload(download: Path) -> Path:
     candidates = []
     for checksum in download.rglob('flow-engine.sha256'):
         parent = checksum.parent
-        if (parent / 'flow-engine').is_file() and (parent / 'release.json').is_file() and (parent / 'Lagrangian.app').is_dir():
+        if (parent / 'flow-engine').is_file() and (parent / 'release.json').is_file():
             candidates.append(parent)
     if len(candidates) != 1:
-        raise ValueError('The downloaded artifact must contain one flow-engine, flow-engine.sha256, release.json, and Lagrangian.app')
+        raise ValueError('The downloaded artifact must contain one flow-engine, flow-engine.sha256, release.json')
     return candidates[0]
 
 
@@ -133,16 +134,20 @@ def summarize(text):
 
 
 def download_payload(repo, run_id, dest: Path):
-    if dest.exists():
-        shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    _gh(['run', 'download', str(run_id), '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', str(dest)])
-    payload = locate_payload(dest)
-    # gh run download extracts artifact contents into --dir. The upload path
-    # has to be that same directory so the republished layout stays flat.
-    if payload.resolve() != dest.resolve():
-        raise ValueError('Downloaded artifact layout is nested; refusing to rearrange it')
-    return verify_payload(payload)
+    with tempfile.TemporaryDirectory(prefix='.engine-download-', dir=dest.parent) as tmp:
+        download = Path(tmp) / 'artifact'
+        _gh(['run', 'download', str(run_id), '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', str(download)])
+        payload = locate_payload(download)
+        digest = verify_payload(payload)
+        candidate = Path(tmp) / 'engine-only'; candidate.mkdir()
+        for name in ('flow-engine', 'flow-engine.sha256', 'release.json'):
+            shutil.copy2(payload / name, candidate / name)
+        verify_payload(candidate)
+        if dest.exists():
+            shutil.rmtree(dest)
+        os.replace(candidate, dest)
+        return digest
 
 
 def main(argv=None):
@@ -180,8 +185,8 @@ def main(argv=None):
     set_output('source_run', run_id)
     set_output('source_url', match.get('url') or '')
     summarize(
-        'Engine input cache: hit. Republishing run '
-        + run_id + ' unchanged. Engine SHA-256 `' + engine_sha + '`.\n'
+        'Engine input cache: hit. Reusing engine only from run '
+        + run_id + '. Current application is built separately. Engine SHA-256 `' + engine_sha + '`.\n'
     )
     print('engine-artifact-cache: hit run ' + run_id + ' sha256 ' + engine_sha, file=sys.stderr)
 

@@ -9,14 +9,15 @@ import { sha, inventory, packages, fontPreservation } from '../../../scripts/pre
 
 const dev = '/Volumes/devSSD/Developer/lagrangian-native-20261117';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const stage = `${dev}/build/runtime-producer/NA11/runtime`;
-const evidence = `${dev}/test-output/runtime-producer/NA11/v2`;
+const stage = process.env.NATIVE_RUNTIME_STAGE ?? `${dev}/build/delivery-production/runtime`;
+const evidence = `${dev}/test-output/delivery-production/NA13/runtime`;
 const materialized = `${dev}/dependencies/native-runtime`;
-const node = '/opt/homebrew/Cellar/node/26.13.1/bin/node';
+const sourceNode = `${dev}/dependencies/portable-node/node-v22.23.5-darwin-arm64/bin/node`;
+let node;
 const producer = `${repo}/scripts/prepare-native-reader-runtime.mjs`;
 const commands = [];
 let root, installed, originalManifest;
-const env = { PATH: '/usr/bin:/bin', HOME: `${dev}/tmp/runtime-producer/empty-home`, NODE_PATH: '/nonexistent/poison', NODE_OPTIONS: '', TMPDIR: `${dev}/tmp/runtime-producer` };
+const env = { PATH: '/usr/bin:/bin', HOME: `${dev}/tmp/delivery-production/empty-home`, NODE_PATH: '/nonexistent/poison', NODE_OPTIONS: '', TMPDIR: `${dev}/tmp/delivery-production` };
 function run(argv, expected = 0, timeout = 60000, input) {
   const started = Date.now();
   const p = spawnSync(argv[0], argv.slice(1), { encoding: 'utf8', env, cwd: root, timeout, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024, input });
@@ -34,13 +35,15 @@ function withFile(rel, edit, action) {
   try { edit(p, Buffer.from(bytes)); action(); } finally { fs.writeFileSync(p, bytes); }
 }
 const prepareArgs = (source = materialized, helper = `${stage}/helper.mjs`, proof = `${stage}/proof-input.json`, output = `${root}/atomic-runtime`) =>
-  [node, producer, '--runtime-source', source, '--helper', helper, '--proof-input', proof, '--node', node, '--output', output];
+  [node, producer, '--runtime-source', source, '--helper', helper, '--proof-input', proof, '--node', sourceNode, '--output', output];
 
 before(() => {
   assert.ok(fs.existsSync(`${stage}/runtime-manifest.json`), 'required prepared runtime missing; run test_runtime.py first');
+  fs.mkdirSync(evidence, { recursive: true });
   root = fs.mkdtempSync(`${evidence}/node-run-`);
   installed = `${root}/installed/Contents/Resources/runtime`;
   fs.cpSync(stage, installed, { recursive: true, verbatimSymlinks: true });
+  node = `${installed}/node/bin/node`;
   originalManifest = sha(fs.readFileSync(`${installed}/runtime-manifest.json`));
   // An OS probe must actually fail before any offline success is counted.
   const p = run(offline(['-e', "require('net').createConnection({host:'127.0.0.1',port:9})"]), 1);
@@ -152,7 +155,7 @@ test('a dangling output symlink is rejected and preserved', () => {
 test('atomic replacement verifies a complete candidate; arbitrary helper stays hash-bound', () => {
   const output = `${root}/atomic-runtime`, helper = `${root}/future-helper.mjs`;
   fs.writeFileSync(helper, 'process.stderr.write("future helper fixture only"); process.exitCode=2;\n');
-  const args = [node, producer, '--runtime-source', materialized, '--helper', helper, '--node', node, '--output', output];
+  const args = [node, producer, '--runtime-source', materialized, '--helper', helper, '--node', sourceNode, '--output', output];
   run(args, 0, 180000); // original four-option contract, no supplemental proof
   assert.equal(sha(fs.readFileSync(`${output}/helper.mjs`)), sha(fs.readFileSync(helper)));
   assert.ok(!fs.existsSync(output + '.lock'));

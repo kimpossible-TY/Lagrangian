@@ -132,7 +132,7 @@ def _file_entry(path, mode, blob):
     return entry
 
 
-def collect_entries(root):
+def collect_entries(root, worktree=False):
     """Read the tracked bundle files from HEAD, not from a dirty worktree."""
     listed = _git(root, ['ls-files', '-s', '-z', '--', *BUNDLE_TREES, VERIFIER_PATH], text=False)
     records = []
@@ -150,6 +150,9 @@ def collect_entries(root):
         raise ValueError('Reader bundle has too many files')
     blobs = _read_blobs(root, [oid for _, oid, _ in records])
     entries = [_file_entry(path, mode, blobs[oid]) for mode, oid, path in records]
+    if worktree:
+        entries = [_file_entry(item['path'], item['mode'],
+            os.fsencode(os.readlink(Path(root) / item['path'])) if item['mode'] == '120000' else (Path(root) / item['path']).read_bytes()) for item in entries]
     entries.sort(key=lambda item: item['path'])
     paths = [entry['path'] for entry in entries]
     if len(paths) != len(set(paths)):
@@ -448,7 +451,7 @@ def load_manifest(path):
     return check_manifest(manifest)
 
 
-def package_reader_bundle(root, head_sha, output):
+def package_reader_bundle(root, head_sha, output, worktree=False):
     """Write the artifact directory for ``head_sha`` and self-check it."""
     root = Path(root)
     output = Path(output)
@@ -456,7 +459,7 @@ def package_reader_bundle(root, head_sha, output):
     actual = _git(root, ['rev-parse', 'HEAD']).strip()
     if actual != head_sha:
         raise ValueError('HEAD ' + actual + ' does not match headSha ' + head_sha)
-    entries = collect_entries(root)
+    entries = collect_entries(root, worktree=worktree)
     files = manifest_files(entries)
     if output.exists():
         shutil.rmtree(output)
@@ -662,10 +665,11 @@ def main_package(argv=None):
     parser = argparse.ArgumentParser(description='Package the HTML Reader bundle for the flow-engine workflow.')
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--head-sha', required=True)
+    parser.add_argument('--worktree', action='store_true', help='Bind current tracked checkout bytes, including local modifications')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        package_reader_bundle(args.root.resolve(), args.head_sha, args.output)
+        package_reader_bundle(args.root.resolve(), args.head_sha, args.output, worktree=args.worktree)
     except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as error:
         print(detect_failure_message(error), file=sys.stderr)
         return 1

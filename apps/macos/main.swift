@@ -14,6 +14,8 @@ do {
   if !arguments.isEmpty && arguments.first != "--background" {
     try FlowCLI(environment: configuration.environment).run(arguments)
   } else {
+    let bundled = try configuration.environment.nativeReaderBundle()
+    let defaultRuntime = bundled.map { NativeReaderRuntime(node: $0.node, helper: $0.helper, runtime: $0.runtime) }
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let delegate = FlowApp(environment: configuration.environment,
@@ -21,7 +23,7 @@ do {
                            noActivate: configuration.noActivate,
                            nativeRuntime: configuration.nativeRuntimePaths.map {
                              NativeReaderRuntime(node: URL(fileURLWithPath: $0[0]), helper: URL(fileURLWithPath: $0[1]), runtime: URL(fileURLWithPath: $0[2]))
-                           }, nativeManager: configuration.nativeManager.map { URL(fileURLWithPath: $0) })
+                           } ?? defaultRuntime, nativeManager: configuration.nativeManager.map { URL(fileURLWithPath: $0) } ?? bundled?.manager)
     app.delegate = delegate
     app.run()
   }
