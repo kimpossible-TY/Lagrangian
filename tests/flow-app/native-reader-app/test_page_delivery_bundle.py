@@ -118,7 +118,8 @@ state=json.loads(sys.argv[2]);service=state['service']
 fields={'documentID':state['documentID'],'serviceID':f"reader:{service['pid']}:{service['startedAt']}",'revision':state['revision'],
         'generation':1,'schemaVersion':1,'capabilities':'semantic-tree-v1,image-layout-v1','requestID':str(uuid.uuid4()),'viewID':str(uuid.uuid4())}
 url=sys.argv[1]+'api/native-document?'+urllib.parse.urlencode(fields)
-request=urllib.request.Request(url,headers={'Origin':sys.argv[1].rstrip('/')})
+origin=urllib.parse.urlsplit(sys.argv[1])
+request=urllib.request.Request(url,headers={'Origin':origin.scheme+'://'+origin.netloc})
 with urllib.request.urlopen(request,timeout=10) as response:print(response.read().decode())
 '''
         cls.query_code=query_code
