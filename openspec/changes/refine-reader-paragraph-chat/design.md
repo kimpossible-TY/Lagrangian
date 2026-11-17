@@ -48,12 +48,15 @@ provider marks authentication readiness, per-round request/headers/first event/
 first text/completion and bounded document-tool boundaries with monotonic elapsed
 milliseconds. The host aggregates source validation and storage write counts and
 durations; source validation includes concurrent cancellation checks, so summed
-cost is not a disjoint wall-time partition. Only allowlisted stage names, numeric
-round indices, numeric durations/counts, a schema version and terminal outcome
-enter the report. No document, prompt, answer, tool arguments/results, identity,
-model, credential, URL, path or exception text is recorded. Reports do not enter
-conversation history, model input or the browser protocol. Diagnostics cannot
-block terminal job cleanup if the log is unavailable.
+cost is not a disjoint wall-time partition. Only allowlisted stage names,
+nonnegative integer round indices (including round 9 and later), numeric
+durations/counts, a schema version and terminal outcome enter the report. No
+document, prompt, answer, tool arguments/results, identity, model, credential,
+URL, path or exception text is recorded. Reports do not enter
+conversation history, model input or the browser protocol. Each report retains
+at most 96 events; saturation only stops diagnostic collection, never document
+exploration. Diagnostics cannot block terminal job cleanup if the log is
+unavailable.
 
 Live traces showed the 50 ms upstream cancellation watcher repeatedly hashing the
 same accepted sources in parallel with event validation. Each run now owns a

@@ -314,7 +314,7 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(self.auth.calls, [])
 
     def test_static_root_is_independent_and_document_routes_stay_document(self):
-        self.assertIn(b"\xec\x83\x9d\xea\xb0\x81", self.request(path="/")[1])
+        self.assertIn("내 문서".encode(), self.request(path="/")[1])
         self.assertEqual(self.request(path="/index.html")[0], 200)
         for path in ("/document.html", "/service-worker.js", "/auth/callback?code=fake", "/api/offline"):
             self.assertEqual(self.request(path=path)[0], 404)

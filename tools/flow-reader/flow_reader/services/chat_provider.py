@@ -98,7 +98,9 @@ class ResponsesProvider:
             "Read more as needed; do not pretend the initial selection is the whole document. "
             "Explain uncertainty and cite passage keys for claims from other passages. "
             "The host's local history is authoritative.\n" + json.dumps(context, ensure_ascii=False)}, *history]
-        for _round in range(8):
+        round_index = 0
+        while True:
+            round_index += 1
             if cancelled():
                 raise ChatProviderError("Response interrupted")
             body = {"model": model, "input": inputs, "store": False, "stream": True,
@@ -110,14 +112,14 @@ class ResponsesProvider:
                                "Authorization": "Bearer " + token})
             completed = None
             received_text = False
-            measure("request-start", _round + 1)
+            measure("request-start", round_index)
             try:
                 with cancellable_response(self.open_response(request, timeout=45), cancelled) as response:
-                    measure("response-headers", _round + 1)
+                    measure("response-headers", round_index)
                     first_event = True
                     for event in events(response):
                         if first_event:
-                            measure("response-first-event", _round + 1)
+                            measure("response-first-event", round_index)
                             first_event = False
                         if cancelled():
                             raise ChatProviderError("Response interrupted")
@@ -127,13 +129,13 @@ class ResponsesProvider:
                             if not isinstance(delta, str):
                                 raise ChatProviderError("Invalid model delta")
                             if delta and not received_text:
-                                measure("response-first-text", _round + 1)
+                                measure("response-first-text", round_index)
                             yield {"type": "delta", "text": delta}
                             received_text = received_text or bool(delta)
                         elif kind in {"response.created", "response.in_progress"}:
                             yield {"type": "progress", "text": "Thinking…"}
                         elif kind == "response.completed":
-                            measure("response-completed", _round + 1)
+                            measure("response-completed", round_index)
                             completed = event.get("response", {})
                         elif kind in {"response.failed", "response.incomplete", "error"}:
                             raise ChatProviderError("Model request failed. Check ChatGPT access and usage, then retry.")
@@ -152,7 +154,7 @@ class ResponsesProvider:
                                      for part in item.get("content", []) if part.get("type") == "output_text")
                     if not text:
                         raise ChatProviderError("Model completed without a text answer")
-                    measure("response-first-text", _round + 1)
+                    measure("response-first-text", round_index)
                     yield {"type": "delta", "text": text}
                 return
             inputs.extend(output)
@@ -166,12 +168,11 @@ class ResponsesProvider:
                 if namespace != "current_document" or name not in {"search_current_document", "read_passage"}:
                     raise ChatProviderError("Model requested an unsupported tool")
                 yield {"type": "progress", "text": "Reading current document…"}
-                measure("tool-start", _round + 1)
+                measure("tool-start", round_index)
                 try:
                     result = call_tool(name, json.loads(call["arguments"]))
                 except (KeyError, ValueError, TypeError):
                     result = {"error": "Invalid bounded document-tool arguments"}
-                measure("tool-completed", _round + 1)
+                measure("tool-completed", round_index)
                 inputs.append({"type": "function_call_output", "call_id": call["call_id"],
                                "output": json.dumps(result, ensure_ascii=False)})
-        raise ChatProviderError("Document tool budget reached. Ask a narrower follow-up.")

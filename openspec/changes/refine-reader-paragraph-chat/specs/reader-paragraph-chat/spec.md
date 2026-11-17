@@ -33,6 +33,11 @@ paths, URLs or exception text, and MUST NOT change model requests or history.
 - **THEN** timing distinguishes provider rounds, tool boundaries and local validation/storage work
 - **AND** the report contains no selected text, question, answer or tool arguments/results.
 
+#### Scenario: Long document exploration exceeds diagnostic capacity
+- **WHEN** document exploration continues through round 9 and later and fills the 96-event report
+- **THEN** timing SHALL accept nonnegative integer round indices beyond 8 until that report fills
+- **AND** report saturation SHALL only stop collecting diagnostics; the same turn continues to a normal answer or the existing cancellation, stale-document/source or upstream-failure path.
+
 ### Requirement: Clear streaming composer
 After a question is accepted, the composer SHALL avoid duplicating the submitted
 question while the answer streams, preserving it for recovery on failure or

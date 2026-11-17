@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 // Exercise the delivered Homepage with explicit events and a scoped transport.
@@ -9,6 +10,9 @@ async function homepage(
     eligible = true,
     retainedManagementCookie = false,
     authUrl = "https://auth.openai.com/authorize?state=fixture",
+    hash = "",
+    inventory = [],
+    documentsFail = false,
   } = {},
 ) {
   class Element extends EventTarget {
@@ -20,20 +24,70 @@ async function homepage(
       this.value = "";
       this.hidden = false;
     }
+    set active(value) {
+      this._active = value;
+      this.tabindex = value ? "0" : "-1";
+    }
+    get active() {
+      return this._active;
+    }
     addEventListener(name, listener) {
       this.listeners.set(name, listener);
     }
     replaceChildren(...children) {
-      this.children = children;
+      this.children = [];
+      this.append(...children);
     }
     append(...children) {
-      this.children.push(...children);
+      for (const child of children) this.insertBefore(child, null);
+    }
+    insertBefore(child, before) {
+      child.remove();
+      const index = before ? this.children.indexOf(before) : this.children.length;
+      this.children.splice(index, 0, child);
+      child.parent = this;
+    }
+    remove() {
+      if (this.parent) {
+        if (this === document.activeElement || this.contains(document.activeElement))
+          document.activeElement = null;
+        const index = this.parent.children.indexOf(this);
+        if (index >= 0) this.parent.children.splice(index, 1);
+        this.parent = null;
+      }
+    }
+    get parentElement() {
+      return this.parent || null;
+    }
+    get firstElementChild() {
+      return this.children[0] || null;
+    }
+    get nextElementSibling() {
+      if (!this.parent) return null;
+      return this.parent.children[this.parent.children.indexOf(this) + 1] || null;
+    }
+    setAttribute(name, value) {
+      this[name] = value;
+    }
+    get isConnected() {
+      return Boolean(this.parent);
     }
     removeAttribute(name) {
       delete this[name];
     }
-    contains() {
-      return false;
+    showModal() {
+      this.open = true;
+    }
+    close() {
+      this.open = false;
+    }
+    focus() {
+      this.focused = true;
+      document.activeElement = this;
+    }
+    scrollIntoView() {}
+    contains(child) {
+      return this.children.some((item) => item === child || item.contains(child));
     }
     querySelectorAll() {
       return [];
@@ -47,10 +101,18 @@ async function homepage(
   const document = Object.assign(new Element(), {
     hidden: false,
     getElementById: element,
-    createElement: () => new Element(),
+    createElement: (tag) => Object.assign(new Element(), { localName: tag }),
+    createTextNode: (text) => Object.assign(new Element(), { textContent: text }),
   });
   const window = new EventTarget();
-  const state = { instance: "first-start", version: 0, signedIn: true, pending: false };
+  const state = {
+    instance: "first-start",
+    version: 0,
+    signedIn: true,
+    pending: false,
+    notices: {},
+    documentsFail,
+  };
   let csrf = "",
     managementSession = retainedManagementCookie;
   const calls = [],
@@ -59,7 +121,15 @@ async function homepage(
     calls.push({ path, ...options });
     const capability = options.headers["X-Reader-Host-Capability"];
     let result = { instance: state.instance, version: state.version };
-    if (path.endsWith("documents")) result = { documents: [], loading: false };
+    if (path.endsWith("documents")) {
+      if (state.documentsFail)
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: "Synthetic documents failure" }),
+        };
+      result = { documents: inventory, loading: false };
+    }
     if (path.endsWith("session")) {
       assert.ok(eligible);
       const manage = capability === "private-proof";
@@ -91,6 +161,7 @@ async function homepage(
         version: state.version,
         csrf,
         management: manage && operation !== "logout",
+        notice: state.notices[operation] || "",
         ...(operation === "login" ? { authUrl } : {}),
       };
     } else if (path.endsWith("account")) {
@@ -104,12 +175,26 @@ async function homepage(
     }
     return { ok: true, json: async () => result };
   };
+  const observers = [];
+  class Observer {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe(target) {
+      this.target = target;
+    }
+    disconnect() {
+      this.target = null;
+    }
+  }
   const globals = {
+    MutationObserver: Observer,
     document,
     window,
     fetch,
     BroadcastChannel: undefined,
-    location: { assign: (url) => destinations.push(url) },
+    location: { hash, assign: (url) => destinations.push(url) },
     localStorage: { setItem: () => assert.fail("proof/CSRF must not enter storage") },
     sessionStorage: { setItem: () => assert.fail("proof/CSRF must not enter storage") },
   };
@@ -130,8 +215,123 @@ async function homepage(
     await element("unlock").listeners.get("submit")({ preventDefault() {} });
     assert.equal(element("host-proof").value, "");
   };
-  return { element, calls, destinations, click, unlock, state };
+  return {
+    element,
+    observers,
+    calls,
+    destinations,
+    click,
+    unlock,
+    state,
+    window,
+    document,
+    location: globals.location,
+  };
 }
+
+test("initial documents failure does not claim a retained list or confirmed count", async (t) => {
+  const { element, calls } = await homepage(t, { documentsFail: true });
+  assert.doesNotMatch(element("inventory-message").textContent, /이전 목록/);
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 불러오지 못했습니다. 상태 새로고침으로 다시 확인해 주세요.",
+  );
+  assert.equal(element("inventory-message").dataset.error, "stale");
+  assert.equal(element("document-list").children.length, 0);
+  assert.equal(element("document-count").textContent, "");
+  assert.equal(element("host-state").textContent, "연결 확인 필요");
+  assert.ok(
+    calls.filter((call) => call.path.endsWith("documents")).every((call) => call.method === "GET"),
+  );
+});
+
+test("documents failure retains actual stale entries, count, identity and focus", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [{ kind: "html", url: "https://example.test/html" }],
+    },
+  ];
+  const { element, state, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const link = card.children[0].children[0].children[0];
+  link.focus();
+  state.documentsFail = true;
+  await click("refresh");
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 갱신하지 못했습니다. 이전 목록입니다.",
+  );
+  assert.equal(element("inventory-message").dataset.error, "stale");
+  assert.equal(element("document-count").textContent, "1");
+  assert.equal(element("document-list").children[0], card);
+  assert.equal(card.children[0].children[0].children[0], link);
+  assert.equal(link.href, inventory[0].variants[0].url);
+  assert.equal(card.children[0].children[1].dataset.state, "stale");
+  assert.equal(document.activeElement, link);
+  element("document-search").value = "no match";
+  element("document-search").listeners.get("input")();
+  assert.equal(element("document-list").children.length, 0);
+  assert.equal(element("document-count").textContent, "1");
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 갱신하지 못했습니다. 이전 목록입니다.",
+  );
+});
+
+test("documents failure after a known empty inventory does not claim previous documents", async (t) => {
+  const { element, state, click } = await homepage(t);
+  assert.equal(element("document-count").textContent, "0");
+  state.documentsFail = true;
+  await click("refresh");
+  assert.doesNotMatch(element("inventory-message").textContent, /이전 목록/);
+  assert.equal(
+    element("inventory-message").textContent,
+    "문서 목록을 불러오지 못했습니다. 상태 새로고침으로 다시 확인해 주세요.",
+  );
+  assert.equal(element("document-list").children.length, 0);
+  assert.equal(element("document-count").textContent, "0");
+  assert.equal(element("inventory-message").dataset.error, "stale");
+  element("document-search").value = "no match";
+  element("document-search").listeners.get("input")();
+  assert.match(element("inventory-message").textContent, /상태 새로고침/);
+});
+
+for (const initialFailure of [true, false])
+  test(`documents refresh recovers message, count and status after ${initialFailure ? "initial" : "retained"} failure`, async (t) => {
+    const inventory = [
+      {
+        id: "doc",
+        name: "문서",
+        state: "ready",
+        variants: [{ kind: "html", url: "https://example.test/html" }],
+      },
+    ];
+    const { element, state, click } = await homepage(t, {
+      inventory,
+      documentsFail: initialFailure,
+    });
+    const priorCard = element("document-list").children[0];
+    if (!initialFailure) {
+      state.documentsFail = true;
+      await click("refresh");
+      assert.equal(priorCard.children[0].children[1].dataset.state, "stale");
+    }
+    assert.equal(element("inventory-message").dataset.error, "stale");
+    assert.equal(element("document-count").textContent, initialFailure ? "" : "1");
+    state.documentsFail = false;
+    await click("refresh");
+    assert.equal(element("inventory-message").textContent, "");
+    assert.equal(element("inventory-message").dataset.error, "");
+    assert.equal(element("document-count").textContent, "1");
+    assert.equal(element("document-list").children.length, 1);
+    const card = element("document-list").children[0];
+    assert.equal(card.children[0].children[1].dataset.state, "ready");
+    assert.equal(element("host-state").textContent, "연결됨");
+    if (priorCard) assert.equal(card, priorCard);
+  });
 
 test("local login/logout work before unlock with OAuth CSRF and direct OpenAI navigation", async (t) => {
   const { element, calls, destinations, click } = await homepage(t);
@@ -229,4 +429,666 @@ test("login never navigates to an untrusted provider URL", async (t) => {
   assert.deepEqual(destinations, []);
   assert.equal(element("account-controls").hidden, true);
   assert.match(element("account-notice").textContent, /로그인 주소/);
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, "");
+});
+
+test("settings opens for connection hashes and explicit controls", async (t) => {
+  const { element, click, window, location } = await homepage(t, { hash: "#connection" });
+  assert.equal(element("settings").open, true);
+  assert.equal(element("connection").focused, true);
+  click("settings-close");
+  assert.equal(element("settings").open, false);
+  click("settings-open");
+  assert.equal(element("settings").open, true);
+  click("settings-close");
+  location.hash = "#connection";
+  window.dispatchEvent(new Event("hashchange"));
+  assert.equal(element("settings").open, true);
+});
+
+test("library chooses safe HTML then Paged and retains a destination across polls", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "원래 제목",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "javascript:alert(1)" },
+        { kind: "paged", url: "https://example.test/paged" },
+        { kind: "html", url: "https://example.test/html" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [title, status] = card.children[0].children;
+  const alternatives = card.children[1];
+  const primary = title;
+  const link = primary.children[0];
+  assert.equal(link.textContent, "원래 제목");
+  assert.equal(status.dataset.state, "ready");
+  assert.equal(link.href, "https://example.test/html");
+  assert.equal(link.textContent, "원래 제목");
+  assert.equal(alternatives.children[1].children[0].href, "https://example.test/paged");
+  link.focus();
+  inventory[0].state = "stale";
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(document.activeElement, link);
+  assert.equal(status.dataset.state, "stale");
+  inventory[0].variants = [
+    { kind: "html", url: "javascript:alert(1)" },
+    { kind: "paged", url: "https://example.test/paged" },
+  ];
+  await click("refresh");
+  assert.equal(primary.children[0].href, "https://example.test/paged");
+  assert.equal(alternatives.hidden, true);
+  assert.equal(document.activeElement, element("documents"));
+});
+
+test("hidden alternatives return trigger focus and retain surviving links", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "https://example.test/html" },
+        { kind: "paged", url: "https://example.test/paged" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [primary] = card.children[0].children;
+  const alternatives = card.children[1];
+  const primaryLink = primary.children[0];
+  const alternativeHost = alternatives.children[1];
+  const alternativeLink = alternativeHost.children[0];
+  alternatives.open = true;
+  alternativeHost.focus();
+  await click("refresh");
+  assert.equal(alternatives.children[1].children[0], alternativeLink);
+  assert.equal(document.activeElement, alternativeHost);
+  assert.equal(alternatives.open, true);
+  alternatives.children[0].focus();
+  inventory[0].variants.pop();
+  await click("refresh");
+  assert.equal(alternatives.hidden, true);
+  assert.equal(document.activeElement, element("documents"));
+  assert.equal(primary.children[0], primaryLink);
+});
+
+test("alternative ordinals use only safe menu peers and preserve destinations, nodes and focus", async (t) => {
+  const html = (name) => ({ kind: "html", url: `https://example.test/${name}` });
+  const paged = (name) => ({ kind: "paged", url: `https://example.test/${name}` });
+  const first = html("first"),
+    second = html("second"),
+    third = html("third");
+  const pagedA = paged("paged-a"),
+    pagedB = paged("paged-b");
+  const unsafe = { kind: "html", url: "javascript:alert(1)" };
+  const inventory = [
+    { id: "doc", name: "문서", state: "ready", variants: [first, pagedA, unsafe] },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const primary = card.children[0].children[0];
+  const primaryLink = primary.children[0];
+  const menu = card.children[1];
+  const items = () => menu.children.slice(1);
+  const checkMenu = (names, urls) => {
+    assert.deepEqual(
+      items().map((item) => item.children[0].textContent),
+      names,
+    );
+    assert.deepEqual(
+      items().map((item) => item.href),
+      urls,
+    );
+    for (const [index, item] of items().entries()) {
+      assert.equal(item.children[0].href, urls[index]);
+      assert.equal(item["aria-label"], `문서 · ${names[index]}`);
+      assert.equal(item.children[0]["aria-label"], item["aria-label"]);
+    }
+    assert.equal(primary.children[0], primaryLink);
+    assert.equal(primaryLink.textContent, "문서");
+    assert.equal(primaryLink["aria-label"], "문서 · 열기");
+  };
+  checkMenu(["Paged Reader"], [pagedA.url]);
+  inventory[0].variants.push(second);
+  await click("refresh");
+  checkMenu(["HTML Reader", "Paged Reader"], [second.url, pagedA.url]);
+  inventory[0].variants.push(third, pagedB, pagedA);
+  await click("refresh");
+  checkMenu(
+    ["HTML Reader 1", "HTML Reader 2", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
+    [second.url, third.url, pagedA.url, pagedB.url, pagedA.url],
+  );
+  const retained = items().map((item) => ({ item, link: item.children[0] }));
+  assert.notEqual(retained[2].item, retained[4].item, "Duplicate URL occurrences remain distinct");
+  menu.open = true;
+  retained[1].item.focus();
+  await click("refresh");
+  assert.deepEqual(
+    items(),
+    retained.map((entry) => entry.item),
+  );
+  for (const entry of retained) assert.equal(entry.item.children[0], entry.link);
+  assert.equal(document.activeElement, retained[1].item);
+  assert.equal(retained[1].item.active, true);
+  assert.equal(retained[1].item.tabindex, "0");
+  // Removing a peer changes only its surviving sibling's ordinal/accessible label.
+  inventory[0].variants = inventory[0].variants.filter((variant) => variant !== second);
+  await click("refresh");
+  checkMenu(
+    ["HTML Reader", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
+    [third.url, pagedA.url, pagedB.url, pagedA.url],
+  );
+  assert.equal(items()[0], retained[1].item);
+  assert.equal(items()[0].children[0], retained[1].link);
+  assert.equal(document.activeElement, retained[1].item);
+  assert.equal(menu.open, true);
+});
+
+test("ordinal labels follow a surviving destination through primary promotion and demotion", async (t) => {
+  const pagedA = { kind: "paged", url: "https://example.test/a" };
+  const pagedB = { kind: "paged", url: "https://example.test/b" };
+  const html = { kind: "html", url: "https://example.test/html" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [html, pagedA, pagedB] }];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const primary = card.children[0].children[0];
+  const menu = card.children[1];
+  const host = menu.children[1],
+    link = host.children[0];
+  assert.equal(link.textContent, "Paged Reader 1");
+  menu.open = true;
+  host.focus();
+  inventory[0].variants.shift();
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(link.textContent, "문서");
+  assert.equal(link["aria-label"], "문서 · 열기");
+  assert.equal(link.href, pagedA.url);
+  assert.equal(document.activeElement, link);
+  assert.equal(menu.children[1].children[0].textContent, "Paged Reader");
+  inventory[0].variants.unshift(html);
+  await click("refresh");
+  assert.equal(menu.children[1], host);
+  assert.equal(host.children[0], link);
+  assert.equal(link.textContent, "Paged Reader 1");
+  assert.equal(host["aria-label"], "문서 · Paged Reader 1");
+  assert.equal(link.href, pagedA.url);
+  assert.equal(document.activeElement, host);
+  assert.equal(host.active, true);
+  assert.equal(host.tabindex, "0");
+});
+
+test("missing public address is independent of state and clears when a safe link returns", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: null },
+        { kind: "paged", url: null },
+      ],
+    },
+  ];
+  const { element, click } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [primary, status, noAddress] = card.children[0].children;
+  const alternatives = card.children[1];
+  assert.equal(status.dataset.state, "ready");
+  assert.equal(primary.children[0].textContent, "문서");
+  assert.equal(noAddress.hidden, false);
+  assert.equal(noAddress.textContent, "공개 주소 없음");
+  inventory[0].variants = [{ kind: "html", url: "javascript:alert(1)" }];
+  await click("refresh");
+  assert.equal(primary.children[0].textContent, "문서");
+  assert.equal(noAddress.hidden, false);
+  inventory[0].variants.push({ kind: "paged", url: "https://example.test/paged" });
+  await click("refresh");
+  assert.equal(primary.children[0].href, "https://example.test/paged");
+  assert.equal(alternatives.hidden, true);
+  assert.equal(noAddress.hidden, true);
+  inventory[0].variants = [{ kind: "html", url: null }];
+  await click("refresh");
+  assert.equal(noAddress.hidden, false);
+  inventory[0].variants = [{ kind: "html", url: "https://example.test/html" }];
+  await click("refresh");
+  assert.equal(primary.children[0].href, "https://example.test/html");
+  assert.equal(noAddress.hidden, true);
+});
+
+test("action notice survives polling and is replaced or cleared by later authority", async (t) => {
+  const { element, click, state, calls } = await homepage(t);
+  state.notices.logout = "Remote revocation was not confirmed.";
+  state.notices.login = "New login notice";
+  await click("logout");
+  assert.equal(element("account-notice").textContent, state.notices.logout);
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, state.notices.logout);
+  await click("login");
+  assert.equal(element("account-notice").textContent, state.notices.login);
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, state.notices.login);
+  state.version++;
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, "");
+  state.notices.logout = "Host-specific notice";
+  await click("logout");
+  assert.equal(element("account-notice").textContent, state.notices.logout);
+  state.instance = "new-host";
+  state.version = 0;
+  await click("refresh");
+  assert.equal(element("account-notice").textContent, "");
+  assert.equal(calls.filter((c) => c.path.endsWith("account") && c.method === "POST").length, 3);
+  assert.equal(calls.filter((c) => c.path.endsWith("models")).length, 0);
+});
+
+test("focus follows a surviving destination between primary link and menu host", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [{ kind: "paged", url: "https://example.test/paged" }],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [primary] = card.children[0].children;
+  const alternatives = card.children[1];
+  const link = primary.children[0];
+  link.focus();
+  inventory[0].variants.push({ kind: "html", url: "https://example.test/html" });
+  await click("refresh");
+  const host = alternatives.children[1];
+  assert.equal(alternatives.open, true);
+  assert.equal(host.children[0], link);
+  assert.equal(document.activeElement, host);
+  await click("refresh");
+  assert.equal(alternatives.children[1], host);
+  assert.equal(document.activeElement, host);
+  assert.equal(alternatives.open, true);
+  inventory[0].variants.pop();
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(document.activeElement, link);
+  inventory[0].variants = [];
+  await click("refresh");
+  assert.equal(document.activeElement, element("documents"));
+});
+
+test("focused menu host promotes even when other alternatives remain", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "https://example.test/html" },
+        { kind: "paged", url: "https://example.test/paged" },
+        { kind: "paged", url: "https://example.test/other" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const [primary] = card.children[0].children;
+  const menu = card.children[1];
+  const host = menu.children[1];
+  const link = host.children[0];
+  menu.open = true;
+  host.focus();
+  inventory[0].variants.shift();
+  await click("refresh");
+  assert.equal(primary.children[0], link);
+  assert.equal(document.activeElement, link);
+  assert.equal(menu.open, true);
+  assert.equal(menu.hidden, false);
+});
+
+test("removed focused menu destination returns focus to documents", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "html", url: "https://example.test/html" },
+        { kind: "paged", url: "https://example.test/paged" },
+        { kind: "paged", url: "https://example.test/other" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const menu = element("document-list").children[0].children[1];
+  menu.open = true;
+  menu.children[1].focus();
+  inventory[0].variants.splice(1, 1);
+  await click("refresh");
+  assert.equal(document.activeElement, element("documents"));
+});
+
+test("menu show restores a demoted destination after the library focuses its first item", async (t) => {
+  const inventory = [
+    {
+      id: "doc",
+      name: "문서",
+      state: "ready",
+      variants: [
+        { kind: "paged", url: "https://example.test/first" },
+        { kind: "paged", url: "https://example.test/second" },
+      ],
+    },
+  ];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const primary = card.children[0].children[0];
+  const menu = card.children[1];
+  // Make the second Paged destination primary, then demote it behind two URLs.
+  inventory[0].variants.shift();
+  await click("refresh");
+  const link = primary.children[0];
+  link.focus();
+  inventory[0].variants.unshift(
+    { kind: "html", url: "https://example.test/html" },
+    { kind: "paged", url: "https://example.test/first" },
+  );
+  await click("refresh");
+  const movedHost = menu.children[2];
+  assert.equal(movedHost.children[0], link);
+  assert.equal(document.activeElement, movedHost);
+  menu.children[1].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, movedHost);
+});
+
+// Execute the shipped Web Awesome key and selection methods against the same
+// fake DOM as the Home tests. This models scheduling, not a real browser.
+function vendorActivation(menu, document) {
+  const source = readFileSync(
+    new URL("../web/vendor/webawesome-3.14.0/chunks/chunk.LOCSL3WJ.js", import.meta.url),
+    "utf8",
+  );
+  const keyStart = source.indexOf("    this.handleDocumentKeyDown = async (event) => {");
+  const keyEnd = source.indexOf("    /** Handles pointer down", keyStart);
+  const selectionStart = source.indexOf("  makeSelection(item, sourceEvent) {");
+  const selectionEnd = source.indexOf("  /** Syncs aria attributes", selectionStart);
+  assert.ok(
+    keyStart >= 0 && keyEnd > keyStart && selectionStart >= 0 && selectionEnd > selectionStart,
+  );
+  const registration = source.slice(keyStart, keyEnd);
+  const selection = source
+    .slice(selectionStart, selectionEnd)
+    .replace("  makeSelection(", "function makeSelection(");
+  class WaSelectEvent extends Event {
+    constructor(detail) {
+      super("wa-select", { cancelable: true });
+      this.detail = detail;
+    }
+  }
+  menu.localize = { dir: () => "ltr" };
+  menu.userTypedQuery = "";
+  menu.getCurrentSubmenuItem = () => null;
+  menu.getItems = () => menu.children.slice(1);
+  menu.getTrigger = () => menu.children[0];
+  menu.makeSelection = new Function("WaSelectEvent", `return (${selection});`)(WaSelectEvent);
+  const install = new Function(
+    "activeElements",
+    "isTopDismissible",
+    `return function() { ${registration} return this.handleDocumentKeyDown; };`,
+  )(
+    () => [document.activeElement],
+    () => true,
+  );
+  const handler = install.call(menu);
+  let selected;
+  for (const item of menu.children.slice(1))
+    item.navigate = () => {
+      selected = item.href;
+    };
+  return async (key) => {
+    menu.listeners.get("keydown")();
+    await handler({ key, preventDefault() {}, stopPropagation() {} });
+    return selected;
+  };
+}
+
+test("vendor selection follows the focused destination after show and slot resets", async (t) => {
+  const html = { kind: "html", url: "https://example.test/html" };
+  const a = { kind: "paged", url: "https://example.test/a" };
+  const b = { kind: "paged", url: "https://example.test/b" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+  const { element, click, document, observers } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const title = card.children[0].children[0];
+  const menu = card.children[1];
+  title.children[0].focus();
+  inventory[0].variants = [html, a, b];
+  await click("refresh");
+  let items = menu.children.slice(1);
+  const host = items[1];
+  // Model showMenu's first-item reset followed by its public completion event.
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  items[0].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [false, true],
+  );
+  assert.deepEqual(
+    items.map((item) => item.tabindex),
+    ["-1", "0"],
+  );
+  assert.equal(await vendorActivation(menu, document)("Enter"), b.url);
+  // Open, focus B, change siblings and model asynchronous slotchange after polling.
+  menu.open = true;
+  host.focus();
+  inventory[0].variants = [html, b, a];
+  await click("refresh");
+  items = menu.children.slice(1);
+  assert.equal(items[0], host);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  observers.find((observer) => observer.target === menu).callback();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [true, false],
+  );
+  inventory[0].variants = [html, a, b];
+  await click("refresh");
+  items = menu.children.slice(1);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  observers.find((observer) => observer.target === menu).callback();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [false, true],
+  );
+  assert.deepEqual(
+    items.map((item) => item.tabindex),
+    ["-1", "0"],
+  );
+  assert.equal(await vendorActivation(menu, document)(" "), b.url);
+  menu.open = true;
+  host.focus();
+  const extra = { kind: "paged", url: "https://example.test/extra" };
+  inventory[0].variants.push(extra);
+  await click("refresh");
+  items = menu.children.slice(1);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  observers.find((observer) => observer.target === menu).callback();
+  assert.equal(document.activeElement, host);
+  assert.deepEqual(
+    items.map((item) => item.active),
+    [false, true, false],
+  );
+  inventory[0].variants.pop();
+  await click("refresh");
+  items = menu.children.slice(1);
+  items.forEach((item, index) => {
+    item.active = index === 0;
+  });
+  // The capture listener repairs state even before the attribute observer fires.
+  assert.equal(await vendorActivation(menu, document)("Enter"), b.url);
+});
+
+for (const [key, expectedIndex, activation] of [
+  ["ArrowUp", 0, "Enter"],
+  ["ArrowDown", 2, " "],
+]) {
+  test(`opening preserves the latest ${key} destination through ${activation}`, async (t) => {
+    const html = { kind: "html", url: "https://example.test/html" };
+    const a = { kind: "paged", url: "https://example.test/a" };
+    const b = { kind: "paged", url: "https://example.test/b" };
+    const c = { kind: "paged", url: "https://example.test/c" };
+    const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+    const { element, click, document } = await homepage(t, { inventory });
+    const card = element("document-list").children[0];
+    const menu = card.children[1];
+    card.children[0].children[0].children[0].focus();
+    inventory[0].variants = [html, a, b, c];
+    await click("refresh");
+    const items = menu.children.slice(1);
+    for (const item of items) {
+      const originalFocus = item.focus.bind(item);
+      item.focus = (...args) => {
+        originalFocus(...args);
+        menu.listeners.get("focusin")();
+      };
+      item.scrollIntoView = () => {};
+    }
+    await vendorActivation(menu, document)(key);
+    assert.equal(document.activeElement, items[expectedIndex]);
+    // Model the component's first-item reset immediately before wa-after-show.
+    items.forEach((item, index) => {
+      item.active = index === 0;
+    });
+    items[0].focus();
+    menu.listeners.get("wa-after-show")();
+    assert.equal(document.activeElement, items[expectedIndex]);
+    assert.deepEqual(
+      items.map((item) => item.active),
+      items.map((item) => item === items[expectedIndex]),
+    );
+    assert.deepEqual(
+      items.map((item) => item.tabindex),
+      items.map((item) => (item === items[expectedIndex] ? "0" : "-1")),
+    );
+    assert.equal(await vendorActivation(menu, document)(activation), items[expectedIndex].href);
+  });
+}
+
+for (const close of [false, true]) {
+  test(`opening preserves ${close ? "trigger after close" : "focus outside"}`, async (t) => {
+    const inventory = [
+      {
+        id: "doc",
+        name: "문서",
+        state: "ready",
+        variants: [{ kind: "paged", url: "https://example.test/b" }],
+      },
+    ];
+    const { element, click, document } = await homepage(t, { inventory });
+    const card = element("document-list").children[0];
+    const menu = card.children[1];
+    card.children[0].children[0].children[0].focus();
+    inventory[0].variants.unshift(
+      { kind: "html", url: "https://example.test/html" },
+      { kind: "paged", url: "https://example.test/a" },
+    );
+    await click("refresh");
+    const outside = close ? menu.children[0] : element("document-search");
+    if (!close) outside.parent = document;
+    if (close) menu.open = false;
+    outside.focus();
+    document.listeners.get("focusin")();
+    menu.children[1].focus();
+    menu.listeners.get("wa-after-show")();
+    assert.equal(document.activeElement, outside);
+  });
+}
+
+test("pointer intent during opening survives the vendor first-item reset", async (t) => {
+  const b = { kind: "paged", url: "https://example.test/b" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const menu = card.children[1];
+  card.children[0].children[0].children[0].focus();
+  inventory[0].variants = [
+    { kind: "html", url: "https://example.test/html" },
+    { kind: "paged", url: "https://example.test/a" },
+    b,
+    { kind: "paged", url: "https://example.test/c" },
+  ];
+  await click("refresh");
+  const desired = menu.children[3];
+  menu.listeners.get("pointerdown")({ target: { closest: () => desired } });
+  desired.focus();
+  menu.listeners.get("focusin")();
+  await Promise.resolve();
+  menu.children[1].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, desired);
+  assert.equal(await vendorActivation(menu, document)("Enter"), desired.href);
+});
+
+for (const remove of [false, true]) {
+  test(`pending destination ${remove ? "removal" : "promotion"} updates restoration`, async (t) => {
+    const b = { kind: "paged", url: "https://example.test/b" };
+    const html = { kind: "html", url: "https://example.test/html" };
+    const a = { kind: "paged", url: "https://example.test/a" };
+    const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+    const { element, click, document } = await homepage(t, { inventory });
+    const card = element("document-list").children[0];
+    const title = card.children[0].children[0];
+    const menu = card.children[1];
+    title.children[0].focus();
+    inventory[0].variants = [html, a, b];
+    await click("refresh");
+    inventory[0].variants = remove ? [html, a] : [b, a];
+    const documents = element("documents");
+    documents.parent = document;
+    await click("refresh");
+    const expected = remove ? documents : title.children[0];
+    menu.children[1].focus();
+    menu.listeners.get("wa-after-show")();
+    assert.equal(document.activeElement, expected);
+  });
+}
+
+test("a new opening invalidates an earlier pending restoration", async (t) => {
+  const b = { kind: "paged", url: "https://example.test/b" };
+  const inventory = [{ id: "doc", name: "문서", state: "ready", variants: [b] }];
+  const { element, click, document } = await homepage(t, { inventory });
+  const card = element("document-list").children[0];
+  const menu = card.children[1];
+  card.children[0].children[0].children[0].focus();
+  inventory[0].variants = [
+    { kind: "html", url: "https://example.test/html" },
+    { kind: "paged", url: "https://example.test/a" },
+    b,
+  ];
+  await click("refresh");
+  menu.listeners.get("wa-show")();
+  menu.listeners.get("wa-show")();
+  menu.children[1].focus();
+  menu.listeners.get("wa-after-show")();
+  assert.equal(document.activeElement, menu.children[1]);
 });

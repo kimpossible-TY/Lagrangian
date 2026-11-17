@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from unittest.mock import patch
@@ -37,9 +37,9 @@ class ParagraphChatTests(unittest.TestCase):
     def open(self, text="First paragraph"):
         return self.chat.open(self.reader.request(fragments=self.reader.fragments(text)))["conversations"][0]
 
-    def send(self, record, question="Explain this", **extra):
+    def send(self, record, question="Explain this", model="fixture-model", **extra):
         return self.chat.mutate(self.reader.request(conversationID=record["conversation_id"],
-            version=record["version"], question=question, model="fixture-model", messageID=os.urandom(8).hex(), **extra), "send")
+            version=record["version"], question=question, model=model, messageID=os.urandom(8).hex(), **extra), "send")
 
     def wait(self, identifier):
         deadline = time.monotonic() + 10
@@ -75,25 +75,66 @@ class ParagraphChatTests(unittest.TestCase):
 
     def test_context_search_read_loop_only_explicit_bounded_tools_and_no_source_edits(self):
         before = self.reader.entry.read_bytes()
-        record = self.open()
-        self.send(record)
-        final = self.wait(record["conversation_id"])
-        self.assertIn("accepted context", final["thread"][-1]["text"])
-        requests = [body for path, body in self.fake.requests if path == "/responses"]
-        self.assertEqual(len(requests), 3)
-        for body in requests:
-            self.assertFalse(body["store"])
-            self.assertTrue(body["stream"])
-            self.assertNotIn("previous_response_id", body)
-            self.assertEqual([t["name"] for t in body["tools"][0]["tools"]], ["search_current_document", "read_passage"])
-        output = [i for i in requests[-1]["input"] if i.get("type") == "function_call_output"][-1]
-        self.assertIn("Additional context", json.loads(output["output"])["text"])
-        self.assertEqual(before, self.reader.entry.read_bytes())
+        # Real 8000-character passage pages, not an oversized fake tool result.
+        self.reader.html = self.reader.html.replace("Additional context can be found by the model.",
+                                                    "Additional context " + "x" * 8100)
+        self.reader.publish("fixture-r1")
+        for rounds, batch, fallback in ((9, 1, False), (9, 1, True), (1, 26, False), (14, 1, False)):
+            with self.subTest(rounds=rounds, batch=batch, fallback=fallback):
+                self.fake.tool_rounds, self.fake.calls_per_round = rounds, batch
+                self.fake.fallback_text = fallback
+                self.fake.requests.clear()
+                self.fake.tool_outputs.clear()
+                record = self.open()
+                self.send(record, model="gpt-6-luna")
+                final = self.wait(record["conversation_id"])
+                self.assertEqual(final["status"], "completed")
+                self.assertEqual(final["draft"], "")
+                self.assertIn("accepted context", final["thread"][-1]["text"])
+                requests = [body for path, body in self.fake.requests if path == "/responses"]
+                self.assertEqual(len(requests), rounds + 1)
+                continuation = []
+                for index, body in enumerate(requests):
+                    self.assertFalse(body["store"])
+                    self.assertTrue(body["stream"])
+                    self.assertEqual(body["model"], "gpt-6-luna")
+                    self.assertEqual(body["reasoning"], {"effort": "xhigh"})
+                    self.assertNotIn("previous_response_id", body)
+                    namespace, = body["tools"]
+                    self.assertEqual(namespace["name"], "current_document")
+                    self.assertEqual([t["name"] for t in namespace["tools"]],
+                                     ["search_current_document", "read_passage"])
+                    self.assertTrue(all(t["strict"] and not t["parameters"]["additionalProperties"]
+                                        for t in namespace["tools"]))
+                    self.assertEqual(body["input"], requests[0]["input"] + continuation)
+                    if index == rounds:
+                        break
+                    output = self.fake.tool_outputs[index]
+                    continuation.extend(output)
+                    calls = [item for item in output if item["type"] == "function_call"]
+                    results = requests[index + 1]["input"][-batch:]
+                    self.assertEqual([r["call_id"] for r in results], [c["call_id"] for c in calls])
+                    for result, call in zip(results, calls):
+                        self.assertEqual(result["type"], "function_call_output")
+                        expected = DocumentTools(self.reader.state.document_id,
+                            self.chat.snapshot(self.reader.request()), lambda: True)(
+                                call["name"], json.loads(call["arguments"]))
+                        self.assertEqual(json.loads(result["output"]), expected)
+                        continuation.append(result)
+                results = [i for i in continuation if i.get("type") == "function_call_output"]
+                self.assertEqual([r["call_id"] for r in results], ["call-" + str(i) for i in range(rounds * batch)])
+                if rounds == 14:
+                    pages = [json.loads(r["output"])["text"] for r in results[1:]]
+                    self.assertTrue(all(len(page) == 8000 for page in pages))
+                    self.assertGreater(sum(map(len, pages)), 96000)
+                    self.assertGreater(sum(len(r["output"]) for r in results), 96000)
+                self.assertEqual(before, self.reader.entry.read_bytes())
         self.assertNotIn("fixture-access", (self.work / "private/history.sqlite3").read_bytes().decode(errors="ignore"))
         self.assertEqual(stat.S_IMODE((self.work / "private").stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.work / "private/history.sqlite3").stat().st_mode), 0o600)
 
     def test_timing_report_bounds_stages_and_never_includes_request_contents(self):
+        self.fake.tool_rounds = 18
         record = self.open()
         original = self.chat.provider.run
         def run(**options):
@@ -117,11 +158,12 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(report["outcome"], "completed")
         self.assertGreater(report["sourceChecks"], 0)
         self.assertGreater(report["storageWrites"], 0)
-        self.assertLessEqual(len(report["events"]), 96)
+        self.assertEqual(len(report["events"]), 96)
         events = report["events"]
-        self.assertEqual([e["round"] for e in events if e["stage"] == "request-start"], [1, 2, 3])
-        self.assertEqual(sum(e["stage"] == "tool-completed" for e in events), 2)
-        self.assertEqual(sum(e["stage"] == "response-first-text" for e in events), 1)
+        rounds = [e["round"] for e in events if e["stage"] == "request-start"]
+        self.assertIn(9, rounds)
+        self.assertEqual(rounds, list(range(1, max(rounds) + 1)))
+        self.assertEqual(len([b for path, b in self.fake.requests if path == "/responses"]), 19)
         self.assertEqual([e["atMs"] for e in events], sorted(e["atMs"] for e in events))
         for event in events:
             self.assertEqual(set(event), {"stage", "round", "atMs"})
@@ -179,37 +221,52 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(result["status"], "interrupted")
         self.assertEqual(result["thread"][-1]["text"], "")
 
-    def test_source_edit_interrupts_idle_upstream_without_publication_or_more_bytes(self):
+    def test_source_edit_revision_and_close_interrupt_late_idle_upstream(self):
+        self.fake.tool_rounds, self.fake.defer_terminal = 9, True
         self.fake.mode = "stall"
-        record = self.open()
-        self.send(record)
-        self.assertTrue(self.fake.stream_started.wait(3))
-        job = self.chat.jobs[record["conversation_id"]]
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            with self.chat.store.transaction() as db:
-                current, = self.chat.store.read(db, self.reader.state.document_id, record["conversation_id"])
-            if current["progress"] == "Thinking…":
-                break
-            time.sleep(0.01)
-        self.assertEqual(current["progress"], "Thinking…")
-        self.reader.entry.write_text("changed while upstream is idle")
-        self.assertTrue(self.fake.stream_closed.wait(2))
-        job["thread"].join(2)
-        self.assertFalse(job["thread"].is_alive())
-        with self.chat.store.transaction() as db:
-            result, = self.chat.store.read(db, self.reader.state.document_id, record["conversation_id"])
-        self.assertEqual(result["status"], "interrupted")
-    def test_luna_requests_xhigh_across_tool_rounds(self):
-        record = self.open()
-        request = self.reader.request(conversationID=record["conversation_id"], version=record["version"],
-            question="Explain this", model="gpt-6-luna", messageID="luna-test")
-        self.chat.mutate(request, "send")
-        self.assertEqual(self.wait(record["conversation_id"])["status"], "completed")
-        requests = [body for path, body in self.fake.requests if path == "/responses"]
-        self.assertGreater(len(requests), 1)
-        self.assertTrue(all(body["model"] == "gpt-6-luna" and
-                            body["reasoning"] == {"effort": "xhigh"} for body in requests))
+        other = self.open("second independent")
+        original_source = self.reader.entry.read_text()
+        for action in ("source-edit", "revision", "close"):
+            with self.subTest(action=action):
+                self.reader.entry.write_text(original_source)
+                self.reader.publish("fixture-" + action)
+                self.fake.requests.clear()
+                self.fake.stream_started.clear()
+                self.fake.stream_closed.clear()
+                record = self.open()
+                sent = self.send(record, "Question before interruption")["conversations"][0]
+                self.assertTrue(self.fake.stream_started.wait(3))
+                job = self.chat.jobs[record["conversation_id"]]
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    current = next(r for r in self.chat.list(self.reader.request())["conversations"]
+                                   if r["conversation_id"] == record["conversation_id"])
+                    if current["progress"] == "Thinking…":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual(current["thread"][-1]["text"], "Incomplete ")
+                self.chat.mutate(self.reader.request(conversationID=record["conversation_id"],
+                    version=sent["version"], draft="New follow-up draft"), "draft")
+                if action == "source-edit":
+                    self.reader.entry.write_text("changed while upstream is idle")
+                elif action == "revision":
+                    self.reader.publish("new-revision")
+                else:
+                    self.chat.close()
+                self.assertTrue(self.fake.stream_closed.wait(2))
+                job["thread"].join(2)
+                self.assertFalse(job["thread"].is_alive())
+                self.assertNotIn(record["conversation_id"], self.chat.jobs)
+                with self.chat.store.transaction() as db:
+                    result, = self.chat.store.read(db, self.reader.state.document_id, record["conversation_id"])
+                    untouched, = self.chat.store.read(db, self.reader.state.document_id, other["conversation_id"])
+                self.assertEqual(result["status"], "interrupted")
+                self.assertEqual(result["draft"], "New follow-up draft")
+                self.assertEqual(result["thread"][-2]["text"], "Question before interruption")
+                self.assertEqual(result["thread"][-1]["text"], "Incomplete ")
+                self.assertEqual(result["thread"][-1]["revision"], "fixture-" + action)
+                self.assertEqual(untouched["thread"], [])
+                self.assertEqual(len([b for path, b in self.fake.requests if path == "/responses"]), 10)
 
     def test_reselect_updates_composer_but_preserves_each_questions_original_context(self):
         first = self.open("First paragraph")
@@ -256,6 +313,7 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(self.open("its own question.")["quote"], "its own question.")
 
     def test_completed_send_deduplicates_before_version_check_after_lost_ack(self):
+        self.fake.tool_rounds = 9
         first = self.open()
         payload = self.reader.request(conversationID=first["conversation_id"], version=first["version"],
             question="A question with a lost acknowledgment", model="fixture-model", messageID="lost-ack-id")
@@ -268,6 +326,7 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(len(self.fake.requests), requests)
 
     def test_failed_interrupted_retry_and_drafts_survive(self):
+        self.fake.tool_rounds, self.fake.defer_terminal = 9, True
         self.fake.mode = "disconnect"
         record = self.open()
         self.send(record, "Draft question")
@@ -286,27 +345,70 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(failed["status"], "failed")
         self.assertIn("unsupported tool", failed["progress"])
 
+    def test_upstream_failures_after_nine_tool_rounds_preserve_partial_and_draft(self):
+        self.fake.tool_rounds, self.fake.defer_terminal = 9, True
+        original_open = self.chat.provider.open_response
+        for mode, error in (("http-failure", "HTTP 401"), ("failed", "Model request failed"),
+                            ("incomplete", "Model request failed"), ("disconnect", "before completion"),
+                            ("timeout", "connection interrupted")):
+            with self.subTest(mode=mode):
+                self.fake.mode = mode
+                self.fake.tool_text_delta = "Earlier partial " if mode in {"http-failure", "timeout"} else ""
+                self.fake.requests.clear()
+                def open_response(request, **options):
+                    body = json.loads(request.data)
+                    if mode == "timeout" and len([i for i in body["input"]
+                            if i.get("type") == "function_call_output"]) == 9:
+                        raise URLError(TimeoutError("private transport detail"))
+                    return original_open(request, **options)
+                record = self.open()
+                with patch.object(self.chat.provider, "open_response", open_response):
+                    self.send(record, "Keep this question")
+                    final = self.wait(record["conversation_id"])
+                self.assertEqual(final["status"], "failed")
+                self.assertIn(error, final["progress"])
+                self.assertEqual(final["draft"], "Keep this question")
+                self.assertEqual(final["thread"][-2]["text"], "Keep this question")
+                self.assertEqual(final["thread"][-1]["text"],
+                                 "Earlier partial " if mode in {"http-failure", "timeout"} else "Incomplete ")
+                self.assertNotIn("private transport detail", json.dumps(final))
+                self.assertEqual(len([b for path, b in self.fake.requests if path == "/responses"]),
+                                 9 if mode == "timeout" else 10)
+
     def test_snapshot_source_service_and_tool_guards(self):
         request = self.reader.request()
         snapshot = self.chat.snapshot(request)
         tools = DocumentTools(self.reader.state.document_id, snapshot, lambda: self.chat.fresh(snapshot))
         args = {"documentID": request["documentID"], "revision": request["revision"], "key": "", "offset": 0, "limit": 2}
         self.assertEqual(len(tools("read_passage", args)["passages"]), 2)
-        for bad in ({**args, "documentID": "other"}, {**args, "limit": 8001}, {**args, "path": "/etc/passwd"}):
-            with self.assertRaises(ValueError): tools("read_passage", bad)
+        # Validation still applies after crossing the former call budget.
+        for _ in range(26):
+            tools("read_passage", args)
+        for bad in (None, {**args, "documentID": "other"}, {**args, "revision": "old"}):
+            with self.assertRaisesRegex(ValueError, "Document-tool identity mismatch"):
+                tools("read_passage", bad)
+        key = snapshot.bundle.passages[0]["key"]
+        for bad in ({**args, "limit": 21}, {**args, "key": key, "limit": 8001},
+                    {**args, "path": "/etc/passwd"}, {k: v for k, v in args.items() if k != "key"},
+                    {**args, "key": "unknown"}, {**args, "offset": -1}, {**args, "offset": True},
+                    {**args, "offset": 1.5}, {**args, "limit": 0}, {**args, "limit": False}):
+            with self.assertRaises(ValueError):
+                tools("read_passage", bad)
+        query = {k: v for k, v in args.items() if k != "key"} | {"query": "context", "limit": 20}
+        self.assertEqual(len(tools("search_current_document", query)["matches"]), 1)
+        for bad in ({**query, "query": ""}, {**query, "query": "x" * 161},
+                    {**query, "query": 1}, {**query, "limit": 21}, {**query, "path": "secret"}):
+            with self.assertRaises(ValueError):
+                tools("search_current_document", bad)
+        self.assertEqual(tools("read_passage", {**args, "offset": 1000})["passages"], [])
+        self.assertEqual(tools("read_passage", {**args, "key": key, "offset": 1000})["text"], "")
+        with self.assertRaisesRegex(ValueError, "Unsupported document tool"):
+            tools("exec_command", args)
         with self.assertRaises(RevisionChanged): self.chat.list({**request, "service": {"pid": 1}})
         with self.assertRaises(ValueError): self.chat.open(self.reader.request(fragments=[{**self.reader.fragments("First")[0], "exact": "fabricated"}]))
         self.reader.entry.write_text("Drift outside accepted snapshot")
         with self.assertRaises(RevisionChanged): self.chat.open(self.reader.request(fragments=self.reader.fragments("First")))
         with self.assertRaises(RevisionChanged): tools("read_passage", args)
-
-    def test_changed_revision_interrupts_old_turn(self):
-        record = self.open()
-        self.send(record)
-        self.reader.publish("new-revision")
-        final = self.wait(record["conversation_id"])
-        self.assertEqual(final["status"], "interrupted")
-        self.assertEqual(final["thread"][-1]["revision"], "fixture-r1")
 
     def test_ambiguous_anchor_does_not_choose_by_dom_key_after_revision(self):
         record = self.open()
@@ -434,11 +536,19 @@ class ParagraphChatTests(unittest.TestCase):
             self.assertEqual(json.load(error.exception), {"error": "Invalid reader request"})
 
     def test_sse_client_cancel_closes_stalled_upstream_and_releases_host_job(self):
+        self.fake.tool_rounds, self.fake.defer_terminal = 9, True
         origin = self.serve()
         self.fake.mode = "stall"
         record = self.open()
         sent = self.send(record)["conversations"][0]
         self.assertTrue(self.fake.stream_started.wait(3))
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            current = self.chat.list(self.reader.request())["conversations"][0]
+            if current["thread"][-1]["text"] == "Incomplete ":
+                break
+            time.sleep(0.01)
+        self.assertEqual(current["thread"][-1]["text"], "Incomplete ")
         job = self.chat.jobs[record["conversation_id"]]
         with urlopen(Request(origin + "/api/chat/cancel",
                 json.dumps(self.reader.request(conversationID=record["conversation_id"], version=sent["version"])).encode(),
@@ -447,7 +557,11 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertTrue(self.fake.stream_closed.wait(2), "Upstream SSE socket was not released")
         job["thread"].join(2)
         self.assertFalse(job["thread"].is_alive(), "Cancelled provider kept waiting for upstream bytes")
-        self.assertEqual(self.wait(record["conversation_id"])["status"], "interrupted")
+        final = self.wait(record["conversation_id"])
+        self.assertEqual(final["status"], "interrupted")
+        self.assertEqual(final["draft"], "Explain this")
+        self.assertEqual(final["thread"][-1]["text"], "Incomplete ")
+        self.assertEqual(len([b for path, b in self.fake.requests if path == "/responses"]), 10)
 
 
 class ChatAuthTests(unittest.TestCase):

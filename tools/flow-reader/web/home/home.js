@@ -9,11 +9,6 @@ const labels = {
   unknown: "상태 미확인",
   stale: "이전 관찰 · 재확인 필요",
 };
-const icons = {
-  html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v15M12 5C8 2 4 3 2 4v15c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1Z"/></svg>',
-  paged:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2h9l5 5v15H5ZM14 2v6h5M8 12h8M8 16h6"/></svg>',
-};
 const node = (tag, text, className) => {
   const result = document.createElement(tag);
   if (text) result.textContent = text;
@@ -28,6 +23,7 @@ let documents = [],
   oauthEligible = false,
   version = -1,
   instance = "",
+  actionNotice = "",
   generation = 0,
   disposed = false,
   timer,
@@ -62,6 +58,7 @@ async function request(path, body, headers = {}) {
   }
 }
 const documentCards = new Map();
+let restoringMenuFocus = false;
 
 // Leave already ordered nodes in place: removing/reinserting a focused link
 // during a status poll would send keyboard focus back to the document body.
@@ -77,55 +74,382 @@ function reconcileChildren(parent, children) {
   }
 }
 
+// Web Awesome 3.14 marks `active` internal: keep this compatibility bridge
+// isolated and let the component update its own roving tabindex.
+function syncMenuFocus(menu) {
+  if (!menu.open) return;
+  const items = [...menu.children].filter((child) => child.localName === "wa-dropdown-item");
+  const focused = document.activeElement;
+  if (!items.includes(focused)) return;
+  for (const item of items) {
+    const shouldBeActive = item === focused;
+    if (item.active !== shouldBeActive) item.active = shouldBeActive;
+  }
+}
+
+function trackPendingFocus(record, target) {
+  const pending = { target, input: false, focusRevision: 0 };
+  pending.outsideFocus = () => {
+    const target = document.activeElement;
+    // Another opening can briefly focus its first item before restoring its
+    // own pending destination. Neither focus represents a new user move.
+    const otherOpening = [...documentCards.values()].find(
+      (other) =>
+        other !== record &&
+        other.lifecycle.showing &&
+        !other.alternatives.open &&
+        target?.parentElement === other.alternatives &&
+        target !== other.trigger &&
+        !other.pending?.input,
+    );
+    if (restoringMenuFocus || otherOpening) return;
+    if (
+      record.pending === pending &&
+      (!record.alternatives.contains(target) || target === record.trigger)
+    )
+      pending.target = target;
+  };
+  pending.outsidePointer = (event) => {
+    if (record.pending === pending && !record.alternatives.contains(event.target)) {
+      pending.target = null;
+      queueMicrotask(() => {
+        if (record.pending === pending && !record.alternatives.contains(document.activeElement))
+          pending.target = document.activeElement;
+      });
+    }
+  };
+  if (record.pending) {
+    document.removeEventListener("focusin", record.pending.outsideFocus, true);
+    document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
+  }
+  record.pending = pending;
+  document.addEventListener("focusin", pending.outsideFocus, true);
+  document.addEventListener("pointerdown", pending.outsidePointer, true);
+}
+
 function documentCard(doc) {
   let record = documentCards.get(doc.id);
   if (!record) {
-    const card = node("article", "", "document-card");
-    const preview = node("div", "", "preview");
-    preview.setAttribute("aria-hidden", "true");
-    preview.append(node("span", "∫ f(x) dx", "formula"), node("small", "READ · THINK · CONNECT"));
+    const card = node("article", "", "document-card item");
     const info = node("div", "", "document-info");
     const title = node("h3");
+    const plainTitle = node("span");
     const status = node("p", "", "document-status");
-    const links = node("div", "", "reader-links");
-    info.append(title, status, links);
-    card.append(preview, info);
-    record = { card, title, status, links, variants: new Map() };
+    const alternatives = node("wa-dropdown", "", "alternatives");
+    alternatives.setAttribute("placement", "bottom-end");
+    const trigger = node("button", "⋯", "alternatives-trigger");
+    trigger.type = "button";
+    trigger.setAttribute("slot", "trigger");
+    trigger.setAttribute("aria-label", "다른 읽기 방식");
+    alternatives.append(trigger);
+    // Focus caused by a user key/pointer is synchronous; the component's
+    // first-item focus occurs immediately before wa-after-show instead.
+    alternatives.addEventListener("focusin", () => {
+      syncMenuFocus(alternatives);
+      const pending = record.pending;
+      const target = document.activeElement;
+      if (!pending || target === trigger || target?.parentElement !== alternatives) return;
+      if (pending.input) pending.target = target;
+      else {
+        const revision = pending.focusRevision;
+        queueMicrotask(() => {
+          if (
+            record.pending === pending &&
+            pending.focusRevision === revision &&
+            document.activeElement === target
+          )
+            pending.target = target;
+        });
+      }
+    });
+    // The component handles keys on document in the bubble phase.
+    alternatives.addEventListener(
+      "keydown",
+      () => {
+        syncMenuFocus(alternatives);
+        const pending = record.pending;
+        if (!pending) return;
+        const input = {};
+        pending.input = input;
+        queueMicrotask(() => {
+          if (record.pending === pending && pending.input === input) pending.input = false;
+        });
+      },
+      true,
+    );
+    alternatives.addEventListener(
+      "pointerdown",
+      (event) => {
+        const pending = record.pending;
+        if (!pending) return;
+        const item = event.target?.closest?.("wa-dropdown-item");
+        if (item?.parentElement === alternatives) pending.target = item;
+        const input = {};
+        pending.input = input;
+        queueMicrotask(() => {
+          if (record.pending === pending && pending.input === input) pending.input = false;
+        });
+      },
+      true,
+    );
+    // A trigger click during a closing transition is deferred until the
+    // component has finished both outstanding animations and removed its keys.
+    trigger.addEventListener(
+      "click",
+      (event) => {
+        const life = record.lifecycle;
+        if (alternatives.open && life.reopen) {
+          event.preventDefault();
+          event.stopPropagation();
+          life.cancelQueue();
+          if (record.pending) record.pending.target = trigger;
+          return;
+        }
+        if (alternatives.open || (!life.showing && !life.hiding)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        life.reopen = !life.reopen;
+        life.waitingHide = true;
+        if (life.reopen && record.pending?.target === trigger) record.pending.target = null;
+        if (life.reopen) life.watchQueue();
+        else {
+          life.stopQueue();
+          if (record.pending) record.pending.target = trigger;
+        }
+      },
+      true,
+    );
+    alternatives.addEventListener("wa-show", () => {
+      const life = record.lifecycle;
+      if (life.showing || life.hiding) {
+        // A programmatic reopen can reach the component before the trigger
+        // guard. Its active popup causes an early return without key listeners.
+        life.reopen = true;
+        life.waitingHide = true;
+        life.watchQueue();
+        return;
+      }
+      life.showing = true;
+      if (!record.pending) trackPendingFocus(record, null);
+      const pending = record.pending;
+      if (!pending.started) {
+        pending.started = true;
+        return;
+      }
+      // A later opening supersedes any unfinished restoration from an earlier one.
+      record.pending = null;
+      document.removeEventListener("focusin", pending.outsideFocus, true);
+      document.removeEventListener("pointerdown", pending.outsidePointer, true);
+    });
+    alternatives.addEventListener("wa-hide", () => {
+      const life = record.lifecycle;
+      if (life.showing && (!record.pending || record.pending.target === null)) {
+        const focused = document.activeElement;
+        const target = alternatives.contains(focused) && focused !== trigger ? trigger : focused;
+        if (record.pending) record.pending.target = target;
+        else trackPendingFocus(record, target);
+      }
+      life.hiding = true;
+    });
+    alternatives.addEventListener("wa-after-hide", () => {
+      const life = record.lifecycle;
+      life.hiding = false;
+      if (life.waitingHide && alternatives.open) {
+        // The component retained an active popup on its early return. Complete
+        // one more close before reopening through its normal listener setup.
+        life.waitingHide = true;
+        alternatives.open = false;
+        return;
+      }
+      life.waitingHide = false;
+      life.drain();
+    });
+    alternatives.addEventListener("wa-after-show", () => {
+      record.lifecycle.showing = false;
+      if (record.lifecycle.reopen) {
+        if (record.pending) record.pending.focusRevision++;
+        if (alternatives.open && !record.lifecycle.hiding) {
+          record.lifecycle.waitingHide = true;
+          alternatives.open = false;
+        }
+        record.lifecycle.drain();
+        return;
+      }
+      const pending = record.pending;
+      if (!pending) return;
+      record.pending = null;
+      document.removeEventListener("focusin", pending.outsideFocus, true);
+      document.removeEventListener("pointerdown", pending.outsidePointer, true);
+      const target = pending.target;
+      if (target?.isConnected && alternatives.contains(document.activeElement)) {
+        if (target === document.body) document.activeElement.blur();
+        else {
+          restoringMenuFocus = true;
+          try {
+            target.focus({ preventScroll: true });
+          } finally {
+            restoringMenuFocus = false;
+          }
+        }
+        syncMenuFocus(alternatives);
+      }
+    });
+    const observer = new MutationObserver(() => syncMenuFocus(alternatives));
+    observer.observe(alternatives, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["tabindex"],
+    });
+    const noAddress = node("p", "공개 주소 없음", "feedback");
+    info.append(title, status, noAddress);
+    card.append(info, alternatives);
+    record = {
+      card,
+      title,
+      plainTitle,
+      status,
+      alternatives,
+      trigger,
+      noAddress,
+      variants: new Map(),
+      observer,
+      pending: null,
+    };
+    const life = { showing: false, hiding: false, waitingHide: false, reopen: false };
+    life.stopQueue = () => {
+      life.reopen = false;
+      document.removeEventListener("pointerdown", life.cancelOutside, true);
+      document.removeEventListener("keydown", life.cancelKey, true);
+    };
+    life.cancelQueue = () => {
+      life.stopQueue();
+      if (alternatives.open) alternatives.open = false;
+    };
+    life.watchQueue = () => {
+      document.addEventListener("pointerdown", life.cancelOutside, true);
+      document.addEventListener("keydown", life.cancelKey, true);
+    };
+    life.cancelOutside = (event) => {
+      if (!alternatives.contains(event.target)) life.cancelQueue();
+    };
+    life.cancelKey = (event) => {
+      if (event.key !== "Escape") return;
+      life.cancelQueue();
+      if (record.pending) record.pending.target = trigger;
+      event.preventDefault();
+      event.stopPropagation();
+      trigger.focus({ preventScroll: true });
+    };
+    life.drain = () => {
+      if (!life.reopen || life.showing || life.hiding || life.waitingHide) return;
+      life.stopQueue();
+      if (!card.isConnected || alternatives.hidden) return;
+      if (record.pending) record.pending.started = false;
+      alternatives.open = true;
+    };
+    record.lifecycle = life;
     documentCards.set(doc.id, record);
   }
-  if (record.title.textContent !== doc.name) record.title.textContent = doc.name;
+  const active = document.activeElement;
+  const focusedEntry = [...record.variants.values()].find(
+    (entry) => active === entry.link || active === entry.item,
+  );
   const label = labels[doc.state] || labels.unknown;
   if (record.status.textContent !== label) record.status.textContent = label;
   record.status.dataset.state = doc.state;
-  const variants = [...doc.variants].sort(
-    (a, b) => Number(b.kind === "html") - Number(a.kind === "html"),
-  );
+  const priority = (kind) => (kind === "html" ? 0 : kind === "paged" ? 1 : 2);
+  const variants = [...doc.variants].sort((a, b) => priority(a.kind) - priority(b.kind));
   const keys = new Set();
-  const links = variants.map((variant, index) => {
-    const key = `${variant.kind}:${index}`;
-    keys.add(key);
-    const title = variant.kind === "html" ? "HTML Reader" : "Paged Reader";
+  const occurrences = new Map();
+  const links = variants.flatMap((variant) => {
     const url = readerLink(variant.url);
-    let item = record.variants.get(key);
-    if (!item || item.linked !== Boolean(url)) {
-      const element = url
-        ? node("a", "", `reader-link${variant.kind === "html" ? "" : " secondary"}`)
-        : node("span", `${title} · 공개 주소 없음`, "unavailable-link");
-      if (url) {
-        // These icons are fixed application constants, never inventory markup.
-        element.innerHTML = icons[variant.kind] || "";
-        element.append(document.createTextNode(title));
-      }
-      item = { element, linked: Boolean(url) };
-      record.variants.set(key, item);
+    if (!url) return [];
+    const destination = `${variant.kind}:${url}`;
+    const index = occurrences.get(destination) || 0;
+    occurrences.set(destination, index + 1);
+    const key = `${destination}:${index}`;
+    keys.add(key);
+    let entry = record.variants.get(key);
+    if (!entry) {
+      const link = node("a", "", "reader-link");
+      const item = node("wa-dropdown-item");
+      item.append(link);
+      link.addEventListener("click", (event) => {
+        if (link.parentElement === item) event.preventDefault();
+      });
+      entry = { link, item };
+      record.variants.set(key, entry);
     }
-    if (url) {
-      if (item.element.href !== url) item.element.href = url;
-      item.element.setAttribute("aria-label", `${doc.name} · ${title}`);
-    }
-    return item.element;
+    entry.link.href = url;
+    entry.item.href = url;
+    entry.link.dataset.kind = variant.kind;
+    return [entry];
   });
-  reconcileChildren(record.links, links);
+  const focusedIndex = focusedEntry ? links.indexOf(focusedEntry) : -1;
+  const movedToMenu = focusedIndex > 0 && active === focusedEntry.link;
+  if (movedToMenu && !record.alternatives.open) {
+    trackPendingFocus(record, focusedEntry.item);
+    const life = record.lifecycle;
+    if (life.showing || life.hiding) {
+      life.reopen = true;
+      life.waitingHide = true;
+      life.watchQueue();
+    } else record.alternatives.open = true;
+  }
+  const alternativeCounts = new Map();
+  const alternativeNumbers = new Map();
+  for (const entry of links.slice(1)) {
+    const kind = entry.link.dataset.kind;
+    alternativeCounts.set(kind, (alternativeCounts.get(kind) || 0) + 1);
+  }
+  for (const [index, entry] of links.entries()) {
+    if (index === 0) entry.link.textContent = doc.name;
+    else {
+      const kind = entry.link.dataset.kind;
+      const name = kind === "html" ? "HTML Reader" : "Paged Reader";
+      const number = (alternativeNumbers.get(kind) || 0) + 1;
+      alternativeNumbers.set(kind, number);
+      entry.link.textContent = alternativeCounts.get(kind) > 1 ? `${name} ${number}` : name;
+    }
+    entry.link.setAttribute(
+      "aria-label",
+      index === 0 ? `${doc.name} · 열기` : `${doc.name} · ${entry.link.textContent}`,
+    );
+    if (index > 0) {
+      entry.link.setAttribute("tabindex", "-1");
+      entry.link.setAttribute("aria-hidden", "true");
+      entry.item.setAttribute("aria-label", `${doc.name} · ${entry.link.textContent}`);
+    } else {
+      entry.link.removeAttribute("tabindex");
+      entry.link.removeAttribute("aria-hidden");
+    }
+    if (index > 0 && entry.link.parentElement !== entry.item) entry.item.append(entry.link);
+  }
+  record.plainTitle.textContent = doc.name;
+  reconcileChildren(record.title, links.length ? [links[0].link] : [record.plainTitle]);
+  reconcileChildren(record.alternatives, [
+    record.trigger,
+    ...links.slice(1).map((entry) => entry.item),
+  ]);
+  if (record.pending) {
+    const target = record.pending.target;
+    const previous = [...record.variants.values()].find((entry) => entry.item === target);
+    if (previous) {
+      const position = links.indexOf(previous);
+      if (position === 0) record.pending.target = previous.link;
+      else if (position < 0) record.pending.target = $("documents");
+    }
+  }
+  record.alternatives.hidden = links.length < 2;
+  if (record.alternatives.hidden) record.alternatives.open = false;
+  record.noAddress.hidden = links.length > 0;
+  if (focusedEntry && focusedIndex >= 0) {
+    const target = focusedIndex === 0 ? focusedEntry.link : focusedEntry.item;
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+    if (focusedIndex > 0) syncMenuFocus(record.alternatives);
+  } else if (active === record.trigger && record.alternatives.hidden) {
+    $("documents").focus({ preventScroll: true });
+  }
   for (const key of record.variants.keys()) {
     if (!keys.has(key)) record.variants.delete(key);
   }
@@ -142,9 +466,24 @@ function renderDocuments() {
   reconcileChildren(list, selected.map(documentCard));
   const ids = new Set(documents.map((doc) => doc.id));
   for (const id of documentCards.keys()) {
-    if (!ids.has(id)) documentCards.delete(id);
+    if (!ids.has(id)) {
+      const record = documentCards.get(id);
+      record.observer.disconnect();
+      record.lifecycle.stopQueue();
+      if (record.pending) {
+        document.removeEventListener("focusin", record.pending.outsideFocus, true);
+        document.removeEventListener("pointerdown", record.pending.outsidePointer, true);
+      }
+      record.pending = null;
+      documentCards.delete(id);
+    }
   }
-  if (hadFocus && document.activeElement !== focused) {
+  if (
+    hadFocus &&
+    document.activeElement !== focused &&
+    !list.contains(document.activeElement) &&
+    document.activeElement !== $("documents")
+  ) {
     // A removed document/destination must leave focus somewhere discoverable.
     const target = focused.isConnected && list.contains(focused) ? focused : $("documents");
     target.focus({ preventScroll: true });
@@ -158,11 +497,17 @@ function renderDocuments() {
 }
 
 function adopt(result) {
-  if (instance === result.instance && result.version > version) csrf = "";
+  if (instance === result.instance && result.version > version) {
+    csrf = "";
+    actionNotice = "";
+    $("account-notice").textContent = "";
+  }
   if (instance && instance !== result.instance) {
     csrf = "";
     capability = "";
     management = false;
+    actionNotice = "";
+    $("account-notice").textContent = "";
   }
   if (instance === result.instance && result.version < version) return false;
   instance = result.instance;
@@ -184,7 +529,7 @@ function renderAccount(result) {
     : result.signedIn
       ? "플랜 사용 권한은 확인되지 않았습니다."
       : "ChatGPT 연결 후 문서에서 대화를 시작할 수 있어요.";
-  $("account-notice").textContent = result.notice || "";
+  $("account-notice").textContent = actionNotice || result.notice || "";
   $("management-hint").textContent = result.eligible
     ? management
       ? "이 Mac에서 관리 중"
@@ -269,7 +614,9 @@ async function refresh() {
         if (disposed || current !== generation) return;
         $("host-state").textContent = "연결 확인 필요";
         documents = documents.map((d) => ({ ...d, state: "stale" }));
-        $("inventory-message").textContent = "문서 목록을 갱신하지 못했습니다. 이전 목록입니다.";
+        $("inventory-message").textContent = documents.length
+          ? "문서 목록을 갱신하지 못했습니다. 이전 목록입니다."
+          : "문서 목록을 불러오지 못했습니다. 상태 새로고침으로 다시 확인해 주세요.";
         $("inventory-message").dataset.error = "stale";
         renderDocuments();
       }),
@@ -287,6 +634,8 @@ async function refresh() {
 async function change(operation) {
   if (busy || disposed || !oauthEligible || (operation === "cancel" && !management)) return;
   busy = true;
+  actionNotice = "";
+  $("account-notice").textContent = "";
   generation++;
   clearTimeout(timer);
   for (const controller of controllers) controller.abort();
@@ -310,6 +659,13 @@ async function change(operation) {
     const status = await request("account");
     if (disposed || current !== generation) return;
     renderAccount(status);
+    if (
+      instance !== result.instance ||
+      version !== result.version ||
+      status.instance !== result.instance ||
+      status.version !== result.version
+    )
+      return;
     if (result.authUrl) {
       const url = new URL(result.authUrl);
       if (url.origin !== "https://auth.openai.com")
@@ -318,8 +674,11 @@ async function change(operation) {
       $("login-link").hidden = false;
       location.assign(url.href);
     }
+    actionNotice = result.notice || "";
     $("account-notice").textContent =
-      result.notice || status.notice || "이 Mac의 브라우저에서 로그인을 완료하세요.";
+      actionNotice ||
+      status.notice ||
+      (result.authUrl ? "이 Mac의 브라우저에서 로그인을 완료하세요." : "");
     channel?.postMessage("changed");
   } catch (error) {
     if (!disposed && current === generation) {
@@ -337,6 +696,8 @@ $("unlock").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (busy) return;
   busy = true;
+  actionNotice = "";
+  $("account-notice").textContent = "";
   generation++;
   const current = generation,
     proof = $("host-proof").value;
@@ -374,6 +735,17 @@ $("models").addEventListener("click", async () => {
     $("models").disabled = false;
   }
 });
+const settings = $("settings");
+$("settings-open").addEventListener("click", () => settings.showModal());
+$("settings-close").addEventListener("click", () => settings.close());
+function openConnection() {
+  if (location.hash !== "#connection") return;
+  if (!settings.open) settings.showModal();
+  $("connection").focus({ preventScroll: true });
+  $("connection").scrollIntoView({ block: "start" });
+}
+window.addEventListener("hashchange", openConnection);
+openConnection();
 $("document-search").addEventListener("input", renderDocuments);
 $("refresh").addEventListener("click", refresh);
 document.addEventListener("visibilitychange", () => {
@@ -406,6 +778,8 @@ if (channel)
   channel.onmessage = () => {
     generation++;
     csrf = "";
+    actionNotice = "";
+    $("account-notice").textContent = "";
     unavailable();
     refresh();
   };

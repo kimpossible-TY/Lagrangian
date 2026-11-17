@@ -1,0 +1,41 @@
+{
+  "//": "Report-only Reader pilot. No duplication threshold or automatic refactoring.",
+  "path": [
+    "tools/reader-common",
+    "tools/flow-reader",
+    "tools/typst-preview-frontend/src",
+    "tools/typst-dom/src"
+  ],
+  "format": ["javascript", "typescript", "python"],
+  "formatsExts": {
+    "javascript": ["js", "mjs", "cjs"],
+    "typescript": ["ts", "mts", "cts"]
+  },
+  "crossFormats": ["javascript,typescript"],
+  "minLines": 10,
+  "minTokens": 80,
+  "mode": "weak",
+  "ignore": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/generated/**",
+    "**/compiler-assets/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    "**/fixtures/**",
+    "**/__snapshots__/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*.d.ts",
+    "**/*.d.mts",
+    "**/*.min.js"
+  ],
+  "reporters": ["console", "json", "html", "markdown"],
+  "output": "dist/reports/jscpd",
+  "absolute": false,
+  "noColors": true,
+  "noTips": true,
+  "failOnEmpty": true
+}
