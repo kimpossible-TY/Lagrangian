@@ -192,7 +192,7 @@ def validate(app):
     run([app / 'Contents/MacOS/flow-engine', '--version'], stdout=subprocess.DEVNULL)
     return manifest
 
-def resolve_engine(requested=None):
+def resolve_engine(requested=None, probe=True):
     selected = requested or os.environ.get('FLOW_ENGINE_PATH')
     if selected is None:
         preferred = DEFAULT_APP / 'Contents/MacOS/flow-engine'
@@ -202,6 +202,8 @@ def resolve_engine(requested=None):
     if not engine.is_file() or not os.access(engine, os.X_OK):
         raise ValueError('A compatible external engine is required. Pass --engine /path/to/flow-engine '
                          'or set FLOW_ENGINE_PATH; the installed Flow engine is the default.')
+    if not probe:
+        return engine, None
     version = capture([engine, '--version'])
     if '--follow-system-theme' not in capture([engine, 'preview', '--help']):
         raise ValueError('The external engine must support Flow preview features, including '
@@ -212,7 +214,9 @@ def build(args):
     engine_build = None
     if getattr(args, 'build_engine', False):
         args.engine, engine_build = build_native_engine(args.jobs)
-    engine, engine_version = resolve_engine(args.engine)
+    # A cached engine is untrusted until the run/artifact or explicit delivery
+    # owner authenticates its bytes. Never execute even --version before that.
+    engine, _ = resolve_engine(args.engine, probe=False)
     app = args.output.expanduser().resolve()
     if app.name != APP_BUNDLE: raise ValueError('Unexpected output app name')
     selected_identity = None
@@ -241,6 +245,7 @@ def build(args):
                 candidate_args.engine_provenance = payload.parents[3] / 'release.json'
             if payload is not None:
                 candidate_args.identity = selected_identity
+            engine, engine_version = resolve_engine(engine)
             manifest = build_bundle(candidate_args, staged, engine, engine_version, engine_build)
             if payload is not None:
                 native_delivery_consumer.current_delivery(SimpleNamespace(**globals()), payload, engine)
@@ -505,6 +510,8 @@ def install_engine_payload(repo, run_id, dest, record=None):
             download.mkdir()
             run(['gh', 'run', 'download', run_id, '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', download])
             payload = engine_payload_dir(download)
+            # Reject escaping links before chmod, xattr or any executable probe.
+            delivery_module().inventory(payload)
             verify_engine_payload(payload)
             shutil.copytree(payload, incoming, symlinks=True)
         engine = incoming / 'flow-engine'

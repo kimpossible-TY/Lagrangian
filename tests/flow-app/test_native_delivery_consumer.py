@@ -199,6 +199,32 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
             self.assertEqual(self.tree(self.cache/self.run_id),before)
         finally:marker.unlink()
 
+    def test_tampered_engine_is_not_probed_before_authentication(self):
+        original=self.engine.read_bytes();marker=self.root/'untrusted-engine-executed'
+        try:
+            self.engine.write_text('#!/bin/sh\necho unsafe > "'+str(marker)+'"\nprintf "fixture --follow-system-theme\\n"\n')
+            self.build_failure('untrusted-engine-no-probe')
+            self.assertFalse(marker.exists(),'Unverified cache engine was executed')
+        finally:self.engine.write_bytes(original)
+
+    def test_fetch_rejects_escaping_engine_before_chmod_or_probe(self):
+        negative=self.root/'escaping-producer';negative.mkdir()
+        marker=negative/'untrusted-executed';outside=negative/'outside-engine'
+        outside.write_text('#!/bin/sh\necho unsafe > "'+str(marker)+'"\nprintf "fixture --follow-system-theme\\n"\n')
+        outside.chmod(0o700);mode=outside.stat().st_mode
+        artifact=negative/'artifact';artifact.mkdir()
+        (artifact/'flow-engine').symlink_to(outside)
+        checksum=hashlib.sha256(outside.read_bytes()).hexdigest()
+        write(artifact/'flow-engine.sha256',checksum+'  flow-engine\n')
+        release=json.loads((self.artifact/'release.json').read_text());release['engineInputSHA256']=checksum
+        write(artifact/'release.json',json.dumps(release))
+        env=dict(self.env,NA14_FIXTURE_ROOT=str(negative),NA14_FIXTURE_ENGINE=str(artifact))
+        r=self.command('escape-before-chmod',['python3','scripts/flow-app.py','fetch-engine','--run-id',self.run_id],env)
+        self.assertNotEqual(r.returncode,0)
+        self.assertEqual(outside.stat().st_mode,mode)
+        self.assertFalse(marker.exists())
+        self.assertFalse((negative/'cache'/self.run_id).exists())
+
     def test_successful_refetch_is_atomic_and_bounded(self):
         original=self.tree(self.cache/self.run_id)
         r=self.command('successful-refetch',['python3','scripts/flow-app.py','fetch-engine','--run-id',self.run_id])
