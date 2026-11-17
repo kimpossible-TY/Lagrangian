@@ -134,6 +134,22 @@ let unicodeBlockBoundaries = [0,1,2,3,6,9,10,12,13,15,16,27,28,29,30,31,32,33,34
                 }
             }
         }
+        // Real initial preparation/adoption handshake, without any object owner
+        // implementation or mutable candidate database inside the text view.
+        let coldStore = NativeReaderDocumentStore()
+        _ = try coldStore.beginRequest()
+        let coldView = NativeReaderTextView(store: coldStore)
+        let coldContext = NativeReaderRequestContext(requestID: UUID(), viewID: coldStore.viewID, generation: 1, target: document.identity)
+        let coldKey = try coldView.preparationKey(for: document, context: coldContext)
+        try rejects("initial cache miss") { try coldView.adopt(document, context: coldContext) }
+        try check(coldStore.document == nil, "cache miss cannot adopt canonical candidate")
+        let retriedColdKey = try coldView.preparationKey(for: document, context: coldContext)
+        try check(retriedColdKey == coldKey, "cache miss retry retains preparation key")
+        coldView.cachedObject = { node, _ in unitObject(node, coldKey) }
+        try coldView.adopt(document, context: coldContext)
+        try check(coldView.renderKey == coldKey, "initial prepared key is adoptable")
+        coldView.dispose()
+
         let (view, context) = try make(document)
         let block = document.blocks[1]
         let map = view.textMap!
@@ -376,6 +392,8 @@ let unicodeBlockBoundaries = [0,1,2,3,6,9,10,12,13,15,16,27,28,29,30,31,32,33,34
         _ = try paint(view, file: nil)
         try check(cancelPaints == 0 && view.requestedRenderKey == nil && view.requestSource(.excerpt) == nil, "cancel revokes draw acknowledgment and operations")
         try rejects("cancelled object completion") { try view.refreshPreparedObjects(for: currentKey) }
+        try rejects("cancelled candidate completion") { try view.adopt(candidate, context: nextContext) }
+        try rejects("cancelled candidate preparation") { _ = try view.preparationKey(for: candidate, context: nextContext) }
         try rejects("cancel geometry") { try view.validateGeometry(latestGeometry) }
         view.dispose()
         try rejects("dispose adoption") { try view.adopt(candidate, context: nextContext) }

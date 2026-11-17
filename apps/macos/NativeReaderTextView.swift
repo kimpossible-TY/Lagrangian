@@ -271,14 +271,23 @@ final class NativeReaderBodyTextView: NSTextView {
         .init(identity: document.identity, documentGeneration: document.generation, viewID: store.viewID,
               layoutGeneration: layoutGeneration, width: max(32, bodyTextView.bounds.width - 32), appearance: textAppearance)
     }
+    // Pure preparation handshake: NA06 can calculate objects off-thread for an
+    // incoming candidate before adoption. Failed/missing-cache retries retain
+    // this key; width/font/theme/cancel and document revision/generation revoke it.
+    // No candidate snapshot is retained here.
+    func preparationKey(for document: NativeReaderDocument, context: NativeReaderRequestContext) throws -> NativeReaderTextRenderKey {
+        guard !isDisposed else { throw NativeReaderContractError.disposed }
+        try document.validate()
+        guard context.viewID == store.viewID, context.target == document.identity else { throw NativeReaderContractError.wrongTarget }
+        guard context.generation == store.generation, document.generation == store.generation else { throw NativeReaderContractError.staleGeneration }
+        return key(for: document)
+    }
     // Adoption remains exclusively in the injected common store. A held candidate
     // is returned to its owner; this view keeps no replacement snapshot database.
     func adopt(_ document: NativeReaderDocument, context: NativeReaderRequestContext) throws {
         guard !isDisposed else { throw NativeReaderContractError.disposed }
         guard store.selection == nil else { throw NativeReaderContractError.selectionHeld }
-        try document.validate()
-        guard context.viewID == store.viewID, context.target == document.identity else { throw NativeReaderContractError.wrongTarget }
-        guard context.generation == store.generation, document.generation == store.generation else { throw NativeReaderContractError.staleGeneration }
+        let newKey = try preparationKey(for: document, context: context)
         let oldAnchor = store.document?.identity == document.identity ? viewportAnchor() : nil
         if store.document?.identity != document.identity {
             pendingViewportAnchor = nil
@@ -287,9 +296,7 @@ final class NativeReaderBodyTextView: NSTextView {
             returningAnchor = nil
             focusedNodeID = nil
         }
-        layoutGeneration += 1
         renderKey = nil
-        let newKey = key(for: document)
         do {
             let composition = try compose(document, key: newKey)
             try store.adopt(document, for: context)
@@ -516,6 +523,9 @@ final class NativeReaderBodyTextView: NSTextView {
         callbacks.chatRequested(.open(selection), context)
     }
     func cancel() {
+        // This store is bound to this viewID, not the shared service. Revoke the
+        // common adoption generation before any late presenter callback arrives.
+        store.cancel()
         isCancelled = true
         operationSerial += 1
         sourcePending = nil
