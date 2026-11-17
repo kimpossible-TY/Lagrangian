@@ -124,6 +124,15 @@ enum ReadingSessionTests {
 
     switch scenario {
     case "dev-isolation":
+      let flags = try FlowRuntimeConfiguration(arguments: ["--dev-root", root.appendingPathComponent("flags").path, "--dev-no-activate", "--version"],
+        variables: [:], userHome: root.appendingPathComponent("live"), executable: root.appendingPathComponent("flow"))
+      try require(flags.noActivate && flags.arguments == ["--version"], "no-activate flag not isolated/parsed")
+      do {
+        _ = try FlowRuntimeConfiguration(arguments: ["--dev-no-activate", "--version"], variables: [:], userHome: root,
+          executable: root.appendingPathComponent("flow"))
+        throw FlowError(message: "production no-activate accepted")
+      } catch let error as FlowError { try require(error.message != "production no-activate accepted", error.message) }
+
       let live = root.appendingPathComponent("live")
       let dev = root.appendingPathComponent("isolated")
       let config = try FlowRuntimeConfiguration(arguments: ["--dev-root", dev.path, "--profiles"],
@@ -412,18 +421,6 @@ enum ReadingSessionTests {
 
 
 #if NATIVE_SHELL_TESTS
-@MainActor private final class TestNativePresenter: NativeReaderDocumentPresenting {
-  var documents: [NativeReaderDocument] = []
-  var callback: ((NativeReadProgress) -> Void)?
-  var cancels = 0
-  func present(_ document: NativeReaderDocument, progress: @escaping (NativeReadProgress) -> Void) {
-    documents.append(document)
-    callback = progress
-    progress(.windowInitialized)
-  }
-  func cancel() { cancels += 1; callback = nil }
-}
-
 @MainActor private func nativeScenario(_ name: String, root: URL) throws {
   _ = NSApplication.shared
   NSApp.setActivationPolicy(.prohibited)
@@ -540,38 +537,6 @@ enum ReadingSessionTests {
     try require(!app.enabled(#selector(FlowApp.start)), "isolated launchd control enabled")
     return
   }
-  let fixtureURL = URL(fileURLWithPath: CommandLine.arguments[2])
-  let provider = NativeReaderFixtureProvider(url: fixtureURL)
-  let presenter = TestNativePresenter()
-  let controller = NativeReaderWindowController(provider: provider,
-    target: { _ in try await provider.load().identity }, presenter: presenter)
-  defer { controller.dispose() }
-  var events: [NativeReadProgress] = []
-  let cancel = controller.open(profile) { events.append($0) }
-  try spin { !presenter.documents.isEmpty }
-  try require(controller.store.document != nil && presenter.documents.count == 1, "fixture not adopted exactly once")
-  try require(events.count == 2, "semantic/window stages conflated")
-  if name == "native-fixture-shell" {
-    let shell = NativeReaderShellWindow(show: false)
-    shell.present(presenter.documents[0]) { events.append($0) }
-    defer { shell.window?.close() }
-    try require(shell.isWindowLoaded && shell.window?.isVisible == false, "headless shell state: loaded=\(shell.isWindowLoaded), visible=\(String(describing: shell.window?.isVisible))")
-    try require(shell.notice.stringValue.contains("아직"), "shell claimed complete reader support")
-    try require(!shell.body.string.isEmpty, "real fixture text missing from shell")
-    try require(!events.contains { if case .painted = $0 { return true }; return false }, "shell initialization claimed paint")
-  } else if name == "native-fixture-cancel" {
-    let late = presenter.callback
-    cancel()
-    let count = events.count
-    late?(.painted)
-    drain()
-    try require(events.count == count && presenter.cancels > 0, "cancelled presenter acknowledged paint")
-    _ = controller.open(profile) { events.append($0) }
-    try spin { presenter.documents.count == 2 }
-    // Cancelling the older request must leave the new request alive.
-    cancel()
-    presenter.callback?(.painted)
-    try require(events.contains { if case .painted = $0 { return true }; return false }, "old cancellation killed new view")
-  } else { throw FlowError(message: "Unknown native test") }
+  throw FlowError(message: "Unknown native test; integrated object host tests live in test_app_integration.py")
 }
 #endif

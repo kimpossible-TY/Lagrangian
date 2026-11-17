@@ -4,6 +4,10 @@ import UniformTypeIdentifiers
 final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let isolated: Bool
   let fixture: URL?
+  let noActivate: Bool
+  let nativeRuntime: NativeReaderRuntime?
+  var nativeProfile: Profile?
+  var managedResolver: NativeReaderManagedResolver?
   var nativeWindow: NativeReaderWindowController?
   var nativeReadOverride: ReadingSessionController.NativeRead?
   let environment: AppEnvironment
@@ -18,15 +22,41 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     nativeRead: { [weak self] profile, progress in
       guard let self else { return {} }
       if let read = self.nativeReadOverride { return read(profile, progress) }
-      guard let fixture = self.fixture, self.isolated else {
-        progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 외부 Reader 열기를 사용할 수 있습니다."))
-        return {}
+      if self.nativeProfile != profile {
+        self.nativeWindow?.dispose(); self.nativeWindow = nil; self.nativeProfile = profile
       }
       if self.nativeWindow == nil {
-        let provider = NativeReaderFixtureProvider(url: fixture)
-        self.nativeWindow = NativeReaderWindowController(provider: provider, target: { _ in
-          try await provider.load().identity
-        })
+        if let fixture = self.fixture, self.isolated {
+          let provider = NativeReaderFixtureProvider(url: fixture)
+          self.nativeWindow = NativeReaderWindowController(provider: provider, target: { _ in try await provider.load().identity },
+            assets: { document, _ in
+              try await Task.detached {
+                var bytes = [String: Data]()
+                for asset in document.assets {
+                  bytes[asset.id] = try Data(contentsOf: fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(asset.id))
+                }
+                return bytes
+              }.value
+            }, runtime: self.nativeRuntime, avoidActivation: self.noActivate)
+        } else {
+          guard let resolver = self.managedResolver else {
+            progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
+            return {}
+          }
+          let client = NativeReaderManagedClient(resolver: resolver, root: profile.root, entry: profile.entry)
+          self.nativeWindow = NativeReaderWindowController(provider: client, target: { _ in try await client.target() },
+            assets: { document, context in
+              let actions = try await client.currentActions()
+              var assets = [String: Data]()
+              for asset in document.assets { assets[asset.id] = try await actions.transport.asset(asset, context: context) }
+              return assets
+            }, runtime: self.nativeRuntime, actions: { try await client.currentActions() },
+            invalidate: { await client.invalidate() }, avoidActivation: self.noActivate)
+        }
+        self.nativeWindow?.copyText = { text in
+          NSPasteboard.general.clearContents(); return NSPasteboard.general.setString(text, forType: .string)
+        }
+        self.nativeWindow?.openHomepage = { NSWorkspace.shared.open($0) }
       }
       return self.nativeWindow!.open(profile, progress: progress)
     }
@@ -42,7 +72,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   var readingIntent = 0
 
   init(environment: AppEnvironment, projectService: ProjectService? = nil,
-       isolated: Bool = false, fixture: URL? = nil) {
+       isolated: Bool = false, fixture: URL? = nil,
+       noActivate: Bool = false, nativeRuntime: NativeReaderRuntime? = nil, nativeManager: URL? = nil) {
+    self.noActivate = noActivate
+    self.nativeRuntime = nativeRuntime
     self.isolated = isolated
     self.fixture = fixture
     self.environment = environment
@@ -50,6 +83,16 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     launchAgents = LaunchAgentService(environment: environment)
     self.projectService = projectService ?? ProjectService(store: store, launchAgents: isolated ? IsolatedProjectController() : launchAgents)
     super.init()
+    if let manager = nativeManager {
+      managedResolver = NativeReaderManagedResolver(attach: { arguments in
+        try await Task.detached {
+          guard manager.isFileURL, FileManager.default.isExecutableFile(atPath: manager.path) else {
+            throw NativeReaderOperationFailure.unavailable
+          }
+          return Data(try CommandRunner(timeout: 10).run(manager.path, arguments).utf8)
+        }.value
+      }, network: .urlSession())
+    }
   }
   var settingsTabs: NSTabView?
   @objc func showSettings() { showWindow(); settingsTabs?.selectTabViewItem(at: 1) }
@@ -336,8 +379,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   @objc func showWindow() {
     guard NSApp.activationPolicy() != .prohibited else { return }
-    window?.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    if noActivate { window?.orderFrontRegardless() }
+    else { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
   }
   @objc func selectProfile() {
     guard !mutating, picker.indexOfSelectedItem >= 0 else { return }

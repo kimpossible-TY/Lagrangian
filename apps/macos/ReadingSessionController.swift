@@ -467,6 +467,9 @@ struct FlowRuntimeConfiguration {
   let variables: [String: String]
   let isolated: Bool
   let fixture: URL?
+  let noActivate: Bool
+  let nativeRuntimePaths: [String]?
+  let nativeManager: String?
 
   init(arguments: [String], variables: [String: String], userHome: URL,
        executable: URL) throws {
@@ -480,6 +483,17 @@ struct FlowRuntimeConfiguration {
       remaining.removeSubrange(index...index + 1)
       guard !remaining.contains(name) else { throw FlowError(message: "Duplicate \(name)") }
       return value
+    }
+    let noActivate = remaining.contains("--dev-no-activate")
+    remaining.removeAll { $0 == "--dev-no-activate" }
+    let manager = try option("--native-reader-manager")
+    if let manager, !manager.hasPrefix("/") { throw FlowError(message: "Manager must be an explicit absolute executable") }
+    let runtimeNode = try option("--native-reader-node")
+    let runtimeHelper = try option("--native-reader-helper")
+    let runtimeRoot = try option("--native-reader-runtime")
+    let runtimePaths = [runtimeNode, runtimeHelper, runtimeRoot]
+    guard runtimePaths.allSatisfy({ $0 == nil }) || runtimePaths.allSatisfy({ $0?.hasPrefix("/") == true }) else {
+      throw FlowError(message: "Native runtime requires explicit absolute node/helper/runtime paths")
     }
     let rootPath = try option("--dev-root") ?? variables["FLOW_DEV_ROOT"]
     let fixturePath = try option("--native-reader-fixture")
@@ -517,12 +531,18 @@ struct FlowRuntimeConfiguration {
         throw FlowError(message: "LaunchAgent operations are disabled with a dev root")
       }
     }
+    guard (!noActivate && runtimeNode == nil && manager == nil) || rootPath != nil else {
+      throw FlowError(message: "Dev presentation/runtime options require an explicit dev root")
+    }
     guard fixturePath == nil || rootPath != nil else {
       throw FlowError(message: "Native fixture requires an explicit dev root")
     }
     if let fixturePath, !fixturePath.hasPrefix("/") {
       throw FlowError(message: "Native fixture path must be absolute")
     }
+    self.nativeManager = manager
+    self.noActivate = noActivate
+    self.nativeRuntimePaths = runtimeNode == nil ? nil : runtimePaths.compactMap { $0 }
     self.arguments = remaining
     self.variables = vars
     self.isolated = rootPath != nil

@@ -19,5 +19,17 @@
     "NativeReadingEnvironment.swift",
     "FlowApp.swift",
     "main.swift"
+  ],
+  "native": [
+    "NativeReaderSelection.swift",
+    "NativeReaderAccessibility.swift",
+    "NativeReaderTextView.swift",
+    "NativeReaderObjectRenderer.swift",
+    "NativeReaderPagedLayout.swift",
+    "NativeReaderRecoveryStore.swift",
+    "NativeReaderTransport.swift",
+    "NativeReaderSession.swift",
+    "NativeReaderActions.swift",
+    "NativeReaderChatView.swift"
   ]
 }

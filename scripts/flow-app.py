@@ -40,7 +40,7 @@ def swift_sources(include_app=True):
     """Use one explicit source manifest for app builds and isolated core tests."""
     directory = ROOT / 'apps/macos'
     manifest = json.loads((directory / 'sources.json').read_text())
-    sections = ('core', 'app') if include_app else ('core',)
+    sections = ('core', 'native', 'app') if include_app else ('core',)
     return [directory / name for section in sections for name in manifest[section]]
 
 def run(args, **kwargs):

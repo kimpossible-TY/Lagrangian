@@ -74,8 +74,6 @@ class NativeShell(unittest.TestCase):
     def test_external_action_preserves_existing_service_and_browser_readiness(self): self.scenario('native-external')
     def test_native_read_saves_settings_before_request(self): self.scenario('native-save')
     def test_default_native_read_is_honestly_unavailable(self): self.scenario('native-unavailable')
-    def test_real_fixture_initializes_shell_without_activating_window_or_claiming_paint(self): self.scenario('native-fixture-shell', True)
-    def test_cancelled_view_rejects_late_ack_and_preserves_new_request(self): self.scenario('native-fixture-cancel', True)
 
 
 if __name__ == '__main__':

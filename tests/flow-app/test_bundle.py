@@ -112,6 +112,16 @@ class ExternalEngineBundle(unittest.TestCase):
             self.assertIn('disabled with a dev root', result.stderr)
         self.assertFalse((home / 'Library/LaunchAgents').exists())
 
+    def test_native_delivery_verifier_keeps_unfinished_runtime_gate_nonzero(self):
+        report = self.root / 'native-delivery.json'
+        result = subprocess.run([sys.executable, ROOT / 'scripts/verify-native-reader-app.py', self.app,
+                                 '--output', report], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        status = json.loads(report.read_text())
+        self.assertEqual(status['integrity'], 'verified')
+        self.assertEqual(status['status'], 'runtime-delivery-blocked')
+        self.assertEqual(status['exit'], 2)
+
     def test_preview_delivers_both_themes_through_configured_origin(self):
         project = self.root / 'project'; project.mkdir()
         (project / 'main.typ').write_text('#let dark = sys.inputs.at("theme", default: "light") == "dark"\n'
