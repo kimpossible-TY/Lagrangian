@@ -18,7 +18,9 @@ import AppKit
 import Foundation
 import ObjectiveC
 
-func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+@MainActor var assertions = 0
+@MainActor func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+  assertions += 1
   if !value() { throw FlowError(message: message) }
 }
 @MainActor func until(_ condition: () -> Bool) async throws {
@@ -185,7 +187,7 @@ final class WorkerRecords: @unchecked Sendable {
     try records.save(out.appendingPathComponent("worker-executions.json"))
     let windows = NSApp.windows
     try check(windows.allSatisfy { !$0.isVisible && !$0.isKeyWindow && !$0.isMainWindow }, "headless test ordered/activated window")
-    let result: [String: Any] = ["assertions": 27, "actualFixture": true, "sharedStore": true,
+    let result: [String: Any] = ["assertions": assertions, "actualFixture": true, "sharedStore": true,
       "nativeObjectTextPaint": true, "heldReplacement": true, "missingRuntimePreserved": true,
       "cancelCloseNoAck": true, "visibleWindows": 0, "GUIAcceptance": false,
       "runtimeScope": "explicit scratch test runtime only; no delivery/TeX/F04 claim", "events": events]
