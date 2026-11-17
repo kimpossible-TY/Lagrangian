@@ -25,7 +25,7 @@ Canonical text is exact accepted HTML descendant Unicode scalars; display curren
 retains those same scalars. It is neither raw Typst nor a reconstructed source excerpt.
 UTF8 means bytes, codepoints mean Unicode scalars, UTF16 means code units; maps are
 node-local. Half-open node ranges are block-local UTF16. Selection fragments use
-extended grapheme endpoints in 1–32 ordered blocks. NFC/NFD, surrogate pairs and ZWJ
+extended grapheme endpoints across ordered accepted blocks for local display. Remote source/chat submission remains limited to 1–32 fragments. NFC/NFD, surrogate pairs and ZWJ
 sequences remain distinct as authored. Source offsets/freshness remain private to
 existing service owners; current import emits explicit visible/unmapped state.
 
@@ -183,3 +183,59 @@ lifetime guards; the frozen MathML helper and public painter API remain unchange
 Only the explicitly transferred internal clip preparation changes. Full app,
 GUI/VoiceOver, F04 ordered deltas/full page fidelity, TeX and runtime delivery remain
 open gates. No live installation, service restart, push, Rust or Cloud build occurs.
+
+
+== Core review correction contract — NA06
+
+Retained layout authority is the exact currently accepted snapshot and its
+accepted view/context, independently of the newest transport request generation.
+`retainedPreparationKey` never grants source authority or new-candidate adoption.
+New adoption and source checks retain their latest-generation/pending guards.
+Previously verified assets remain snapshot-bound during retained reflow. Selection
+holds replacement through resize, font/theme and Find-bar changes. Pending layout
+revokes old geometry and paint receipts while retaining logical body, map, AX and
+selection; only current-key preparation restores geometry.
+
+Fallible composition and object metric validation happen before changing the
+published render key, body, context, map, focus or viewport. Rejected B leaves
+painted A intact. Explicit close ends a view's selection lifetime and permits a
+fresh same-profile Read. Old close/cancel tickets cannot cancel the new request.
+Network/source acknowledgments do not release selection.
+
+`NativeReaderSelection.validateLocal` permits ordinary display selection and hold
+across all accepted blocks, bounded by the existing document limit. Exact scalar,
+grapheme, range and reading-order checks remain. Plain copy and AX use this local
+selection. `validate` and source/chat transport/server boundaries retain the
+32-fragment and existing payload limits. Over-limit actions reject explicitly,
+invalidating an older actionable ticket rather than silently submitting it.
+
+A lost Send is confirmed only by the same user-message UUID and exact stored
+Unicode scalars. Actor and UI share this predicate. Confirmation clears unknown
+state and permits a fresh UUID/question. Missing or mismatched history permits
+only an explicit identical UUID/question/model retry; history never starts
+inference. A newer private draft survives acknowledgment of an older message.
+
+Block images add TextKit presentation line boundaries before and after the
+attachment. Added characters carry no canonical/source spans; logical copy, AX
+text and endpoints remain unchanged. Inline images retain one-line placement
+when space permits. Native host glyph/line-fragment and selection checks are
+required; an object-plan flush alone is insufficient evidence.
+
+The host injects NA10 answer math through `configureMath` using a pinned explicit
+worker and the same accepted target/snapshot/layout generation, width, font and
+theme. Context changes reconfigure or dispose the old view. Missing runtime
+remains an explicit unsupported state, never a prepared-formula success.
+Headless native paint is not GUI/VoiceOver, shipping-runtime or full F01–18 proof.
+
+
+The native *Refresh conversation* control explicitly reads authoritative history;
+it is available while an uncertain Send blocks Send, and disabled during another
+operation. It never infers or retransmits. Missing conversations, cancelled/disposed
+views, invalid current authority, superseded operation epochs and older history
+versions cannot clear pending state or replace presentation. Only exact UUID/user
+content confirmation permits a fresh question; otherwise the original explicit
+UUID/question/model retry remains required. Recovery retains the bounded original
+pending question/model separately from a newer private composer draft. Optional
+fields decode older schema-1 snapshots without changing document/input/revision,
+hash, atomic-write, privacy or source authority checks. No credentials or source
+excerpts are added. Supplement evidence is under `test-output/core-review-fixes/v2-ui`.

@@ -38,6 +38,7 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
     /// NA02 calls this whenever selection changes; never release by an old acknowledgment.
     func updateSelection(_ value: NativeReaderSelection?, context: NativeReaderRequestContext) async throws {
         try await transport.check(context)
+        selection = nil // An over-limit/new selection must never leave an old actionable ticket.
         if let value { _ = try await transport.selectionFields(value, context: context) }
         selection = value
     }
@@ -94,7 +95,7 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
                   !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, question.count <= 8000,
                   !model.isEmpty, model.count <= 120 else { throw NativeReaderContractError.invalidSelection }
             if let previous = unknown[id] {
-                guard previous.read, previous.message == message, previous.question == question, previous.model == model else {
+                guard previous.read, previous.message == message, Array(previous.question.unicodeScalars) == Array(question.unicodeScalars), previous.model == model else {
                     throw NativeReaderOperationFailure.unknownEffect
                 }
             }
@@ -125,9 +126,17 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
     }
 
     func history(context: NativeReaderRequestContext) async throws -> [NativeReaderConversation] {
+        try Task.checkCancellation()
         let object = try await transport.call("api/native-chat", fields: ["operation": "list"], context: context)
+        try Task.checkCancellation()
         let result = try adopt(object, context: context)
-        for id in Array(unknown.keys) { unknown[id]?.read = true }
+        for id in Array(unknown.keys) {
+            guard let pending = unknown[id] else { continue }
+            if let record = result.first(where: { $0.state.conversationID == id }),
+               record.state.confirmsUserMessage(pending.message, question: pending.question) {
+                unknown.removeValue(forKey: id)
+            } else { unknown[id]?.read = true }
+        }
         return result
     }
 

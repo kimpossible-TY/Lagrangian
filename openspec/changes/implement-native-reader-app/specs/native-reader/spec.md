@@ -78,3 +78,50 @@ SHALL reject atomically through import, transport and generic recovery decoding.
 - **WHEN** newly compiled accepted HTML carries a supported SVG base64 data image
 - **THEN** the importer validates strict encoding, size, SVG references and content before publication
 - **AND** original SVG asset bytes and authored image layout survive HTTP, recovery and native paint
+
+
+### Requirement: Retained native presentation survives rejected work
+The native reader SHALL separate retained layout authority from current request generation, preserve accepted body/selection/accessibility during held reflow, and reject stale geometry/source operations. Fallible candidate composition SHALL preserve the previously painted publication. Explicit close SHALL permit safe same-profile reopening without stale callbacks.
+
+#### Scenario: Reflow while a newer candidate is held
+- **WHEN** a new request completes while the accepted document is selected and layout inputs change
+- **THEN** current-key preparation restores the retained document's native layout without adopting the pending candidate
+- **AND** source operations continue rejecting stale/pending contexts until explicit release and fresh adoption
+
+#### Scenario: Rejected candidate or closed selected window
+- **WHEN** candidate B has missing/invalid object preparation after A was painted
+- **THEN** A remains the published native body and accessibility document
+- **WHEN** the user explicitly closes a selected window and reads the same profile again
+- **THEN** the new request can complete and old close/cancel callbacks cannot cancel it
+
+### Requirement: Local display selection and remote submission have distinct bounds
+Ordinary native selection, hold, plain copy and accessibility selection SHALL support all accepted document blocks. Source/chat submission SHALL retain the existing 32-fragment and payload limits. Over-limit submission SHALL reject explicitly without copying or submitting an earlier short selection.
+
+#### Scenario: Select a long document
+- **WHEN** a user selects 32, 33 or 100 blocks through native range, Select All, drag, Shift or accessibility operations
+- **THEN** plain copy and accessibility retain the exact full selected text
+- **AND** more than 32 source/chat fragments are rejected before dispatch without releasing the display selection
+
+### Requirement: Lost Send recovery uses identical actor and UI evidence
+Authoritative history SHALL confirm a pending Send only when UUID, user role and exact stored content match. Confirmation SHALL permit a new message UUID/question. Missing/mismatched content SHALL permit only an explicit original UUID/question/model retry. Recovery SHALL never automatically send, and acknowledgment SHALL preserve newer private drafts.
+
+#### Scenario: Confirm or retain an uncertain Send
+- **WHEN** history contains the exact pending user message
+- **THEN** adapter and UI clear the unknown state and allow a fresh explicit question
+- **WHEN** history omits it or its role/content differs
+- **THEN** a new UUID/question remains blocked and only the original explicit retry is permitted
+
+#### Scenario: Recover through an explicit native control
+- **WHEN** a pending Send blocks Send or a stream disconnects
+- **THEN** the native Refresh conversation control permits an explicit read without inference or retransmission
+- **AND** busy, cancelled, disposed, superseded, unauthorized or older history cannot clear pending state
+- **AND** an absent conversation is reported as unavailable rather than completed
+- **AND** recovery preserves the original bounded pending question/model separately from a newer local draft, with optional defaults for old snapshots
+
+### Requirement: Block image placement reaches final native text layout
+A supported block image SHALL have presentation line boundaries before and after its final TextKit attachment. These added boundaries SHALL NOT enter canonical/source text, plain copy or logical accessibility offsets. Inline images SHALL preserve inline placement when space permits.
+
+#### Scenario: Prose surrounds a block or inline image
+- **WHEN** an accepted paragraph contains before, image and after content
+- **THEN** final native glyph line fragments place block image content on three ordered lines
+- **AND** the inline control remains on one line while both preserve exact logical selections/copy/AX text

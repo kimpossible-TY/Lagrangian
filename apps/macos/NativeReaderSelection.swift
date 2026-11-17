@@ -101,7 +101,7 @@ struct NativeReaderTextMap {
         }
         if fragments.isEmpty { return nil }
         let selection = NativeReaderSelection(ticket: ticket, fragments: fragments)
-        try selection.validate(in: document)
+        try selection.validateLocal(in: document)
         return selection
     }
 

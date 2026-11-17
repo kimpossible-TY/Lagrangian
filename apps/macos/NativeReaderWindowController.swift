@@ -28,6 +28,8 @@ struct NativeReaderRuntime {
   private(set) var paintedKey: NativeReaderTextRenderKey?
   private(set) var diagnostic: String?
   private var cache: (key: NativeReaderTextRenderKey, objects: [String: NativeReaderPreparedTextObject])?
+  private var acceptedAssets: (document: NativeReaderDocument, bytes: [String: Data])?
+  private var chatWorker: (node: URL, helper: URL, runtime: URL, worker: NativeMathWorker)?
   private var profile: Profile?
   private let provider: NativeReaderDocumentProviding
   private let target: Target
@@ -46,6 +48,7 @@ struct NativeReaderRuntime {
   var runtime: NativeReaderRuntime?
   var copyText: (String) -> Bool = { _ in false }
   var openHomepage: ((URL) -> Void)?
+  private var chatContext: NativeReaderRequestContext?
   private(set) var chatView: NativeReaderChatView?
   lazy var hostWindow = NativeReaderHostWindow(reader: textView, show: show, avoidActivation: avoidActivation)
 
@@ -96,7 +99,7 @@ struct NativeReaderRuntime {
     layoutObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self] _ in
       Task { @MainActor in self?.layoutChanged() }
     }
-    hostWindow.onClose = { [weak self] in self?.cancel() }
+
   }
 
   func open(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
@@ -108,6 +111,10 @@ struct NativeReaderRuntime {
     requestTicket.cancel(); let ticket = ReadingOperationTicket(); requestTicket = ticket
     acceptedPaintKey = nil; paintedKey = nil; diagnostic = nil
     hostWindow.initialize()
+    hostWindow.onClose = { [weak self] in
+      guard let self, self.requestTicket === ticket, !ticket.isCancelled else { return }
+      self.closeView()
+    }
     session.refresh()
     return { [weak self] in
       ticket.cancel()
@@ -121,8 +128,12 @@ struct NativeReaderRuntime {
 
   private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false) async throws -> NativeReaderSession.PreparedAdoption {
     let ticket = requestTicket
-    let key = try textView.preparationKey(for: document, context: context)
-    let descriptors = try await assets(document, context)
+    let key = try reflowOnly ? textView.retainedPreparationKey(for: document, context: context) : textView.preparationKey(for: document, context: context)
+    let descriptors: [String: Data]
+    if reflowOnly {
+      guard let retained = acceptedAssets, retained.document == document else { throw NativeObjectError.stale }
+      descriptors = retained.bytes // Previously verified bytes; never a stale transport request.
+    } else { descriptors = try await assets(document, context) }
     try Task.checkCancellation()
     let hasObjects = document.blocks.flatMap(\.orderedNodes).contains { [.math, .equation, .table, .figure, .image].contains($0.kind) }
     var objects = [String: NativeReaderPreparedTextObject]()
@@ -178,10 +189,10 @@ struct NativeReaderRuntime {
     let preparedObjects = objects
     return .init(isCurrent: { [weak self] in
       guard let self, !self.disposed, !ticket.isCancelled else { return false }
-      return try self.textView.preparationKey(for: document, context: context) == key
+      return try (reflowOnly ? self.textView.retainedPreparationKey(for: document, context: context) : self.textView.preparationKey(for: document, context: context)) == key
     }, adopt: { [weak self] in
       guard let self, !self.disposed, !ticket.isCancelled,
-            try self.textView.preparationKey(for: document, context: context) == key else { throw NativeObjectError.stale }
+            try (reflowOnly ? self.textView.retainedPreparationKey(for: document, context: context) : self.textView.preparationKey(for: document, context: context)) == key else { throw NativeObjectError.stale }
       let previous = self.cache
       self.cache = (key, preparedObjects)
       do {
@@ -191,7 +202,12 @@ struct NativeReaderRuntime {
         } else { try self.textView.adopt(document, context: context) }
       }
       catch { self.cache = previous; throw error }
+      self.acceptedAssets = (document, descriptors)
       self.acceptedPaintKey = key; self.paintedKey = nil; self.diagnostic = nil
+      if let chat = self.chatView {
+        if self.chatContext == self.textView.context { self.configureChatMath(chat, key: key) }
+        else { chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
+      }
     })
   }
 
@@ -201,7 +217,7 @@ struct NativeReaderRuntime {
     guard !disposed, !requestTicket.isCancelled else { return }
     session.preparationChanged()
     guard let document = store.document, let context = session.context,
-          store.generation == document.generation, context == textView.context,
+          context == textView.context,
           let key = textView.requestedRenderKey, key != cache?.key else { return }
     reflowTask?.cancel()
     acceptedPaintKey = nil; paintedKey = nil
@@ -278,16 +294,49 @@ struct NativeReaderRuntime {
         let state = try await owner.perform(command, context: context)
         try Task.checkCancellation(); try session.authorize(context)
         guard let conversation = await owner.conversation(state.conversationID) else { throw NativeReaderOperationFailure.unavailable }
-        chatView?.dispose(); chatView?.removeFromSuperview()
-        let chat = NativeReaderChatView(actions: owner, context: context, authorize: { [weak self = self] in
-          guard let self else { throw NativeReaderContractError.disposed }; try self.session.authorize(context)
-        })
-        // nativeMath consumes TeX; the MathML helper is deliberately not passed here.
-        chat.openHomepage = { [weak self = self] in self?.openHomepage?($0) }
-        chat.present(conversation); chatView = chat; hostWindow.attachChat(chat)
+        let chat = try presentChat(conversation, actions: owner, context: context)
         chat.presentAccount(try await owner.account(context: context))
       } catch { if !Task.isCancelled { report(error) } }
     }
+  }
+
+  /// Compose an existing owner's accepted conversation; no Send/account action is implicit.
+  @discardableResult func presentChat(_ conversation: NativeReaderConversation, actions: NativeReaderActions,
+                                      context: NativeReaderRequestContext) throws -> NativeReaderChatView {
+    try session.authorize(context)
+    guard let key = acceptedPaintKey, key.identity == context.target, key.documentGeneration == context.generation else { throw NativeObjectError.stale }
+    chatView?.dispose(); chatView?.removeFromSuperview()
+    let chat = NativeReaderChatView(actions: actions, context: context, authorize: { [weak self] in
+      guard let self else { throw NativeReaderContractError.disposed }; try self.session.authorize(context)
+    })
+    configureChatMath(chat, key: key)
+    chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
+    chat.present(conversation); chatView = chat; chatContext = context; hostWindow.attachChat(chat)
+    return chat
+  }
+
+  private func configureChatMath(_ chat: NativeReaderChatView, key: NativeReaderTextRenderKey) {
+    do {
+      guard let runtime else { throw NativeObjectError.unsupported("answer-math-runtime-not-delivered") }
+      let worker: NativeMathWorker
+      if let pinned = chatWorker, pinned.node == runtime.node, pinned.helper == runtime.helper, pinned.runtime == runtime.runtime { worker = pinned.worker }
+      else {
+        worker = try runtime.worker()
+        chatWorker = (runtime.node, runtime.helper, runtime.runtime, worker)
+      }
+      let context = NativeObjectContext(identity: key.identity, snapshotGeneration: key.documentGeneration,
+        generation: key.layoutGeneration, width: Double(key.width), fontSize: Double(key.appearance.effectiveSize), fontName: "system",
+        theme: key.appearance.theme == .dark ? .dark : .light, mode: .reflow, pageHeight: 1000)
+      try chat.configureMath(worker: worker, context: context)
+    } catch { chat.clearMath(reason: String(describing: error)) }
+  }
+
+  /// Closing a view explicitly ends its selection lifetime; transport failures do not.
+  private func closeView() {
+    guard !disposed else { return }
+    cancel()
+    if let selection = store.selection { textView.releaseSelection(ticket: selection.ticket) }
+    textView.cancel()
   }
 
   func cancel() {

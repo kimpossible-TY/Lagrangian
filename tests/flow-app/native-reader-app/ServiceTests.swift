@@ -11,6 +11,24 @@ private enum TestFailure: Error { case assertion(String) }
     do { try await operation() } catch { assertions += 1; return }
     throw TestFailure.assertion(label)
 }
+@MainActor private func refreshConversation(_ view: NativeReaderChatView) async throws {
+    func buttons(_ root: NSView) -> [NSButton] {
+        (root as? NSButton).map { [$0] } ?? root.subviews.flatMap(buttons)
+    }
+    view.frame = NSRect(x: 0, y: 0, width: 840, height: 480)
+    view.layoutSubtreeIfNeeded()
+    let candidates = buttons(view).filter { $0.title == "Refresh conversation" }
+    try serviceCheck(candidates.count == 1, "F5-UI production Refresh conversation control is reachable")
+    let button = candidates[0]
+    try serviceCheck(button.target === view && button.action != nil && button.isEnabled && !button.isHidden && button.bounds.width > 0 && button.bounds.height > 0,
+        "F5-UI actual native button layout and target-action")
+    button.performClick(nil)
+    for _ in 0..<400 {
+        if button.isEnabled { return }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    throw TestFailure.assertion("F5-UI history control never completed")
+}
 private func rebased(_ document: NativeReaderDocument, context: NativeReaderRequestContext) -> NativeReaderDocument {
     NativeReaderDocument(schemaVersion: document.schemaVersion, identity: context.target, generation: context.generation,
         requiredCapabilities: document.requiredCapabilities, blocks: document.blocks, assets: document.assets, diagnostics: document.diagnostics)
@@ -23,6 +41,14 @@ private actor Counter {
     var count = 0
     func increment() -> Int { count += 1; return count }
     func value() -> Int { count }
+}
+
+private actor HistoryGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var entered = false
+    func hold() async { entered = true; await withCheckedContinuation { continuation = $0 } }
+    func waiting() -> Bool { entered }
+    func release() { continuation?.resume(); continuation = nil }
 }
 
 private actor AttachTrace {
@@ -410,6 +436,11 @@ private actor AttachTrace {
             _ = try await actions.perform(.send(conversation: opened.conversationID, version: duplicate.version, message: UUID(), question: "stale", model: "fixture-model"), context: context)
         }
 
+        let oversized = NativeReaderSelection(ticket: UUID(), fragments: Array(repeating: mathSelection.fragments[0], count: 33))
+        try await rejects("F4 remote 33-fragment selection still rejects") { try await actions.updateSelection(oversized, context: context) }
+        try await rejects("F4 rejected oversized selection cannot leave the old ticket actionable") { _ = try await actions.perform(.open(mathSelection), context: context) }
+        try await actions.updateSelection(mathSelection, context: context)
+
         // Dispatch succeeds at the real owner, then the injected link loses its acknowledgment.
         let dropCount = Counter()
         let lostNetwork = NativeReaderNetwork(send: { request, limit in
@@ -417,8 +448,7 @@ private actor AttachTrace {
             if request.url?.path.hasSuffix("native-chat") == true,
                let body = request.httpBody,
                (try JSONSerialization.jsonObject(with: body) as? [String: Any])?["operation"] as? String == "send" {
-                _ = await dropCount.increment()
-                throw URLError(.networkConnectionLost)
+                if await dropCount.increment() == 1 { throw URLError(.networkConnectionLost) }
             }
             return response
         }, stream: network.stream)
@@ -437,6 +467,175 @@ private actor AttachTrace {
         let history = try await lostActions.history(context: context)
         try serviceCheck(history.contains(where: { $0.state.messages.contains(where: { $0.id == lostID }) }), "lost ack authoritative history")
         try serviceCheck(await dropCount.value() == 1, "uncertain send never replayed")
+        let recovered = history.first { $0.state.conversationID == lostOpen.conversationID }!
+        let nextMessage = UUID()
+        let next = try await lostActions.perform(.send(conversation: recovered.state.conversationID,
+            version: recovered.state.version, message: nextMessage, question: "new after confirmed lost Send", model: "fixture-model"), context: context)
+        try serviceCheck(next.messages.contains { $0.id == nextMessage && $0.markdown == "new after confirmed lost Send" }, "F5 confirmed history permits a new UUID/question")
+        try serviceCheck(await dropCount.value() == 2, "F5 only explicit second Send dispatched")
+        // Recovery persists the original pending Send independently of the newer composer.
+        var assetBytes: [String: Data] = [:]
+        for asset in document.assets { assetBytes[asset.id] = try await transport.asset(asset, context: context) }
+        let pendingRecovery = NativeReaderRecoveryStore(root: URL(fileURLWithPath: args[4] + "-pending-ui"))
+        let savedPending = NativeReaderRecoveredDraft(conversationID: recovered.state.conversationID,
+            version: recovered.state.version, text: "new private draft after lost Send", pendingMessageID: lostID,
+            model: "fixture-model", pendingQuestion: "lost", pendingModel: "fixture-model")
+        try await pendingRecovery.save(.init(document: document, assets: assetBytes, restoration: .initial, drafts: [savedPending]))
+        let restoredPending = try await pendingRecovery.load(identity: identity).drafts[0]
+        try serviceCheck(restoredPending.pendingQuestion == "lost" && restoredPending.pendingModel == "fixture-model" && restoredPending.text == savedPending.text,
+            "F5-UI atomic disk recovery keeps pending M distinct from newer draft N")
+        var oldDraft = try JSONSerialization.jsonObject(with: JSONEncoder().encode(savedPending)) as! [String: Any]
+        oldDraft.removeValue(forKey: "pendingQuestion"); oldDraft.removeValue(forKey: "pendingModel")
+        let legacy = try JSONDecoder().decode(NativeReaderRecoveredDraft.self, from: JSONSerialization.data(withJSONObject: oldDraft))
+        try serviceCheck(legacy.pendingQuestion == nil && legacy.pendingModel == nil && legacy.pendingMessageID == lostID, "F5-UI old schema optional defaults")
+        var oversizedPending = savedPending; oversizedPending.pendingQuestion = String(repeating: "x", count: 8001)
+        try await rejects("F5-UI pending recovery preserves bounded composer limit") {
+            try await pendingRecovery.save(.init(document: document, assets: assetBytes, restoration: .initial, drafts: [oversizedPending]))
+        }
+        let recoveredView = NativeReaderChatView(actions: lostActions, context: context, authorize: {})
+        recoveredView.present(recovered, recovered: restoredPending)
+        var persistedPending: NativeReaderRecoveredDraft?
+        recoveredView.persistDraft = { persistedPending = $0 }
+        recoveredView.presentAccount(.init(signedIn: true, planEnabled: true, homepage: nil, models: ["fixture-model"]))
+        recoveredView.textDidChange(Notification(name: NSText.didChangeNotification))
+        try serviceCheck(persistedPending?.pendingQuestion == "lost" && persistedPending?.text == savedPending.text,
+            "F5-UI edits persist original pending question, not current draft")
+        let beforeRefresh = await dropCount.value()
+        try await refreshConversation(recoveredView)
+        try serviceCheck(recoveredView.composer.string == "new private draft after lost Send" && recoveredView.sendButton.isEnabled,
+            "F5 acknowledged old message preserves newer draft and permits new UUID")
+        let callsBeforeUI = await dropCount.value()
+        try serviceCheck(callsBeforeUI == beforeRefresh && persistedPending?.pendingMessageID == nil, "F5-UI button history is zero inference and clears only confirmed pending")
+        recoveredView.sendButton.performClick(nil)
+        for _ in 0..<200 {
+            if await lostActions.conversation(recovered.state.conversationID)?.state.messages.contains(where: { $0.markdown == "new private draft after lost Send" }) == true { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        try serviceCheck(await dropCount.value() == callsBeforeUI + 1, "F5 UI sends only on explicit action")
+        try serviceCheck(await lostActions.conversation(recovered.state.conversationID)?.state.messages.contains(where: { $0.markdown == "new private draft after lost Send" }) == true,
+            "F5 UI/actor agree on acknowledged history")
+        recoveredView.dispose()
+
+        for mutation in ["missing", "mismatch", "assistant-role", "conversation-missing"] {
+            let dispatches = Counter()
+            let pendingID = UUID()
+            let faultNetwork = NativeReaderNetwork(send: { request, limit in
+                let response = try await network.send(request, limit)
+                guard request.url?.path.hasSuffix("native-chat") == true, let data = request.httpBody,
+                      let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return response }
+                if body["operation"] as? String == "send", await dispatches.increment() == 1 { throw URLError(.networkConnectionLost) }
+                if body["operation"] as? String == "list" {
+                    var envelope = try JSONSerialization.jsonObject(with: response.data) as! [String: Any]
+                    var conversations = envelope["conversations"] as! [[String: Any]]
+                    for index in conversations.indices {
+                        var thread = conversations[index]["thread"] as! [[String: Any]]
+                        if mutation == "missing" { thread.removeAll { $0["id"] as? String == pendingID.uuidString.lowercased() } }
+                        else {
+                            for i in thread.indices where thread[i]["id"] as? String == pendingID.uuidString.lowercased() {
+                                if mutation == "mismatch" { thread[i]["text"] = "different persisted content" }
+                                else { thread[i]["role"] = "assistant" }
+                            }
+                        }
+                        conversations[index]["thread"] = thread
+                    }
+                    if mutation == "conversation-missing" {
+                        // Omit every record to exercise an absent authoritative thread.
+                        conversations = []
+                    }
+                    envelope["conversations"] = conversations
+                    return NativeReaderHTTPResponse(status: response.status, headers: response.headers, data: try JSONSerialization.data(withJSONObject: envelope))
+                }
+                return response
+            }, stream: network.stream)
+            let faultTransport = NativeReaderTransport(attachment: attachment, network: faultNetwork)
+            _ = try await faultTransport.document(for: context)
+            let faultActions = NativeReaderActions(transport: faultTransport)
+            try await faultActions.updateSelection(mathSelection, context: context)
+            let opened = try await faultActions.perform(.open(mathSelection), context: context)
+            try await rejects("F5 unconfirmed mutation lost ack") {
+                _ = try await faultActions.perform(.send(conversation: opened.conversationID, version: opened.version,
+                    message: pendingID, question: "uncertain original", model: "fixture-model"), context: context)
+            }
+            let records = try await faultActions.history(context: context)
+            let cached = await faultActions.conversation(opened.conversationID)
+            let current = records.first { $0.state.conversationID == opened.conversationID } ?? cached!
+            try await rejects("F5 missing/mismatched history forbids a new UUID") {
+                _ = try await faultActions.perform(.send(conversation: current.state.conversationID, version: current.state.version,
+                    message: UUID(), question: "new forbidden question", model: "fixture-model"), context: context)
+            }
+            try serviceCheck(await dispatches.value() == 1, "F5 history and refused new UUID never dispatch Send")
+            let faultView = NativeReaderChatView(actions: faultActions, context: context, authorize: {})
+            faultView.present(current, recovered: .init(conversationID: current.state.conversationID, version: current.state.version,
+                text: "uncertain original", pendingMessageID: pendingID, model: "fixture-model"))
+            faultView.presentAccount(.init(signedIn: true, planEnabled: true, homepage: nil, models: ["fixture-model"]))
+            try await refreshConversation(faultView)
+            if mutation == "conversation-missing" {
+                try serviceCheck(!faultView.sendButton.isEnabled && faultView.notice.stringValue.contains("retained") && faultView.composer.string == "uncertain original",
+                    "F5-UI missing conversation is not false completion")
+                try serviceCheck(await dispatches.value() == 1, "F5-UI missing thread never dispatches inference")
+                faultView.dispose(); continue
+            }
+            try serviceCheck(faultView.sendButton.isEnabled, "F5 exact explicit retry remains available after history")
+            faultView.composer.string = "new unrelated draft"
+            faultView.textDidChange(Notification(name: NSText.didChangeNotification))
+            try serviceCheck(!faultView.sendButton.isEnabled && faultView.composer.string == "new unrelated draft", "F5 unconfirmed UI protects new draft and rejects changed retry")
+            faultView.composer.string = "uncertain original"
+            faultView.textDidChange(Notification(name: NSText.didChangeNotification))
+            try serviceCheck(faultView.sendButton.isEnabled, "F5-UI returning to original draft enables explicit same UUID retry")
+            faultView.sendButton.performClick(nil)
+            try await waitFor { faultView.historyButton.isEnabled }
+            let retried = await faultActions.conversation(current.state.conversationID)!
+            let retryDispatches = await dispatches.value()
+            try serviceCheck(retried.state.messages.filter { $0.id == pendingID }.count == 1 && retryDispatches == 2, "F5 only same UUID/question explicit retry succeeds")
+            faultView.dispose()
+        }
+
+
+
+        for boundary in ["context", "dispose", "cancel", "stale-version"] {
+            let gate = HistoryGate(), calls = Counter()
+            let gatedNetwork = NativeReaderNetwork(send: { request, limit in
+                let response = try await network.send(request, limit)
+                if let data = request.httpBody, let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    if body["operation"] as? String == "list" { await gate.hold() }
+                    if body["operation"] as? String == "send" { _ = await calls.increment() }
+                }
+                return response
+            }, stream: network.stream)
+            let gatedTransport = NativeReaderTransport(attachment: attachment, network: gatedNetwork)
+            _ = try await gatedTransport.document(for: context)
+            let gatedActions = NativeReaderActions(transport: gatedTransport)
+            try await gatedActions.updateSelection(mathSelection, context: context)
+            _ = try await gatedActions.perform(.open(mathSelection), context: context)
+            var currentAuthority = true
+            let lateView = NativeReaderChatView(actions: gatedActions, context: context, authorize: {
+                guard currentAuthority else { throw NativeReaderContractError.staleGeneration }
+            })
+            lateView.present(recovered, recovered: savedPending)
+            lateView.presentAccount(.init(signedIn: true, planEnabled: true, homepage: nil, models: ["fixture-model"]))
+            var latePersist: NativeReaderRecoveredDraft?
+            lateView.persistDraft = { latePersist = $0 }
+            lateView.historyButton.performClick(nil)
+            for _ in 0..<400 {
+                if await gate.waiting() { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            try serviceCheck(await gate.waiting() && !lateView.historyButton.isEnabled && !lateView.sendButton.isEnabled, "F5-UI history busy guard")
+            if boundary == "context" { currentAuthority = false }
+            if boundary == "dispose" { lateView.dispose() }
+            if boundary == "cancel" { lateView.cancelExplicitly() }
+            if boundary == "stale-version" {
+                let newer = NativeReaderChatState(context: context, conversationID: recovered.state.conversationID,
+                    version: 10000, sequence: 10000, messages: recovered.state.messages)
+                lateView.present(.init(state: newer, draft: "must not overwrite", status: recovered.status, attached: true))
+            }
+            await gate.release()
+            try await Task.sleep(nanoseconds: 100_000_000)
+            try serviceCheck(latePersist == nil && lateView.composer.string == savedPending.text && !lateView.sendButton.isEnabled,
+                "F5-UI late history cannot clear pending/revive stale presentation: " + boundary)
+            try serviceCheck(await calls.value() == 0, "F5-UI history/cancel/late response never sends: " + boundary)
+            lateView.dispose()
+        }
 
         // Parser boundaries include split UTF8, malformed UTF8, truncation and stale.
         var parser = NativeReaderSSEParser()
@@ -450,8 +649,6 @@ private actor AttachTrace {
         try await rejects("truncated SSE") { var p = NativeReaderSSEParser(); _ = try p.feed(Data("data: {}".utf8)); try p.finish() }
         try await rejects("SSE payload bound") { var p = NativeReaderSSEParser(); _ = try p.feed(Data(repeating: 65, count: 2*1024*1024+4097)) }
 
-        var assetBytes: [String: Data] = [:]
-        for asset in document.assets { assetBytes[asset.id] = try await transport.asset(asset, context: context) }
         try serviceCheck(!assetBytes.isEmpty, "real revision-bound assets verified")
         let responseData = try JSONEncoder().encode(document)
         let responseHeaders = ["content-type": "application/json", "x-native-input-id": String(repeating: "a", count: 64)]

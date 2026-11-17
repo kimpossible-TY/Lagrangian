@@ -79,13 +79,14 @@ def command(argv, *, timeout=120):
 class FixtureProvider:
     """Deterministic injected provider; no token/account/network inference."""
     def __init__(self, auth):
-        self.auth, self.calls = auth, []
+        self.auth, self.calls, self.questions = auth, [], []
         self.started, self.release = threading.Event(), threading.Event()
         self.stall = False
     def models(self):
         return [{'id': 'fixture-model', 'label': 'Fixture model'}]
     def run(self, **options):
         self.calls.append(options['context'])
+        self.questions.append(json.loads(options['history'][-1]['content'])['question'])
         self.started.set()
         if self.stall:
             while not self.release.wait(.02):
@@ -416,6 +417,15 @@ class NativeServiceTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertGreaterEqual(report['assertions'], 35)
         save('swift-results.json', report)
+        from collections import Counter
+        # Each original explicit message reaches the real owner's fake provider
+        # once. Dedup retries, history controls, layout and late callbacks add none.
+        self.assertEqual(Counter(self.provider.questions), Counter({
+            'Question': 1, 'lost': 1, 'new after confirmed lost Send': 1,
+            'new private draft after lost Send': 1, 'uncertain original': 4}))
+        self.assertEqual(len(self.provider.calls), 8)
+        save('ui-provider-proof.json', {'questions': self.provider.questions, 'inferenceCalls': len(self.provider.calls),
+            'explicitOriginalMessages': 8, 'extraInference': 0, 'provider': 'injected FixtureProvider only'})
 
     def test_cross_registered_document_and_disconnected_subscription_guards(self):
         other_root = self.work / 'other-source'; other_root.mkdir()

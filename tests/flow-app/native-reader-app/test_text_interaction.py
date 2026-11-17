@@ -35,14 +35,16 @@ class TextInteractionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.evidence_root = Path(os.environ.get('NA02_OUTPUT_ROOT', str(DEV / 'test-output/text'))).resolve()
-        if not cls.evidence_root.is_relative_to(DEV / 'test-output/text'):
+        review_root = Path(os.environ['CORE_REVIEW_OUTPUT']).resolve() if os.environ.get('CORE_REVIEW_OUTPUT') else None
+        if review_root: cls.evidence_root = review_root / 'text-suite'
+        if not (cls.evidence_root.is_relative_to(DEV / 'test-output/text') or review_root and cls.evidence_root.is_relative_to(review_root)):
             raise RuntimeError('Evidence must remain under test-output/text')
         cls.out = cls.evidence_root / time.strftime('run-%Y%m%d-%H%M%S')
         cls.out.mkdir(parents=True, exist_ok=False)
         cls.commands = []
         for key, folder in [('TMPDIR', 'tmp/text'), ('CLANG_MODULE_CACHE_PATH', 'cache/text/clang'),
                             ('SWIFT_MODULECACHE_PATH', 'cache/text/swift')]:
-            value = DEV / folder
+            value = (review_root / folder) if review_root else DEV / folder
             value.mkdir(parents=True, exist_ok=True)
             os.environ[key] = str(value)
         cls.started = time.time()
@@ -131,3 +133,55 @@ class TextInteractionTests(unittest.TestCase):
         self.assertEqual(self.results['find']['visibleWindows'], 0)
         self.assertEqual(self.results['find']['globalFindPanels'], 0)
         self.assertEqual(self.results['find']['visibleOrFocusEvents'], [])
+
+
+class CoreLongSelection(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.out = Path(os.environ['CORE_REVIEW_OUTPUT']) / ('long-' + str(time.time_ns()))
+        cls.out.mkdir()
+        cls.binary = cls.out / 'LongView'
+        cls.commands = []
+        # Recompile the independent literal Typst fixtures through the real
+        # compiler/importer after correction; never replace the production map.
+        sys.path.insert(0, str(REPO / 'tools/flow-reader'))
+        from flow_reader.compiler.build import compile_project
+        from flow_reader.compiler.project import Project, document_identity
+        from flow_reader.document.sections import split_document
+        from flow_reader.document.native_document import import_accepted_document
+        wrapper = cls.out / 'offline-typst'
+        compiler = shutil.which('typst')
+        if not compiler: raise RuntimeError('prebuilt compiler required')
+        sandbox = '(version 1)(allow default)(deny network*)(deny file-write* (subpath '+json.dumps(str(REPO))+'))'
+        wrapper.write_text('#!'+sys.executable+'\nimport os,sys\nos.execv("/usr/bin/sandbox-exec",["sandbox-exec","-p",'+repr(sandbox)+','+repr(compiler)+']+sys.argv[1:])\n')
+        wrapper.chmod(0o700)
+        cls.fixture_root = cls.out / 'actual-compiler'; cls.fixture_root.mkdir()
+        for count in (32, 33, 100):
+            folder = cls.fixture_root / ('fixture-'+str(count)); source = folder / 'source'; source.mkdir(parents=True)
+            shutil.copyfile(DEV / ('test-output/long-selection-independent-v1/fixture-'+str(count)+'/source/main.typ'), source / 'main.typ')
+            report = compile_project(Project(source, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=str(wrapper)), folder / 'compiled', map_sources=False)
+            save(folder / 'compiler-report.json', report)
+            if report['exitCode'] != 0 or not report['contentGatePassed']: raise RuntimeError('actual long fixture compile failed')
+            bundle = split_document((folder / 'compiled/document.html').read_text(), report['revision'], max_blocks=16)
+            native = import_accepted_document(bundle, document_id=document_identity(source, Path('main.typ')), service_id='offline-no-service', generation=1, identity_scope='fixture').document
+            save(folder / 'native.json', native)
+        save(cls.out / 'fixture-hashes.json', {str(p.relative_to(cls.fixture_root)): sha(p) for p in cls.fixture_root.rglob('*') if p.is_file()})
+
+        argv = ['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-macosx13.0',
+                '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'], *[REPO / p for p in COMMON + PRODUCT], HERE / 'TextInteractionTests.swift', '-o', cls.binary]
+        result = subprocess.run(list(map(str, argv)), capture_output=True, text=True, cwd=REPO)
+        cls.commands.append(dict(argv=list(map(str, argv)), exit=result.returncode, stdout=result.stdout, stderr=result.stderr))
+        save(cls.out / 'commands.json', cls.commands)
+        if result.returncode: raise RuntimeError(result.stderr)
+
+    def scenario(self, count):
+        folder = self.fixture_root
+        argv = [self.binary, '--core-long', folder, self.out / ('selection-'+str(count)+'.json'), str(count)]
+        result = subprocess.run(list(map(str, argv)), capture_output=True, text=True, cwd=REPO)
+        self.commands.append(dict(argv=list(map(str, argv)), exit=result.returncode, stdout=result.stdout, stderr=result.stderr))
+        save(self.out / 'commands.json', self.commands)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+
+    def test_32_blocks_native_selection_copy_AX_and_source_guard(self): self.scenario(32)
+    def test_33_blocks_native_selection_copy_AX_and_source_guard(self): self.scenario(33)
+    def test_100_blocks_native_selection_copy_AX_and_source_guard(self): self.scenario(100)

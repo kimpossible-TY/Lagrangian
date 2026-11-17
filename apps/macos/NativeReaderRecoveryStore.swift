@@ -35,6 +35,10 @@ struct NativeReaderRecoveredDraft: Codable {
     let text: String
     let pendingMessageID: UUID?
     var model: String? = nil
+    // Original uncertain Send, independently of an edited local composer draft.
+    // Optional fields preserve decoding of schema-1 snapshots written before this addition.
+    var pendingQuestion: String? = nil
+    var pendingModel: String? = nil
 }
 
 struct NativeReaderRecoverySnapshot: Codable {
@@ -51,7 +55,9 @@ struct NativeReaderRecoverySnapshot: Codable {
         for mark in reviewMarks { try mark.validate(in: document) }
         guard assets.count == document.assets.count, drafts.count <= 128,
               Set(drafts.map(\.conversationID)).count == drafts.count,
-              drafts.allSatisfy({ $0.version >= 0 && $0.text.count <= 8000 && ($0.model?.count ?? 0) <= 120 }),
+              drafts.allSatisfy({ $0.version >= 0 && $0.text.count <= 8000 && ($0.model?.count ?? 0) <= 120 &&
+                  ($0.pendingQuestion?.count ?? 0) <= 8000 && ($0.pendingModel?.count ?? 0) <= 120 &&
+                  ($0.pendingMessageID != nil || ($0.pendingQuestion == nil && $0.pendingModel == nil)) }),
               assets.values.reduce(0, { $0 + $1.count }) <= 64 * 1024 * 1024 else { throw NativeReaderContractError.invalidDocument }
         for asset in document.assets {
             guard let data = assets[asset.id], data.count == asset.byteCount, data.count <= 16 * 1024 * 1024,

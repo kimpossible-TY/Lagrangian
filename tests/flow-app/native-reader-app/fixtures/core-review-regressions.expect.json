@@ -1,0 +1,9 @@
+{
+  "proseBefore": "before",
+  "proseAfter": "after",
+  "blockLineOrder": ["before", "image", "after"],
+  "inlineOneLine": true,
+  "longSelectionCounts": [32, 33, 100],
+  "sourceFragmentLimit": 32,
+  "scope": "actual compiler image carried into independently specified block/inline accepted-HTML fixtures; no source mapping or GUI authority"
+}
