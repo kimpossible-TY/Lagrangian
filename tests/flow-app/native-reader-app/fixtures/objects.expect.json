@@ -1,0 +1,107 @@
+{
+  "oracleScope": "Author-written semantic/geometric oracle independent of renderer; external oracle review and GUI remain separate.",
+  "widths": [
+    320,
+    640,
+    960
+  ],
+  "fonts": [
+    14,
+    20,
+    28
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "modes": [
+    "reflow",
+    "paged"
+  ],
+  "mathHierarchy": [
+    "mfrac",
+    "msqrt",
+    "munderover"
+  ],
+  "unicode": [
+    "한글",
+    "é",
+    "😀",
+    "👩‍👩‍👧‍👦"
+  ],
+  "cellTexts": [
+    "Name",
+    "Value",
+    "단위😀",
+    "Mass",
+    "10",
+    "kg",
+    "20",
+    "g",
+    "Merged"
+  ],
+  "rowSpans": [
+    1,
+    1,
+    1,
+    2,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "columnSpans": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    3
+  ],
+  "headers": [
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "equationNumber": "(1)",
+  "figureCaption": "Figure 1: Blue rectangle",
+  "vector": {
+    "viewport": [
+      100,
+      80
+    ],
+    "blueRect": [
+      16,
+      22,
+      24,
+      12
+    ],
+    "blueArea": 288,
+    "redCircleCenter": [
+      70,
+      50
+    ],
+    "redCircleRadius": 5
+  },
+  "indivisibleMathML": "<math><mrow><mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></math>",
+  "indivisibleMath20": {
+    "minimumAscent": 10,
+    "minimumDescent": 4,
+    "minimumWidth": 8,
+    "maximumWidth": 30,
+    "axisEm": 0.25,
+    "ruleThicknessEm": 0.06,
+    "numeratorGlyph": "1D44E",
+    "denominatorGlyph": "1D44F"
+  }
+}
