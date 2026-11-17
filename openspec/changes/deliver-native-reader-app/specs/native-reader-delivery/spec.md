@@ -71,6 +71,18 @@ Delivery SHALL bind integrated owner commits, canonical sources and packaged byt
 - **THEN** the verifier records the external PM decision
 - **AND** synthetic test receipts remain mechanism-only evidence and are never actual acceptance
 
+#### Scenario: Fixed owner correction supersedes historical bytes
+- **WHEN** tracked source-provenance metadata registers an ancestor correction by full revision, exact changed paths and original/corrected digests
+- **THEN** delivery verifies the immutable correction inventory and current bytes through the existing source-binding owner
+- **AND** historical owner revisions/digests remain separate from effective corrected files
+- **AND** dirty/missing sources, nonancestor revisions, mixed digests and unregistered changes fail closed
+
+#### Scenario: Later source is not covered by an older correction
+- **WHEN** a later source edit or new path is absent from the registered fixed correction and exact delivery-owned paths
+- **THEN** source binding fails until the responsible owner supplies a new fixed revision and exact inventory
+- **AND** an added file requires verified original absence rather than an invented original digest
+- **AND** binding success alone establishes no app/runtime build, GUI, CI or PM acceptance
+
 ### Requirement: Final source identity and isolated inspection preparation
 The final app, runtime, reader and delivery source binding SHALL equal the frozen HEAD. Source changes after a build SHALL require rebuilding. Fixed GUI fixture policies SHALL be reused with an explicitly owned storage root. Inspection setup SHALL remain stopped; smoke SHALL use a separate bounded foreground fixture and private clipboard. Historical isolation failures and readonly updater limitations SHALL remain explicit.
 

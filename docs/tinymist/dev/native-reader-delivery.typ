@@ -152,8 +152,9 @@ check is separate.
 
 No command here authorizes live installation, launchd changes, activation, push,
 manual CI, Cloud or Rust compilation. Fixed GUI preparation `1e32419dd2cb448fb183ce563e39736cf64a1fca` and
-published reader/homepage `4871104deef949d437deccef8b39ddd48ed07bef` are now
-integrated by normal no-ff merges. Their exact bytes are checked alongside C19;
+published reader/homepage `4871104deef949d437deccef8b39ddd48ed07bef` are
+historical integration inputs from normal no-ff merges. Their original bytes and
+C source proof are retained separately from registered owner corrections below;
 the transferred C test collects each actual Swift file once while retaining the
 standalone pre-registry path. The published unlimited tool-round/document-read
 policy is preserved with existing per-request and freshness/cancellation guards.
@@ -177,6 +178,34 @@ not relabeled as zero user-data access. Final serving uses an owned change_file
 and OS denial of the real user home. Body/verified Source copy uses the named
 private board. Composer/answer Cut/Copy/Paste and external links/editor actions
 are excluded from inspection; no user clipboard is inspected or changed.
+
+== Fixed source owner corrections
+
+The common integrated_sources owner reads tracked sourceProvenance in
+backend-delivery.json, already included in sourceFiles and the delivery
+distribution manifest. The registered production correction is full revision
+`338304a374bdd75ba76151a34bc8c284510ce725`, relative to
+`09c5186bff1850b17f6e85fe2f3115153520bc94`. Its exact 30 source/test/document
+paths bind both original and corrected SHA-256 values. Historical core ec2,
+pages76, G1, published reader and baseline9b revisions/digests remain historical
+proof; effective corrected files are not claimed to retain their old bytes.
+
+Binding requires a clean checkout, full ancestor commits, exact changed path
+sets and regular-file bytes matching the immutable correction. Missing files,
+dirty or later committed drift, mixed original/corrected digests, extra paths
+and nonancestor corrections fail closed. Only a finite exact list of existing
+delivery-owned files uses current HEAD; no native directory prefix or whole HEAD
+is exempt. A future added file must explicitly bind verified original absence
+and its actual corrected digest. Rehashing changed current bytes cannot repair a
+fixed correction mismatch.
+
+Only the fixed338 correction is registered now. Later NA06 corrections and new
+API owners must first supply PM-transferred exact fixed commits and inventories.
+Their registration must include actual Swift source-list or backend packaging
+changes where needed; nonexistent files and pending owner SHAs are not registered.
+This binding preparation is not app/runtime/reader production, GUI, remote CI or
+PM acceptance. A later integrated app still needs fresh final-source assembly and
+verification; old app/evidence remain immutable.
 
 == Existing updater consumer — NA14
 
