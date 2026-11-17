@@ -31,3 +31,9 @@ Packaging SHALL accept the path printed by `fetch-engine` through `--engine`, au
 - **WHEN** the engine-local receipt or artifact differs from the reauthenticated exact run, current source or separate reader
 - **THEN** build rejects the candidate before installation
 
+
+#### Scenario: Source-bound archive survives permission-losing transport
+- **WHEN** current app transport passes through upload-artifact v4 permission normalization
+- **THEN** the source/R/H-bound tar preserves signed executable/resource modes and internal links
+- **AND** build reauthenticates its raw archive binding separately from the fetched external-engine chmod
+- **AND** missing or corrupted transport cannot downgrade to a flat app or installed dependency

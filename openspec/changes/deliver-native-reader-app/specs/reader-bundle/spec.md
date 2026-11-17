@@ -1,11 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: Publish the reader bundle on hit and miss
-`.github/workflows/flow-engine.yml` SHALL upload `reader-bundle-<headSha>` and `flow-reader-bundle` for the run commit on an engine cache hit and on an engine cache miss. `scripts/engine-input-hash.py` SHALL NOT gain reader inputs. The `flow-engine-darwin-arm64` artifact name and layout SHALL stay unchanged; its current app/application release SHALL be rebuilt even when engine source provenance is older.
+`.github/workflows/flow-engine.yml` SHALL upload `reader-bundle-<headSha>` and `flow-reader-bundle` for the run commit on an engine cache hit and on an engine cache miss. `scripts/engine-input-hash.py` SHALL NOT gain reader inputs. The `flow-engine-darwin-arm64` artifact name and extracted engine/app layout SHALL stay unchanged; its current app/application release SHALL be rebuilt even when engine source provenance is older.
 
 #### Scenario: Web-only push
 - **WHEN** a push changes `tools/flow-reader/web` and no engine input
-- **THEN** the job reuses the retained engine executable/checksum/build provenance without running Cargo, and rebuilds current runtime/backend/reader and Swift app in the stable artifact layout
+- **THEN** the job reuses the retained engine executable/checksum/build provenance without running Cargo, and rebuilds current runtime/backend/reader and Swift app in a current-H checksum/run-bound permission-preserving tar envelope with stable extracted layout
 - **AND** uploads a new `reader-bundle-<headSha>` whose `headSha` is that push
 
 #### Scenario: Engine cache miss
@@ -27,3 +27,8 @@
 - **THEN** the consumer reauthenticates the exact R/H artifact and reader through the existing manifest/archive owner
 - **AND** old engine source provenance does not permit an old app, reader or payload
 - **AND** a mismatch fails before installation without selecting latest again
+
+#### Scenario: Reader and native archive transport owners
+- **WHEN** reader or native artifact archives are materialized
+- **THEN** the shared bounded archive owner authenticates raw bytes and validates member/path/type/mode/link/size limits before publication
+- **AND** native tar metadata does not replace the reader manifest's same-R head/checksum validation

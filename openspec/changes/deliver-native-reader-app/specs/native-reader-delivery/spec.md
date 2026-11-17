@@ -101,3 +101,21 @@ The old fetch/reader/build CLI SHALL consume same-run current portable delivery 
 - **WHEN** a verified artifact is consumed with a different available certificate
 - **THEN** only copied candidate images are signed and post-sign runtime/delivery hashes are rebound before the outer seal
 - **AND** original artifact checksums and signing provenance remain distinct from local output identities
+
+### Requirement: Permission-preserving current-run native artifact
+The producer SHALL archive the exact current-H signed payload with ordinary modes, internal links and hidden files before upload. The consumer SHALL bind R/H, raw archive/inventory digests and the separate authenticated engine-mode normalization. Shared bounded archive, inventory, signing and atomic owners SHALL reject invalid inputs without flat/scratch/installed fallback or loss of a valid stage.
+
+#### Scenario: Upload v4 normalizes envelope modes
+- **WHEN** zip transport sets envelope regular files to 644
+- **THEN** the inner signed file modes, internal relative links and hidden payload are restored exactly from the verified tar
+- **AND** the old fetch/reader/build CLI produces current Swift/resources with require-delivery integrity
+
+#### Scenario: Unsafe or changed archive
+- **WHEN** a transport has missing files, wrong R/H, digest replay, duplicate/escaping paths, special types/modes, cyclic links, oversized entries/metadata or after-hash drift
+- **THEN** it fails before executing untrusted inputs or publishing the candidate
+- **AND** interruption or verification failure preserves the previous valid stage
+
+#### Scenario: Previous engine cache input
+- **WHEN** current run H reuses engine source E from an earlier artifact
+- **THEN** only authenticated engine bytes/checksum/provenance are reused
+- **AND** the current app and tar are produced anew with H, never copied from the retained app

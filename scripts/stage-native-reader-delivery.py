@@ -62,11 +62,13 @@ def relative(name):
     return name
 
 
-def inventory(root):
+def inventory(root, *, excluded=()):
     root = Path(root).absolute()
     result = []
     for p in sorted(root.rglob('*')):
         rel = relative(p.relative_to(root).as_posix())
+        if rel.split('/')[0] in excluded:
+            continue
         if p.is_symlink():
             target = os.readlink(p)
             require(not Path(target).is_absolute() and p.resolve().is_relative_to(root) and p.exists(), 'escaping or missing symlink: ' + rel)
@@ -159,7 +161,7 @@ def relocate_python(root):
 
 def source_binding(root):
     sources = read(root / 'apps/macos/sources.json')
-    paths = ['apps/macos/sources.json', 'scripts/flow-app.py', 'scripts/native_delivery_consumer.py', 'scripts/stage-native-reader-delivery.py', 'scripts/verify-native-reader-app.py',
+    paths = ['apps/macos/sources.json', 'scripts/flow-app.py', 'scripts/native_delivery_consumer.py', 'scripts/native_delivery_artifact.py', 'scripts/reader_bundle.py', 'scripts/stage-native-reader-delivery.py', 'scripts/verify-native-reader-app.py',
              'scripts/prepare-native-reader-runtime.mjs', 'assets/branding/lagrangian.png', 'docs/tinymist/flow-app.typ',
              *[str(RUNTIME_POLICY / n) for n in ['node-distribution.json', 'backend-delivery.json', 'package.json', 'package-lock.json', 'THIRD-PARTY-NOTICES.md']],
              *['apps/macos/' + n for section in ('core', 'native', 'app') for n in sources[section]]]

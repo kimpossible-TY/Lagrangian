@@ -31,7 +31,7 @@ class NativeDeliveryConsumerCLI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(os.environ['NA14_TEST_ROOT']).resolve()
-        assert str(cls.root).startswith('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/updater-delivery-consumer/')
+        assert str(cls.root).startswith('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/artifact-transport-v1/')
         cls.root.mkdir(parents=True, exist_ok=False)
         cls.artifact = Path(os.environ['NA14_ENGINE_ARTIFACT']).resolve(strict=True)
         cls.reader = Path(os.environ['NA14_READER_ARTIFACT']).resolve(strict=True)
@@ -40,7 +40,9 @@ class NativeDeliveryConsumerCLI(unittest.TestCase):
         cls.events = cls.root / 'events.jsonl'
         cls.run_id = '91014'
         cls.cache = cls.root / 'cache'
-        cls.app = cls.root / 'output/Lagrangian.app'
+        cls.build_root = Path(os.environ['NA14_BUILD_ROOT']).resolve()
+        assert str(cls.build_root).startswith('/Volumes/devSSD/Developer/lagrangian-native-20261117/build/artifact-transport-v1/')
+        cls.app = cls.build_root / cls.root.name / 'Lagrangian.app'
         cls.env = dict(os.environ, FLOW_SIGN_IDENTITY='-', PYTHONDONTWRITEBYTECODE='1',
                        NA14_FIXTURE_ROOT=str(cls.root), NA14_CURRENT_HEAD=cls.head,
                        NA14_FIXTURE_ENGINE=str(cls.artifact), NA14_FIXTURE_READER=str(cls.reader))
@@ -57,7 +59,7 @@ if script.name=='flow-app.py':
     m.engine_cache_dir=lambda run:root/'cache'/str(run)
     original=m.build
     def build(args):
-        args.output=root/'output/Lagrangian.app'
+        args.output=Path(os.environ['NA14_BUILD_ROOT'])/root.name/'Lagrangian.app'
         return original(args)
     m.build=build
     if sys.argv[1:2] in (['install'],['rollback'],['migrate']):
@@ -73,7 +75,7 @@ else:raise SystemExit('unknown fixture CLI')
         bins = cls.root / 'bin'; bins.mkdir()
         wrapper = write(bins / 'python3', '#!/bin/sh\nexec ' + str(sys.executable) + ' ' + str(cli) + ' "$@"\n')
         wrapper.chmod(0o755)
-        gh = write(bins / 'gh', '#!' + sys.executable + '\n' + '''import json,os,shutil,sys
+        gh = write(bins / 'gh', '#!' + sys.executable + '\n' + '''import json,os,shutil,sys,zipfile
 from pathlib import Path
 root=Path(os.environ['NA14_FIXTURE_ROOT']);args=sys.argv[1:]
 with (root/'events.jsonl').open('a') as f:f.write(json.dumps({'kind':'gh-fixture','argv':args})+'\\n')
@@ -89,7 +91,18 @@ elif args[:2]==['run','download']:
     assert name=='flow-engine-darwin-arm64' or name=='reader-bundle-'+os.environ['NA14_CURRENT_HEAD'] or name=='flow-reader-bundle',args
     source=Path(os.environ['NA14_FIXTURE_ENGINE'] if name=='flow-engine-darwin-arm64' else os.environ['NA14_FIXTURE_READER'])
     if (root/'interrupt-download').exists():raise SystemExit(97)
-    shutil.copytree(source,dest,dirs_exist_ok=True,symlinks=True)
+    if name=='flow-engine-darwin-arm64' and (source/'native-delivery-artifact.tar').exists():
+        # Explicit offline upload-artifact v4 lossy ZIP model. Only envelope
+        # regular files travel through ZIP; modes/links/hidden entries stay in tar.
+        zipped=dest.parent/'lossy-v4-fixture.zip'
+        with zipfile.ZipFile(zipped,'w',compression=zipfile.ZIP_STORED) as z:
+            for file in sorted(source.iterdir()):
+                info=zipfile.ZipInfo(file.name);info.external_attr=0o100644<<16
+                with file.open('rb') as src,z.open(info,'w') as out:shutil.copyfileobj(src,out)
+        dest.mkdir(parents=True,exist_ok=True)
+        with zipfile.ZipFile(zipped) as z:z.extractall(dest)
+        for file in dest.iterdir():file.chmod(0o644)
+    else:shutil.copytree(source,dest,dirs_exist_ok=True,symlinks=True)
 else:raise SystemExit('forbidden gh fixture call: '+repr(args))
 '''); gh.chmod(0o755)
         spy = write(bins / 'launchctl', '#!/bin/sh\necho service-spy >> "' + str(cls.root / 'forbidden-services') + '"\nexit 98\n'); spy.chmod(0o755)
@@ -112,8 +125,9 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
 
     @staticmethod
     def tree(root):
-        return {p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes() if not p.is_symlink() else os.fsencode(os.readlink(p))).hexdigest()
-                for p in root.rglob('*') if p.is_file() or p.is_symlink()}
+        return {p.relative_to(root).as_posix():dict(mode=p.lstat().st_mode,
+                    sha256=hashlib.sha256(p.read_bytes() if not p.is_symlink() else os.fsencode(os.readlink(p))).hexdigest() if p.is_file() or p.is_symlink() else None)
+                for p in root.rglob('*')}
 
     @classmethod
     def command(cls, name, argv, env=None):
@@ -155,8 +169,8 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
 
     def test_receipt_schema_wrong_head_mixed_run_replay(self):
         original=json.loads(self.original_receipt)
-        for name, changes in [('schema',{'schemaVersion':2}),('wrong-head',{'runHeadSHA':'0'*40}),
-                              ('mixed-run',{'runId':'91015'}),('replay-path',{'enginePath':str(self.artifact/'flow-engine')}),
+        for name, changes in [('schema',{'schemaVersion':3}),('wrong-head',{'runHeadSHA':'0'*40}),
+                              ('mixed-run',{'runId':'91015'}),('replay-path',{'enginePath':str(self.cache/self.run_id/'flow-engine')}),
                               ('path-escape',{'enginePath':str(self.engine.parent/'../flow-engine')})]:
             with self.subTest(name=name):
                 self.receipt.write_text(json.dumps({**original,**changes}))
@@ -216,7 +230,7 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
         (artifact/'flow-engine').symlink_to(outside)
         checksum=hashlib.sha256(outside.read_bytes()).hexdigest()
         write(artifact/'flow-engine.sha256',checksum+'  flow-engine\n')
-        release=json.loads((self.artifact/'release.json').read_text());release['engineInputSHA256']=checksum
+        release=json.loads((self.cache/self.run_id/'release.json').read_text());release['engineInputSHA256']=checksum
         write(artifact/'release.json',json.dumps(release))
         env=dict(self.env,NA14_FIXTURE_ROOT=str(negative),NA14_FIXTURE_ENGINE=str(artifact))
         r=self.command('escape-before-chmod',['python3','scripts/flow-app.py','fetch-engine','--run-id',self.run_id],env)
@@ -241,15 +255,13 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
         negative=self.root/'missing-producer';negative.mkdir()
         artifact=negative/'artifact';artifact.mkdir()
         for name in ['flow-engine','flow-engine.sha256','release.json']:
-            shutil.copy2(self.artifact/name,artifact/name)
-        shutil.copytree(self.app,negative/'output/Lagrangian.app',symlinks=True)
+            shutil.copy2(self.cache/self.run_id/name,artifact/name)
+        shutil.copytree(self.app,self.build_root/negative.name/'Lagrangian.app',symlinks=True)
         env=dict(self.env,NA14_FIXTURE_ROOT=str(negative),NA14_FIXTURE_ENGINE=str(artifact))
         fetched=self.command('missing-producer-fetch',['python3','scripts/flow-app.py','fetch-engine','--run-id',self.run_id],env)
-        self.assertEqual(fetched.returncode,0,fetched.stderr)
-        r=self.command('missing-producer-build',['python3','scripts/flow-app.py','build','--engine',negative/'cache'/self.run_id/'flow-engine'],env)
-        self.assertNotEqual(r.returncode,0)
-        self.assertIn('Producer artifact missing current portable',r.stderr)
-        self.assertEqual(self.tree(negative/'output/Lagrangian.app'),self.original_app)
+        self.assertNotEqual(fetched.returncode,0)
+        self.assertIn('archive missing',fetched.stderr)
+        self.assertEqual(self.tree(self.build_root/negative.name/'Lagrangian.app'),self.original_app)
 
     def test_actual_interrupt_preserves_stage(self):
         before=self.tree(self.cache/self.run_id)
@@ -292,8 +304,35 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
                 if child.poll() is None:os.killpg(child.pid,signal.SIGKILL);child.wait()
         self.assertIn('input changed during build',(self.root/'during-build-drift.stderr').read_text())
 
+    def test_raw_archive_drift_and_digest_receipt_replay_fail_closed(self):
+        original=json.loads(self.original_receipt)
+        original['transport']['archiveSHA256']='0'*64
+        self.receipt.write_text(json.dumps(original))
+        self.build_failure('raw-digest-replay')
+        self.receipt.write_bytes(self.original_receipt)
+        archive=self.cache/self.run_id/'.native-transport/native-delivery-artifact.tar'
+        with archive.open('r+b') as stream:
+            first=stream.read(1);stream.seek(0);stream.write(bytes([first[0]^1]))
+        try:self.build_failure('cached-raw-archive-tamper')
+        finally:
+            with archive.open('r+b') as stream:stream.write(first)
+
+    def test_z_producer_does_not_repair_flat_signed_payload_modes(self):
+        bad=self.build_root/'broken-flat/Lagrangian.app';shutil.copytree(self.app,bad,symlinks=True)
+        path=bad/'Contents/Resources/native-reader/runtime/node/bin/node';path.chmod(0o644)
+        output=self.build_root/'existing-valid-transport';shutil.copytree(self.artifact,output)
+        before=self.tree(output)
+        r=self.command('producer-flat-mode-reject',[sys.executable,'-B','scripts/flow-app.py','stage-engine-artifact',
+            '--app',bad,'--engine',self.engine,'--manifest',self.app.parent/'release.json','--output',output,
+            '--repository','fixture/NA14','--run-id',self.run_id])
+        self.assertNotEqual(r.returncode,0)
+        self.assertEqual(self.tree(output),before)
+        self.assertEqual(path.stat().st_mode&0o777,0o644)
+
     def test_contextless_engine_cannot_silently_downgrade(self):
-        r=self.command('standalone-missing-delivery',['python3','scripts/flow-app.py','build','--engine',self.artifact/'flow-engine'])
+        standalone=self.root/'contextless';standalone.mkdir()
+        shutil.copy2(self.engine,standalone/'flow-engine')
+        r=self.command('standalone-missing-delivery',['python3','scripts/flow-app.py','build','--engine',standalone/'flow-engine'])
         self.assertNotEqual(r.returncode,0)
 
 

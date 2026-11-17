@@ -183,14 +183,18 @@ scripts embed, other crate and vendor inputs, and the runner OS and
 architecture. It looks through the newest successful runs on `main`, and on
 the current ref when that ref is not `main`, for a retained artifact with that
 hash. The hash is a separate artifact named `flow-engine-input-<hash>`. The
-artifact `fetch-engine` downloads stays `flow-engine-darwin-arm64`. Its files
-stay the unsigned `flow-engine`, `flow-engine.sha256`, `release.json`
-(including `engineBuild`), and `Lagrangian.app`.
+artifact `fetch-engine` downloads stays `flow-engine-darwin-arm64`. It transports `native-delivery-artifact.tar` and
+`native-delivery-artifact.json`. The checksum/source/run-bound tar contains
+`flow-engine`, `flow-engine.sha256`, `release.json` (including retained
+`engineBuild`), and `Lagrangian.app` with exact file/directory modes, internal
+relative links and hidden signature files. GitHub v4 zip permission loss applies
+only to the two envelope files. Fetch verifies raw tar bytes before bounded
+extraction and separately records its authenticated external-engine chmod.
 
 On a hit, the job reuses only the engine executable, checksum and build
 provenance; it does not run Cargo. Both cache paths prepare and verify the
 current portable runtime, backend and reader, then build current Swift,
-branding and the user-guide PDF. The artifact name and layout stay stable;
+branding and the user-guide PDF. The artifact name and extracted engine/app layout stay stable;
 its app and application release binding name the current source HEAD.
 Engine build provenance may name an older source E independently of current
 application/run head H. The old cached app is discarded.

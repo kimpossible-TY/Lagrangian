@@ -21,6 +21,7 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import flow_engine_runs
+import native_delivery_artifact
 
 ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
 MARKER_PREFIX = 'flow-engine-input-'
@@ -138,15 +139,14 @@ def download_payload(repo, run_id, dest: Path):
     with tempfile.TemporaryDirectory(prefix='.engine-download-', dir=dest.parent) as tmp:
         download = Path(tmp) / 'artifact'
         _gh(['run', 'download', str(run_id), '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', str(download)])
-        payload = locate_payload(download)
-        digest = verify_payload(payload)
-        candidate = Path(tmp) / 'engine-only'; candidate.mkdir()
-        for name in ('flow-engine', 'flow-engine.sha256', 'release.json'):
-            shutil.copy2(payload / name, candidate / name)
+        with native_delivery_artifact.reuse_payload(download, repository=repo, run_id=run_id) as payload:
+            digest = verify_payload(payload)
+            candidate = Path(tmp) / 'engine-only'; candidate.mkdir()
+            for name in ('flow-engine', 'flow-engine.sha256', 'release.json'):
+                shutil.copy2(payload / name, candidate / name)
+        (candidate / 'flow-engine').chmod(0o755)
         verify_payload(candidate)
-        if dest.exists():
-            shutil.rmtree(dest)
-        os.replace(candidate, dest)
+        native_delivery_artifact.owner().publish_verified(candidate, dest, verify_payload)
         return digest
 
 

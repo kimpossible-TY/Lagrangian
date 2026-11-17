@@ -24,6 +24,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import flow_engine_runs
 import native_delivery_consumer
+import native_delivery_artifact
 import copy
 from types import SimpleNamespace
 import importlib.util
@@ -421,20 +422,33 @@ def stage_engine_artifact(args):
     actual = digest(engine)
     if actual != manifest.get('engineInputSHA256'):
         raise ValueError('Unsigned engine hash does not match release.json engineInputSHA256')
+    release = validate(app)
+    expected_sidecar = {**release, 'appExecutableSHA256':digest(executable(app)), 'bundleChecksum':bundle_checksum(app)}
+    if manifest != expected_sidecar:
+        raise ValueError('Artifact sidecar differs from exact signed application')
+    head = capture(['git', '-C', ROOT, 'rev-parse', 'HEAD'])
+    if release['sourceRevision'] != head or release['sourceDirty'] or capture(['git', '-C', ROOT, 'status', '--porcelain']):
+        raise ValueError('Artifact requires clean current source/application')
+    # Full native inventory/signing validation precedes any transport publication.
+    native_delivery_consumer.current_delivery(SimpleNamespace(**globals()), app / 'Contents/Resources/native-reader', engine)
     version = capture([engine, '--version'])
     if not version:
         raise ValueError('Engine --version produced no output')
     if '--follow-system-theme' not in capture([engine, 'preview', '--help']):
         raise ValueError('The engine must support Flow preview features, including --follow-system-theme')
-    output = args.output.expanduser().resolve()
-    if output.exists(): shutil.rmtree(output)
-    output.mkdir(parents=True)
-    shutil.copy2(engine, output / 'flow-engine')
-    (output / 'flow-engine').chmod(0o755)
-    (output / 'flow-engine.sha256').write_text(actual + '  flow-engine\n')
-    shutil.copy2(manifest_path, output / 'release.json')
-    shutil.copytree(app, output / app.name, symlinks=True)
+    output = args.output.expanduser().absolute()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.engine-artifact-', dir=output.parent) as tmp:
+        payload = Path(tmp) / 'payload'; payload.mkdir()
+        shutil.copy2(engine, payload / 'flow-engine')
+        (payload / 'flow-engine').chmod(0o755)
+        (payload / 'flow-engine.sha256').write_text(actual + '  flow-engine\n')
+        shutil.copy2(manifest_path, payload / 'release.json')
+        shutil.copytree(app, payload / app.name, symlinks=True)
+        native_delivery_artifact.pack(payload, output, repository=getattr(args, 'repository', None) or os.environ.get('GITHUB_REPOSITORY', ''),
+            run_id=getattr(args, 'run_id', None) or os.environ.get('GITHUB_RUN_ID', ''), head=head)
     print(output)
+
 
 def path_inside(child, parent):
     resolved = child.expanduser().resolve()
@@ -509,11 +523,10 @@ def install_engine_payload(repo, run_id, dest, record=None):
             download = Path(tmp) / 'artifact'
             download.mkdir()
             run(['gh', 'run', 'download', run_id, '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', download])
-            payload = engine_payload_dir(download)
-            # Reject escaping links before chmod, xattr or any executable probe.
-            delivery_module().inventory(payload)
-            verify_engine_payload(payload)
-            shutil.copytree(payload, incoming, symlinks=True)
+            native_delivery_artifact.unpack(download, incoming, repository=repo, run_id=run_id,
+                head=record['headSha'] if record else None)
+            # Raw archive/inventory authentication precedes engine-only normalization/probes.
+            verify_engine_payload(incoming)
         engine = incoming / 'flow-engine'
         engine.chmod(0o755)
         clear_quarantine(incoming)
@@ -1666,6 +1679,8 @@ def main():
     stage.add_argument('--app', type=Path, required=True)
     stage.add_argument('--manifest', type=Path)
     stage.add_argument('--output', type=Path, required=True)
+    stage.add_argument('--run-id', help='Producer run R (or GITHUB_RUN_ID)')
+    stage.add_argument('--repository', help='Producer repository (or GITHUB_REPOSITORY)')
     stage.set_defaults(func=stage_engine_artifact)
     s = sub.add_parser('configure-signing'); s.add_argument('--identity', required=True, help='Existing Keychain code-signing certificate name or SHA-1'); s.set_defaults(func=configure_signing)
     i = sub.add_parser('install'); i.add_argument('source', type=Path); i.add_argument('--app', type=Path, default=DEFAULT_APP); i.add_argument('--defer-health-check', action='store_true', help='Defer the live HTTP deadline while macOS consent is pending; keep bundle validation and backup'); i.set_defaults(func=install)

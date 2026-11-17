@@ -10,20 +10,18 @@ import tempfile
 
 import flow_engine_runs
 import reader_bundle
+import native_delivery_artifact as artifact_transport
 
 CONTEXT = 'native-delivery-context.json'
 FIELDS = {'schemaVersion', 'repository', 'runId', 'runHeadSHA', 'enginePath',
-          'engineInputSHA256', 'artifactInventorySHA256', 'runRecord', 'deliveryBinding'}
+          'engineInputSHA256', 'artifactInventorySHA256', 'runRecord', 'deliveryBinding', 'transport'}
 
 
-def artifact_digest(owner, root):
-    files = [f for f in owner.inventory(root) if f['path'] != CONTEXT]
-    return hashlib.sha256(owner.encoded(files)).hexdigest()
-
-
-def context(package, artifact, destination, repo, record):
+def context(package, artifact, destination, repo, record, *, engine_normalized=True):
     owner = package.delivery_module()
     manifest = artifact / package.APP_BUNDLE / 'Contents/Resources/native-reader' / owner.MANIFEST
+    transport = artifact_transport.binding(artifact, repository=repo, run_id=record['databaseId'],
+        head=record['headSha'], engine_normalized=engine_normalized)
     binding = None
     if manifest.is_file():
         m = owner.read(manifest)
@@ -32,10 +30,10 @@ def context(package, artifact, destination, repo, record):
         binding.update(relativeRoot=package.APP_BUNDLE + '/Contents/Resources/native-reader',
                        deliveryManifestSHA256=package.digest(manifest),
                        sourceFilesSHA256=hashlib.sha256(owner.encoded(m.get('sourceFiles'))).hexdigest())
-    return dict(schemaVersion=1, repository=repo, runId=str(record['databaseId']),
+    return dict(schemaVersion=2, repository=repo, runId=str(record['databaseId']),
                 runHeadSHA=record['headSha'], enginePath=str(destination / 'flow-engine'),
                 engineInputSHA256=package.verify_engine_payload(artifact),
-                artifactInventorySHA256=artifact_digest(owner, artifact), deliveryBinding=binding,
+                artifactInventorySHA256=transport['normalizedInventorySHA256'], deliveryBinding=binding, transport=transport,
                 runRecord={key:record.get(key) for key in ('databaseId', 'headSha', 'workflowName',
                                                          'headBranch', 'conclusion', 'status', 'url')})
 
@@ -91,7 +89,7 @@ def consume(package, engine, explicit=None, management_only=False):
                   'Invalid native delivery context path/size')
     c = owner.read(receipt)
     owner.require(isinstance(c, dict) and set(c) == FIELDS and type(c['schemaVersion']) is int
-                  and c['schemaVersion'] == 1, 'Unknown native delivery context schema')
+                  and c['schemaVersion'] == 2, 'Unknown native delivery context schema')
     owner.require(c['enginePath'] == str(engine) and engine.name == 'flow-engine', 'Replayed engine context path')
     repo = package.github_repo()
     owner.require(c['repository'] == repo, 'Native delivery context repository mismatch')
@@ -105,8 +103,9 @@ def consume(package, engine, explicit=None, management_only=False):
         downloaded = work / 'artifact'; downloaded.mkdir()
         package.run(['gh', 'run', 'download', c['runId'], '--repo', repo,
                      '--name', package.ENGINE_ARTIFACT, '--dir', downloaded])
-        artifact = package.engine_payload_dir(downloaded)
-        owner.require(context(package, artifact, engine.parent, repo, record) == c,
+        artifact = artifact_transport.unpack(downloaded, work / 'payload', repository=repo,
+            run_id=c['runId'], head=c['runHeadSHA'])
+        owner.require(context(package, artifact, engine.parent, repo, record, engine_normalized=False) == c,
                       'Native delivery context differs from exact run artifact')
         app = artifact / package.APP_BUNDLE
         owner.require((app / 'Contents/Resources/native-reader/delivery-manifest.json').is_file(),

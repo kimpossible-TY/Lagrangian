@@ -233,7 +233,9 @@ FLOW_SIGN_IDENTITY=<existing-certificate-sha1> python3 scripts/flow-app.py build
 python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
 
-The existing build call automatically consumes the engine-local same-run context, reauthenticates the exact artifact and reader, verifies current source and payload, and compiles fresh Swift/resources. An older cached app is never relabelled as current. Missing payload or identity, tamper and stale/mixed bindings fail before installation and preserve a valid previous stage. This source change does not replace the installed updater or prove actual deployment.
+The existing build call automatically consumes the engine-local same-run context, reauthenticates the exact R/H archive and reader, verifies current source and payload, and compiles fresh Swift/resources. An older cached app is never relabelled as current. Missing payload or identity, tamper and stale/mixed bindings fail before installation and preserve a valid previous stage. This source change does not replace the installed updater or prove actual deployment.
+
+The artifact name stays `flow-engine-darwin-arm64`; its transport is a bounded, source/checksum/run-bound tar plus JSON envelope, preserving executable modes, internal relative links and hidden signed payload. A damaged or missing archive is rejected without flat, installed-app or scratch fallback. Raw archive digest and the fetched external engine’s authenticated chmod are separate bindings. The same-run cache is reauthenticated before build. Old engine source E may be reused; current app and tar are produced anew for H on both cache paths.
 
 For a standalone engine, supply an explicit current verified delivery:
 
