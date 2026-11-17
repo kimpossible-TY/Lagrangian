@@ -96,3 +96,11 @@ or close official final GUI/VO/OS13/live/packaging acceptance.
 - [x] 11.2 Require the exact local nativeJumpOnly boolean proof and verify legacy/native scope separation.
 - [x] 11.3 Exercise original receipt preservation through real offscreen TextView/host control callbacks, shared FlowApp consent/Read composition and actual HTTP/Neovim with an independent oracle; keep real GUI acceptance open.
 - [x] 11.4 Run the affected final subset, production Swift/macOS13 warnings-as-errors and canonical validation, then bind the additional clean commit and exact delivery delta/evidence hashes without changing original artifacts or pins.
+
+## 12. v4 intermediate corrections
+
+- [ ] 12.1 Diagnose startup offscreen without claiming GUI reproduction; add dev-root-only value timeline and verify storage/event lifetime separately.
+- [ ] 12.2 Fix D1/D2 and duplicate-label profile selection with actual-control counterexamples; connect explicit-Read environment recovery.
+- [ ] 12.3 Make the owned fixture manager argv-only with root/marker/symlink negatives.
+- [ ] 12.4 Align V301–V306 canonical/generated docs and strict contracts; freeze corrections for separately bound intermediate app production (actual artifact results remain in the external handoff).
+- [ ] 12.5 Correct SF1/SF2, verify the actual queued effect gate and production descriptor provenance with exact own-token/other-token lifetime evidence; keep GUI and NA16 acceptance open.

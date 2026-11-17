@@ -3,6 +3,7 @@ import CryptoKit
 import UniformTypeIdentifiers
 
 final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+  let startupTimeline: NativeStartupTimeline?
   let isolated: Bool
   let fixture: URL?
   let noActivate: Bool
@@ -30,9 +31,14 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     launchAgents: isolated ? IsolatedProjectController() : launchAgents,
     onChange: { [weak self] snapshot in self?.render(snapshot) },
     openBrowser: { NSWorkspace.shared.open($0) },
+    startupTimeline: startupTimeline,
     nativeRead: { [weak self] profile, progress in
       guard let self else { return {} }
       return self.readNative(profile, progress: progress)
+    },
+    nativeEvent: { [weak self] event in
+      guard let self, self.nativeProfile == self.active, let window = self.nativeWindow else { return false }
+      return MainActor.assumeIsolated { window.environmentChanged(event) }
     }
   )
   /// The same production composition is called by Read and isolated offscreen
@@ -80,8 +86,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   lazy var readingEnvironment = NativeReadingEnvironment(
     onSleep: { [weak self] in self?.sleepChanged($0) },
-    onNetwork: { [weak self] in self?.session.networkChanged() },
-    onPower: { [weak self] in self?.session.setConstrainedPower($0) }
+    onNetwork: { [weak self] in self?.networkChanged($0) },
+    onPower: { [weak self] in self?.powerChanged($0) }
   )
   var snapshot: ReadingSessionSnapshot?
   var mutating = false
@@ -90,7 +96,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
   init(environment: AppEnvironment, projectService: ProjectService? = nil,
        isolated: Bool = false, fixture: URL? = nil,
-       noActivate: Bool = false, nativeRuntime: NativeReaderRuntime? = nil, nativeManager: URL? = nil, showNativeWindow: Bool = true) {
+       noActivate: Bool = false, startupTimeline: NativeStartupTimeline? = nil, nativeRuntime: NativeReaderRuntime? = nil, nativeManager: URL? = nil, showNativeWindow: Bool = true) {
+    self.startupTimeline = startupTimeline
     self.noActivate = noActivate
     self.showNativeWindow = showNativeWindow
     self.nativeRuntime = nativeRuntime
@@ -107,6 +114,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     launchAgents = LaunchAgentService(environment: environment)
     self.projectService = projectService ?? ProjectService(store: store, launchAgents: isolated ? IsolatedProjectController() : launchAgents)
     super.init()
+    startupTimeline?.owner = self
     if let manager = nativeManager {
       managedResolver = NativeReaderManagedResolver(attach: { arguments in
         try await Task.detached {
@@ -198,7 +206,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     mutate(
       "프로젝트 설정을 불러오는 중…",
       work: {
-        (try store.load(), self.isolated ? false : agents.loginEnabled())
+        let timeline = self.startupTimeline
+        timeline?.record("load-begin")
+        do {
+          let loaded = (try store.load(), self.isolated ? false : agents.loginEnabled())
+          timeline?.record("load-end", ["profileCount": loaded.0.profiles.count])
+          return loaded
+        } catch { timeline?.record("load-error"); throw error }
       },
       success: { [weak self] loaded in
         guard let self else { return }
@@ -215,6 +229,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     session.dispose()
     nativeWindow?.dispose(); offlineWindow?.dispose()
   }
+  func networkChanged(_ available: Bool) { session.networkChanged(available: available) }
+  func powerChanged(_ constrained: Bool) { session.setConstrainedPower(constrained) }
   func sleepChanged(_ sleeping: Bool) {
     if sleeping { readingIntent += 1 }
     session.setSleeping(sleeping)
@@ -380,7 +396,11 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func populate() {
     picker.removeAllItems()
-    picker.addItems(withTitles: settings.profiles.map(\.name))
+    // NSPopUpButton.addItems collapses identical titles. Profile names are not
+    // unique IDs; preserve every validated profile and its selection index.
+    for profile in settings.profiles {
+      picker.menu?.addItem(NSMenuItem(title: profile.name, action: nil, keyEquivalent: ""))
+    }
     if let index = settings.profiles.firstIndex(where: { $0.id == settings.selectedID }) {
       picker.selectItem(at: index)
     } else if let first = settings.profiles.first {
@@ -442,7 +462,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard !mutating else { return }
     mutating = true
     updateControls()
+    let timeline = startupTimeline
     session.performMutation(message: message, work: work) { [weak self] result in
+      timeline?.record("completion-owner", ["weakOwnerPresent": self != nil])
       guard let self else { return }
       self.mutating = false
       switch result {
@@ -457,6 +479,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self.session.reportFailure(error)
       }
       self.updateControls()
+      let selectedHash = SHA256.hash(data: Data(self.settings.selectedID.utf8)).map { String(format: "%02x", $0) }.joined()
+      timeline?.record("settings-adopted", ["profileCount": self.settings.profiles.count,
+        "selectedIDHash": selectedHash, "readEnabled": self.controls[#selector(FlowApp.openPreview)]?.isEnabled ?? false])
     }
   }
   @objc func showWindow() {

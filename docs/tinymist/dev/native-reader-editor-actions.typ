@@ -158,3 +158,50 @@ source and replaced registration retain their failure boundaries. Independent
 Python RPC observes file, line, UTF-8 column and every loaded buffer. This proves
 offscreen AppKit control events; the chooser/alert and real GUI/foreground, visual,
 VoiceOver and OS13 runtime acceptance remain unverified.
+
+= v4 selection independence and exact local lease cleanup
+
+A valid body selection is checked and adopted independently of optional editor
+synchronization. Every changed or invalid selection first revokes old pending
+editor work. A dead owner, missing private control/registration or sync transport
+failure leaves editor Locate unavailable; source excerpt, mapping-only locate
+and Ask keep their accepted-document authority. Wrong document/input/context and
+invalid/over32 source selections still fail. No error turns a mapping receipt
+into an editor effect or resends an uncertain jump.
+
+The local manager returns an exact issued token and attachment file. The native
+resolver retains a cleanup lease across its state probe; failed/cancelled/late or
+superseded resolution retires that token. Disconnect, disposal and transport
+replacement retire only that native registration through
+`--release-native-editor --root ROOT --entry ENTRY --token TOKEN` (optionally
+`--reader-service ID`). It performs no service start/restart, editor/control-file
+termination, arbitrary HTTP file deletion or quota increase. The existing32
+active-attachment bound and other native/terminal tokens remain intact.
+
+The local production descriptor export is
+`--native-editor-descriptor --root ROOT --entry ENTRY --token EXISTING_TOKEN`.
+It accepts an existing private service registration with a live owner and private
+control file and returns `descriptorFile` under the manager-owned private
+`native-editor-descriptors` directory. Its exact four fields are reused by the
+native Connect Editor chooser/consent owner; HTTP never registers these fields.
+The user explicitly selects that generated file in Connect Editor. It is not
+editor discovery, automatic consent or a source-write grant. Missing/stale/private
+storage failures preserve prior descriptors. The fixture verifies this actual
+manager generator and the same FlowApp descriptor adoption API without opening
+a chooser. Actual GUI selection/consent acceptance is still pending.
+
+The v4 gate tests hold the actual selection edit_lock after a jump is transmitted
+and its durable unknown row is committed. A newer invalid selection or explicit
+view cancellation revokes the old lease before that effect gate is released;
+source bytes and the independent Neovim cursor/buffers remain unchanged. This is
+separate from delaying a prepare response. Existing after-dispatch uncertainty
+and exact original receipt lookup remain unchanged.
+
+The v4 quota regression uses an ASCII registered entry. Existing Unicode
+native/editor suites remain separate. A retained reproduction shows that the
+manager's unchanged Path.resolve equality can reject NFC/NFD-equivalent entry
+spellings for the same macOS file. This is a known matching gap, not an accepted
+Unicode manager/F10 path; PM/NA15 must define a safe correction that retains the
+registered document identity. No matching-policy, Lua or terminal expansion is
+included here. Its exact reproduction/input and owner request are in the v4
+`unicode-manager-repro.json` and handoff.

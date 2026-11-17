@@ -55,6 +55,43 @@ class EditorAttachments:
         except (OSError, ValueError, TypeError):
             return None
 
+    def release_native(self, token):
+        """Local manager-only retirement; no HTTP path or arbitrary file input."""
+        if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+            raise ValueError("Invalid native attachment token")
+        if not self.directory.exists():
+            return False
+        self.private(self.directory, directory=True)
+        path = self.directory / (token + ".json")
+        if not path.exists():
+            return False
+        self.private(path)
+        if path.stat().st_size > 16384:
+            raise ValueError("Native registration exceeds its bound")
+        record = json.loads(path.read_text())
+        if (record.get("documentID") != self.document_id or record.get("nativeJumpOnly") is not True):
+            raise ValueError("Not this document's native registration")
+        path.unlink()
+        return True
+
+    def descriptor(self, token):
+        """Export only an existing local registration's four chooser fields."""
+        if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+            raise ValueError("Invalid editor token")
+        self.private(self.directory, directory=True)
+        path = self.directory / (token + ".json")
+        self.private(path)
+        if path.stat().st_size > 16384:
+            raise ValueError("Editor registration exceeds its bound")
+        service = json.loads(path.read_text()).get("service")
+        # Descriptor export identifies the existing editor, independently of a
+        # future Reader incarnation. Reuse record() with that registered service.
+        record = EditorAttachments(self.directory.parent, self.document_id, service).record(token)
+        if not record or not record.get("controlFile"):
+            raise ValueError("Live explicit editor registration required")
+        self.private(Path(record["controlFile"]))
+        return {key: record[key] for key in ("address", "executable", "ownerPID", "controlFile")}
+
     def resolve(self, token):
         record = self.record(token)
         # Native movement consent grants no source-write capability. Existing

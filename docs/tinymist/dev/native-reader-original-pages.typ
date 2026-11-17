@@ -132,7 +132,10 @@ not display selection, and offline mode switching is unsupported. The reflow
 selection32/zoom0.5–4 storage bounds do not describe PDF selection storage.
 Explicit Export PDF saves the accepted publication's original validated bytes via
 native chooser and existing RecoveryStore staging/atomic publication. Native
-PDFKit reopens staged/output bytes. No screenshot, regenerated PDF, recoloring or
+Production PDFKit reopens staged bytes; the test separately reopens published
+output bytes. No screenshot, regenerated PDF, recoloring or
 PDF-to-Typst source promotion occurs. Cancel/stale/dispose/tamper/destination
-failures preserve previous files. Reflow display preview is a separate owner from
+failures preserve previous files in the tested precommit paths. Observed
+directory identity/metadata fingerprint mismatches reject commit; same-metadata
+content changes and external rename races are not a stronger atomic CAS guarantee. Reflow display preview is a separate owner from
 PDF width-fit/scale and its selection-hold/raster budgets.

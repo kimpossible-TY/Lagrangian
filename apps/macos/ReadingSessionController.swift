@@ -1,4 +1,7 @@
 import Foundation
+import Darwin
+
+enum NativeReadEnvironmentEvent { case sleep, wake, network(Bool), power(Bool) }
 
 enum ReadingSessionPhase {
   case idle, validating, requested, running, ready, accepted, windowInitialized, painted, stopped, sleeping, failed
@@ -33,6 +36,8 @@ final class ReadingOperationTicket {
 final class ReadingSessionController {
   typealias Probe = (Profile, @escaping (PreviewReadiness) -> Void) -> () -> Void
   typealias NativeRead = @MainActor (Profile, @escaping (NativeReadProgress) -> Void) -> () -> Void
+  private let startupTimeline: NativeStartupTimeline?
+  private let nativeEvent: (NativeReadEnvironmentEvent) -> Bool
   private let nativeRead: NativeRead?
   private var cancelNativeRead: (() -> Void)?
   private var nativeStage = 0
@@ -71,13 +76,17 @@ final class ReadingSessionController {
     launchAgents: ProjectControlling,
     onChange: @escaping (ReadingSessionSnapshot) -> Void,
     openBrowser: @escaping (URL) -> Bool,
+    startupTimeline: NativeStartupTimeline? = nil,
     nativeRead: NativeRead? = nil,
+    nativeEvent: @escaping (NativeReadEnvironmentEvent) -> Bool = { _ in false },
     probe: @escaping Probe = PreviewReadinessProbe.start,
     validate: @escaping (Profile) throws -> Void = { try $0.validate(checkFiles: true) },
     startupTimeout: TimeInterval = 30,
     retryInterval: TimeInterval = 0.5
   ) {
+    self.startupTimeline = startupTimeline
     self.nativeRead = nativeRead
+    self.nativeEvent = nativeEvent
     self.launchAgents = launchAgents
     self.onChange = onChange
     self.openBrowser = openBrowser
@@ -143,11 +152,20 @@ final class ReadingSessionController {
                 self.deadlineTimer?.cancel()
                 self.deadlineTimer = nil
                 self.publish(.painted, "네이티브 문서 그리기 확인됨")
-              case .failed(let reason): self.fail(reason)
+              case .failed(let reason):
+                // The native session owns its bounded transport retry. Retain
+                // this explicit Read ticket so its recovery can publish; user
+                // retry/profile change/close still revoke it normally.
+                self.deadline = nil; self.deadlineTimer?.cancel(); self.deadlineTimer = nil
+                self.nativeStage = 0
+                self.publish(.failed, "작업을 완료하지 못했습니다", detail: reason)
               }
             }
           }
-          if self.isCurrent(current) { self.cancelNativeRead = cancel } else { cancel() }
+          if self.isCurrent(current) {
+            self.cancelNativeRead = cancel
+            _ = self.nativeEvent(.power(self.constrainedPower))
+          } else { cancel() }
         }
       }
     } else {
@@ -228,9 +246,12 @@ final class ReadingSessionController {
     commandRunning = true
     storageMutationRunning = true
     publish(.validating, message)
+    mutationTrace("mutation-enqueued", captured: current)
     worker.async {
+      self.startupTimeline?.record("mutation-worker")
       let result = Result { try work() }
       DispatchQueue.main.async {
+        self.mutationTrace("mutation-completion", captured: current)
         guard self.isCurrent(current) else { return }
         self.commandRunning = false
         self.storageMutationRunning = false
@@ -375,6 +396,14 @@ final class ReadingSessionController {
   func setSleeping(_ sleeping: Bool) {
     guard !disposed, self.sleeping != sleeping else { return }
     self.sleeping = sleeping
+    if cancelNativeRead != nil {
+      cancelCurrentProbe()
+      deadline = nil; deadlineTimer?.cancel(); deadlineTimer = nil
+      nativeStage = 0
+      if !nativeEvent(sleeping ? .sleep : .wake) { invalidate() }
+      publish(sleeping ? .sleeping : .requested, sleeping ? "잠자기 중 · 깨어나면 연결을 확인합니다" : "네이티브 문서를 다시 연결하는 중…")
+      return
+    }
     if storageMutationRunning {
       cancelCurrentProbe()
       openWhenReady = false
@@ -385,7 +414,13 @@ final class ReadingSessionController {
     if sleeping { publish(.sleeping, "잠자기 중 · 깨어나면 연결을 확인합니다") } else { refresh() }
   }
 
-  func networkChanged() {
+  func networkChanged(available: Bool = true) {
+    guard !disposed else { return }
+    if cancelNativeRead != nil {
+      nativeStage = 0
+      if !nativeEvent(.network(available)) { invalidate() }
+      return
+    }
     guard !disposed, !sleeping, !commandRunning else { return }
     cancelCurrentProbe()
     verifiedPID = nil
@@ -395,6 +430,7 @@ final class ReadingSessionController {
   func setConstrainedPower(_ constrained: Bool) {
     guard !disposed, constrainedPower != constrained else { return }
     constrainedPower = constrained
+    if cancelNativeRead != nil { _ = nativeEvent(.power(constrained)); return }
     if !probing && !commandRunning && snapshot.phase != .failed { scheduleProbe() }
   }
 
@@ -437,6 +473,11 @@ final class ReadingSessionController {
     verifiedPID = nil
     verifiedAt = nil
     lastWaitReason = "엔진이 아직 실행되지 않았습니다."
+  }
+
+  private func mutationTrace(_ event: String, captured: Int) {
+    startupTimeline?.record(event, ["capturedGeneration": captured, "currentGeneration": generation,
+      "storageMutationRunning": storageMutationRunning, "disposed": disposed])
   }
 
   private func isCurrent(_ value: Int) -> Bool { !disposed && generation == value }
@@ -556,5 +597,34 @@ final class IsolatedProjectController: ProjectControlling {
   func jobPID(_ label: String) -> Int? { nil }
   func control(_ action: String, _ profile: Profile) throws {
     throw FlowError(message: "격리 모드에서는 LaunchAgent 제어를 사용할 수 없습니다.")
+  }
+}
+
+/// Dev-root-only value timeline. The queued work contains values and an owned
+/// path, never an application/session reference or error text/source paths.
+final class NativeStartupTimeline {
+  weak var owner: AnyObject?
+  private let queue = DispatchQueue(label: "lagrangian.dev.startup-timeline")
+  private let directory: Int32
+  private let started = ProcessInfo.processInfo.systemUptime
+  init(root: URL) { directory = Darwin.open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW) }
+  deinit { let fd = directory; queue.sync { if fd >= 0 { Darwin.close(fd) } } }
+  func record(_ event: String, _ values: [String: Any] = [:]) {
+    var row = values
+    row["weakOwnerPresent"] = owner != nil
+    row["event"] = event; row["elapsed"] = ProcessInfo.processInfo.systemUptime - started
+    row["mainThread"] = Thread.isMainThread
+    let directory = self.directory
+    guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) else { return }
+    queue.async {
+      guard directory >= 0 else { return }
+      let fd = openat(directory, "startup-timeline.jsonl", O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
+      guard fd >= 0 else { return }; defer { Darwin.close(fd) }
+      var info = stat()
+      guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+            info.st_mode & 0o077 == 0 else { return }
+      let line = data + Data([10])
+      line.withUnsafeBytes { buffer in _ = Darwin.write(fd, buffer.baseAddress, buffer.count) }
+    }
   }
 }

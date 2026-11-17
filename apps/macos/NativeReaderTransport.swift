@@ -79,8 +79,9 @@ struct NativeReaderAttachment {
     let service: [String: Int64]
     let editorAttachment: String?
     let editorConsentID: UUID?
+    let editorLease: NativeReaderEditorLease?
 
-    init(data: Data, editorConsentID: UUID? = nil) throws {
+    init(data: Data, editorConsentID: UUID? = nil, editorLease: NativeReaderEditorLease? = nil) throws {
         guard data.count <= 1024 * 1024,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let urlString = object["url"] as? String, let url = URL(string: urlString),
@@ -102,6 +103,7 @@ struct NativeReaderAttachment {
         serviceID = "reader:\(pid.int64Value):\(start.int64Value)"
         editorAttachment = object["editorAttachment"] as? String
         self.editorConsentID = editorConsentID
+        self.editorLease = editorLease
     }
 }
 
@@ -141,6 +143,18 @@ struct NativeReaderManagedEditor {
     }
 }
 
+/// Only the local manager can retire its own issued registration. A shared
+/// lease survives pending resolution and runs cleanup at most once per owner.
+actor NativeReaderEditorLease {
+    private var task: Task<Void, Never>?
+    private let cleanup: () async -> Void
+    init(cleanup: @escaping () async -> Void) { self.cleanup = cleanup }
+    func release() async {
+        if task == nil { let cleanup = self.cleanup; task = Task { await cleanup() } }
+        await task?.value
+    }
+}
+
 struct NativeReaderManagedResolver {
     /// Supply an asynchronous bounded runner for the installed manage.py. No shell or preview-port probing.
     var attach: ([String]) async throws -> Data
@@ -157,11 +171,22 @@ struct NativeReaderManagedResolver {
         let data: Data
         do { data = try await attach(args) }
         catch { throw NativeReaderOperationFailure.unavailable } // Never surface private argv/manager stderr.
+        let plan = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let lease: NativeReaderEditorLease?
+        if editor?.consentID != nil, let token = plan?["editorAttachment"] as? String,
+           token.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+           let path = plan?["attachmentFile"] as? String, path.hasPrefix("/") {
+            var release = ["--release-native-editor", "--root", root, "--entry", entry, "--token", token]
+            if let id = readerID { release += ["--reader-service", id] }
+            let runner = attach, releaseArguments = release
+            lease = NativeReaderEditorLease { _ = try? await runner(releaseArguments) }
+        } else { lease = nil }
+        do {
+        try Task.checkCancellation()
         if editor?.consentID != nil {
-            guard let plan = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  plan["nativeEditorActions"] as? Int == 1 else { throw NativeReaderOperationFailure.unavailable }
+            guard plan?["nativeEditorActions"] as? Int == 1 else { throw NativeReaderOperationFailure.unavailable }
         }
-        let attachment = try NativeReaderAttachment(data: data, editorConsentID: editor?.consentID)
+        let attachment = try NativeReaderAttachment(data: data, editorConsentID: editor?.consentID, editorLease: lease)
         var request = URLRequest(url: attachment.baseURL.appendingPathComponent("api/state"))
         request.timeoutInterval = 5
         let response = try await network.send(request, 1024 * 1024)
@@ -173,8 +198,10 @@ struct NativeReaderManagedResolver {
               revision.range(of: "^[A-Za-z0-9_.:-]{1,128}$", options: .regularExpression) != nil else {
             throw NativeReaderContractError.wrongTarget
         }
+        try Task.checkCancellation()
         return (attachment, NativeDocumentIdentity(documentID: attachment.documentID,
             serviceID: attachment.serviceID, revision: revision, scope: .service))
+        } catch { await lease?.release(); throw error }
     }
 }
 
@@ -211,6 +238,9 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
 
     private func closeEditor(permanent: Bool) async {
         editorSynced = false
+        // Local registration cleanup must also run before a document/context
+        // exists, and independently of a best-effort HTTP tombstone.
+        if permanent { await attachment.editorLease?.release() }
         guard let context = editorContext, let consent = attachment.editorConsentID,
               let token = attachment.editorAttachment else { return }
         editorSequence += 1
@@ -229,6 +259,13 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
         }
     }
 
+    func revokeEditorSelection(context: NativeReaderRequestContext) async throws {
+        try check(context)
+        editorSelection = nil; editorContext = context
+        await closeEditor(permanent: false)
+        try check(context)
+    }
+
     func syncEditor(_ selection: NativeReaderSelection?, context: NativeReaderRequestContext) async throws {
         try check(context)
         editorSequence += 1; editorSelection = selection; editorContext = context; editorSynced = false
@@ -236,9 +273,12 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
         let sequence = editorSequence
         let result: [String: Any]
         do { result = try await call("api/native-editor", fields: editorFields(operation: "sync", context: context), context: context) }
-        catch let error as NativeReaderContractError { throw error }
-        catch { throw NativeReaderOperationFailure.unavailable }
-        guard editorSequence == sequence, result["status"] as? String == "ready" else { throw NativeReaderContractError.staleGeneration }
+        catch is URLError { throw NativeReaderOperationFailure.unavailable }
+        guard editorSequence == sequence else { throw NativeReaderContractError.staleGeneration }
+        guard result["status"] as? String == "ready" else {
+            if result["status"] as? String == "unavailable" { throw NativeReaderOperationFailure.unavailable }
+            throw NativeReaderContractError.staleGeneration
+        }
         editorSynced = true
     }
 
@@ -449,19 +489,19 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         let current = epoch
         var (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID,
             editor: transport == nil && !editorConsentRevoked ? editor : nil)
-        guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
+        guard !disposed, epoch == current else { await attachment.editorLease?.release(); throw NativeReaderContractError.staleGeneration }
         let replaced = transport?.attachment.serviceID != attachment.serviceID || transport?.attachment.baseURL != attachment.baseURL || transport?.attachment.documentID != attachment.documentID
         if replaced {
             // Existing attachments are service-bound. Register once per incarnation,
             // rather than leaking a registration on every readiness poll.
             if transport != nil, let editor, editor.consentID == nil {
                 (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID, editor: editor)
-                guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
+                guard !disposed, epoch == current else { await attachment.editorLease?.release(); throw NativeReaderContractError.staleGeneration }
             }
             let oldPages = pageTransport, oldTransport = transport
             await oldPages?.dispose()
             await oldTransport?.dispose()
-            guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
+            guard !disposed, epoch == current else { await attachment.editorLease?.release(); throw NativeReaderContractError.staleGeneration }
             let next = NativeReaderTransport(attachment: attachment, network: resolver.network)
             transport = next; actions = NativeReaderActions(transport: next)
             pageTransport = NativeReaderOriginalPageTransport(transport: next)

@@ -731,7 +731,10 @@ private actor AttachTrace {
         try serviceCheck(await failedCounter.value() == 4, "bounded reconnect attempts")
         session.event(.power(constrained: true)); session.event(.sleep)
         try serviceCheck(session.state == .sleeping && session.store.document != nil, "sleep retains accepted")
-        session.event(.network(false)); try serviceCheck(session.state == .offline, "network offline")
+        let sleepGeneration = session.store.generation
+        session.event(.network(false)); session.event(.network(true))
+        try serviceCheck(session.state == .sleeping && session.store.generation == sleepGeneration,
+                         "network changes during sleep cannot start requests before wake")
         session.event(.dispose); session.refresh(); session.event(.wake)
         try serviceCheck(session.state == .disposed && session.store.document != nil, "dispose rejects callbacks retains accepted")
         failing.event(.dispose); offline.event(.dispose)

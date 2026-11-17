@@ -53,6 +53,12 @@ class ReadingUI(unittest.TestCase):
         result = subprocess.run([self.executable, name], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_startup_timeline_does_not_retain_its_owner(self):
+        self.scenario('timeline-owner')
+
+    def test_duplicate_profile_labels_preserve_exact_profile_selection(self):
+        self.scenario('duplicate-names')
+
     def test_read_opens_only_when_document_ready(self):
         self.scenario('read')
 
@@ -94,6 +100,79 @@ class NativeShell(unittest.TestCase):
     def test_external_action_preserves_existing_service_and_browser_readiness(self): self.scenario('native-external')
     def test_native_read_saves_settings_before_request(self): self.scenario('native-save')
     def test_default_native_read_is_honestly_unavailable(self): self.scenario('native-unavailable')
+
+
+@unittest.skipUnless(sys.platform == 'darwin', 'AppKit tests require macOS')
+class OptimizedStartup(unittest.TestCase):
+    def test_optimized_production_run_completes_profile_load(self):
+        """Execute the production entrypoint/run loop, with only presentation and a deadline instrumented.
+
+        The observer reads NSApp.delegate only inside its bounded callback. No windows are ordered.
+        STARTUP_FIXED_MAIN permits an immutable Git main for the before counterexample.
+        """
+        if explicit := os.environ.get('GUI_PREP_OUTPUT'):
+            output = Path(explicit).resolve()
+            if not output.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output')):
+                raise RuntimeError('Startup evidence must remain in isolated DevSSD output')
+        else:
+            temporary = tempfile.TemporaryDirectory(prefix='flow-startup-')
+            self.addCleanup(temporary.cleanup)
+            output = Path(temporary.name)
+        folder = output / ('startup-' + str(time.time_ns())); folder.mkdir()
+        original = Path(os.environ.get('STARTUP_FIXED_MAIN', ROOT / 'apps/macos/main.swift')).read_text()
+        probe = '''
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+      guard let observed = NSApp.delegate as? FlowApp else { print("delegateReleasedBeforeCompletion"); exit(3) }
+      guard !observed.mutating, observed.active?.id == "startup",
+            observed.controls[#selector(FlowApp.openPreview)]?.isEnabled == true,
+            !observed.window.isVisible else {
+        print("startupIncomplete", observed.mutating, observed.status.stringValue, "active", observed.active?.id ?? "nil", "read", observed.controls[#selector(FlowApp.openPreview)]?.isEnabled ?? false, "windows", NSApp.windows.map { $0.isVisible }); exit(4)
+      }
+      print("startupReady; selected=startup; mainWindowVisible=false; activationProhibited=true")
+      observed.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+      observed.window.close()
+      exit(0)
+    }
+'''
+        instrumented = original.replace('app.setActivationPolicy(.accessory)', 'app.setActivationPolicy(.prohibited)')
+        instrumented = instrumented.replace('    app.delegate = delegate', '    app.delegate = delegate\n' + probe)
+        self.assertNotEqual(instrumented, original)
+        main = folder / 'main.swift'; main.write_text(instrumented)
+        binary = folder / 'startup'
+        argv = ['/usr/bin/swiftc', *package.swift_flags(), '-O',
+                *(p for p in package.swift_sources() if p.name != 'main.swift'), main, '-o', binary]
+        started = time.monotonic()
+        compiled = subprocess.run(list(map(str, argv)), capture_output=True, text=True)
+        (folder / 'compile.json').write_text(json.dumps(dict(argv=list(map(str, argv)), exit=compiled.returncode,
+            elapsed=time.monotonic()-started, stderr=compiled.stderr,
+            sourceSHA256={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in package.swift_sources() + [main]},
+            originalMainSHA256=hashlib.sha256(original.encode()).hexdigest()), indent=2))
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        dev = folder / 'dev'
+        data = dev / 'home/Library/Application Support/Lagrangian'; data.mkdir(parents=True)
+        project = folder / 'project'; project.mkdir(); (project / 'main.typ').write_text('Startup fixture')
+        (data / 'profiles.json').write_text(json.dumps(dict(schemaVersion=1, selectedID='startup', profiles=[dict(
+            id='startup', name='Startup', root=str(project), entry='main.typ', fonts=[], packages='',
+            port=23625, publicURL='', label='test.startup')])))
+        result = subprocess.run([binary, '--dev-root', dev, '--dev-no-activate'],
+                                capture_output=True, text=True, timeout=12)
+        (folder / 'run.json').write_text(json.dumps(dict(exit=result.returncode, stdout=result.stdout, stderr=result.stderr,
+            argv=[str(binary), '--dev-root', str(dev), '--dev-no-activate'], guiLaunch=False), indent=2))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        if not os.environ.get('STARTUP_FIXED_MAIN'):
+            rows=[json.loads(line) for line in (dev/'startup-timeline.jsonl').read_text().splitlines()]
+            events=[r['event'] for r in rows]
+            for event in ['load-begin','load-end','mutation-enqueued','mutation-completion','completion-owner','settings-adopted']:
+                self.assertIn(event,events)
+            completion=next(r for r in rows if r['event']=='mutation-completion')
+            self.assertEqual(completion['capturedGeneration'],completion['currentGeneration'])
+            self.assertFalse(completion['disposed']);self.assertTrue(completion['storageMutationRunning'])
+            adopted=next(r for r in rows if r['event']=='settings-adopted')
+            self.assertEqual(adopted['profileCount'],1);self.assertTrue(adopted['readEnabled'])
+            self.assertEqual(adopted['selectedIDHash'],hashlib.sha256(b'startup').hexdigest())
+            serialized=json.dumps(rows)
+            self.assertNotIn(str(project),serialized);self.assertNotIn('Startup',serialized)
+            self.assertTrue(next(r for r in rows if r['event']=='completion-owner')['weakOwnerPresent'])
 
 
 if __name__ == '__main__':

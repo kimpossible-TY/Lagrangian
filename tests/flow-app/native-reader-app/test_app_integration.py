@@ -473,6 +473,8 @@ def gui_root(value, *, exists=True):
     if '..' in path.parts or any(p.is_symlink() for p in [path, *path.parents]):
         raise ValueError('Fixture paths cannot contain symlinks')
     if exists:
+        if (path / 'fixture.json').is_symlink():
+            raise ValueError('Fixture marker cannot be a symlink')
         marker = json.loads((path / 'fixture.json').read_text())
         if marker['owner'] != 'lagrangian-native-gui-fixture' or str(uuid.UUID(marker['fixtureID'])) != marker['fixtureID']:
             raise ValueError('Not an owned inspection fixture')
@@ -534,16 +536,39 @@ def gui_setup(value, compiler, package_cache):
     home = root / 'app-dev/home'
     board = 'io.github.kimpossible-ty.lagrangian.dev.copy.' + hashlib.sha256(str(home).encode()).hexdigest()
     manager = root / 'fixture-manager'
-    manager.write_text('#!' + __import__('sys').executable + '\nimport os,sys\nos.execv(sys.executable,[sys.executable,"-B",' + repr(str(GUI_SCRIPT)) +
-        ',"gui-fixture","attach","--fixture-root",' + repr(str(root)) + ']+sys.argv[1:])\n')
+    fixture_id = str(uuid.uuid4())
+    identity = dict(owner='lagrangian-native-gui-fixture', fixtureID=fixture_id, root=str(root),
+                    source=str(source), entry='gui-native.typ', manager=str(manager))
+    owner = Path(__file__).resolve()
+    # Self-contained argv-only reentry. The allowlist and immutable fixture
+    # identity come from setup, not the app's environment or a mutable marker.
+    preamble = ('#!' + __import__('sys').executable + '\n' +
+        'import sys\nsys.dont_write_bytecode=True\nimport os,json,hashlib,importlib.util\nfrom pathlib import Path\n' +
+        'root=Path(' + repr(str(root)) + ')\nexpected=' + repr(identity) + '\n' +
+        'owner=Path(' + repr(str(owner)) + ')\n' +
+        'if hashlib.sha256(owner.read_bytes()).hexdigest()!=' + repr(package.digest(owner)) + ': raise ValueError("fixture owner changed")\n' +
+        'spec=importlib.util.spec_from_file_location("owned_gui_fixture",owner)\n' +
+        'module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)\n' +
+        'module.GUI_ROOT=Path(' + repr(str(GUI_ROOT)) + ')\nmodule.gui_root(root)\n' +
+        'if (root.stat().st_dev,root.stat().st_ino)!=' + repr((root.stat().st_dev,root.stat().st_ino)) + ': raise ValueError("fixture directory changed")\n' +
+        'marker=json.loads((root/"fixture.json").read_text())\n' +
+        'if not all(marker.get(k)==v for k,v in expected.items()): raise ValueError("fixture marker changed")\n' +
+        'if Path(expected["source"]).is_symlink(): raise ValueError("fixture source changed")\n')
+    manager.write_text(preamble + 'print(json.dumps(module.gui_attach(root,sys.argv[1:])))\n')
     manager.chmod(0o700)
+    control = root / 'fixture-control'
+    control.write_text(preamble +
+        'if not sys.argv[1:2] or sys.argv[1] not in ["serve","status","stop","clipboard-helper"]: raise ValueError("owned fixture operations only")\n' +
+        'os.environ["FLOW_GUI_FIXTURE_ROOT"]=' + repr(str(GUI_ROOT)) + '\n' +
+        'module.gui_cli([sys.argv[1],"--root",str(root)]+sys.argv[2:])\n')
+    control.chmod(0o700)
     args = ['--dev-root', str(root / 'app-dev'), '--dev-no-activate', '--native-reader-manager', str(manager)]
-    marker = dict(owner='lagrangian-native-gui-fixture', fixtureID=str(uuid.uuid4()), root=str(root), source=str(source),
+    marker = dict(owner='lagrangian-native-gui-fixture', fixtureID=fixture_id, root=str(root), source=str(source),
         entry='gui-native.typ', compiler=str(compiler), compilerSHA256=package.digest(compiler), compilerVersion=gui_command(root,[compiler,'--version']).stdout.strip(),
         script=str(GUI_SCRIPT), scriptSHA256=package.digest(GUI_SCRIPT), sourceRevision=gui_command(root,['git','rev-parse','HEAD']).stdout.strip(), compilerWrapper=str(wrapper),
         sourceHashes={p.name:package.digest(p) for p in source.iterdir()}, packageCacheInput=str(package_cache),
         packageCacheHashes={str(p.relative_to(cache)):package.digest(p) for p in cache.rglob('*') if p.is_file()}, manager=str(manager), appArguments=args,
-        privatePasteboard=board, running=False, originalPDF='unverified until accepted C merge and final app stage',
+        privatePasteboard=board, managerRootPrefix=str(GUI_ROOT), managerRootIdentity=[root.stat().st_dev,root.stat().st_ino], managerSHA256=package.digest(manager), fixtureControl=str(control), fixtureControlSHA256=package.digest(control), running=False, originalPDF='integrated service; this fixture run does not verify Original PDF GUI delivery',
         fake=['auth status/catalog', 'inference provider', 'manager attachment/PID observation'],
         real=['prebuilt Typst compiler', 'ReaderState accepted publication', 'root and registered /d/gui/ HTTP routes', 'native document/assets/source/chat APIs'],
         guiRun=False, paintRun=False, standaloneAppVerified=False,
@@ -765,7 +790,7 @@ def gui_smoke(value, compiler, package_cache):
     from uuid import uuid4
     root=gui_root(value,exists=False);gui_setup(root,compiler,package_cache)
     log=(root/'serve.log').open('w')
-    process=subprocess.Popen([__import__('sys').executable,'-B',str(GUI_SCRIPT),'gui-fixture','serve','--root',str(root),'--seconds','180'],cwd=ROOT,stdout=log,stderr=subprocess.STDOUT)
+    process=subprocess.Popen([str(root/'fixture-control'),'serve','--seconds','180'],cwd=ROOT,env={k:v for k,v in os.environ.items() if k!='FLOW_GUI_FIXTURE_ROOT'},stdout=log,stderr=subprocess.STDOUT)
     checks=[]
     try:
         for _ in range(1200):
@@ -816,8 +841,56 @@ def gui_smoke(value, compiler, package_cache):
         effects=json.loads((root/'effects.json').read_text());assert len(effects['inference'])==1 and effects['droppedAcknowledgments']==[message] and effects['auth']==[]
         checks.append('real Send→fake TeX/lost acknowledgment→authoritative history; no resend')
         args=['--attach','--root',m['source'],'--entry',m['entry']]
-        result=gui_command(root,[m['manager'],*args]);assert json.loads(result.stdout)==m['attachment']
-        checks.append('fake manager observation + real HTTP incarnation')
+        env={'PATH':'/usr/bin:/bin','TMPDIR':os.environ['TMPDIR']}
+        cache_scopes=[ROOT/'scripts/__pycache__',ROOT/'tests/flow-app/native-reader-app/__pycache__',ROOT/'tools/flow-reader/flow_reader']
+        def cache_observation():
+            return {str(p.relative_to(ROOT)):package.digest(p) for scope in cache_scopes if scope.exists() for p in scope.rglob('*.pyc') if p.is_file()}
+        cache_before=cache_observation()
+        probes=[]
+        observation=root.parent/(root.name+'-outside-observation');observation.mkdir()
+        (observation/'sentinel').write_bytes(b'owned outside-root sentinel')
+        def observed():
+            return {str(p.relative_to(observation)):('symlink' if p.is_symlink() else package.digest(p) if p.is_file() else 'directory') for p in observation.rglob('*')}
+        outside_before=observed()
+        def manager_probe(arguments,success,optimize=False):
+            argv=[m['manager'],*arguments];started=time.monotonic()
+            result=subprocess.run(argv,env=dict(env,**({"PYTHONOPTIMIZE":"1"} if optimize else {})),capture_output=True,text=True,timeout=15)
+            probes.append(dict(argv=argv,exit=result.returncode,elapsed=time.monotonic()-started,stdout=result.stdout,stderr=result.stderr,fixtureRootEnvironmentPresent=False,bytecodeEnvironmentPresent=False,pythonPathEnvironmentPresent=False,optimized=optimize))
+            assert (result.returncode==0)==success,(arguments,result.stderr)
+            return result
+        result=manager_probe(args,True);assert json.loads(result.stdout)==m['attachment']
+        manager_probe(['--attach','--root',str(root.parent),'--entry',m['entry']],False,optimize=True)
+        # A marker mutation cannot change the immutable wrapper identity.
+        original=(root/'fixture.json').read_bytes()
+        tampered=dict(m,fixtureID=str(uuid4()));gui_save(root/'fixture.json',tampered)
+        try:manager_probe(args,False)
+        finally:(root/'fixture.json').write_bytes(original)
+        real_source=root/'source-retained';(root/'source').rename(real_source)
+        (root/'source').symlink_to(real_source,target_is_directory=True)
+        before={str(p.relative_to(real_source)):package.digest(p) for p in real_source.rglob('*') if p.is_file()}
+        try:manager_probe(args,False)
+        finally:(root/'source').unlink();real_source.rename(root/'source')
+        assert before=={str(p.relative_to(root/'source')):package.digest(p) for p in (root/'source').rglob('*') if p.is_file()}
+        manager_probe(args,True)
+        root_retained=root.with_name(root.name+'-retained');root.rename(root_retained)
+        root.symlink_to(root_retained,target_is_directory=True)
+        try:manager_probe(args,False)
+        finally:root.unlink();root_retained.rename(root)
+        # Guard the marker itself too, without following an external symlink.
+        retained=root/'marker-retained.json';(root/'fixture.json').rename(retained)
+        (root/'fixture.json').symlink_to(observation/'sentinel')
+        try:manager_probe(args,False)
+        finally:(root/'fixture.json').unlink();retained.rename(root/'fixture.json')
+        outside_after=observed();assert outside_after==outside_before
+        cache_after=cache_observation();assert cache_before==cache_after
+        for arguments,success in [(['status'],True),(['unsafe-operation'],False)]:
+            control_result=subprocess.run([str(root/'fixture-control'),*arguments],env=dict(env,PYTHONOPTIMIZE='1'),capture_output=True,text=True,timeout=15)
+            assert (control_result.returncode==0)==success,control_result.stderr
+            probes.append(dict(argv=[str(root/'fixture-control'),*arguments],exit=control_result.returncode,optimized=True,environmentKeys=list(env),stdout=control_result.stdout,stderr=control_result.stderr))
+        assert cache_before==cache_observation()
+        gui_save(root/'manager-probes.json',dict(probes=probes,observedOutsideScope=str(observation),
+            outsideBefore=outside_before,outsideAfter=outside_after,outsideScopeUnchanged=True,sourceHashesUnchanged=True,cacheScopes=list(map(str,cache_scopes)),cacheBefore=cache_before,cacheAfter=cache_after,cacheUnchanged=True))
+        checks.append('argv-only fixed manager/no env: own real HTTP attach; other root/marker/symlink rejected; sources unchanged')
         gui_clipboard_helper(root);checks.append('actual AppKit private board + actual parser guards + production HTTP typed recovery')
         assert len(json.loads((root/'effects.json').read_text())['inference'])==1
         gui_save(root/'smoke.json',dict(checks=checks,tests=len(checks),skips=0,inferenceCalls=1,guiActivations=0,visibleWindows=0,originalPDFVerified=False,appBuilt=False))
@@ -1017,6 +1090,79 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       if let anchor{try check(text.viewportAnchor()?.position.blockID==anchor.position.blockID,"native return viewport")}
       try featureSelect(popup,0);host.refresh();try await until{host.session.state == .reading};try await ready(host)
       try check(!text.canReturnFromReference,"replacement invalidates old reference return")
+    case "lifecycle":
+      let owned=out.appendingPathComponent("native-input");try FileManager.default.copyItem(at:fixture.deletingLastPathComponent(),to:owned)
+      let input=owned.appendingPathComponent(fixture.lastPathComponent)
+      try Data("Owned Read validation".utf8).write(to:out.appendingPathComponent("main.typ"))
+      let environment=AppEnvironment(variables:[:],userHome:out.appendingPathComponent("home"),executable:out.appendingPathComponent("Lagrangian"))
+      let app=FlowApp(environment:environment,isolated:true,fixture:input,noActivate:true,nativeRuntime:runtime,showNativeWindow:false)
+      app.buildWindow();app.settings=Settings(selectedID:profile.id,profiles:[profile]);app.populate()
+      defer{app.applicationWillTerminate(Notification(name:NSApplication.willTerminateNotification));app.window.close()}
+      app.networkChanged(true);app.powerChanged(true);app.sleepChanged(true);app.sleepChanged(false)
+      try check(app.nativeWindow==nil,"F14 unread profile never automatically Reads")
+      var targetCalls=0,preparations=0
+      let observed=NativeReaderFixtureProvider(url:input)
+      app.nativeProfile=profile
+      app.nativeWindow=NativeReaderWindowController(provider:observed,target:{_ in targetCalls+=1;return try await observed.load().identity},assets:{doc,_ in
+        preparations+=1;var result=[String:Data]();for asset in doc.assets{result[asset.id]=try Data(contentsOf:owned.appendingPathComponent("assets").appendingPathComponent(asset.id))};return result
+      },runtime:runtime,show:false,avoidActivation:true)
+      func step(_ label:String)throws{
+        let value:[String:Any] = ["step":label,"mutating":app.mutating,"active":app.active?.id ?? "none","readEnabled":app.controls[#selector(FlowApp.openPreview)]?.isEnabled ?? false,"nativeState":app.nativeWindow.map{String(describing:$0.session.state)} ?? "none","targetCalls":targetCalls,"preparations":preparations]
+        try JSONSerialization.data(withJSONObject:value,options:.prettyPrinted).write(to:out.appendingPathComponent("lifecycle-stage.json"))
+      }
+      let read=app.controls[#selector(FlowApp.openPreview)]!;try step("initial-read");try await until{read.isEnabled};read.performClick(nil)
+      try await until{app.nativeWindow?.session.state == .reading};let native=app.nativeWindow!;try await ready(native)
+      _ = try featurePaint(native.textView.bodyTextView,out.appendingPathComponent("lifecycle-initial.png"));try await until{read.isEnabled}
+      let a=native.store.document!,oldContext=native.session.context!
+      let beforeSleepTarget=targetCalls,beforeSleepPreparation=preparations
+      app.sleepChanged(true);let sleepingGeneration=native.store.generation
+      app.networkChanged(false);app.networkChanged(true)
+      try await Task.sleep(nanoseconds:150_000_000)
+      try check(native.session.state == .sleeping && native.store.generation==sleepingGeneration && targetCalls==beforeSleepTarget && preparations==beforeSleepPreparation && native.store.document==a,"F14 online signals cannot prepare or adopt before wake")
+      try check(native.session.state == .sleeping && native.store.document==a,"F14 sleep retains accepted A")
+      app.networkChanged(false);app.sleepChanged(false)
+      try await Task.sleep(nanoseconds:30_000_000)
+      try check(native.store.document==a && native.session.isReadOnly,"F14 offline wake retains read-only A")
+      app.networkChanged(true);let generation=native.store.generation
+      app.networkChanged(true);try check(native.store.generation==generation,"F14 duplicate online event coalesces loading")
+      try await until{native.store.document?.generation != a.generation && native.session.state == .reading};try await ready(native)
+      try check(native.session.context != oldContext,"F14 production composition prepares/adopts fresh request")
+      // A real missing fixture exercises Session's constrained retry delay,
+      // rather than a successful command or a fabricated readiness response.
+      let bytes=try Data(contentsOf:input);try FileManager.default.removeItem(at:input)
+      let beforeFailure=native.store.generation
+      app.networkChanged(true);try await until{native.store.generation >= beforeFailure+2}
+      let failedGeneration=native.store.generation,backoffStart=Date()
+      try await Task.sleep(nanoseconds:1_500_000_000)
+      try check(native.store.generation==failedGeneration && native.store.document != nil,"F14 constrained backoff retains accepted view without immediate duplicate retry")
+      try bytes.write(to:input);try await until{native.session.state == .reading && native.session.failure==nil};try await ready(native)
+      try check(Date().timeIntervalSince(backoffStart)>=3.5,"F14 pre-Read constrained power uses actual 4s rather than 1s retry")
+      _ = try featurePaint(native.textView.bodyTextView,out.appendingPathComponent("lifecycle-recovered.png"));try await until{read.isEnabled}
+      let recovered=native.store.document!
+      native.cancel();app.networkChanged(true);app.sleepChanged(true);app.sleepChanged(false)
+      try await Task.sleep(nanoseconds:30_000_000);try check(native.store.document==recovered && native.session.state != .loading,"F14 cancel rejects late events")
+      try step("read-after-cancel");try await until{read.isEnabled};read.performClick(nil);try await until{native.session.state == .reading};try await ready(native)
+      native.hostWindow.window!.close();let closed=native.store.generation,closedTarget=targetCalls,closedPreparation=preparations
+      app.networkChanged(true);app.sleepChanged(true);app.sleepChanged(false)
+      try await Task.sleep(nanoseconds:30_000_000);try check(native.store.generation==closed && targetCalls==closedTarget && preparations==closedPreparation && native.paintedKey==nil,"F14 close cannot revive Read")
+      var other=profile;other.id="other";other.port+=1;other.label="test.other"
+      try step("profile-switch");app.settings.profiles.append(other);app.populate();app.picker.selectItem(at:1);app.selectProfile()
+      try await until{!app.mutating && app.active?.id==other.id}
+      app.networkChanged(true);app.sleepChanged(true);app.sleepChanged(false)
+      try step("profile-switched");try check(app.nativeProfile==profile && native.store.generation==closed,"F14 selected unread profile cannot reuse old intent")
+    case "D1":
+      let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
+      try check(text.textAppearance.theme == .light && theme.titleOfSelectedItem=="Light","D1 independent Light initial")
+      try featureSelect(theme,1);try await ready(host)
+      host.refresh();try await until{host.store.document?.generation != document.generation};try await ready(host)
+      let displayed=text.textAppearance,anchor=text.viewportAnchor()
+      try check(displayed.theme == .dark,"D1 refresh keeps displayed Dark")
+      try featureSelect(size,3);try await ready(host);try click("Cancel Display");try await ready(host)
+      try check(theme.titleOfSelectedItem=="Dark" && text.textAppearance==displayed && host.hostWindow.window?.appearance?.name == .darkAqua,"D1 popup/window/render-key rollback agree after new generation")
+      if let anchor,let current=text.viewportAnchor(){try check(anchor.position==current.position && abs(anchor.offsetY-current.offsetY)<2,"D1 viewport rollback")}
+      try featureSelect(size,4);try await ready(host)
+      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==24,"D1 subsequent font preview keeps displayed theme")
+      try click("Cancel Display");try await ready(host)
     case "display-preview":
       try firstSelection();let selected=host.store.selection!,before=text.textAppearance,anchor=text.viewportAnchor()
       try click("Preview Display");let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
@@ -1231,7 +1377,7 @@ class FeatureWiringUI(unittest.TestCase):
         sources=[p for p in package.swift_sources() if p.name!='main.swift']
         if fixed := os.environ.get('FEATURE_WIRING_FIXED_SOURCES'):
             fixed=Path(fixed).resolve()
-            if not any(fixed.is_relative_to(DEV/'test-output'/name) for name in ['feature-wiring-v1','closure-review-fixes-v2']):raise RuntimeError('Fixed counterexample inputs must remain isolated')
+            if not any(fixed.is_relative_to(DEV/'test-output'/name) for name in ['feature-wiring-v1','closure-review-fixes-v2','native-app-corrections-v4']):raise RuntimeError('Fixed counterexample inputs must remain isolated')
             sources=[fixed/p.name for p in sources]
         cls.command(['/usr/bin/swiftc',*package.swift_flags(),*sources,swift,'-o',cls.binary])
     @classmethod
@@ -1280,6 +1426,8 @@ class FeatureWiringUI(unittest.TestCase):
             with socket.socket() as sock:
                 sock.settimeout(.2);self.assertNotEqual(sock.connect_ex(('127.0.0.1',port)),0,'owned backend port remains open')
 
+    def test_F14_FlowApp_native_lifecycle_recovery(self):self.scenario('lifecycle')
+    def test_D1_refresh_rebases_display_preview(self):self.scenario('D1')
     def test_F15_preview_cancel_commit_automatic(self):self.scenario('display-preview')
     def test_C1_restore_resize(self):self.scenario('restore-resize')
     def test_C1_restore_hold_release(self):self.scenario('restore-hold')

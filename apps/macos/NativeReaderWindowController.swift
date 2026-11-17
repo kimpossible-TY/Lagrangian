@@ -240,6 +240,20 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
 
+  /// Environment signals belong only to an explicit, still-live Read ticket.
+  /// Offline library copies and closed/cancelled views never resolve a service.
+  func environmentChanged(_ event: NativeReadEnvironmentEvent) -> Bool {
+    guard !disposed, !requestTicket.isCancelled, progress != nil, !session.hasRecoveryCopy else { return false }
+    if case .power = event {} else { acceptedPaintKey = nil; paintedKey = nil }
+    switch event {
+    case .sleep: session.event(.sleep)
+    case .wake: session.event(.wake)
+    case .network(let online): session.event(.network(online))
+    case .power(let constrained): session.event(.power(constrained: constrained))
+    }
+    return true
+  }
+
   func refresh() { acceptedPaintKey = nil; paintedKey = nil; session.refresh() }
 
   private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false, recoveryAssets: [String: Data]? = nil, recoveryPages: NativeOriginalPageRecovery? = nil) async throws -> NativeReaderSession.PreparedAdoption {
@@ -339,6 +353,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !disposed, !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
     guard self.mode != mode else { return }
     guard !session.hasRecoveryCopy else { throw NativeReaderOperationFailure.unavailable }
+    if mode == .nativeReflow { try hostWindow.resolveAutomaticAppearance() }
     self.mode = mode; session.refresh()
   }
 
@@ -817,7 +832,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func cancel() {
-    cancelStorage(); pendingPresentation = nil; localReview.clear()
+    cancelStorage()
+    // A closed ticket may be cancelled again by its outer lifecycle owner.
+    // Do not advance store authority or invalidate another frame twice.
+    guard !requestTicket.isCancelled || progress != nil else { return }
+    pendingPresentation = nil; localReview.clear()
     preparingKey = nil
     originalPageView.cancel()
     reflowTask?.cancel(); reflowTask = nil
@@ -1059,7 +1078,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   func refreshLocalControls() {
     updateOfflineControls()
-    if let preview = displayPreview, preview.document != reader.store.document { displayPreview = nil; cancelDisplay.isEnabled = false }
+    if let preview = displayPreview, preview.document != reader.store.document {
+      // The new snapshot keeps the displayed settings. Adopt that same baseline
+      // for the next preview, rather than mixing it with the old committed menu.
+      committedTheme = theme.indexOfSelectedItem
+      displayPreview = nil; pendingDisplayViewport = nil; cancelDisplay.isEnabled = false
+    }
     applyDisplay.isEnabled = displayPreview != nil && reader.renderKey != nil && reader.renderKey == reader.requestedRenderKey
     if let pending = pendingDisplayViewport, pending.0 == reader.store.document,
        reader.textAppearance == pending.2, reader.renderKey == reader.requestedRenderKey {
@@ -1102,11 +1126,19 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     catch { notice.stringValue = "Display settings unavailable." }
   }
   private func automaticAppearanceChanged() {
-    guard currentMode == .nativeReflow, theme.titleOfSelectedItem == "Automatic", let window else { return }
+    guard currentMode == .nativeReflow else { return }
+    let prior = reader.textAppearance
+    do { try resolveAutomaticAppearance(); if prior != reader.textAppearance { onAppearance?() } }
+    catch { notice.stringValue = "Display settings unavailable." }
+  }
+  /// Called before a new Reflow preparation too: Original PDF deliberately
+  /// ignores color events, so its retained text key is not the current theme.
+  func resolveAutomaticAppearance() throws {
+    guard theme.titleOfSelectedItem == "Automatic", let window else { return }
     var value = reader.textAppearance
     value.theme = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
     guard value != reader.textAppearance else { return }
-    do { try reader.setAppearance(value); onAppearance?() } catch { notice.stringValue = "Display settings unavailable." }
+    try reader.setAppearance(value)
   }
   @objc func appearanceChanged() {
     guard currentMode == .nativeReflow else { return }

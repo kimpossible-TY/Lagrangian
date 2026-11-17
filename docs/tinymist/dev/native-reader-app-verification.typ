@@ -1,13 +1,21 @@
 #set text(size: 11pt)
 = Isolated native Reader inspection preparation
 
-Current staged baseline `09c5186bff1850b17f6e85fe2f3115153520bc94` combines
+Current intermediate inspection uses the external PM packet and its exact full
+source revision, bundle checksum, executable SHA and fresh inspection root. The
+packet's top-level full revision is the actual source authority. A resource ID
+such as `readonly-source:09e786…` is an immutable original design locator, not an
+override of that bound revision. Past case hashes/results remain unchanged.
+The v4 execution report is `test-output/native-app-corrections-v4/handoff.md`;
+its offscreen evidence is not actual GUI acceptance or a PM receipt.
+
+Historical staged baseline `09c5186bff1850b17f6e85fe2f3115153520bc94` combines
 core, original-page service/view, G1 inspection and published provider inputs.
 Its app staging/integrity exists; official final review, independent GUI/AX and
 PM acceptance remain incomplete. New review-fix source is not automatically
 included in that app and must be restaged/rebound separately.
 
-== Current final inspection entrypoint
+== Historical09c inspection record
 
 Use `tests/flow-app/native-reader-app/test_page_delivery_bundle.py` as SCRIPT.
 The original `test_app_integration.py` is the G1 fixture owner with a different
@@ -172,7 +180,9 @@ are separate from Original PDF's width-fit/0.1–8 scale and held-selection poli
 No OS setting or PDF print colors are changed. Export PDF uses the accepted
 Original PDF and a native save chooser. In headless tests inject owned chooser
 results without showing a panel, compare bytes/digest and PDFKit page count, then
-exercise cancel/stale/dispose/tamper/invalid/changed destination preservation.
+exercise cancel/stale/dispose/tamper/invalid and observed precommit directory or
+metadata-mismatch rejection/preservation. This is not a same-metadata change or
+external rename-race guarantee.
 One/multi-link PDF Tab/ShiftTab must reach actual adjacent key views, not wrap.
 
 Original PDF offline save stores page/scale/unscaled offsets, not PDF selection;
@@ -182,3 +192,42 @@ not imply automatic crash autosave or offline mode switching. The historical
 feature-wiring18-case draft is unchanged; Planner's125-case design supersedes it.
 Both remain design evidence with actual assignment/pass0 until PM binds real
 source/app/owner/receipts. Source/headless evidence is not GUI/VO/OS13/live proof.
+
+
+== Export PDF acceptance locator <export-pdf-acceptance>
+
+`F16-pdf` is the Original PDF export path in
+#link("native-reader-app-contract.typ#native-export-pdf")[the canonical export contract].
+`OriginalPageTests.reviewExport` and
+`test_original_pages.OriginalPageTests.test_native_original_export_atomic_ui`
+exercise actual control target/action, injected chooser cancellation, stale/close,
+invalid/tampered bytes, symlink/directory/wrong extension and observed destination
+metadata changes with prior-file preservation. Production reopens staging bytes;
+the test separately reopens output. Current executor results are located by the
+v4 `tests.json`/handoff, while independent Dogfood export/save-panel acceptance
+and PM aggregation remain pending. A headless test is not that GUI result.
+
+== v4 startup observation and argv-only fixture guards
+
+The GUI profile-loading blocker is unresolved and its cause is unverified.
+Independent fixed-source13 conditions and the integration offscreen main oracle
+completed; neither reproduces the packaged GUI failure. The original optimized
+main/delegate structure and mutation generation/disposal guards are preserved.
+Only an explicit dev-root composition supplies NativeStartupTimeline. It writes
+value-only load begin/end/error, worker/main completion, captured/current
+mutation generation, storage/disposal flags, weak-owner presence and profile
+count/hashed selected ID/Read enabled into that root's `startup-timeline.jsonl`.
+No raw source/path/credential/error text is recorded; queued logger work retains
+values and an owned directory descriptor, not the application. Ordinary execution
+creates no timeline. Dogfood must bind a future failing own PID stack and this
+new timeline to the exact new App; do not inspect another app/process or relabel
+an offscreen success as GUI recovery.
+
+New fixture-manager and fixture-control wrappers embed their exact allowed root,
+UUID/directory identity and owner hash, disable bytecode writes themselves and
+use explicit failure checks that remain active under Python optimization. App
+launch needs only the recorded argv; it does not require environment forwarding.
+The fixture smoke removes FLOW_GUI_FIXTURE_ROOT/PYTHONPATH/PYTHONDONTWRITEBYTECODE
+from manager probes, tests root/marker/source symlinks and marker tamper, and
+compares a bounded outside sentinel and known WT cache scopes before/after.
+These scoped observations are not a whole-disk no-write proof.

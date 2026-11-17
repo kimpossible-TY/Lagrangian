@@ -349,6 +349,32 @@ class ReaderManager:
                 plan["nativeEditorActions"] = 1
         return plan
 
+    def native_editor_local(self, root, entry, token, *, identifier=None, descriptor=False):
+        # These local-only operations neither probe/start a service nor accept an
+        # arbitrary filesystem path. The token is the exact manager-issued lease.
+        profile = self.match_document(root, entry, identifier)
+        document = document_identity(profile["root"], profile["entry"])
+        attachments = EditorAttachments(self.data / "documents" / profile["id"], document, {})
+        with self.locked(timeout=2):
+            if not descriptor:
+                return {"released": attachments.release_native(token)}
+            # record() needs the original service identity only as data; it still
+            # validates private storage, live owner, executable and control file.
+            value = attachments.descriptor(token)
+            directory = self.data / "native-editor-descriptors"
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            EditorAttachments.private(directory, directory=True)
+            path = directory / (token + ".json")
+            if path.exists():
+                EditorAttachments.private(path)
+                if json.loads(path.read_text()) != value:
+                    raise ValueError("Preserve an existing different editor descriptor")
+            else:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as stream:
+                    json.dump(value, stream)
+            return {"descriptorFile": str(path)}
+
     def agent(self, profile):
         return {"Label": profile["label"], "ProgramArguments": ([str(self.launcher), "--serve-all"] if profile.get("shared")
                                       else [str(self.launcher), "--serve", profile["id"]]),
@@ -441,6 +467,17 @@ def main(argv=None, *, manager=None):
     if arguments == ["--serve-all"]:
         command = manager.server_arguments(["--managed", "--data", str(manager.data)])
         os.execv(command[0], command)
+        return
+    if arguments[:1] in (["--release-native-editor"], ["--native-editor-descriptor"]):
+        import argparse
+        parser = argparse.ArgumentParser(description="Own local editor registration lifetime")
+        parser.add_argument("--root", required=True)
+        parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service")
+        parser.add_argument("--token", required=True)
+        options = parser.parse_args(arguments[1:])
+        print(json.dumps(manager.native_editor_local(options.root, options.entry, options.token,
+            identifier=options.reader_service, descriptor=arguments[0] == "--native-editor-descriptor")))
         return
     if arguments[:1] == ["--attach"]:
         import argparse

@@ -150,7 +150,13 @@ Keep public crate APIs and revision/handler ordering stable. A completion belong
 
 `apps/macos/sources.json` is the single explicit source list shared by packaging and tests. Profile validation, environment paths, settings storage, command execution, LaunchAgents, engine launch, CLI and AppKit each have a dedicated source. `ProjectService` owns project creation defaults, profile selection/persistence and validate-before-stop updates/recovery; its injected collaborators let tests verify failures without running the user's services. UI callbacks gather inputs and adopt successfully saved settings returned by the service; failed creation/selection preserves prior UI settings. `LaunchAgentService` produces the executable arguments once for both plist generation and ownership checks.
 
-`ReadingSessionController.swift` owns asynchronous service requests, serialized settings mutations, readiness deadlines, cancellation, stale-result guards and power-aware status polling. `PreviewReadiness.swift` verifies document availability through the existing loopback WebSocket protocol; HTTP success or command acceptance alone does not establish readiness. `NativeReadingEnvironment.swift` adapts AppKit sleep/wake notifications, network path changes, power-source changes, Low Power Mode and thermal state to that policy, and disposes its observers with the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Body rendering and reading-state recovery remain with the concrete readers described below.
+`ReadingSessionController.swift` owns asynchronous service requests, serialized settings mutations, readiness deadlines, cancellation, stale-result guards and power-aware status polling. `PreviewReadiness.swift` verifies document availability through the existing loopback WebSocket protocol; HTTP success or command acceptance alone does not establish readiness. `NativeReadingEnvironment.swift` adapts AppKit sleep/wake notifications, network path changes, power-source changes, Low Power Mode and thermal state to that policy, and disposes its observers with the app. FlowApp routes those events through the
+ReadingSessionController explicit native Read ticket to NativeReaderWindowController
+and NativeReaderSession; the native owner retains accepted content and controls
+its own interruption/retry/backoff. Closed/cancelled/offline copies and unread
+profiles do not recover through live transport. The original main/delegate lifetime structure is preserved; its offscreen
+startup completes. A dev-root-only value timeline records the storage worker and
+main completion without changing generation/disposal guards or retaining the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Body rendering and reading-state recovery remain with the concrete readers described below.
 
 = Validation
 
@@ -278,3 +284,14 @@ registered boolean nativeJumpOnly marker; HTTP consent alone cannot promote a
 terminal attachment. FlowApp shares descriptor/consent adoption and native Read
 composition with prohibited-activation, hidden-window AppKit control fixtures;
 those exercise production callbacks without claiming real GUI acceptance.
+
+
+Native editor selection adoption remains independent of optional editor sync.
+NativeReaderActions revokes prior pending work before accepting a new body
+selection; missing editor ownership/control/registration affects editor Locate
+only. NativeReaderManagedResolver retains a local cleanup lease through probes
+and epoch/cancellation checks, then transport owns it. ReaderManager and
+EditorAttachments retire exactly that native token and export a live existing
+registration's four-field private chooser descriptor; HTTP never owns arbitrary
+registration/deletion or path discovery. Shared terminal tokens/controls and the32
+quota remain with the original owner. See native-reader-editor-actions.typ.

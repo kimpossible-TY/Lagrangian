@@ -15,12 +15,24 @@ from test_native_editor_dispatch import CompilerEditorFixture, OUT, sha
 
 
 class NativeSwiftEditorTests(CompilerEditorFixture):
+    def setUp(self):
+        # Quota/lifetime uses an ASCII registered entry. The separate retained
+        # debug evidence exposes the existing NFC/NFD manager match gap; this
+        # test does not silently change that production matching policy.
+        if 'SF2_' in self._testMethodName: self.entry_filename='main.typ'
+        super().setUp()
+
     @classmethod
     def setUpClass(cls):
         OUT.mkdir(parents=True,exist_ok=True)
         cls.binary=OUT/'NativeEditorActionTests'
         manifest=json.loads((REPO/'apps/macos/sources.json').read_text())
         sources=[REPO/'apps/macos'/name for group in ('core','native','app') for name in manifest[group] if name != 'main.swift']
+        if fixed := os.environ.get('NA15_FIXED_SOURCES'):
+            fixed=Path(fixed).resolve()
+            allowed=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-app-corrections-v4')
+            if not fixed.is_relative_to(allowed): raise RuntimeError('Fixed source evidence must remain isolated')
+            sources=[fixed/p.name for p in sources]
         # Outer command owns the single Swift lock. Never invoke a nested lock.
         if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
             raise RuntimeError('Wrap this top-level test once with with-native-swift-lock.py')
@@ -28,7 +40,7 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
               '-module-cache-path',os.environ['SWIFT_MODULECACHE_PATH'],*map(str,sources),str(REPO/'tests/flow-app/native-reader-app/NativeEditorActionTests.swift'),'-o',str(cls.binary)]
         start=time.monotonic(); result=subprocess.run(argv,capture_output=True,text=True,timeout=180)
         (OUT/'swift-build.json').write_text(json.dumps({'argv':argv,'exit':result.returncode,'seconds':time.monotonic()-start,'stdout':result.stdout,'stderr':result.stderr,
-            'sources':{str(p.relative_to(REPO)):sha(p) for p in sources}},indent=2))
+            'sources':{str(p):sha(p) for p in sources}},indent=2))
         if result.returncode: raise RuntimeError(result.stderr)
 
     def run_swift(self,mode):
@@ -43,14 +55,17 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
                 deadline=time.monotonic()+15
                 while not marker.exists() and time.monotonic()<deadline: time.sleep(.01)
                 if not marker.exists(): raise RuntimeError('Swift gate unavailable')
-                if mode in ('source-change','ui-stale'): self.entry.write_text(self.original.replace('target','edited'))
+                if mode == 'SF1-control': self.control.unlink()
+                elif mode == 'SF1-owner': self.registration_owner.terminate(); self.registration_owner.wait(timeout=5)
+                elif mode == 'SF1-registration': self.record_path.unlink()
+                elif mode in ('source-change','ui-stale'): self.entry.write_text(self.original.replace('target','edited'))
                 elif mode=='ui-registration-replaced':
                     record=json.loads(self.record_path.read_text()); record['address']=str(self.work/'replacement.sock'); self.record_path.write_text(json.dumps(record))
                 else: self.record_path.unlink()
                 Path(str(marker)+'.done').write_text('done')
             except Exception as e: errors.append(str(e))
         thread=None
-        if mode in ('source-change','wrong-attachment','ui-stale','ui-registration-replaced'):
+        if mode in ('source-change','wrong-attachment','ui-stale','ui-registration-replaced','SF1-control','SF1-owner','SF1-registration'):
             thread=threading.Thread(target=mutate); thread.start()
         start=time.monotonic()
         result=subprocess.run([str(self.binary),str(config),mode,str(marker)],capture_output=True,text=True,timeout=35)
@@ -67,6 +82,85 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
             self.assertEqual((after['file'],after['line'],after['columnUTF8']),(str(self.entry),3,len('Préface 한글 '.encode())))
         else: self.assertEqual(after,self.before)
         return summary
+
+    def queued_effect(self,mode):
+        import sqlite3
+        held=threading.Event();release=threading.Event();errors=[]
+        def gate():
+            with self.state.selection.edit_lock:
+                held.set();release.wait(20)
+        lock_thread=threading.Thread(target=gate);lock_thread.start();self.assertTrue(held.wait(5))
+        marker=self.work/'gate'
+        def observe():
+            try:
+                deadline=time.monotonic()+15
+                coordinator=self.state._native_editor_actions
+                while time.monotonic()<deadline:
+                    path=coordinator.path
+                    if path.exists():
+                        with sqlite3.connect(path) as db: rows=db.execute('SELECT status FROM jumps').fetchall()
+                        if rows:break
+                    time.sleep(.01)
+                else:raise RuntimeError('jump was not persisted/queued at actual edit_lock')
+                self.assertEqual(rows,[('unknown',)])
+                with coordinator.lock:
+                    queued_view=next(dict(v) for k,v in coordinator.views.items() if k!=self.request['viewID'])
+                (self.work/'gate.queued').write_text('actual jump waiting at held effect gate')
+                while not (self.work/'gate.revoked').exists() and time.monotonic()<deadline:time.sleep(.01)
+                self.assertTrue((self.work/'gate.revoked').exists())
+                with coordinator.lock:
+                    # Fixture has an initial independent view and the actual Swift
+                    # view. The latter must have no actionable selection binding.
+                    revoked=[v for k,v in coordinator.views.items() if k!=self.request['viewID']]
+                    self.assertEqual(len(revoked),1)
+                    self.assertTrue(revoked[0]['binding']!=queued_view['binding'] or revoked[0]['closed'])
+                self.save('actual-effect-gate.json',dict(jumpPersistedBeforeGate=True,rowsBefore=rows,revokedBeforeRelease=True,sourceBefore=sha(self.entry)))
+            except Exception as error:errors.append(repr(error))
+            finally:release.set()
+        observer=threading.Thread(target=observe);observer.start()
+        try:self.run_swift(mode)
+        finally:release.set();observer.join(5);lock_thread.join(5)
+        self.assertEqual(errors,[]);self.assertFalse(observer.is_alive() or lock_thread.is_alive())
+        self.assert_unchanged(self.before)
+        with sqlite3.connect(self.state._native_editor_actions.path) as db:
+            self.assertEqual(db.execute('SELECT status FROM jumps').fetchall(),[('stale',)])
+    def test_actual_queued_jump_invalid_new_selection(self):self.queued_effect('queued-invalid')
+    def test_actual_queued_jump_explicit_cancel(self):self.queued_effect('queued-cancel')
+
+    def test_SF1_slow_revoke_cannot_restore_older_selection(self):self.run_swift('selection-race');self.assert_unchanged(self.before)
+
+    def test_SF2_owned_manager_leases_and_production_descriptor(self):
+        from flow_reader.services.manager import ReaderManager
+        from flow_reader.services.editor_sync import EditorAttachments
+        terminal,terminal_path=self.state.editor_attachments.register(str(self.socket),shutil.which('nvim'),self.editor.pid,str(self.control))
+        retained={str(p):sha(p) for p in [terminal_path,self.record_path,self.control]}
+        profile=dict(id='fixture',root=str(self.root),entry=self.entry.name,port=self.server.server_port)
+        settings=self.work/'manager-fixture.json'
+        settings.write_text(json.dumps(dict(data=str(self.work/'manager-data'),agents=str(self.work/'agents'),profile=profile,pid=self.state.focus.service['pid'])))
+        wrapper=self.work/'manager-wrapper'
+        wrapper.write_text('#!'+sys.executable+'\nimport sys,json,time\nfrom pathlib import Path\nsys.path.insert(0,'+repr(str(REPO/'tools/flow-reader'))+')\nfrom flow_reader.services.manager import ReaderManager,main\nv=json.loads(Path('+repr(str(settings))+').read_text())\nclass Owned(ReaderManager):\n def profiles(self): return [v["profile"]]\n def job_pid(self,p,**kwargs): return v["pid"] # explicit fake process observation; real HTTP below\nm=Owned(data=v["data"],agents=v["agents"])\nwith open('+repr(str(self.evidence/'manager-argv.jsonl'))+',"a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\ntry:\n main(sys.argv[1:],manager=m)\nexcept BaseException:\n import traceback\n with open(' + repr(str(self.evidence/'manager-errors.log')) + ',\"a\") as f:traceback.print_exc(file=f)\n raise\n')
+        wrapper.chmod(0o700)
+        manager=ReaderManager(data=self.work/'manager-data',agents=self.work/'agents')
+        manager.profiles=lambda:[profile]
+        descriptor=manager.native_editor_local(str(self.root),self.entry.name,terminal,descriptor=True)['descriptorFile']
+        self.assertEqual(set(json.loads(Path(descriptor).read_text())),{'address','executable','ownerPID','controlFile'})
+        config=self.work/'lease-config.json';config.write_text(json.dumps(dict(manager=str(wrapper),descriptor=descriptor,root=str(self.root),entry=self.entry.name)))
+        result=subprocess.run([str(self.binary),str(config),'SF2',str(self.work/'gate')],capture_output=True,text=True,timeout=120)
+        self.save('lease-swift.json',dict(exit=result.returncode,stdout=result.stdout,stderr=result.stderr,argv=[str(self.binary),str(config),'SF2'],fake=['PID observation/profile inventory'],real=['ReaderManager attach/release','production descriptor','HTTP probe','live editor']))
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual({str(p):sha(p) for p in [terminal_path,self.record_path,self.control]},retained)
+        active=[p for p in self.state.editor_attachments.directory.glob('*.json') if self.state.editor_attachments.record(p.stem)]
+        self.assertEqual(set(active),{terminal_path,self.record_path})
+        self.assertIsNone(self.editor.poll());self.assert_unchanged(self.before)
+
+    def test_SF1_editor_owner_exit_preserves_source_and_ask(self):
+        self.registration_owner=subprocess.Popen([sys.executable,'-c','import sys;sys.stdin.read()'],stdin=subprocess.PIPE)
+        self.addCleanup(lambda:self.registration_owner.poll() is None and self.registration_owner.terminate())
+        record=json.loads(self.record_path.read_text());record['ownerPID']=self.registration_owner.pid;self.record_path.write_text(json.dumps(record))
+        self.run_swift('SF1-owner');self.assert_unchanged(self.before)
+    def test_SF1_removed_control_preserves_source_and_ask(self):self.run_swift('SF1-control');self.assert_unchanged(self.before)
+    def test_SF1_removed_registration_preserves_source_and_ask(self):self.run_swift('SF1-registration');self.assert_unchanged(self.before)
+    def test_SF1_sync_network_failure_preserves_source_and_ask(self):self.run_swift('SF1-network');self.assert_unchanged(self.before)
 
     def test_native_swift_production_http_actual_cursor(self): self.run_swift('jump')
     def test_lost_receipt_bounded_query_no_redispatch(self): self.run_swift('lost-receipt')

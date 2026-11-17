@@ -287,9 +287,15 @@ import Foundation
         switch event {
         case .power(let value): constrained = value; return
         case .wake: state = .offline; attempts = 0; refresh(); return
-        case .network(true): online = true; attempts = 0; refresh(); return
+        case .network(true):
+            if online && state == .loading { return }
+            online = true; attempts = 0; refresh(); return
         case .sleep: state = .sleeping
-        case .network(false): online = false; state = .offline
+        case .network(false):
+            guard online else { return }
+            online = false
+            guard state != .sleeping else { return }
+            state = .offline
         case .dispose: state = .disposed; store.dispose()
         }
         task?.cancel(); task = nil; epoch += 1; pending = nil

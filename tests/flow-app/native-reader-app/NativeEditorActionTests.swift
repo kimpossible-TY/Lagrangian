@@ -23,6 +23,10 @@ private actor Loss {
     var dropped = false
     func drop() -> Bool { if dropped { return false }; dropped = true; return true }
 }
+private actor SyncFault {
+    var active = false
+    func enable() { active = true }
+}
 private actor Trace {
     var operations = [String]()
     func append(_ value: String) { operations.append(value) }
@@ -179,11 +183,58 @@ private actor UITrace {
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
     }
 
+    @MainActor static func leases(_ config:[String:Any]) async throws {
+        _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
+        let editor=try NativeReaderManagedEditor.consentedDescriptor(URL(fileURLWithPath:config["descriptor"] as! String))
+        let manager=config["manager"] as! String,root=config["root"] as! String,entry=config["entry"] as! String
+        let real=NativeReaderNetwork.urlSession()
+        func resolver(_ gate:Gate?=nil,_ failProbe:Bool=false)->NativeReaderManagedResolver {
+            NativeReaderManagedResolver(attach:{argv in
+                let data=try await Task.detached{Data(try CommandRunner(timeout:10).run(manager,argv).utf8)}.value
+                if argv.first=="--attach",let gate {await gate.stop()}
+                return data
+            },network:.init(send:{request,limit in
+                if failProbe {throw URLError(.cannotConnectToHost)}
+                return try await real.send(request,limit)
+            },stream:real.stream))
+        }
+        for i in 0..<34 {
+            let client=NativeReaderManagedClient(resolver:resolver(),root:root,entry:entry,editor:editor)
+            _ = try await client.target()
+            if i%2==0 {await client.revokeEditorConsent()} else {await client.dispose()}
+        }
+        // Registration exists before the native state probe. Probe failure must retire it.
+        do {_ = try await resolver(nil,true).resolve(root:root,entry:entry,editor:editor);throw FlowError(message:"probe unexpectedly succeeded")}
+        catch is URLError {}
+        for operation in ["close","cancel","supersede"] {
+            let gate=Gate(),client=NativeReaderManagedClient(resolver:resolver(gate),root:root,entry:entry,editor:editor)
+            let resolving=Task{try await client.target()};try await gate.wait()
+            if operation=="close" {await client.dispose()}
+            else if operation=="cancel" {resolving.cancel()}
+            else {await client.invalidate()}
+            await gate.open()
+            do {_ = try await resolving.value;throw FlowError(message:"obsolete resolve adopted")}
+            catch NativeReaderContractError.staleGeneration {}
+            catch is CancellationError {}
+            await client.dispose()
+        }
+        // The same production generator output is a valid explicit app chooser
+        // input; consent is injected, no native panel/GUI is displayed.
+        let flow=FlowApp(environment:AppEnvironment(variables:[:],userHome:URL(fileURLWithPath:root).appendingPathComponent("owned-home")),isolated:true,noActivate:true,showNativeWindow:false)
+        let profile=Profile(id:"lease",name:"Lease fixture",root:root,entry:entry,fonts:[],packages:"",port:24650,publicURL:"",label:"test.lease")
+        flow.settings=Settings(selectedID:profile.id,profiles:[profile])
+        try require(try await flow.connectEditor(descriptor:URL(fileURLWithPath:config["descriptor"] as! String),for:profile,consent:{true}))
+        flow.disconnectEditor();flow.session.dispose()
+        try require(NSApp.windows.allSatisfy{!$0.isVisible})
+        print("{\"mode\":\"SF2\",\"reconnects\":34,\"probeFailure\":true,\"lateResolveBoundaries\":3,\"productionDescriptor\":true,\"skips\":0,\"visibleWindows\":0}")
+    }
+
     static func main() async throws {
         let args = CommandLine.arguments
         let config = try Data(contentsOf: URL(fileURLWithPath: args[1]))
         let mode = args[2]
         let object = try JSONSerialization.jsonObject(with: config) as! [String: Any]
+        if mode == "SF2" { try await leases(object); return }
         if mode.hasPrefix("ui-") { try await offscreen(config, mode: mode, marker: args[3]); return }
         if mode == "descriptor" {
             let directory = URL(fileURLWithPath: args[1]).deletingLastPathComponent()
@@ -208,18 +259,20 @@ private actor UITrace {
         let target = NativeDocumentIdentity(documentID: attachment.documentID, serviceID: attachment.serviceID,
                                              revision: object["revision"] as! String, scope: .service)
         let context = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 1, target: target)
-        let gate = Gate(), loss = Loss()
+        let gate = Gate(), loss = Loss(), syncFault = SyncFault()
         let trace = Trace()
         let real = NativeReaderNetwork.urlSession()
-        let gateOperation = ["new-selection", "invalid-selection", "dispose", "cancel-prepare", "source-change", "wrong-attachment"].contains(mode) ? "prepare" : "jump"
+        let gateOperation = mode.hasPrefix("SF1-") ? "prepare" : ["new-selection", "invalid-selection", "dispose", "cancel-prepare", "source-change", "wrong-attachment"].contains(mode) ? "prepare" : "jump"
         let network = NativeReaderNetwork(send: { request, limit in
             let payload = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let operation = payload?["operation"] as? String
             if request.url?.path.hasSuffix("/api/native-editor") == true, let operation { await trace.append(operation) }
+            if mode == "SF1-network", operation == "sync", await syncFault.active { throw URLError(.networkConnectionLost) }
             let response = try await real.send(request, limit)
+            if mode=="selection-race", operation=="revoke", await syncFault.active, await loss.drop() { await gate.stop() }
             if mode.hasPrefix("lost-receipt"), operation == "jump", await loss.drop() { throw URLError(.networkConnectionLost) }
             if mode == "lost-receipt-unread", operation == "receipt" { throw URLError(.networkConnectionLost) }
-            if ["new-selection", "invalid-selection", "dispose", "cancel-prepare", "cancel-after", "late-result", "source-change", "wrong-attachment"].contains(mode),
+            if (mode.hasPrefix("SF1-") || ["new-selection", "invalid-selection", "dispose", "cancel-prepare", "cancel-after", "late-result", "source-change", "wrong-attachment"].contains(mode)),
                request.url?.path.hasSuffix("/api/native-editor") == true, operation == gateOperation {
                 await gate.stop()
             }
@@ -264,6 +317,75 @@ private actor UITrace {
         try await owner.updateSelection(selection, context: context)
         let request = NativeReaderSourceRequest(context: context, selection: selection, action: .locate, receiptID: UUID())
         var statuses = [String]()
+        if mode=="selection-race" {
+            await syncFault.enable()
+            let older=NativeReaderSelection(ticket:UUID(),fragments:selection.fragments)
+            let newer=NativeReaderSelection(ticket:UUID(),fragments:selection.fragments)
+            let changing=Task{try await owner.updateSelection(older,context:context)}
+            try await gate.wait();try await owner.updateSelection(newer,context:context);await gate.open()
+            do {try await changing.value;throw FlowError(message:"older selection resurrected")}
+            catch NativeReaderContractError.staleGeneration {}
+            let located=try await owner.perform(.init(context:context,selection:newer,action:.locate,receiptID:UUID()))
+            try require(located.status == .verified)
+            do {_ = try await owner.perform(.init(context:context,selection:older,action:.locate,receiptID:UUID()));throw FlowError(message:"older ticket actionable")}
+            catch NativeReaderContractError.invalidSelection {}
+            print("{\"mode\":\"selection-race\",\"skips\":0,\"assertions\":3}");return
+        }
+        if mode.hasPrefix("queued-") {
+            let pending=Task{try await owner.jump(request)}
+            let marker=URL(fileURLWithPath:args[3])
+            for _ in 0..<1500 {if FileManager.default.fileExists(atPath:marker.path+".queued"){break};try await Task.sleep(nanoseconds:10_000_000)}
+            try require(FileManager.default.fileExists(atPath:marker.path+".queued"))
+            if mode=="queued-invalid" {
+                let invalid=NativeReaderSelection(ticket:UUID(),blockID:block.id,rangeUTF16:0..<10000,exact:"invalid")
+                do {try await owner.updateSelection(invalid,context:context);throw FlowError(message:"queued invalid accepted")}
+                catch NativeReaderContractError.invalidSelection {}
+            } else {await transport.invalidate()}
+            try Data("revoked".utf8).write(to:URL(fileURLWithPath:marker.path+".revoked"))
+            do {_ = try await pending.value;throw FlowError(message:"queued obsolete result adopted")}
+            catch NativeReaderContractError.staleGeneration {}
+            catch NativeReaderContractError.invalidSelection {}
+            catch NativeReaderOperationFailure.unknownEffect {}
+            let operations=await trace.operations
+            try require(operations.filter{$0=="jump"}.count==1)
+            print(String(data:try JSONSerialization.data(withJSONObject:["mode":mode,"skips":0,"assertions":5,"jumpTransmitted":true,"effectGate":true,"oldEffect":false]),encoding:.utf8)!)
+            return
+        }
+        if mode.hasPrefix("SF1-") {
+            let pending = Task { try await owner.jump(request) }
+            try await gate.wait()
+            if mode == "SF1-network" { await syncFault.enable() }
+            else {
+                let marker = URL(fileURLWithPath: args[3]);try Data("fault".utf8).write(to:marker)
+                for _ in 0..<1000 { if FileManager.default.fileExists(atPath:marker.path+".done") { break };try await Task.sleep(nanoseconds:10_000_000) }
+                try require(FileManager.default.fileExists(atPath:marker.path+".done"))
+            }
+            let newer = NativeReaderSelection(ticket:UUID(),fragments:selection.fragments)
+            try await owner.updateSelection(newer,context:context)
+            let locate = NativeReaderSourceRequest(context:context,selection:newer,action:.locate,receiptID:UUID())
+            try require(try await owner.perform(locate).status == .verified)
+            do { _ = try await owner.jump(locate);throw FlowError(message:"editor failure allowed a new effect") }
+            catch NativeReaderOperationFailure.unavailable {}
+            catch NativeReaderOperationFailure.unknownEffect {}
+            let equation=document.blocks.first{$0.kind == .equation}!
+            let math=NativeReaderSelection(ticket:UUID(),blockID:equation.id,rangeUTF16:0..<equation.canonicalText.utf16.count,exact:equation.canonicalText)
+            try await owner.updateSelection(math,context:context)
+            let excerpt=try await owner.perform(.init(context:context,selection:math,action:.excerpt,receiptID:UUID()))
+            try require(excerpt.status == .verified && excerpt.verifiedText?.contains("frac") == true)
+            _ = try await owner.perform(.open(math),context:context)
+            let invalid=NativeReaderSelection(ticket:UUID(),blockID:block.id,rangeUTF16:0..<10000,exact:"invalid")
+            do {try await owner.updateSelection(invalid,context:context);throw FlowError(message:"invalid new selection accepted")}
+            catch NativeReaderContractError.invalidSelection {}
+            await gate.open()
+            do {_ = try await pending.value;throw FlowError(message:"old pending effect survived")}
+            catch NativeReaderContractError.invalidSelection {}
+            catch NativeReaderContractError.staleGeneration {}
+            catch NativeReaderOperationFailure.unavailable {}
+            let operations=await trace.operations
+            try require(!operations.contains("jump"))
+            print(String(data:try JSONSerialization.data(withJSONObject:["mode":mode,"skips":0,"assertions":8,"sourceAndAsk":true,"jumpRequests":0,"oldPendingReused":false]),encoding:.utf8)!)
+            return
+        }
         if ["managed-close", "managed-pending-close"].contains(mode), let client = managedClient {
             await client.revokeEditorConsent()
             do { _ = try await owner.jump(request); throw NativeReaderOperationFailure.rejected(code: "closed-consent-accepted") }
@@ -358,7 +480,7 @@ private actor UITrace {
             "generation": context.generation, "documentID": target.documentID, "serviceID": target.serviceID, "revision": target.revision,
             "operations": await trace.operations,
             "provider": "actual production HTTP and actual Neovim; injected response gate/loss only", "nativeGUI": "not-run", "skips": 0]
-        if mode.hasPrefix("lost-receipt") { try require(await trace.operations == ["sync", "prepare", "jump", "receipt"]) }
+        if mode.hasPrefix("lost-receipt") { try require(await trace.operations == ["revoke", "sync", "prepare", "jump", "receipt"]) }
         print(String(data: try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]), encoding: .utf8)!)
     }
 }

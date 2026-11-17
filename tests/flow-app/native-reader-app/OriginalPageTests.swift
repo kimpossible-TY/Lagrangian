@@ -134,6 +134,30 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             }
         }
     }
+    @MainActor static func reviewD2(_ host: NativeReaderWindowController) async throws {
+        let root=host.hostWindow.window!.contentView!,window=host.hostWindow.window!
+        func views(_ v:NSView)->[NSView]{[v]+v.subviews.flatMap{views($0)}}
+        let all=views(root)
+        let theme=all.compactMap{$0 as? NSPopUpButton}.first{$0.accessibilityLabel()=="Theme"}!
+        func click(_ title:String)throws{
+            let button=all.compactMap{$0 as? NSButton}.first{$0.title==title}!
+            try check(button.isEnabled && !button.isHiddenOrHasHiddenAncestor,"D2 reachable control "+title)
+            button.performClick(nil)
+        }
+        // The host starts in real Original PDF with a prepared raster. Change
+        // only this owned window's effective appearance, never NSApp/the OS.
+        try click("Reflow");try await until{host.visibleMode == .nativeReflow && host.textView.renderKey==host.textView.requestedRenderKey}
+        theme.selectItem(withTitle:"Automatic");try check(NSApp.sendAction(theme.action!,to:theme.target,from:theme),"D2 native Automatic action")
+        try await until{host.textView.renderKey==host.textView.requestedRenderKey}
+        try click("Apply Display")
+        for (appearance,expected) in [(NSAppearance.Name.darkAqua,NativeReaderTextAppearance.Theme.dark),(.aqua,.light)] {
+            try click("Original PDF");try await until{host.visibleMode == .originalPages && host.originalPageView.isPreparedForPaint}
+            window.appearance=NSAppearance(named:appearance)
+            try await Task.sleep(nanoseconds:30_000_000)
+            try click("Reflow");try await until{host.visibleMode == .nativeReflow && host.textView.renderKey==host.textView.requestedRenderKey}
+            try check(theme.titleOfSelectedItem=="Automatic" && host.textView.textAppearance.theme==expected && host.textView.renderKey?.appearance.theme==expected,"D2 Reflow resolves current window appearance before preparation both directions")
+        }
+    }
     @MainActor private static func reviewN1(_ host: NativeReaderWindowController, _ source: PageSwitch) async throws {
         let view = host.originalPageView, old = view.store.accepted!.id
         await source.pause(); host.refresh()
@@ -440,6 +464,7 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             else if review == "N2" { try await reviewN2(out) }
             else if review == "N3" { try await reviewN3(host) }
             else if review == "EXPORT" { try await reviewExport(host,out) }
+            else if review == "D2" { try await reviewD2(host) }
             else if review == "N4" { try await reviewN4(out) }
             else { throw NativeOriginalPageError.unsupported("review-case") }
             host.dispose()

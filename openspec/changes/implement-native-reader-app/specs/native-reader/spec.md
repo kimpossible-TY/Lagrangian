@@ -170,7 +170,7 @@ The app SHALL offer explicit profile-bound save/list/open controls and a home of
 - **AND** another profile cannot list/open that namespace
 
 #### Scenario: Unsupported saved state or obsolete disk operation
-- **WHEN** selection exceeds32 fragments, zoom is below0.5, bytes fail validation, or a disk request is cancelled/closed/superseded
+- **WHEN** native-reflow selection exceeds32 fragments, native-reflow zoom is below0.5, bytes fail validation, or a disk request is cancelled/closed/superseded
 - **THEN** the previous durable file is retained and the app does not claim successful save/restore from an obsolete callback
 - **AND** the full ordinary local display selection is not truncated to make save succeed
 
@@ -199,7 +199,9 @@ The reflow reader SHALL expose Light/Dark/Automatic and font/zoom preview, cance
 #### Scenario: Export current original bytes or reject an obsolete choice
 - **WHEN** the user explicitly exports the accepted Original PDF
 - **THEN** the same publication/input/digest bytes are validated, staged, PDFKit-reopened and atomically saved after current snapshot/operation checks
-- **AND** cancel/stale/dispose/tamper/invalid or changed destination preserves the previous file
+- **AND** cancel/stale/dispose/tamper/invalid destination or an observed precommit directory identity/metadata fingerprint mismatch rejects publication and preserves the previous file in those paths
+- **AND** same-metadata content changes and an external rename after that check have no atomic compare-and-swap guarantee
+- **AND** PDF recovery scale remains separately bounded to0.1–8 by its geometry/raster budgets
 - **AND** offline PDF recovery stores only identity/digest/page/scale/unscaled offsets, does not store PDF selection, and does not enable offline mode switching
 
 ### Requirement: Explicit native editor movement has a separate effect receipt
@@ -253,3 +255,46 @@ process discovery, default opt-in or HTTP registration authority.
 - **THEN** production callbacks query the original receipt UUID without another jump
 - **AND** a raw independent editor oracle verifies actual file/line/UTF-8 column and preserved buffers/source bytes
 - **AND** this evidence is reported separately from real GUI acceptance
+
+
+### Requirement: Live Read environment and display transitions retain their owners
+The app SHALL separate initial storage completion from native readiness. Dev-root tracing SHALL record values only in its isolated root without retaining the app or changing guards. Environment events SHALL reach only a current explicit native Read ticket/profile/generation. Native Session SHALL own interruption, retained read-only content and bounded constrained-power retries.
+
+#### Scenario: Preview baseline crosses a new accepted snapshot
+- **WHEN** a previewed theme is retained by a new accepted snapshot and a later font preview is cancelled
+- **THEN** menu, window, render key, viewport and the next preview baseline agree on the retained display
+
+#### Scenario: Automatic returns from Original PDF
+- **WHEN** this window's effective appearance changes during Original PDF and Reflow is selected
+- **THEN** the Reflow preparation resolves current Automatic colors in either direction without recoloring the PDF or changing global appearance
+
+#### Scenario: An environment event has no live Read intent
+- **WHEN** an unread profile, closed/cancelled view or disposed request receives an event
+- **THEN** the app SHALL NOT start reading, infer, restart a service or adopt a late result
+
+### Requirement: Optional editor failure preserves valid body actions
+New selection SHALL revoke old pending editor work before optional synchronization. Valid accepted body selection SHALL remain usable for Source, mapping-only locate and Ask when editor ownership, control/registration or sync transport becomes unavailable. Actual editor Locate SHALL fail unavailable; true stale document/input/context and invalid selections SHALL remain rejected.
+
+#### Scenario: Editor disappears after a prepared selection
+- **WHEN** the editor owner exits, its control/registration disappears, or sync transport fails before a valid newer body selection
+- **THEN** Source and Ask use that newer selection with zero editor effects and no reuse of the old pending jump
+
+### Requirement: Native registration has an exact local lifetime
+The native resolver SHALL retain its manager-issued lease through resolution and retire only its own native token on disconnect/dispose/replacement or failed/cancelled/superseded/late resolution. Existing local owners SHALL preserve other tokens, control/editor/service lifetimes and the32 quota; HTTP SHALL NOT delete arbitrary paths.
+
+#### Scenario: Reconnect without consuming other registrations
+- **WHEN** the same live editor reconnects and disconnects at least33 times, with concurrent terminal/native registrations
+- **THEN** its retired registrations do not accumulate and the other tokens and editor remain intact
+
+#### Scenario: Jump already waits at the effect gate
+- **WHEN** a transmitted jump waits at the real edit_lock and a newer invalid selection or explicit cancellation revokes its lease
+- **THEN** releasing that gate cannot execute the old movement or adopt its obsolete acknowledgment
+
+
+
+### Requirement: Explicit local descriptor provenance remains private
+The local manager SHALL export only the four explicit chooser fields from a live private existing editor registration. The native chooser SHALL require explicit selection and consent; HTTP SHALL NOT register editor executables, addresses or arbitrary paths.
+
+#### Scenario: Choose the manager-provided editor descriptor
+- **WHEN** the user exports a registered editor descriptor locally and explicitly selects that generated private file
+- **THEN** the existing descriptor validator and consent owner SHALL bind the same live editor identity without source-write or account authority

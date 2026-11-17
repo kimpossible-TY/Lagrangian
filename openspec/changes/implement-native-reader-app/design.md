@@ -414,7 +414,10 @@ not PDF selection; offline mode switching remains unsupported.
 Explicit Export PDF uses accepted Original PDF publication/input/digest bytes,
 existing typed validation and atomic disk ownership, native save chooser and
 snapshot/operation rechecks before publication. Tests inject chooser results only.
-Cancel/stale/dispose/tamper/invalid destination/changed destination preserve files.
+Cancel/stale/dispose/tamper/invalid destination and observed precommit directory
+identity/metadata fingerprint mismatches reject publication in the tested paths.
+Same-metadata content changes and external rename races are not an atomic CAS
+guarantee. Production PDFKit reopens staging; final-output reopen is a test witness.
 Review marks retain per-mark32 and total256 unique UUID budgets checked before
 adoption; browser marks/source authority are unchanged. The old18-case design is
 immutable history; Planner's new125-case design supersedes it without creating
@@ -487,3 +490,34 @@ An independent Python RPC oracle observes the effect and byte preservation.
 Only inventory/consent decision and fault delivery are injected. The already
 implemented original-receipt preservation is exercised, not duplicated. Actual
 chooser/alert, foreground GUI and final installed-app acceptance remain open.
+
+
+## v4 startup/lifecycle/display corrections
+
+Independent and integration offscreen runs complete with the original optimized
+main/delegate structure; the GUI loading blocker remains unverified. Dev-root-only
+value tracing records load/worker/completion and hashed selection readiness without
+retaining the app, logging private text or weakening guards.
+ReadingSession storage completion is distinct from environment-driven native
+recovery. A still-live explicit Read ticket routes sleep/wake/network/power to
+NativeReaderSession; unread profiles, closed/cancelled windows and offline saved
+copies are excluded. Session retains accepted content and owns bounded retries.
+Snapshot replacement adopts the retained display baseline consistently; returning
+from Original resolves Automatic using this window before Reflow preparation.
+The fixture manager embeds its exact setup root/identity and owner hash so argv-only
+app launch does not require environment forwarding. None of this is a real GUI,
+VoiceOver, macOS13 or PM acceptance receipt.
+
+## v4 NA15 review corrections
+
+NativeReaderActions separates validated body selection from optional editor sync,
+revoking prior pending work first. Source/mapping/Ask remain available after an
+editor-only failure; stale contexts/inputs and invalid selections are not relaxed.
+NativeReaderManagedResolver owns an exact local manager-issued cleanup lease until
+adoption, then transport lifetime owns it. Failed probes and late/cancelled/epoch-
+superseded resolves retire their own token, including before any editor context
+exists. The local manager/EditorAttachments own token retirement and the four-field
+private chooser descriptor export. There is no HTTP deletion/registration API,
+quota increase, source writer or editor/service/control termination. Gated tests
+observe a transmitted jump's committed unknown row while the actual edit_lock is
+held, revoke it, and independently compare editor/source state after release.

@@ -20,6 +20,7 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
     let transport: NativeReaderTransport
     private let wait: (UInt64) async throws -> Void
     private var selection: NativeReaderSelection?
+    private var selectionVersion = 0
     private var uncertainJump: UUID?
     private var conversations: [UUID: NativeReaderConversation] = [:]
     private var frozenTickets: [UUID: UUID] = [:]
@@ -38,11 +39,21 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
 
     /// NA02 calls this whenever selection changes; never release by an old acknowledgment.
     func updateSelection(_ value: NativeReaderSelection?, context: NativeReaderRequestContext) async throws {
+        selectionVersion += 1
+        let version = selectionVersion
         try await transport.check(context)
+        guard selectionVersion == version else { throw NativeReaderContractError.staleGeneration }
         selection = nil // An over-limit/new selection must never leave an old actionable ticket.
-        try await transport.syncEditor(value, context: context)
+        // Revoke the old editor lease even when the incoming selection is invalid.
+        // Common source/chat selection authority does not depend on editor health.
+        try await transport.revokeEditorSelection(context: context)
+        try Task.checkCancellation()
+        guard selectionVersion == version else { throw NativeReaderContractError.staleGeneration }
         if let value { _ = try await transport.selectionFields(value, context: context) }
         selection = value
+        do { try await transport.syncEditor(value, context: context) }
+        catch NativeReaderOperationFailure.unavailable { return }
+        // Identity/input/selection errors still propagate; no stale authority is adopted.
     }
 
     func jump(_ request: NativeReaderSourceRequest, query: Bool = false) async throws -> NativeReaderEditorReceipt {

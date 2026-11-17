@@ -50,8 +50,10 @@ class CompilerEditorFixture(unittest.TestCase):
         self.work = Path(tempfile.mkdtemp(prefix='na15-', dir=os.environ['TMPDIR'])).resolve()
         # Retain isolated fixture bytes for independent oracle inspection.
         self.root = self.work / 'source'; self.root.mkdir()
-        self.entry = self.root / "한글' main.typ"
+        self.entry = self.root / getattr(self,"entry_filename","한글' main.typ")
         self.original = '= Native fixture\n\nPréface 한글 target passage.\n\nOther independent paragraph.\n\n#include \"included.typ\"\n'
+        if 'SF1_' in self._testMethodName or 'SF2_' in self._testMethodName:
+            self.original=self.original.replace('#include', '$ frac(1, 2) $\n\n#include',1)
         self.entry.write_text(self.original)
         self.dependency=self.root/'included.typ'; self.dependency.write_text('Included dependency.\n')
         self.control = self.work / 'control.json'; self.control.write_text('{}'); self.control.chmod(0o600)
@@ -64,7 +66,10 @@ class CompilerEditorFixture(unittest.TestCase):
         self.compiler_log=self.work/'compiler-executions.jsonl'
         self.compiler.write_text('#!'+sys.executable+'\nimport json,subprocess,sys,time\nargv='+repr(['/usr/bin/sandbox-exec','-p',profile,shutil.which('typst')])+'+sys.argv[1:]\nstart=time.monotonic()\nr=subprocess.run(argv,capture_output=True)\nwith open('+repr(str(self.compiler_log))+',"a") as f: f.write(json.dumps({"argv":argv,"exit":r.returncode,"seconds":time.monotonic()-start,"stdout":r.stdout.decode(errors="replace"),"stderr":r.stderr.decode(errors="replace")})+"\\n")\nsys.stdout.buffer.write(r.stdout);sys.stderr.buffer.write(r.stderr)\nraise SystemExit(r.returncode)\n')
         self.compiler.chmod(0o700)
-        self.state = ReaderState(Project(self.root, Path(self.entry.name), REPO/'tools/flow-reader/packages', compiler=str(self.compiler)), self.work/'output', '', False)
+        self.state = ReaderState(Project(self.root, Path(self.entry.name), REPO/'tools/flow-reader/packages', compiler=str(self.compiler)), self.work/'manager-data/documents/fixture', '', False)
+        from test_homepage import FakeAuth, FakeProvider
+        provider=FakeProvider();provider.auth=FakeAuth(self.work)
+        self.state.chat_data=self.work/'chat';self.state.chat_provider=provider
         self.addCleanup(self.state.close)
         self.state.compile()
         self.assertTrue(self.state.report.get('contentGatePassed'), self.state.report)

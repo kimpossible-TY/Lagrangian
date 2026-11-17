@@ -102,7 +102,9 @@ class OriginalPageTests(unittest.TestCase):
         harness = HERE / 'OriginalPageTests.swift'
         if fixed := os.environ.get('ORIGINAL_FIXED_SOURCES'):
             fixed = Path(fixed).resolve()
-            allowed = DEV / 'test-output/closure-review-fixes-v2'
+            allowed = DEV / 'test-output'
+            if not any(fixed.is_relative_to(allowed / n) for n in ['closure-review-fixes-v2','native-app-corrections-v4']):
+                raise RuntimeError('Fixed before sources must remain in isolated evidence')
             harness = Path(os.environ['ORIGINAL_FIXED_TEST']).resolve()
             if not fixed.is_relative_to(allowed) or not harness.is_relative_to(allowed):
                 raise RuntimeError('Fixed before sources must remain in isolated closure evidence')
@@ -207,6 +209,7 @@ class OriginalPageTests(unittest.TestCase):
     def test_review_N1_selection_begins_during_pdf_prepare(self): self.review_case('N1')
     def test_review_N2_offline_reflow_assets(self): self.review_case('N2')
     def test_review_N3_current_page_accessibility(self): self.review_case('N3')
+    def test_D2_automatic_across_original_mode(self): self.review_case('D2')
     def test_native_original_export_atomic_ui(self): self.review_case('EXPORT')
     def test_review_N4_real_clip_find_and_goto(self): self.review_case('N4')
 

@@ -21,6 +21,7 @@ do {
     let delegate = FlowApp(environment: configuration.environment,
                            isolated: configuration.isolated, fixture: configuration.fixture,
                            noActivate: configuration.noActivate,
+                           startupTimeline: configuration.isolated ? NativeStartupTimeline(root: configuration.environment.userHome.deletingLastPathComponent()) : nil,
                            nativeRuntime: configuration.nativeRuntimePaths.map {
                              NativeReaderRuntime(node: URL(fileURLWithPath: $0[0]), helper: URL(fileURLWithPath: $0[1]), runtime: URL(fileURLWithPath: $0[2]))
                            } ?? defaultRuntime, nativeManager: configuration.nativeManager.map { URL(fileURLWithPath: $0) } ?? bundled?.manager)

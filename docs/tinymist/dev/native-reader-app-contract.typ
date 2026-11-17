@@ -489,6 +489,8 @@ matching identity alone is not completion. While held, the native Cancel control
 continues to revoke that candidate. Cancel/close cannot attach its metadata to A
 or resurrect B via a later layout retry.
 
+== Accepted Original PDF export <native-export-pdf>
+
 Export PDF is a native explicit control for the currently accepted Original PDF.
 The production chooser is an NSSavePanel; isolated tests inject only its result
 without displaying a panel. Existing accepted publication/input/digest-validated
@@ -496,8 +498,32 @@ bytes are staged by RecoveryStore, reopened with PDFKit, then published by atomi
 rename after exact snapshot/request/operation checks. They are the original bytes,
 not a screenshot or a regenerated PDF. No source/chat/auth authority is granted.
 Cancel, stale snapshot, disposal, tampered bytes, symlink/nonregular/wrong-extension
-or missing-parent destinations, or a destination changed since staging cannot
-replace the previous file. Open directory descriptors bind the destination and
+or missing-parent destinations are rejected. Commit rechecks the observed
+directory identity and destination metadata fingerprint (device/inode/size/mtime);
+a mismatch rejects publication and preserves the prior file in those tested
+failure paths. Same-metadata content changes and an external rename after that
+check are not covered by a compare-and-swap guarantee. Open directory descriptors bind the destination and
 bounded temporary files are removed on failure. Native Print is not newly added.
 These source/offscreen checks still require final app binding and independent
 actual GUI/export/AX/VoiceOver inspection.
+
+
+== Current window lifecycle and display corrections
+
+Only a still-live explicit Read ticket receives laptop sleep/wake, connectivity
+and constrained-power events from FlowApp through ReadingSessionController into
+the native session. Pending settings work completes independently; sleep during
+save revokes its pending Read intent. No unread profile is opened by these events.
+The native session retains accepted content read-only during interruption and
+owns bounded transport retry/backoff; close/cancel/profile replacement reject late
+effects. Recovery never implies an automatic chat Send or service restart.
+A new snapshot retaining previewed colors adopts the same menu/window baseline
+for subsequent previews. Reflow entry resolves Automatic against this window's
+current effective appearance after Original PDF; PDF print colors remain unchanged.
+Actual laptop/GUI acceptance is independent of injected offscreen events.
+
+Profile names are display labels, not unique IDs. The native picker retains every
+validated profile in settings order, including identical names, so selection
+persists the exact chosen profile ID. Repeated cancellation of an already closed
+native Read ticket is idempotent; it cannot advance accepted-view authority or
+revive that ticket through a later environment signal.
