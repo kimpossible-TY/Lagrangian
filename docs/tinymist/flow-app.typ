@@ -409,9 +409,12 @@ restart a service, verify original PDF delivery, or establish GUI/VoiceOver and
 complete native application acceptance. Use only the approved final staged app
 for the later independent inspection.
 
-The current staged candidate integrates core/page/G1/published inputs. GUI
+The historical09c staged candidate integrates core/page/G1/published inputs. GUI
 inspection is partial, official final review needs fixes, and final PM acceptance
-is incomplete. For the frozen NA13 inspection use
+is incomplete. Current intermediate inspection uses the external PM packet
+with exact full source/App/executable hashes and a new isolated root; historical
+resource09e design IDs never override its top-level source revision.
+For the historical frozen NA13 inspection use
 `tests/flow-app/native-reader-app/test_page_delivery_bundle.py gui-fixture` and
 `test-output/delivery-production/NA13/final-app-v1/inspection-commands.json`.
 Its `gui-inspection-001` is setup-only/running=false; follow the recorded

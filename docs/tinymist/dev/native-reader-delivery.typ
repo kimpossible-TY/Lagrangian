@@ -314,3 +314,15 @@ failure and after-hash/interrupt preservation remain separate negatives. No actu
 CI, Rust build, install, service restart, GUI or live account/provider is implied.
 This transport component remains separate from the concurrent UI correction and
 formal final integration/review/GUI/Docs acceptance.
+
+
+= v4 current native correction binding
+
+The immutable338/8744 correction records remain unchanged. Source provenance
+appends the exact cc557788→f510fe32 component (19paths) and f510fe32→
+`d98f6e98cd282450a47cf8ceea9d8fea59145cda` correction (28paths), with Git-derived
+before/after hashes, ancestry and exact path sets. The current delivery-owned
+allowlist remains25 exact paths; no native prefix/blanket HEAD exemption is added.
+Current source/app identity comes from the external v4 build handoff, independently
+of retained raw387 engine E/build provenance. This is an intermediate diagnostic
+app, with GUI/startup cause, F13/NA16 and full125-case acceptance still incomplete.

@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 POLICY = Path('tools/flow-reader/native/runtime/backend-delivery.json')
 # Snapshot the actual assembled input, then overlay only explicit delivery-owned working bytes.
 INPUT = subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
-CURRENT_CORRECTION = '8744c1b3db0b494f2e36529df281be993ccf11b4'
-CURRENT_BASE = '09e78630a6afb51436e45da140c3588c82c295f5'
+CURRENT_CORRECTION = 'd98f6e98cd282450a47cf8ceea9d8fea59145cda'
+CURRENT_BASE = 'f510fe32337b16906ef355f327e88a8d37fb1b94'
 CORRECTION = '338304a374bdd75ba76151a34bc8c284510ce725'
 BASE = '09c5186bff1850b17f6e85fe2f3115153520bc94'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
@@ -67,10 +67,10 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
         current=m['ownerCorrections'][-1]
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,CURRENT_CORRECTION])
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
-        self.assertEqual(len(expected),15);self.assertEqual({f['path'] for f in current['files']},expected)
+        self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
         for item in current['files']:
             self.assertEqual(item['baseSHA256'],hashlib.sha256(self.git_bytes('show',CURRENT_BASE+':'+item['path'])).hexdigest())
             self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',CURRENT_CORRECTION+':'+item['path'])).hexdigest())
@@ -79,7 +79,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual([{k:v for k,v in f.items() if k!='overrides'} for f in c['files']],historical['files'])
 
         path='apps/macos/FlowApp.swift';item=next(f for f in c['files'] if f['path']==path)
-        self.assertEqual(m['files'][path],item['sha256'])
+        self.assertEqual(m['files'][path],next(f['sha256'] for f in current['files'] if f['path']==path))
         self.assertNotEqual(item['sha256'],item['baseSHA256'])
         self.assertTrue(any(x['sha256']!=item['sha256'] for x in item['overrides']))
         gui=next(x for x in m['historicalSources'] if x['role']=='gui')
@@ -97,9 +97,14 @@ class FixedSourceBinding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'clean checkout'):self.binding()
 
     def test_committed_drift_cannot_be_accepted_by_old_correction(self):
-        # Actual8744 sources must fail under the preserved old338-only inventory.
+        # Actual v4 sources must fail with their newest correction removed; historical records remain immutable.
         self.metadata(lambda m:m['ownerCorrections'].pop())
-        with self.assertRaisesRegex(ValueError,'owner source drift'):self.binding()
+        # v4 also registers newly changed test-owner paths: missing that record
+        # is rejected at the exact-path inventory gate before digest comparison.
+        with self.assertRaisesRegex(ValueError,'unregistered source changes'):self.binding()
+        self.setUp()
+        self.metadata(lambda m:m.update(ownerCorrections=m['ownerCorrections'][:1]))
+        with self.assertRaisesRegex(ValueError,'unregistered source changes'):self.binding()
         self.setUp()
         with (self.root/'apps/macos/FlowApp.swift').open('a') as f:f.write('\n// owned newer source\n')
         self.commit()
