@@ -461,22 +461,34 @@ committed atomic save does not claim rollback. Command completion, accepted
 snapshot and layout remain distinct from the matching visible-mode native draw
 receipt. Offscreen target/action tests do not establish real GUI acceptance.
 
-F10/F13 retain their authority boundaries: FlowApp does not yet compose the
-existing NativeReaderManagedEditor address/executable/ownerPID/controlFile
-consent descriptor, so configured-editor source jumps/highlights remain
-conditional on the existing owner. Moreover, native-action locate currently
-returns a verified display anchor only: SavedSourceNavigation resolves source
-location, and the native envelope deliberately omits file/line/editor data. It
-does not dispatch an editor jump. The UI reports verified location separately
-from unavailable editor opening. A guarded explicit editor-dispatch operation
-and a consented attachment must come from the existing owner; the host never
-fabricates coordinates or opts into an arbitrary editor.
-The native account adapter reads status/models and exposes an explicit configured
-Homepage action; it has no native login/logout/credential operation. Full native
-authentication management is not inferred from status or from opening a URL.
-These concrete gaps require the existing source/auth owners, not a host-side
-permission bypass or token store. Current source needs new app/delivery binding;
-F01–18 official/GUI/AX acceptance remains pending.
+F10 retains separate mapping and editor-effect contracts. The existing
+native-action locate operation returns a verified display anchor only;
+SavedSourceNavigation owns source correspondence and the native envelope omits
+file/line/editor data. It does not dispatch an editor jump. The separate explicit
+native-editor jump/receipt operation uses the existing saved-source and Neovim
+owners; only their confirmed effect establishes that the editor moved.
+
+FlowApp now composes a NativeReaderManagedEditor after its native Connect Editor
+chooser selects an existing private four-field descriptor (address, executable,
+ownerPID, controlFile) and the user explicitly consents. The local manager's
+existing private registration owner supplies that descriptor; a fixture-written
+JSON file alone does not establish this production path. SF1 separates optional
+editor synchronization from valid native selection adoption: editor-only failure
+leaves Source/excerpt/mapping and Ask available, while an actual editor jump is
+unavailable and old pending work is revoked. SF2 retains and releases exactly the
+local token created for that native client, including failed or late attachment;
+it does not terminate the editor/service, delete other tokens or expand quota.
+
+Actual chooser/consent/focus interaction and overall F10 acceptance remain
+unverified. The production manager's NFC/NFD document-path matching gap remains
+unresolved; ASCII lease/quota regression and existing Unicode native/editor
+regressions do not establish Unicode manager matching. The host never fabricates
+coordinates or opts into an arbitrary editor. F13 native login/cancel/logout
+remains unimplemented NA16 work: the adapter reads status/models and exposes an
+explicit configured Homepage action, without native credential operations.
+Status or opening a URL does not establish authentication management. Current
+source/app binding is reported by the new external delivery handoff, separately
+from immutable historical packets; F01–18 official/GUI/AX acceptance is pending.
 
 
 == Candidate completion and original PDF export
