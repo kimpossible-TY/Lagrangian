@@ -16,14 +16,14 @@ import unittest
 
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 REPO = Path(__file__).resolve().parents[3]
-CORE = DEV / 'worktrees/core-assembly'
-CORE_SHA = '1eb9a44196aa34e47ab2088f3facc158f4627e0d'
-HELPER_SHA = 'd968f59fbf8d19c44ffb47cf316f36f86b70e9cf'
-MODEL_SHA = '312502ceb573f4791e61d01000df132d6da16323'
-STAGE = DEV / 'build/runtime-producer/NA11/runtime'
-EVIDENCE = DEV / 'test-output/runtime-producer/NA11/v2'
+CORE = REPO
+CORE_SHA = '9b2dc87651eb16a809bb48dbe4539614cfe30d6a'
+HELPER_SHA = CORE_SHA
+MODEL_SHA = CORE_SHA
+STAGE = DEV / 'build/delivery-production/runtime'
+EVIDENCE = DEV / 'test-output/delivery-production/NA13/runtime'
 RUNTIME = DEV / 'dependencies/native-runtime'
-NODE = Path('/opt/homebrew/Cellar/node/26.13.1/bin/node')
+NODE = DEV / 'dependencies/portable-node/node-v22.23.5-darwin-arm64/bin/node'
 FROZEN = ['tools/flow-reader/native/math_layout.mjs', 'apps/macos/NativeReaderDocument.swift',
           'apps/macos/NativeReaderOperations.swift', 'apps/macos/NativeReaderObjectRenderer.swift',
           'apps/macos/NativeReaderPagedLayout.swift',
@@ -216,10 +216,10 @@ class RuntimeTests(unittest.TestCase):
         cls.out.mkdir(parents=True)
         cls.commands = []
         cls.env = {}
-        for name, value in {'TMPDIR': DEV / 'tmp/runtime-producer',
-                            'CLANG_MODULE_CACHE_PATH': DEV / 'cache/runtime-producer/clang',
-                            'SWIFT_MODULECACHE_PATH': DEV / 'cache/runtime-producer/swift',
-                            'HOME': DEV / 'tmp/runtime-producer/empty-home'}.items():
+        for name, value in {'TMPDIR': DEV / 'tmp/delivery-production',
+                            'CLANG_MODULE_CACHE_PATH': DEV / 'cache/delivery-production/clang',
+                            'SWIFT_MODULECACHE_PATH': DEV / 'cache/delivery-production/swift',
+                            'HOME': DEV / 'tmp/delivery-production/empty-home'}.items():
             value.mkdir(parents=True, exist_ok=True)
             cls.env[name] = str(value)
         cls.env.update(NODE_PATH='', NODE_OPTIONS='', PATH='/usr/bin:/bin')
@@ -244,7 +244,7 @@ class RuntimeTests(unittest.TestCase):
             if not p.exists():
                 raise RuntimeError('required prerequisite missing: ' + str(p))
         head = command(['/usr/bin/git', '-C', CORE, 'rev-parse', 'HEAD']).strip()
-        if head != CORE_SHA:
+        if subprocess.run(['/usr/bin/git', '-C', str(CORE), 'merge-base', '--is-ancestor', CORE_SHA, head]).returncode != 0:
             raise RuntimeError('frozen core revision mismatch')
         frozen = cls.out / 'frozen'; frozen.mkdir()
         hashes = []
@@ -271,6 +271,7 @@ class RuntimeTests(unittest.TestCase):
         installed = cls.out / 'relocated-installed'; installed.mkdir()
         cls.runtime = installed / 'Resources/native-runtime'
         shutil.copytree(STAGE, cls.runtime, symlinks=True)
+        cls.node = cls.runtime / 'node/bin/node'
         blocked = [DEV / 'worktrees', DEV / 'dependencies', Path.home() / 'Library/Caches',
                    Path('/Users/taeyoung/.npm'), Path('/Users/taeyoung/.node_modules'),
                    Path('/Users/taeyoung/.node_libraries'), Path('/opt/homebrew/lib/node_modules'),
@@ -281,7 +282,7 @@ class RuntimeTests(unittest.TestCase):
         cls.sandbox = ['/usr/bin/sandbox-exec', '-p', cls.profile]
         # Mandatory real OS denial checks precede all consumption evidence.
         for code in ["require('net').createConnection({host:'127.0.0.1',port:9})", "require('net').createServer().listen(0,'127.0.0.1')"]:
-            command(cls.sandbox + [NODE, '-e', code], expected=1)
+            command(cls.sandbox + [cls.node, '-e', code], expected=1)
             if 'EPERM' not in cls.commands[-1]['stderr']:
                 raise RuntimeError('network denial not proven')
         for denied in [REPO / 'package.json', RUNTIME / 'package.json', DEV / 'dependencies/mathjax413/package.json',
@@ -289,10 +290,10 @@ class RuntimeTests(unittest.TestCase):
             operation = 'readdirSync' if denied.is_dir() else 'readFileSync'
             if not denied.exists():
                 raise RuntimeError('required denial probe input missing: ' + str(denied))
-            command(cls.sandbox + [NODE, '-e', 'require("fs").' + operation + '(process.argv[1])', denied], expected=1)
+            command(cls.sandbox + [cls.node, '-e', 'require("fs").' + operation + '(process.argv[1])', denied], expected=1)
             if 'EPERM' not in cls.commands[-1]['stderr']:
                 raise RuntimeError('source/scratch/cache denial not proven: ' + str(denied))
-        cls.verify = json.loads(command(cls.sandbox + [NODE, cls.runtime / 'verify-runtime.mjs', '--verify', cls.runtime, '--node', NODE], timeout=180))
+        cls.verify = json.loads(command(cls.sandbox + [cls.node, cls.runtime / 'verify-runtime.mjs', '--verify', cls.runtime, '--node', cls.node], timeout=180))
         oracle = json.loads((frozen / 'objects.expect.json').read_text())
         cases = []
         formulas = [('fraction', oracle['indivisibleMathML'])] + [
@@ -308,14 +309,14 @@ class RuntimeTests(unittest.TestCase):
                             mml = mml.replace('<math>', '<math display="block">')
                         data = dict(mathML=mml, width=width, fontSize=font, font='MathJaxNewcm',
                                     context=dict(revision='frozen-NA11', generation=1, theme='light'))
-                        raw = command(cls.sandbox + [NODE, cls.runtime / 'helper.mjs', '--runtime', cls.runtime], input=json.dumps(data))
+                        raw = command(cls.sandbox + [cls.node, cls.runtime / 'helper.mjs', '--runtime', cls.runtime], input=json.dumps(data))
                         result = json.loads(raw)
                         filename = f'{name}-{width}-{font}-{display}.json'
                         (cls.out / filename).write_text(raw)
                         loaded.update(result['runtime']['loaded'])
                         cases.append(dict(name=name, width=width, fontSize=font, display=display, mathML=mml, file=filename))
         save(cls.out / 'dynamic-ranges.json', sorted(loaded))
-        save(cls.out / 'paint-input.json', dict(runtime=str(cls.runtime), node=str(NODE), cases=cases))
+        save(cls.out / 'paint-input.json', dict(runtime=str(cls.runtime), node=str(cls.node), cases=cases))
         shutil.copyfile(frozen / 'objects.expect.json', cls.out / 'objects.expect.json')
         swift = cls.out / 'RuntimePaint.swift'; swift.write_text(SWIFT)
         cls.binary = cls.out / 'RuntimePaint'
@@ -352,12 +353,12 @@ class RuntimeTests(unittest.TestCase):
         for name in ['cyrillic', 'hebrew', 'script', 'arrows', 'shapes']:
             self.assertTrue(any('/dynamic/' + name + '.js' in p for p in ranges), (name, ranges))
 
-    def test_host_runtime_policy_and_missing_preflight(self):
+    def test_portable_runtime_policy_and_missing_preflight(self):
         policy = self.manifest['node']
-        self.assertEqual(policy['policy'], 'host-required')
-        self.assertEqual(policy['minOS'], '13.5')
-        self.assertGreater(len(policy['hostLibraries']), 0)
-        self.command(self.sandbox + [NODE, self.runtime / 'verify-runtime.mjs', '--verify', self.runtime, '--node', '/nonexistent/node'], expected=1)
+        self.assertEqual(policy['policy'], 'portable-bundled')
+        self.assertEqual(policy['minOS'], '11.0')
+        self.assertEqual(policy['hostLibraries'], [])
+        self.command(self.sandbox + [self.node, self.runtime / 'verify-runtime.mjs', '--verify', self.runtime, '--node', '/nonexistent/node'], expected=1)
 
     def test_original_font_notices_match_independent_freetype_reader(self):
         preserved = self.manifest['fontPreservation']
@@ -369,14 +370,14 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(preserved['fonts'], expected)
         self.assertEqual(preserved['noticesSHA256'], sha(self.runtime / 'THIRD-PARTY-NOTICES.md'))
 
-    def test_frozen_bare_glyph_unsupported_is_not_silently_counted(self):
-        payload = dict(mathML='<math><mi>Ж</mi></math>', width=320, fontSize=14,
+    def test_hostile_math_is_not_silently_counted(self):
+        payload = dict(mathML='<math><img src="https://example.test/evil"/></math>', width=320, fontSize=14,
                        font='MathJaxNewcm', context=dict(revision='frozen-NA11', generation=1, theme='light'))
-        self.command(self.sandbox + [NODE, self.runtime / 'helper.mjs', '--runtime', self.runtime], input=json.dumps(payload), expected=2)
-        self.assertIn('unsupported-svg-style', self.commands[-1]['stderr'])
+        self.command(self.sandbox + [self.node, self.runtime / 'helper.mjs', '--runtime', self.runtime], input=json.dumps(payload), expected=2)
+        self.assertIn('unsupported', self.commands[-1]['stderr'])
 
     def test_canonical_typst_prebuilt_offline(self):
-        compiler = shutil.which('typst', path=os.environ.get('PATH'))
+        compiler = str(DEV / 'dependencies/portable-typst/typst-aarch64-apple-darwin/typst')
         if not compiler:
             self.fail('required prebuilt Typst missing')
         self.command(['/usr/bin/sandbox-exec', '-p', '(version 1)(allow default)(deny network*)', compiler,

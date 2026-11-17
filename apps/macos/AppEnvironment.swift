@@ -31,6 +31,10 @@ struct AppEnvironment {
     agents = userHome.appendingPathComponent("Library/LaunchAgents")
   }
 
+  func nativeReaderBundle() throws -> NativeReaderBundleEnvironment? {
+    try NativeReaderBundleEnvironment.load(executable: executable)
+  }
+
   func focusFile(for profile: Profile) -> URL {
     support.appendingPathComponent("focus/\(profile.id).json")
   }

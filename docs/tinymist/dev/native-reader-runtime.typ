@@ -24,8 +24,9 @@ The producer never invokes npm, fetches URLs, or installs anything.
 node scripts/prepare-native-reader-runtime.mjs \
   --runtime-source <complete-materialized-root> \
   --helper <fixed-helper.mjs> --node <absolute-node> \
-  --proof-input <provenance.json> --output <stage>
-node <stage>/verify-runtime.mjs --verify <stage> --node <absolute-node>
+  --proof-input <provenance.json> --output <stage> --identity -
+<stage>/node/bin/node <stage>/verify-runtime.mjs --verify <stage> \
+  --node <stage>/node/bin/node
 ```
 
 The optional proof-input JSON binds helperSHA256 and records component,
@@ -73,26 +74,28 @@ length and hash during materialization. FreeType is not a product dependency.
 These are license preservation evidence; final DocsAudit and legal/policy review
 remain separate. No current CTAN newcm license is inferred for these older bytes.
 
-Policy is *host-required*, not standalone. The supported executable is the exact
-`/opt/homebrew/Cellar/node/26.13.1/bin/node`, Node `v26.13.1`, darwin arm64, with
-SHA-256 pinned in each manifest. The host must retain its recorded Homebrew
-dylibs. The manifest captures otool dylib/rpath output, recursively resolved
-non-system library hashes/minimum OS, and Node's full LICENSE. Verification
-rejects missing, replaced, incompatible or unlaunchable Node before consumption.
-Integration must perform this preflight and present the configured path with an
-actionable runtime unavailable/incompatible error; PATH fallback is unsupported.
-No Node executable or Homebrew library is bundled or signed by this task.
+NA13 production policy is *portable-bundled*. `node-distribution.json` pins
+Node `v22.23.5`, darwin arm64, the exact official archive/checksums/detached
+signature, authorized release key fingerprint and full license digest. The
+release line is supported through 2027-04-30 according to the acquired official
+schedule. Preparation requires the original official executable hash, copies
+Node to `node/bin/node`, signs it and records its post-sign hash. The copied
+verifier binds that relative executable after relocation. No PATH/Homebrew
+substitution is accepted. `--node-distribution` and `--identity` are explicit
+preparation options; consumption uses the copied policy.
 
-The Node executable has minimum macOS 13.5. The Swift painter is compiled with
-Swift 5, warnings-as-errors and `arm64-apple-macosx13.0`. These are separate
-contracts: compiling the app for 13.0 does not make this Node run on 13.0.
-The 96 resolved non-system libraries include minimum OS 27.2, so this particular
-Homebrew closure actually requires *macOS 27.2 or later*, as recorded by
-`effectiveMinOS`. Preflight checks the running host against that maximum.
-Current-host execution is not certification on macOS 13.0 or 13.5. Supporting
-older systems requires a separately verified Node distribution and library policy.
+Actual arm64 load-command inspection observes minOS 11.0, only system dylibs
+and no rpaths. Every delivered executable/library is additionally inspected by
+the delivery producer. The app target remains macOS 13.0. Current-host execution
+and a target at or below 13.0 do not certify execution on macOS 13.
 
-== Initial proof and integration boundary
+The original NA11 stage remains immutable with its historical *host-required*
+Node26/96-library closure and effective minOS 27.2. Its manifest hash is
+`e2fbdb745477db56a4a6505503656cd64d27ad9e13c428c395ec46537c531eb7`.
+It is prior evidence, not portable shipping proof. New production outputs use
+`build/delivery-production`; evidence uses `test-output/delivery-production/NA13`.
+
+== Historical NA11 proof and current integration boundary
 
 Source patch baseline: `cc790bc1778dd7560984eafca93f0d6c052805d4`.
 Frozen proof core: `1eb9a44196aa34e47ab2088f3facc158f4627e0d`.
@@ -112,35 +115,25 @@ python3 -B -m unittest discover -s tests/flow-app/native-reader-app \
 node --test tests/flow-app/native-reader-app/RuntimeTests.mjs
 ```
 
-Required prerequisites and skips fail. The Python runner first demonstrates
-actual OS network denial and source-read denial, then verifies a relocated copy
-with worktrees, dependency scratch roots, NODE_PATH and user caches unavailable.
-It runs 320/640/960pt by 14/20/28pt by inline/display MathML across six formulas,
-including five nondefault dynamic ranges. It compiles the frozen production
-Swift painter/worker, checks native glyph paths and independent fraction
-geometry/glyph identity/topology, paints PNGs, and tests stale/timeout/cancel/budget
-failures. Range paint is a delivery smoke test, not a general fidelity oracle.
-The frozen helper internally converts with display=false, even when MathML
-carries display=block; display typography parity remains a later helper gate.
-Bare Cyrillic with zero descent was observed to return unsupported-svg-style
-from this frozen helper. The range matrix uses genuine subscript expressions;
-it does not claim that the frozen helper accepts every bare glyph expression.
-macOS rejects nested sandbox-exec with sandbox_apply exit 71. Source-denied
-helper and native paint therefore form one proof; production NativeMathWorker
-runs separately with its own deny-network/write sandbox for the async success,
-stale, cancellation, timeout and output-budget checks. The worker proof itself
-does not claim that an outer sandbox denied source reads.
+Required prerequisites and skips fail. The current Python suite reads frozen
+9b source blobs from this repository, never a live owner worktree. It preserves
+the 108-case dynamic-range/native fraction matrix, independent font notices and
+async worker failures, and uses the new portable stage and exact final NA10
+helper. Its copied interpreter runs after source, dependency and cache reads and
+network are actually denied. The existing production worker uses its own
+sandbox, so it is tested separately to avoid unsupported nested sandboxing.
 
-The JavaScript suite exercises missing font/module, lock/payload/helper tamper,
-external links, traversal, partial failures, existing-stage preservation and
-invalid Node. It preserves raw commands, stdout/stderr, exits and TAP counts.
-The canonical document is compiled using the prebuilt Typst under network denial.
-A final evidence binding associates the clean commit, seven source hashes,
-manifest, native paint and test reports. This binding is separate from the
-manifest's pre-commit source identity, avoiding a self-referential commit hash.
+The JavaScript suite covers missing fonts/modules, package SRI, payload/helper
+and lock tamper, path escape, partial-copy interruption and valid-stage
+preservation. DeliveryRuntimeTests adds portable release/signature policy,
+post-sign bytes and final TeX/base/AMS computation. The required installed-layout
+suite exercises the actual signed app and bundle-relative Python/backend/compiler
+and native paint. No scratch success substitutes for these proofs.
 
-NA11 completes only the initial frozen MathML producer and offline payload proof.
-NA08 must rerun with NA10's final TeX helper and NA09's accepted exact model/API.
-General mathematical fidelity, inline breaking, paged/print parity, selection,
-AX/VoiceOver, GUI and the final packaged .app remain their own acceptance gates.
-No live installation, service restart, Rust build, CI dispatch or push is needed.
+NA06's final core and NA12's original-page sources are still separate owner
+gates. The final delivery stage must rebind their exact commits in the same
+session and pass NA08 inventory review. GUI/VoiceOver, live provider/account,
+general fidelity and macOS 13 execution remain separate acceptance. See
+#link("native-reader-delivery.typ")[the production delivery contract] for staging
+commands and manager configuration handoff. No live installation, service
+restart, Rust build, remote CI dispatch or push is performed.

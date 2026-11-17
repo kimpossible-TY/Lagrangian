@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "python": {
+    "version": "3.13.11",
+    "archive": {
+      "url": "https://www.python.org/ftp/python/3.13.11/python-3.13.11-macos11.pkg",
+      "sha256": "23fc42230cfe139346516402e395af381ed093032a43a1231c43bca864f006bd"
+    },
+    "signature": {
+      "kind": "Apple Developer ID Installer",
+      "team": "BMM5U3QVKW",
+      "certificateSHA256": "5dbaf27e6e8a6dda57a129491fd69a183ca8b0d4a8f895946d569db534d45d3b"
+    },
+    "payload": "Python_Framework.pkg/Payload/Versions/3.13",
+    "executable": "bin/python3.13",
+    "license": "lib/python3.13/LICENSE.txt",
+    "licenseSHA256": "78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb",
+    "scope": "Console CPython and backend stdlib; optional Tk/IDLE and x86-only launcher excluded. Original installer preserved as provenance.",
+    "excludedComponents": [
+      "Frameworks",
+      "lib/python3.13/lib-dynload/_tkinter.cpython-313-darwin.so",
+      "lib/python3.13/tkinter",
+      "lib/python3.13/idlelib",
+      "bin/python3.13-intel64",
+      "include",
+      "lib/python3.13/config-3.13-darwin",
+      "lib/pkgconfig",
+      "bin/python3.13-config",
+      "share"
+    ],
+    "installerNotices": {
+      "License.rtf": "4250038179aec53ee9bd1b77670b0b286c65946411665c21015559f96add0f26",
+      "ReadMe.rtf": "7350c246843e97993d2865be031894b8a75aabff9d94893b716cdd4d06c48c5c"
+    }
+  },
+  "compiler": {
+    "version": "0.15.1",
+    "archive": {
+      "url": "https://github.com/typst/typst/releases/download/v0.15.1/typst-aarch64-apple-darwin.tar.xz",
+      "sha256": "48f62ed034aa3a7978309579ac6ca00045e2ef0da73114e8af27cfd8e74dc05a"
+    },
+    "digestAuthority": "https://api.github.com/repos/typst/typst/releases/tags/v0.15.1",
+    "executableSHA256": "7c4a136b377f3689400afe37b4f0fe3528d50faaa55cbb1106ac8a128f86ba1a",
+    "licenseSHA256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+  },
+  "maximumMinOS": "13.0",
+  "macOS13Execution": "unverified",
+  "manager": {
+    "entrypoint": "tools/flow-reader/manage.py",
+    "configuration": "Existing ReaderManager config/profile/lifecycle; no implicit installation or migration",
+    "requiredInjectionHandoff": "Provide bundle-relative interpreter/compiler operations when provisioning or rebinding managed service configuration."
+  },
+  "initialCapabilities": {
+    "coreSource": "9b2dc87651eb16a809bb48dbe4539614cfe30d6a",
+    "originalPages": "pending NA12",
+    "coreFixes": "pending NA06",
+    "GUI": "unverified",
+    "liveChat": "unverified"
+  },
+  "typstPackages": [
+    {
+      "path": "preview/tiptoe/0.4.0",
+      "archive": {
+        "url": "https://packages.typst.org/preview/tiptoe-0.4.0.tar.gz",
+        "sha256": "1be772c335902a7554b5164a5a4145bfd886867ac1b26478b74d5e4bf9eb6b3f"
+      }
+    },
+    {
+      "path": "preview/oxifmt/1.0.0",
+      "archive": {
+        "url": "https://packages.typst.org/preview/oxifmt-1.0.0.tar.gz",
+        "sha256": "7d17a1fc8ad01740ec3cb2b03c7360a4225ff9318e5710765fa98ea6fd59594f"
+      }
+    },
+    {
+      "path": "preview/oxifmt/0.2.1",
+      "archive": {
+        "url": "https://packages.typst.org/preview/oxifmt-0.2.1.tar.gz",
+        "sha256": "16fac2923032c59727de01e84d42cac45e8790da28df56effca49f4de41b09d9"
+      }
+    }
+  ],
+  "trustStore": {
+    "version": "2026.10.23",
+    "archive": {
+      "url": "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl",
+      "sha256": "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1"
+    },
+    "digestAuthority": "https://pypi.org/pypi/certifi/2026.10.23/json",
+    "file": "certifi/cacert.pem",
+    "sha256": "2ef52ad56b4803e264045c915e55c236cbfa045b84b81efefc218a19eb44bd2b",
+    "license": "certifi-2026.10.23.dist-info/licenses/LICENSE",
+    "licenseSHA256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+    "policy": "Official Python installer recommended certifi trust data, process-local only; no account, keychain or system changes."
+  }
+}

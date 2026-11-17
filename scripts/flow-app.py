@@ -23,6 +23,12 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import flow_engine_runs
+import importlib.util
+
+def delivery_module():
+    spec = importlib.util.spec_from_file_location("native_delivery", ROOT / "scripts/stage-native-reader-delivery.py")
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
 APP_ID = 'io.github.kimpossible-ty.lagrangian'
 ENGINE_WORKFLOW = 'flow-engine.yml'
 ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
@@ -164,6 +170,18 @@ def validate(app):
             certificate = signing_certificate(path)
             if not certificate or certificate['sha256'] != certificate_hash:
                 raise ValueError('Signing certificate mismatch: ' + str(path))
+    if manifest.get('deployment'):
+        for relative, expected in manifest['deployment'].items():
+            actual = delivery_module().image_info(app / relative, app)
+            if {key: value for key, value in actual.items() if key != 'sha256'} != expected:
+                raise ValueError('App/engine deployment closure drift')
+    if manifest.get('nativeDeliverySHA256'):
+        delivery = app / 'Contents/Resources/native-reader'
+        if digest(delivery / 'delivery-manifest.json') != manifest['nativeDeliverySHA256']:
+            raise ValueError('Native delivery manifest mismatch')
+        payload = delivery_module().verify(delivery)
+        if payload['sourceRevision'] != manifest['sourceRevision'] or payload['engineInputSHA256'] != manifest['engineInputSHA256']:
+            raise ValueError('Stale native delivery source/engine')
     if digest(app / 'Contents/MacOS/flow-engine') != manifest['engineSHA256']:
         raise ValueError('Bundled engine hash mismatch')
     if capture([executable(app), '--version']) != APP_NAME + ' ' + manifest['version']:
@@ -209,6 +227,7 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     mac = app / 'Contents/MacOS'; resources = app / 'Contents/Resources'
     mac.mkdir(parents=True); resources.mkdir()
     engine_input_hash = digest(engine)
+    source_before = delivery_module().source_binding(ROOT) if getattr(args, 'delivery', None) else None
     shutil.copy2(engine, mac / 'flow-engine')
     compiler_argv = ['/usr/bin/swiftc', *swift_flags(), '-O',
                      *swift_sources(), '-o', mac / APP_EXECUTABLE]
@@ -277,6 +296,30 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
         manifest['signingCertificateSHA256'] = certificate['sha256']
     if engine_build is not None:
         manifest['engineBuild'] = engine_build
+    if provenance := getattr(args, 'engine_provenance', None):
+        retained = json.loads(provenance.read_text())
+        if retained.get('engineInputSHA256') != engine_input_hash:
+            raise ValueError('Retained engine provenance does not match engine bytes')
+        manifest['engineBuild'] = retained['engineBuild']
+        manifest['engineInputProvenance']['retained'] = {
+            'artifactManifestSHA256': digest(provenance),
+            **{key: retained[key] for key in ('engineInputSHA256', 'engineBuild', 'engineVersion', 'engineSHA256', 'engineSource') if key in retained}}
+    if delivery := getattr(args, 'delivery', None):
+        payload = delivery_module().verify(delivery)
+        if payload['sourceRevision'] != manifest['sourceRevision'] or payload['sourceFiles'] != source_before or payload['engineInputSHA256'] != engine_input_hash:
+            raise ValueError('Native delivery must match current source and engine input')
+        if payload['signing'] != manifest['signing']:
+            raise ValueError('Native delivery signing identity mismatch')
+        shutil.copytree(delivery, resources / 'native-reader', symlinks=True)
+        manifest['deployment'] = {}
+        for image in (mac / APP_EXECUTABLE, mac / 'flow-engine'):
+            inspected = delivery_module().image_info(image, app)
+            manifest['deployment'][str(image.relative_to(app))] = {key: value for key, value in inspected.items() if key != 'sha256'}
+        manifest['nativeDeliverySHA256'] = digest(resources / 'native-reader/delivery-manifest.json')
+        manifest['nativeDeliveryPayloadSHA256'] = payload['payloadSHA256']
+        manifest['nativeDeliveryCapabilities'] = payload['capabilities']
+        if source_before != delivery_module().source_binding(ROOT):
+            raise ValueError('Source changed during app build')
     write_json(resources / 'release.json', manifest)
     # Files created by Finder, sync providers, or this build may carry
     # provenance metadata that macOS refuses to sign.
@@ -318,6 +361,16 @@ def build_native_engine(jobs):
         settings['profileLtoOverride'] = os.environ['CARGO_PROFILE_FLOW_RELEASE_LTO']
     return path, settings
 
+def build_engine_input(args):
+    engine, engine_build = build_native_engine(args.jobs)
+    output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(engine, output / 'flow-engine')
+    checksum = digest(engine)
+    (output / 'flow-engine.sha256').write_text(checksum + '  flow-engine\n')
+    write_json(output / 'release.json', {'engineInputSHA256': checksum, 'engineBuild': engine_build,
+        'sourceRevision': capture(['git', '-C', ROOT, 'rev-parse', 'HEAD'])})
+    print(output / 'flow-engine')
+
 def stage_engine_artifact(args):
     """Collect the unsigned Apple Silicon engine, checksum, manifest, and app for upload."""
     app = args.app.expanduser().resolve()
@@ -328,7 +381,7 @@ def stage_engine_artifact(args):
         raise ValueError('Engine artifact requires an aarch64-apple-darwin flow-release engineBuild')
     if not app.is_dir():
         raise ValueError('App bundle is missing: ' + str(app))
-    engine = flow_release_engine_path(cargo_metadata()['target_directory'], ENGINE_TARGET)
+    engine = getattr(args, 'engine', None) or flow_release_engine_path(cargo_metadata()['target_directory'], ENGINE_TARGET)
     if not engine.is_file():
         raise ValueError('Native engine output is missing: ' + str(engine))
     actual = digest(engine)
@@ -1560,13 +1613,16 @@ def restore_hosting(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest='command', required=True)
-    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
+    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
     fetch = sub.add_parser('fetch-engine', help='Download a macOS arm64 engine built by GitHub Actions without compiling Rust')
     fetch.add_argument('--branch', default='main', help='Branch whose latest successful flow-engine run is downloaded')
     fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run. Pass the same id to scripts/fetch-reader-bundle.py so the engine and the reader come from one run')
     fetch.add_argument('--dest', type=Path, help='Directory outside the repository target/ (default: a small user cache keyed by run id)')
     fetch.set_defaults(func=fetch_engine)
+    engine_input = sub.add_parser('build-engine-input', help='Build only the CI engine input, without an application')
+    engine_input.add_argument('--jobs', type=int, default=2); engine_input.add_argument('--output', type=Path, required=True); engine_input.set_defaults(func=build_engine_input)
     stage = sub.add_parser('stage-engine-artifact', help='Collect the unsigned Apple Silicon engine and app manifest for upload')
+    stage.add_argument('--engine', type=Path, help='Explicit retained/built engine; avoids Cargo metadata')
     stage.add_argument('--app', type=Path, required=True)
     stage.add_argument('--manifest', type=Path)
     stage.add_argument('--output', type=Path, required=True)

@@ -164,3 +164,116 @@ class ReuseSelectionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class FreshApplicationCacheBoundaryTests(unittest.TestCase):
+    """Execute production reuse/build boundaries with tiny platform-tool fixtures.
+
+    This is a local cache simulation. Swift/codesign and Cargo are not executed.
+    The actual signed .app is exercised by the required installed-layout suite.
+    """
+    def test_workflow_builds_current_app_after_both_engine_paths(self):
+        workflow = (ROOT / '.github/workflows/flow-engine.yml').read_text()
+        names = ['Prepare portable native dependencies', 'Stage current backend and runtime on hit and miss',
+                 'Build current native app on hit and miss', 'Stage the engine artifact']
+        for name in names:
+            block = workflow.split('- name: ' + name, 1)[1].split('\n      - ', 1)[0]
+            self.assertNotIn('if: steps.engine_cache', block)
+        self.assertIn('build-engine-input --jobs', workflow)
+        self.assertNotIn('build --build-engine', workflow)
+        self.assertIn('--engine dist/engine-input/flow-engine', workflow)
+
+    def test_cache_hit_discards_previous_app_and_rejects_corrupt_engine(self):
+        import hashlib
+        import shutil
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); cached = root / 'cached'; cached.mkdir()
+            engine = b'same-engine'
+            (cached / 'flow-engine').write_bytes(engine)
+            checksum = hashlib.sha256(engine).hexdigest()
+            (cached / 'flow-engine.sha256').write_text(checksum)
+            (cached / 'release.json').write_text(json.dumps({'engineInputSHA256':checksum,
+                'engineBuild':{'target':reuse.ENGINE_TARGET, 'profile':reuse.ENGINE_PROFILE}}))
+            write(cached / 'Lagrangian.app/Contents/MacOS/Lagrangian', 'stale cached application')
+            def gh(args, repo_cwd=None):
+                shutil.copytree(cached, Path(args[-1])); return ''
+            destination = root / 'engine-input'
+            with patch.object(reuse, '_gh', gh):
+                self.assertEqual(reuse.download_payload('fixture/repo', '1', destination), checksum)
+                self.assertEqual(sorted(p.name for p in destination.iterdir()), ['flow-engine','flow-engine.sha256','release.json'])
+                (cached / 'flow-engine').write_bytes(b'corrupt')
+                with self.assertRaises(ValueError):
+                    reuse.download_payload('fixture/repo','2',destination)
+                self.assertEqual((destination / 'flow-engine').read_bytes(), engine)
+
+    def test_hit_and_miss_build_current_swift_resources_backend_and_helper(self):
+        import argparse
+        import hashlib
+        import shutil
+        import tempfile
+        from unittest.mock import patch
+        package = load('fresh_app_cache_fixture', ROOT / 'scripts/flow-app.py')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); repo = root / 'checkout'; repo.mkdir()
+            write(repo / 'apps/macos/sources.json', json.dumps({'core':['main.swift'],'native':[],'app':[]}))
+            write(repo / 'apps/macos/main.swift','current Swift')
+            write(repo / 'assets/branding/lagrangian.png','current resource')
+            write(repo / 'LICENSE','Apache fixture')
+            write(repo / 'scripts/flow-app.py', (ROOT / 'scripts/flow-app.py').read_text())
+            engine = root / 'engine-input/flow-engine'; write(engine,'same engine bytes')
+            payload = root / 'delivery'; payload.mkdir()
+            write(payload / 'backend.py','current backend')
+            write(payload / 'helper.mjs','current helper')
+            write(payload / 'delivery-manifest.json','fixture manifest')
+            revision = ['1' * 40]
+            def source_binding(_):
+                return {str(p.relative_to(repo)): package.digest(p) for p in repo.rglob('*') if p.is_file()}
+            class Delivery:
+                @staticmethod
+                def source_binding(path): return source_binding(path)
+                @staticmethod
+                def image_info(path, root):
+                    return {'path':str(path.relative_to(root)),'sha256':package.digest(path),'minOS':'13.0','dependencies':[],'resolved':[],'rpaths':[]}
+                @staticmethod
+                def verify(path):
+                    return {'sourceRevision':revision[0], 'sourceFiles':source_binding(repo),
+                            'engineInputSHA256':package.digest(engine), 'signing':'ad-hoc',
+                            'payloadSHA256':package.bundle_checksum(payload), 'capabilities':{'fixture':True}}
+            def capture(argv, **kwargs):
+                args = list(map(str, argv))
+                if args[:2] == ['git','-C']:
+                    return revision[0] if 'rev-parse' in args else ''
+                return 'fixture platform tool'
+            def run(argv, **kwargs):
+                args = list(map(str, argv))
+                if args[0] == '/usr/bin/swiftc':
+                    Path(args[-1]).write_text(hashlib.sha256(b''.join(Path(p).read_bytes() for p in args if p.endswith('.swift'))).hexdigest())
+                elif args[0] == '/usr/bin/iconutil':
+                    Path(args[-1]).write_bytes((repo/'assets/branding/lagrangian.png').read_bytes())
+                elif args[0] != '/usr/bin/sips' and args[0] not in ('/usr/bin/codesign','/usr/bin/xattr'):
+                    raise AssertionError('Unexpected platform/Rust operation: ' + str(args))
+            original_engine = package.digest(engine)
+            provenance=root/'engine-input/release.json'
+            provenance.write_text(json.dumps({'engineInputSHA256':original_engine,'engineBuild':{'target':reuse.ENGINE_TARGET,'profile':reuse.ENGINE_PROFILE},'sourceRevision':'old application','engineInputProvenance':{'retained':{'old':'recursive app metadata'}}}))
+            results=[]
+            with patch.object(package,'ROOT',repo), patch.object(package,'__file__',str(repo/'scripts/flow-app.py')), patch.object(package,'delivery_module',return_value=Delivery), patch.object(package,'capture',capture), patch.object(package,'run',run), patch.object(package,'validate',return_value={}):
+                for index, mutation in enumerate([None,'swift','resource','backend','helper']):
+                    if mutation:
+                        target={'swift':repo/'apps/macos/main.swift','resource':repo/'assets/branding/lagrangian.png','backend':payload/'backend.py','helper':payload/'helper.mjs'}[mutation]
+                        target.write_text('updated '+mutation); revision[0]=str(index+1)*40
+                    output=root/str(index)/'Lagrangian.app'
+                    args=argparse.Namespace(identity='-',version='0.1.0',delivery=payload,engine_provenance=provenance)
+                    manifest=package.build_bundle(args,output,engine,'fixture prebuilt')
+                    self.assertEqual(manifest['sourceRevision'],revision[0])
+                    self.assertEqual(manifest['engineInputSHA256'],original_engine)
+                    self.assertNotIn('sourceRevision',manifest['engineInputProvenance']['retained'])
+                    self.assertNotIn('engineInputProvenance',manifest['engineInputProvenance']['retained'])
+                    self.assertEqual((output/'Contents/Resources/native-reader/backend.py').read_bytes(),(payload/'backend.py').read_bytes())
+                    self.assertEqual((output/'Contents/Resources/native-reader/helper.mjs').read_bytes(),(payload/'helper.mjs').read_bytes())
+                    results.append(package.bundle_checksum(output))
+                self.assertEqual(len(set(results)),5)
+                self.assertEqual(package.digest(engine),original_engine)
+                # Same production build boundary is called after hit or miss;
+                # cache acquisition supplies only engine bytes/provenance.
+                self.assertFalse(any((root/str(i)/'Lagrangian.app').is_symlink() for i in range(5)))
