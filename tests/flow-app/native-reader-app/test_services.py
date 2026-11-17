@@ -23,7 +23,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[3]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
-OUT = DEV / 'test-output/services'
+OUT = DEV / 'test-output/services/adoption-v3' / os.environ.get('NA04_RUN', 'run-' + str(time.time_ns()))
+if not OUT.resolve().is_relative_to(DEV / 'test-output/services/adoption-v3') or OUT.exists():
+    raise RuntimeError('NA04 evidence directory must be new under adoption-v3; preserve historical bytes')
 OUT.mkdir(parents=True, exist_ok=True)
 for name, value in {'TMPDIR': DEV / 'tmp/services', 'CLANG_MODULE_CACHE_PATH': DEV / 'cache/services/clang',
                     'SWIFT_MODULECACHE_PATH': DEV / 'cache/services/swift'}.items():

@@ -31,21 +31,277 @@ private actor AttachTrace {
     func snapshot() -> [[String]] { calls }
 }
 
+/// Deterministic cache/body fixture, not NA02/NA03 UI. All mutable document and
+/// selection authority is the production common store supplied to Session.
+@MainActor private final class AdoptionFixture {
+    let store = NativeReaderDocumentStore()
+    var body: NativeReaderDocument?
+    var layout = 0
+    var blocked = false
+    var failPreparation = false
+    var failAdopter = false
+    var noOpAdopter = false
+    var preparationCount = 0
+    var adopterCalls = 0
+    var publications = 0
+    var events = [String]()
+    private var gates: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    func prepare(_ document: NativeReaderDocument, _ context: NativeReaderRequestContext) async throws -> NativeReaderSession.PreparedAdoption {
+        preparationCount += 1
+        let serial = preparationCount, key = layout
+        events.append("prepare:\(serial):\(key)")
+        if blocked { await withCheckedContinuation { gates[serial] = $0 } }
+        // Intentionally ignore cancellation here to exercise late completion.
+        if failPreparation { throw TestFailure.assertion("injected prepare failure") }
+        events.append("prepared:\(serial):\(key)")
+        return .init(isCurrent: { self.layout == key }, adopt: {
+            self.adopterCalls += 1
+            guard self.body == self.store.document else { throw TestFailure.assertion("model published before body preparation") }
+            if self.failAdopter { throw TestFailure.assertion("injected compose failure before publication") }
+            if self.noOpAdopter { return }
+            guard self.layout == key else { throw TestFailure.assertion("obsolete prepared key") }
+            self.events.append("adopt:\(serial):\(key)")
+            try self.store.adopt(document, for: context)
+            self.body = document
+            self.publications += 1
+            self.events.append("install:\(serial):\(key)")
+        })
+    }
+    func resume(_ serial: Int) { gates.removeValue(forKey: serial)?.resume() }
+}
+
+@MainActor private var adoptionAssertions = 0
+
 @main struct ServiceTests {
     @MainActor static func main() async {
         do {
             try await run()
-            let report: [String: Any] = ["assertions": assertions, "scope": "real owned HTTP + compiler/source mapping; injected/fake provider, lifecycle/network/storage; headless AppKit activation prohibited", "skips": 0]
+            let report: [String: Any] = ["assertions": assertions, "scope": "real owned HTTP + compiler/source mapping; injected/fake provider, lifecycle/network/storage; headless AppKit activation prohibited", "skips": 0, "adoptionAssertions": adoptionAssertions, "adoptionScope": "real Session/common-store with deterministic preparation/adopter fixture; no integrated text/object UI"]
             print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
         } catch { fputs("ServiceTests failed: \(error)\n", stderr); exit(1) }
     }
 
-    @MainActor private static func waitFor(_ condition: () -> Bool) async throws {
+    @MainActor private static func waitFor(file: StaticString = #fileID, line: UInt = #line, _ condition: () -> Bool) async throws {
         for _ in 0..<2000 {
             if condition() { return }
             try await Task.sleep(nanoseconds: 1_000_000)
         }
-        throw TestFailure.assertion("bounded wait")
+        throw TestFailure.assertion("bounded wait at \(file):\(line)")
+    }
+
+    @MainActor private static func adoptionRegressions(_ document: NativeReaderDocument, _ identity: NativeDocumentIdentity,
+                                                           _ snapshot: NativeReaderRecoverySnapshot) async throws {
+        let before = assertions
+        let provider = Provider(load: { rebased(document, context: $0) })
+        func make(_ fixture: AdoptionFixture) -> NativeReaderSession {
+            NativeReaderSession(store: fixture.store, provider: provider, target: { identity },
+                prepare: { try await fixture.prepare($0, $1) })
+        }
+        func settled() async {
+            for _ in 0..<12 { await Task.yield() }
+        }
+        let view = AdoptionFixture(), session: NativeReaderSession
+        session = make(view)
+        session.refresh(); try await waitFor { session.state == .reading }
+        try require(session.store === view.store, "one shared common store")
+        let old = session.store.document!, oldContext = session.context!
+        let selected = NativeReaderSelection(ticket: UUID(), blockID: old.blocks[0].id,
+            rangeUTF16: 0..<old.blocks[0].displayText.utf16.count, exact: old.blocks[0].displayText)
+        let originalEvents = view.events
+        view.blocked = true
+        session.refresh(); try await waitFor { view.preparationCount == 2 }
+        try require(session.store.document == old && view.body == old && session.context == oldContext, "slow preparation retains model body and context")
+        try require(view.events == originalEvents + ["prepare:2:0"] && view.publications == 1, "no premature adoption")
+        try session.hold(selected)
+        try require(session.store.selection == selected, "old content remains selectable during preparation")
+        try await rejects("pending preparation cannot authorize mutation") { try session.authorize(oldContext, selection: selected.ticket) }
+        view.resume(2); try await waitFor { session.state == .reading }
+        try require(session.store.document == old && view.body == old && session.store.selection == selected, "selection holds completed preparation")
+        view.layout = 1
+        session.preparationChanged()
+        await settled()
+        try require(view.preparationCount == 2, "held resize does not start premature preparation")
+        // New accepted candidate supersedes the older held candidate, without a
+        // second store or a publication until the explicit matching release.
+        session.refresh(); try await waitFor { session.state == .reading }
+        let newestGeneration = session.store.generation
+        try require(newestGeneration > old.generation && view.preparationCount == 2, "newest held candidate retained")
+        let newerSelection = NativeReaderSelection(ticket: UUID(), fragments: selected.fragments)
+        try session.hold(newerSelection)
+        session.acknowledge(ticket: selected.ticket)
+        try require(session.store.selection == newerSelection && view.publications == 1, "late old ticket cannot clear newer user selection")
+        // Simulate NA02's actual callback order: shared store releases first,
+        // selectionReleased(ticket:) then informs Session. No source result does this.
+        session.store.releaseSelection(ticket: newerSelection.ticket)
+        session.acknowledge(ticket: newerSelection.ticket)
+        try await waitFor { view.preparationCount == 3 }
+        try require(session.store.document == old && view.body == old && session.context == oldContext, "explicit release still awaits latest object preparation")
+        try require(view.events.last == "prepare:3:1", "release prepares latest resized key")
+        view.resume(3); try await waitFor { session.context?.generation == newestGeneration }
+        try require(session.store.document == view.body && session.store.document?.generation == newestGeneration, "newest candidate publishes with body once")
+        try require(view.publications == 2 && view.adopterCalls == 2, "Session never repeats view publication")
+        try require(Array(view.events.suffix(3)) == ["prepared:3:1", "adopt:3:1", "install:3:1"], "atomic adapter transaction order")
+        session.acknowledge(ticket: newerSelection.ticket); await settled()
+        try require(view.publications == 2 && view.preparationCount == 3, "duplicate release never republishes")
+
+        // Both explicit resize notifications and key drift detected after await
+        // must reprepare the retained candidate, without another network request.
+        let resize = AdoptionFixture(), resizedSession: NativeReaderSession
+        resizedSession = make(resize)
+        resizedSession.refresh(); try await waitFor { resizedSession.state == .reading }
+        let resizedOld = resize.body, resizedContext = resizedSession.context
+        resize.blocked = true
+        resizedSession.refresh(); try await waitFor { resize.preparationCount == 2 }
+        resize.layout += 1; resizedSession.preparationChanged()
+        try await waitFor { resize.preparationCount == 3 }
+        resize.resume(2); await settled()
+        try require(resize.publications == 1 && resizedSession.context == resizedContext && resize.body == resizedOld, "resize rejects obsolete late preparation")
+        resize.resume(3); try await waitFor { resize.publications == 2 }
+        try require(resizedSession.store.document == resize.body && resize.events.last == "install:3:1", "resize adopts latest key")
+        resizedSession.refresh(); try await waitFor { resize.preparationCount == 4 }
+        resize.layout += 1 // Deliberately omit notification; isCurrent detects this.
+        resize.resume(4); try await waitFor { resize.preparationCount == 5 }
+        try require(resize.publications == 2 && resize.events.last == "prepare:5:2", "key drift reparses newest layout rather than dropping candidate")
+        resize.resume(5); try await waitFor { resize.publications == 3 }
+
+        let newer = AdoptionFixture(), newerSession: NativeReaderSession
+        newerSession = make(newer)
+        newerSession.refresh(); try await waitFor { newerSession.state == .reading }
+        newer.blocked = true
+        newerSession.refresh(); try await waitFor { newer.preparationCount == 2 }
+        newerSession.refresh(); try await waitFor { newer.preparationCount == 3 }
+        newer.resume(2); await settled()
+        try require(newer.publications == 1 && newer.body == newerSession.store.document, "newer refresh revokes older preparation")
+        newer.resume(3); try await waitFor { newer.publications == 2 }
+        try require(newerSession.context?.generation == 3, "newer refresh alone publishes")
+
+        for mode in ["prepare", "adopter", "noop"] {
+            let failingView = AdoptionFixture(), failingSession: NativeReaderSession
+            failingSession = make(failingView)
+            failingSession.refresh(); try await waitFor { failingSession.state == .reading }
+            let baseline = failingView.body, baselineContext = failingSession.context
+            failingView.failPreparation = mode == "prepare"
+            failingView.failAdopter = mode == "adopter"
+            failingView.noOpAdopter = mode == "noop"
+            failingSession.refresh(); try await waitFor { failingSession.state == .offline }
+            try require(failingView.body == baseline && failingSession.store.document == baseline && failingSession.context == baselineContext,
+                        "\(mode) failure preserves previous published model/body/context")
+            try require(failingSession.isReadOnly && failingView.publications == 1, "\(mode) cannot fabricate readiness")
+            try await rejects("\(mode) disables mutations") { try failingSession.authorize(baselineContext!) }
+            failingView.failPreparation = false; failingView.failAdopter = false; failingView.noOpAdopter = false
+            failingSession.preparationChanged(); try await waitFor { failingSession.state == .reading }
+            try require(failingView.preparationCount == 3 && failingView.publications == 2, "\(mode) retry retains valid newest candidate")
+            failingSession.event(.dispose)
+        }
+
+        for event in ["cancel", "sleep", "offline", "dispose"] {
+            let interrupted = AdoptionFixture(), interruptedSession: NativeReaderSession
+            interruptedSession = make(interrupted)
+            interruptedSession.refresh(); try await waitFor { interruptedSession.state == .reading }
+            let baseline = interrupted.body, baselineContext = interruptedSession.context
+            interrupted.blocked = true
+            interruptedSession.refresh(); try await waitFor { interrupted.preparationCount == 2 }
+            switch event {
+            case "cancel": interruptedSession.cancel()
+            case "sleep": interruptedSession.event(.sleep)
+            case "offline": interruptedSession.event(.network(false))
+            default: interruptedSession.event(.dispose)
+            }
+            interrupted.resume(2); await settled()
+            try require(interrupted.body == baseline && interruptedSession.store.document == baseline && interruptedSession.context == baselineContext,
+                        "\(event) rejects noncooperative late prepare without replacing old body")
+            try require(interrupted.publications == 1 && interruptedSession.isReadOnly, "\(event) cannot authorize stale mutation")
+            interruptedSession.event(.dispose)
+        }
+
+        let viewCancelled = AdoptionFixture(), viewCancelledSession: NativeReaderSession
+        viewCancelledSession = make(viewCancelled)
+        viewCancelledSession.refresh(); try await waitFor { viewCancelledSession.state == .reading }
+        let cancelledBody = viewCancelled.body, cancelledContext = viewCancelledSession.context
+        viewCancelled.blocked = true
+        viewCancelledSession.refresh(); try await waitFor { viewCancelled.preparationCount == 2 }
+        viewCancelled.store.cancel() // NA02 cancel revokes this same shared generation.
+        viewCancelled.resume(2); try await waitFor { viewCancelledSession.state == .offline }
+        try require(viewCancelled.body == cancelledBody && viewCancelledSession.context == cancelledContext && viewCancelled.publications == 1,
+                    "common-store cancellation alone invalidates obsolete preparation")
+        try await rejects("common-store cancellation cannot authorize old operations") { try viewCancelledSession.authorize(cancelledContext!) }
+        viewCancelledSession.event(.dispose)
+
+        // Recovery shares exactly the same preparation/atomic adopter and can
+        // never turn a prepared offline document into source mutation authority.
+        let recovered = AdoptionFixture(), recoveredSession: NativeReaderSession
+        recoveredSession = make(recovered); recovered.blocked = true
+        let recovering = Task { try await recoveredSession.restore(snapshot, matching: identity) }
+        try await waitFor { recovered.preparationCount == 1 }
+        try require(recovered.body == nil && recoveredSession.store.document == nil && recoveredSession.context == nil, "offline restore cannot publish unprepared objects")
+        try require(recoveredSession.isReadOnly, "recovery preparation is read-only")
+        recovered.resume(1); try await recovering.value
+        try require(recovered.publications == 1 && recoveredSession.store.document == recovered.body && recoveredSession.state == .offline, "prepared offline restore publishes atomically")
+        try await rejects("prepared recovery still cannot mutate") { try recoveredSession.authorize(recoveredSession.context!) }
+        let recoveredOld = recovered.body, recoveredContext = recoveredSession.context
+        try await recoveredSession.restore(snapshot, matching: identity) // Held by recovered selection.
+        try require(recovered.preparationCount == 1 && recovered.body == recoveredOld && recoveredSession.context == recoveredContext, "held recovery retains old body")
+        let recoveredTicket = recoveredSession.store.selection!.ticket
+        recoveredSession.acknowledge(ticket: recoveredTicket)
+        try await waitFor { recovered.preparationCount == 2 }
+        recovered.resume(2); try await waitFor { recovered.publications == 2 }
+        try require(recoveredSession.isReadOnly && recoveredSession.state == .offline, "released recovery stays read-only")
+        recoveredSession.event(.dispose)
+
+        let cancelledRecovery = AdoptionFixture(), cancelledRecoverySession: NativeReaderSession
+        cancelledRecoverySession = make(cancelledRecovery); cancelledRecovery.blocked = true
+        let recoveryTask = Task { try await cancelledRecoverySession.restore(snapshot, matching: identity) }
+        try await waitFor { cancelledRecovery.preparationCount == 1 }
+        cancelledRecoverySession.event(.sleep); cancelledRecovery.resume(1)
+        try await rejects("sleep revokes pending recovery preparation") { try await recoveryTask.value }
+        try require(cancelledRecoverySession.state == .sleeping && cancelledRecovery.body == nil && cancelledRecoverySession.context == nil, "late recovery cannot wake or publish")
+
+        let externallyCancelled = AdoptionFixture(), externallyCancelledSession: NativeReaderSession
+        externallyCancelledSession = make(externallyCancelled); externallyCancelled.blocked = true
+        let externalTask = Task { try await externallyCancelledSession.restore(snapshot, matching: identity) }
+        try await waitFor { externallyCancelled.preparationCount == 1 }
+        externalTask.cancel(); externallyCancelled.resume(1)
+        try await rejects("caller cancellation after awaited recovery prepare") { try await externalTask.value }
+        try require(externallyCancelledSession.store.document == nil && externallyCancelledSession.context == nil &&
+                    externallyCancelled.publications == 0 && externallyCancelledSession.isReadOnly, "cancelled recovery cannot publish or enable mutation")
+        externallyCancelledSession.event(.dispose)
+
+        let wrongStore = NativeReaderDocumentStore()
+        let mismatched = NativeReaderSession(store: NativeReaderDocumentStore(), provider: provider, target: { identity },
+            prepare: { candidate, request in
+                _ = try wrongStore.beginRequest()
+                return .init(isCurrent: { true }, adopt: { try wrongStore.adopt(candidate, for: request) })
+            })
+        mismatched.refresh(); try await waitFor { mismatched.state == .offline }
+        try require(mismatched.store.document == nil && wrongStore.document == nil && mismatched.context == nil,
+                    "different viewID/store cannot publish through an adopter")
+        mismatched.event(.dispose)
+
+        // Verify the post-await check at the target boundary too; cancelling a
+        // resolver must not subsequently invoke the provider or preparation.
+        let targetGate = AdoptionFixture(), targetCalls = Counter()
+        targetGate.blocked = true
+        let targetSession = NativeReaderSession(store: targetGate.store,
+            provider: Provider(load: { context in _ = await targetCalls.increment(); return rebased(document, context: context) }),
+            target: { _ = try await targetGate.prepare(document, NativeReaderRequestContext(requestID: UUID(), viewID: targetGate.store.viewID,
+                        generation: targetGate.store.generation, target: identity)); return identity })
+        targetSession.refresh(); try await waitFor { targetGate.preparationCount == 1 }
+        targetSession.cancel(); targetGate.resume(1); await settled()
+        try require(await targetCalls.value() == 0 && targetSession.store.document == nil, "cancel after awaited target cannot invoke provider")
+
+        // Wrong candidates are rejected before any preparation can publish.
+        let invalid = AdoptionFixture()
+        let invalidSession = NativeReaderSession(store: invalid.store,
+            provider: Provider(load: { context in rebased(document, context: NativeReaderRequestContext(requestID: context.requestID,
+                viewID: context.viewID, generation: context.generation + 1, target: identity)) }),
+            target: { identity }, prepare: { try await invalid.prepare($0, $1) })
+        invalidSession.refresh(); try await waitFor { invalidSession.state == .offline }
+        try require(invalid.preparationCount == 0 && invalidSession.context == nil, "wrong generation never reaches preparer")
+
+        session.event(.dispose); resizedSession.event(.dispose); newerSession.event(.dispose)
+        cancelledRecoverySession.event(.dispose); targetSession.event(.dispose); invalidSession.event(.dispose)
+        adoptionAssertions = assertions - before
     }
 
     @MainActor private static func run() async throws {
@@ -229,6 +485,7 @@ private actor AttachTrace {
         session.acknowledge(ticket: selection.ticket)
         try require(session.store.selection?.ticket == newer.ticket, "late ack preserves new selection")
         session.acknowledge(ticket: newer.ticket)
+        try await waitFor { session.state == .reading && session.context != firstContext }
         try require(session.context != firstContext && session.store.selection == nil, "latest pending publication after release")
         let root = URL(fileURLWithPath: args[4])
         let recovery = NativeReaderRecoveryStore(root: root)
@@ -246,7 +503,7 @@ private actor AttachTrace {
         let loaded = try await recovery.load(identity: identity)
         try require(loaded.document == document && loaded.restoration == restoration, "atomic digest-checked snapshot")
         let offline = NativeReaderSession(provider: provider, target: { identity })
-        try offline.restore(loaded, matching: identity)
+        try await offline.restore(loaded, matching: identity)
         try require(offline.state == .offline && offline.store.selection?.ticket == selection.ticket, "offline read-only selection restoration")
         try await rejects("offline source/chat refusal") { try offline.authorize(offline.context!) }
         let wrong = NativeDocumentIdentity(documentID: identity.documentID, serviceID: "reader:1:1", revision: identity.revision, scope: .service)
@@ -279,6 +536,7 @@ private actor AttachTrace {
         try require(session.state == .disposed && session.store.document != nil, "dispose rejects callbacks retains accepted")
         failing.event(.dispose); offline.event(.dispose)
 
+        try await adoptionRegressions(document, identity, loaded)
         let safe = NativeReaderAnswerPart.attributed("# Heading\n**bold** `<script>`\n<script>alert(1)</script>\n$$\nx^2\n$$")
         try require(safe.string.contains("<script>alert(1)</script>"), "HTML remains literal native text")
         try require(safe.string.contains("native layout unavailable"), "honest math fallback")
