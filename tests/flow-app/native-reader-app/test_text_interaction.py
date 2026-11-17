@@ -34,7 +34,10 @@ def save(path, value):
 class TextInteractionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = DEV / 'test-output/text' / time.strftime('run-%Y%m%d-%H%M%S')
+        cls.evidence_root = Path(os.environ.get('NA02_OUTPUT_ROOT', str(DEV / 'test-output/text'))).resolve()
+        if not cls.evidence_root.is_relative_to(DEV / 'test-output/text'):
+            raise RuntimeError('Evidence must remain under test-output/text')
+        cls.out = cls.evidence_root / time.strftime('run-%Y%m%d-%H%M%S')
         cls.out.mkdir(parents=True, exist_ok=False)
         cls.commands = []
         for key, folder in [('TMPDIR', 'tmp/text'), ('CLANG_MODULE_CACHE_PATH', 'cache/text/clang'),
@@ -72,7 +75,7 @@ class TextInteractionTests(unittest.TestCase):
         if not swiftc:
             raise RuntimeError('swiftc driver required')
         metadata = {
-            'task': 'NA02/S-text', 'commonBase': '312502ceb573f4791e61d01000df132d6da16323',
+            'task': 'NA02/S-text/F15-find-v2', 'correctionBase': '540e70d170b6989f94ce348c9fae24030379af1e', 'commonBase': '312502ceb573f4791e61d01000df132d6da16323',
             'head': command(['git', 'rev-parse', 'HEAD']), 'dirty': command(['git', 'status', '--short']),
             'os': platform.platform(), 'arch': platform.machine(), 'python': sys.version,
             'swiftc': swiftc, 'xcrunSwiftc': resolved_swiftc, 'swiftVersion': command([swiftc, '--version']),
@@ -95,7 +98,7 @@ class TextInteractionTests(unittest.TestCase):
                  *[REPO / p for p in COMMON + PRODUCT], HERE / 'TextInteractionTests.swift', '-o', cls.binary])
         cls.results = json.loads(command([cls.binary, cls.out / 'na01-native.json', cls.out]))
         save(cls.out / 'results.json', cls.results)
-        save(DEV / 'test-output/text/latest.json', {'evidence': str(cls.out), 'seconds': time.time() - cls.started})
+        save(cls.evidence_root / 'latest.json', {'evidence': str(cls.out), 'seconds': time.time() - cls.started})
 
     def test_18_native_layout_draw_conditions(self):
         self.assertEqual(len(self.results['matrix']), 18)
@@ -121,3 +124,10 @@ class TextInteractionTests(unittest.TestCase):
 
     def test_negative_geometry_ranges_and_unsupported_objects(self):
         self.assertEqual(self.results['negative'], 'pass')
+
+    def test_native_find_bar_keyboard_unicode_and_selection_guards(self):
+        self.assertEqual(self.results['find']['status'], 'pass')
+        self.assertGreater(self.results['find']['privateFindPasteboardCalls'], 0)
+        self.assertEqual(self.results['find']['visibleWindows'], 0)
+        self.assertEqual(self.results['find']['globalFindPanels'], 0)
+        self.assertEqual(self.results['find']['visibleOrFocusEvents'], [])

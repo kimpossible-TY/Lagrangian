@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import ObjectiveC
 
 struct TextTestError: Error, CustomStringConvertible {
     let description: String
@@ -31,14 +32,69 @@ let oracleUnicode: [(String, [UInt32], [Int], [Int], [Int])] = [
 ]
 let unicodeBlockBoundaries = [0,1,2,3,6,9,10,12,13,15,16,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51]
 
+// Test-only isolation of the two PUBLIC pasteboard factories. NSTextFinder
+// normally synchronizes its query through the system Find pasteboard. Redirect
+// that boundary before AppKit initializes; matching, controls and callbacks are
+// still the real platform implementation. No general/system Find clipboard is
+// read, cleared, restored or written by this process.
+@MainActor private enum FindPasteboardIsolation {
+    static let findName = "dev.lagrangian.NA02.find." + UUID().uuidString
+    static let generalName = "dev.lagrangian.NA02.general." + UUID().uuidString
+    static var findCalls = 0
+    static func install() {
+        let named = class_getClassMethod(NSPasteboard.self, NSSelectorFromString("pasteboardWithName:"))!
+        let substitute = class_getClassMethod(NSPasteboard.self, #selector(NSPasteboard.na02_namedPasteboard(_:)))!
+        method_exchangeImplementations(named, substitute)
+        let general = class_getClassMethod(NSPasteboard.self, NSSelectorFromString("generalPasteboard"))!
+        let isolated = class_getClassMethod(NSPasteboard.self, #selector(NSPasteboard.na02_generalPasteboard))!
+        method_exchangeImplementations(general, isolated)
+    }
+}
+extension NSPasteboard {
+    @MainActor @objc dynamic class func na02_namedPasteboard(_ name: NSString) -> NSPasteboard {
+        var isolated = name as String
+        if isolated == NSPasteboard.Name.find.rawValue {
+            FindPasteboardIsolation.findCalls += 1
+            isolated = FindPasteboardIsolation.findName
+        } else if isolated == NSPasteboard.Name.general.rawValue {
+            isolated = FindPasteboardIsolation.generalName
+        }
+        // After exchange this calls the original public factory.
+        return na02_namedPasteboard(isolated as NSString)
+    }
+    @MainActor @objc dynamic class func na02_generalPasteboard() -> NSPasteboard {
+        NSPasteboard(name: NSPasteboard.Name(FindPasteboardIsolation.generalName))
+    }
+}
+
+@MainActor private final class FindWindowObservation: NSObject {
+    private(set) var visibleOrFocusEvents: [String] = []
+    override init() {
+        super.init()
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification, NSWindow.didExposeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(changed(_:)), name: name, object: nil)
+        }
+    }
+    @objc private func changed(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if window.isVisible || window.isKeyWindow || window.isMainWindow || notification.name != NSWindow.didExposeNotification {
+            visibleOrFocusEvents.append(notification.name.rawValue)
+        }
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
+}
+
 @main struct TextInteractionMain {
     @MainActor static func main() {
         do {
+            FindPasteboardIsolation.install()
             _ = NSApplication.shared.setActivationPolicy(.prohibited)
             let document = try NativeReaderDocument.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
             let out = URL(fileURLWithPath: CommandLine.arguments[2])
             try check(document.blocks.map(\.displayText) == oracleTexts, "actual compiler logical reading order")
             let results = try run(document, out: out)
+            NSPasteboard(name: .init(FindPasteboardIsolation.findName)).releaseGlobally()
+            NSPasteboard(name: .init(FindPasteboardIsolation.generalName)).releaseGlobally()
             let data = try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])
             print(String(decoding: data, as: UTF8.self))
         } catch {
@@ -83,7 +139,112 @@ let unicodeBlockBoundaries = [0,1,2,3,6,9,10,12,13,15,16,27,28,29,30,31,32,33,34
         if let file = file { try bitmap.representation(using: .png, properties: [:])!.write(to: file) }
         return ink
     }
+    @MainActor static func findRegression(_ document: NativeReaderDocument) throws -> [String: Any] {
+        let windowObservation = FindWindowObservation()
+        try check(NSApplication.shared.activationPolicy() == .prohibited, "native Find test activation remains prohibited")
+        let windowsBefore = NSApplication.shared.windows.count
+        let (view, context) = try make(document)
+        defer { view.dispose() }
+        let content = view.bodyTextView.string
+        let logical = view.logicalText.unicodeScalars.map(\.value)
+        var sourceCalls = 0, chatCalls = 0, copyCalls = 0
+        var focus: [String?] = []
+        view.callbacks.sourceRequested = { _ in sourceCalls += 1 }
+        view.callbacks.chatRequested = { _, _ in chatCalls += 1 }
+        view.callbacks.copyText = { _ in copyCalls += 1; return false }
+        view.callbacks.focusChanged = { focus.append($0) }
+        func key(_ text: String, code: UInt16, flags: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: 0, context: nil, characters: text, charactersIgnoringModifiers: text,
+                isARepeat: false, keyCode: code)!
+        }
+        func descendants(_ parent: NSView) -> [NSView] { parent.subviews.flatMap { [$0] + descendants($0) } }
+        try check(view.window == nil && !view.scrollView.isFindBarVisible, "initial find view detached/closed")
+        let geometry = try view.caretGeometry(at: .init(blockID: document.blocks[1].id, utf16: 10, affinity: .downstream))
+        view.bodyTextView.keyDown(with: key("f", code: 3, flags: .command))
+        tick()
+        try check(view.scrollView.isFindBarVisible, "body CmdF shows platform embedded find bar")
+        guard let bar = view.scrollView.findBarView,
+              let field = descendants(bar).compactMap({ $0 as? NSSearchField }).first,
+              let action = field.action else { throw TextTestError(description: "platform find bar/search field/action not created") }
+        try check(bar.isDescendant(of: view.scrollView), "find bar embedded in native scroll view")
+        try rejects("find bar viewport revokes geometry") { try view.validateGeometry(geometry) }
+        func query(_ text: String) throws {
+            field.stringValue = text
+            try check(field.sendAction(action, to: field.target), "platform search field target/action")
+            tick()
+            try check(view.performKeyEquivalent(with: key("g", code: 5, flags: .command)), "native find after search field query callback")
+            tick()
+        }
+        try query("Repeated")
+        try check(view.store.selection?.fragments.first?.blockID == document.blocks[3].id && view.plainSelectedText == "Repeated", "platform find first repeated prose")
+        let firstTicket = view.store.selection!.ticket
+        try check(view.performKeyEquivalent(with: key("g", code: 5, flags: .command)), "container CmdG route without menu")
+        tick()
+        try check(view.store.selection?.fragments.first?.blockID == document.blocks[4].id && view.plainSelectedText == "Repeated", "native find next")
+        view.releaseSelection(ticket: firstTicket)
+        try check(view.store.selection?.fragments.first?.blockID == document.blocks[4].id, "late prior find ticket cannot release current result")
+        try check(view.bodyTextView.performKeyEquivalent(with: key("g", code: 5, flags: [.command, .shift])), "body ShiftCmdG route")
+        tick()
+        try check(view.store.selection?.fragments.first?.blockID == document.blocks[3].id, "native find previous")
+        for (text, range) in [("한글 e\u{301}", 3..<12), ("e\u{301}", 10..<12), ("😀", 13..<15), ("👩‍👩‍👧‍👦", 16..<27)] {
+            try query(text)
+            try check(view.store.selection?.fragments.first?.rangeUTF16 == range && view.store.selection?.fragments.first?.blockID == document.blocks[1].id, "native Unicode find exact range: " + text)
+            try view.store.selection!.validate(in: document)
+        }
+        try query("\u{fffc}")
+        try check(view.store.selection?.fragments.first?.exact == "𝑥2+𝑦", "find attachment selects complete logical formula span")
+        try view.store.selection!.validate(in: document)
+        try check(!view.performFindAction(.replace) && !view.performFindAction(.showReplaceInterface), "native find stays read-only")
+        try query("👩")
+        try check(view.store.selection?.fragments.first?.rangeUTF16 == 16..<27, "partial ZWJ find snaps entire legal grapheme")
+        try query("\u{301}")
+        try check(view.store.selection?.fragments.first?.rangeUTF16 == 10..<12, "combining-only find snaps complete grapheme")
+        try check(view.store.document == document && view.bodyTextView.string == content && view.logicalText.unicodeScalars.map(\.value) == logical, "find cannot mutate accepted/presentation Unicode")
+        try check(sourceCalls == 0 && chatCalls == 0 && copyCalls == 0, "find never infers source or invokes external actions")
+        let request = view.requestSource(.excerpt)!
+        try check(!view.acceptSourceResult(.init(context: context, selectionTicket: request.selection.ticket, status: .unmapped, verifiedText: "must not copy", destinationAnchor: nil), for: request) && copyCalls == 0, "find result remains source-unmapped")
+        let generation = try view.store.beginRequest()
+        let replacement = NativeReaderDocument(schemaVersion: document.schemaVersion, identity: document.identity, generation: generation,
+            requiredCapabilities: document.requiredCapabilities, blocks: document.blocks, assets: document.assets, diagnostics: document.diagnostics)
+        let replacementContext = NativeReaderRequestContext(requestID: UUID(), viewID: context.viewID, generation: generation, target: context.target)
+        try rejects("find result holds publication") { try view.adopt(replacement, context: replacementContext) }
+        let ticket = view.store.selection!.ticket
+        try check(view.performKeyEquivalent(with: key("\u{1b}", code: 53, flags: [])), "container Escape route")
+        tick()
+        try check(!view.scrollView.isFindBarVisible && view.store.selection?.ticket == ticket && !focus.isEmpty, "Escape collapses bar, returns logical body focus and retains explicit selection hold")
+        try check(view.performKeyEquivalent(with: key("f", code: 3, flags: .command)), "container CmdF route")
+        tick()
+        view.bodyTextView.cancelOperation(nil)
+        try check(!view.scrollView.isFindBarVisible, "native cancel responder hides embedded bar")
+        let finderItem = NSMenuItem(title: "Find", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "")
+        finderItem.tag = NSTextFinder.Action.showFindInterface.rawValue
+        view.bodyTextView.performTextFinderAction(finderItem)
+        try check(view.scrollView.isFindBarVisible, "standard native finder responder action")
+        view.bodyTextView.keyDown(with: key("\u{1b}", code: 53, flags: []))
+        try check(!view.scrollView.isFindBarVisible, "body Escape keyDown route")
+        view.releaseSelection(ticket: ticket)
+        try view.adopt(replacement, context: replacementContext)
+        try check(view.store.document == replacement, "explicit matching find selection release permits publication")
+        view.cancel()
+        try check(!view.performFindAction(.showFindInterface) && !view.performFindAction(.nextMatch), "cancelled find cannot revive view")
+        _ = view.performKeyEquivalent(with: key("f", code: 3, flags: .command))
+        try check(!view.scrollView.isFindBarVisible, "cancelled CmdF cannot reopen bar")
+        let windows = NSApplication.shared.windows
+        let windowEvidence = windows.map { ["class": String(describing: type(of: $0)), "visible": String($0.isVisible), "key": String($0.isKeyWindow), "main": String($0.isMainWindow)] }
+        // AppKit lazily allocates its hidden find overlay. It is neither an
+        // attached reader window nor a global FindPanel, and must stay hidden.
+        try check(windowObservation.visibleOrFocusEvents.isEmpty, "native Find never displays or focuses a window during callbacks")
+        try check(view.window == nil && windows.allSatisfy { !$0.isVisible && !$0.isKeyWindow && !$0.isMainWindow && String(describing: type(of: $0)) == "_NSTextFinderOverlayWindow" }, "headless find never shows/focuses a window or creates a global FindPanel")
+        return ["status": "pass", "privateFindPasteboardCalls": FindPasteboardIsolation.findCalls,
+            "windowsCreated": windows.count - windowsBefore, "windowObjects": windowEvidence,
+            "visibleWindows": windows.filter(\.isVisible).count, "globalFindPanels": 0,
+            "visibleOrFocusEvents": windowObservation.visibleOrFocusEvents,
+            "focusScope": "Logical responder callback verified without window; real field-editor focus/key-window traversal remains GUI Dogfood gate"]
+    }
+
     @MainActor static func run(_ document: NativeReaderDocument, out: URL) throws -> [String: Any] {
+        let find = try findRegression(document)
         var matrix: [[String: Any]] = []
         var unicodeAssertions = 0
         for width: CGFloat in [320,640,960] {
@@ -400,7 +561,7 @@ let unicodeBlockBoundaries = [0,1,2,3,6,9,10,12,13,15,16,27,28,29,30,31,32,33,34
         try check(!view.copyPlainText() && !view.activate(nodeID: link.id) && view.requestSource(.excerpt) == nil, "disposed actions inert")
         badView.dispose()
         tick()
-        return ["matrix": matrix, "unicodeAssertions": unicodeAssertions, "input": "pass", "copy": "pass", "accessibility": "pass",
+        return ["find": find, "matrix": matrix, "unicodeAssertions": unicodeAssertions, "input": "pass", "copy": "pass", "accessibility": "pass",
                 "reflow": "pass", "lifetime": "pass", "negative": "pass", "objectScope": "unit injections only; actual NA03 fidelity unverified", "skips": 0]
     }
 }

@@ -87,6 +87,15 @@ private final class NativeReaderTextObjectCell: NSTextAttachmentCell {
     }
 }
 
+// NSScrollView owns the platform's embedded bar, including Done/button-driven
+// visibility changes which do not pass through our keyboard entry point.
+final class NativeReaderFindScrollView: NSScrollView {
+    weak var reader: NativeReaderTextView?
+    override var isFindBarVisible: Bool {
+        didSet { if oldValue != isFindBarVisible { reader?.findBarVisibilityChanged() } }
+    }
+}
+
 // NSTextView supplies real TextKit/CoreText shaping, bidi visual navigation,
 // ligature carets, native responder commands and the native AX text API.
 final class NativeReaderBodyTextView: NSTextView {
@@ -110,6 +119,25 @@ final class NativeReaderBodyTextView: NSTextView {
         super.setSelectedRanges([NSValue(range: range)], affinity: affinity, stillSelecting: flag)
         reader.bodySelectionChanged()
     }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if reader?.handleFindKeyEquivalent(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+    override func cancelOperation(_ sender: Any?) {
+        if reader?.hideFindBar() != true { super.cancelOperation(sender) }
+    }
+    override func performTextFinderAction(_ sender: Any?) {
+        guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag ?? (sender as? NSControl)?.tag,
+              let action = NSTextFinder.Action(rawValue: tag) else { return }
+        _ = reader?.performFindAction(action)
+    }
+    // Calls the inherited NSTextView/NSTextFinder implementation, never the
+    // legacy global FindPanel action. Search/matching remains AppKit-owned.
+    fileprivate func performNativeFindAction(_ action: NSTextFinder.Action) {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.tag = action.rawValue
+        super.performTextFinderAction(item)
+    }
     override func copy(_ sender: Any?) { _ = reader?.copyPlainText() }
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
@@ -129,6 +157,7 @@ final class NativeReaderBodyTextView: NSTextView {
         reader?.pointerUp(at: convert(event.locationInWindow, from: nil))
     }
     override func keyDown(with event: NSEvent) {
+        if reader?.handleFindKeyEquivalent(event) == true { return }
         if event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers {
             case "c": copy(nil); return
@@ -189,7 +218,7 @@ final class NativeReaderBodyTextView: NSTextView {
 
 @MainActor final class NativeReaderTextView: NSView, NSTextViewDelegate {
     let store: NativeReaderDocumentStore
-    let scrollView = NSScrollView()
+    let scrollView = NativeReaderFindScrollView()
     let bodyTextView = NativeReaderBodyTextView(frame: .zero)
     let statusLabel = NSTextField(wrappingLabelWithString: "")
     var callbacks: NativeReaderTextCallbacks
@@ -225,11 +254,16 @@ final class NativeReaderBodyTextView: NSTextView {
         self.store = store
         self.callbacks = callbacks
         super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        scrollView.reader = self
+        scrollView.findBarPosition = .aboveContent
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         bodyTextView.reader = self
         bodyTextView.delegate = self
+        bodyTextView.usesFindPanel = false
+        bodyTextView.usesFindBar = true
+        bodyTextView.isIncrementalSearchingEnabled = false
         bodyTextView.isEditable = false
         bodyTextView.isSelectable = true
         bodyTextView.isRichText = true
@@ -259,6 +293,45 @@ final class NativeReaderBodyTextView: NSTextView {
         super.setFrameSize(newSize)
         layoutFrames()
         if changed, store.document != nil { reflow(restoring: anchor) }
+    }
+    // NSWindow's view key-equivalent traversal reaches this container even while
+    // the embedded search field/field editor, rather than the body, has focus.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleFindKeyEquivalent(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+    override func cancelOperation(_ sender: Any?) {
+        if !hideFindBar() { super.cancelOperation(sender) }
+    }
+    @discardableResult func handleFindKeyEquivalent(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        let character = event.charactersIgnoringModifiers?.lowercased()
+        if modifiers == .command && character == "f" { return performFindAction(.showFindInterface) }
+        if character == "g", modifiers == .command || modifiers == [.command, .shift] {
+            return performFindAction(modifiers.contains(.shift) ? .previousMatch : .nextMatch)
+        }
+        if event.keyCode == 53 && modifiers.isEmpty { return hideFindBar() }
+        return false
+    }
+    @discardableResult func performFindAction(_ action: NSTextFinder.Action) -> Bool {
+        guard !isDisposed, !isCancelled, renderKey != nil,
+              [.showFindInterface, .hideFindInterface, .nextMatch, .previousMatch].contains(action) else { return false }
+        bodyTextView.performNativeFindAction(action)
+        return true
+    }
+    @discardableResult func hideFindBar() -> Bool {
+        guard scrollView.isFindBarVisible, performFindAction(.hideFindInterface) else { return false }
+        // This is a user-requested responder change inside the existing window;
+        // the view never creates, shows, activates or orders a window/panel.
+        bodyTextView.window?.makeFirstResponder(bodyTextView)
+        bodyFocused()
+        return true
+    }
+    fileprivate func findBarVisibilityChanged() {
+        guard !isDisposed, !isCancelled, store.document != nil else { return }
+        let anchor = viewportAnchor()
+        layoutFrames()
+        reflow(restoring: anchor)
     }
     private func layoutFrames() {
         let statusHeight: CGFloat = statusLabel.isHidden ? 0 : 42
@@ -527,6 +600,7 @@ final class NativeReaderBodyTextView: NSTextView {
         // common adoption generation before any late presenter callback arrives.
         store.cancel()
         isCancelled = true
+        if scrollView.isFindBarVisible { bodyTextView.performNativeFindAction(.hideFindInterface) }
         operationSerial += 1
         sourcePending = nil
         layoutGeneration += 1
