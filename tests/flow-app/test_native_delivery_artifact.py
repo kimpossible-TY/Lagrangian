@@ -143,6 +143,17 @@ class NativeArtifactTests(unittest.TestCase):
         with self.assertRaises(ValueError):artifact.binding(restored)
         self.assertEqual(before['archiveSHA256'],reader_bundle.file_digest(self.output/artifact.ARCHIVE))
 
+    def test_producer_rejects_special_input_modes_without_normalizing_them(self):
+        for name, mode in [('flow-engine',0o4755),('Lagrangian.app/bin/native',0o2755),('Lagrangian.app/bin',0o1755)]:
+            path=self.payload/name; original=path.stat().st_mode&0o7777
+            try:
+                path.chmod(mode)
+                with self.assertRaisesRegex(ValueError,'Special artifact input mode'):
+                    artifact.pack(self.payload,self.output,repository='fixture/repo',run_id='17',head=self.head)
+                self.assertEqual(path.stat().st_mode&0o7777,mode)
+                self.assertEqual(self.tree(self.output),self.original)
+            finally:path.chmod(original)
+
     def test_interruption_and_changed_input_preserve_previous_valid_publication(self):
         with patch.object(tarfile.TarFile,'addfile',side_effect=KeyboardInterrupt),self.assertRaises(KeyboardInterrupt):
             artifact.pack(self.payload,self.output,repository='fixture/repo',run_id='17',head=self.head)

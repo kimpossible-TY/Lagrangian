@@ -47,8 +47,12 @@ def inventory(root, *, cached=False):
     if root.resolve() != root or root.is_symlink():
         raise ValueError('Artifact root must be canonical')
     excluded = (CACHE, CONTEXT) if cached else ()
-    paths = [p for p in root.rglob('*') if p.relative_to(root).parts[0] not in excluded]
-    if len(paths) > MAX_ENTRIES: raise ValueError('Artifact inventory entry budget')
+    paths = []
+    for p in root.rglob('*'):
+        if p.relative_to(root).parts[0] in excluded: continue
+        if len(paths) >= MAX_ENTRIES: raise ValueError('Artifact inventory entry budget')
+        if p.lstat().st_mode & 0o7000: raise ValueError('Special artifact input mode')
+        paths.append(p)
     total = 0
     for p in paths:
         if p.is_file() and not p.is_symlink():
@@ -150,8 +154,10 @@ def binding(root, *, repository=None, run_id=None, head=None, engine_normalized=
 def unpack(download, dest, *, repository=None, run_id=None, head=None):
     """Never fall back to a flat payload when archive input is absent or invalid."""
     download, dest = Path(download).absolute(), Path(dest).absolute()
-    entries = list(download.rglob('*'))
-    if len(entries) > 64: raise ValueError('Transport wrapper entry budget')
+    entries = []
+    for p in download.rglob('*'):
+        if len(entries) >= 64: raise ValueError('Transport wrapper entry budget')
+        entries.append(p)
     manifests = [p for p in entries if p.name == MANIFEST]; archives = [p for p in entries if p.name == ARCHIVE]
     if len(manifests) != 1 or len(archives) != 1 or manifests[0].parent != archives[0].parent:
         raise ValueError('Native transport archive missing/ambiguous (legacy flat format rejected)')
@@ -204,16 +210,18 @@ def pack(payload, output, *, repository, run_id, head):
 
 
 @contextmanager
-def reuse_payload(download, *, repository, run_id):
+def reuse_payload(download, *, repository, run_id, head=None):
     """Old flat artifacts may contribute engine-only bytes, never an application."""
     download = Path(download)
     if list(download.rglob(MANIFEST)) or list(download.rglob(ARCHIVE)):
         with tempfile.TemporaryDirectory(prefix='.reuse-archive-', dir=download.parent) as tmp:
-            yield unpack(download, Path(tmp) / 'payload', repository=repository, run_id=run_id)
+            yield unpack(download, Path(tmp) / 'payload', repository=repository, run_id=run_id, head=head)
         return
     candidates = [p.parent for p in download.rglob('flow-engine.sha256') if (p.parent/'flow-engine').is_file() and (p.parent/'release.json').is_file()]
     if len(candidates) != 1: raise ValueError('Legacy engine payload ambiguous')
     payload = candidates[0]
     if payload.resolve() != payload or any((payload/p).is_symlink() for p in ['flow-engine','flow-engine.sha256','release.json']):
         raise ValueError('Legacy engine path/symlink escape')
+    if head is not None and json.loads((payload/'release.json').read_text()).get('sourceRevision') != head:
+        raise ValueError('Legacy engine run head mismatch')
     yield payload

@@ -5,9 +5,10 @@ name: Flow engine
 # dispatch. This is the only GitHub Actions workflow in the repo.
 #
 # fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
-# requires sibling files flow-engine, flow-engine.sha256, and release.json
-# (plus Lagrangian.app from this job). Do not rename that artifact or add
-# files inside it. The engine-input hash lives in a separate artifact named
+# authenticates native-delivery-artifact.json and native-delivery-artifact.tar.
+# The tar preserves flow-engine, flow-engine.sha256, release.json and this job's
+# signed Lagrangian.app, including modes, symlinks and hidden payload files.
+# Keep that artifact name. The engine-input hash lives in a separate artifact named
 # flow-engine-input-<hash>.
 #
 # Every successful run also uploads the HTML Reader for this commit, on an

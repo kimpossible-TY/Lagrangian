@@ -226,9 +226,11 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
             def gh(args,repo_cwd=None):shutil.copytree(wrapper,Path(args[-1]));return ''
             dest=root/'engine-input'
             with patch.object(reuse,'_gh',gh):
-                self.assertEqual(reuse.download_payload('fixture/repo','1',dest),digest)
+                self.assertEqual(reuse.download_payload('fixture/repo','1',dest,head='a'*40),digest)
                 self.assertEqual({p.name for p in dest.iterdir()},{'flow-engine','flow-engine.sha256','release.json'})
                 self.assertEqual((dest/'flow-engine').stat().st_mode&0o777,0o755)
+                with self.assertRaises(ValueError):reuse.download_payload('fixture/repo','1',dest,head='b'*40)
+                self.assertEqual((dest/'flow-engine').read_bytes(),data)
                 with (wrapper/transport.ARCHIVE).open('ab') as stream:stream.write(b'tamper')
                 with self.assertRaises(ValueError):reuse.download_payload('fixture/repo','1',dest)
                 self.assertEqual((dest/'flow-engine').read_bytes(),data)
