@@ -16,10 +16,11 @@ private final class ExecutionLog: @unchecked Sendable {
     static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw NSError(domain: "NA03: " + message, code: 1) }
     }
+    static func shaBytes(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     static func sha(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
     static func write(_ value: Any, _ url: URL) throws { try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: url) }
-    static func expectFailure(_ name: String, _ body: () throws -> Void) throws {
-        do { try body() } catch { return }
+    @discardableResult static func expectFailure(_ name: String, _ body: () throws -> Void) throws -> String {
+        do { try body() } catch { return String(describing: error) }
         throw NSError(domain: "NA03 negative did not reject: " + name, code: 2)
     }
     static func expectAsyncFailure(_ name: String, _ body: () async throws -> Void) async throws {
@@ -65,9 +66,83 @@ private final class ExecutionLog: @unchecked Sendable {
         CGImageDestinationAddImage(out, image, nil)
         try require(CGImageDestinationFinalize(out), "PNG finalize")
     }
+    static func sample(_ ctx: CGContext, _ x: Int, _ y: Int) -> [Int] {
+        let p = ctx.data!.assumingMemoryBound(to: UInt8.self), i = y * ctx.bytesPerRow + x * 4
+        return (0..<3).map { Int(p[i + $0]) }
+    }
+    static func richChecks(_ scene: NativeVectorScene, name: String, oracle: [String: Any], dark: Bool) throws -> [String: Any] {
+        let size = scene.intrinsicSize, ctx = try bitmap(size, dark: dark)
+        scene.draw(in: ctx, rect: CGRect(origin: .zero, size: size))
+        let counts = pixels(ctx, dark: dark)
+        if let area = oracle["blueArea"] as? Int { try require(counts.blue == area, name + " exact blue area") }
+        if let minimum = oracle["blueMinimum"] as? Int { try require(counts.blue >= minimum && counts.blue <= oracle["blueMaximum"] as! Int, name + " arc topology") }
+        if name == "linear-gradient" || name == "gradient-inherit" {
+            let a = sample(ctx, 5, 40), b = sample(ctx, 95, 40)
+            try require(a[0] > a[2] + 150 && b[2] > b[0] + 150, "gradient endpoints")
+        }
+        if name == "radial-gradient" {
+            let a = sample(ctx, 50, 40), b = sample(ctx, 95, 40)
+            try require(a[0] > a[2] + 150 && b[2] > b[0] + 100, "radial gradient center/edge")
+        }
+        if name == "group-opacity" {
+            let expected = dark ? [128, 0, 0] : oracle["pink"] as! [Int]
+            for x in [15, 25, 35] {
+                let p = sample(ctx, x, 15)
+                try require(zip(p, expected).allSatisfy { abs($0 - $1) <= 3 }, "isolated group opacity including overlap")
+            }
+            var area = 0
+            for y in 0..<80 { for x in 0..<100 {
+                let p = sample(ctx, x, y)
+                if p[0] > p[1] + 50 && p[0] > p[2] + 50 { area += 1 }
+            } }
+            try require(area == oracle["unionArea"] as! Int, "group union area")
+        }
+        if name.hasPrefix("raster-") || name == "inline-png" {
+            let probes = [(3, 2, 0), (20, 2, 1), (3, 9, 2), (20, 9, 3)]
+            for (x, y, color) in probes {
+                let p = sample(ctx, x, y)
+                switch color {
+                case 0: try require(p[0] > 180 && p[1] < 90 && p[2] < 90, name + " top-left red")
+                case 1: try require(p[1] > 180 && p[0] < 90 && p[2] < 90, name + " top-right green")
+                case 2: try require(p[2] > 180 && p[0] < 90 && p[1] < 90, name + " bottom-left blue")
+                default: try require(p[0] > 180 && p[1] > 180 && p[2] < 90, name + " bottom-right yellow")
+                }
+            }
+        }
+        var areas = [0, 0, 0, 0]
+        if name.hasPrefix("raster-") || name == "inline-png" {
+            for y in 0..<12 { for x in 0..<24 {
+                let p = sample(ctx, x, y)
+                if p[0] > p[1] + 80 && p[0] > p[2] + 80 { areas[0] += 1 }
+                if p[1] > p[0] + 80 && p[1] > p[2] + 80 { areas[1] += 1 }
+                if p[2] > p[0] + 80 && p[2] > p[1] + 80 { areas[2] += 1 }
+                if min(p[0], p[1]) > p[2] + 80 && abs(p[0] - p[1]) < 80 { areas[3] += 1 }
+            } }
+            let tolerance = name == "raster-jpg" ? 12 : 0
+            try require(areas.allSatisfy { abs($0 - 72) <= tolerance }, name + " independently authored quadrant areas")
+        }
+        return ["name": name, "theme": dark ? "dark" : "light", "blue": counts.blue, "ink": counts.ink, "quadrantAreas": areas, "decodedCost": scene.decodedCost]
+    }
     @MainActor static func main() async throws {
         let mode = CommandLine.arguments[1], root = URL(fileURLWithPath: CommandLine.arguments[2])
         let oracle = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))) as! [String: Any]
+        if mode == "assets" {
+            let source = root.appendingPathComponent("source")
+            let ctx = try bitmap(CGSize(width: 24, height: 12), dark: false)
+            // Author-defined pixel quadrants; no renderer output is used as input.
+            let colors = [CGColor(red: 1, green: 0, blue: 0, alpha: 1), CGColor(red: 0, green: 1, blue: 0, alpha: 1),
+                          CGColor(red: 0, green: 0, blue: 1, alpha: 1), CGColor(red: 1, green: 1, blue: 0, alpha: 1)]
+            for i in 0..<4 { ctx.setFillColor(colors[i]); ctx.fill(CGRect(x: (i % 2) * 12, y: (i / 2) * 6, width: 12, height: 6)) }
+            for (ext, type) in [("png", UTType.png.identifier), ("jpg", UTType.jpeg.identifier), ("gif", UTType.gif.identifier)] {
+                guard let dest = CGImageDestinationCreateWithURL(source.appendingPathComponent("pattern." + ext) as CFURL, type as CFString, 1, nil) else { throw NativeObjectError.unsupported("test-raster-encoder") }
+                CGImageDestinationAddImage(dest, ctx.makeImage()!, [kCGImageDestinationLossyCompressionQuality: 1] as CFDictionary)
+                try require(CGImageDestinationFinalize(dest), "fixture image encode")
+            }
+            let animated = CGImageDestinationCreateWithURL(source.appendingPathComponent("animated.gif") as CFURL, UTType.gif.identifier as CFString, 2, nil)!
+            for _ in 0..<2 { CGImageDestinationAddImage(animated, ctx.makeImage()!, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary) }
+            try require(CGImageDestinationFinalize(animated), "animated control encode")
+            return
+        }
         if mode == "fraction" {
             let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("fraction-oracle.json"))) as! [String: Any]
             let f = raw["whole"] as! [String: Any], expected = oracle["indivisibleMath20"] as! [String: Any]
@@ -153,6 +228,59 @@ private final class ExecutionLog: @unchecked Sendable {
             NativeReaderObjectRenderer.draw(plan, in: bitmap)
             let paintTime = ProcessInfo.processInfo.systemUptime - paintStart
             let counts = pixels(bitmap, dark: c.theme == .dark)
+            for r in plan.regions where r.node.kind == .image {
+                try require(plan.hit(CGPoint(x: r.frames[0].midX, y: r.frames[0].midY))?.node.id == r.node.id, "image semantic hit")
+                try require(r.role == "image" && r.node.alt != nil, "image AX original node")
+                let name = r.node.alt ?? ""
+                func pixel(_ x: Int, _ y: Int) -> [Int] { sample(bitmap, Int(r.frames[0].minX) + x, Int(r.frames[0].minY) + y) }
+                if ["internal-use", "clip", "arc", "symbol-glyph", "internal-href", "viewport-units"].contains(name) {
+                    let point = name == "symbol-glyph" ? (11, 15) : name == "internal-href" ? (45, 15) : name == "arc" ? (20, 20) : (15, 15)
+                    let p = pixel(point.0, point.1)
+                    try require(p[2] > p[0] + 40 && p[2] > p[1] + 40, name + " at native matrix frame")
+                }
+                if name == "linear-gradient" || name == "gradient-inherit" {
+                    let a = pixel(5, 40), b = pixel(95, 40)
+                    try require(a[0] > a[2] + 150 && b[2] > b[0] + 150, "matrix gradient topology")
+                }
+                if name == "radial-gradient" {
+                    let a = pixel(50, 40), b = pixel(95, 40)
+                    try require(a[0] > a[2] + 150 && b[2] > b[0] + 100, "matrix radial topology")
+                }
+                if name == "group-opacity" {
+                    let expected = c.theme == .dark ? [128, 0, 0] : [255, 128, 128]
+                    try require(zip(pixel(25, 15), expected).allSatisfy { abs($0 - $1) <= 3 }, "matrix isolated opacity")
+                }
+                if name.hasPrefix("raster-") || name == "inline-png" {
+                    let a = pixel(3, 2), b = pixel(20, 2), d = pixel(3, 9), e = pixel(20, 9)
+                    try require(a[0] > 180 && a[1] < 90 && b[1] > 180 && b[0] < 90 && d[2] > 180 && d[0] < 90 && e[0] > 180 && e[1] > 180 && e[2] < 90, "matrix raster orientation/colors")
+                }
+                if name == "viewport-units" { try require(r.frames[0].width == 100 && r.frames[0].height == 80, "SVG point viewport distinct from user coordinates") }
+                if r.node.alt == "inline-png" {
+                    let following = plan.items.filter { $0.frame.minX >= r.frames[0].maxX && abs($0.frame.maxY - r.frames[0].maxY) < 8 }
+                    try require(!following.isEmpty, "inline image stays in native text line")
+                    // A red interior sample must be painted at the actual native
+                    // layout frame; semantic-only or nonempty placeholders fail.
+                    let p = sample(bitmap, Int(r.frames[0].minX + 3), Int(r.frames[0].minY + 2))
+                    try require(p[0] > 180 && p[1] < 90, "inline image actual frame color")
+                }
+            }
+            for r in plan.regions where [.strong, .emphasis, .link].contains(r.node.kind) {
+                if r.node.kind == .link, let child = r.node.children.first,
+                   let leaf = plan.regions.first(where: { $0.node.id == child.id }), let frame = leaf.frames.first {
+                    try require(plan.linkTarget(at: CGPoint(x: frame.midX, y: frame.midY)) == r.node.link, "native semantic link target")
+                }
+                let textIDs = Set(r.node.orderedNodes.filter { $0.kind == .text }.map(\.id))
+                for item in plan.items where textIDs.contains(item.nodeID) {
+                    if case .text(let line) = item.paint {
+                        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                            let attrs = CTRunGetAttributes(run) as! [String: Any], font = attrs[kCTFontAttributeName as String] as! CTFont
+                            if r.node.kind == .strong { try require(CTFontGetSymbolicTraits(font).contains(.boldTrait), "table/caption bold trait") }
+                            if r.node.kind == .emphasis { try require(CTFontGetSymbolicTraits(font).contains(.italicTrait), "table/caption italic trait") }
+                            if r.node.kind == .link { try require((attrs[kCTUnderlineStyleAttributeName as String] as? NSNumber)?.intValue == 1, "native link style/span") }
+                        }
+                    }
+                }
+            }
             try require(counts.ink > 100 && counts.blue >= 1000, "native ink/blue area")
             let name = "\(Int(c.width))-\(Int(c.fontSize))-\(c.theme)-\(c.mode)"
             try savePNG(bitmap, root.appendingPathComponent(name + ".png"))
@@ -161,6 +289,31 @@ private final class ExecutionLog: @unchecked Sendable {
                            "diagnostics": plan.diagnostics, "scope": "native semantic pagination; not compiler page fidelity"])
         }
         try require(broken > 0, "native inline breaking exercised")
+        var richResults = [[String: Any]]()
+        let cases = oracle["richAssets"] as! [[String: Any]]
+        for region in plans[0].regions where region.node.kind == .image {
+            guard let name = region.node.alt, name == "inline-png" || name.hasPrefix("raster-") || cases.contains(where: { $0["name"] as? String == name }) else { continue }
+            let id = region.node.assetID!, descriptor = doc.assets.first { $0.id == id }!
+            for dark in [false, true] {
+                let scene = try NativeReaderObjectRenderer.verifiedAsset(descriptor, bytes: assets[id]!, dark: dark)
+                let expected = cases.first { $0["name"] as? String == name } ?? [:]
+                richResults.append(try richChecks(scene, name: name, oracle: expected, dark: dark))
+                let ctx = try bitmap(scene.intrinsicSize, dark: dark); scene.draw(in: ctx, rect: CGRect(origin: .zero, size: scene.intrinsicSize))
+                try savePNG(ctx, root.appendingPathComponent(name + (dark ? "-dark" : "-light") + ".png"))
+            }
+        }
+        try write(richResults, root.appendingPathComponent("rich-asset-results.json"))
+        let labeled = try NativeVectorScene.decode(Data(contentsOf: root.appendingPathComponent("raw-labeled.svg")), dark: false)
+        let labeledCtx = try bitmap(labeled.viewBox.size, dark: false)
+        labeled.draw(in: labeledCtx, rect: CGRect(origin: .zero, size: labeled.viewBox.size))
+        var black = 0
+        for y in 4..<(labeledCtx.height - 4) { for x in 4..<(labeledCtx.width - 4) {
+            if sample(labeledCtx, x, y).allSatisfy({ $0 < 50 }) { black += 1 }
+        } }
+        let labeledCounts = pixels(labeledCtx, dark: false), labeledOracle = oracle["labeledCetz"] as! [String: Any]
+        try require(black >= labeledOracle["minimumBlackInk"] as! Int && black <= labeledOracle["maximumBlackInk"] as! Int, "actual compiler glyph label ink")
+        try require(labeledCounts.blue >= labeledOracle["minimumBlueInk"] as! Int && labeledCounts.blue <= labeledOracle["maximumBlueInk"] as! Int, "actual compiler labeled blue shape")
+        try savePNG(labeledCtx, root.appendingPathComponent("actual-compiler-labeled.png"))
         // Independently authored geometry: translate(10,10) scale(2) maps
         // rect(3,6,12,6) -> (16,22,24,12), area 288. No golden PNG oracle.
         let vector = "<svg viewBox=\"0 0 100 80\"><g transform=\"translate(10,10)\"><g transform=\"scale(2)\"><rect x=\"3\" y=\"6\" width=\"12\" height=\"6\" fill=\"#2060c0\"/></g></g><g transform=\"rotate(90,70,50)\"><circle cx=\"70\" cy=\"50\" r=\"5\" fill=\"#c02020\"/></g></svg>"
@@ -177,16 +330,64 @@ private final class ExecutionLog: @unchecked Sendable {
         // Primitive/resource/geometry negatives reject atomically; no fallback.
         for svg in ["<svg viewBox=\"0 0 10 10\"><script/></svg>",
                     "<svg viewBox=\"0 0 10 10\"><use href=\"file:///private/a\"/></svg>",
-                    "<svg viewBox=\"0 0 10 10\"><path d=\"M0 0A1 1 0 0 0 2 2\"/></svg>",
+                    "<svg viewBox=\"0 0 10 10\"><path d=\"M0 0A1 1 0 2 0 2 2\"/></svg>",
                     "<svg viewBox=\"0 0 10 10\"><rect width=\"1\" height=\"1\" fill=\"url(https://example.org)\"/></svg>",
                     "<svg viewBox=\"0 0 10 10\"><text>x</text></svg>",
                     "<svg viewBox=\"0 0 10 10\"><rect width=\"1\" height=\"1\" transform=\"skewX(20)\"/></svg>",
-                    "<svg viewBox=\"0 0 10 10\"><g opacity=\"0.5\"><rect width=\"1\" height=\"1\"/></g></svg>",
+                    "<svg viewBox=\"0 0 10 10\"><g opacity=\"1.5\"><rect width=\"1\" height=\"1\"/></g></svg>",
                     "<svg viewBox=\"0 0 10 10\"><g transform=\"scale(100000000)\"><rect width=\"1\" height=\"1\" transform=\"scale(100000000)\"/></g></svg>",
                     "<svg viewBox=\"0 0 10 10\"><rect width=\"1\" height=\"1\" fill-opacity=\"2\"/></svg>",
                     "<!DOCTYPE svg><svg viewBox=\"0 0 10 10\"/>"] {
             try expectFailure("SVG", { _ = try NativeVectorScene.decode(Data(svg.utf8), dark: false) })
         }
+        var invalidNamed: [(String, String)] = [
+            ("external-href", "<use href=\"https://example.org/glyph\"/>"),
+            ("entity-encoded-external", "<use href=\"&#104;ttps://example.org/glyph\"/>"),
+            ("external-gradient", "<defs><linearGradient id=\"g\" href=\"file:///private/a\"/></defs><rect width=\"10\" height=\"10\" fill=\"url(#g)\"/>"),
+            ("missing-internal", "<use href=\"#absent\"/>"),
+            ("self-cycle", "<defs><g id=\"a\"><use href=\"#a\"/></g></defs><use href=\"#a\"/>"),
+            ("indirect-cycle", "<defs><g id=\"a\"><use href=\"#b\"/></g><g id=\"b\"><use href=\"#a\"/></g></defs><use href=\"#a\"/>"),
+            ("gradient-cycle", "<defs><linearGradient id=\"a\" href=\"#b\"/><linearGradient id=\"b\" href=\"#a\"/></defs><rect width=\"10\" height=\"10\" fill=\"url(#a)\"/>"),
+            ("duplicate-id", "<defs><path id=\"a\" d=\"M0 0L1 1\"/><path id=\"a\" d=\"M0 0L1 1\"/></defs>"),
+            ("event", "<rect width=\"10\" height=\"10\" onclick=\"alert(1)\"/>"),
+            ("foreign-content", "<foreignObject><body/></foreignObject>"),
+            ("font-fetch", "<text style=\"font-family:url(https://example.org/font)\">x</text>"),
+            ("style-resource", "<rect width=\"10\" height=\"10\" style=\"fill:url(https://example.org/a)\"/>"),
+            ("malformed-arc", "<path d=\"M0 0A1 1 0 0 0 2\"/>"),
+            ("duplicate-attribute", "<rect width=\"10\" width=\"20\" height=\"10\"/>"),
+            ("malformed-xml", "<g><path d=\"M0 0L1 1\"/></bad>"),
+            ("nonfinite", "<g transform=\"scale(1e100)\"><rect width=\"1\" height=\"1\"/></g>")]
+        var expansion = "<defs><path id=\"n0\" d=\"M0 0H1V1H0Z\"/>"
+        for i in 1...20 { expansion += "<g id=\"n\(i)\"><use href=\"#n\(i-1)\"/><use href=\"#n\(i-1)\"/></g>" }
+        expansion += "</defs><use href=\"#n20\"/>"; invalidNamed.append(("expansion-budget", expansion))
+        invalidNamed.append(("gradient-stop-budget", "<defs><linearGradient id=\"g\">" + String(repeating: "<stop offset=\"0\" stop-color=\"#000000\"/>", count: 257) + "</linearGradient></defs><rect width=\"1\" height=\"1\" fill=\"url(#g)\"/>"))
+        var negativeNames = [String](), negativeDiagnostics = [[String: String]]()
+        for (name, body) in invalidNamed {
+            let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 80\">" + body + "</svg>"
+            let error = try expectFailure(name, { _ = try NativeVectorScene.decode(Data(svg.utf8), dark: false) })
+            negativeNames.append(name); negativeDiagnostics.append(["name": name, "error": error, "inputSHA256": sha(svg)])
+        }
+        try expectFailure("pixel-budget", { _ = try NativeVectorScene.decode(Data("<svg viewBox=\"0 0 100 80\"><g opacity=\"0.5\"><rect width=\"100\" height=\"80\"/></g></svg>".utf8), dark: false, pixelBudget: 10000) })
+        negativeNames.append("pixel-budget")
+        try expectFailure("oversized-viewport", { _ = try NativeVectorScene.decode(Data("<svg viewBox=\"0 0 1000000 1000000\"><rect width=\"1\" height=\"1\"/></svg>".utf8), dark: false) })
+        negativeNames.append("oversized-viewport")
+        let png = try Data(contentsOf: root.appendingPathComponent("source/pattern.png")), digest = shaBytes(png)
+        let wrongType = NativeReaderAsset(id: digest + ".jpg", sha256: digest, mime: "image/jpeg", byteCount: png.count)
+        try expectFailure("raster-content-type", { _ = try NativeReaderObjectRenderer.verifiedAsset(wrongType, bytes: png, dark: false) })
+        negativeNames.append("raster-content-type")
+        let huge = try Data(contentsOf: root.appendingPathComponent("oversized.png")), hugeHash = shaBytes(huge)
+        let hugeAsset = NativeReaderAsset(id: hugeHash + ".png", sha256: hugeHash, mime: "image/png", byteCount: huge.count)
+        do { _ = try NativeReaderObjectRenderer.verifiedAsset(hugeAsset, bytes: huge, dark: false); throw NSError(domain: "huge raster accepted", code: 3) }
+        catch NativeObjectError.budget { negativeNames.append("raster-decompressed-budget") }
+        try expectFailure("raster-malformed", { _ = try NativeVectorScene.raster(Data(png.prefix(20)), mime: "image/png", pixelBudget: 16000000) })
+        negativeNames.append("raster-malformed")
+        let animatedBytes = try Data(contentsOf: root.appendingPathComponent("source/animated.gif"))
+        do { _ = try NativeVectorScene.raster(animatedBytes, mime: "image/gif", pixelBudget: 16000000); throw NSError(domain: "animation silently flattened", code: 3) }
+        catch NativeObjectError.unsupported("animated-image") { negativeNames.append("animated-image-no-flatten") }
+        try expectFailure("asset-byte-limit", { _ = try NativeVectorScene.raster(Data(repeating: 0, count: 8 * 1024 * 1024 + 1), mime: "image/png", pixelBudget: 16000000) })
+        negativeNames.append("asset-byte-limit")
+        try write(negativeNames, root.appendingPathComponent("named-invalid-results.json"))
+        try write(negativeDiagnostics, root.appendingPathComponent("invalid-svg-diagnostics.json"))
         let first = contexts[0], firstPlan = plans[0]
         let noMath: NativeReaderPagedLayout.MathProvider = { _, _ in throw NativeObjectError.unsupported("test") }
         try await expectAsyncFailure("cancel", { _ = try await NativeReaderPagedLayout.layout(document: doc, context: first, assets: assets, math: noMath, cancelled: { true }) })
@@ -197,15 +398,32 @@ private final class ExecutionLog: @unchecked Sendable {
         let badFont = NativeObjectContext(identity: first.identity, snapshotGeneration: first.snapshotGeneration, generation: first.generation,
             width: first.width, fontSize: first.fontSize, fontName: "NA03MissingFont", theme: first.theme, mode: first.mode, pageHeight: first.pageHeight)
         try await expectAsyncFailure("unsupported font", { _ = try await NativeReaderPagedLayout.layout(document: doc, context: badFont, assets: assets, math: noMath) })
-        // Typography owned by NA02 is rejected here rather than flattened.
+        // Native object styling retains the shared semantic spans; NA02 still owns
+        // body interaction/AX. No styled text is flattened into plain glyphs.
         var styledJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(doc)) as! [String: Any]
         var styledBlocks = styledJSON["blocks"] as! [[String: Any]]
         styledBlocks[0]["kind"] = "strong"; styledBlocks[0].removeValue(forKey: "headingLevel")
         styledJSON["blocks"] = styledBlocks
         let styledDoc = try NativeReaderDocument.decode(JSONSerialization.data(withJSONObject: styledJSON))
-        try await expectAsyncFailure("unhandled text style", {
-            _ = try await NativeReaderPagedLayout.layout(document: styledDoc, context: first, assets: assets, math: noMath)
+        let styledPlan = try await NativeReaderPagedLayout.layout(document: styledDoc, context: first, assets: assets,
+            math: { n, width in try dummy(first, n, width) })
+        let headingTextID = styledDoc.blocks[0].children[0].id
+        let boldLine = styledPlan.items.first { $0.nodeID == headingTextID }!
+        if case .text(let line) = boldLine.paint {
+            let runs = CTLineGetGlyphRuns(line) as! [CTRun]
+            let attrs = CTRunGetAttributes(runs[0]) as! [String: Any]
+            let font = attrs[kCTFontAttributeName as String] as! CTFont
+            try require(CTFontGetSymbolicTraits(font).contains(.boldTrait), "strong label native trait")
+        } else { throw NativeObjectError.invalidGeometry }
+        let preservedStore = NativeObjectPlanStore()
+        try preservedStore.adopt(firstPlan, for: preservedStore.begin(first))
+        var corruptAssets = assets
+        if let key = doc.assets.first?.id { var bytes = assets[key]!; bytes[0] ^= 1; corruptAssets[key] = bytes }
+        let failureAssets = corruptAssets
+        try await expectAsyncFailure("asset decode preserves accepted plan", {
+            _ = try await NativeReaderPagedLayout.layout(document: doc, context: first, assets: failureAssets, math: { n, w in try dummy(first, n, w) })
         })
+        try require(preservedStore.accepted?.context == firstPlan.context && preservedStore.accepted?.items.count == firstPlan.items.count, "previous accepted immutable plan retained")
         let store = NativeObjectPlanStore(maxEntries: 2)
         let invalid = NativeObjectContext(identity: first.identity, snapshotGeneration: first.snapshotGeneration, generation: first.generation,
             width: .nan, fontSize: first.fontSize, fontName: "system", theme: first.theme, mode: first.mode, pageHeight: first.pageHeight)
@@ -262,9 +480,9 @@ private final class ExecutionLog: @unchecked Sendable {
         catch NativeObjectError.budget { }
         let processRecords = try JSONSerialization.jsonObject(with: JSONEncoder().encode(executionLog.values))
         try write(processRecords, root.appendingPathComponent("native-worker-executions.json"))
-        let result: [String: Any] = ["matrix": matrix, "inlineBrokenCases": broken, "vectorBlueArea": vc.blue, "negativeFailures": 0,
+        let result: [String: Any] = ["matrix": matrix, "inlineBrokenCases": broken, "vectorBlueArea": vc.blue, "negativeFailures": 0, "richAssetCases": richResults.count / 2, "labeledBlackInk": black, "labeledBlueInk": labeledCounts.blue,
             "verified": ["native vector paths", "whole-formula display selection", "semantic AX handoff", "merged/header table", "native inline flow", "bounded cache/cancel/stale"],
-            "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "complete CeTZ/decorations", "offline product runtime delivery"]]
+            "unverified": ["GUI/VoiceOver", "macOS13 runtime", "verified Typst source copy", "print-page fidelity", "compiler importer symbol overflow/image dimensions", "complete CeTZ/decorations", "offline product runtime delivery"]]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
     }
 }

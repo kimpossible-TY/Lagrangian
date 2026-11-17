@@ -112,6 +112,11 @@ struct NativeObjectPlan {
             }
     }
 
+    func linkTarget(at point: CGPoint) -> String? {
+        guard let leaf = hit(point) else { return nil }
+        return regions.first { r in r.node.kind == .link && r.node.orderedNodes.contains { $0.id == leaf.node.id } }?.node.link
+    }
+
     func formulaSelection(nodeID: String, in document: NativeReaderDocument, ticket: UUID = UUID()) throws -> NativeReaderSelection {
         guard document.identity == context.identity, document.generation == context.snapshotGeneration,
               let region = regions.first(where: { $0.node.id == nodeID && $0.node.kind == .math }) else { throw NativeObjectError.stale }
@@ -193,6 +198,7 @@ private final class NativeObjectBuilder {
     let math: NativeReaderPagedLayout.MathProvider
     let cancelled: () -> Bool
     var order = [String: Int](), diagnostics = [String](), cost = 0, steps = 0
+    var decodedAssets = [String: NativeVectorScene]()
     init(context: NativeObjectContext, font: NSFont, assets: [String: Data], descriptors: [String: NativeReaderAsset],
          math: @escaping NativeReaderPagedLayout.MathProvider, cancelled: @escaping () -> Bool) {
         self.context = context; self.font = font; self.assets = assets; self.descriptors = descriptors; self.math = math; self.cancelled = cancelled
@@ -228,10 +234,37 @@ private final class NativeObjectBuilder {
             size: CGSize(width: context.width, height: context.mode == .paged ? CGFloat(pages) * (pageHeight + 16) : y + 16),
             pageCount: pages, diagnostics: Array(Set(diagnostics)).sorted(), cost: cost)
     }
-    func textLine(_ text: String) -> CTLine {
-        let ink = CGColor(gray: context.theme == .dark ? 1 : 0, alpha: 1)
-        return CTLineCreateWithAttributedString(NSAttributedString(string: text,
-            attributes: [.font: font, .foregroundColor: NSColor(cgColor: ink)!]))
+    func textAttributes(traits: CTFontSymbolicTraits = [], link: String? = nil) throws -> [NSAttributedString.Key: Any] {
+        let base = CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil)
+        let chosen: CTFont
+        if traits.isEmpty { chosen = base }
+        else {
+            guard let styled = CTFontCreateCopyWithSymbolicTraits(base, font.pointSize, nil, traits, [.boldTrait, .italicTrait]),
+                  CTFontGetSymbolicTraits(styled).isSuperset(of: traits) else { throw NativeObjectError.unsupported("font-style-unavailable") }
+            chosen = styled
+        }
+        let ink = link == nil ? CGColor(gray: context.theme == .dark ? 1 : 0, alpha: 1) :
+            CGColor(red: context.theme == .dark ? 0.4 : 0.1, green: context.theme == .dark ? 0.65 : 0.3, blue: 0.9, alpha: 1)
+        var attributes: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): chosen,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): ink]
+        if link != nil { attributes[NSAttributedString.Key(kCTUnderlineStyleAttributeName as String)] = NSUnderlineStyle.single.rawValue }
+        return attributes
+    }
+    func textLine(_ text: String) throws -> CTLine {
+        CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: try textAttributes()))
+    }
+    func image(_ node: NativeReaderNode, width: CGFloat) throws -> (NativeVectorScene, CGFloat, CGFloat) {
+        guard let id = node.assetID, let descriptor = descriptors[id], let data = assets[id] else { throw NativeObjectError.unsupported("asset-missing") }
+        let scene: NativeVectorScene
+        if let cached = decodedAssets[id] { scene = cached }
+        else {
+            cost += data.count * 16; try check()
+            scene = try NativeReaderObjectRenderer.verifiedAsset(descriptor, bytes: data, dark: context.theme == .dark,
+                pixelBudget: 16 * 1024 * 1024 - cost)
+            cost += scene.decodedCost; try check(); decodedAssets[id] = scene
+        }
+        let w = min(width, scene.intrinsicSize.width), h = scene.intrinsicSize.height * w / scene.intrinsicSize.width
+        return (scene, w, h)
     }
     func flow(_ node: NativeReaderNode, root: String, width: CGFloat) async throws -> Box {
         var box = Box(), line = [Piece](), x: CGFloat = 0
@@ -250,7 +283,7 @@ private final class NativeObjectBuilder {
             if p.width > width { diagnostics.append("indivisible-inline-overflow:" + p.node.id) }
             line.append(p); x += p.width
         }
-        func visit(_ n: NativeReaderNode) async throws {
+        func visit(_ n: NativeReaderNode, traits: CTFontSymbolicTraits = [], link: String? = nil) async throws {
             try check()
             guard n.visible else { return }
             switch n.kind {
@@ -273,7 +306,8 @@ private final class NativeObjectBuilder {
                     guard [f.width, f.ascent, f.descent].allSatisfy({ $0.isFinite && $0 >= 0 && $0 < 100000 }), f.width > 0 else { throw NativeObjectError.invalidGeometry }
                     cost += f.svg.utf8.count * 16
                     try check()
-                    let scene = try NativeVectorScene.decode(Data(f.svg.utf8), dark: context.theme == .dark)
+                    let scene = try NativeVectorScene.decode(Data(f.svg.utf8), dark: context.theme == .dark, pixelBudget: 16 * 1024 * 1024 - cost, targetSize: CGSize(width: f.width, height: f.ascent + f.descent))
+                    cost += scene.decodedCost; try check()
                     add(Piece(node: n, paint: .vector(scene), width: f.width, ascent: f.ascent, descent: f.descent))
                 }
             case .text, .equationNumber:
@@ -282,12 +316,14 @@ private final class NativeObjectBuilder {
                 while offset < string.length {
                     try check()
                     let rest = string.substring(from: offset)
-                    let attributed = NSAttributedString(string: rest, attributes: [.font: font])
+                    let attributes = try textAttributes(traits: traits, link: link)
+                    let attributed = NSAttributedString(string: rest, attributes: attributes)
                     let typesetter = CTTypesetterCreateWithAttributedString(attributed)
                     var count = CTTypesetterSuggestLineBreak(typesetter, 0, Double(max(0, width - x)))
                     if count == 0 && !line.isEmpty { flush(); continue }
                     if count == 0 { count = (rest as NSString).rangeOfComposedCharacterSequence(at: 0).length }
-                    let text = (rest as NSString).substring(to: count), ct = textLine(text)
+                    let text = (rest as NSString).substring(to: count)
+                    let ct = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
                     var a: CGFloat = 0, d: CGFloat = 0
                     let w = CTLineGetTypographicBounds(ct, &a, &d, nil)
                     cost += text.utf8.count
@@ -295,10 +331,14 @@ private final class NativeObjectBuilder {
                     offset += count
                     if offset < string.length { flush() }
                 }
-            case .strong, .emphasis: throw NativeObjectError.unsupported("object-inline-text-style")
-            case .image: throw NativeObjectError.unsupported("inline-image")
+            case .strong: for child in n.children { try await visit(child, traits: traits.union(.boldTrait), link: link) }
+            case .emphasis: for child in n.children { try await visit(child, traits: traits.union(.italicTrait), link: link) }
+            case .link: for child in n.children { try await visit(child, traits: traits, link: n.link) }
+            case .image:
+                let (scene, w, h) = try image(n, width: width)
+                add(Piece(node: n, paint: .vector(scene), width: w, ascent: h, descent: 0))
             case .table, .tableHead, .tableBody, .row: throw NativeObjectError.unsupported("nested-table-layout")
-            default: for child in n.children { try await visit(child) }
+            default: for child in n.children { try await visit(child, traits: traits, link: link) }
             }
         }
         try await visit(node); flush()
@@ -324,15 +364,11 @@ private final class NativeObjectBuilder {
         try check()
         if node.kind == .table { return try await table(node, root: root, width: width) }
         if node.kind == .image {
-            guard let id = node.assetID, let descriptor = descriptors[id], let data = assets[id] else { throw NativeObjectError.unsupported("asset-missing") }
-            cost += data.count * 16
-            try check()
-            let scene = try NativeReaderObjectRenderer.verifiedAsset(descriptor, bytes: data, dark: context.theme == .dark)
-            let w = min(width, scene.viewBox.width), h = scene.viewBox.height * w / scene.viewBox.width
+            let (scene, w, h) = try image(node, width: width)
             let frame = CGRect(x: 0, y: 0, width: w, height: h)
             return Box(items: [Item(nodeID: node.id, frame: frame, ascent: h, paint: .vector(scene))], regions: [region(node, block: root, frames: [frame])], height: h)
         }
-        if node.kind == .figure || node.kind == .group && node.children.contains(where: { [.figure, .image, .table].contains($0.kind) }) {
+        if node.kind == .figure || node.kind == .group && node.children.contains(where: { [.figure, .table].contains($0.kind) }) {
             var result = Box()
             for child in node.children where child.visible {
                 let box = try await block(child, root: root, width: width)
@@ -343,7 +379,7 @@ private final class NativeObjectBuilder {
             result.regions.append(region(node, block: root, frames: result.items.map(\.frame))); return result
         }
         if node.kind == .equation, let number = node.children.first(where: { $0.kind == .equationNumber }) {
-            let label = textLine(number.displayText)
+            let label = try textLine(number.displayText)
             let reserved = CGFloat(CTLineGetTypographicBounds(label, nil, nil, nil)) + CGFloat(context.fontSize)
             guard reserved < width else { throw NativeObjectError.invalidGeometry }
             var result = Box()

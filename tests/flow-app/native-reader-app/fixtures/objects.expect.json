@@ -74,7 +74,7 @@
     false
   ],
   "equationNumber": "(1)",
-  "figureCaption": "Figure 1: Blue rectangle",
+  "figureCaption": "Figure 1: Blue rectangle link",
   "vector": {
     "viewport": [
       100,
@@ -103,5 +103,92 @@
     "ruleThicknessEm": 0.06,
     "numeratorGlyph": "1D44E",
     "denominatorGlyph": "1D44F"
-  }
+  },
+  "richAssets": [
+    {
+      "name": "internal-use",
+      "svg": "<defs><path id=\"tile\" d=\"M0 0H20V10H0Z\"/></defs><use xlink:href=\"#tile\" x=\"10\" y=\"10\" fill=\"#2060c0\"/>",
+      "blueArea": 200
+    },
+    {
+      "name": "arc",
+      "svg": "<path d=\"M20 10A10 10 0 1 1 19.999 10Z\" fill=\"#2060c0\"/>",
+      "blueMinimum": 300,
+      "blueMaximum": 345
+    },
+    {
+      "name": "clip",
+      "svg": "<defs><clipPath id=\"clip\"><rect x=\"10\" y=\"10\" width=\"20\" height=\"10\"/></clipPath></defs><rect width=\"100\" height=\"80\" fill=\"#2060c0\" clip-path=\"url(#clip)\"/>",
+      "blueArea": 200
+    },
+    {
+      "name": "linear-gradient",
+      "svg": "<defs><linearGradient id=\"grad\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></linearGradient></defs><rect width=\"100\" height=\"80\" fill=\"url(#grad)\"/>",
+      "left": "red",
+      "right": "blue"
+    },
+    {
+      "name": "radial-gradient",
+      "svg": "<defs><radialGradient id=\"grad\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></radialGradient></defs><rect width=\"100\" height=\"80\" fill=\"url(#grad)\"/>",
+      "center": "red",
+      "edge": "blue"
+    },
+    {
+      "name": "group-opacity",
+      "svg": "<g opacity=\"0.5\" fill=\"#ff0000\"><rect x=\"10\" y=\"10\" width=\"20\" height=\"10\"/><rect x=\"20\" y=\"10\" width=\"20\" height=\"10\"/></g>",
+      "pink": [
+        255,
+        128,
+        128
+      ],
+      "unionArea": 300
+    },
+    {
+      "name": "symbol-glyph",
+      "svg": "<defs><symbol id=\"letter\" viewBox=\"0 0 10 10\"><path d=\"M0 0H2V8H8V10H0Z\"/></symbol></defs><use xlink:href=\"#letter\" x=\"10\" y=\"10\" width=\"10\" height=\"10\" fill=\"#2060c0\"/>",
+      "blueArea": 32
+    },
+    {
+      "name": "internal-href",
+      "svg": "<defs><path id=\"tile\" d=\"M0 0H20V10H0Z\"/></defs><use href=\"#tile\" x=\"40\" y=\"10\" fill=\"#2060c0\"/>",
+      "blueArea": 200
+    },
+    {
+      "name": "gradient-inherit",
+      "svg": "<defs><linearGradient id=\"source\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></linearGradient><linearGradient id=\"grad\" href=\"#source\"/></defs><rect width=\"100\" height=\"80\" fill=\"url(#grad)\"/>",
+      "left": "red",
+      "right": "blue"
+    },
+    {
+      "name": "viewport-units",
+      "svg": "<rect x=\"100\" y=\"100\" width=\"200\" height=\"100\" fill=\"#2060c0\"/>",
+      "viewBox": [
+        0,
+        0,
+        1000,
+        800
+      ],
+      "blueArea": 200
+    }
+  ],
+  "rasterOracle": {
+    "width": 24,
+    "height": 12,
+    "quadrants": [
+      "red",
+      "green",
+      "blue",
+      "yellow"
+    ],
+    "quadrantArea": 72
+  },
+  "labeledCetz": {
+    "glyphUses": 7,
+    "minimumBlackInk": 80,
+    "maximumBlackInk": 1000,
+    "minimumBlueInk": 1000,
+    "maximumBlueInk": 1800,
+    "label": "Label x²"
+  },
+  "rasterWebPBase64": "UklGRjgAAABXRUJQVlA4TCsAAAAvF8ACAB8gEEjaH3qN+RcQFPk/2vwHXySAMNtokpOc5L3PIKL/sU19geoFAA=="
 }

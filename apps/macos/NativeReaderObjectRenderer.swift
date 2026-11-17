@@ -2,10 +2,12 @@ import AppKit
 import CoreText
 import CryptoKit
 import Darwin
+import ImageIO
+import UniformTypeIdentifiers
 
 // NA03 adapter; schema 1 remains owned by NA01. All coordinates are top-left pt.
-// SVG is decoded into immutable CoreGraphics paths, never executed or sent to a
-// WebView. Unsupported resources/paint fail the candidate atomically.
+// SVG is validated before becoming immutable CoreGraphics paths or bounded
+// native CGImages. No WebView executes content. Failed candidates stay atomic.
 enum NativeObjectError: Error, Equatable {
     case unsupported(String), invalidGeometry, stale, cancelled, budget
 }
@@ -28,34 +30,81 @@ struct NativeVectorShape {
 struct NativeVectorScene {
     let viewBox: CGRect
     let shapes: [NativeVectorShape]
+    let intrinsicSize: CGSize
+    let image: CGImage?
+    let decodedCost: Int
+    init(viewBox: CGRect, shapes: [NativeVectorShape], image: CGImage? = nil, decodedCost: Int = 0, intrinsicSize: CGSize? = nil) {
+        self.viewBox = viewBox; self.shapes = shapes; self.image = image; self.decodedCost = decodedCost
+        self.intrinsicSize = intrinsicSize ?? viewBox.size
+    }
 
-    static func decode(_ data: Data, dark: Bool) throws -> Self {
-        guard data.count <= 8 * 1024 * 1024,
-              let xml = String(data: data, encoding: .utf8),
-              !xml.contains("<!"), !xml.contains("<?"),
-              !xml.lowercased().contains("url("), !xml.contains("&") else {
-            throw NativeObjectError.unsupported("svg-resource-or-limit")
+    static func decode(_ data: Data, dark: Bool, pixelBudget: Int = 16 * 1024 * 1024,
+                       targetSize: CGSize? = nil) throws -> Self {
+        guard data.count <= max(0, pixelBudget) / 16 else { throw NativeObjectError.budget }
+        let safe = try NativeSafeSVG.inspect(data, dark: dark)
+        let display = targetSize ?? safe.viewport
+        guard display.width.isFinite, display.height.isFinite, display.width > 0, display.height > 0, display.width <= 8192, display.height <= 8192 else { throw NativeObjectError.budget }
+        // Keep the exact native path consumer for MathJax's glyph/advance oracle.
+        // Rich SVG is decoded only after the same security/complexity boundary.
+        if !safe.rich {
+            let delegate = NativeSVGParser(dark: dark)
+            let parser = XMLParser(data: safe.data)
+            parser.shouldResolveExternalEntities = false; parser.delegate = delegate
+            guard parser.parse(), delegate.failure == nil, delegate.depth == 0,
+                  let box = delegate.box, !delegate.shapes.isEmpty else {
+                throw delegate.failure ?? NativeObjectError.unsupported("svg-xml")
+            }
+            return Self(viewBox: box, shapes: delegate.shapes, intrinsicSize: safe.viewport)
         }
-        let delegate = NativeSVGParser(dark: dark)
-        let parser = XMLParser(data: data)
-        parser.shouldResolveExternalEntities = false
-        parser.delegate = delegate
-        guard parser.parse(), delegate.failure == nil, delegate.depth == 0,
-              let box = delegate.box, !delegate.shapes.isEmpty else {
-            throw delegate.failure ?? NativeObjectError.unsupported("svg-xml")
-        }
-        return Self(viewBox: box, shapes: delegate.shapes)
+        let size = targetSize ?? safe.viewport
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, size.width <= 4096, size.height <= 4096 else { throw NativeObjectError.budget }
+        let w = Int(ceil(size.width * 2)), h = Int(ceil(size.height * 2))
+        guard w > 0, h > 0, w <= 8192, h <= 8192, w <= pixelBudget / 4 / h else { throw NativeObjectError.budget }
+        let xml = safe.serialized(width: w, height: h)
+        guard let native = NSImage(data: xml) else { throw NativeObjectError.unsupported("native-svg-decode") }
+        native.size = NSSize(width: w, height: h)
+        var rect = NSRect(x: 0, y: 0, width: w, height: h)
+        guard let image = native.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+              image.width == w, image.height == h, image.bytesPerRow <= pixelBudget / h else { throw NativeObjectError.unsupported("native-svg-size") }
+        return Self(viewBox: CGRect(origin: .zero, size: size), shapes: [], image: image, decodedCost: image.bytesPerRow * h)
+    }
+
+    static func raster(_ data: Data, mime: String, pixelBudget: Int) throws -> Self {
+        guard data.count > 0, data.count <= 8 * 1024 * 1024,
+              let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let type = CGImageSourceGetType(source) as String? else { throw NativeObjectError.unsupported("raster-decode") }
+        let expected = ["image/png": UTType.png.identifier, "image/jpeg": UTType.jpeg.identifier,
+                        "image/gif": UTType.gif.identifier, "image/webp": "org.webmproject.webp"]
+        guard expected[mime] == type else { throw NativeObjectError.unsupported("asset-content-type") }
+        guard CGImageSourceGetStatus(source) == .statusComplete else { throw NativeObjectError.unsupported("raster-incomplete") }
+        guard CGImageSourceGetCount(source) == 1 else { throw NativeObjectError.unsupported("animated-image") }
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+              let w = props[kCGImagePropertyPixelWidth as String] as? Int,
+              let h = props[kCGImagePropertyPixelHeight as String] as? Int,
+              w > 0, h > 0, w <= 8192, h <= 8192, w <= pixelBudget / 4 / h else { throw NativeObjectError.budget }
+        // Thumbnail transform applies EXIF orientation; maxPixelSize is the
+        // original maximum dimension, so this does not silently downsample.
+        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                       kCGImageSourceCreateThumbnailWithTransform: true,
+                       kCGImageSourceShouldCacheImmediately: true,
+                       kCGImageSourceThumbnailMaxPixelSize: max(w, h)] as CFDictionary
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options),
+              image.bytesPerRow <= pixelBudget / image.height else { throw NativeObjectError.unsupported("raster-pixel-cost") }
+        return Self(viewBox: CGRect(x: 0, y: 0, width: image.width, height: image.height), shapes: [], image: image,
+                    decodedCost: image.bytesPerRow * image.height)
     }
 
     func draw(in context: CGContext, rect: CGRect) {
         context.saveGState()
+        if let image = image {
+            context.translateBy(x: rect.minX, y: rect.maxY); context.scaleBy(x: 1, y: -1)
+            context.draw(image, in: CGRect(origin: .zero, size: rect.size)); context.restoreGState(); return
+        }
         context.translateBy(x: rect.minX, y: rect.minY)
         context.scaleBy(x: rect.width / viewBox.width, y: rect.height / viewBox.height)
         context.translateBy(x: -viewBox.minX, y: -viewBox.minY)
         for shape in shapes {
-            context.saveGState()
-            context.concatenate(shape.transform)
-            context.setAlpha(shape.alpha)
+            context.saveGState(); context.concatenate(shape.transform); context.setAlpha(shape.alpha)
             context.setLineCap(shape.lineCap); context.setLineJoin(shape.lineJoin); context.setMiterLimit(shape.miterLimit)
             context.setLineDash(phase: shape.dashPhase, lengths: shape.dash)
             context.addPath(shape.path)
@@ -317,12 +366,12 @@ enum NativeReaderObjectRenderer {
         }
     }
 
-    static func verifiedAsset(_ asset: NativeReaderAsset, bytes: Data, dark: Bool) throws -> NativeVectorScene {
-        guard asset.mime == "image/svg+xml", bytes.count == asset.byteCount,
+    static func verifiedAsset(_ asset: NativeReaderAsset, bytes: Data, dark: Bool, pixelBudget: Int = 16 * 1024 * 1024) throws -> NativeVectorScene {
+        guard bytes.count <= 8 * 1024 * 1024, bytes.count == asset.byteCount,
               SHA256.hash(data: bytes).map({ String(format: "%02x", $0) }).joined() == asset.sha256 else {
             throw NativeObjectError.unsupported("asset-type-or-digest")
         }
-        return try NativeVectorScene.decode(bytes, dark: dark)
+        return asset.mime == "image/svg+xml" ? try NativeVectorScene.decode(bytes, dark: dark, pixelBudget: pixelBudget) : try NativeVectorScene.raster(bytes, mime: asset.mime, pixelBudget: pixelBudget)
     }
 }
 
@@ -443,5 +492,269 @@ actor NativeMathWorker {
             throw NativeObjectError.unsupported("math-helper-rejected")
         }
         return output
+    }
+}
+
+// Validate the entire SVG, references and expansion cost BEFORE AppKit sees it.
+// The native decoder receives regenerated XML with explicit bounded dimensions;
+// no document CSS, URL resolver, text/font fallback or executable content survives.
+private final class NativeSafeSVG: NSObject, XMLParserDelegate {
+    private final class Element {
+        let name: String
+        var attrs: [String: String]
+        var children = [Element]()
+        var refs = [String]()
+        var transform = CGAffineTransform.identity
+        var coordinate: CGFloat = 0
+        var work = 1
+        init(_ name: String, _ attrs: [String: String]) { self.name = name; self.attrs = attrs }
+    }
+    private var stack = [Element](), elements = [Element](), ids = [String: Element]()
+    private var root: Element?
+    private var failure: NativeObjectError?
+    private let dark: Bool
+    private(set) var rich = false
+    private(set) var viewport = CGSize.zero
+    private(set) var box = CGRect.zero
+    init(dark: Bool) { self.dark = dark }
+    var data: Data { Data(xml(root!).utf8) }
+    func serialized(width: Int, height: Int) -> Data {
+        var attrs = root!.attrs
+        attrs["width"] = "\(width)pt"; attrs["height"] = "\(height)pt"
+        attrs["xmlns:xlink"] = "http://www.w3.org/1999/xlink"
+        attrs["xmlns"] = "http://www.w3.org/2000/svg"
+        return Data(xml(root!, attributes: attrs).utf8)
+    }
+    private func xml(_ n: Element, attributes: [String: String]? = nil) -> String {
+        func escape(_ s: String) -> String {
+            s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+        }
+        let a = attributes ?? n.attrs
+        return "<" + n.name + a.keys.sorted().map { " " + $0 + "=\"" + escape(a[$0]!) + "\"" }.joined() + ">" + n.children.map { xml($0) }.joined() + "</" + n.name + ">"
+    }
+    static func inspect(_ data: Data, dark: Bool) throws -> NativeSafeSVG {
+        guard !data.isEmpty, data.count <= 8 * 1024 * 1024,
+              let raw = String(data: data, encoding: .utf8), !raw.contains("<!"), !raw.contains("<?") else {
+            throw NativeObjectError.unsupported("svg-resource-or-limit")
+        }
+        let result = NativeSafeSVG(dark: dark), parser = XMLParser(data: data)
+        parser.shouldResolveExternalEntities = false; parser.delegate = result
+        guard parser.parse(), result.failure == nil, result.stack.isEmpty, let root = result.root else {
+            throw result.failure ?? NativeObjectError.unsupported("svg-xml")
+        }
+        try result.validate(root)
+        return result
+    }
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            failure = .unsupported("svg-text-or-font"); parser.abortParsing()
+        }
+    }
+    func parser(_ parser: XMLParser, resolveExternalEntityName name: String, systemID: String?) -> Data? { nil }
+    func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String]) {
+        do {
+            guard stack.count < 128, elements.count < 20000, attributes.count <= 64 else { throw NativeObjectError.budget }
+            let common: Set<String> = ["xmlns", "xmlns:xlink", "id", "role", "focusable", "aria-label", "aria-hidden", "class", "style", "transform", "fill", "fill-rule", "fill-opacity", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "stroke-opacity", "opacity", "clip-path", "clip-rule", "data-mml-node", "data-mjx-texclass", "data-c", "data-latex"]
+            let local: [String: Set<String>] = [
+                "svg": ["viewBox", "width", "height", "preserveAspectRatio"], "g": [], "defs": [],
+                "symbol": ["viewBox", "width", "height", "preserveAspectRatio", "overflow"],
+                "use": ["href", "xlink:href", "x", "y", "width", "height"],
+                "path": ["d"], "rect": ["x", "y", "width", "height", "rx", "ry"], "circle": ["cx", "cy", "r"],
+                "ellipse": ["cx", "cy", "rx", "ry"], "line": ["x1", "y1", "x2", "y2"], "polygon": ["points"], "polyline": ["points"],
+                "clipPath": ["clipPathUnits"],
+                "linearGradient": ["href", "xlink:href", "x1", "y1", "x2", "y2", "gradientUnits", "gradientTransform", "spreadMethod"],
+                "radialGradient": ["href", "xlink:href", "cx", "cy", "r", "fx", "fy", "fr", "gradientUnits", "gradientTransform", "spreadMethod"],
+                "stop": ["offset", "stop-color", "stop-opacity"]]
+            guard let allowed = local[name], Set(attributes.keys).isSubset(of: common.union(allowed)),
+                  !stack.isEmpty || root == nil && name == "svg", name != "svg" || stack.isEmpty else {
+                throw NativeObjectError.unsupported("svg-element-or-attribute")
+            }
+            if let parent = stack.last {
+                if ["linearGradient", "radialGradient"].contains(parent.name), parent.children.count >= 256 { throw NativeObjectError.budget }
+                if parent.name == "use" || parent.name == "path" || parent.name == "stop" { throw NativeObjectError.unsupported("svg-child") }
+                if ["linearGradient", "radialGradient"].contains(parent.name), name != "stop" { throw NativeObjectError.unsupported("svg-gradient-child") }
+                if name == "stop", !["linearGradient", "radialGradient"].contains(parent.name) { throw NativeObjectError.unsupported("svg-stop-parent") }
+            }
+            let e = Element(name, attributes)
+            try attributesChecked(e)
+            if let id = e.attrs["id"] {
+                guard id.range(of: "^[A-Za-z0-9_.:-]{1,128}$", options: .regularExpression) != nil, ids[id] == nil else { throw NativeObjectError.unsupported("svg-id") }
+                ids[id] = e
+            }
+            if let parent = stack.last { parent.children.append(e) } else { root = e }
+            stack.append(e); elements.append(e)
+        } catch { failure = (error as? NativeObjectError) ?? .invalidGeometry; parser.abortParsing() }
+    }
+    func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) { _ = stack.popLast() }
+
+    private func attributesChecked(_ e: Element) throws {
+        if let ns = e.attrs["xmlns"], ns != "http://www.w3.org/2000/svg" { throw NativeObjectError.unsupported("svg-namespace") }
+        if let ns = e.attrs["xmlns:xlink"], ns != "http://www.w3.org/1999/xlink" { throw NativeObjectError.unsupported("svg-namespace") }
+        if let cls = e.attrs["class"], !cls.isEmpty { throw NativeObjectError.unsupported("svg-css-class") }
+        if let css = e.attrs.removeValue(forKey: "style") {
+            for declaration in css.split(separator: ";") {
+                let p = declaration.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                guard p.count == 2 else { throw NativeObjectError.unsupported("svg-style") }
+                switch p[0] {
+                case "width", "height":
+                    guard e.name == "svg", p[1].range(of: "^[0-9]+(?:\\.[0-9]+)?(?:em|pt|px)$", options: .regularExpression) != nil else { throw NativeObjectError.unsupported("svg-style") }
+                case "display": guard e.name == "svg", p[1] == "block" else { throw NativeObjectError.unsupported("svg-style") }
+                case "overflow": guard e.name == "svg", p[1] == "visible" else { throw NativeObjectError.unsupported("svg-style") }
+                case "fill", "stroke", "fill-opacity", "stroke-opacity", "opacity", "stroke-width", "clip-path", "fill-rule", "clip-rule": e.attrs[p[0]] = p[1]
+                default: throw NativeObjectError.unsupported("svg-style")
+                }
+            }
+        }
+        let numeric: Set<String> = ["x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r", "rx", "ry", "fx", "fy", "fr", "stroke-width", "stroke-miterlimit", "stroke-dashoffset"]
+        let opacity: Set<String> = ["opacity", "fill-opacity", "stroke-opacity", "stop-opacity"]
+        for (key, value) in e.attrs {
+            if numeric.contains(key) || opacity.contains(key) || key == "offset" {
+                let percent = value.hasSuffix("%")
+                if percent && !(e.name.hasSuffix("Gradient") || key == "offset") { throw NativeObjectError.unsupported("svg-percent-coordinate") }
+                let values = try numbers(percent ? String(value.dropLast()) : value)
+                guard values.count == 1 else { throw NativeObjectError.invalidGeometry }
+                let v = values[0]
+                if opacity.contains(key), !(0...1).contains(v) { throw NativeObjectError.invalidGeometry }
+                if key == "offset", !(0...(percent ? 100 : 1)).contains(v) { throw NativeObjectError.invalidGeometry }
+                if ["r", "rx", "ry", "fr", "stroke-width"].contains(key), v < 0 { throw NativeObjectError.invalidGeometry }
+                if key == "stroke-miterlimit", v < 1 { throw NativeObjectError.invalidGeometry }
+                e.coordinate = max(e.coordinate, abs(v))
+            }
+            if ["width", "height"].contains(key) {
+                let regex = try NSRegularExpression(pattern: "^(\\+?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?)(pt|px|em|ex)?$")
+                guard let m = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+                      let range = Range(m.range(at: 1), in: value), let n = Double(value[range]), n.isFinite, n <= 1e8 else { throw NativeObjectError.invalidGeometry }
+                e.coordinate = max(e.coordinate, n)
+            }
+            if ["fill", "stroke", "stop-color"].contains(key) {
+                if key == "stop-color" && value == "none" { throw NativeObjectError.unsupported("svg-stop-color") }
+                if value == "currentColor" { e.attrs[key] = dark ? "#ffffff" : "#000000" }
+                else if value.hasPrefix("url(") { _ = try reference(value, url: true); rich = true }
+                else if !["none", "black", "white"].contains(value), value.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) == nil { throw NativeObjectError.unsupported("svg-paint") }
+            }
+            if key == "clip-path" { if value != "none" { _ = try reference(value, url: true) }; rich = true }
+            if ["href", "xlink:href"].contains(key) { _ = try reference(value, url: false); rich = true }
+            if ["transform", "gradientTransform"].contains(key) {
+                let t = try affine(value)
+                if key == "transform" { e.transform = t }
+            }
+            let enums: [String: Set<String>] = ["fill-rule": ["evenodd", "nonzero"], "clip-rule": ["evenodd", "nonzero"],
+                "stroke-linecap": ["butt", "round", "square"], "stroke-linejoin": ["miter", "round", "bevel"],
+                "clipPathUnits": ["userSpaceOnUse", "objectBoundingBox"], "gradientUnits": ["userSpaceOnUse", "objectBoundingBox"],
+                "spreadMethod": ["pad", "reflect", "repeat"], "overflow": ["visible", "hidden"],
+                "preserveAspectRatio": ["xMidYMid meet", "none", "xMinYMin meet", "xMaxYMax meet", "xMidYMid slice"]]
+            if let allowed = enums[key], !allowed.contains(value) { throw NativeObjectError.unsupported("svg-attribute-value") }
+            if key == "stroke-dasharray", value != "none" {
+                let n = try numbers(value)
+                guard !n.isEmpty, n.count <= 128, n.allSatisfy({ $0 >= 0 }), n.contains(where: { $0 > 0 }) else { throw NativeObjectError.invalidGeometry }
+            }
+            if key == "points" {
+                let n = try numbers(value)
+                guard n.count >= 4, n.count % 2 == 0, n.count <= 100000 else { throw NativeObjectError.invalidGeometry }
+                e.work += n.count; e.coordinate = max(e.coordinate, n.map(abs).max()!)
+            }
+        }
+        if let viewBox = e.attrs["viewBox"] {
+            let n = try numbers(viewBox)
+            guard n.count == 4, n[2] > 0, n[3] > 0 else { throw NativeObjectError.invalidGeometry }
+            e.coordinate = max(e.coordinate, n.map(abs).max()!)
+        }
+        if e.attrs["clip-rule"] != nil { rich = true }
+        if let d = e.attrs["d"] {
+            let info = try validatePath(d)
+            e.work += info.0; e.coordinate = max(e.coordinate, info.1)
+            if info.2 { rich = true }
+        }
+        if ["defs", "symbol", "use", "clipPath", "linearGradient", "radialGradient", "stop"].contains(e.name) { rich = true }
+        if ["g", "svg"].contains(e.name), let alpha = e.attrs["opacity"], Double(alpha) != 1 { rich = true }
+        if e.name == "rect", e.attrs["rx"] != nil || e.attrs["ry"] != nil { rich = true }
+        if let aspect = e.attrs["preserveAspectRatio"], aspect != "xMidYMid meet" { rich = true }
+    }
+    private func reference(_ value: String, url: Bool) throws -> String {
+        let pattern = url ? "^url\\(#([A-Za-z0-9_.:-]{1,128})\\)$" : "^#([A-Za-z0-9_.:-]{1,128})$"
+        let regex = try NSRegularExpression(pattern: pattern)
+        guard let m = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)), let r = Range(m.range(at: 1), in: value) else { throw NativeObjectError.unsupported("external-svg-reference") }
+        return String(value[r])
+    }
+    private func validate(_ root: Element) throws {
+        let v = try numbers(root.attrs["viewBox"] ?? "")
+        guard v.count == 4, v[2] > 0, v[3] > 0 else { throw NativeObjectError.invalidGeometry }
+        box = CGRect(x: v[0], y: v[1], width: v[2], height: v[3]); viewport = box.size
+        for (i, key) in ["width", "height"].enumerated() {
+            if let raw = root.attrs[key], raw.range(of: "^(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(pt|px)?$", options: .regularExpression) != nil {
+                let n = Double(raw.replacingOccurrences(of: "pt", with: "").replacingOccurrences(of: "px", with: ""))!
+                if i == 0 { viewport.width = n } else { viewport.height = n }
+            }
+        }
+        for e in elements {
+            if let a = e.attrs["href"], let b = e.attrs["xlink:href"], a != b { throw NativeObjectError.unsupported("svg-reference-conflict") }
+            for key in ["href", "xlink:href", "clip-path", "fill", "stroke"] {
+                guard let value = e.attrs[key], value.hasPrefix("#") && ["href", "xlink:href"].contains(key) || value.hasPrefix("url(") else { continue }
+                let targetID = try reference(value, url: value.hasPrefix("url("))
+                guard let target = ids[targetID] else { throw NativeObjectError.unsupported("svg-unresolved-reference") }
+                if key == "clip-path", target.name != "clipPath" { throw NativeObjectError.unsupported("svg-reference-type") }
+                if ["fill", "stroke"].contains(key), !["linearGradient", "radialGradient"].contains(target.name) { throw NativeObjectError.unsupported("svg-reference-type") }
+                if key == "href" || key == "xlink:href" {
+                    if e.name == "use", !["g", "symbol", "path", "rect", "circle", "ellipse", "line", "polygon", "polyline", "use"].contains(target.name) { throw NativeObjectError.unsupported("svg-reference-type") }
+                    if e.name.hasSuffix("Gradient"), !target.name.hasSuffix("Gradient") { throw NativeObjectError.unsupported("svg-reference-type") }
+                }
+                if !e.refs.contains(targetID) { e.refs.append(targetID) }
+            }
+            // CoreSVG's established xlink path also represents SVG2 href. Only
+            // validated internal IDs are normalized; external URLs never arrive.
+            if let href = e.attrs.removeValue(forKey: "href") { e.attrs["xlink:href"] = href }
+        }
+        var active = Set<ObjectIdentifier>(), total = 0
+        func walk(_ e: Element, _ inherited: CGAffineTransform, _ depth: Int) throws {
+            let id = ObjectIdentifier(e)
+            guard !active.contains(id), depth <= 128 else { throw NativeObjectError.unsupported("svg-reference-cycle-or-depth") }
+            active.insert(id); defer { active.remove(id) }
+            total += e.work
+            guard total <= 300000 else { throw NativeObjectError.budget }
+            var transform = e.transform.concatenating(inherited)
+            if e.name == "use" {
+                transform = CGAffineTransform(translationX: Double(e.attrs["x"] ?? "0") ?? 0, y: Double(e.attrs["y"] ?? "0") ?? 0).concatenating(transform)
+            }
+            let linear = max(abs(transform.a) + abs(transform.c), abs(transform.b) + abs(transform.d))
+            guard [transform.a, transform.b, transform.c, transform.d, transform.tx, transform.ty].allSatisfy({ $0.isFinite && abs($0) <= 1e9 }),
+                  e.coordinate * linear + max(abs(transform.tx), abs(transform.ty)) <= 1e9 else { throw NativeObjectError.invalidGeometry }
+            for child in e.children + e.refs.compactMap({ ids[$0] }) { try walk(child, transform, depth + 1) }
+        }
+        try walk(root, .identity, 0)
+    }
+    // Lexical/arity/flag/finite/current-point validation, including SVG arc A/a.
+    // AppKit handles the curve; this prevents malformed path parser fallbacks.
+    private func validatePath(_ text: String) throws -> (Int, CGFloat, Bool) {
+        let regex = try NSRegularExpression(pattern: "[A-Za-z]|[-+]?(?:[0-9]*\\.[0-9]+|[0-9]+\\.?[0-9]*)(?:[eE][-+]?[0-9]+)?")
+        var tokens = [String](), end = text.startIndex
+        for m in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            let r = Range(m.range, in: text)!
+            guard text[end..<r.lowerBound].allSatisfy({ $0.isWhitespace || $0 == "," }) else { throw NativeObjectError.invalidGeometry }
+            tokens.append(String(text[r])); end = r.upperBound
+        }
+        guard tokens.count <= 300000, text[end...].allSatisfy({ $0.isWhitespace || $0 == "," }) else { throw NativeObjectError.budget }
+        var i = 0, command = "", point = CGPoint.zero, start = CGPoint.zero, maximum: CGFloat = 0, arc = false
+        let counts = ["M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0]
+        while i < tokens.count {
+            if tokens[i].first!.isLetter { command = tokens[i]; i += 1 }
+            let upper = command.uppercased(), relative = command == command.lowercased()
+            guard let count = counts[upper], i + count <= tokens.count, i != 1 || upper == "M" else { throw NativeObjectError.invalidGeometry }
+            if upper == "Z" { point = start; command = ""; continue }
+            var n = [CGFloat]()
+            for j in 0..<count {
+                guard let value = Double(tokens[i + j]), value.isFinite, abs(value) <= 1e8 else { throw NativeObjectError.invalidGeometry }
+                n.append(value)
+            }
+            if upper == "A" { guard n[0] >= 0, n[1] >= 0, [CGFloat(0), 1].contains(n[3]), [CGFloat(0), 1].contains(n[4]) else { throw NativeObjectError.invalidGeometry }; arc = true }
+            if upper == "H" { point.x = n[0] + (relative ? point.x : 0) }
+            else if upper == "V" { point.y = n[0] + (relative ? point.y : 0) }
+            else { point = CGPoint(x: n[count - 2] + (relative ? point.x : 0), y: n[count - 1] + (relative ? point.y : 0)) }
+            maximum = max(maximum, max(abs(point.x), abs(point.y)) + (n.map(abs).max() ?? 0))
+            guard maximum <= 1e8 else { throw NativeObjectError.invalidGeometry }
+            if upper == "M" { start = point; command = relative ? "l" : "L" }
+            i += count
+        }
+        return (tokens.count, maximum, arc)
     }
 }

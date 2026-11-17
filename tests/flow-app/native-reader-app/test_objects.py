@@ -4,6 +4,11 @@ NA03_OUTPUT must be a fresh directory in DevSSD/test-output/objects. Runtime is 
 provisional offline scratch install, never evidence of delivered .app resources.
 """
 import hashlib
+import dataclasses
+import base64
+import zlib
+import struct
+from html import escape
 import json
 import os
 from pathlib import Path
@@ -35,7 +40,7 @@ from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.project import Project
 from flow_reader.compiler.execution import local_compile
 from flow_reader.document.sections import split_document, SectionBundle
-from flow_reader.document.native_document import import_accepted_document
+from flow_reader.document.native_document import import_accepted_document, NativeImportError
 
 
 def digest(path):
@@ -55,7 +60,7 @@ def walk(node):
 class ObjectsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ.get('NA03_OUTPUT', str(DEV / 'test-output/objects' / ('run-' + str(time.time_ns()))))).resolve()
+        cls.out = Path(os.environ.get('NA03_OUTPUT', str(DEV / 'test-output/objects/fidelity-v2' / ('run-' + str(time.time_ns()))))).resolve()
         if not cls.out.is_relative_to(DEV / 'test-output/objects') or cls.out.exists():
             raise RuntimeError('NA03_OUTPUT must be a fresh DevSSD object evidence directory')
         cls.out.mkdir(parents=True)
@@ -98,6 +103,19 @@ class ObjectsTests(unittest.TestCase):
         packages = REPO / 'tools/flow-reader/packages'
         source = cls.out / 'source'; source.mkdir()
         shutil.copyfile(HERE / 'fixtures/objects.typ', source / 'main.typ')
+        cls.binary = cls.out / 'ObjectsTests'
+        command(['swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-macosx13.0',
+                 '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'],
+                 REPO / 'apps/macos/NativeReaderDocument.swift', REPO / 'apps/macos/NativeReaderOperations.swift',
+                 REPO / OWNED[0], REPO / OWNED[1], HERE / 'ObjectsTests.swift', '-o', cls.binary], timeout=120)
+        command([cls.binary, 'assets', cls.out, HERE / 'fixtures/objects.expect.json'])
+        (source / 'pattern.webp').write_bytes(base64.b64decode(json.loads((HERE / 'fixtures/objects.expect.json').read_text())['rasterWebPBase64'], validate=True))
+        def png_chunk(kind, value):
+            return struct.pack('>I', len(value)) + kind + value + struct.pack('>I', zlib.crc32(kind + value))
+        compressor = zlib.compressobj()
+        compressed = b''.join(compressor.compress(b'\0' + b'\0' * (2400 * 4)) for _ in range(2400)) + compressor.flush()
+        (cls.out / 'oversized.png').write_bytes(b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB', 2400, 2400, 8, 6, 0, 0, 0)) + png_chunk(b'IDAT', compressed) + png_chunk(b'IEND', b''))
+
         profile = '(version 1)(allow default)(deny network*)' + ''.join(
             '(deny file-write* (subpath ' + json.dumps(str(p)) + '))' for p in [REPO, packages, cache, source])
         cls.compiler_profile = profile
@@ -118,6 +136,31 @@ class ObjectsTests(unittest.TestCase):
         if cls.report['exitCode'] != 0 or not cls.report['contentGatePassed']:
             raise RuntimeError('actual compiler/content gate failed: ' + (cls.out / 'compiled/compile.log').read_text()[:2000])
         bundle = split_document((cls.out / 'compiled/document.html').read_text(), cls.report['revision'], max_blocks=2)
+        cls.oracle = json.loads((HERE / 'fixtures/objects.expect.json').read_text())
+        # Controlled assets exercise legitimate schema1 decoding independently of
+        # the compiler/importer gap. They are not substituted for compiler output.
+        controlled_assets = dict(bundle.assets)
+        controlled_html = []
+        def add_asset(data, ext, alt):
+            key = hashlib.sha256(data).hexdigest() + '.' + ext
+            controlled_assets[key] = data
+            return '<img src="api/assets/' + key + '" alt="' + escape(alt, quote=True) + '">'
+        for case in cls.oracle['richAssets']:
+            view_box = ' '.join(str(n) for n in case.get('viewBox', [0, 0, 100, 80]))
+            data = ('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="' + view_box + '" width="100pt" height="80pt">' + case['svg'] + '</svg>').encode()
+            controlled_html.append('<figure>' + add_asset(data, 'svg', case['name']) + '<figcaption>' + case['name'] + '</figcaption></figure>')
+        for ext in ['png', 'jpg', 'gif', 'webp']:
+            controlled_html.append('<figure>' + add_asset((source / ('pattern.' + ext)).read_bytes(), ext, 'raster-' + ext) + '<figcaption>Raster ' + ext + '</figcaption></figure>')
+        controlled_html.append('<p>Inline ' + add_asset((source / 'pattern.png').read_bytes(), 'png', 'inline-png') + ' tail</p>')
+        fixture_documents = {**bundle.documents, 'controlled-rich': ('<html><body>' + ''.join(controlled_html) + '</body></html>').encode()}
+        # The controlled snapshot gets its own content revision. Never reuse a
+        # compiler/server revision as authority for an augmented fixture.
+        fixture_revision = hashlib.sha256(b''.join(fixture_documents.values()) +
+            json.dumps(sorted((key, hashlib.sha256(data).hexdigest()) for key, data in controlled_assets.items())).encode()).hexdigest()
+        bundle = SectionBundle({**bundle.manifest, 'revision': fixture_revision, 'sections': [*bundle.manifest['sections'], {'id': 'controlled-rich'}]},
+                               fixture_documents, controlled_assets, bundle.passages)
+        save(cls.out / 'snapshot-origin.json', dict(scope='fixture', compilerBaseRevision=cls.report['revision'],
+            fixtureRevision=fixture_revision, kind='actual compiler base plus independently authored controlled assets; no server acceptance authority'))
         imported = import_accepted_document(bundle, document_id='objects', service_id='isolated', generation=1, identity_scope='fixture')
         cls.model = imported.document
         cls.nodes = [n for b in cls.model['blocks'] for n in walk(b)]
@@ -126,11 +169,38 @@ class ObjectsTests(unittest.TestCase):
         for key, value in imported.assets.items():
             (cls.out / 'assets' / key).write_bytes(value)
         cls.oracle = json.loads((HERE / 'fixtures/objects.expect.json').read_text())
-        cls.binary = cls.out / 'ObjectsTests'
-        command(['swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-macosx13.0',
-                 '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'],
-                 REPO / 'apps/macos/NativeReaderDocument.swift', REPO / 'apps/macos/NativeReaderOperations.swift',
-                 REPO / OWNED[0], REPO / OWNED[1], HERE / 'ObjectsTests.swift', '-o', cls.binary], timeout=120)
+        def rich_execute(request):
+            return execute(dataclasses.replace(request, inputs=(*request.inputs, ('fidelity-v2', 'true'))))
+        cls.rich_report = compile_project(Project(source, Path('main.typ'), packages, compiler=str(wrapper), execute=rich_execute),
+                                          cls.out / 'rich-compiled', map_sources=False)
+        if cls.rich_report['exitCode'] != 0 or not cls.rich_report['contentGatePassed']:
+            raise RuntimeError('rich actual compiler failed: ' + (cls.out / 'rich-compiled/compile.log').read_text()[-2000:])
+        raw = (cls.out / 'rich-compiled/document.html').read_text()
+        svgs = re.findall(r'<svg\b[\s\S]*?</svg>', raw)
+        (cls.out / 'raw-labeled.svg').write_text(svgs[-1])
+        rich_bundle = split_document(raw, cls.rich_report['revision'], max_blocks=2)
+        cls.blockers = []
+        for label, candidate in [('full-rich-compiler', rich_bundle),
+                                 ('labeled-cetz', SectionBundle({'revision': cls.rich_report['revision'], 'sections': [{'id': 'probe'}]},
+                                                              {'probe': ('<html><body><figure>' + svgs[-1] + '</figure></body></html>').encode()}, {}, []))]:
+            try:
+                import_accepted_document(candidate, document_id='objects', service_id='isolated', generation=1, identity_scope='fixture')
+            except NativeImportError as error:
+                cls.blockers.append(dict(construct=label, code=str(error), fixtureSHA256=digest(source / 'main.typ'),
+                    htmlSHA256=hashlib.sha256(b''.join(candidate.documents.values())).hexdigest(), compilerExit=cls.rich_report['exitCode']))
+        # Isolate a real compiler image after the existing asset separation.
+        for document in rich_bundle.documents.values():
+            tags = re.findall(rb'<img\b[^>]*>', document)
+            if tags:
+                try:
+                    import_accepted_document(SectionBundle({'revision': cls.rich_report['revision'], 'sections': [{'id': 'probe'}]},
+                        {'probe': b'<html><body>' + tags[0] + b'</body></html>'}, rich_bundle.assets, []),
+                        document_id='objects', service_id='isolated', generation=1, identity_scope='fixture')
+                except NativeImportError as error:
+                    cls.blockers.append(dict(construct='compiler-raster-attributes', code=str(error),
+                        fixtureSHA256=digest(source / 'main.typ'), htmlSHA256=hashlib.sha256(tags[0]).hexdigest(), tag=tags[0].decode()))
+                break
+        save(cls.out / 'importer-blockers.json', cls.blockers)
         command([cls.binary, 'requests', cls.out, HERE / 'fixtures/objects.expect.json'])
         cls.helper_command = ['/usr/bin/sandbox-exec', '-p', '(version 1)(allow default)(deny network*)(deny file-write*)',
                               node, REPO / 'tools/flow-reader/native/math_layout.mjs', '--runtime', RUNTIME]
@@ -156,10 +226,22 @@ class ObjectsTests(unittest.TestCase):
             sourceHashes={p: digest(REPO / p) for p in OWNED + ['apps/macos/NativeReaderDocument.swift', 'apps/macos/NativeReaderOperations.swift']},
             fixtureSHA256=digest(HERE / 'fixtures/objects.typ'), oracleSHA256=digest(HERE / 'fixtures/objects.expect.json'),
             dependencyHashes={p: digest(p) for p in cls.report['dependencies'] if Path(p).is_file()},
-            runtimeHashes={str(p.relative_to(RUNTIME)): digest(p) for p in RUNTIME.rglob('*') if p.is_file()},
+            runtimeHashes={str(p.relative_to(RUNTIME)): digest(p) for p in (RUNTIME / 'node_modules').rglob('*') if p.is_file()},
             cacheHashes={str(p.relative_to(cache)): digest(p) for p in cache.rglob('*') if p.is_file()},
             scope='headless current host; macOS13 deployment target only; no GUI, VoiceOver, print-page parity, app delivery or source verification',
             provisionalRuntime='scratch only; not shipped resources'))
+
+    def test_actual_labeled_compiler_import_gate_is_explicit(self):
+        self.assertEqual(self.rich_report['exitCode'], 0)
+        codes = {b['construct']: b['code'] for b in self.blockers}
+        self.assertEqual(codes.get('labeled-cetz'), 'unsupported-svg-primitive')
+        self.assertEqual(codes.get('compiler-raster-attributes'), 'unsupported-attribute')
+        self.assertEqual(self.result['richAssetCases'], 15)
+        origin = json.loads((self.out / 'snapshot-origin.json').read_text())
+        self.assertEqual(self.model['identity']['scope'], 'fixture')
+        self.assertNotEqual(origin['compilerBaseRevision'], self.model['identity']['revision'])
+        self.assertEqual(origin['fixtureRevision'], self.model['identity']['revision'])
+        self.assertGreater(self.result['labeledBlackInk'], 80)
 
     def test_actual_compiler_independent_semantics(self):
         cells = [n for n in self.nodes if n['kind'] == 'cell']
@@ -169,7 +251,7 @@ class ObjectsTests(unittest.TestCase):
                             ('headers', [n['cell']['header'] for n in cells])]:
             self.assertEqual(actual, self.oracle[key])
         self.assertEqual([n['canonicalText'] for n in self.nodes if n['kind'] == 'equationNumber'], [self.oracle['equationNumber']])
-        self.assertEqual([n['canonicalText'] for n in self.nodes if n['kind'] == 'caption'], [self.oracle['figureCaption'], 'Figure\u00a02: CeTZ vector'])
+        self.assertEqual([n['canonicalText'] for n in self.nodes if n['kind'] == 'caption'][:2], [self.oracle['figureCaption'], 'Figure\u00a02: CeTZ vector'])
         xml = ''.join(n['math']['mathML'] for n in self.nodes if n['kind'] == 'math')
         for tag in ['mfrac', 'msqrt', 'munderover']:
             self.assertIn('<' + tag, xml)

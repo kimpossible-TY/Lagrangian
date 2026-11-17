@@ -10,11 +10,11 @@ Inline $a_1 + a_2 + a_3 + a_4 + a_5 + a_6 + a_7 + a_8 + a_9 + a_10 + a_11 + a_12
 
 #table(columns: 3,
   table.header([Name], [Value], [단위😀]),
-  table.cell(rowspan: 2)[Mass], [$10$], [kg], [20], [g],
+  table.cell(rowspan: 2)[*Mass*], [$10$], [_kg_], [20], [g],
   table.cell(colspan: 3)[Merged],
 )
 #let shape = rect(width: 48pt, height: 24pt, fill: rgb("#2060c0"))
-#figure(context { if target() == "html" { html.frame(shape) } else { shape } }, caption: [Blue rectangle]) <blue>
+#figure(context { if target() == "html" { html.frame(shape) } else { shape } }, caption: [*Blue* _rectangle_ #link("https://example.org/objects")[link]]) <blue>
 See @formula and @blue.
 
 #import "@preview/cetz:0.4.2": canvas, draw
@@ -25,3 +25,17 @@ See @formula and @blue.
   circle((20, 10), radius: 5, fill: rgb("#c02020"))
 })
 #figure(context { if target() == "html" { html.frame(native-canvas) } else { native-canvas } }, caption: [CeTZ vector]) <cetz>
+
+
+// Actual compiler fidelity probe. The base snapshot remains independently
+// renderable when the frozen importer rejects the new compiler constructs.
+#if sys.inputs.at("fidelity-v2", default: "false") == "true" [
+  #let labeled = canvas(length: 1pt, {
+    import draw: *
+    rect((0, 0), (60, 30), fill: rgb("#2060c0"))
+    content((30, 15), [*Label* $x^2$], anchor: "center")
+  })
+  #figure(context { if target() == "html" { html.frame(labeled) } else { labeled } }, caption: [Labeled CeTZ]) <labeled>
+  #figure(image("pattern.png"), caption: [Raster PNG]) <raster>
+  Inline #box(image("pattern.jpg")) end.
+]
