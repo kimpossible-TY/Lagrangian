@@ -11,6 +11,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
+import time
 import subprocess
 import sys
 import unittest
@@ -196,6 +198,47 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
             self.assertNotEqual(r.returncode,0)
             self.assertEqual(self.tree(self.cache/self.run_id),before)
         finally:marker.unlink()
+
+    def test_actual_interrupt_preserves_stage(self):
+        before=self.tree(self.cache/self.run_id)
+        argv=['python3','scripts/flow-app.py','build','--engine',str(self.engine)]
+        with (self.root/'signal-interrupt.stdout').open('w') as out, (self.root/'signal-interrupt.stderr').open('w') as err:
+            child=subprocess.Popen(argv,cwd=ROOT,env=self.env,stdout=out,stderr=err,start_new_session=True)
+            try:
+                deadline=time.monotonic()+20
+                while not list(self.app.parent.glob('.flow-build-*')) and child.poll() is None and time.monotonic()<deadline:
+                    time.sleep(0.02)
+                self.assertIsNone(child.poll(),'Build ended before interruption')
+                self.assertTrue(list(self.app.parent.glob('.flow-build-*')))
+                os.killpg(child.pid,signal.SIGTERM)
+                code=child.wait(timeout=15)
+                self.assertNotEqual(code,0)
+                with (self.root/'commands.jsonl').open('a') as f:f.write(json.dumps({'name':'signal-interrupt','argv':argv,'exit':code})+'\n')
+            finally:
+                if child.poll() is None:os.killpg(child.pid,signal.SIGKILL);child.wait()
+                for path in self.app.parent.glob('.flow-build-*'):shutil.rmtree(path)
+        self.assertEqual(self.tree(self.cache/self.run_id),before)
+
+    def test_actual_after_hash_input_drift_preserves_app(self):
+        target=self.cache/self.run_id/'Lagrangian.app/Contents/Resources/native-reader/runtime/helper.mjs'
+        original=target.read_bytes()
+        argv=['python3','scripts/flow-app.py','build','--engine',str(self.engine)]
+        with (self.root/'during-build-drift.stdout').open('w') as out, (self.root/'during-build-drift.stderr').open('w') as err:
+            child=subprocess.Popen(argv,cwd=ROOT,env=self.env,stdout=out,stderr=err,start_new_session=True)
+            try:
+                deadline=time.monotonic()+180
+                while not list(self.app.parent.glob('.flow-build-*/Lagrangian.app/Contents/MacOS/flow-engine')) and child.poll() is None and time.monotonic()<deadline:
+                    time.sleep(0.05)
+                self.assertIsNone(child.poll(),'Build ended before Swift candidate')
+                self.assertTrue(list(self.app.parent.glob('.flow-build-*/Lagrangian.app/Contents/MacOS/flow-engine')))
+                target.write_bytes(original+b'\n// NA14 concurrent input drift\n')
+                code=child.wait(timeout=180)
+                self.assertNotEqual(code,0)
+                with (self.root/'commands.jsonl').open('a') as f:f.write(json.dumps({'name':'during-build-drift','argv':argv,'exit':code})+'\n')
+            finally:
+                target.write_bytes(original)
+                if child.poll() is None:os.killpg(child.pid,signal.SIGKILL);child.wait()
+        self.assertIn('input changed during build',(self.root/'during-build-drift.stderr').read_text())
 
     def test_contextless_engine_cannot_silently_downgrade(self):
         r=self.command('standalone-missing-delivery',['python3','scripts/flow-app.py','build','--engine',self.artifact/'flow-engine'])

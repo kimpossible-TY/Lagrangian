@@ -182,8 +182,12 @@ def integrated_sources(root):
     revisions.update({name:gui for name in changed(gui + '^', gui)})
     revisions.update({name:published for name in changed('5d71618e7ee320edbe759511fe634024fc8104a6', published)})
     # Explicit PM transfer C-TEST-COLLECT-01. No C implementation is overridden.
-    transferred = 'tests/flow-app/native-reader-app/test_original_pages.py'
-    revisions[transferred] = 'HEAD'
+    transferred = ['tests/flow-app/native-reader-app/test_original_pages.py',
+                   # NA14 explicitly transfers these canonical/generated docs;
+                   # immutable Swift/backend owner files retain their revisions.
+                   'docs/dev-guide.md', 'docs/tinymist/dev/development.typ',
+                   'docs/tinymist/flow-app.md', 'docs/tinymist/flow-app.typ']
+    revisions.update({name:'HEAD' for name in transferred})
     records = {}
     for name, revision in sorted(revisions.items()):
         blob = subprocess.check_output(['git', '-C', str(root), 'show', revision + ':' + name])
@@ -191,7 +195,7 @@ def integrated_sources(root):
         require(sha(root / name) == digest, 'integrated owner source drift: ' + name)
         records[name] = digest
     return {'coreRevision':core, 'pageRevision':pages, 'guiRevision':gui,
-            'publishedReaderRevision':published, 'deliveryOwnedOverrides':[transferred], 'files':records}
+            'publishedReaderRevision':published, 'deliveryOwnedOverrides':transferred, 'files':records}
 
 
 def verify(root, expected=None, signatures=True):
