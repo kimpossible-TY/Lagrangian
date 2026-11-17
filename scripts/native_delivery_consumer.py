@@ -132,5 +132,9 @@ def consume(package, engine, explicit=None, management_only=False):
                       'inputRuntimeManifestSHA256': m['runtimeManifestSHA256'],
                       'readerBundleChecksum': m['readerBundleChecksum'], 'inputSigning': m['signing']}
         yield payload, provenance
-        owner.require(context(package, engine.parent, engine.parent, repo, record) == c,
+        try:
+            current = context(package, engine.parent, engine.parent, repo, record)
+        except (ValueError, OSError) as error:
+            raise ValueError('Native delivery input changed during build: ' + str(error)) from error
+        owner.require(current == c,
                       'Native delivery input changed during build')

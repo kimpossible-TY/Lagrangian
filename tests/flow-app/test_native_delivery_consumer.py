@@ -120,6 +120,7 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
             raise RuntimeError('Required golden CLI failed: '+result.stderr[-3000:])
         cls.receipt = cls.cache / cls.run_id / 'native-delivery-context.json'
         cls.original_receipt = cls.receipt.read_bytes()
+        cls.original_receipt_mode = cls.receipt.stat().st_mode & 0o777
         cls.original_app = cls.tree(cls.app)
         cls.engine = cls.cache / cls.run_id / 'flow-engine'
 
@@ -138,6 +139,7 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
 
     def tearDown(self):
         self.receipt.write_bytes(self.original_receipt)
+        self.receipt.chmod(self.original_receipt_mode)
         self.assertEqual(self.tree(self.app), self.original_app, 'A negative changed the valid app')
         self.assertEqual(self.tree(self.artifact), self.original_inventory, 'Original artifact changed')
         self.assertFalse((self.root/'forbidden-services').exists())
@@ -170,7 +172,7 @@ else:raise SystemExit('forbidden gh fixture call: '+repr(args))
     def test_receipt_schema_wrong_head_mixed_run_replay(self):
         original=json.loads(self.original_receipt)
         for name, changes in [('schema',{'schemaVersion':3}),('wrong-head',{'runHeadSHA':'0'*40}),
-                              ('mixed-run',{'runId':'91015'}),('replay-path',{'enginePath':str(self.cache/self.run_id/'flow-engine')}),
+                              ('mixed-run',{'runId':'91015'}),('replay-path',{'enginePath':str(self.cache/'replayed'/'flow-engine')}),
                               ('path-escape',{'enginePath':str(self.engine.parent/'../flow-engine')})]:
             with self.subTest(name=name):
                 self.receipt.write_text(json.dumps({**original,**changes}))
