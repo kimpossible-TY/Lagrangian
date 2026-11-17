@@ -30,6 +30,10 @@ def handler_for(state, *, public_url=None, homepage_url=None):
     offline_worker = worker_script(assets, vendor_routes)
     from flow_reader.server.native_reader import NativeReaderService
     native = NativeReaderService(state)
+    import select
+    import socket
+    from flow_reader.server.native_pages import NativePageService
+    pages = NativePageService(state, native)
     native_posts = {"/api/native-action", "/api/native-chat"}
     compiler_pool = getattr(state, "compiler_pool", None)
     compiler_assets = getattr(state, "compiler_assets", None)
@@ -186,6 +190,15 @@ def handler_for(state, *, public_url=None, homepage_url=None):
             self.connection.settimeout(5)
             return True
 
+        def native_connected(self):
+            try:
+                readable, _, _ = select.select([self.connection], [], [], 0)
+                return not readable or self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) != b""
+            except BlockingIOError:
+                return True
+            except OSError:
+                return False
+
         def native_events(self, request):
             result = native.chat(request)  # Validate before stream headers.
             self.send_response(200)
@@ -250,12 +263,16 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                 return self.respond(b"Unrecognized reader host", "text/plain", 421)
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
-            if path == "/api/native-document" or path.startswith("/api/native-assets/"):
+            if path in {"/api/native-document", "/api/native-pages"} or path.startswith(("/api/native-assets/", "/api/native-pages/")):
                 if url.path != path:
                     return self.respond(b"Not found", "text/plain", 404)
                 if not self.native_guard():
                     return
                 try:
+                    if path == "/api/native-pages":
+                        return self.respond(pages.manifest(url.query, self.native_connected), "application/json")
+                    if path.startswith("/api/native-pages/"):
+                        return self.respond(pages.resource(url.query, path.removeprefix("/api/native-pages/")), "application/pdf")
                     if path.startswith("/api/native-assets/"):
                         asset = native.asset(url.query, path.removeprefix("/api/native-assets/"))
                         if asset is None:

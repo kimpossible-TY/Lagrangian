@@ -481,7 +481,7 @@ struct NativeOriginalPageBinding: Codable, Equatable {
         guard [identity.documentID, identity.serviceID, identity.revision].allSatisfy({ (1...128).contains($0.utf8.count) }),
               [inputFingerprint, pdfSHA256].allSatisfy({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }),
               [snapshotGeneration, requestGeneration, viewGeneration, publicationSequence].allSatisfy({ $0 >= 0 }),
-              !pages.isEmpty, pages.count <= 32 else { throw NativeOriginalPageError.binding }
+              !pages.isEmpty, pages.count <= 2048 else { throw NativeOriginalPageError.binding }
         for (i, p) in pages.enumerated() {
             guard p.index == i, [0, 90, 180, 270].contains(p.rotation), validPDFRect(p.mediaBox), validPDFRect(p.cropBox),
                   p.mediaBox.contains(p.cropBox) else { throw NativeOriginalPageError.geometry }
@@ -504,6 +504,7 @@ struct NativeOriginalPageLimits {
     var pixels = 16 * 1024 * 1024 // RGBA allocation is charged at four bytes/pixel.
     var characters = 250000
     var graphObjects = 100000
+    var lazy = false // Legacy component proof remains bounded/eager; production uses lazy.
 }
 struct NativeOriginalPageRaster {
     let geometry: NativeOriginalPageGeometry
@@ -558,8 +559,9 @@ struct NativeOriginalPreparedPages {
     let pages: [NativeOriginalPageRaster]
     let preparationWasMainThread: Bool
     let access: NativeOriginalPDFAccess
-    fileprivate init(id: UUID, binding: NativeOriginalPageBinding, pages: [NativeOriginalPageRaster], preparationWasMainThread: Bool, access: NativeOriginalPDFAccess) {
-        self.id = id; self.binding = binding; self.pages = pages; self.preparationWasMainThread = preparationWasMainThread; self.access = access
+    let transforms: [CGAffineTransform]
+    fileprivate init(id: UUID, binding: NativeOriginalPageBinding, pages: [NativeOriginalPageRaster], preparationWasMainThread: Bool, access: NativeOriginalPDFAccess, transforms: [CGAffineTransform]) {
+        self.id = id; self.binding = binding; self.pages = pages; self.preparationWasMainThread = preparationWasMainThread; self.access = access; self.transforms = transforms
     }
 }
 
@@ -568,21 +570,47 @@ struct NativeOriginalPreparedPages {
 actor NativeOriginalPDFAccess {
     private let document: PDFDocument
     private let id: UUID
-    private let texts: [String]
+    private var texts = [(Int, String)]()
+    private var renders = [(Int, Double, NativeOriginalPageRender)]()
+    private var renderedPages = Set<Int>()
+    private(set) var renderCount = 0, evictions = 0, peakRasterBytes = 0, peakTextBytes = 0
+    private var closed = false
+    func dispose() { closed = true; texts.removeAll(); renders.removeAll() }
+    func metrics() -> [String: Int] { ["renderCount": renderCount, "renderedPages": renderedPages.count, "evictions": evictions, "peakRasterBytes": peakRasterBytes, "peakTextBytes": peakTextBytes, "cachedPages": renders.count, "textPages": texts.count] }
+    private func text(at index: Int) throws -> String {
+        guard !closed, geometries.indices.contains(index), let page = document.page(at: index) else { throw NativeOriginalPageError.cancelled }
+        if let entry = texts.first(where: { $0.0 == index }) { return entry.1 }
+        guard page.numberOfCharacters <= 250000 else { throw NativeOriginalPageError.budget }
+        let value = page.string ?? ""
+        guard value.utf16.count <= 250000 else { throw NativeOriginalPageError.budget }
+        let cost = value.utf8.count
+        guard cost <= 1024 * 1024 else { throw NativeOriginalPageError.budget }
+        while !texts.isEmpty && (texts.count >= 8 || texts.reduce(cost, { $0 + $1.1.utf8.count }) > 1024 * 1024) { texts.removeFirst(); evictions += 1 }
+        texts.append((index, value)); peakTextBytes = max(peakTextBytes, texts.reduce(0, { $0 + $1.1.utf8.count }))
+        return value
+    }
     private let geometries: [NativeOriginalPageGeometry]
     fileprivate init(document: PDFDocument, id: UUID, texts: [String], geometries: [NativeOriginalPageGeometry]) {
-        self.document = document; self.id = id; self.texts = texts; self.geometries = geometries
+        self.document = document; self.id = id; self.geometries = geometries
     }
     func render(page index: Int, scale: Double, maximumPixels: Int = 4 * 1024 * 1024) throws -> NativeOriginalPageRender {
-        guard geometries.indices.contains(index), let page = document.page(at: index) else { throw NativeOriginalPageError.geometry }
+        guard !closed, geometries.indices.contains(index), let page = document.page(at: index) else { throw NativeOriginalPageError.geometry }
+        try Task.checkCancellation()
+        if let hit = renders.first(where: { $0.0 == index && $0.1 == scale }) { return hit.2 }
         let image = try renderOriginalPDFPage(page, geometry: geometries[index], scale: scale, maximumPixels: maximumPixels, cancelled: { Task.isCancelled })
-        return NativeOriginalPageRender(snapshotID: id, pageIndex: index, rasterScale: scale, image: image)
+        let result = NativeOriginalPageRender(snapshotID: id, pageIndex: index, rasterScale: scale, image: image)
+        let cost = image.bytesPerRow * image.height
+        guard cost <= 16 * 1024 * 1024 else { throw NativeOriginalPageError.budget }
+        while !renders.isEmpty && (renders.count >= 3 || renders.reduce(cost, { $0 + $1.2.image.bytesPerRow * $1.2.image.height }) > 16 * 1024 * 1024) { renders.removeFirst(); evictions += 1 }
+        renders.append((index, scale, result)); renderCount += 1; renderedPages.insert(index)
+        peakRasterBytes = max(peakRasterBytes, renders.reduce(0, { $0 + $1.2.image.bytesPerRow * $1.2.image.height }))
+        return result
     }
     private func validate(page index: Int, range: Range<Int>) throws -> PDFPage {
         if Task.isCancelled { throw NativeOriginalPageError.cancelled }
-        guard texts.indices.contains(index), let page = document.page(at: index),
-              page.numberOfCharacters == texts[index].utf16.count else { throw NativeOriginalPageError.unsupported("pdf-text-index-unverified") }
-        let text = texts[index]
+        guard !closed, geometries.indices.contains(index), let page = document.page(at: index),
+              page.numberOfCharacters == (try text(at: index)).utf16.count else { throw NativeOriginalPageError.unsupported("pdf-text-index-unverified") }
+        let text = try text(at: index)
         var endpoints = Set([0]), position = 0
         for c in text { position += String(c).utf16.count; endpoints.insert(position) }
         guard !range.isEmpty, endpoints.contains(range.lowerBound), endpoints.contains(range.upperBound) else { throw NativeOriginalPageError.unsupported("pdf-selection-boundary") }
@@ -591,7 +619,7 @@ actor NativeOriginalPDFAccess {
     func selection(page index: Int, rangeUTF16 range: Range<Int>) throws -> NativeOriginalDisplaySelection {
         let page = try validate(page: index, range: range)
         let ns = NSRange(location: range.lowerBound, length: range.count)
-        let expected = (texts[index] as NSString).substring(with: ns)
+        let expected = (try text(at: index) as NSString).substring(with: ns)
         guard let selection = page.selection(for: ns), let selected = selection.string, selected == expected else {
             throw NativeOriginalPageError.unsupported("pdf-selection-ambiguous")
         }
@@ -600,30 +628,70 @@ actor NativeOriginalPDFAccess {
         return NativeOriginalDisplaySelection(snapshotID: id, pageIndex: index, rangeUTF16: range, displayText: selected, pageBounds: bounds)
     }
     func selection(page index: Int, rectangle: CGRect) throws -> NativeOriginalDisplaySelection {
-        guard texts.indices.contains(index), let page = document.page(at: index), validPDFRect(rectangle),
+        guard !closed, geometries.indices.contains(index), let page = document.page(at: index), validPDFRect(rectangle),
               page.bounds(for: .cropBox).intersects(rectangle), let selected = page.selection(for: rectangle),
               selected.numberOfTextRanges(on: page) == 1 else { throw NativeOriginalPageError.unsupported("pdf-rectangle-selection") }
         let range = selected.range(at: 0, on: page)
         guard range.location != NSNotFound, range.length > 0, range.location <= Int.max - range.length else { throw NativeOriginalPageError.invalidPDF }
         return try selection(page: index, rangeUTF16: range.location..<(range.location + range.length))
     }
-    func search(_ query: String, maximum: Int = 256) throws -> [NativeOriginalDisplaySelection] {
-        guard !query.isEmpty, query.utf16.count <= 256, (1...256).contains(maximum) else { throw NativeOriginalPageError.budget }
-        // Incremental synchronous PDFKit find avoids allocating unbounded matches.
-        var previous: PDFSelection?, found = [NativeOriginalDisplaySelection]()
-        while let next = document.findString(query, fromSelection: previous, withOptions: .literal) {
-            if Task.isCancelled { throw NativeOriginalPageError.cancelled }
-            guard found.count < maximum, let page = next.pages.first, next.pages.count == 1 else { throw NativeOriginalPageError.budget }
-            let index = document.index(for: page)
-            guard next.numberOfTextRanges(on: page) == 1 else { throw NativeOriginalPageError.unsupported("pdf-search-discontiguous") }
-            let range = next.range(at: 0, on: page)
-            guard range.location != NSNotFound, range.length > 0, range.location <= Int.max - range.length else { throw NativeOriginalPageError.invalidPDF }
-            let result = try selection(page: index, rangeUTF16: range.location..<(range.location + range.length))
-            guard result.displayText == query, found.last != result else { throw NativeOriginalPageError.unsupported("pdf-search-ambiguous") }
-            found.append(result); previous = next
-        }
-        return found.sorted { $0.pageIndex == $1.pageIndex ? $0.rangeUTF16.lowerBound < $1.rangeUTF16.lowerBound : $0.pageIndex < $1.pageIndex }
+    struct Link {
+        enum Action { case uri(URL), goTo(Int, CGPoint) }
+        let snapshotID: UUID
+        let pageIndex: Int
+        let bounds: CGRect
+        let action: Action
     }
+    static func safeURL(_ url: URL) -> Bool {
+        guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              ["https", "http", "mailto"].contains(c.scheme?.lowercased() ?? ""),
+              c.user == nil, c.password == nil, url.absoluteString.utf8.count <= 4096,
+              !(url.absoluteString.removingPercentEncoding ?? url.absoluteString).unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { return false }
+        if c.scheme?.lowercased() == "mailto" { return !c.path.isEmpty && c.query == nil && c.fragment == nil }
+        return !(c.host ?? "").isEmpty
+    }
+    func links(page index: Int) throws -> [Link] {
+        guard !closed, geometries.indices.contains(index), let page = document.page(at: index), page.annotations.count <= 256 else { throw NativeOriginalPageError.budget }
+        var result = [Link]()
+        for annotation in page.annotations where annotation.type == "Link" {
+            try Task.checkCancellation()
+            let bounds = annotation.bounds
+            guard validPDFRect(bounds), page.bounds(for: .cropBox).intersects(bounds) else { throw NativeOriginalPageError.geometry }
+            let directDestination = annotation.action == nil && annotation.value(forAnnotationKey: PDFAnnotationKey(rawValue: "A")) == nil ? annotation.destination : nil
+            if let action = annotation.action as? PDFActionURL, let url = action.url {
+                guard Self.safeURL(url) else { continue }
+                result.append(Link(snapshotID: id, pageIndex: index, bounds: bounds, action: .uri(url)))
+            } else if let destination = (annotation.action as? PDFActionGoTo)?.destination ?? directDestination,
+                      let target = destination.page {
+                let targetIndex = document.index(for: target), point = destination.point
+                guard geometries.indices.contains(targetIndex), point.x.isFinite, point.y.isFinite,
+                      geometries[targetIndex].cropBox.contains(point) else { continue }
+                result.append(Link(snapshotID: id, pageIndex: index, bounds: bounds, action: .goTo(targetIndex, point)))
+            }
+        }
+        return result // Never PDFView.performAction; caller must explicitly activate.
+    }
+    func search(_ query: String, maximum: Int = 256) throws -> [NativeOriginalDisplaySelection] {
+        guard !closed, !query.isEmpty, query.utf16.count <= 256, (1...256).contains(maximum) else { throw NativeOriginalPageError.budget }
+        var found = [NativeOriginalDisplaySelection](), scanned = 0
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        for index in geometries.indices {
+            try Task.checkCancellation()
+            let value = try text(at: index) as NSString
+            scanned += value.length
+            guard scanned <= 4 * 1024 * 1024, ProcessInfo.processInfo.systemUptime < deadline else { throw NativeOriginalPageError.budget }
+            var start = 0
+            while start < value.length {
+                let range = value.range(of: query, options: .literal, range: NSRange(location: start, length: value.length - start))
+                if range.location == NSNotFound { break }
+                guard found.count < maximum else { throw NativeOriginalPageError.budget }
+                found.append(try selection(page: index, rangeUTF16: range.location..<(range.location + range.length)))
+                start = range.location + range.length
+            }
+        }
+        return found
+    }
+
 }
 
 enum NativeOriginalPreparationPhase: Equatable { case inspected, page(Int), ready }
@@ -638,6 +706,7 @@ actor NativeOriginalPagePreparer {
         guard supplement.binding == expected else { throw NativeOriginalPageError.binding }
         guard limits.bytes > 0, limits.bytes <= 16 * 1024 * 1024, limits.pixels > 0, limits.pixels <= 16 * 1024 * 1024,
               limits.characters > 0, limits.characters <= 250000, limits.graphObjects > 0, limits.graphObjects <= 100000,
+              (limits.lazy || supplement.binding.pages.count <= 32),
               !supplement.data.isEmpty, supplement.data.count <= limits.bytes else { throw NativeOriginalPageError.budget }
         active += 1; defer { active -= 1 }
         let cancellation = NativeOriginalCancellation()
@@ -660,16 +729,18 @@ actor NativeOriginalPagePreparer {
               let provider = CGDataProvider(data: s.data as CFData), let raw = CGPDFDocument(provider) else { throw NativeOriginalPageError.invalidPDF }
         guard !raw.isEncrypted else { throw NativeOriginalPageError.encrypted }
         guard raw.numberOfPages == s.binding.pages.count else { throw NativeOriginalPageError.geometry }
-        try NativeOriginalPDFSafety.scan(raw, maximum: limits.graphObjects, cancelled: { cancellation.cancelled })
+        try NativeOriginalPDFSafety.scan(raw, maximum: limits.graphObjects, allowLinks: limits.lazy, cancelled: { cancellation.cancelled })
         progress(.inspected); try check()
         guard let document = PDFDocument(data: s.data), !document.isEncrypted, !document.isLocked,
               document.pageCount == s.binding.pages.count else { throw NativeOriginalPageError.invalidPDF }
-        let id = UUID(); var pages = [NativeOriginalPageRaster](), pixels = 0, characters = 0
+        let id = UUID(); var pages = [NativeOriginalPageRaster](), transforms = [CGAffineTransform](), pixels = 0, characters = 0
         for expected in s.binding.pages {
             progress(.page(expected.index)); try check()
             guard let p = document.page(at: expected.index) else { throw NativeOriginalPageError.invalidPDF }
             let actual = NativeOriginalPageGeometry(index: expected.index, mediaBox: p.bounds(for: .mediaBox), cropBox: p.bounds(for: .cropBox), rotation: p.rotation)
             guard actual == expected else { throw NativeOriginalPageError.geometry }
+            transforms.append(p.transform(for: .cropBox))
+            if limits.lazy { continue }
             let size = actual.displaySize, w = Int(ceil(size.width)), h = Int(ceil(size.height))
             guard w > 0, h > 0, w <= limits.pixels / h, pixels <= limits.pixels - w * h else { throw NativeOriginalPageError.budget }
             pixels += w * h
@@ -689,7 +760,7 @@ actor NativeOriginalPagePreparer {
         }
         progress(.ready); try check()
         return NativeOriginalPreparedPages(id: id, binding: s.binding, pages: pages, preparationWasMainThread: Thread.isMainThread,
-            access: NativeOriginalPDFAccess(document: document, id: id, texts: pages.map(\.text), geometries: pages.map(\.geometry)))
+            access: NativeOriginalPDFAccess(document: document, id: id, texts: pages.map(\.text), geometries: s.binding.pages), transforms: transforms)
     }
 }
 private final class NativeOriginalCancellation: @unchecked Sendable {
@@ -703,12 +774,17 @@ private final class NativeOriginalCancellation: @unchecked Sendable {
 private final class NativeOriginalPDFSafety {
     private struct Address: Hashable { let kind: Int; let value: UInt }
     private var visited = Set<Address>(), count = 0
+    private var pending = [(CGPDFObjectRef, String?, Int)]()
     private let maximum: Int, cancelled: () -> Bool
-    init(maximum: Int, cancelled: @escaping () -> Bool) { self.maximum = maximum; self.cancelled = cancelled }
-    static func scan(_ document: CGPDFDocument, maximum: Int, cancelled: @escaping () -> Bool) throws {
-        let scanner = NativeOriginalPDFSafety(maximum: maximum, cancelled: cancelled)
+    private let allowLinks: Bool
+    init(maximum: Int, allowLinks: Bool, cancelled: @escaping () -> Bool) { self.maximum = maximum; self.allowLinks = allowLinks; self.cancelled = cancelled }
+    static func scan(_ document: CGPDFDocument, maximum: Int, allowLinks: Bool = false, cancelled: @escaping () -> Bool) throws {
+        let scanner = NativeOriginalPDFSafety(maximum: maximum, allowLinks: allowLinks, cancelled: cancelled)
         guard let catalog = document.catalog else { throw NativeOriginalPageError.invalidPDF }
         try scanner.dictionary(catalog, depth: 0)
+        // PDF parent/destination/structure references form a graph. Walk it
+        // iteratively: long legal reference chains are not syntax nesting.
+        while let item = scanner.pending.popLast() { try scanner.object(item.0, key: item.1, depth: item.2) }
     }
     private final class Context {
         let scanner: NativeOriginalPDFSafety, depth: Int
@@ -716,7 +792,7 @@ private final class NativeOriginalPDFSafety {
         init(_ scanner: NativeOriginalPDFSafety, _ depth: Int) { self.scanner = scanner; self.depth = depth }
     }
     private func dictionary(_ dictionary: CGPDFDictionaryRef, depth: Int) throws {
-        guard depth <= 128 else { throw NativeOriginalPageError.budget }
+        guard allowLinks || depth <= 128 else { throw NativeOriginalPageError.unsupported("pdf-graph-depth-budget") }
         guard visited.insert(Address(kind: 1, value: UInt(bitPattern: dictionary.rawValue))).inserted else { return }
         var width = 0, height = 0
         if CGPDFDictionaryGetInteger(dictionary, "Width", &width), CGPDFDictionaryGetInteger(dictionary, "Height", &height) {
@@ -726,18 +802,24 @@ private final class NativeOriginalPDFSafety {
         CGPDFDictionaryApplyFunction(dictionary, { key, object, opaque in
             let c = Unmanaged<Context>.fromOpaque(opaque!).takeUnretainedValue()
             guard c.error == nil else { return }
-            do { try c.scanner.object(object, key: String(cString: key), depth: c.depth + 1) } catch { c.error = error }
+            do { try c.scanner.enqueue(object, key: String(cString: key), depth: c.depth + 1) } catch { c.error = error }
         }, Unmanaged.passUnretained(context).toOpaque())
         if let error = context.error { throw error }
+    }
+    private func enqueue(_ object: CGPDFObjectRef, key: String?, depth: Int) throws {
+        guard pending.count < maximum else { throw NativeOriginalPageError.budget }
+        pending.append((object, key, depth))
     }
     private func object(_ object: CGPDFObjectRef, key: String?, depth: Int) throws {
         if cancelled() { throw NativeOriginalPageError.cancelled }
         count += 1
-        guard count <= maximum, depth <= 128 else { throw NativeOriginalPageError.budget }
+        guard count <= maximum else { throw NativeOriginalPageError.unsupported("pdf-graph-object-budget") }
+        guard allowLinks || depth <= 128 else { throw NativeOriginalPageError.unsupported("pdf-graph-depth-budget") }
         let type = CGPDFObjectGetType(object)
-        if let key = key, ["OpenAction", "AA", "JS", "JavaScript", "AcroForm", "XFA", "EmbeddedFiles", "EF", "AF", "FFilter", "URI"].contains(key) {
+        if let key = key, ["OpenAction", "AA", "JS", "JavaScript", "AcroForm", "XFA", "EmbeddedFiles", "EF", "AF", "FFilter"].contains(key) {
             throw NativeOriginalPageError.unsupported("pdf-active-content")
         }
+        if key == "URI", !allowLinks { throw NativeOriginalPageError.unsupported("pdf-action") }
         if key == "UserUnit" {
             var value: CGPDFReal = 0
             guard CGPDFObjectGetValue(object, .real, &value), value == 1 else { throw NativeOriginalPageError.unsupported("pdf-nonstandard-user-unit") }
@@ -748,7 +830,8 @@ private final class NativeOriginalPDFSafety {
             var pointer: UnsafePointer<CChar>?
             guard CGPDFObjectGetValue(object, .name, &pointer), let value = pointer else { throw NativeOriginalPageError.invalidPDF }
             let name = String(cString: value)
-            if key == "S", ["URI", "JavaScript", "Launch", "GoToR", "GoToE", "Named", "SubmitForm", "ResetForm", "ImportData", "Rendition", "Movie", "Sound"].contains(name) {
+            if key == "S", name == "URI", !allowLinks { throw NativeOriginalPageError.unsupported("pdf-action") }
+            if key == "S", ["JavaScript", "Launch", "GoToR", "GoToE", "Named", "SubmitForm", "ResetForm", "ImportData", "Rendition", "Movie", "Sound"].contains(name) {
                 throw NativeOriginalPageError.unsupported("pdf-action")
             }
             if key == "Type", ["Filespec", "EmbeddedFile"].contains(name) { throw NativeOriginalPageError.unsupported("pdf-external-file") }
@@ -760,7 +843,7 @@ private final class NativeOriginalPDFSafety {
             var a: CGPDFArrayRef?; guard CGPDFObjectGetValue(object, .array, &a), let a = a else { throw NativeOriginalPageError.invalidPDF }
             guard visited.insert(Address(kind: 2, value: UInt(bitPattern: a.rawValue))).inserted else { return }
             let n = CGPDFArrayGetCount(a); guard n <= maximum else { throw NativeOriginalPageError.budget }
-            for i in 0..<n { var o: CGPDFObjectRef?; guard CGPDFArrayGetObject(a, i, &o), let o = o else { throw NativeOriginalPageError.invalidPDF }; try self.object(o, key: nil, depth: depth + 1) }
+            for i in 0..<n { var o: CGPDFObjectRef?; guard CGPDFArrayGetObject(a, i, &o), let o = o else { throw NativeOriginalPageError.invalidPDF }; try self.enqueue(o, key: nil, depth: depth + 1) }
         case .stream:
             var s: CGPDFStreamRef?; guard CGPDFObjectGetValue(object, .stream, &s), let s = s else { throw NativeOriginalPageError.invalidPDF }
             guard let dictionary = CGPDFStreamGetDictionary(s) else { throw NativeOriginalPageError.invalidPDF }
@@ -807,22 +890,27 @@ private final class NativeOriginalPDFSafety {
         lastRequest = expected.requestGeneration
         let ticket = Ticket(id: UUID(), expected: expected); current = ticket; return ticket
     }
-    func adopt(_ pages: NativeOriginalPreparedPages, for ticket: Ticket) throws {
+    func validateAdoption(_ pages: NativeOriginalPreparedPages, for ticket: Ticket) throws {
         guard !disposed, ticket == current, ticket.expected == pages.binding, pages.binding.viewGeneration == viewGeneration else { throw NativeOriginalPageError.stale }
         guard selection == nil else { throw NativeOriginalPageError.heldSelection }
         let b = pages.binding, key = Snapshot(service: b.identity.serviceID, document: b.identity.documentID, generation: b.snapshotGeneration)
         if let previous = fingerprints.first(where: { $0.0 == key }), previous.1 != b.inputFingerprint { throw NativeOriginalPageError.binding }
-        if let old = sequences.first(where: { $0.0 == b.identity.serviceID && $0.1 == b.identity.documentID }), (b.publicationSequence <= old.2 || b.snapshotGeneration < old.3) { throw NativeOriginalPageError.stale }
+        if let old = sequences.first(where: { $0.0 == b.identity.serviceID && $0.1 == b.identity.documentID }), (b.publicationSequence < old.2 || b.snapshotGeneration < old.3 ||
+            (b.publicationSequence == old.2 && (accepted?.binding.inputFingerprint != b.inputFingerprint || accepted?.binding.pdfSHA256 != b.pdfSHA256 || accepted?.binding.identity != b.identity))) { throw NativeOriginalPageError.stale }
+    }
+    func adopt(_ pages: NativeOriginalPreparedPages, for ticket: Ticket) throws {
+        try validateAdoption(pages, for: ticket)
+        let b = pages.binding, key = Snapshot(service: b.identity.serviceID, document: b.identity.documentID, generation: b.snapshotGeneration)
         sequences.removeAll { $0.0 == b.identity.serviceID && $0.1 == b.identity.documentID }
         sequences.append((b.identity.serviceID, b.identity.documentID, b.publicationSequence, b.snapshotGeneration))
         while sequences.count > 32 { sequences.removeFirst() }
         fingerprints.removeAll { $0.0 == key }; fingerprints.append((key, b.inputFingerprint))
         while fingerprints.count > 32 { fingerprints.removeFirst() }
         accepted = pages; current = nil; renderTicket = nil; currentRender = nil
-        pageIndex = min(pageIndex, pages.pages.count - 1); paintAcknowledgment = nil
+        pageIndex = min(pageIndex, pages.binding.pages.count - 1); paintAcknowledgment = nil
     }
     func hold(_ selected: NativeOriginalDisplaySelection, ticket: UUID) throws {
-        guard let accepted = accepted, selected.snapshotID == accepted.id, accepted.pages.indices.contains(selected.pageIndex) else { throw NativeOriginalPageError.stale }
+        guard let accepted = accepted, selected.snapshotID == accepted.id, accepted.binding.pages.indices.contains(selected.pageIndex) else { throw NativeOriginalPageError.stale }
         selection = (ticket, selected)
     }
     func release(ticket: UUID) { if selection?.0 == ticket { selection = nil } }
@@ -845,13 +933,13 @@ private final class NativeOriginalPDFSafety {
         viewportChanged()
     }
     func jump(to page: Int) throws {
-        guard let accepted = accepted, accepted.pages.indices.contains(page), !disposed else { throw NativeOriginalPageError.geometry }
+        guard let accepted = accepted, accepted.binding.pages.indices.contains(page), !disposed else { throw NativeOriginalPageError.geometry }
         guard selection == nil else { throw NativeOriginalPageError.heldSelection }
         pageIndex = page; viewportChanged()
     }
     var displayedScale: Double {
         guard let accepted = accepted else { return scale }
-        return fitsWidth ? min(8, max(0.1, viewportWidth / accepted.pages[pageIndex].geometry.displaySize.width)) : scale
+        return fitsWidth ? min(8, max(0.1, viewportWidth / accepted.binding.pages[pageIndex].displaySize.width)) : scale
     }
     func beginRender(backingScale: Double = 1) throws -> RenderTicket {
         guard let accepted = accepted, !disposed, backingScale.isFinite, (1...2).contains(backingScale) else { throw NativeOriginalPageError.stale }
@@ -864,7 +952,7 @@ private final class NativeOriginalPDFSafety {
         guard !disposed, ticket == renderTicket, ticket.snapshotID == accepted?.id, ticket.pageIndex == pageIndex,
               ticket.viewGeneration == viewGeneration, render.snapshotID == ticket.snapshotID,
               render.pageIndex == ticket.pageIndex, render.rasterScale == ticket.rasterScale else { throw NativeOriginalPageError.stale }
-        guard let geometry = accepted?.pages[pageIndex].geometry,
+        guard let geometry = accepted?.binding.pages[pageIndex],
               render.image.width == Int(ceil(geometry.displaySize.width * ticket.rasterScale)),
               render.image.height == Int(ceil(geometry.displaySize.height * ticket.rasterScale)),
               render.image.width <= (4 * 1024 * 1024) / render.image.height,
@@ -873,23 +961,24 @@ private final class NativeOriginalPDFSafety {
     }
     func viewRect(forPageRect rect: CGRect) throws -> CGRect {
         guard let accepted = accepted else { throw NativeOriginalPageError.stale }
-        let page = accepted.pages[pageIndex], r = rect.applying(page.pageToDisplay), factor = displayedScale
-        return CGRect(x: r.minX * factor, y: (page.geometry.displaySize.height - r.maxY) * factor, width: r.width * factor, height: r.height * factor)
+        let page = accepted.binding.pages[pageIndex], r = rect.applying(accepted.transforms[pageIndex]), factor = displayedScale
+        return CGRect(x: r.minX * factor, y: (page.displaySize.height - r.maxY) * factor, width: r.width * factor, height: r.height * factor)
     }
     func pageRect(forViewRect rect: CGRect) throws -> CGRect {
         guard let accepted = accepted else { throw NativeOriginalPageError.stale }
-        let page = accepted.pages[pageIndex], factor = displayedScale
-        let r = CGRect(x: rect.minX / factor, y: page.geometry.displaySize.height - rect.maxY / factor, width: rect.width / factor, height: rect.height / factor)
-        return r.applying(page.pageToDisplay.inverted())
+        let page = accepted.binding.pages[pageIndex], factor = displayedScale
+        let r = CGRect(x: rect.minX / factor, y: page.displaySize.height - rect.maxY / factor, width: rect.width / factor, height: rect.height / factor)
+        return r.applying(accepted.transforms[pageIndex].inverted())
     }
     // Only an actual draw call creates an acknowledgment. Preparation/adoption
     // alone never means painted, and this is not a GUI/window/VO acknowledgment.
     @discardableResult func paint(in context: CGContext, origin: CGPoint = .zero) throws -> PaintAcknowledgment {
         guard let accepted = accepted, !disposed else { throw NativeOriginalPageError.stale }
-        let page = accepted.pages[pageIndex], factor = displayedScale
-        let rect = CGRect(origin: origin, size: CGSize(width: page.geometry.displaySize.width * factor, height: page.geometry.displaySize.height * factor))
+        let page = accepted.binding.pages[pageIndex], factor = displayedScale
+        let rect = CGRect(origin: origin, size: CGSize(width: page.displaySize.width * factor, height: page.displaySize.height * factor))
+        guard let image = currentRender?.image ?? accepted.pages.first(where: { $0.geometry.index == pageIndex })?.image else { throw NativeOriginalPageError.stale }
         context.saveGState(); context.translateBy(x: rect.minX, y: rect.maxY); context.scaleBy(x: 1, y: -1)
-        context.draw(currentRender?.image ?? page.image, in: CGRect(origin: .zero, size: rect.size)); context.restoreGState()
+        context.draw(image, in: CGRect(origin: .zero, size: rect.size)); context.restoreGState()
         let ack = PaintAcknowledgment(snapshotID: accepted.id, viewID: viewID, viewGeneration: viewGeneration,
             pageIndex: pageIndex, scale: factor, rasterScale: currentRender?.rasterScale ?? 1, pdfSHA256: accepted.binding.pdfSHA256)
         paintAcknowledgment = ack; return ack

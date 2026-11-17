@@ -28,9 +28,17 @@ struct NativeReaderSelection: Equatable {
 
     func validate(in document: NativeReaderDocument) throws {
         guard (1...32).contains(fragments.count) else { throw NativeReaderContractError.invalidSelection }
+        try validateLocal(in: document)
+    }
+
+    /// Display selection and hold may cover the entire accepted document. The
+    /// remote source/chat limit remains exclusively in validate(in:).
+    func validateLocal(in document: NativeReaderDocument) throws {
+        guard !fragments.isEmpty, fragments.count <= document.blocks.count else { throw NativeReaderContractError.invalidSelection }
+        let indexes = Dictionary(document.blocks.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
         var previous = -1
         for fragment in fragments {
-            guard let index = document.blocks.firstIndex(where: { $0.id == fragment.blockID }), index > previous else {
+            guard let index = indexes[fragment.blockID], index > previous else {
                 throw NativeReaderContractError.invalidSelection
             }
             let block = document.blocks[index], units = fragment.rangeUTF16
@@ -75,6 +83,11 @@ struct NativeReaderChatState {
     let version: Int
     let sequence: Int
     let messages: [Message]
+    /// Exact accepted user content plus UUID, shared by adapter and UI recovery.
+    func confirmsUserMessage(_ id: UUID, question: String) -> Bool {
+        messages.contains { $0.id == id && $0.role == .user &&
+            Array($0.markdown.unicodeScalars) == Array(question.unicodeScalars) }
+    }
     struct Message {
         enum Role { case user, assistant }
         let id: UUID
@@ -129,7 +142,7 @@ enum NativeReaderOperationFailure: Error {
     func holdSelection(_ selection: NativeReaderSelection) throws {
         guard !isDisposed else { throw NativeReaderContractError.disposed }
         guard let document = document else { throw NativeReaderContractError.invalidSelection }
-        try selection.validate(in: document)
+        try selection.validateLocal(in: document)
         self.selection = selection
     }
 

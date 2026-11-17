@@ -179,6 +179,7 @@ private enum NativeAnswerPreparation {
     let models = NSPopUpButton()
     let sendButton = NSButton(title: "Send", target: nil, action: nil)
     let cancelButton = NSButton(title: "Stop response", target: nil, action: nil)
+    let historyButton = NSButton(title: "Refresh conversation", target: nil, action: nil)
     let accountButton = NSButton(title: "Manage on Homepage", target: nil, action: nil)
     let notice = NSTextField(wrappingLabelWithString: "")
     var persistDraft: ((NativeReaderRecoveredDraft) -> Void)?
@@ -193,6 +194,8 @@ private enum NativeAnswerPreparation {
     private var preferredModel: String?
     private var editGeneration = 0
     private var dirty = false
+    private var pendingQuestion: String?
+    private var pendingModel: String?
     private var pendingMessage: UUID?
     private var unknownEffect = false
     private var subscription: Task<Void, Never>?
@@ -230,6 +233,11 @@ private enum NativeAnswerPreparation {
         answer.appearance = NSAppearance(named: context.theme == .dark ? .darkAqua : .aqua)
         if let conversation { present(conversation) }
     }
+    func clearMath(reason: String) {
+        invalidateMath(); mathWorker = nil; mathContext = nil; mathFailure = reason
+        if let conversation { renderTranscript(conversation) }
+        notice.stringValue = reason
+    }
     private func invalidateMath() {
         mathEpoch += 1; mathTask?.cancel(); mathTask = nil; mathKey = nil
         preparedMessages = []; preparedFormulaCount = 0; mathFailure = nil
@@ -248,7 +256,7 @@ private enum NativeAnswerPreparation {
         let answerScroll = NSScrollView(); answerScroll.documentView = answer; answerScroll.hasVerticalScroller = true
         composer.isVerticallyResizable = true; composer.autoresizingMask = [.width]
         answer.isVerticallyResizable = true; answer.autoresizingMask = [.width]
-        let controls = NSStackView(views: [models, sendButton, cancelButton, accountButton])
+        let controls = NSStackView(views: [models, sendButton, cancelButton, historyButton, accountButton])
         controls.orientation = .horizontal
         let stack = NSStackView(views: [notice, answerScroll, questionScroll, controls])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
@@ -263,6 +271,7 @@ private enum NativeAnswerPreparation {
         models.target = self; models.action = #selector(modelChanged)
         sendButton.target = self; sendButton.action = #selector(sendExplicitly)
         cancelButton.target = self; cancelButton.action = #selector(cancelExplicitly)
+        historyButton.target = self; historyButton.action = #selector(refreshConversationExplicitly)
         accountButton.target = self; accountButton.action = #selector(manageExplicitly)
         updateControls()
     }
@@ -275,12 +284,14 @@ private enum NativeAnswerPreparation {
         guard value.state.messages.count <= 256, value.state.messages.reduce(0, { $0 + $1.markdown.utf8.count }) <= 512 * 1024 else { return }
         conversation = value
         if !dirty { composer.string = value.draft }
-        if let recovered, recovered.conversationID == value.state.conversationID {
+        if let recovered, recovered.conversationID == value.state.conversationID, recovered.version <= value.state.version {
             composer.string = recovered.text; dirty = true; pendingMessage = recovered.pendingMessageID
+            pendingQuestion = recovered.pendingMessageID == nil ? nil : (recovered.pendingQuestion ?? recovered.text)
+            pendingModel = recovered.pendingMessageID == nil ? nil : (recovered.pendingModel ?? recovered.model)
             unknownEffect = pendingMessage != nil
             preferredModel = recovered.model
             if let model = recovered.model { models.selectItem(withTitle: model) }
-            notice.stringValue = "Recovered draft. Read authoritative history before retrying a pending Send."
+            notice.stringValue = "Recovered draft. Refresh conversation before retrying a pending Send."
         }
         prepareMathIfNeeded(value)
         renderTranscript(value)
@@ -360,14 +371,17 @@ private enum NativeAnswerPreparation {
     }
 
     @objc func modelChanged() {
+        guard !disposed else { return }
         preferredModel = models.titleOfSelectedItem
         persistCurrentDraft()
+        updateControls()
     }
 
     private func persistCurrentDraft() {
         if let value = conversation {
             persistDraft?(NativeReaderRecoveredDraft(conversationID: value.state.conversationID, version: value.state.version,
-                text: composer.string, pendingMessageID: pendingMessage, model: models.titleOfSelectedItem))
+                text: composer.string, pendingMessageID: pendingMessage, model: models.titleOfSelectedItem,
+                pendingQuestion: pendingQuestion, pendingModel: pendingModel))
         }
     }
 
@@ -396,9 +410,13 @@ private enum NativeAnswerPreparation {
               let model = models.titleOfSelectedItem else { return }
         do { try authorize() } catch { notice.stringValue = "Reselect a current passage before sending."; return }
         draftTask?.cancel()
+        guard pendingMessage == nil || (pendingQuestion.map { Array($0.unicodeScalars) == Array(composer.string.unicodeScalars) } == true && pendingModel == model) else {
+            notice.stringValue = "Previous Send remains unconfirmed. Explicit retry requires its original question/model."
+            return
+        }
         let text = composer.string, generation = editGeneration, message = pendingMessage ?? UUID()
-        pendingMessage = message
-        persistDraft?(NativeReaderRecoveredDraft(conversationID: record.state.conversationID, version: record.state.version, text: text, pendingMessageID: message, model: model))
+        pendingMessage = message; pendingQuestion = text; pendingModel = model
+        persistCurrentDraft()
         operationEpoch += 1
         let epoch = operationEpoch
         operation = Task { [weak self] in
@@ -409,33 +427,64 @@ private enum NativeAnswerPreparation {
                     message: message, question: text, model: model), context: context)
                 guard !disposed, operationEpoch == epoch else { return }
                 try authorize()
-                pendingMessage = nil
+                pendingMessage = nil; pendingQuestion = nil; pendingModel = nil
                 if generation == editGeneration { dirty = false }
                 if let updated = await actions.conversation(record.state.conversationID) { present(updated) }
                 persistCurrentDraft()
                 observe(record.state.conversationID)
             } catch {
-                guard !disposed else { return }
+                guard !disposed, operationEpoch == epoch, !Task.isCancelled else { return }
                 unknownEffect = true
-                notice.stringValue = "Send acknowledgment unavailable. Read history before an explicit retry."
+                notice.stringValue = "Send acknowledgment unavailable. Refresh conversation before an explicit retry."
+            }
+        }
+        updateControls()
+    }
+
+    @objc func refreshConversationExplicitly() {
+        guard !disposed, operation == nil, conversation != nil else { return }
+        draftTask?.cancel()
+        operationEpoch += 1
+        let epoch = operationEpoch
+        operation = Task { [weak self] in
+            guard let self else { return }
+            defer { if operationEpoch == epoch { operation = nil; updateControls() } }
+            do { try await readAuthoritativeHistory() }
+            catch {
+                guard !disposed, operationEpoch == epoch, !Task.isCancelled else { return }
+                notice.stringValue = "Conversation refresh unavailable. Draft and pending Send retained."
             }
         }
         updateControls()
     }
 
     func readAuthoritativeHistory() async throws {
+        guard !disposed, let before = conversation else { throw NativeReaderOperationFailure.unavailable }
+        try Task.checkCancellation()
         try authorize()
-        let generation = editGeneration
+        let generation = editGeneration, epoch = operationEpoch
         let records = try await actions.history(context: context)
-        guard !disposed, let id = conversation?.state.conversationID,
-              let record = records.first(where: { $0.state.conversationID == id }) else { return }
-        if let pendingMessage, record.state.messages.contains(where: { $0.id == pendingMessage }) {
-            self.pendingMessage = nil
-            if generation == editGeneration { dirty = false }
+        try Task.checkCancellation()
+        guard !disposed, epoch == operationEpoch, let current = conversation,
+              current.state.conversationID == before.state.conversationID else { throw NativeReaderOperationFailure.unavailable }
+        try authorize()
+        guard let record = records.first(where: { $0.state.conversationID == current.state.conversationID }) else {
+            throw NativeReaderOperationFailure.rejected(code: "conversation-not-found")
+        }
+        guard record.state.context == context, record.state.version >= current.state.version,
+              record.state.sequence >= current.state.sequence else { throw NativeReaderContractError.staleGeneration }
+        if let pendingMessage, let pendingQuestion,
+           record.state.confirmsUserMessage(pendingMessage, question: pendingQuestion) {
+            // A newer local draft is never acknowledged by the older message.
+            if generation == editGeneration && Array(composer.string.unicodeScalars) == Array(pendingQuestion.unicodeScalars) {
+                dirty = false
+            }
+            self.pendingMessage = nil; self.pendingQuestion = nil; self.pendingModel = nil
         }
         unknownEffect = false
         present(record)
         persistCurrentDraft()
+        notice.stringValue = pendingMessage == nil ? "Conversation refreshed." : "Previous Send is unconfirmed. Retry only its original question and model."
     }
 
     private func observe(_ id: UUID) {
@@ -447,7 +496,7 @@ private enum NativeAnswerPreparation {
                     guard !disposed else { return }
                     if let record = await actions.conversation(id) { present(record) }
                 }
-            } catch { if !disposed { notice.stringValue = "Stream disconnected. Read history to resume." } }
+            } catch { if !disposed { notice.stringValue = "Stream disconnected. Refresh conversation to resume." } }
         }
     }
 
@@ -461,13 +510,19 @@ private enum NativeAnswerPreparation {
             guard let self else { return }
             defer { if operationEpoch == epoch { operation = nil; updateControls() } }
             do { try authorize(); _ = try await actions.perform(.cancel(conversation: record.state.conversationID), context: context) }
-            catch { notice.stringValue = "Stop acknowledgment unavailable; read history." }
+            catch {
+                guard !disposed, operationEpoch == epoch, !Task.isCancelled else { return }
+                notice.stringValue = "Stop acknowledgment unavailable; refresh conversation."
+            }
         }
+        updateControls()
     }
     @objc func manageExplicitly() { if !disposed, let homepage { openHomepage?(homepage) } }
     private func updateControls() {
-        sendButton.isEnabled = !disposed && operation == nil && !unknownEffect && conversation != nil && models.numberOfItems > 0 && !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let retryMatches = pendingMessage == nil || (pendingQuestion.map { Array($0.unicodeScalars) == Array(composer.string.unicodeScalars) } == true && pendingModel == models.titleOfSelectedItem)
+        sendButton.isEnabled = retryMatches && !disposed && operation == nil && !unknownEffect && conversation != nil && models.numberOfItems > 0 && !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         cancelButton.isEnabled = !disposed && conversation?.status == "streaming"
+        historyButton.isEnabled = !disposed && operation == nil && conversation != nil
     }
     func dispose() {
         invalidateMath()

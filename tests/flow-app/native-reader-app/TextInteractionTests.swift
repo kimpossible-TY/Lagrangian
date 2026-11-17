@@ -89,6 +89,11 @@ extension NSPasteboard {
         do {
             FindPasteboardIsolation.install()
             _ = NSApplication.shared.setActivationPolicy(.prohibited)
+            if CommandLine.arguments[1] == "--core-long" {
+                try coreLongSelection(folder: URL(fileURLWithPath: CommandLine.arguments[2]),
+                  out: URL(fileURLWithPath: CommandLine.arguments[3]), count: Int(CommandLine.arguments[4])!)
+                return
+            }
             let document = try NativeReaderDocument.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
             let out = URL(fileURLWithPath: CommandLine.arguments[2])
             try check(document.blocks.map(\.displayText) == oracleTexts, "actual compiler logical reading order")
@@ -471,7 +476,7 @@ extension NSPasteboard {
         let obsoleteKey = view.renderKey!
         view.cachedObject = nil
         view.setFrameSize(NSSize(width: 640, height: 180))
-        try check(view.renderKey == nil && view.lastFailure?.contains("unsupportedObject") == true, "missing object cache visible unsupported state")
+        try check(view.renderKey == obsoleteKey && view.textMap != nil && view.lastFailure?.contains("unsupportedObject") == true, "missing cache retains accepted display until current-key preparation")
         try check(view.store.selection == preparedSelection, "preparation holds logical selection")
         view.setFrameSize(NSSize(width: 960, height: 180))
         let pendingKey = view.requestedRenderKey!
@@ -564,4 +569,65 @@ extension NSPasteboard {
         return ["find": find, "matrix": matrix, "unicodeAssertions": unicodeAssertions, "input": "pass", "copy": "pass", "accessibility": "pass",
                 "reflow": "pass", "lifetime": "pass", "negative": "pass", "objectScope": "unit injections only; actual NA03 fidelity unverified", "skips": 0]
     }
+}
+
+
+@MainActor private func coreLongSelection(folder: URL, out: URL, count: Int) throws {
+    let document = try NativeReaderDocument.decode(Data(contentsOf: folder.appendingPathComponent("fixture-\(count)/native.json")))
+    let expectedLines = (1...count).map { String(format: "Paragraph %03d alpha.", $0) }
+    let expected = expectedLines.joined(separator: "\n")
+    try check(document.blocks.map(\.displayText) == expectedLines, "independent actual compiler paragraph oracle")
+    var rows = [[String: Any]](), failures = 0
+    let board = NSPasteboard(name: .init("dev.lagrangian.core-review.copy." + UUID().uuidString))
+    defer { board.releaseGlobally() }
+    for entry in ["selectAll", "setSelectedRange", "setSelectedRanges", "AXSelectedTextRange", "drag", "shift"] {
+        for prior in [false, true] {
+            let view = NativeReaderTextView(store: NativeReaderDocumentStore())
+            let owner = view.store
+            let generation = try owner.beginRequest()
+            let context = NativeReaderRequestContext(requestID: UUID(), viewID: owner.viewID, generation: generation, target: document.identity)
+            let candidate = document.rebinding(generation: generation)
+            try view.adopt(candidate, context: context)
+            let body = view.bodyTextView, full = NSRange(location: 0, length: expected.utf16.count)
+            if prior { body.setSelectedRange(NSRange(location: 0, length: expectedLines[0].utf16.count)) }
+            var sourceCalls = 0, chatCalls = 0
+            view.callbacks.sourceRequested = { _ in sourceCalls += 1 }
+            view.callbacks.chatRequested = { _, _ in chatCalls += 1 }
+            view.callbacks.copyText = { text in board.clearContents(); return board.setString(text, forType: .string) }
+            board.clearContents(); _ = board.setString("PRIVATE-MARKER", forType: .string)
+            switch entry {
+            case "selectAll": body.selectAll(nil)
+            case "setSelectedRange": body.setSelectedRange(full)
+            case "setSelectedRanges": body.setSelectedRanges([NSValue(range: full)], affinity: .downstream, stillSelecting: false)
+            case "AXSelectedTextRange": body.setAccessibilitySelectedTextRange(full)
+            case "shift": body.setSelectedRange(NSRange(location: 0, length: 0)); body.moveToEndOfDocumentAndModifySelection(nil)
+            default:
+                let first = NativeReaderTextPosition(blockID: document.blocks[0].id, utf16: 0, affinity: .upstream)
+                let last = NativeReaderTextPosition(blockID: document.blocks.last!.id, utf16: document.blocks.last!.displayText.utf16.count, affinity: .downstream)
+                let a = try view.caretGeometry(at: first), b = try view.caretGeometry(at: last)
+                view.pointerDown(at: NSPoint(x: a.rect.minX, y: a.rect.midY))
+                view.pointerDragged(at: NSPoint(x: b.rect.minX, y: b.rect.midY))
+                view.pointerUp(at: NSPoint(x: b.rect.minX, y: b.rect.midY))
+            }
+            body.copy(nil)
+            let request = view.requestSource(.excerpt); view.openChat()
+            let selection = owner.selection
+            var remoteRejected = false
+            do { try selection?.validate(in: candidate) } catch NativeReaderContractError.invalidSelection { remoteRejected = true }
+            let success = body.selectedRange() == full && view.plainSelectedText == expected &&
+                body.accessibilitySelectedTextRange() == full && body.accessibilitySelectedText() == expected &&
+                board.string(forType: .string) == expected && selection?.fragments.count == count &&
+                (count <= 32 ? request != nil && sourceCalls == 1 && chatCalls == 1 && !remoteRejected : request == nil && sourceCalls == 0 && chatCalls == 0 && remoteRejected)
+            if !success { failures += 1 }
+            rows.append(["entry": entry, "priorShort": prior, "pass": success, "selectedUTF16": [body.selectedRange().location, body.selectedRange().length],
+                "expectedUTF16": [0, full.length], "fragments": selection?.fragments.count ?? 0, "sourceCalls": sourceCalls, "chatCalls": chatCalls,
+                "copyExact": board.string(forType: .string) == expected, "remoteRejected": remoteRejected])
+            if let ticket = selection?.ticket { view.releaseSelection(ticket: ticket) }
+            view.dispose()
+        }
+    }
+    let report: [String: Any] = ["blocks": count, "attempts": rows.count, "failures": failures, "rows": rows, "visibleWindows": NSApp.windows.filter(\.isVisible).count]
+    try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: out)
+    try check(failures == 0, "F4/LS01 ordinary selection/copy/AX/guard failures: \(failures)")
+    print("F4/LS01 \(count) blocks: \(rows.count) attempts pass")
 }

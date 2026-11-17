@@ -39,6 +39,13 @@ import Foundation
     // Correlates NA02's selectionReleased callback after that same store was
     // cleared by the view. Selected fragments/authority remain only in store.
     private var observedSelectionTicket: UUID?
+    private var pageSelectionHeld = false
+    var hasSelection: Bool { store.selection != nil || pageSelectionHeld }
+    func holdOriginalPageSelection(_ held: Bool) {
+        guard state != .disposed else { return }
+        pageSelectionHeld = held
+        if !held { preparationChanged() }
+    }
     private var online = true
     private var constrained = false
     private var attempts = 0
@@ -132,7 +139,7 @@ import Foundation
         let offline = candidate.restoration != nil
         try check(expected, generation: candidate.context.generation, offline: offline)
         try validate(candidate)
-        guard store.selection == nil else { heldState(); return }
+        guard !hasSelection else { heldState(); return }
         // A resize without a notification can still invalidate a prepared key.
         // Retry with the latest key, retaining the candidate if churn is bounded out.
         for _ in 0..<4 {
@@ -140,7 +147,7 @@ import Foundation
             try check(expected, generation: candidate.context.generation, offline: offline)
             guard pending?.context == candidate.context else { throw NativeReaderContractError.staleGeneration }
             try validate(candidate)
-            guard store.selection == nil else { heldState(); return }
+            guard !hasSelection else { heldState(); return }
             guard try prepared.isCurrent() else { continue }
             try check(expected, generation: candidate.context.generation, offline: offline)
             try prepared.adopt()
@@ -173,7 +180,7 @@ import Foundation
               candidate.restoration != nil || online else { return }
         task?.cancel(); epoch += 1
         let current = epoch
-        if store.selection != nil { heldState(); return }
+        if hasSelection { heldState(); return }
         state = .loading; failure = nil; onChange?()
         task = Task { [weak self] in
             guard let self else { return }

@@ -171,7 +171,7 @@ final class NativeReaderBodyTextView: NSTextView {
         super.keyDown(with: event)
     }
     override func draw(_ dirtyRect: NSRect) {
-        guard let reader = reader, !reader.isDisposed, let key = reader.renderKey else { return }
+        guard let reader = reader, !reader.isDisposed, let key = reader.renderKey, key == reader.requestedRenderKey else { return }
         reader.beginBodyDraw()
         super.draw(dirtyRect)
         reader.endBodyDraw(key: key, dirtyRect: dirtyRect)
@@ -355,6 +355,14 @@ final class NativeReaderBodyTextView: NSTextView {
         guard context.generation == store.generation, document.generation == store.generation else { throw NativeReaderContractError.staleGeneration }
         return key(for: document)
     }
+    /// Retained display authority is independent of the latest transport request.
+    /// This never grants source authority or permits a candidate to be adopted.
+    func retainedPreparationKey(for document: NativeReaderDocument, context: NativeReaderRequestContext) throws -> NativeReaderTextRenderKey {
+        guard !isDisposed, !isCancelled, self.context == context, store.document == document,
+              context.viewID == store.viewID, context.target == document.identity,
+              context.generation == document.generation else { throw NativeReaderTextFailure.staleGeometry }
+        return key(for: document)
+    }
     // Adoption remains exclusively in the injected common store. A held candidate
     // is returned to its owner; this view keeps no replacement snapshot database.
     func adopt(_ document: NativeReaderDocument, context: NativeReaderRequestContext) throws {
@@ -362,25 +370,23 @@ final class NativeReaderBodyTextView: NSTextView {
         guard store.selection == nil else { throw NativeReaderContractError.selectionHeld }
         let newKey = try preparationKey(for: document, context: context)
         let oldAnchor = store.document?.identity == document.identity ? viewportAnchor() : nil
-        if store.document?.identity != document.identity {
-            pendingViewportAnchor = nil
-            pendingCaret = nil
-            pendingSelectionAffinity = nil
-            returningAnchor = nil
-            focusedNodeID = nil
-        }
-        renderKey = nil
         do {
+            // Composition and metric validation are fallible; keep A's complete
+            // publication (including geometry/focus/AX) until B can commit.
             let composition = try compose(document, key: newKey)
             try store.adopt(document, for: context)
+            if self.context?.target != document.identity {
+                pendingViewportAnchor = nil; pendingCaret = nil
+                pendingSelectionAffinity = nil; returningAnchor = nil; focusedNodeID = nil
+            }
             self.context = context
             isCancelled = false
             operationSerial += 1
             sourcePending = nil
             install(composition, document: document, key: newKey, anchor: oldAnchor)
         } catch {
-            // Geometry and draw receipts from an attempted generation stay revoked.
-            showFailure(error)
+            lastFailure = String(describing: error)
+            callbacks.statusChanged(lastFailure!)
             throw error
         }
     }
@@ -427,6 +433,10 @@ final class NativeReaderBodyTextView: NSTextView {
                       object.size.height <= 100000, object.baseline.isFinite,
                       object.baseline >= 0, object.baseline <= object.size.height,
                       !object.accessibilityLabel.isEmpty else { throw NativeReaderTextFailure.invalidObject(node.id) }
+                let blockImage = node.kind == .image && node.imageLayout?.placement == .block
+                if blockImage, text.length > 0, !(text.string as NSString).hasSuffix("\n") {
+                    text.append(NSAttributedString(string: "\n", attributes: attributes))
+                }
                 let attachment = NSTextAttachment()
                 attachment.attachmentCell = NativeReaderTextObjectCell(object) { [weak self] painted in
                     guard let self = self, self.renderKey == painted else { return }
@@ -437,6 +447,7 @@ final class NativeReaderBodyTextView: NSTextView {
                 spans.append(.init(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1],
                                    presentation: NSRange(location: text.length, length: part.length), isObject: true))
                 text.append(part)
+                if blockImage { text.append(NSAttributedString(string: "\n", attributes: attributes)) }
                 objects[node.id] = object
             } else if node.children.isEmpty {
                 let part = NSAttributedString(string: node.displayText, attributes: attributes)
@@ -508,18 +519,12 @@ final class NativeReaderBodyTextView: NSTextView {
             pendingCaret = try? textMap?.logical(at: bodyTextView.selectedRange().location, affinity: bodyTextView.selectionAffinity)
         }
         layoutGeneration += 1
-        renderKey = nil
         do {
             let key = key(for: document)
             install(try compose(document, key: key), document: document, key: key, anchor: pendingViewportAnchor)
         } catch {
-            // A retained snapshot is still canonical, but stale object paint is
-            // never displayed at another width/font/theme while preparation waits.
-            suppressSelection = true
-            bodyTextView.textStorage?.setAttributedString(NSAttributedString(string: ""))
-            suppressSelection = false
-            accessibilityNodes = []
-            textMap = nil
+            // Keep the retained text/map/AX/selection while current-key objects
+            // are prepared. Geometry/draw receipts are separately revoked below.
             showFailure(error)
         }
     }
@@ -569,6 +574,10 @@ final class NativeReaderBodyTextView: NSTextView {
     }
     @discardableResult func requestSource(_ action: NativeReaderSourceAction) -> NativeReaderSourceRequest? {
         guard !isDisposed, !isCancelled, let selection = store.selection, let context = context, context.generation == store.generation else { return nil }
+        guard let document = store.document, (try? selection.validate(in: document)) != nil else {
+            showStatus("Source actions support at most 32 selected blocks; the full display selection is retained.")
+            return nil
+        }
         let request = NativeReaderSourceRequest(context: context, selection: selection, action: action, receiptID: UUID())
         operationSerial += 1
         sourcePending = (request, operationSerial)
@@ -593,6 +602,10 @@ final class NativeReaderBodyTextView: NSTextView {
     }
     func openChat() {
         guard !isDisposed, !isCancelled, let selection = store.selection, let context = context, context.generation == store.generation else { return }
+        guard let document = store.document, (try? selection.validate(in: document)) != nil else {
+            showStatus("Chat actions support at most 32 selected blocks; the full display selection is retained.")
+            return
+        }
         callbacks.chatRequested(.open(selection), context)
     }
     func cancel() {
@@ -640,7 +653,7 @@ final class NativeReaderBodyTextView: NSTextView {
     }
     fileprivate func beginBodyDraw() { objectPaints.removeAll() }
     fileprivate func endBodyDraw(key: NativeReaderTextRenderKey, dirtyRect: NSRect) {
-        guard !isDisposed, key == renderKey, paintedKey != key, let manager = bodyTextView.layoutManager,
+        guard !isDisposed, key == renderKey, key == requestedRenderKey, paintedKey != key, let manager = bodyTextView.layoutManager,
               let container = bodyTextView.textContainer else { return }
         let used = manager.usedRect(for: container).offsetBy(dx: bodyTextView.textContainerOrigin.x, dy: bodyTextView.textContainerOrigin.y)
         let visibleContent = used.isEmpty ? bodyTextView.visibleRect : used.intersection(bodyTextView.visibleRect)
@@ -658,14 +671,14 @@ final class NativeReaderBodyTextView: NSTextView {
 
 extension NativeReaderTextView {
     func validateGeometry(_ geometry: NativeReaderTextGeometry) throws {
-        guard !isDisposed, renderKey == geometry.key else { throw NativeReaderTextFailure.staleGeometry }
+        guard !isDisposed, renderKey == geometry.key, geometry.key == requestedRenderKey else { throw NativeReaderTextFailure.staleGeometry }
         guard geometry.rect.origin.x.isFinite, geometry.rect.origin.y.isFinite,
               geometry.rect.size.width.isFinite, geometry.rect.size.height.isFinite,
               geometry.rect.size.width >= 0, geometry.rect.size.height > 0 else { throw NativeReaderTextFailure.invalidGeometry }
         guard try textMap?.snapped(geometry.position) == geometry.position else { throw NativeReaderContractError.invalidSelection }
     }
     func caretGeometry(at position: NativeReaderTextPosition) throws -> NativeReaderTextGeometry {
-        guard !isDisposed, let map = textMap, let key = renderKey,
+        guard !isDisposed, let map = textMap, let key = renderKey, key == requestedRenderKey,
               let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer else { throw NativeReaderTextFailure.staleGeometry }
         let position = try map.snapped(position)
         let index = try map.presentation(of: position)
@@ -689,7 +702,7 @@ extension NativeReaderTextView {
         return .init(key: key, position: position, rect: rect)
     }
     func hitTestText(at point: NSPoint, key: NativeReaderTextRenderKey, affinity: NSSelectionAffinity = .downstream) throws -> NativeReaderTextPosition {
-        guard !isDisposed, key == renderKey, let map = textMap,
+        guard !isDisposed, key == renderKey, key == requestedRenderKey, let map = textMap,
               let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer else { throw NativeReaderTextFailure.staleGeometry }
         guard point.x.isFinite, point.y.isFinite, bodyTextView.bounds.contains(point) else { throw NativeReaderTextFailure.invalidGeometry }
         manager.ensureLayout(for: container)
@@ -721,7 +734,7 @@ extension NativeReaderTextView {
         return current.position
     }
     func rects(blockID: String, logical: Range<Int>) -> [NSRect] {
-        guard renderKey != nil, let map = textMap, let range = try? map.presentationRange(blockID: blockID, logical: logical),
+        guard renderKey != nil, renderKey == requestedRenderKey, let map = textMap, let range = try? map.presentationRange(blockID: blockID, logical: logical),
               let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer else { return [] }
         let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         var result: [NSRect] = []

@@ -20,7 +20,7 @@ The commit containing this change is the common contract SHA; consumers record `
 - Schema 1 JSON: `{schemaVersion, identity:{documentID,serviceID,revision,scope:service|fixture}, generation, requiredCapabilities:["semantic-tree-v1"], blocks:[NativeReaderNode], assets:[{id,sha256,mime,byteCount}], diagnostics:[{code,nodeID}]}`. All arrays retain reading order. Asset IDs are content digests plus extension, never paths.
 - Node: `{id,sectionID,kind,canonicalText,displayText,rangeUTF16:[start,end],offsets:{scalars,cpToUTF8,cpToUTF16},children,anchors,annotationTargets,visible,mapping}` plus typed optional `passageKey,direction,language,headingLevel,math:{mathML,normalizedText,display},cell:{rowSpan,columnSpan,header,scope},link,assetID,alt`. `kind` is the Swift closed enum; unknown values fail. IDs are unique within a snapshot, not cross-revision identities. `passageKey` reuses `sections.py` identity for existing server resolution. No invented source ranges.
 - `tools/flow-reader/flow_reader/document/native_document.py`: `import_accepted_document(bundle: SectionBundle, *, document_id: str, service_id: str, generation: int, identity_scope: str="service", required_capabilities=("semantic-tree-v1",)) -> ImportedNativeDocument`. Return `.document` is JSON-ready and `.assets` maps digest IDs to bytes. `NativeImportError` contains a bounded code. The caller supplies an **already accepted** bundle under existing publication discipline; this function cannot establish acceptance/freshness. It orders sections by manifest, not dictionary insertion order. Unknown semantics/attributes fail atomically. SVG subset is explicit; further primitives return to this owner.
-- `apps/macos/NativeReaderOperations.swift`: `NativeReaderRequestContext(requestID:UUID,viewID:UUID,generation:Int,target:NativeDocumentIdentity)`; `NativeReaderSelection(ticket:UUID,fragments:[Fragment])`, each fragment `{blockID,rangeUTF16:Range<Int>,exact:String}`, 1–32 distinct ordered top-level blocks; `validate(in:) throws`. Convenience single-fragment initializer also exists. Fragments preserve their exact text; joining or Typst copy is an explicit consumer operation, not an implicit source reconstruction.
+- `apps/macos/NativeReaderOperations.swift`: `NativeReaderRequestContext(requestID:UUID,viewID:UUID,generation:Int,target:NativeDocumentIdentity)`; `NativeReaderSelection(ticket:UUID,fragments:[Fragment])`, each fragment `{blockID,rangeUTF16:Range<Int>,exact:String}`, local display selection may cover all accepted top-level blocks; `validateLocal(in:) throws` retains exact scalar/grapheme/order guards. Remote source/chat submission remains 1–32 fragments via `validate(in:) throws`. Convenience single-fragment initializer also exists. Fragments preserve their exact text; joining or Typst copy is an explicit consumer operation, not an implicit source reconstruction.
 - `NativeReaderDocumentProviding.document(for:) async throws -> NativeReaderDocument`; `NativeReaderSourceOperations.perform(_:) async throws -> NativeReaderSourceResult` for `.excerpt/.locate/.highlight`. Request binds context, selection and receipt UUID. Result echoes local context/ticket and bounded status (`verified/unmapped/ambiguous/stale/unsupported/uncertain/rejected`), optional verified excerpt or opaque destination anchor. Adapter validates actual server response before wrapping; echo is not a server freshness proof.
 - `NativeReaderChatOperations.perform(_:context:) async throws -> NativeReaderChatState` and `observe(conversation:context:) -> AsyncThrowingStream<NativeReaderChatState,Error>`. Commands: open(selection), draft(UUID,version,text), explicit send(UUID,version,messageUUID,question,model), cancel(UUID). State retains context/conversation/version/sequence/ordered typed messages. NA04 rejects stale context or regressing conversation version/sequence, bounds stream buffers and disposes only its own subscription. List/account/session presentation stays in NA04 over existing owners; these protocols grant no credential authority.
 - `@MainActor NativeReaderDocumentStore(viewID:)`: `beginRequest() throws -> Int`, `adopt(_:for:) throws`, `holdSelection(_:) throws`, `releaseSelection(ticket:)`, `cancel()`, `dispose()`. Adopt requires matching view/target/generation and validated document, and rejects while selection is held. Rejected candidates leave accepted content intact. Caller retains only the latest candidate if it chooses to retry after release. Cancel increments local generation before cancelling transport; dispose prevents all adoption. It does not stop shared services.
@@ -181,3 +181,100 @@ change the frozen MathML helper or any public painter/operation API; only the
 transferred internal clip normalization changes. TeX, F04 ordered vector
 deltas/full original-page fidelity, full app/GUI/VoiceOver and runtime delivery
 remain separate gates. Existing PDF component evidence is preserved.
+
+
+## NA06 core review corrections (F1–F6 / LS01)
+
+- Retained document layout and transport request generations have separate authority. `NativeReaderTextView.retainedPreparationKey(for:context:)` requires the exact current accepted document, its accepted context, view, identity and snapshot generation; it does not authorize a new adoption or source operation. Retained reflow reuses the accepted snapshot's previously verified asset bytes. New candidates still require the latest store/request generation, and source authorization still rejects pending/stale requests. Selection holds latest candidate adoption through resize/font/theme/find-bar changes. Pending geometry/draw receipts are revoked while logical text/map/AX/selection remain; current-key preparation restores geometry without reusing stale coordinates.
+- Candidate composition and object-metric checks precede all publication/focus/viewport mutation. Cache miss or invalid metrics for B leave already-painted A's render key, body, map, context, AX and focus intact. Actual draw receipts remain exact-key bound.
+- Explicit window close ends that view's selection lifetime. Transport failures, cancellation, source acknowledgments and history reads do not release selection. Reopening the same controller/profile creates a fresh request ticket; callbacks retained from an old close/cancel cannot cancel the new request.
+- `NativeReaderSelection.validateLocal(in:)` and store hold support all accepted document blocks (bounded by the existing document limit). Ordinary selection, plain copy and AX use this local contract. `validate(in:)`, transport payload guards and server policy retain the remote 32-fragment limit. Over-limit source/chat actions reject explicitly; adapter selection invalidates a previous actionable ticket before rejecting a new over-limit selection. No old short selection is silently copied/submitted.
+- Actor/UI recovery share `NativeReaderChatState.confirmsUserMessage(_:question:)`: only the same UUID, user role and exact stored Unicode scalars acknowledge a lost Send. Confirmation clears unknown state and permits a new UUID/question. Missing/mismatched history permits only an explicit same UUID/question/model retry; history never sends. A newer local draft is not cleared by an older acknowledged message, and answer-math/private-copy owners remain unchanged.
+- A block image inserts presentation-only line boundaries before/after its TextKit attachment. These boundaries have no canonical/source spans; the existing map retains logical offsets, plain copy, AX text and selection endpoints. Inline placement remains inline. Verification uses the actual native host's glyph line fragments, not object-plan flush alone.
+- The host calls NA10 `configureMath(worker:context:)` with a pinned explicit worker and accepted identity/snapshot/layout/width/font/theme. Reflow updates the context; replacement disposes stale conversation presentation. Missing runtime clears prepared answer math with an explicit diagnostic. This is bounded host injection, not runtime delivery, GUI, source authority or full math fidelity acceptance.
+
+The task is `NA06-core-review-fixes-v1`, based on `9b2dc87651eb16a809bb48dbe4539614cfe30d6a`; frozen helper/worker and server/packaging inputs are read-only. Fresh before/after commands, exact source hashes, native bitmaps, selections and guards live under `test-output/core-review-fixes/v1`. Earlier review/LS01 evidence is immutable. NA06 overall, C/NA12, D/NA13, delivery and GUI/VoiceOver gates remain open.
+
+The native **Refresh conversation** control explicitly reads authoritative history;
+it is available while an uncertain Send blocks Send, and disabled during another
+operation. It never infers or retransmits. Missing conversations, cancelled/disposed
+views, invalid current authority, superseded operation epochs and older history
+versions cannot clear pending state or replace presentation. Only exact UUID/user
+content confirmation permits a fresh question; otherwise the original explicit
+UUID/question/model retry remains required. Recovery retains the bounded original
+pending question/model separately from a newer private composer draft. Optional
+fields decode older schema-1 snapshots without changing document/input/revision,
+hash, atomic-write, privacy or source authority checks. No credentials or source
+excerpts are added. Supplement evidence is under `test-output/core-review-fixes/v2-ui`.
+
+## NA12 original PDF publication and native mode
+
+`server/native_pages.py` is the full-PDF publication adapter over
+`AcceptedSnapshot.capture/current` and `Project.execute(CompileRequest(target='pdf'))`.
+It captures the accepted HTML input, stabilizes the union of HTML and discovered
+PDF dependencies, and rechecks signatures and content fingerprints before
+publishing. Compilation holds a separate nonblocking compiler lock, never the
+publication lock. Failed/stale candidates retain the last immutable publication.
+The publication has a service-bound random incarnation and monotonic sequence;
+a byte digest alone is not authority. Same HTML/PDF bytes with a new saved input
+receive a new publication. Scoped manifest/resource GETs retain the existing
+registered-prefix, Host/Origin, exact field, UUID and budget guards.
+
+The native contract is `original-pdf-full-v1`, schema 1, delivered by
+`api/native-pages` and its exact returned `api/native-pages/<publicationID>/<sequence>.pdf`.
+The manifest binds document/service/revision, request/view/generation, union,
+HTML and PDF input fingerprints, PDF SHA256/count, incarnation/sequence and
+explicit `sourceAnchors: unsupported`. This is an immutable PDF full snapshot/reset.
+The engine raw diff-v1 stream has no verified native consumer in this change.
+
+`NativeReaderOriginalPageTransport.swift` validates the service attachment,
+publication envelope and exact resource before local geometry inspection.
+`NativeReaderOriginalPageView.swift` displays one viewport using a serial PDFKit
+worker. Geometry preflight is bounded to 2048 pages, 16MiB PDF bytes and 100000
+reachable PDF objects. Production preparation retains geometry without eager
+rasters/text/character boxes. Raster cache: at most 3 entries/16MiB; text cache:
+at most 8 pages/1MiB, at most 250000 UTF16 units per page. Search scans one page at
+a time, with at most 256 exact results, a 256-unit query, 4Mi scanned UTF16 units and a cooperative five-second deadline. Unsupported/budget
+failures are explicit; PDFKit internal allocations are separately observed by RSS.
+The previous eager component path remains bounded to 32 pages for its old tests.
+
+WindowController composes these through the existing Session.PreparedAdoption and
+single canonical semantic store. It prepares before publication, validates page
+adoption before canonical mutation, then synchronously installs. Requested mode
+and visible mode differ until adoption succeeds. Only actual draw in the visible
+mode can acknowledge Read. Hidden reflow preparation/draw cannot acknowledge an
+original page. Page text selection is local display evidence, separately holding
+session replacement. Mode changes, zoom and navigation require explicit release.
+Cancel/dispose revoke late work; the retained accepted view survives failures.
+Reflow retainedPreparationKey, local display versus remote32 selection, explicit
+close/reopen and chat/math ownership remain unchanged.
+
+URI and GoTo annotations become inert validated data, then explicit native
+callbacks. HTTP/HTTPS/mailto without credentials or controls are allowed; GoTo
+requires the same prepared artifact, finite coordinates and an in-range page.
+No PDFView.performAction, JavaScript, forms, launch, embedding or remote actions
+are executed. PDF text/bounds are display/search evidence, never glyph/source
+ranges. Page mode hides/guards source/highlight/chat commands so it cannot send
+hidden old reflow selections. Verified reflow source actions keep their existing
+owner. Prebuilt engine probes document the tested CLI surface; engine Rust API
+source is not evidence of a successful source-anchor invocation.
+
+An optional typed PDF/viewport supplement uses NativeReaderRecoveryStore's
+existing bounded, hashed atomic envelope, permissions and file limits. It retains
+accepted PDF bytes/metadata and a matching page/scale, no new credentials or source
+excerpts. Old schema1 defaults and pending question/model bounds remain. Offline
+restoration uses the same prepare/adopt path and remains read-only.
+
+C owns the two new Swift files and service adapter only. Canonical sources.json,
+FlowApp/main, packaging and runtime delivery are read-only here. The test harness
+compiles current canonical sources plus the actual two new files explicitly.
+Final registry integration and app/delivery/GUI/VoiceOver acceptance belong to
+D/NA06; a headless component paint is not a packaged application acceptance.
+
+
+Native original pages use an NSScrollView viewport over the single page document
+view. Document extent follows the prepared raster at logical zoom; viewport width
+changes fit preparation independently, so zoomed page bottoms remain reachable.
+Recovery retains bounded unscaled page-display offsets with optional old-schema
+defaults, clamps them to the restored viewport, and does not create source ranges.
+Pointer release checks the original snapshot/page/operation before selection.
