@@ -159,7 +159,7 @@ def relocate_python(root):
 
 def source_binding(root):
     sources = read(root / 'apps/macos/sources.json')
-    paths = ['apps/macos/sources.json', 'scripts/flow-app.py', 'scripts/stage-native-reader-delivery.py', 'scripts/verify-native-reader-app.py',
+    paths = ['apps/macos/sources.json', 'scripts/flow-app.py', 'scripts/native_delivery_consumer.py', 'scripts/stage-native-reader-delivery.py', 'scripts/verify-native-reader-app.py',
              'scripts/prepare-native-reader-runtime.mjs', 'assets/branding/lagrangian.png', 'docs/tinymist/flow-app.typ',
              *[str(RUNTIME_POLICY / n) for n in ['node-distribution.json', 'backend-delivery.json', 'package.json', 'package-lock.json', 'THIRD-PARTY-NOTICES.md']],
              *['apps/macos/' + n for section in ('core', 'native', 'app') for n in sources[section]]]
@@ -182,8 +182,12 @@ def integrated_sources(root):
     revisions.update({name:gui for name in changed(gui + '^', gui)})
     revisions.update({name:published for name in changed('5d71618e7ee320edbe759511fe634024fc8104a6', published)})
     # Explicit PM transfer C-TEST-COLLECT-01. No C implementation is overridden.
-    transferred = 'tests/flow-app/native-reader-app/test_original_pages.py'
-    revisions[transferred] = 'HEAD'
+    transferred = ['tests/flow-app/native-reader-app/test_original_pages.py',
+                   # NA14 explicitly transfers these canonical/generated docs;
+                   # immutable Swift/backend owner files retain their revisions.
+                   'docs/dev-guide.md', 'docs/tinymist/dev/development.typ',
+                   'docs/tinymist/flow-app.md', 'docs/tinymist/flow-app.typ']
+    revisions.update({name:'HEAD' for name in transferred})
     records = {}
     for name, revision in sorted(revisions.items()):
         blob = subprocess.check_output(['git', '-C', str(root), 'show', revision + ':' + name])
@@ -191,7 +195,7 @@ def integrated_sources(root):
         require(sha(root / name) == digest, 'integrated owner source drift: ' + name)
         records[name] = digest
     return {'coreRevision':core, 'pageRevision':pages, 'guiRevision':gui,
-            'publishedReaderRevision':published, 'deliveryOwnedOverrides':[transferred], 'files':records}
+            'publishedReaderRevision':published, 'deliveryOwnedOverrides':transferred, 'files':records}
 
 
 def verify(root, expected=None, signatures=True):
@@ -228,15 +232,58 @@ def verify(root, expected=None, signatures=True):
 
 
 def replace_verified(candidate, output):
+    publish_verified(candidate, output, verify)
+
+
+def publish_verified(candidate, output, verifier):
+    """Exchange a verified candidate without a remove/rename interruption gap."""
     output.parent.mkdir(parents=True, exist_ok=True)
     require(output.parent.resolve() == output.parent and not output.is_symlink(), 'output path/symlink')
     if output.exists():
-        verify(output)
+        verifier(output)
         libc = ctypes.CDLL(None, use_errno=True)
         result = libc.renamex_np(os.fsencode(candidate), os.fsencode(output), 2)
         require(result == 0, 'atomic stage exchange failed: ' + str(ctypes.get_errno()))
     else:
         os.replace(candidate, output)
+
+
+def copy_signed(source, output, identity):
+    """Re-sign only a private app candidate, then rebind post-sign inventories.
+
+    Distribution/proof/source provenance remains unchanged. Runtime policy and
+    inventory verification still belong to its shipped producer/verifier.
+    """
+    original = verify(source)
+    shutil.copytree(source, output, symlinks=True)
+    m = dict(original)
+    if m['signing'] != ('ad-hoc' if identity == '-' else identity):
+        runtime = output / m['entrypoints']['runtime']
+        node = output / m['entrypoints']['node']
+        run(['/usr/bin/codesign', '--force', '--sign', identity, node])
+        script = """import fs from 'node:fs';
+import {inventory,sha,nodePolicy,verify} from MODULE;
+const root=process.argv[1], exe=process.argv[2];
+const encode=x=>JSON.stringify(x,null,2)+'\\n';
+const read=p=>JSON.parse(fs.readFileSync(p));
+const m=read(root+'/runtime-manifest.json');
+m.files=inventory(root).filter(f=>f.path!=='runtime-manifest.json');
+m.payloadSHA256=sha(encode(m.files));
+m.node=nodePolicy(exe,read(root+'/node-distribution.json'));
+const report={schema:1,status:'verified',fileCount:m.files.length,packages:m.packages.length,
+payloadSHA256:m.payloadSHA256,helperSHA256:m.helperSHA256,lockSHA256:m.lockSHA256,nodeSHA256:m.node.sha256};
+m.verifyReportSHA256=sha(encode(report));
+fs.writeFileSync(root+'/runtime-manifest.json',encode(m));
+verify(root,exe);
+""".replace('MODULE', json.dumps((runtime / 'verify-runtime.mjs').as_uri()))
+        run([node, '--input-type=module', '-e', script, runtime, node])
+        m['runtimeManifestSHA256'] = sha(runtime / 'runtime-manifest.json')
+        m['images'] = sign_images(output, identity)
+        m['signing'] = 'ad-hoc' if identity == '-' else identity
+        m['files'] = payload_files(output)
+        m['payloadSHA256'] = hashlib.sha256(encoded(m['files'])).hexdigest()
+        write(output / MANIFEST, m)
+    return verify(output)
 
 
 def stage(args):

@@ -223,29 +223,27 @@ Flow manages engine execution, project profiles and preview lifecycle. Tail Host
 
 ## First installation
 
-On a fresh Mac, use macOS 13 or newer with Git, the Swift compiler, Python 3, Node.js, Yarn, and the workspace Rust toolchain from `rust-toolchain.toml`. Build the maintained preview frontend and engine before installing:
+On macOS 13 or newer, native app packaging uses Git, the Swift compiler, Python 3 and a verified prebuilt engine. Fetch a single successful run while checked out at its exact head H. Engine build source E can be older on a cache hit; current app, reader and delivery must all bind H.
 
 ```sh
-git clone https://github.com/kimpossible-TY/Lagrangian.git
-cd Lagrangian
-yarn install --immutable
-node scripts/build.mjs build:preview
-python3 scripts/flow-app.py build --build-engine --jobs 2
-python3 scripts/flow-app.py install dist/Lagrangian.app
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+FLOW_SIGN_IDENTITY=<existing-certificate-sha1> python3 scripts/flow-app.py build --engine "$engine"
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
 
-Open the installed app and follow **Open your first preview**. If macOS requests access to the document’s folder, complete that prompt on the Mac.
+The existing build call automatically consumes the engine-local same-run context, reauthenticates the exact artifact and reader, verifies current source and payload, and compiles fresh Swift/resources. An older cached app is never relabelled as current. Missing payload or identity, tamper and stale/mixed bindings fail before installation and preserve a valid previous stage. This source change does not replace the installed updater or prove actual deployment.
 
-If you already have a compatible `flow-engine` from a Flow bundle, package it without rebuilding Rust or the frontend:
+For a standalone engine, supply an explicit current verified delivery:
 
 ```sh
-python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine
-python3 scripts/flow-app.py install dist/Lagrangian.app
+python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine \
+  --delivery /absolute/path/to/current-verified-delivery --identity <existing-certificate-sha1>
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
 
-External engine selection uses `--engine`, then `FLOW_ENGINE_PATH`, then the engine in the current `Lagrangian.app` or former `tinymist-flow.app` installation. A fresh machine without such an engine needs the native build above. The build checks required preview CLI support and copies the engine into the new app. AppKit and Foundation are the app runtime dependencies; packaging uses the Swift compiler and Python 3. The installed engine stays independent of build output.
-
-The native engine build uses the `flow-release` profile with ThinLTO. Its target, profile, Rust flags and any LTO override are recorded in `engineBuild` alongside the engine version and hashes. Use a native ARM Python environment on Apple Silicon. The build copies its result into the staged app and preserves an existing output bundle if packaging fails.
+See [portable input preparation and signing](dev/native-reader-delivery.typ). An explicit ad-hoc `--identity -` is available for isolated checks; it does not establish certificate continuity. `--management-only` is a nonshipping fixture whose app fails require-delivery verification. There is no implicit dependency acquisition, installed-app payload fallback or ad-hoc identity fallback. Native engine compilation remains a separate pipeline operation under the [remote Rust build policy](dev/development.typ). Packaging does not compile Rust.
 
 Managed previews compile the light and dark variants when viewers connect to them. Source updates are retained while a variant has no viewers; reconnecting requests its current document. Multiple viewers of the same palette share one compilation. The host classifies interactive CPU work and cache maintenance separately for macOS scheduling.
 
@@ -325,3 +323,5 @@ Test a replacement engine for compatibility before bundling it, and keep its ver
 Independent native app inspection uses a Lagrangian-owned temporary project and local fake inference provider. The production document, source and conversation APIs retain their existing guards. An explicit dev root isolates data, logs, home and service paths; dev-only no-activate avoids forced foreground activation. Reader body Copy and verified Source copy use a private named pasteboard in this isolated composition, while ordinary app use retains the system clipboard.
 
 See [the isolated inspection procedure](dev/native-reader-app-verification.typ) for setup, bounded foreground serve, exact app arguments, clipboard inspection and owned cleanup. Preparing that fixture does not launch the app, install or restart a service, verify original PDF delivery, or establish GUI/VoiceOver and complete native application acceptance. Use only the approved final staged app for the later independent inspection.
+
+The current staged candidate integrates core/page/G1/published inputs. GUI inspection is partial, official final review needs fixes, and final PM acceptance is incomplete. For the frozen NA13 inspection use `tests/flow-app/native-reader-app/test_page_delivery_bundle.py gui-fixture` and `test-output/delivery-production/NA13/final-app-v1/inspection-commands.json`. Its `gui-inspection-001` is setup-only/running=false; follow the recorded serve/status/appCommand/stop commands without rerunning setup there. A new inspection requires a new root and exact pinned compiler/package inputs. NA14 source requires its own final integration, GUI/AX and review evidence; prior GUI evidence cannot be relabelled for its new executable bytes.
