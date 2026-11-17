@@ -237,7 +237,7 @@ The existing build call automatically consumes the engine-local same-run context
 
 The artifact name stays `flow-engine-darwin-arm64`; its transport is a bounded, source/checksum/run-bound tar plus JSON envelope, preserving executable modes, internal relative links and hidden signed payload. A damaged or missing archive is rejected without flat, installed-app or scratch fallback. Raw archive digest and the fetched external engine’s authenticated chmod are separate bindings. The same-run cache is reauthenticated before build. Old engine source E may be reused; current app and tar are produced anew for H on both cache paths.
 
-For a standalone engine, supply an explicit current verified delivery:
+For a standalone or installed engine, select its path explicitly and supply a current verified delivery matching the clean checkout and engine input:
 
 ```sh
 python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine \
@@ -245,7 +245,7 @@ python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine \
 python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
 
-See [portable input preparation and signing](dev/native-reader-delivery.typ). An explicit ad-hoc `--identity -` is available for isolated checks; it does not establish certificate continuity. `--management-only` is a nonshipping fixture whose app fails require-delivery verification. There is no implicit dependency acquisition, installed-app payload fallback or ad-hoc identity fallback. Native engine compilation remains a separate pipeline operation under the [remote Rust build policy](dev/development.typ). Packaging does not compile Rust.
+See [portable input preparation and signing](dev/native-reader-delivery.typ). An installed engine binary alone supplies neither the same-run context nor the current portable payload; a bare `build` does not supply those missing inputs. An explicit ad-hoc `--identity -` is available for isolated checks; it does not establish certificate continuity. `--management-only` is a nonshipping fixture whose app fails require-delivery verification. There is no implicit dependency acquisition, installed-app payload fallback or ad-hoc identity fallback. Native engine compilation remains a separate pipeline operation under the [remote Rust build policy](dev/development.typ). Packaging does not compile Rust.
 
 Managed previews compile the light and dark variants when viewers connect to them. Source updates are retained while a variant has no viewers; reconnecting requests its current document. Multiple viewers of the same palette share one compilation. The host classifies interactive CPU work and cache maintenance separately for macOS scheduling.
 
@@ -253,14 +253,20 @@ The app keeps the upstream engine protocol and VS Code configuration names. For 
 
 ## Signing and macOS consent
 
-The app bundle ID is `io.github.kimpossible-ty.lagrangian`. Configure a persistent code-signing identity or set `FLOW_SIGN_IDENTITY`. Without either, the build is signed ad hoc. Because macOS treats the renamed app as a new identity, it may request Documents access again; approve that request in macOS when prompted. The app name and icon identify the request, but do not replace OS consent. Administrator authentication must be completed by the user when macOS requires it.
+The app bundle ID is `io.github.kimpossible-ty.lagrangian`. Builds choose `--identity`, then `FLOW_SIGN_IDENTITY`, then a saved signing identity. Without a selected identity, or when the selected certificate is unavailable, native delivery fails closed instead of signing ad hoc. Isolated checks can explicitly select `--identity -`; this does not establish certificate continuity. Because macOS treats the renamed app as a new identity, it may request Documents access again; approve that request in macOS when prompted. The app name and icon identify the request, but do not replace OS consent. Administrator authentication must be completed by the user when macOS requires it.
 
 For repeated personal builds, create one code-signing certificate using Keychain Access’s Certificate Assistant or use an existing Apple signing identity. Retain the certificate and its private key in Keychain, then save its identity once:
 
 ```sh
 python3 scripts/flow-app.py configure-signing --identity "Lagrangian Local Signing"
-python3 scripts/flow-app.py build --version 0.1.9
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+python3 scripts/flow-app.py build --engine "$engine" --version 0.1.9
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
+
+This versioned build uses the saved identity and verified same-run context from a clean checkout at H, as in First installation. A standalone engine instead requires the explicit current verified `--delivery` shown there.
 
 The first signing probe may ask for Keychain access. Complete authentication locally and select Always Allow for `/usr/bin/codesign` to reuse this key. Configuration is saved only after the probe succeeds; cancelling leaves the previous configuration intact.
 
@@ -275,11 +281,15 @@ When moving from `tinymist-flow.app`, install `Lagrangian.app` alongside it. The
 The former bundle remains available at `~/Applications/tinymist-flow.app` until you remove it yourself. After the first Lagrangian installation, subsequent updates use the recovery-aware replacement flow below:
 
 ```sh
-python3 scripts/flow-app.py build
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+python3 scripts/flow-app.py build --engine "$engine" --identity <existing-certificate-sha1>
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 python3 scripts/flow-app.py install dist/Lagrangian.app
 ```
 
-This reuses the installed engine and its preview features. For engine or preview changes, rebuild the frontend with `node scripts/build.mjs build:preview` and pass `--build-engine --jobs 2` to the build. For a confirmed release, use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit with an explicit `--version`.
+Use one run R whose head H matches the clean checkout. Build reauthenticates that run’s engine-local context, portable payload and reader before compiling current Swift/resources. A standalone or installed engine instead needs an explicit `--engine` path and matching current verified `--delivery`, as shown in First installation. Engine and preview changes follow the separate [remote Rust build policy](dev/development.typ) packaging then uses a compatible verified prebuilt engine and current delivery. For a confirmed release, use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit with an explicit `--version`.
 
 The installer checks the bundle signature, engine hash and version before replacing anything, waits for managed profiles to stop, backs up the prior Lagrangian app, restarts those profiles, and checks HTTP startup. If startup fails, it restores the previous Lagrangian bundle. Verify document rendering after installation; HTTP alone does not establish document health.
 

@@ -168,36 +168,131 @@ def source_binding(root):
     return {name: sha(root / name) for name in sorted(paths)}
 
 
+# Exact delivery-owned paths; extending this list requires an owner-reviewed edit.
+# No native source/test/doc prefix is delegated to HEAD.
+DELIVERY_SOURCE_PATHS = (
+    '.github/workflows/flow-engine.yml',
+    'AGENTS.md',
+    'docs/dev-guide.md',
+    'docs/tinymist/dev/development.typ',
+    'docs/tinymist/dev/native-reader-delivery.typ',
+    'docs/tinymist/flow-app.md',
+    'docs/tinymist/flow-app.typ',
+    'openspec/changes/deliver-native-reader-app/design.md',
+    'openspec/changes/deliver-native-reader-app/proposal.md',
+    'openspec/changes/deliver-native-reader-app/specs/flow-macos-app/spec.md',
+    'openspec/changes/deliver-native-reader-app/specs/native-reader-delivery/spec.md',
+    'openspec/changes/deliver-native-reader-app/specs/reader-bundle/spec.md',
+    'openspec/changes/deliver-native-reader-app/tasks.md',
+    'scripts/flow-app.py',
+    'scripts/native_delivery_artifact.py',
+    'scripts/native_delivery_consumer.py',
+    'scripts/reader_bundle.py',
+    'scripts/reuse-engine-artifact.py',
+    'scripts/stage-native-reader-delivery.py',
+    'tests/flow-app/test_bundle.py',
+    'tests/flow-app/test_engine_artifact_cache.py',
+    'tests/flow-app/test_native_delivery_artifact.py',
+    'tests/flow-app/test_native_delivery_consumer.py',
+    'tests/flow-app/test_native_source_binding.py',
+    'tools/flow-reader/native/runtime/backend-delivery.json',
+)
+
+
 def integrated_sources(root):
-    """Bind immutable upstream owners and the one transferred collection fix."""
-    capabilities = read(root / RUNTIME_POLICY / 'backend-delivery.json')['capabilities']
-    core, pages = capabilities['coreSource'], capabilities['originalPagesSource']
-    gui, published = capabilities['guiPreparationSource'], capabilities['publishedReaderSource']
-    base = '9b2dc87651eb16a809bb48dbe4539614cfe30d6a'
-    for ancestor, descendant in [(base, core), (core, pages), (pages, 'HEAD'),
-                                  (gui, 'HEAD'), (published, 'HEAD')]:
-        run(['git', '-C', root, 'merge-base', '--is-ancestor', ancestor, descendant])
+    """Bind historical owners, explicit fixed corrections and current delivery bytes."""
+    root = Path(root).resolve(strict=True)
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(root), *args])
+    def revision(value):
+        require(isinstance(value, str) and re.fullmatch('[0-9a-f]{40}', value), 'full fixed source revision required')
+        require(git('rev-parse', value + '^{commit}').decode().strip() == value, 'source revision is not a commit')
+        return value
+    def ancestor(before, after):
+        run(['git', '-C', root, 'merge-base', '--is-ancestor', before, after])
     def changed(before, after):
-        return run(['git', '-C', root, 'diff', '--name-only', before, after]).splitlines()
-    revisions = {name:core for name in changed(base, core)}
-    revisions.update({name:pages for name in changed(core, pages)})
-    revisions.update({name:gui for name in changed(gui + '^', gui)})
-    revisions.update({name:published for name in changed('5d71618e7ee320edbe759511fe634024fc8104a6', published)})
-    # Explicit PM transfer C-TEST-COLLECT-01. No C implementation is overridden.
-    transferred = ['tests/flow-app/native-reader-app/test_original_pages.py',
-                   # NA14 explicitly transfers these canonical/generated docs;
-                   # immutable Swift/backend owner files retain their revisions.
-                   'docs/dev-guide.md', 'docs/tinymist/dev/development.typ',
-                   'docs/tinymist/flow-app.md', 'docs/tinymist/flow-app.typ']
-    revisions.update({name:'HEAD' for name in transferred})
-    records = {}
-    for name, revision in sorted(revisions.items()):
-        blob = subprocess.check_output(['git', '-C', str(root), 'show', revision + ':' + name])
-        digest = hashlib.sha256(blob).hexdigest()
-        require(sha(root / name) == digest, 'integrated owner source drift: ' + name)
-        records[name] = digest
+        return set(git('diff', '--no-renames', '--name-only', '-z', before, after).decode().split('\0')) - {''}
+    def blob(rev, name, absent=False):
+        relative(name)
+        require(all(ord(c) >= 32 and ord(c) != 127 for c in name), 'unsafe owner path')
+        entry = git('ls-tree', '-z', rev, '--', name).decode().split('\0')
+        if absent and entry == ['']:
+            return None
+        require(len(entry) == 2 and entry[1] == '' and entry[0].split('\t')[-1] == name
+                and entry[0].split()[0] in ('100644', '100755'), 'owner source must be one regular tracked file: ' + name)
+        return hashlib.sha256(git('show', rev + ':' + name)).hexdigest()
+    def current(name, rev):
+        path = root / name
+        require(path.is_file() and not path.is_symlink() and path.resolve() == path, 'missing/escaping owner source: ' + name)
+        digest = blob(rev, name)
+        require(sha(path) == digest, 'integrated owner source drift: ' + name)
+        return digest
+
+    head = revision(git('rev-parse', 'HEAD').decode().strip())
+    require(not git('status', '--porcelain', '--untracked-files=all').strip(), 'integrated source requires a clean checkout')
+    metadata = read(root / RUNTIME_POLICY / 'backend-delivery.json')
+    capabilities = metadata['capabilities']
+    core, pages = revision(capabilities['coreSource']), revision(capabilities['originalPagesSource'])
+    gui, published = revision(capabilities['guiPreparationSource']), revision(capabilities['publishedReaderSource'])
+    base = '9b2dc87651eb16a809bb48dbe4539614cfe30d6a'
+    baseline = '09c5186bff1850b17f6e85fe2f3115153520bc94'
+    for before, after in [(base, core), (core, pages), (pages, baseline), (gui, baseline),
+                          (published, baseline), (baseline, head)]:
+        ancestor(before, after)
+    history, originals, revisions = [], {}, {}
+    for role, before, rev in [('core', base, core), ('pages', core, pages),
+                             ('gui', gui + '^', gui),
+                             ('published', '5d71618e7ee320edbe759511fe634024fc8104a6', published)]:
+        files = {name:blob(rev, name) for name in sorted(changed(before, rev))}
+        history.append({'role':role, 'revision':rev, 'files':files})
+        for name, digest in files.items():
+            originals.setdefault(name, []).append({'revision':rev, 'sha256':digest})
+            revisions[name] = rev
+
+    provenance = metadata.get('sourceProvenance')
+    require(isinstance(provenance, dict) and set(provenance) == {'schemaVersion', 'baselineRevision', 'ownerCorrections'}
+            and type(provenance['schemaVersion']) is int and provenance['schemaVersion'] == 1
+            and provenance['baselineRevision'] == baseline, 'source provenance schema/baseline mismatch')
+    corrections = provenance['ownerCorrections']
+    require(isinstance(corrections, list) and corrections, 'fixed owner correction inventory missing')
+    approved, seen_revisions, corrected_paths = [], set(), set()
+    for correction in corrections:
+        require(isinstance(correction, dict) and set(correction) == {'revision', 'baseRevision', 'files'}, 'owner correction fields')
+        rev, before = revision(correction['revision']), revision(correction['baseRevision'])
+        require(rev not in seen_revisions and rev != before, 'duplicate/empty owner correction')
+        seen_revisions.add(rev)
+        for first, second in [(baseline, before), (before, rev), (rev, head)]: ancestor(first, second)
+        if approved: ancestor(approved[-1]['revision'], before)
+        files = correction['files']
+        require(isinstance(files, list) and files, 'owner correction files missing')
+        records, seen_paths = [], set()
+        for item in files:
+            require(isinstance(item, dict) and set(item) == {'path', 'baseSHA256', 'sha256'}, 'owner correction file fields')
+            name = relative(item['path'])
+            require(name not in seen_paths and name not in DELIVERY_SOURCE_PATHS, 'duplicate or delivery-owned correction path')
+            seen_paths.add(name)
+            original, corrected = blob(before, name, absent=True), blob(rev, name)
+            require(item['baseSHA256'] == original and item['sha256'] == corrected and original != corrected,
+                    'owner correction original/corrected digest mismatch: ' + name)
+            records.append({**item, 'overrides':originals.get(name, [])})
+            revisions[name] = rev
+        require(seen_paths == changed(before, rev), 'owner correction exact path inventory mismatch')
+        corrected_paths.update(seen_paths)
+        approved.append({'revision':rev, 'baseRevision':before, 'files':records})
+
+    # Current delivery edits are bounded by exact owner paths, never a prefix.
+    require(not (changed(baseline, head) - corrected_paths - set(DELIVERY_SOURCE_PATHS)),
+            'unregistered source changes require a fixed owner correction inventory')
+    for name in DELIVERY_SOURCE_PATHS:
+        revisions[name] = head
+    records = {name:current(name, rev) for name, rev in sorted(revisions.items())}
+    require(head == git('rev-parse', 'HEAD').decode().strip()
+            and not git('status', '--porcelain', '--untracked-files=all').strip(), 'source changed during owner binding')
     return {'coreRevision':core, 'pageRevision':pages, 'guiRevision':gui,
-            'publishedReaderRevision':published, 'deliveryOwnedOverrides':transferred, 'files':records}
+            'publishedReaderRevision':published, 'historicalBaseRevision':base,
+            'correctionBaselineRevision':baseline, 'historicalSources':history,
+            'ownerCorrections':approved, 'deliveryOwnedOverrides':list(DELIVERY_SOURCE_PATHS),
+            'files':records}
 
 
 def verify(root, expected=None, signatures=True):
