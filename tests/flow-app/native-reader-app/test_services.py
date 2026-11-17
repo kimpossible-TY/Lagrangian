@@ -104,7 +104,7 @@ class NativeServiceTests(unittest.TestCase):
             raise RuntimeError('prebuilt typst and sandbox-exec required; missing is failure')
         cls.cache = ISOLATED / 'cache/services/typst-packages'
         if not cls.cache.exists():
-            shutil.copytree(Path.home() / 'Library/Caches/typst/packages', cls.cache)
+            shutil.copytree(Path(os.environ['FLOW_TEST_PACKAGE_CACHE']) if os.environ.get('FLOW_TEST_PACKAGE_CACHE') else Path.home() / 'Library/Caches/typst/packages', cls.cache)
         os.environ['TYPST_PACKAGE_CACHE_PATH'] = str(cls.cache)
         wrapper = OUT / 'offline-typst'
         # Inputs are immutable even during source-mapping proof compilation.

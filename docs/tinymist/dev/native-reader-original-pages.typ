@@ -68,9 +68,10 @@ render count, cache eviction/bytes and peak RSS. Host/Origin, input/dependency/P
 tamper, stale/failure/restart, link and lifecycle negatives are separate checks.
 All evidence lives in `test-output/page-service/NA12` on DevSSD.
 
-C does not edit sources.json, FlowApp/main, packaging or runtime delivery. D/NA06
-must register the two exact new files in the final source list and integrate the
-backend before claiming app packaging. Headless pixels, private clipboard and zero
+During the historical C/NA12 page-component assignment, source registry and
+delivery belonged to D/NA13 and NA06 integration. At fixed input09c5186b the two page
+files and backend are registered and staged. Review-fix source changes still
+require a newly bound app from the delivery owner. Headless pixels, private clipboard and zero
 visible windows do not establish real GUI, VoiceOver, macOS13 runtime, source
 mapping, complete application or delivery acceptance.
 
@@ -81,3 +82,40 @@ changes fit preparation independently, so zoomed page bottoms remain reachable.
 Recovery retains bounded unscaled page-display offsets with optional old-schema
 defaults, clamps them to the restored viewport, and does not create source ranges.
 Pointer release checks the original snapshot/page/operation before selection.
+
+
+== Observable page selection, AX and viewport limits
+
+Display selection is on one current page only. PDFKit character count must equal
+UTF16 length for selection. Endpoints must be extended-grapheme boundaries and
+the extracted string must exactly match. Rectangle selection must produce exactly
+one text range; ambiguity is unsupported. PDF display offsets never grant Typst
+source authority. Current-page bounded AX text/ranges/selected range and safe link
+children are scoped to accepted snapshot, page, view generation and operation.
+Old children cannot act after replacement, navigation, cancellation or hiding.
+Tab/Enter reaches safe links; Cmd-A and copy remain page-display operations.
+This internal implementation is not actual VoiceOver speech acceptance.
+
+Geometry coordinates/sizes have absolute value at most 4096, rotation is only
+0/90/180/270 and crop must lie within media. Zoom 0.1–8 is necessary but not
+sufficient: a requested raster has each side at most 8192 and at most 4,194,304
+pixels (16MiB RGBA). Unsupported text/geometry or exceeded budgets are explicit,
+not placeholder success. One page's AX text is exposed rather than an eager
+256-page accessibility tree; existing worker caches retain their independent
+three-raster/eight-text-entry bounds.
+
+Find selection bounds and same-artifact GoTo points are transformed by the
+existing crop/rotation/zoom geometry owner and revealed in the actual clip
+viewport after matching raster installation. Deferred reveal is cancelled on a
+superseding page/operation/cancel; callback/page-index success alone is insufficient.
+Exact in-flight page-preparation ticket/binding reuse is idempotent. Consumed,
+cancelled, older-generation or different-binding tickets do not regain authority.
+
+Offline reflow restoration explicitly supplies validated snapshot assets to the
+same fallible atomic prepare/adopt path and never requires live target/network/
+assets. Assets become accepted only after adoption; source/chat remain read-only.
+The enclosing typed recovery selection cap of32 and reflow zoom 0.5–4 still apply,
+independently of local selection of33+ fragments and0.25 display zoom. Those larger display states are
+not silently converted to supported saved state; complete app resume remains an
+independent gate. The 256-page evidence is a synthetic compiler fixture, not a
+claim about arbitrary documents, full fidelity, real GUI or OS13 execution.

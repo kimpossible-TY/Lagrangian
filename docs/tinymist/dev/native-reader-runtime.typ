@@ -130,10 +130,21 @@ post-sign bytes and final TeX/base/AMS computation. The required installed-layou
 suite exercises the actual signed app and bundle-relative Python/backend/compiler
 and native paint. No scratch success substitutes for these proofs.
 
-NA06's final core and NA12's original-page sources are still separate owner
-gates. The final delivery stage must rebind their exact commits in the same
-session and pass NA08 inventory review. GUI/VoiceOver, live provider/account,
+The preceding NA11/core-boundary discussion is historical. Fixed staged input
+09c5186bff1850b17f6e85fe2f3115153520bc94 integrates core, original-page, G1
+inspection and published provider inputs with portable runtime delivery. This
+review-fix source revision is not yet restaged into that app; final inventory
+and source/app evidence must be rebound by the delivery owner. GUI/VoiceOver, live provider/account,
 general fidelity and macOS 13 execution remain separate acceptance. See
 #link("native-reader-delivery.typ")[the production delivery contract] for staging
 commands and manager configuration handoff. No live installation, service
 restart, Rust build, remote CI dispatch or push is performed.
+
+
+Current inspection commands and source/app identities are in
+`test-output/delivery-production/NA13/final-app-v1/inspection-commands.json` and
+`final-binding.json`; see #link("native-reader-app-verification.typ")[inspection].
+The host is macOS27.2.1; deployment target13 and closure minOS<=13 are not actual OS13 proof.
+The later single partial GUI Read and AXPress error -25200 are interrupted,
+incomplete observations, not GUI/AX success. Current review fixes do not build,
+stage, install or launch a replacement application.

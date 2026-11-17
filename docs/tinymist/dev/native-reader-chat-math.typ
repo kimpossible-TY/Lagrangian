@@ -151,3 +151,16 @@ Empty, heading-only and geometry-preserving missing-draw attachment mutants use
 the same hierarchy/background and must all fail the identical checker in each theme.
 No threshold applied to the dark background can establish success. The final light
 and dark PNGs are also opened directly before binding the result to the commit.
+
+
+== Adjacent answer-token copy
+
+Ordinary answer copy restores authored delimiters separately for every selected
+attachment/token, preserving count and reading order even for two or more adjacent
+identical formulas. Equal original strings are not token identities. Full and
+partial private-pasteboard selections, mixed formulas and prose are separate
+regressions. This is authored answer copy, never verified Typst source copy.
+Historical NA10 component evidence above remains tied to its original revision;
+new review-fix copy assertions do not turn headless pixels into GUI/VoiceOver or
+restaged delivery acceptance. The current host is27.2.1, target13; actual OS13
+and live provider/account remain unverified.

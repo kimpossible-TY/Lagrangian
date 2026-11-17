@@ -133,3 +133,20 @@ Original PDF display SHALL compose the existing canonical store and prepared ado
 - **WHEN** the reader switches between original pages and native reflow
 - **THEN** each mode owns its geometry/selection and only its visible actual draw acknowledges paint
 - **AND** source actions in original mode are explicitly unsupported while validated reflow actions keep their original path
+
+
+### Requirement: Offline preparation uses explicit validated assets
+Offline restoration SHALL pass the validated snapshot's assets explicitly through the pending candidate's existing fallible preparation and atomic adopter, including a fresh managed controller without accepted asset cache. Live target, document and asset closures SHALL remain unused and restored source/chat operations SHALL remain read-only.
+
+#### Scenario: Restore assets with transport unavailable
+- **WHEN** a valid compiler snapshot with objects is restored into a fresh offline controller
+- **THEN** native preparation and adoption use only the validated captured assets
+- **AND** invalid recovery assets cannot replace a previously accepted view or grant source/chat authority
+
+### Requirement: Formula copy preserves token count and order
+Plain copy of completed native math answers SHALL restore each selected formula's authored text once per selected attachment boundary, retaining order and multiplicity independently of adjacent attribute-string equality.
+
+#### Scenario: Adjacent identical formulas
+- **WHEN** two or more identical formulas are adjacent in a full or partial selection
+- **THEN** plain copy includes every selected formula exactly once in order
+- **AND** it does not merge equal formula strings or send inference

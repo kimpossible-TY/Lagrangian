@@ -66,7 +66,7 @@ class ContractTests(unittest.TestCase):
         # Only copy the existing local cache; deny network in every compiler run.
         cache = ISOLATED / 'cache/contract/test-packages'
         if not cache.exists():
-            shutil.copytree(Path.home() / 'Library/Caches/typst/packages', cache)
+            shutil.copytree(Path(os.environ['FLOW_TEST_PACKAGE_CACHE']) if os.environ.get('FLOW_TEST_PACKAGE_CACHE') else Path.home() / 'Library/Caches/typst/packages', cache)
         os.environ['TYPST_PACKAGE_CACHE_PATH'] = str(cache)
         packages = REPO / 'tools/flow-reader/packages'
         wrapper = cls.out / 'offline-typst'

@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import socket
 import struct
@@ -21,9 +22,16 @@ spec.loader.exec_module(package)
 class ReadingSessions(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        temp = tempfile.TemporaryDirectory(prefix='flow-reading-tests-')
-        cls.addClassCleanup(temp.cleanup)
-        cls.executable = Path(temp.name) / 'reading-tests'
+        if retained := os.environ.get('NATIVE_TEST_RETAIN_DIR'):
+            output = Path(retained).resolve()
+            if not output.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output')):
+                raise RuntimeError('Reading-session evidence must remain on DevSSD')
+            output.mkdir(parents=True, exist_ok=True)
+            cls.executable = output / 'reading-tests'
+        else:
+            temp = tempfile.TemporaryDirectory(prefix='flow-reading-tests-')
+            cls.addClassCleanup(temp.cleanup)
+            cls.executable = Path(temp.name) / 'reading-tests'
         package.run([
             '/usr/bin/swiftc', *package.swift_flags(),
             *package.swift_sources(include_app=False),

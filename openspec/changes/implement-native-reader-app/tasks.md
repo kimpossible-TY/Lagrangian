@@ -22,7 +22,7 @@
 
 ## Workflow follow-up
 
-- Archive only after all implementation and required independent acceptance gates actually pass. P0 independent review/testing is separate and remains pending.
+- Archive only after all implementation and required independent acceptance gates actually pass. P0 independent review/testing was separately accepted by PM and does not establish native application acceptance.
 
 ## 4. NA09 bounded shared image correction
 
@@ -48,3 +48,17 @@
 - [x] 6.2 Compose original-page transport/view with canonical store and PreparedAdoption; verify visible paint, mode/held/cancel/dispose and typed recovery.
 - [x] 6.3 Execute actual 256-page lazy navigation/search/selection/zoom/eviction and measure cache bytes/render count/RSS; verify safe link callbacks and explicit unsupported source anchors.
 - [x] 6.4 Run affected regressions, strict OpenSpec and canonical Typst; hand off exact two Swift files, service DTO/routes, final source SHA and remaining registry/app/GUI gates to D/NA06.
+
+
+## 7. NA06 final review N1–N5 (bounded source corrections)
+
+- [x] 7.1 Reproduce and fix N1 exact in-flight PDF ticket retry after held refresh; reject different/cancelled/past bindings.
+- [x] 7.2 Reproduce and fix N2 fresh offline reflow preparation with explicit validated assets, no live closures and read-only actions; preserve A on failure.
+- [x] 7.3 Reproduce and fix N3 current-page PDF AX text/range/selection/link and keyboard access with lazy budgets and stale projection rejection.
+- [x] 7.4 Reproduce and fix N4 actual clip Find/GoTo reveal after matching raster, including crop/rotation/zoom and late cancellation.
+- [x] 7.5 Reproduce and fix N5 full/partial adjacent identical formula plain copy through production native attachments and private pasteboard.
+- [x] 7.6 Run canonical raw affected regressions including F1–F6/LS01, retain exact compiler/source bindings and actual exits/skips; align assigned canonical docs/spec and compile Typst/strict OpenSpec.
+
+These checks do not close final application staging, official independent reviews,
+GUI/AX/VoiceOver or actual OS13 gates. Historical task completion is scoped to its
+recorded revision; final app evidence must be rebound after the delivery owner stages it.

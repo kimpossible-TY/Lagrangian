@@ -88,7 +88,7 @@ class OriginalPageTests(unittest.TestCase):
         cls.oracle = json.loads((HERE / "fixtures/original-pages.expect.json").read_text())
         cls.compiler = Path(compiler)
         # Copy pre-existing compiler packages into this task cache; compiler network remains denied.
-        shutil.copytree(Path.home() / "Library/Caches/typst/packages", Path(os.environ["TYPST_PACKAGE_CACHE_PATH"]), dirs_exist_ok=True)
+        shutil.copytree(Path(os.environ["FLOW_TEST_PACKAGE_CACHE"]) if os.environ.get("FLOW_TEST_PACKAGE_CACHE") else Path.home() / "Library/Caches/typst/packages", Path(os.environ["TYPST_PACKAGE_CACHE_PATH"]), dirs_exist_ok=True)
         cls.wrapper = OUT / 'offline-typst'
         profile = '(version 1)(allow default)(deny network*)' + ''.join(
             '(deny file-write* (subpath ' + json.dumps(str(p)) + '))' for p in [REPO, DEV / 'cache/page-service/packages'])
@@ -130,7 +130,7 @@ class OriginalPageTests(unittest.TestCase):
             return result
         self.execute = execute
         project = Project(self.root, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=str(self.wrapper), execute=execute)
-        self.state = ReaderState(project, self.work / 'output', '', False)
+        self.state = ReaderState(project, self.work / 'output', '', False, change_file=self.work / 'owned-change.json')
         self.state.output.mkdir(exist_ok=True)
         self.state.compile()
         self.assertIsNotNone(self.state.revision, self.state.report)
@@ -184,6 +184,22 @@ class OriginalPageTests(unittest.TestCase):
         self.assertFalse(any(c['publicationLockHeld'] for c in self.calls if c['target'] == 'pdf'))
         self.assertTrue(any('pdf.txt' in str(c['dependencies']) for c in self.calls if c['target'] == 'pdf'))
         self.assertEqual(self.get(server, '/d/not-registered/api/native-pages?' + self.query())[0], 404)
+
+    def review_case(self, name):
+        auth = FakeAuth(self.work)
+        inventory = HomeInventory(FakeManager()); self.addCleanup(inventory.close)
+        server = self.serve(handler_for_reader({'na12':self.state}, inventory,
+            HomeAccount(auth, FakeProvider()), capability='owned-test'))
+        save(self.work / 'review-attachment.json', dict(attachment=dict(url=f'http://127.0.0.1:{server.server_port}/d/na12/',
+            documentID=self.state.document_id, service=self.state.focus.service), revision=self.state.revision))
+        result = command([self.binary, self.work/'review-attachment.json', self.work, name])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('review pass ' + name, result.stdout)
+
+    def test_review_N1_selection_begins_during_pdf_prepare(self): self.review_case('N1')
+    def test_review_N2_offline_reflow_assets(self): self.review_case('N2')
+    def test_review_N3_current_page_accessibility(self): self.review_case('N3')
+    def test_review_N4_real_clip_find_and_goto(self): self.review_case('N4')
 
     def test_saved_input_dependency_tamper_and_same_html_new_input(self):
         first = json.loads(self.pages.manifest(self.query()))

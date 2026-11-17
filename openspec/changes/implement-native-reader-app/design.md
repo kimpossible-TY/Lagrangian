@@ -265,11 +265,12 @@ accepted PDF bytes/metadata and a matching page/scale, no new credentials or sou
 excerpts. Old schema1 defaults and pending question/model bounds remain. Offline
 restoration uses the same prepare/adopt path and remains read-only.
 
-C owns the two new Swift files and service adapter only. Canonical sources.json,
-FlowApp/main, packaging and runtime delivery are read-only here. The test harness
-compiles current canonical sources plus the actual two new files explicitly.
-Final registry integration and app/delivery/GUI/VoiceOver acceptance belong to
-D/NA06; a headless component paint is not a packaged application acceptance.
+The preceding C ownership/standalone evidence is historical. Fixed input
+09c5186bff1850b17f6e85fe2f3115153520bc94 registers both original-page Swift files
+and combines core, page-service, GUI inspection and portable delivery inputs.
+The review-fix source is not yet staged into that application. Source/app
+rebinding and final GUI/VoiceOver and official review acceptance remain pending;
+a headless component paint is not packaged application acceptance.
 
 
 Native original pages use an NSScrollView viewport over the single page document
@@ -278,3 +279,71 @@ changes fit preparation independently, so zoomed page bottoms remain reachable.
 Recovery retains bounded unscaled page-display offsets with optional old-schema
 defaults, clamps them to the restored viewport, and does not create source ranges.
 Pointer release checks the original snapshot/page/operation before selection.
+
+
+## Current guarded native wire and recovery budgets
+
+NativeReaderTransport/Actions own GET api/native-document and api/native-assets/{id},
+POST api/native-action (excerpt/locate/highlight/receipt/last-change), POST
+api/native-chat (open/draft/send/cancel/list/events), and existing POST api/chat/auth
+status/models, at the owned root or registered /d/{id}/ prefix. Requests bind
+schemaVersion/capabilities and documentID/serviceID/revision/requestID/viewID/generation;
+validated lowercase 64-hex x-native-input-id from document response becomes inputID
+on action/chat. Document identity/generation/capabilities and action/chat/event echo
+envelopes are checked independently of server source/input freshness. Selections
+carry ticket plus blockID/rangeUTF16/exact fragments, preserving the remote32 cap.
+Source receipt lookup and exact UUID/user-content chat history never redispatch a
+mutation. Service, source, auth, provider and model policy owners remain unchanged.
+
+Document JSON is bounded to32MiB, each asset16MiB, generic JSON request256KiB and
+response2MiB; existing account reads have256KiB responses. SSE total16MiB,
+event2MiB and framing4096 extra bytes are bounded. Observation buffers newest1,
+tries at most4 with1/2/4-second reconnect delays and authoritative history reads.
+Session adds at most3 transport retries with1/2/3-second delays (constrained power
+4/8/12); preparation failure retains the candidate without automatic network
+request. These budgets do not impose new tool-round/document-read model limits.
+The canonical native-reader-app-contract.typ records endpoints, envelopes and
+current local-versus-recovery storage limits; exact implementation owners remain
+the authority for validation.
+
+## Final review corrections N1–N5 and current verification boundary
+
+Page-store begin is idempotent only for the identical still-current in-flight
+ticket/binding. A newer request, a different binding at the same generation,
+cancellation or a consumed ticket cannot be revived. Thus selection beginning
+during PDF preparation retains candidate B until explicit release and can adopt
+the same B without a new network refresh.
+
+Offline restore captures validated recovery assets on the pending candidate's
+preparation operation. Live target/document/assets closures are not consulted.
+The existing fallible prepare/synchronous atomic adopter remains the only
+publisher. Assets become accepted only after successful adoption and source/chat
+stay read-only. Initial layout notifications without any retained publication
+rely on that preparation's bounded exact-key recheck, rather than revoking an
+awaited first restoration.
+
+Original-page accessibility projects only the current bounded cached page text,
+UTF16 ranges, local display selection and inert safe links. Snapshot, page,
+layout generation and operation identify the projection; late/stale children
+cannot read, select or activate. Tab/Shift-Tab focus and Enter/Space activation
+reuse the same safe action owner. PDFKit text index/grapheme verification and
+one-page/lazy cache bounds remain; no PDF offset becomes Typst source authority.
+Find selection and same-artifact GoTo defer target reveal until the matching
+raster is installed, then use the existing crop/rotation/zoom transform and
+actual clip bounds. Cancel/mode/page changes revoke late reveal.
+
+Answer plain copy enumerates attachment boundaries, restoring each selected
+formula's authored delimiter text in order, including adjacent equal formulas.
+String equality is not token identity. Full and partial selections use the same
+owner; helper, parser, math calculation and source policies are unchanged.
+
+The canonical Typst contract now records exact current wire endpoints/envelopes,
+request/response/SSE/assets limits, observation and transport retry budgets,
+local versus typed-recovery bounds and F01–18 receipt gates. Local 33+ block
+selection and 0.25 reflow zoom do not extend typed recovery's 32 fragments and
+0.5–4 zoom. Recovery rejection retains old durable state; it is not silent
+successful persistence. The synthetic 256-page and current 37-paragraph fixtures,
+host OS27.2.1, target13 and single partial GUI Read/AXPress -25200 interruption
+are distinct evidence. Actual OS13, complete GUI/AX, official final code/docs
+review and a restaged final app remain gates. NA/ B/C/D/882/C19/G1 labels and
+current inspection entrypoints are defined in the canonical verification guide.

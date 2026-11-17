@@ -34,6 +34,9 @@ import Foundation
         let document: NativeReaderDocument
         let context: NativeReaderRequestContext
         let restoration: NativeReaderRestoration?
+        // Explicit per-candidate operations retain validated recovery inputs
+        // across a hold/retry without changing live transport policy.
+        var preparation: Prepare? = nil
     }
     private var pending: Candidate?
     // Correlates NA02's selectionReleased callback after that same store was
@@ -143,7 +146,7 @@ import Foundation
         // A resize without a notification can still invalidate a prepared key.
         // Retry with the latest key, retaining the candidate if churn is bounded out.
         for _ in 0..<4 {
-            let prepared = try await prepare(candidate.document, candidate.context)
+            let prepared = try await (candidate.preparation ?? prepare)(candidate.document, candidate.context)
             try check(expected, generation: candidate.context.generation, offline: offline)
             guard pending?.context == candidate.context else { throw NativeReaderContractError.staleGeneration }
             try validate(candidate)
@@ -231,7 +234,7 @@ import Foundation
 
     /// Recovery uses the identical preparation/adopter path and stays read-only,
     /// even after successful publication. A held replacement awaits explicit release.
-    func restore(_ snapshot: NativeReaderRecoverySnapshot, matching identity: NativeDocumentIdentity) async throws {
+    func restore(_ snapshot: NativeReaderRecoverySnapshot, matching identity: NativeDocumentIdentity, prepare restorationPrepare: Prepare? = nil) async throws {
         guard state != .disposed, state != .sleeping, snapshot.document.identity == identity else { throw NativeReaderContractError.wrongTarget }
         try snapshot.validate()
         task?.cancel(); epoch += 1
@@ -240,7 +243,7 @@ import Foundation
         let document = snapshot.document
         let candidate = document.rebinding(generation: generation)
         let request = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
-        pending = Candidate(document: candidate, context: request, restoration: snapshot.restoration)
+        pending = Candidate(document: candidate, context: request, restoration: snapshot.restoration, preparation: restorationPrepare)
         isReadOnly = true; state = .loading; failure = nil; onChange?()
         do {
             await invalidationTask?.value

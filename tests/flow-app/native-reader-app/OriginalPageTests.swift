@@ -1,15 +1,23 @@
 import AppKit
 import CryptoKit
 import Darwin
+import PDFKit
 
 private actor PageSwitch {
     let transport: NativeReaderOriginalPageTransport
     var failing = false
+    var paused = false, waiting = false
+    var continuation: CheckedContinuation<Void, Never>?
+    func pause() { paused = true; waiting = false }
+    func entered() -> Bool { waiting }
+    func release() { paused = false; continuation?.resume(); continuation = nil }
     init(_ transport: NativeReaderOriginalPageTransport) { self.transport = transport }
     func fail(_ value: Bool) { failing = value }
     func pages(_ context: NativeReaderRequestContext) async throws -> NativeOriginalPageDelivery {
         if failing { throw NativeOriginalPageError.invalidPDF }
-        return try await transport.pages(for: context)
+        let result = try await transport.pages(for: context)
+        if paused { waiting = true; await withCheckedContinuation { continuation = $0 } }
+        return result
     }
 }
 
@@ -41,6 +49,17 @@ private actor PagePeer {
         return .init(status: 200, headers: ["content-type":"application/json"], data: try JSONSerialization.data(withJSONObject: value))
     }
 }
+
+/// Hold the real serial PDF worker while the main actor supersedes a search.
+/// The finite wait is released by the test; production methods are unchanged.
+private final class PageWorkerLatch: @unchecked Sendable {
+    private let lock = NSLock(), done = DispatchSemaphore(value: 0)
+    private var started = false
+    var entered: Bool { lock.lock(); defer { lock.unlock() }; return started }
+    func block() { lock.lock(); started = true; lock.unlock(); _ = done.wait(timeout: .now() + 3) }
+    func release() { done.signal() }
+}
+private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWorkerLatch) { latch.block() }
 
 @main struct OriginalPageTests {
     @MainActor static var assertions = 0
@@ -115,6 +134,196 @@ private actor PagePeer {
             }
         }
     }
+    @MainActor private static func reviewN1(_ host: NativeReaderWindowController, _ source: PageSwitch) async throws {
+        let view = host.originalPageView, old = view.store.accepted!.id
+        await source.pause(); host.refresh()
+        for _ in 0..<400 { if await source.entered() { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        let entered = await source.entered(); try check(entered, "N1 provider latch reached")
+        try await view.select(page: 0, range: 0..<4)
+        await source.release(); try await until { host.session.state != .loading }
+        try check(view.store.accepted!.id == old && host.session.hasSelection, "N1 prepared B must remain held by A")
+        view.releaseSelection()
+        try await until { host.session.failure != nil || view.store.accepted?.id != old }
+        try check(host.session.failure == nil && view.store.accepted?.id != old, "N1 same pending B must adopt after explicit release without refresh")
+        try await until { view.isPreparedForPaint }
+        let b = view.store.accepted!.binding
+        let isolated = NativeOriginalPageStore(viewID: b.viewID)
+        func binding(_ generation: Int, _ digest: String = "") -> NativeOriginalPageBinding {
+            .init(identity:b.identity,inputFingerprint:b.inputFingerprint,snapshotGeneration:b.snapshotGeneration,
+                requestGeneration:generation,viewID:b.viewID,viewGeneration:0,publicationSequence:b.publicationSequence,
+                pdfSHA256:digest.isEmpty ? b.pdfSHA256 : digest,pages:b.pages)
+        }
+        let ticket = try isolated.begin(expected: binding(1))
+        let again = try isolated.begin(expected: binding(1)); try check(again == ticket, "N1 exact in-flight ticket is idempotent")
+        try await rejected("N1 equal generation different binding") { _ = try isolated.begin(expected: binding(1,String(repeating:"0",count:64))) }
+        _ = try isolated.begin(expected: binding(2))
+        try await rejected("N1 past generation") { _ = try isolated.begin(expected: binding(1)) }
+        isolated.cancel()
+        try await rejected("N1 cancelled ticket cannot revive") { _ = try isolated.begin(expected: binding(2)) }
+    }
+    private actor OfflineInputs {
+        var calls = 0
+        func reject() throws -> NativeDocumentIdentity { calls += 1; throw NativeReaderOperationFailure.unavailable }
+        func assets() throws -> [String:Data] { calls += 1; throw NativeReaderOperationFailure.unavailable }
+        func count() -> Int { calls }
+    }
+    @MainActor static func reviewN2(_ out: URL) async throws {
+        let env = ProcessInfo.processInfo.environment
+        let fixture = URL(fileURLWithPath: env["FLOW_NATIVE_FIXTURE"]!)
+        let doc = try NativeReaderDocument.decode(Data(contentsOf:fixture))
+        var assets = [String:Data]()
+        for a in doc.assets { assets[a.id] = try Data(contentsOf:fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(a.id)) }
+        try check(!assets.isEmpty,"N2 actual compiler snapshot includes assets")
+        let snapshot = NativeReaderRecoverySnapshot(document:doc,assets:assets,restoration:.initial,drafts:[])
+        let live = OfflineInputs()
+        let runtime = NativeReaderRuntime(node:URL(fileURLWithPath:env["FLOW_TEST_NODE"]!),helper:URL(fileURLWithPath:env["FLOW_TEST_NATIVE_HELPER"]!),runtime:URL(fileURLWithPath:env["FLOW_TEST_NATIVE_RUNTIME"]!))
+        var actionCalls = 0
+        let network=NativeReaderNetwork(send:{_,_ in _ = try await live.reject(); throw NativeReaderOperationFailure.unavailable},
+            stream:{_ in AsyncThrowingStream{$0.finish(throwing:NativeReaderOperationFailure.unavailable)}})
+        let managed=NativeReaderManagedClient(resolver:.init(attach:{_ in _ = try await live.reject(); throw NativeReaderOperationFailure.unavailable},network:network),root:out.path,entry:"main.typ")
+        let restored = NativeReaderWindowController(provider:managed,target:{_ in try await managed.target()},
+            assets:{_,_ in try await live.assets()},runtime:runtime,
+            actions:{ actionCalls += 1; return try await managed.currentActions() },show:false,avoidActivation:true)
+        defer { restored.dispose() }
+        restored.hostWindow.initialize()
+        try await restored.restoreRecovery(snapshot)
+        let liveCalls = await live.count(); try check(liveCalls == 0,"N2 validated offline assets cannot invoke target/provider/live assets")
+        try check(restored.session.isReadOnly && restored.session.state == .offline && restored.textView.renderKey != nil,"N2 offline reflow accepted")
+        _ = try paint(restored.textView.bodyTextView,to:out.appendingPathComponent("N2-restored.png"))
+        let key = restored.textView.renderKey
+        let first = doc.blocks.first { $0.kind == .paragraph && !$0.displayText.isEmpty }!
+        try restored.textView.select(from:.init(blockID:first.id,utf16:0,affinity:.upstream),to:.init(blockID:first.id,utf16:first.displayText.utf16.count,affinity:.downstream))
+        restored.hostWindow.sourceSelected(); restored.hostWindow.askSelected()
+        await Task.yield()
+        try check(actionCalls == 0 && restored.session.hasSelection,"N2 offline source/chat remain read-only without selection release")
+        var invalid = assets; invalid[doc.assets[0].id] = Data("corrupt".utf8)
+        try await rejected("N2 invalid recovery asset") { try await restored.restoreRecovery(.init(document:doc,assets:invalid,restoration:.initial,drafts:[])) }
+        try check(restored.textView.renderKey == key,"N2 failed restore retains A")
+    }
+    @MainActor static func reviewN3(_ host: NativeReaderWindowController) async throws {
+        let view=host.originalPageView
+        let children = view.accessibilityChildren() ?? []
+        let text = children.compactMap { $0 as? NSAccessibilityElement }.first { $0.accessibilityRole() == .textArea }
+        try check(text != nil,"N3 current PDF text AX child missing")
+        let ax=text!, value=ax.accessibilityValue() as! String
+        try check(value.contains("Native PDF") && ax.accessibilityNumberOfCharacters() == value.utf16.count,"N3 bounded page AX value/count")
+        let range=(value as NSString).range(of:"Native PDF")
+        try check(ax.accessibilityString(for:range)=="Native PDF","N3 AX range reads")
+        ax.setAccessibilitySelectedTextRange(range)
+        try await until { view.selected != nil }
+        try check(ax.accessibilitySelectedText()=="Native PDF" && ax.accessibilitySelectedTextRange()==range,"N3 AX selection")
+        let board=NSPasteboard.withUniqueName();defer{board.releaseGlobally()}
+        view.copyText={board.clearContents();return board.setString($0,forType:.string)}
+        try check(view.copyDisplay() && board.string(forType:.string)=="Native PDF","N3 AX private display copy")
+        try await rejected("N3 AX offsets are not source authority") { _ = try view.selected!.verifiedSourceAnchor() }
+        view.releaseSelection()
+        let links=(ax.accessibilityChildren() ?? []).compactMap{$0 as? NSAccessibilityElement}
+        try check(!links.isEmpty && links.allSatisfy{$0.accessibilityRole() == .link},"N3 current page AX links")
+        var callbacks=0;view.openURI={_ in callbacks += 1};view.goTo={_,_ in callbacks += 1}
+        try check(!ax.accessibilityFrame().isEmpty,"N3 native page AX frame")
+        let uri=links.first{$0.accessibilityURL() != nil}
+        try check(uri?.accessibilityPerformPress()==true && callbacks==1,"N3 explicit current AX link action")
+        let tab=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:host.hostWindow.window!.windowNumber,context:nil,characters:"\t",charactersIgnoringModifiers:"\t",isARepeat:false,keyCode:48)!
+        let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:host.hostWindow.window!.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
+        view.keyDown(with:tab);view.keyDown(with:enter)
+        try check(callbacks==2,"N3 native Tab/Enter link activation")
+        try view.jump(to:128);try await until{view.isPreparedForPaint}
+        try check(!ax.isAccessibilityEnabled() && ax.accessibilityValue()==nil && !links[0].accessibilityPerformPress(),"N3 stale AX children invalidated")
+        ax.setAccessibilitySelectedTextRange(range);await Task.yield()
+        try check(view.selected==nil,"N3 stale AX cannot select replacement page")
+        try check((view.accessibilityChildren() ?? []).count==1,"N3 only one lazy page exposed, never 256-page AX tree")
+        let metrics=await view.store.accepted!.access.metrics()
+        try check(metrics["textPages"]!<=8 && metrics["renderedPages"]!<=3,"N3 lazy page/text budgets")
+    }
+    @MainActor static func reviewN4(_ out: URL) async throws {
+        let bytes=NSMutableData();var media=CGRect(x:0,y:0,width:320,height:900)
+        let cg=CGContext(consumer:CGDataConsumer(data:bytes)!,mediaBox:&media,nil)!
+        for i in 0..<4 {
+            cg.beginPDFPage(nil)
+            cg.addDestination("bottom\(i)" as CFString, at:CGPoint(x:50,y:60))
+            cg.setDestination("bottom\(i)" as CFString, for:CGRect(x:30,y:40,width:80,height:20))
+            for (text,point) in [("BottomNeedle\(i)",CGPoint(x:40,y:60)),("TopNeedle\(i)",CGPoint(x:170,y:800))] {
+                cg.textPosition=point
+                let a=NSAttributedString(string:text,attributes:[.font:NSFont.systemFont(ofSize:12)])
+                CTLineDraw(CTLineCreateWithAttributedString(a),cg)
+            }
+            cg.endPDFPage()
+        }
+        cg.closePDF()
+        let pdf=PDFDocument(data:bytes as Data)!, crop=CGRect(x:10,y:20,width:300,height:860)
+        var geometries=[NativeOriginalPageGeometry]()
+        for i in 0..<4 {
+            let page=pdf.page(at:i)!;page.setBounds(crop,for:.cropBox);page.rotation=i*90
+            geometries.append(.init(index:i,mediaBox:media,cropBox:crop,rotation:i*90))
+        }
+        let data=pdf.dataRepresentation()!;try data.write(to:out.appendingPathComponent("N4-cropped-rotated.pdf"))
+        let view=NativeReaderOriginalPageView(viewID:UUID())
+        let window=NSWindow(contentRect:CGRect(x:0,y:0,width:220,height:120),styleMask:[],backing:.buffered,defer:false)
+        let scroll=NSScrollView(frame:window.contentView!.bounds);scroll.hasVerticalScroller=true;scroll.hasHorizontalScroller=true
+        scroll.documentView=view;window.contentView!.addSubview(scroll)
+        defer{view.dispose();window.close()}
+        let identity=NativeDocumentIdentity(documentID:"N4",serviceID:"owned",revision:"fixture",scope:.fixture)
+        let binding=NativeOriginalPageBinding(identity:identity,inputFingerprint:String(repeating:"a",count:64),snapshotGeneration:1,
+            requestGeneration:1,viewID:view.store.viewID,viewGeneration:0,publicationSequence:1,pdfSHA256:NativeReaderRecoverySnapshot.digest(data),pages:geometries)
+        var limits=NativeOriginalPageLimits();limits.lazy=true
+        let prepared=try await NativeOriginalPagePreparer().prepare(.init(binding:binding,data:data),expected:binding,limits:limits)
+        let ticket=try view.store.begin(expected:binding);try view.store.adopt(prepared,for:ticket);view.installed()
+        try await until{view.isPreparedForPaint};try view.zoom(1.5);try await until{view.isPreparedForPaint}
+        var proofs=[[String:Any]]()
+        func hide(_ rect: CGRect) throws {
+            let clip=scroll.contentView
+            let candidates=[CGPoint.zero,CGPoint(x:max(0,view.frame.width-clip.bounds.width),y:max(0,view.frame.height-clip.bounds.height))]
+            guard let origin=candidates.first(where:{!CGRect(origin:$0,size:clip.bounds.size).intersects(rect)}) else {throw NativeOriginalPageError.geometry}
+            clip.scroll(to:origin);scroll.reflectScrolledClipView(clip)
+            try check(!clip.bounds.intersects(rect),"N4 target starts outside actual clip")
+        }
+        for i in 0..<4 {
+            try view.jump(to:i);try await until{view.isPreparedForPaint}
+            let hits=try await view.search("BottomNeedle\(i)")
+            let extracted=try await prepared.access.pageText(page:i)
+            try check(!hits.isEmpty,"N4 real PDF Find query missing: \(extracted)")
+            let hit=hits[0]
+            let rect=try view.store.viewRect(forPageRect:hit.pageBounds);try hide(rect)
+            // Same production Find sequence; selection may finish before raster installation.
+            try view.jump(to:i);try await view.select(page:i,range:hit.rangeUTF16);try await until{view.isPreparedForPaint}
+            let visible=try view.store.viewRect(forPageRect:hit.pageBounds)
+            try check(scroll.contentView.bounds.intersects(visible),"N4 Find hit must be visible after raster install rotation \(i*90)")
+            proofs.append(["rotation":i*90,"findVisible":true,"clip":NSStringFromRect(scroll.contentView.bounds),"target":NSStringFromRect(visible)])
+            view.releaseSelection()
+            let decodedLinks=try await prepared.access.links(page:i)
+            let decodedPDF=PDFDocument(data:data)!, annotations=decodedPDF.page(at:i)!.annotations
+            let detail=annotations.map { "\($0.type ?? "nil") action=\(String(describing:$0.action)) destination=\(String(describing:$0.destination))" }.joined(separator:";")
+            try check(!decodedLinks.isEmpty,"N4 actual PDF GoTo annotation missing page \(i): \(detail)")
+            let link=decodedLinks[0]
+            let target=try view.store.viewRect(forPageRect:CGRect(x:50,y:60,width:1,height:1));try hide(target)
+            try view.activate(link);try await until{view.isPreparedForPaint}
+            try check(scroll.contentView.bounds.intersects(target),"N4 GoTo point must be visible rotation \(i*90)")
+            try hide(target);try view.activate(link);view.cancel()
+            let origin=scroll.contentView.bounds.origin
+            try await Task.sleep(nanoseconds:50_000_000)
+            try check(scroll.contentView.bounds.origin==origin,"N4 cancelled raster cannot apply late scroll")
+        }
+        // Queue real searches behind the same PDF actor, then supersede their
+        // page/operation while they are awaiting the worker (no patched search).
+        for boundary in ["page", "cancel"] {
+            try view.jump(to:0); try await until { view.isPreparedForPaint }
+            let latch = PageWorkerLatch()
+            let blocker = Task.detached { await occupyPDF(prepared.access, latch:latch) }
+            try await until { latch.entered }
+            var entered = false
+            let searching = Task { entered = true; return try await view.search("BottomNeedle0") }
+            try await until { entered }
+            if boundary == "page" { try view.jump(to:1) } else { view.cancel() }
+            let origin = scroll.contentView.bounds.origin
+            latch.release(); await blocker.value
+            do { _ = try await searching.value; throw NSError(domain:"N4 obsolete search returned",code:1) }
+            catch NativeOriginalPageError.stale { assertions += 1 }
+            if boundary == "page" { try await until { view.isPreparedForPaint } }
+            try check(view.selected == nil && scroll.contentView.bounds.origin == origin,"N4 late search cannot select/reveal after \(boundary)")
+            proofs.append(["lateSearchBoundary":boundary,"staleRejected":true,"scrollUnchanged":true])
+        }
+        try JSONSerialization.data(withJSONObject:proofs,options:.prettyPrinted).write(to:out.appendingPathComponent("N4-viewport.json"))
+    }
     @MainActor static func main() async {
         do { try await run() } catch { fputs("ORIGINAL PAGE FAILURE: \(error)\n", stderr); exit(1) }
     }
@@ -149,6 +358,17 @@ private actor PagePeer {
         try check(sourceDispatches == 0, "page mode dispatched hidden reflow source/chat")
         try await until { view.isPreparedForPaint }
         try check(view.enclosingScrollView?.documentView === view, "original PDF has no native scroll viewport")
+        if let review = CommandLine.arguments.dropFirst(3).first {
+            if review == "N1" { try await reviewN1(host,pageSwitch) }
+            else if review == "N2" { try await reviewN2(out) }
+            else if review == "N3" { try await reviewN3(host) }
+            else if review == "N4" { try await reviewN4(out) }
+            else { throw NativeOriginalPageError.unsupported("review-case") }
+            host.dispose()
+            try check(NSApp.windows.allSatisfy{!$0.isVisible},"review visible windows")
+            print("review pass \(review); assertions=\(assertions)")
+            return
+        }
         let accepted = view.store.accepted!
         try check(accepted.binding.pages.count == 256, "not actual 256 pages")
         try check(accepted.pages.isEmpty && !accepted.preparationWasMainThread, "eager raster or main-thread prepare")

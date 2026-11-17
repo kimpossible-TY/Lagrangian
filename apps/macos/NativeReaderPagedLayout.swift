@@ -589,6 +589,9 @@ actor NativeOriginalPDFAccess {
         texts.append((index, value)); peakTextBytes = max(peakTextBytes, texts.reduce(0, { $0 + $1.1.utf8.count }))
         return value
     }
+    /// Bounded display text for one current page. Selection still goes through
+    /// validate/selection, including PDFKit-index and exact extraction checks.
+    func pageText(page index: Int) throws -> String { try text(at: index) }
     private let geometries: [NativeOriginalPageGeometry]
     fileprivate init(document: PDFDocument, id: UUID, texts: [String], geometries: [NativeOriginalPageGeometry]) {
         self.document = document; self.id = id; self.geometries = geometries
@@ -885,8 +888,11 @@ private final class NativeOriginalPDFSafety {
     init(viewID: UUID) { self.viewID = viewID }
     func begin(expected: NativeOriginalPageBinding) throws -> Ticket {
         try expected.validate()
-        guard !disposed, expected.viewID == viewID, expected.viewGeneration == viewGeneration,
-              expected.requestGeneration > lastRequest else { throw NativeOriginalPageError.stale }
+        guard !disposed, expected.viewID == viewID, expected.viewGeneration == viewGeneration else { throw NativeOriginalPageError.stale }
+        // A prepared candidate may be held after async work. Re-preparation may
+        // reserve only that exact still-live binding, never a consumed ticket.
+        if let current, current.expected == expected, expected.requestGeneration == lastRequest { return current }
+        guard expected.requestGeneration > lastRequest else { throw NativeOriginalPageError.stale }
         lastRequest = expected.requestGeneration
         let ticket = Ticket(id: UUID(), expected: expected); current = ticket; return ticket
     }

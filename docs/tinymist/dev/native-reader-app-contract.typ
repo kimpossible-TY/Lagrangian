@@ -44,8 +44,9 @@ freshness, authority or durable effects.
 
 NA04 reuses accepted_snapshot, source_mapping, highlight_receipts, ParagraphChat,
 ChatAuth/HomeAccount, ReaderManager and source-history. No UI source writer,
-conversation database or credential owner. A native-document HTTP route is an explicit
-NA04 candidate only; B09/P0 are not existing endpoint responses. Retain Host/Origin,
+conversation database or credential owner. The original NA01 transport proposal was historical; current implemented wire
+operations and limits are specified below. B09 denotes the earlier browser
+contract and P0 the accepted server security review, neither a native endpoint. Retain Host/Origin,
 service/revision, source lock/input validation and consent/session/CSRF guards.
 
 == F01–18 implementation and gate map
@@ -57,7 +58,7 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F01], [NA05/06], [Home/project/settings/document windows; existing ProjectService.], [Persistence/recovery and isolated shell/app tests.],
   [F02], [NA04/05/06], [Request → service → accepted document → painted frame.], [Cancellation, nonblocking UI, one open; no readiness from command exit.],
   [F03], [NA01/02/06], [Ordered typed tree, heading/style/link/anchors; real importer.], [NA01 fixture contract tested; broader content, paint/outline/AX remain.],
-  [F04], [NA03/06], [Existing isolated PDFKit original-page component plus semantic reflow.], [Ordered vector deltas/full page fidelity and integrated source/GUI gates remain; NA09 preserves PDF/input-refresh tests.],
+  [F04], [NA03/06], [Integrated immutable full-PDF lazy viewport plus semantic reflow.], [Raw vector deltas, general page fidelity and independent GUI remain; review-fix source requires restaging.],
   [F05], [NA03/06], [MathML+text/number, cell/span/header, vector asset/caption/annotation.], [Fixture paint feasible; general math/CeTZ/decoration/reflow fidelity unverified.],
   [F06], [NA02/04/06], [Grapheme selection fragments and ticket-bound verified excerpt.], [Pointer/keyboard/copy/AX and service ack; no source reconstructed from math.],
   [F07], [NA04/06], [Optimistic native mark over existing guarded highlight.], [Server freshness/lock/receipt, uncertain result, no automatic resend.],
@@ -68,13 +69,19 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F12], [NA04/06], [Bounded recovery copy; explicit Send/message UUID.], [Lost ack reread and newer-draft protection; no automatic Send.],
   [F13], [NA04/06], [Native account presentation over ChatAuth/HomeAccount.], [Consent/authority/credential boundary; no live login tested.],
   [F14], [NA04/05/06], [Existing lifecycle/power operations plus generation/selection hold.], [Bounded reconnect/sleep/network, late callback and view lifetime.],
-  [F15], [NA02/03/05/06], [Native theme/font/zoom/focus and semantic AX tree.], [9 headless text conditions only; GUI/VoiceOver/object semantics unverified.],
+  [F15], [NA02/03/05/06], [Native theme/font/zoom/focus and semantic AX tree.], [Bounded headless text/object/current-page AX checks; independent GUI/VoiceOver/fidelity pending.],
   [F16], [NA04/06], [Complete snapshot+assets, transactional native offline copy/export.], [Atomic cancel/failure/read-only; offline never authorizes source writes.],
   [F17], [NA04/06], [Existing manager/origin/prefix and external consumers retained.], [Web/mobile/terminal/editor/service lifetime regression.],
-  [F18], [NA05/06], [Canonical source/resource packaging with external engine provenance.], [Source list/helper delivery/isolated installed layout; no live install here.],
+  [F18], [NA05/06], [Canonical source/resource packaging with external engine provenance.], [Fixed09c staged portable delivery exists; changed source needs new app binding; no live install here.],
 )
 
-== Executed scope and evidence
+== Historical NA01 executed scope and evidence
+
+This section records the original component probe at its own revision. Its
+MathJax/resource and P0 pending statements are historical, not the current
+portable-runtime or security-review status. P0 review/testing was accepted
+separately by PM; final native app review/GUI acceptance is still pending. See
+current runtime, inspection and receipt-gate sections below.
 
 Evidence root: `/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/contract`.
 The unittest entrypoint is `tests/flow-app/native-reader-app/test_contract.py`.
@@ -252,3 +259,104 @@ Only visible-mode actual paint acknowledges Read. PDF text/bounds grant no sourc
 authority; page source actions are unsupported. Raw engine diff-v1 native
 consumption, final registry/app/delivery and actual GUI/VoiceOver remain separate
 gates. The optional typed PDF recovery supplement reuses the existing atomic store.
+
+
+== Current wire operations and recovery budgets
+
+Native transport (`NativeReaderTransport.swift`, `NativeReaderActions.swift`)
+uses GET `api/native-document`, GET `api/native-assets/<digest-id>`, POST
+`api/native-action`, POST `api/native-chat` and the existing account status/model
+routes, either at the owned root or its registered `/d/<id>/` prefix. A document
+request binds documentID, serviceID (PID plus incarnation), revision, requestID,
+viewID, generation, schemaVersion and explicit capabilities. The validated native
+document response must carry a lowercase 64-hex `x-native-input-id`; subsequent
+asset/action/chat operations bind that accepted context and action/chat payloads
+carry `inputID`. Document JSON is the semantic snapshot with exact service-scoped
+identity, generation, schema and supported required capabilities. Action/chat
+JSON and event envelopes echo exact documentID/serviceID/revision/requestID/
+viewID/generation; echoed fields never substitute for server source freshness.
+
+Source selections carry a ticket and ordered fragments with blockID, half-open
+rangeUTF16 and exact text, still capped at32 fragments for remote operations.
+POST `api/native-action` uses operation excerpt/locate/highlight, receiptID,
+selection and optional existing editorAttachment. Its last-change operation reads
+the existing saved-source navigation owner. Its receipt operation reads
+that same receiptID without invoking a writer; statuses distinguish verified
+located/highlighted, unmapped, ambiguous, stale, unsupported, uncertain and
+rejected. Only a verified excerpt may return source text.
+POST `api/native-chat` uses open with selection, draft with conversationID/version/
+draft, send with conversationID/version/messageID/question/model, cancel with
+conversationID/version, list (authoritative history), or events. Responses contain bounded typed
+conversations; versions, sequence, frozen target and selection remain guarded.
+UUID plus exact stored user-message content is required to confirm a lost Send;
+a missing/mismatched message requires the original explicit UUID/question/model
+retry, never automatic retransmission. Existing POST `api/chat/auth` status/models
+reads bind documentID/revision/service and have a256KiB response limit. They do
+not add login/logout, credentials or inference authority to the host.
+
+Document JSON is bounded to 32MiB; individual native assets to 16MiB. Generic
+mutation JSON requests are at most 256KiB and responses 2MiB. `events` is a POST
+chat subscription: SSE total is at most 16MiB, each event 2MiB and pending framing
+has only 4096 bytes extra. Native observation buffers the latest one state. It
+makes at most four observation attempts, reading authoritative history between
+attempts, with 1/2/4-second reconnect delays. Contract/identity failures cannot
+reconnect to another target. Source receipt lookup never dispatches a highlight;
+history confirms lost Send only by exact UUID, user role and stored scalars.
+
+Session transport recovery adds at most three retries, after 1/2/3 seconds or
+4/8/12 seconds under constrained power. Preparation/adopter failure does not
+request the network automatically; the newest candidate is retained for explicit
+preparation retry. These are transport and UI recovery budgets, not new limits
+on model tool rounds or document reading. Published provider policy is unchanged.
+
+== Local display versus stored recovery
+
+Native reflow display zoom is 0.25–4; local selection may span all accepted
+blocks. The typed recovery store independently accepts at most 32 selection
+fragments, offset 0–1 and reflow zoom 0.5–4. Thus a 33+ fragment selection or
+0.25 display state is not a supported stored/resumed reflow state. Do not silently
+truncate a selection, increase source authority, clamp stored zoom or call that
+application autosave/recovery verified.
+
+Recovery retains at most 128 drafts, each at most 8000 characters (including a
+separately bounded original pending question), model strings at most 120. Assets
+are at most 16MiB each and 64MiB total; the hashed envelope is at most 128MiB.
+The directory allows at most eight documents and 256MiB total. Exceeding a limit
+rejects save before replacement, preserving the previous file; it does not
+truncate or automatically evict. Original PDF bytes/viewport have their own
+validated supplement and remain subject to the enclosing store budgets.
+
+== Receipt gates and feature evidence
+
+The seven receipt gates described in
+#link("native-reader-delivery.typ")[native delivery] map to these obligations:
+#table(columns:(1fr,1.2fr,3fr),inset:4pt,align:top,
+ table.header([Receipt gate],[Feature rows],[Required evidence / unsupported boundary]),
+ [source],[F01–F18],[Exact fixed source/app/runtime/reader/engine identities, protected-owner bytes.],
+ [runtime],[F04,F05,F11,F18],[Portable resource/inventory/signature/relocation proof; current-host execution is not actual OS13.],
+ [requiredtests],[F01–F18],[Actual affected fixtures, regressions, exits and zero required skips, with explicit unsupported coverage.],
+ [code-review],[F01–F18],[Official matching task/revision/diff review and finding resolution; execution logs alone are not review.],
+ [docs],[F01–F18],[Current canonical contracts, owner map, reproduced commands and accurate limitations.],
+ [nativeGUI],[F01–F18],[Independent actual native interactions/paint/selection/recovery; headless callbacks and partial Read are insufficient.],
+ [AX],[F03–F06,F09,F11,F15],[Current-page/body ranges, selection and link access plus independent AX/VoiceOver coverage; internal APIs alone do not certify speech.],
+)
+An unsupported feature requires an explicit PM disposition with scoped evidence;
+it is not a passed gate, an automatic waiver or a fabricated receipt. The receipt
+validator checks binding and integrity, not review quality, PM authority or user
+approval. Final official and GUI acceptance remain incomplete.
+
+== Historical role names and current baseline
+
+NA01 is the shared semantic contract; NA02 text/selection, NA03 object/PDF paint,
+NA04 guarded service/source/chat/recovery, NA05 shell, NA06 host integration.
+B/NA10 is answer TeX math (#link("native-reader-chat-math.typ")[contract]);
+C/NA12 is original PDF publication/lazy native pages
+(#link("native-reader-original-pages.typ")[contract]); D/NA13 is portable delivery
+(#link("native-reader-delivery.typ")[contract]). 882 means the historical
+`882e3ea48044eeeae95ad34e4c97f1319797af8c` integrated core. C19 is the accepted
+page-component 19-path input recorded as `C19Exact` in the fixed
+`test-output/delivery-production/NA13/final-app-v1/final-binding.json`; G1 is the isolated GUI-fixture owner prepared at
+`1e32419dd2cb448fb183ce563e39736cf64a1fca`. The staged integrated baseline is
+`09c5186bff1850b17f6e85fe2f3115153520bc94`; subsequent review fixes need new
+source/app binding and are not implicitly part of that old app. See
+#link("native-reader-app-verification.typ")[current inspection entrypoint].

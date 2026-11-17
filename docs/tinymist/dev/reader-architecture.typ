@@ -150,7 +150,7 @@ Keep public crate APIs and revision/handler ordering stable. A completion belong
 
 `apps/macos/sources.json` is the single explicit source list shared by packaging and tests. Profile validation, environment paths, settings storage, command execution, LaunchAgents, engine launch, CLI and AppKit each have a dedicated source. `ProjectService` owns project creation defaults, profile selection/persistence and validate-before-stop updates/recovery; its injected collaborators let tests verify failures without running the user's services. UI callbacks gather inputs and adopt successfully saved settings returned by the service; failed creation/selection preserves prior UI settings. `LaunchAgentService` produces the executable arguments once for both plist generation and ownership checks.
 
-`ReadingSessionController.swift` owns asynchronous service requests, serialized settings mutations, readiness deadlines, cancellation, stale-result guards and power-aware status polling. `PreviewReadiness.swift` verifies document availability through the existing loopback WebSocket protocol; HTTP success or command acceptance alone does not establish readiness. `NativeReadingEnvironment.swift` adapts AppKit sleep/wake notifications, network path changes, power-source changes, Low Power Mode and thermal state to that policy, and disposes its observers with the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Browser rendering and reading-state recovery remain with the concrete readers.
+`ReadingSessionController.swift` owns asynchronous service requests, serialized settings mutations, readiness deadlines, cancellation, stale-result guards and power-aware status polling. `PreviewReadiness.swift` verifies document availability through the existing loopback WebSocket protocol; HTTP success or command acceptance alone does not establish readiness. `NativeReadingEnvironment.swift` adapts AppKit sleep/wake notifications, network path changes, power-source changes, Low Power Mode and thermal state to that policy, and disposes its observers with the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Body rendering and reading-state recovery remain with the concrete readers described below.
 
 = Validation
 
@@ -203,3 +203,23 @@ storage, with an optional bounded accepted-PDF/viewport supplement. PDF text and
 coordinates never supply source authority. Full reset is implemented; engine raw
 diff-v1 native consumption is unverified. Packaging/source registry remains the
 delivery owner's responsibility; headless paint is separate from GUI acceptance.
+
+
+= Native reflow and original-page ownership
+
+#table(columns:(1.5fr,3fr),inset:4pt,align:top,
+ table.header([Existing owner],[Responsibility]),
+ [`NativeReaderTextView` / `NativeReaderSelection`],[Native body, logical↔presentation mapping, grapheme selection, ordinary copy, geometry and semantic AX.],
+ [`NativeReaderSession`],[Newest candidate, request/selection hold, retry and read-only typed recovery through one atomic adopter.],
+ [`NativeReaderTransport` / `NativeReaderActions`],[Accepted input binding, scoped HTTP/assets, source receipts, exact conversation history and cancellation.],
+ [`NativeReaderObjectRenderer` / `NativeReaderPagedLayout`],[Math/object preparation and native pixels; serial PDFKit access, page geometry and bounded lazy caches.],
+ [`NativeReaderChatView`],[Native composer, completed-answer TeX preparation, attachment/token copy boundaries and pending-Send UI.],
+ [`NativeReaderOriginalPageView`],[One current PDF page's viewport, display selection, AX ranges/links and deferred Find/GoTo reveal.],
+ [`NativeReaderWindowController`],[Compose those owners and explicit validated offline assets, separate visible modes, acknowledge matching actual paint.],
+ [`document/native_document.py`],[Import only existing accepted SectionBundle publication; preserve source/auth/chat/security owners.],
+)
+See #link("native-reader-app-contract.typ")[wire/local/recovery contracts],
+#link("native-reader-original-pages.typ")[PDF limits] and
+#link("native-reader-chat-math.typ")[answer math]. The final source list includes
+the page view/transport at staged09c5186b. A new source fix requires delivery
+rebinding; no common writer, credential owner or framework is introduced here.

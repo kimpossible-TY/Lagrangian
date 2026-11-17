@@ -20,7 +20,7 @@ def compile_fixture(cls, name, arguments):
     output = os.environ.get('GUI_PREP_OUTPUT')
     if output:
         root = Path(output).resolve()
-        if not root.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/integration')):
+        if not root.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output')):
             raise RuntimeError('UI evidence must remain in isolated integration output')
         folder = root / (name + '-' + str(time.time_ns())); folder.mkdir()
         cls.executable = folder / name

@@ -1,67 +1,59 @@
 #set text(size: 11pt)
 = Isolated native Reader inspection preparation
 
-This procedure prepares Lagrangian-owned input for an independent GUI examiner.
-It does not launch the app, install a service, establish GUI/VoiceOver success,
-or accept the complete native application. Use only an explicitly approved final
-app after the page-service component and delivery owner have completed staging.
-The current delivery component app is not that integrated app.
+Current staged baseline `09c5186bff1850b17f6e85fe2f3115153520bc94` combines
+core, original-page service/view, G1 inspection and published provider inputs.
+Its app staging/integrity exists; official final review, independent GUI/AX and
+PM acceptance remain incomplete. New review-fix source is not automatically
+included in that app and must be restaged/rebound separately.
 
-== Owned fixture lifecycle
+== Current final inspection entrypoint
 
-Run from the fixed final-integration checkout. All fixture roots must be new,
-absolute directories under the following DevSSD directory. Existing roots are
-preserved. The compiler and package cache are explicit, pre-existing local inputs;
-there is no dependency download. Do not substitute personal or PDE documents.
+Use `tests/flow-app/native-reader-app/test_page_delivery_bundle.py` as SCRIPT.
+The original `test_app_integration.py` is the G1 fixture owner with a different
+root contract, not the final root entrypoint. G1 denotes historical isolated GUI
+preparation at1e32419d; C/NA12 denotes original pages and D/NA13 portable delivery.
 
 ```sh
 D=/Volumes/devSSD/Developer/lagrangian-native-20261117
-ROOT="$D/test-output/integration/gui-prep-v1/fixtures/inspection-001"
-SCRIPT=tests/flow-app/native-reader-app/test_app_integration.py
-python3 -B "$SCRIPT" gui-fixture setup --root "$ROOT" \
-  --compiler /opt/homebrew/bin/typst \
-  --package-cache "$D/test-output/core-review-fixes/v2-ui/cache/services/typst-packages"
-python3 -B "$SCRIPT" gui-fixture serve --root "$ROOT" --seconds 900
+EVIDENCE="$D/test-output/delivery-production/NA13/final-app-v1"
+SCRIPT=tests/flow-app/native-reader-app/test_page_delivery_bundle.py
 ```
 
-Serve is a foreground, bounded process. Use another terminal for status and stop.
-The fixture manifest records actual PID, incarnation, ports, root, source hashes,
-compiler commands, profile settings and exact app arguments. Stop writes only this
-owned fixture's stop request; it never signals another PID, invokes launchctl,
-or stops a shared Reader. The foreground process closes both listeners and its
-own compiler/chat resources. Keep all failed and successful roots for review.
+The fixed final09c preparation record supplies `$EVIDENCE/gui-inspection-001`
+as setup-only, not a running-service receipt. Do not rerun setup over it. Read
+`$EVIDENCE/inspection-commands.json`; use its exact serve/status/appCommand/stop
+arrays for the bound staged app and source, and inspect status before serving. Do not
+launch a stale app against new source under an old acceptance binding. No command
+in this document is executed by a docs check or authorizes an installation,
+service restart, actual inference or credential/account change.
+
+For a new inspection, select a new root below EVIDENCE and explicitly supply the
+same pinned compiler and existing package cache from the fixed command record:
 
 ```sh
-python3 -B "$SCRIPT" gui-fixture status --root "$ROOT"
-python3 -B "$SCRIPT" gui-fixture stop --root "$ROOT"
+ROOT="$EVIDENCE/gui-inspection-new"
+python3 -B "$SCRIPT" gui-fixture setup --root "$ROOT" \
+  --compiler "$D/dependencies/portable-typst/v0.15.1/typst-aarch64-apple-darwin/typst" \
+  --package-cache "$D/build/delivery-production/c-merge-v1/Lagrangian.app/Contents/Resources/native-reader/typst-packages"
 ```
 
-The serving process denies user-home file access, external network and writes
-outside its owned root and explicit temporary directory. The compiler inherits
-this confinement. A concrete fake auth/catalog/provider and fake manager
-attachment observation are marked as test inputs; no credentials or real
-inference are used. The ReaderState, accepted compiler publication, root and
-registered `/d/gui/` HTTP handlers, native document/assets, guarded source actions
-and ParagraphChat remain production owners. The fixture does not reproduce their
-HTTP/parser/security/source rules. Response loss is injected only after an
-explicit successful mutation, without changing acceptance or retry policy.
+Those are prebuilt/local inputs, not download or global-install instructions.
+Serve is a bounded foreground process; stop requests only its owned fixture,
+never a shared process, launchctl domain or user's data. Manifest PID/incarnation,
+root, port, hashes and exact existing --dev-root/--dev-no-activate/manager arguments
+are recorded. Real production compiler/accepted document, scoped native HTTP,
+source and conversation APIs are reused. Auth/catalog/inference and manager PID
+observation are explicitly fake; actual HTTP is separate evidence. Source bytes
+remain immutable while serving. Do not replace the backend with fixture JSON.
 
-== Exact future app invocation
-
-Read `fixture.json` only after `running` becomes true. Its `appArguments` uses the
-existing parser: `--dev-root`, `--dev-no-activate`, and
-`--native-reader-manager`. It supplies an owned schema-1 profile. There is no
-`--native-reader-fixture` JSON provider, preview-port assumption or default-manager
-launch. The explicit manager wrapper supports only exact attachment to this root
-and entry, then checks the real HTTP document/service incarnation. PID observation
-is fake; HTTP is real. Use the approved final executable and append the manifest
-arguments verbatim. Preparation does not run this command. Runtime defaults must
-come from the final verified bundle; no scratch/PATH/source-runtime fallback is
-part of this procedure.
-
-No-activate avoids forced activation; it does not prove visibility, focus,
-selection, window ordering, AX, VoiceOver or actual native paint. Those remain
-independent examiner observations.
+The current synthetic original-PDF and semantic modes share the production backend;
+256 pages are synthetic compiler input and37 Unicode paragraphs are the separate
+G1 document. This does not prove original-PDF GUI fidelity or application recovery.
+The host is macOS27.2.1; target13/closure minOS<=13 do not prove OS13 execution.
+A single later partial Read/window observation and AXPress -25200 interruption
+are incomplete, never GUI/AX/VoiceOver passes. The source/binary-bound headless
+helper, actual GUI actions and VoiceOver speech remain separate evidence.
 
 == Clipboard inspection
 
@@ -107,11 +99,22 @@ not GUI acceptance or complete app recovery wiring.
   provider observations, not live inference or an account test.
 - Exercise close/reopen and recovery as separate app-level gates. The helper's
   typed recovery round-trip does not prove the application's persisted draft or
-  window restoration. Original PDF/page-host delivery through this same backend
-  is unverified until the accepted C component and final staging are available.
+  window restoration. The staged09c baseline includes original-page/backend delivery; its GUI page
+  fidelity, actual app recovery and the current review-fix restaging remain
+  independent and incomplete gates.
 
 A `gui-fixture smoke` command combines setup, owned serve, native HTTP/source/chat,
 private-board/parser/typed-recovery checks and cleanup. Wrap it once in the same
 Swift lock. Record actual exits, skips, source/binary hashes, compiler argv and
 closed ports. Never reinterpret this headless smoke as a GUI, F01–18, final review,
 standalone bundle or complete NA06 acceptance.
+
+
+Historical G1 smoke1/2 may have performed default SharedEditLocation live-profile
+discovery; this remains unconfirmed, with no contents logged or mutation. Do not
+rewrite that history as access0. The final owned-change-file/home-deny smoke is
+separate. Body/verified complete-math Source copy uses the private named board;
+answer/composer system Cut/Copy/Paste is outside that seam. Runtime, source,
+receipt, recovery and resource limits are specified in
+#link("native-reader-app-contract.typ")[the current contract], not waived by
+fixture success. Final GUI/AX/official/PM gates remain open.

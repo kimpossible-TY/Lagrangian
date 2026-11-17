@@ -322,6 +322,34 @@ private final class MissingMathCell: NSTextAttachmentCell {
             if let a = value as? NSTextAttachment, let cell = a.attachmentCell as? NSTextAttachmentCell, cell.image != nil { attachments += 1 }
         }
         try check(attachments == 5, "five native image attachment cells")
+        // N5: equal copy attributes must not merge adjacent token identities.
+        let adjacent = NativeReaderChatView(actions: actions, context: request, authorize: {})
+        try adjacent.configureMath(worker: real, context: context())
+        let cases = [("\\(x\\)\\(x\\)", 2), ("\\(x\\)\\(x\\)\\(x\\)", 3), ("\\(x\\) prose \\(y\\)\\(x\\)", 3)]
+        for (index, item) in cases.enumerated() {
+            adjacent.present(record(item.0, true, index + 1, index + 1, UUID()))
+            try await wait { adjacent.preparedFormulaCount == item.1 }
+            let storage = adjacent.answer.textStorage!
+            let all = NSRange(location: 0, length: storage.length)
+            let full = "Assistant\n" + item.0 + "\n"
+            try check(adjacent.answer.ordinaryText(in: all) == full, "N5 adjacent equal formulas full copy count/order")
+            adjacent.answer.setSelectedRange(all); board.clearContents()
+            try check(adjacent.answer.writeSelection(to: board,type:.string) && board.string(forType:.string)==full,"N5 full native private copy count/order")
+            var positions = [Int]()
+            for i in 0..<storage.length where storage.attribute(.attachment, at: i, effectiveRange: nil) != nil { positions.append(i) }
+            try check(positions.count == item.1, "N5 actual prepared attachments")
+            for (token, location) in positions.enumerated() {
+                let range = NSRange(location: location, length: 1)
+                let expected = index == 2 && token == 1 ? "\\(y\\)" : "\\(x\\)"
+                adjacent.answer.setSelectedRange(range); board.clearContents()
+                try check(adjacent.answer.writeSelection(to: board, type: .string) && board.string(forType: .string) == expected, "N5 partial private copy boundary")
+            }
+            if index == 1 {
+                let two = NSRange(location: positions[1], length: 2)
+                try check(adjacent.answer.ordinaryText(in: two) == "\\(x\\)\\(x\\)", "N5 adjacent subset count/order")
+            }
+        }
+        adjacent.dispose()
         try await transcriptPaint(out, config)
         try view.configureMath(worker: real, context: context(640, 24, true, 2))
         try await wait { view.preparedFormulaCount == 5 || view.mathFailure != nil }

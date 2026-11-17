@@ -104,10 +104,18 @@ final class NativeReaderAnswerTextView: NSTextView {
     var semanticValue = ""
     override func accessibilityValue() -> String? { semanticValue }
     func ordinaryText(in range: NSRange) -> String {
-        guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return "" }
+        guard let storage = textStorage, range.location != NSNotFound, range.location >= 0, range.length >= 0,
+              range.location <= storage.length, range.length <= storage.length - range.location else { return "" }
         var text = ""
-        storage.enumerateAttribute(answerMathCopy, in: range) { value, subrange, _ in
-            text += value as? String ?? (storage.string as NSString).substring(with: subrange)
+        // Copy attribution is not a token identity: equal values can coalesce.
+        // Each selected attachment character restores its own original token.
+        storage.enumerateAttribute(.attachment, in: range) { attachment, subrange, _ in
+            if attachment != nil {
+                for index in subrange.location..<NSMaxRange(subrange) {
+                    text += storage.attribute(answerMathCopy, at: index, effectiveRange: nil) as? String ??
+                        (storage.string as NSString).substring(with: NSRange(location: index, length: 1))
+                }
+            } else { text += (storage.string as NSString).substring(with: subrange) }
         }
         return text
     }

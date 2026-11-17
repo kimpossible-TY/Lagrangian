@@ -28,7 +28,7 @@ DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 CLOSURE = Path(os.environ["NA09_ROOT"]).resolve() if os.environ.get("NA09_ROOT") else None
 EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/objects'
 ISOLATED = CLOSURE if CLOSURE else DEV
-RUNTIME = DEV / 'dependencies/mathjax413'
+RUNTIME = Path(os.environ.get('FLOW_TEST_NATIVE_RUNTIME', DEV / 'dependencies/mathjax413'))
 OWNED = ['apps/macos/NativeReaderObjectRenderer.swift', 'apps/macos/NativeReaderPagedLayout.swift',
          'tools/flow-reader/native/math_layout.mjs', 'tests/flow-app/native-reader-app/ObjectsTests.swift',
          'tests/flow-app/native-reader-app/test_objects.py',
@@ -153,7 +153,7 @@ class ObjectsTests(unittest.TestCase):
             if json.loads((RUNTIME / 'node_modules' / package / 'package.json').read_text())['version'] != '4.1.3':
                 raise RuntimeError('exact offline 4.1.3 runtime required')
         # Existing cache only. Missing cache is a blocker, never a download.
-        source_cache = Path.home() / 'Library/Caches/typst/packages'
+        source_cache = Path(os.environ['FLOW_TEST_PACKAGE_CACHE']) if os.environ.get('FLOW_TEST_PACKAGE_CACHE') else Path.home() / 'Library/Caches/typst/packages'
         cache = ISOLATED / 'cache/objects/typst-packages'
         if not cache.exists():
             if not source_cache.is_dir():

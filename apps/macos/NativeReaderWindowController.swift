@@ -26,7 +26,6 @@ struct NativeReaderRuntime {
   let store = NativeReaderDocumentStore()
   lazy var originalPageView = NativeReaderOriginalPageView(viewID: store.viewID)
   private var acceptedPageDelivery: NativeOriginalPageDelivery?
-  private var recoveringPages: NativeOriginalPageRecovery?
   private let pagePreparer = NativeOriginalPagePreparer()
   private var pageProvider: ((NativeReaderRequestContext) async throws -> NativeOriginalPageDelivery)?
   lazy var textView = NativeReaderTextView(store: store)
@@ -160,12 +159,13 @@ struct NativeReaderRuntime {
 
   func refresh() { acceptedPaintKey = nil; paintedKey = nil; session.refresh() }
 
-  private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false) async throws -> NativeReaderSession.PreparedAdoption {
-    if !reflowOnly, mode == .originalPages { return try await prepareOriginal(document, context: context) }
+  private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false, recoveryAssets: [String: Data]? = nil, recoveryPages: NativeOriginalPageRecovery? = nil) async throws -> NativeReaderSession.PreparedAdoption {
+    if !reflowOnly, mode == .originalPages { return try await prepareOriginal(document, context: context, recoveryAssets: recoveryAssets, recovery: recoveryPages) }
     let ticket = requestTicket
     let key = try reflowOnly ? textView.retainedPreparationKey(for: document, context: context) : textView.preparationKey(for: document, context: context)
     let descriptors: [String: Data]
-    if reflowOnly {
+    if let recoveryAssets { descriptors = recoveryAssets }
+    else if reflowOnly {
       guard let retained = acceptedAssets, retained.document == document else { throw NativeObjectError.stale }
       descriptors = retained.bytes // Previously verified bytes; never a stale transport request.
     } else { descriptors = try await assets(document, context) }
@@ -253,11 +253,11 @@ struct NativeReaderRuntime {
     self.mode = mode; session.refresh()
   }
 
-  private func prepareOriginal(_ document: NativeReaderDocument, context: NativeReaderRequestContext) async throws -> NativeReaderSession.PreparedAdoption {
+  private func prepareOriginal(_ document: NativeReaderDocument, context: NativeReaderRequestContext, recoveryAssets: [String: Data]? = nil, recovery: NativeOriginalPageRecovery? = nil) async throws -> NativeReaderSession.PreparedAdoption {
     let intent = mode, request = requestTicket, generation = originalPageView.store.viewGeneration
     let delivery: NativeOriginalPageDelivery
     let supplement: NativeOriginalPageSupplement
-    if let recovery = recoveringPages {
+    if let recovery {
       delivery = NativeOriginalPageDelivery(publication: recovery.publication, data: recovery.data)
       let old = recovery.publication
       let oldContext = NativeReaderRequestContext(requestID: UUID(uuidString: old.requestID)!, viewID: UUID(uuidString: old.viewID)!, generation: old.generation, target: context.target)
@@ -272,15 +272,17 @@ struct NativeReaderRuntime {
       delivery = try await pageProvider(context)
       supplement = try await delivery.supplement(context: context, viewGeneration: generation)
     }
-    let descriptors = recoveringPages == nil ? try await assets(document, context) : (acceptedAssets?.bytes ?? [:])
+    let descriptors: [String: Data]
+    if let recoveryAssets { descriptors = recoveryAssets }
+    else { descriptors = try await assets(document, context) }
     var limits = NativeOriginalPageLimits(); limits.lazy = true
     let prepared = try await pagePreparer.prepare(supplement, expected: supplement.binding, limits: limits)
     try Task.checkCancellation()
     guard !disposed, !request.isCancelled, mode == intent, originalPageView.store.viewGeneration == generation else { throw NativeOriginalPageError.stale }
-    let initialPage = recoveringPages?.viewport.page ?? min(originalPageView.store.pageIndex, prepared.binding.pages.count - 1)
+    let initialPage = recovery?.viewport.page ?? min(originalPageView.store.pageIndex, prepared.binding.pages.count - 1)
     guard prepared.binding.pages.indices.contains(initialPage) else { throw NativeOriginalPageError.geometry }
-    let recoveryScale = recoveringPages?.viewport.scale
-    let fit = recoveringPages != nil ? recoveryScale == nil : originalPageView.store.fitsWidth
+    let recoveryScale = recovery?.viewport.scale
+    let fit = recovery != nil ? recoveryScale == nil : originalPageView.store.fitsWidth
     let scale = fit ? min(8, max(0.1, originalPageView.store.viewportWidth / prepared.binding.pages[initialPage].displaySize.width)) : (recoveryScale ?? originalPageView.store.scale)
     _ = try await prepared.access.render(page: initialPage, scale: scale)
     _ = try await prepared.access.links(page: initialPage)
@@ -300,7 +302,7 @@ struct NativeReaderRuntime {
       self.acceptedPageDelivery = delivery; self.acceptedAssets = (document, descriptors)
       self.visibleMode = .originalPages; self.acceptedPaintKey = nil; self.paintedKey = nil
       self.hostWindow.displayMode(.originalPages); self.originalPageView.installed()
-      if let recovery = self.recoveringPages { try self.originalPageView.restore(recovery.viewport) }
+      if let recovery { try self.originalPageView.restore(recovery.viewport) }
       self.chatView?.dispose(); self.chatView?.removeFromSuperview(); self.chatView = nil; self.chatContext = nil
     })
   }
@@ -316,18 +318,23 @@ struct NativeReaderRuntime {
   func restoreRecovery(_ snapshot: NativeReaderRecoverySnapshot) async throws {
     try snapshot.validate()
     guard !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
-    if let pages = snapshot.originalPages {
-      mode = .originalPages; recoveringPages = pages; acceptedAssets = (snapshot.document, snapshot.assets)
-      defer { recoveringPages = nil }
-      try await session.restore(snapshot, matching: snapshot.document.identity)
-    } else { mode = .nativeReflow; try await session.restore(snapshot, matching: snapshot.document.identity) }
+    mode = snapshot.originalPages == nil ? .nativeReflow : .originalPages
+    // Snapshot.validate above owns asset/hash authority. Candidate-local capture
+    // keeps this input through held preparation retries; live closures stay idle.
+    try await session.restore(snapshot, matching: snapshot.document.identity, prepare: { [weak self] document, context in
+      guard let self else { throw NativeReaderContractError.disposed }
+      return try await self.prepare(document, context: context, recoveryAssets: snapshot.assets, recoveryPages: snapshot.originalPages)
+    })
   }
 
   /// Reprepare only the latest layout key. Session retains incoming candidates;
   /// an accepted snapshot reflow never adopts/releases selection or changes service state.
   private func layoutChanged() {
     guard !disposed, !requestTicket.isCancelled else { return }
-    session.preparationChanged()
+    // The initial offscreen/AppKit layout has no retained view to invalidate.
+    // Its in-flight candidate already rechecks the exact key in publishPending;
+    // restarting it would revoke an awaited offline restore for a frame notice.
+    if store.document != nil || session.state != .loading { session.preparationChanged() }
     guard visibleMode == .nativeReflow, let document = store.document, let context = session.context,
           context == textView.context,
           let key = textView.requestedRenderKey, key != cache?.key else { return }
@@ -372,7 +379,7 @@ struct NativeReaderRuntime {
     guard visibleMode == .nativeReflow else { return }
     let previous = selectionTask
     previous?.cancel()
-    guard let actions else { return }
+    guard !session.isReadOnly, let actions else { return }
     selectionTask = Task {
       await previous?.value
       do { try Task.checkCancellation(); let owner = try await actions(); try Task.checkCancellation(); try await owner.updateSelection(selection, context: context) }
@@ -470,7 +477,7 @@ struct NativeReaderRuntime {
   }
   func dispose() {
     if let observer = layoutObserver { NotificationCenter.default.removeObserver(observer); layoutObserver = nil }
-    cancel(); disposed = true; acceptedPageDelivery = nil; recoveringPages = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose(); hostWindow.window?.close() }
+    cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose(); hostWindow.window?.close() }
 }
 
 @MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate {
@@ -559,7 +566,7 @@ struct NativeReaderRuntime {
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
     let query = findField.stringValue
-    Task { do { if let hit = try await original.search(query).first { try original.jump(to: hit.pageIndex); try await original.select(page: hit.pageIndex, range: hit.rangeUTF16) } }
+    Task { do { if let hit = try await original.search(query).first { guard self.currentMode == .originalPages, !original.isHidden else { return }; try original.jump(to: hit.pageIndex); try await original.select(page: hit.pageIndex, range: hit.rangeUTF16) } }
       catch { notice.stringValue = String(describing: error) } }
   }
   @objc func copySelected() { if currentMode == .originalPages { _ = original?.copyDisplay() } else { _ = reader.copyPlainText() } }

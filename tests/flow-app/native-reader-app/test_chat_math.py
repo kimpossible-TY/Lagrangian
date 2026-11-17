@@ -18,15 +18,16 @@ import xml.etree.ElementTree as ET
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
-ROOT = DEV / 'test-output/chat-math/NA10'
-RUNTIME = DEV / 'build/runtime-producer/NA11/runtime'
-NODE = Path('/opt/homebrew/Cellar/node/26.13.1/bin/node')
+ROOT = Path(os.environ.get('NA10_ROOT', DEV / 'test-output/chat-math/NA10'))
+RUNTIME = Path(os.environ.get('FLOW_TEST_NATIVE_RUNTIME', DEV / 'build/runtime-producer/NA11/runtime'))
+NODE = Path(os.environ.get('FLOW_TEST_NODE', '/opt/homebrew/Cellar/node/26.13.1/bin/node'))
 OWNED = ['tools/flow-reader/native/math_layout.mjs', 'apps/macos/NativeReaderObjectRenderer.swift',
          'apps/macos/NativeReaderChatView.swift', 'tests/flow-app/native-reader-app/ChatMathTests.swift',
          'tests/flow-app/native-reader-app/test_chat_math.py', 'tests/flow-app/native-reader-app/fixtures/chat-math.expect.json',
          'tests/flow-app/native-reader-app/fixtures/chat-math.typ', 'docs/tinymist/dev/native-reader-chat-math.typ']
 for name, folder in [('TMPDIR', DEV / 'tmp/chat-math'), ('CLANG_MODULE_CACHE_PATH', DEV / 'cache/chat-math/clang'),
                      ('SWIFT_MODULECACHE_PATH', DEV / 'cache/chat-math/swift')]:
+    folder = Path(os.environ.get(name, folder))
     folder.mkdir(parents=True, exist_ok=True)
     os.environ[name] = str(folder)
 
@@ -51,7 +52,7 @@ class ChatMathTests(unittest.TestCase):
         save(cls.out / 'run.json', {'uuid': str(uuid.uuid4()), 'session': os.environ.get('CODEX_THREAD_ID'),
                                   'scope': 'headless component; no GUI/product delivery/macOS13 runtime claim'})
         manifest = RUNTIME / 'runtime-manifest.json'
-        if digest(manifest) != 'e2fbdb745477db56a4a6505503656cd64d27ad9e13c428c395ec46537c531eb7':
+        if digest(manifest) != os.environ.get('FLOW_TEST_RUNTIME_MANIFEST_SHA256', 'e2fbdb745477db56a4a6505503656cd64d27ad9e13c428c395ec46537c531eb7'):
             raise RuntimeError('NA11 manifest binding changed')
         cls.runtime_before = {str(p.relative_to(RUNTIME)): digest(p) for p in RUNTIME.rglob('*') if p.is_file()}
         inventory = json.loads(manifest.read_text())

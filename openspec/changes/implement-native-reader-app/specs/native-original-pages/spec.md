@@ -39,3 +39,28 @@ PDF URI/GoTo actions SHALL become inert validated data activated only by explici
 - **THEN** only the corresponding native callback runs
 - **WHEN** a page source action lacks verified compiler-owner anchors
 - **THEN** it reports unsupported without estimating source from text, coordinates or Rust API existence
+
+
+### Requirement: Held publication retry preserves exact ticket authority
+An identical still-current in-flight PDF binding SHALL reuse its ticket after a selection hold. Equal-generation different bindings, old generations, cancelled and consumed tickets SHALL be rejected.
+
+#### Scenario: Selection starts during refresh preparation
+- **WHEN** A is selected while B is asynchronously preparing and B becomes pending
+- **THEN** explicit release permits the same B to adopt without another refresh
+- **AND** it does not permit any obsolete or differently bound publication
+
+### Requirement: Current-page native accessibility and navigation
+The original-page view SHALL expose bounded current-page display text, verified UTF16 ranges, local selection and safe link actions through native accessibility and keyboard controls. Projection authority SHALL include accepted snapshot, page, generation and operation. PDF offsets SHALL NOT grant Typst source authority.
+
+#### Scenario: Current projection becomes obsolete
+- **WHEN** a page, snapshot, operation or mode changes or the view is cancelled
+- **THEN** old AX children cannot read, select or activate against the new view
+- **AND** only the current lazy page is exposed without eagerly creating a document-wide text or link tree
+
+### Requirement: Deferred target reveal uses actual viewport
+Find and explicit same-artifact GoTo SHALL reveal the target in the actual clip viewport after matching raster installation using the existing crop, rotation and zoom geometry owner.
+
+#### Scenario: Bottom hit or rotated page destination
+- **WHEN** a Find selection or GoTo point starts outside the viewport on a cropped, rotated, zoomed page
+- **THEN** the matching installed raster reveals the target
+- **AND** cancelled or obsolete raster completion cannot scroll a newer viewport

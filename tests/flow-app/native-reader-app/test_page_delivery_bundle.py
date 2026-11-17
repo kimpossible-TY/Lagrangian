@@ -357,7 +357,7 @@ def gui_fixture_owner():
     spec = importlib.util.spec_from_file_location('final_gui_fixture_owner',
         Path(__file__).with_name('test_app_integration.py'))
     owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
-    owner.GUI_ROOT = DEV / 'test-output/delivery-production/NA13/final-app-v1'
+    owner.GUI_ROOT = Path(os.environ.get('FLOW_GUI_FIXTURE_ROOT', DEV / 'test-output/delivery-production/NA13/final-app-v1'))
     owner.GUI_SCRIPT = Path(__file__).resolve()
     return owner
 

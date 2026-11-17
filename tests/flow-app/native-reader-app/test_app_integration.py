@@ -460,7 +460,7 @@ class CoreReviewRegressions(unittest.TestCase):
 
 # Explicit inspection fixture lifecycle. Production routing/source/chat owners are
 # composed here; only auth, inference and managed-process observation are fake.
-GUI_ROOT = DEV / 'test-output/integration/gui-prep-v1/fixtures'
+GUI_ROOT = Path(os.environ.get('FLOW_GUI_FIXTURE_ROOT', DEV / 'test-output/integration/gui-prep-v1/fixtures'))
 GUI_SCRIPT = Path(__file__).resolve()
 
 
