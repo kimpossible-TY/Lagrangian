@@ -272,7 +272,9 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
                 report=json.loads((directory/'documents/reader/report.json').read_text())
                 self.assertTrue(report['contentGatePassed'])
                 self.assertEqual(report['compiler'],str(self.root/'compiler/typst'))
-                process=self.command(['/bin/ps','-p',str(child.pid),'-o','command=']).stdout
+                # Host-side observation of our fixture PID only. macOS refuses
+                # to exec ps inside this sandbox; the backend remains sandboxed.
+                process=self.command(['/bin/ps','-p',str(child.pid),'-o','command='],sandbox=False).stdout
                 self.assertIn(str(self.python),process)
                 self.assertIn('manager --backend --managed',process)
                 attached=json.loads(self.command([self.python,'-s','-B','-c',self.attach_code(),self.root,self.project,child.pid],loopback=True).stdout)
