@@ -72,8 +72,7 @@ struct NativeReaderRecoverySnapshot: Codable {
         try document.validate()
         try restoration.validate(in: document)
         try originalPages?.validate(document: document)
-        guard reviewMarks.count <= 256 else { throw NativeReaderContractError.invalidDocument }
-        for mark in reviewMarks { try mark.validate(in: document) }
+        try NativeReaderReviewMark.validateCollection(reviewMarks, in: document)
         guard assets.count == document.assets.count, drafts.count <= 128,
               Set(drafts.map(\.conversationID)).count == drafts.count,
               drafts.allSatisfy({ $0.version >= 0 && $0.text.count <= 8000 && ($0.model?.count ?? 0) <= 120 &&
@@ -198,6 +197,10 @@ struct NativeReaderReviewMark: Codable {
     let id: UUID
     let identity: NativeDocumentIdentity
     let selection: NativeReaderRestoration
+    static func validateCollection(_ values: [NativeReaderReviewMark], in document: NativeReaderDocument) throws {
+        guard values.count <= 256, Set(values.map(\.id)).count == values.count else { throw NativeReaderContractError.invalidDocument }
+        for value in values { try value.validate(in: document) }
+    }
     func validate(in document: NativeReaderDocument) throws {
         guard identity == document.identity, selection.selectionTicket != nil else { throw NativeReaderContractError.wrongTarget }
         try selection.validate(in: document)
@@ -215,8 +218,7 @@ struct NativeReaderReviewMark: Codable {
         marks.append(mark); paint?(marks)
     }
     func restore(_ values: [NativeReaderReviewMark], document: NativeReaderDocument) throws {
-        guard values.count <= 256, Set(values.map(\.id)).count == values.count else { throw NativeReaderContractError.invalidDocument }
-        for value in values { try value.validate(in: document) }
+        try NativeReaderReviewMark.validateCollection(values, in: document)
         marks = values; paint?(marks)
     }
     func undo() { if !marks.isEmpty { marks.removeLast(); paint?(marks) } }

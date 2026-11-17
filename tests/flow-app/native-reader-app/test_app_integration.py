@@ -925,7 +925,8 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
     let fixture=URL(fileURLWithPath:mode=="long" ? args[7] : args[2]),provider=NativeReaderFixtureProvider(url:fixture)
     let runtime=NativeReaderRuntime(node:URL(fileURLWithPath:args[4]),helper:URL(fileURLWithPath:args[5]),runtime:URL(fileURLWithPath:args[6]))
     let disk=NativeReaderRecoveryStore(root:out.appendingPathComponent("owned-storage")),gate=StorageGate()
-    let storage=NativeReaderOfflineStorage(save:{snapshot in await gate.wait();try Task.checkCancellation();try await disk.save(snapshot)},list:{try await disk.list()},load:{identity in await gate.wait();try Task.checkCancellation();return try await disk.load(identity:identity)})
+    var invalidReview: NativeReaderRecoverySnapshot?
+    let storage=NativeReaderOfflineStorage(save:{snapshot in await gate.wait();try Task.checkCancellation();try await disk.save(snapshot)},list:{try await disk.list()},load:{identity in await gate.wait();try Task.checkCancellation();if let invalidReview { return invalidReview };return try await disk.load(identity:identity)})
     let host=NativeReaderWindowController(provider:provider,target:{_ in try await provider.load().identity},assets:{doc,_ in
       var result=[String:Data]();for a in doc.assets{result[a.id]=try Data(contentsOf:fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(a.id))};return result
     },runtime:runtime,show:false,avoidActivation:true,offlineStorage:storage)
@@ -960,6 +961,14 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try click("Release selection");try await until{host.store.document?.generation != document.generation};try await ready(host)
       try check(host.localReview.marks.isEmpty,"new accepted snapshot revokes old review")
       try firstSelection();try click("Mark for review");host.cancel();try check(host.localReview.marks.isEmpty,"cancel invalidates review paint")
+    case "invalid-review":
+      try firstSelection();try click("Mark for review");try click("Save Offline");try await storageIdle()
+      let saved=try await disk.load(identity:document.identity),priorBytes=try fileBytes(),priorKey=text.renderKey
+      var bad=saved;bad.reviewMarks=[saved.reviewMarks[0],saved.reviewMarks[0]];invalidReview=bad
+      try click("Release selection");try click("Refresh Saved");try await storageIdle();try click("Open Saved");try await storageIdle()
+      try check(host.hostWindow.notice.stringValue.contains("failed"),"invalid review snapshot is explicitly rejected")
+      try check(host.store.document==document && text.renderKey==priorKey && host.localReview.marks.count==1,"invalid review snapshot cannot replace painted accepted A before failing")
+      let afterBytes=try fileBytes();try check(afterBytes==priorBytes,"invalid review preserves durable file")
     case "navigation":
       let popup=try featurePopup(root,"Contents");try check(popup.numberOfItems==text.outline.count && popup.numberOfItems>0,"typed outline reaches native control")
       let anchor=text.viewportAnchor();try featureSelect(popup,popup.numberOfItems-1)
@@ -1185,6 +1194,7 @@ class FeatureWiringUI(unittest.TestCase):
             with socket.socket() as sock:
                 sock.settimeout(.2);self.assertNotEqual(sock.connect_ex(('127.0.0.1',port)),0,'owned backend port remains open')
 
+    def test_invalid_review_snapshot_rejected_before_adoption(self):self.scenario('invalid-review')
     def test_native_review_buttons(self):self.scenario('review')
     def test_native_outline_and_return_controls(self):self.scenario('navigation')
     def test_native_appearance_controls(self):self.scenario('appearance')
