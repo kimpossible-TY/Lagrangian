@@ -326,3 +326,12 @@ allowlist remains25 exact paths; no native prefix/blanket HEAD exemption is adde
 Current source/app identity comes from the external v4 build handoff, independently
 of retained raw387 engine E/build provenance. This is an intermediate diagnostic
 app, with GUI/startup cause, F13/NA16 and full125-case acceptance still incomplete.
+
+
+The subsequent current F10 explanation is pinned separately: exact one-path
+`7c98e620ea1480764ac536c578894bf2d12e6cd6` →
+`72bd0b385d8d71ef4ad7f30d5067e9171493bc05` changes only
+`docs/tinymist/dev/native-reader-app-contract.typ`. It distinguishes the delivered
+consented editor operation from mapping-only locate, without claiming GUI or
+Unicode manager matching acceptance. Native code correction remains d98f6e98;
+this docs record adds no native path or delivery allowlist exception.

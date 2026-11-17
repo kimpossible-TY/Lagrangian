@@ -16,6 +16,8 @@ POLICY = Path('tools/flow-reader/native/runtime/backend-delivery.json')
 INPUT = subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
 CURRENT_CORRECTION = 'd98f6e98cd282450a47cf8ceea9d8fea59145cda'
 CURRENT_BASE = 'f510fe32337b16906ef355f327e88a8d37fb1b94'
+DOCS_CORRECTION = '72bd0b385d8d71ef4ad7f30d5067e9171493bc05'
+DOCS_BASE = '7c98e620ea1480764ac536c578894bf2d12e6cd6'
 CORRECTION = '338304a374bdd75ba76151a34bc8c284510ce725'
 BASE = '09c5186bff1850b17f6e85fe2f3115153520bc94'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
@@ -66,15 +68,16 @@ class FixedSourceBinding(unittest.TestCase):
         m=self.binding();c=m['ownerCorrections'][0]
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
-        current=m['ownerCorrections'][-1]
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION])
+        current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
         for item in current['files']:
             self.assertEqual(item['baseSHA256'],hashlib.sha256(self.git_bytes('show',CURRENT_BASE+':'+item['path'])).hexdigest())
             self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',CURRENT_CORRECTION+':'+item['path'])).hexdigest())
-            self.assertEqual(m['files'][item['path']],item['sha256'])
+            latest=next(f for x in reversed(m['ownerCorrections']) for f in x['files'] if f['path']==item['path'])
+            self.assertEqual(m['files'][item['path']],latest['sha256'])
         historical=json.loads(self.git('show','708ea0fd6ecb143ad4da27e149f16497fac8115a:'+str(POLICY)))['sourceProvenance']['ownerCorrections'][0]
         self.assertEqual([{k:v for k,v in f.items() if k!='overrides'} for f in c['files']],historical['files'])
 
@@ -87,6 +90,42 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(m['historicalBaseRevision'],'9b2dc87651eb16a809bb48dbe4539614cfe30d6a')
         self.assertNotIn('tests/flow-app/native-reader-app/test_original_pages.py',m['deliveryOwnedOverrides'])
 
+    def test_docs_correction_has_exact_fixed_chain_and_bytes(self):
+        m=self.binding();c=m['ownerCorrections'][-1]
+        self.assertEqual(c['revision'],DOCS_CORRECTION)
+        self.assertEqual(c['baseRevision'],DOCS_BASE)
+        self.assertEqual(self.git('rev-parse',DOCS_CORRECTION+'^').strip(),DOCS_BASE)
+        self.git('merge-base','--is-ancestor',CURRENT_CORRECTION,DOCS_BASE)
+        self.git('merge-base','--is-ancestor',DOCS_CORRECTION,'HEAD')
+        paths=self.git('diff','--no-renames','--name-only',DOCS_BASE,DOCS_CORRECTION).splitlines()
+        self.assertEqual(paths,['docs/tinymist/dev/native-reader-app-contract.typ'])
+        self.assertEqual([f['path'] for f in c['files']],paths)
+        for item in c['files']:
+            self.assertEqual(item['baseSHA256'],hashlib.sha256(self.git_bytes('show',DOCS_BASE+':'+item['path'])).hexdigest())
+            self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',DOCS_CORRECTION+':'+item['path'])).hexdigest())
+            self.assertNotEqual(item['baseSHA256'],item['sha256'])
+            self.assertEqual(m['files'][item['path']],item['sha256'])
+        native=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
+        self.assertEqual(len(native['files']),28)
+        for item in native['files']:
+            if item['path'].startswith('apps/macos/'):
+                self.assertEqual(m['files'][item['path']],item['sha256'])
+
+    def test_docs_correction_cannot_mix_or_hide_unregistered_bytes(self):
+        for kind in ['swap','native-path','later-doc-drift']:
+            with self.subTest(kind=kind):
+                self.setUp()
+                if kind=='later-doc-drift':
+                    with (self.root/'docs/tinymist/dev/native-reader-app-contract.typ').open('a') as f:f.write('\n// owned unregistered docs drift\n')
+                    self.commit()
+                else:
+                    def change(m):
+                        item=m['ownerCorrections'][-1]['files'][0]
+                        if kind=='swap':item['baseSHA256'],item['sha256']=item['sha256'],item['baseSHA256']
+                        else:item['path']='apps/macos/NativeReaderSession.swift'
+                    self.metadata(change)
+                with self.assertRaises(ValueError):self.binding()
+
     def test_metadata_is_part_of_existing_source_binding(self):
         fields=owner.source_binding(self.root)
         self.assertEqual(fields[str(POLICY)],hashlib.sha256((self.root/POLICY).read_bytes()).hexdigest())
@@ -97,10 +136,11 @@ class FixedSourceBinding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'clean checkout'):self.binding()
 
     def test_committed_drift_cannot_be_accepted_by_old_correction(self):
-        # Actual v4 sources must fail with their newest correction removed; historical records remain immutable.
+        # The docs-only correction cannot grant any native-source authority.
         self.metadata(lambda m:m['ownerCorrections'].pop())
-        # v4 also registers newly changed test-owner paths: missing that record
-        # is rejected at the exact-path inventory gate before digest comparison.
+        with self.assertRaisesRegex(ValueError,'owner source drift'):self.binding()
+        self.setUp()
+        self.metadata(lambda m:m.update(ownerCorrections=[x for x in m['ownerCorrections'] if x['revision']!=CURRENT_CORRECTION]))
         with self.assertRaisesRegex(ValueError,'unregistered source changes'):self.binding()
         self.setUp()
         self.metadata(lambda m:m.update(ownerCorrections=m['ownerCorrections'][:1]))
@@ -141,7 +181,8 @@ class FixedSourceBinding(unittest.TestCase):
                 if kind=='rehash-current':
                     with (self.root/'apps/macos/NativeReaderSession.swift').open('a') as f:f.write('\n// owned tamper\n')
                 def change(m):
-                    item=next(f for f in m['ownerCorrections'][-1]['files'] if f['path']=='apps/macos/NativeReaderSession.swift')
+                    current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
+                    item=next(f for f in current['files'] if f['path']=='apps/macos/NativeReaderSession.swift')
                     if kind=='swapped':item['baseSHA256'],item['sha256']=item['sha256'],item['baseSHA256']
                     elif kind=='corrected-as-original':item['baseSHA256']=item['sha256']
                     else:item['sha256']=hashlib.sha256((self.root/item['path']).read_bytes()).hexdigest()
@@ -170,7 +211,7 @@ class FixedSourceBinding(unittest.TestCase):
         p.write_text(p.read_text()+'\n// owned delivery correction\n');self.commit()
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
-        self.assertEqual(m['ownerCorrections'][-1]['revision'],CURRENT_CORRECTION)
+        self.assertEqual(m['ownerCorrections'][-1]['revision'],DOCS_CORRECTION)
 
     def test_added_file_needs_fixed_inventory_and_explicit_original_absence(self):
         before=self.git('rev-parse','HEAD').strip()

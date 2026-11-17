@@ -588,6 +588,17 @@
             "sha256": "b66899520e7b9981049dff9e77c65976a6846dc57029c131d521bce9022783fd"
           }
         ]
+      },
+      {
+        "baseRevision": "7c98e620ea1480764ac536c578894bf2d12e6cd6",
+        "revision": "72bd0b385d8d71ef4ad7f30d5067e9171493bc05",
+        "files": [
+          {
+            "path": "docs/tinymist/dev/native-reader-app-contract.typ",
+            "baseSHA256": "df23b52d65c2024516c03099bbebd64461f8f46e9be9e67d21a82ae20b318c30",
+            "sha256": "d40f13f03f14c72454d91d8b158a0f99ff77bd15bf2c0a710b2382e72dd51355"
+          }
+        ]
       }
     ]
   }
