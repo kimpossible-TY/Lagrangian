@@ -190,5 +190,30 @@
     "maximumBlueInk": 1800,
     "label": "Label x²"
   },
-  "rasterWebPBase64": "UklGRjgAAABXRUJQVlA4TCsAAAAvF8ACAB8gEEjaH3qN+RcQFPk/2vwHXySAMNtokpOc5L3PIKL/sU19geoFAA=="
+  "rasterWebPBase64": "UklGRjgAAABXRUJQVlA4TCsAAAAvF8ACAB8gEEjaH3qN+RcQFPk/2vwHXySAMNtokpOc5L3PIKL/sU19geoFAA==",
+  "originalPagesV3": {
+    "pageCount": 2,
+    "mediaBox": [
+      0,
+      0,
+      320,
+      360
+    ],
+    "texts": [
+      "Original One\nPage One office ffi.\n한글 é 😀 👩‍👩‍👧‍👦.\n𝑎 + 𝑏\n𝑐 + 𝑑 + √𝑥 = 𝑦",
+      "Original Two\nPage Two search needle.\nLabel 𝑥2"
+    ],
+    "queries": [
+      "office",
+      "ffi",
+      "한글",
+      "é",
+      "😀",
+      "👩‍👩‍👧‍👦",
+      "needle"
+    ],
+    "blueRectangleArea": 1152,
+    "thirdPageText": "Original Three\nPage Three replacement.",
+    "scope": "Author-written source text/order/point-size/color-area oracle; PDFKit text extraction spacing recorded, no glyph-cluster or verified source mapping assertion."
+  }
 }
