@@ -166,7 +166,9 @@ supported set and decode dynamic requirements. Public and generic Codable decode
 reject unknown/missing supplement fields or missing capability. Defaulted Swift
 memberwise initialization preserves old callers. One rebinding operation preserves
 metadata across session and host copies; generic RecoveryStore roundtrips use the
-same model without a duplicate store or new operation.
+same model without a duplicate store or new operation. The host's prepared object
+uses its existing generic image-role fallback when compiler alt is empty; the raw
+model still retains empty alt, without inventing a content label or source meaning.
 
 Evidence: `/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/contract-closure/NA09/v2`.
 The original 69-pass/1-error report is preserved. The affected Contract, Objects,

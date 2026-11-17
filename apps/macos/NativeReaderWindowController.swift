@@ -161,7 +161,9 @@ struct NativeReaderRuntime {
           regions: plan.regions.filter { ids.contains($0.node.id) }, size: bounds.size, pageCount: 1, diagnostics: [], cost: plan.cost)
         var prepared = NativeReaderPreparedTextObject(key: key, size: bounds.size,
           baseline: min(bounds.height, CGFloat(objectContext.fontSize) * 0.2),
-          accessibilityLabel: node.alt ?? node.math?.normalizedText ?? (node.displayText.isEmpty ? node.kind.rawValue : node.displayText),
+          // Empty compiler alt carries no label meaning. Use the existing
+          // generic role fallback, not an invalid empty prepared-object label.
+          accessibilityLabel: node.alt.flatMap { $0.isEmpty ? nil : $0 } ?? node.math?.normalizedText ?? (node.displayText.isEmpty ? node.kind.rawValue : node.displayText),
           draw: { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return }
             context.saveGState(); context.clip(to: rect)

@@ -160,7 +160,11 @@ becomes inferred text, source range or label-level accessibility semantics.
 
 Generation rebinding has one model copy operation. Transport, session candidates,
 host fixture provider, generic disk recovery and native layout consume the same
-metadata. RecoveryStore and Operations are unchanged. Evidence is newly compiled
+metadata. RecoveryStore and Operations are unchanged. The full raw host probe
+also exposed an empty compiler alt being used as an invalid prepared-object label;
+the host now uses its existing generic image-role fallback for empty alt, while
+the model's original empty alt and absence of label/source meaning remain intact.
+No source/chat/auth/lifecycle owner changes. Evidence is newly compiled
 raw HTML through SectionBundle/import/Swift/native paint, kept separately from
 controlled rich-asset fixtures, and actual HTTP/import/session/restore behavior.
 The original-page and unchanged-HTML/input-refresh compiler regressions remain.
