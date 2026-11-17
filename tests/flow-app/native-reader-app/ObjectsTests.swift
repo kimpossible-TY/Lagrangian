@@ -141,6 +141,7 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         let mode = CommandLine.arguments[1], root = URL(fileURLWithPath: CommandLine.arguments[2])
         let oracle = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))) as! [String: Any]
         if mode == "original-pages" { try await originalPages(root: root, oracle: oracle); return }
+        if mode == "input-refresh" { try await inputRefresh(root: root); return }
         if mode == "assets" {
             let source = root.appendingPathComponent("source")
             let ctx = try bitmap(CGSize(width: 24, height: 12), dark: false)
@@ -692,7 +693,7 @@ extension ObjectsTests {
         let sameRevisionInput = binding(base, request: 5, sequence: 3, fingerprint: String(repeating: "b", count: 64))
         let wrongInputTicket = try consumer.begin(expected: sameRevisionInput)
         let wrongInputPages = try await preparer.prepare(NativeOriginalPageSupplement(binding: sameRevisionInput, data: base), expected: sameRevisionInput)
-        try expectFailure("same-revision-different-input", { try consumer.adopt(wrongInputPages, for: wrongInputTicket) }); negatives.append("same-revision-different-input")
+        try expectFailure("same-snapshot-different-input", { try consumer.adopt(wrongInputPages, for: wrongInputTicket) }); negatives.append("same-snapshot-different-input")
         try consumer.resize(width: 640); try require(consumer.displayedScale == 2, "native fit-width scale")
         let renderTicket = try consumer.beginRender()
         let highResolution = try await held.access.render(page: renderTicket.pageIndex, scale: renderTicket.rasterScale)
@@ -775,6 +776,97 @@ extension ObjectsTests {
             "scaledRender": highMetrics, "scaledPixelSize": [highResolution.image.width, highResolution.image.height],
             "paintAcknowledgment": ["viewID": ack.viewID.uuidString, "viewGeneration": ack.viewGeneration, "page": ack.pageIndex, "scale": ack.scale, "rasterScale": ack.rasterScale, "pdfSHA256": ack.pdfSHA256],
             "scope": "fixture-binding; PDFKit character boxes/UTF16 verified here, not glyph clusters, source anchors, backend accepted publication, GUI/VO or diff-v1"]
+        print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+    }
+}
+
+extension ObjectsTests {
+    @MainActor static func inputRefresh(root: URL) async throws {
+        let folder = root.appendingPathComponent("refresh")
+        let inputs = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("inputs.json"))) as! [String: [String: Any]]
+        let before = inputs["before"]!, after = inputs["after"]!
+        try require(before["revision"] as! String == after["revision"] as! String, "actual equal HTML revision")
+        try require(before["inputFingerprint"] as! String != after["inputFingerprint"] as! String, "actual saved input changed")
+        let oldData = try Data(contentsOf: folder.appendingPathComponent("before.pdf"))
+        let newData = try Data(contentsOf: folder.appendingPathComponent("after.pdf"))
+        let view = UUID(), store = NativeOriginalPageStore(viewID: UUID()), preparer = NativeOriginalPagePreparer()
+        let consumer = NativeOriginalPageStore(viewID: view)
+        let identity = NativeDocumentIdentity(documentID: "saved-input-refresh", serviceID: "fixture-service",
+            revision: before["revision"] as! String, scope: .fixture)
+        func binding(_ data: Data, fingerprint: String, snapshot: Int, request: Int, sequence: Int, epoch: Int = 0) -> NativeOriginalPageBinding {
+            NativeOriginalPageBinding(identity: identity, inputFingerprint: fingerprint, snapshotGeneration: snapshot,
+                requestGeneration: request, viewID: view, viewGeneration: epoch, publicationSequence: sequence,
+                pdfSHA256: shaBytes(data), pages: [NativeOriginalPageGeometry(index: 0,
+                    mediaBox: CGRect(x: 0, y: 0, width: 320, height: 360), cropBox: CGRect(x: 0, y: 0, width: 320, height: 360), rotation: 0)])
+        }
+        let oldFingerprint = before["inputFingerprint"] as! String, newFingerprint = after["inputFingerprint"] as! String
+        let original = binding(oldData, fingerprint: oldFingerprint, snapshot: 1, request: 1, sequence: 1)
+        let originalTicket = try consumer.begin(expected: original)
+        let old = try await preparer.prepare(NativeOriginalPageSupplement(binding: original, data: oldData), expected: original)
+        try consumer.adopt(old, for: originalTicket)
+        let fresh = binding(newData, fingerprint: newFingerprint, snapshot: 2, request: 2, sequence: 2)
+        let freshTicket = try consumer.begin(expected: fresh)
+        let candidate = try await preparer.prepare(NativeOriginalPageSupplement(binding: fresh, data: newData), expected: fresh)
+        try require(old.pages[0].text == candidate.pages[0].text && candidate.pages[0].text.contains("Stable input refresh office 한글."), "same native PDF display text")
+        // PAGED-PM-01 positive: equal content revision does not imply equal input.
+        try consumer.adopt(candidate, for: freshTicket)
+        try require(consumer.accepted?.id == candidate.id && consumer.accepted?.binding == fresh, "fresh saved input must adopt")
+        var negatives = [String](), request = 2
+        func rejected(_ name: String, _ operation: () async throws -> Void) async throws {
+            do { try await operation() } catch let error as NativeOriginalPageError {
+                negatives.append(name)
+                try require(consumer.accepted?.id == candidate.id, "rejection preserves fresh accepted pages: " + name)
+                if name == "same-snapshot-input-contamination" { try require(error == .binding, "same snapshot binds one input") }
+                return
+            }
+            throw NSError(domain: "input refresh negative accepted: " + name, code: 1)
+        }
+        func rejectBinding(_ name: String, snapshot: Int, sequence: Int) async throws {
+            request += 1
+            let changed = binding(newData, fingerprint: oldFingerprint, snapshot: snapshot, request: request, sequence: sequence)
+            let ticket = try consumer.begin(expected: changed)
+            let result = try await preparer.prepare(NativeOriginalPageSupplement(binding: changed, data: newData), expected: changed)
+            try await rejected(name, { try consumer.adopt(result, for: ticket) })
+        }
+        try await rejectBinding("same-snapshot-input-contamination", snapshot: 2, sequence: 3)
+        try await rejectBinding("old-snapshot-new-publication", snapshot: 1, sequence: 3)
+        try await rejectBinding("new-snapshot-same-publication", snapshot: 3, sequence: 2)
+        try await rejectBinding("new-snapshot-old-publication", snapshot: 3, sequence: 1)
+        try await rejected("response-differs-from-host-expected", {
+            _ = try await preparer.prepare(NativeOriginalPageSupplement(binding: original, data: oldData), expected: fresh)
+        })
+        try await rejected("different-view", { _ = try store.begin(expected: fresh) })
+        try await rejected("old-request-callback", { try consumer.adopt(old, for: originalTicket) })
+        let held = try await candidate.access.search("office")[0], heldTicket = UUID()
+        try consumer.hold(held, ticket: heldTicket)
+        request += 1
+        let next = binding(newData, fingerprint: newFingerprint, snapshot: 3, request: request, sequence: 3)
+        let nextTicket = try consumer.begin(expected: next)
+        let nextPages = try await preparer.prepare(NativeOriginalPageSupplement(binding: next, data: newData), expected: next)
+        try await rejected("held-selection", { try consumer.adopt(nextPages, for: nextTicket) })
+        consumer.release(ticket: UUID())
+        try await rejected("old-release-does-not-release-new-selection", { try consumer.adopt(nextPages, for: nextTicket) })
+        consumer.release(ticket: heldTicket)
+        try consumer.adopt(nextPages, for: nextTicket)
+        // Exercise beyond the bounded32-entry ledger; ordering still rejects old
+        // publications after reset even when their snapshot binding is evicted.
+        for generation in 4...36 {
+            request += 1
+            let b = binding(newData, fingerprint: generation % 2 == 0 ? oldFingerprint : newFingerprint,
+                snapshot: generation, request: request, sequence: generation)
+            let ticket = try consumer.begin(expected: b)
+            let pages = try await preparer.prepare(NativeOriginalPageSupplement(binding: b, data: newData), expected: b)
+            try consumer.adopt(pages, for: ticket)
+        }
+        consumer.reset(); request += 1
+        let replay = binding(newData, fingerprint: oldFingerprint, snapshot: 1, request: request, sequence: 1, epoch: consumer.viewGeneration)
+        let replayTicket = try consumer.begin(expected: replay)
+        let replayPages = try await preparer.prepare(NativeOriginalPageSupplement(binding: replay, data: newData), expected: replay)
+        try expectFailure("reset-replay-after-ledger-eviction", { try consumer.adopt(replayPages, for: replayTicket) })
+        negatives.append("reset-replay-after-ledger-eviction")
+        try require(consumer.accepted == nil, "reset replay keeps pages empty")
+        let result: [String: Any] = ["freshInputAdopted": true, "sameHTMLRevision": identity.revision,
+            "negativeCases": negatives, "adoptedSnapshots": 36, "scope": "fixture expected bindings; no backend accepted-publication or source authority"]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
     }
 }

@@ -39,6 +39,7 @@ sys.path.insert(0, str(REPO / 'tools/flow-reader'))
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.project import Project
 from flow_reader.compiler.execution import local_compile, CompileRequest
+from flow_reader.compiler.inputs import input_fingerprint, source_signature
 from flow_reader.document.sections import split_document, SectionBundle
 from flow_reader.document.native_document import import_accepted_document, NativeImportError
 
@@ -55,6 +56,62 @@ def walk(node):
     yield node
     for child in node['children']:
         yield from walk(child)
+
+
+def prepare_input_refresh(output, compiler):
+    """Real unchanged HTML revision with changed saved input; fixture authority only."""
+    folder = output / 'refresh'; folder.mkdir()
+    source = folder / 'source'; source.mkdir()
+    entry = source / 'main.typ'
+    entry.write_text('#set page(width: 320pt, height: 360pt, margin: 20pt)\n'
+                     '#set text(size: 14pt)\nStable input refresh office 한글.\n')
+    packages = REPO / 'tools/flow-reader/packages'
+    cache = DEV / 'cache/objects/typst-packages'
+    if not cache.is_dir():
+        raise RuntimeError('existing copied package cache required')
+    profile = '(version 1)(allow default)(deny network*)' + ''.join(
+        '(deny file-write* (subpath ' + json.dumps(str(p)) + '))'
+        for p in [REPO, source, packages, cache])
+    (folder / 'bin').mkdir()
+    wrapper = folder / 'bin/offline-typst'
+    wrapper.write_text('#!' + sys.executable + '\nimport os,sys,json\n' +
+        'with open(' + repr(str(folder / 'compiler-argv.jsonl')) + ',"a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\n' +
+        'os.execv("/usr/bin/sandbox-exec",["sandbox-exec","-p",' + repr(profile) + ',' + repr(str(compiler)) + ']+sys.argv[1:])\n')
+    wrapper.chmod(0o700)
+    commands = []
+    def execute(request):
+        result = local_compile(dataclasses.replace(request, timestamp=0))
+        commands.append(dict(target=request.target, exit=result.returncode, elapsed=result.elapsed_seconds,
+                             stderr=result.stderr, dependencies=result.dependencies))
+        save(folder / 'commands.json', commands)
+        return result
+    project = Project(source, Path('main.typ'), packages, compiler=str(wrapper), execute=execute)
+    records = {}
+    for phase in ['before', 'after']:
+        if phase == 'after':
+            with entry.open('a') as stream:
+                stream.write('// PAGED-PM-01: saved input changed; display remains identical.\n')
+        shutil.copyfile(entry, folder / (phase + '.typ'))
+        report = compile_project(project, folder / phase, map_sources=False)
+        if report['exitCode'] != 0 or not report['contentGatePassed']:
+            raise RuntimeError('input-refresh actual HTML content gate failed')
+        fingerprint = input_fingerprint(project, report['dependencies'])
+        signature = source_signature(project, report['dependencies'])
+        pdf = execute(CompileRequest(str(wrapper), source, packages, 'pdf', entry=entry, timestamp=0))
+        if pdf.returncode != 0:
+            raise RuntimeError('input-refresh actual PDF compile failed: ' + pdf.stderr)
+        (folder / (phase + '.pdf')).write_bytes(pdf.artifact)
+        assert fingerprint == input_fingerprint(project, report['dependencies'])
+        assert signature == source_signature(project, report['dependencies'])
+        records[phase] = dict(revision=report['revision'], inputFingerprint=fingerprint,
+            sourceSignature=signature, sourceSHA256=digest(entry), pdfSHA256=digest(folder / (phase + '.pdf')),
+            htmlSHA256=digest(folder / phase / 'document.html'), scope='compiler fixture; not server publication')
+    save(folder / 'inputs.json', records)
+    assert records['before']['revision'] == records['after']['revision'], 'actual HTML revision changed'
+    assert records['before']['htmlSHA256'] == records['after']['htmlSHA256']
+    assert records['before']['inputFingerprint'] != records['after']['inputFingerprint']
+    assert records['before']['sourceSignature'] != records['after']['sourceSignature']
+    return records
 
 
 class ObjectsTests(unittest.TestCase):
@@ -310,6 +367,11 @@ class ObjectsTests(unittest.TestCase):
         self.assertFalse(native['preparationWasMainThread'])
         self.assertGreaterEqual(native['negativeCases'], 20)
         self.assertTrue(native['painted'])
+        refresh = prepare_input_refresh(self.out, self.compiler)
+        self.assertEqual(refresh['before']['revision'], refresh['after']['revision'])
+        result = json.loads(self.command([self.binary, 'input-refresh', self.out, HERE / 'fixtures/objects.expect.json'], timeout=120))
+        save(self.out / 'refresh/native-results.json', result)
+        self.assertTrue(result['freshInputAdopted'])
 
     def test_actual_labeled_compiler_import_gate_is_explicit(self):
         self.assertEqual(self.rich_report['exitCode'], 0)

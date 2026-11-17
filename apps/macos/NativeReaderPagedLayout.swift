@@ -773,13 +773,15 @@ private final class NativeOriginalPDFSafety {
         let snapshotID: UUID; let viewID: UUID; let viewGeneration: Int
         let pageIndex: Int; let scale: Double; let rasterScale: Double; let pdfSHA256: String
     }
-    private struct Revision: Hashable { let service: String; let document: String; let revision: String }
+    // HTML content revisions may repeat across distinct saved-input snapshots.
+    // Bind one fingerprint per snapshot; ordered publication guards advances.
+    private struct Snapshot: Hashable { let service: String; let document: String; let generation: Int }
     let viewID: UUID
     private(set) var viewGeneration = 0
     private var current: Ticket?, lastRequest = -1
     private var renderTicket: RenderTicket?
     private var currentRender: NativeOriginalPageRender?
-    private var fingerprints = [(Revision, String)]()
+    private var fingerprints = [(Snapshot, String)]()
     private var sequences = [(String, String, Int, Int)]()
     private(set) var accepted: NativeOriginalPreparedPages?
     private(set) var selection: (UUID, NativeOriginalDisplaySelection)?
@@ -800,7 +802,7 @@ private final class NativeOriginalPDFSafety {
     func adopt(_ pages: NativeOriginalPreparedPages, for ticket: Ticket) throws {
         guard !disposed, ticket == current, ticket.expected == pages.binding, pages.binding.viewGeneration == viewGeneration else { throw NativeOriginalPageError.stale }
         guard selection == nil else { throw NativeOriginalPageError.heldSelection }
-        let b = pages.binding, key = Revision(service: b.identity.serviceID, document: b.identity.documentID, revision: b.identity.revision)
+        let b = pages.binding, key = Snapshot(service: b.identity.serviceID, document: b.identity.documentID, generation: b.snapshotGeneration)
         if let previous = fingerprints.first(where: { $0.0 == key }), previous.1 != b.inputFingerprint { throw NativeOriginalPageError.binding }
         if let old = sequences.first(where: { $0.0 == b.identity.serviceID && $0.1 == b.identity.documentID }), (b.publicationSequence <= old.2 || b.snapshotGeneration < old.3) { throw NativeOriginalPageError.stale }
         sequences.removeAll { $0.0 == b.identity.serviceID && $0.1 == b.identity.documentID }
