@@ -99,6 +99,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   private var chatContext: NativeReaderRequestContext?
+  private var editorRequest: NativeReaderSourceRequest?
+  private var editorBusy = false
+  private let revokeEditorConsent: () async -> Void
   private(set) var chatView: NativeReaderChatView?
   lazy var hostWindow = NativeReaderHostWindow(reader: textView, show: show, avoidActivation: avoidActivation)
 
@@ -113,6 +116,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
        offlineStorage: NativeReaderOfflineStorage? = nil) {
     self.provider = provider; self.target = target; self.assets = assets; self.runtime = runtime
     self.actions = actions; self.invalidate = invalidate; self.show = show; self.avoidActivation = avoidActivation
+    if let managed = provider as? NativeReaderManagedClient {
+      revokeEditorConsent = { await managed.revokeEditorConsent() }
+    } else { revokeEditorConsent = {} }
     self.offlineStorage = offlineStorage
     self.pageProvider = originalPages
     if self.pageProvider == nil, let managed = provider as? NativeReaderManagedClient {
@@ -128,6 +134,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     })
     session.onChange = { [weak self] in self?.sessionChanged() }
     session.onSelection = { [weak self] selection, context in self?.selectionChanged(selection, context: context) }
+    hostWindow.onEditorReceipt = { [weak self] in self?.checkEditorReceipt() }
     textView.cachedObject = { [weak self] node, key in
       guard let cache = self?.cache, cache.key == key else { return nil }
       return cache.objects[node.id]
@@ -658,6 +665,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   private func selectionChanged(_ selection: NativeReaderSelection?, context: NativeReaderRequestContext) {
     guard visibleMode == .nativeReflow else { return }
+    actionTasks.values.forEach { $0.cancel() }
     let previous = selectionTask
     previous?.cancel()
     guard !session.isReadOnly, let actions else { return }
@@ -672,22 +680,67 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard let actions else { report(NativeReaderOperationFailure.unavailable); return }
     let selection = selectionTask
     guard actionTasks.count < 8 else { report(NativeReaderOperationFailure.unavailable); return }
+    if request.action == .locate {
+      guard !editorBusy else { return }
+      editorBusy = true; hostWindow.notice.stringValue = "Checking the selected source and connected editor…"
+    }
     let id = UUID()
     actionTasks[id] = Task {
-      defer { actionTasks.removeValue(forKey: id) }
+      defer {
+        actionTasks.removeValue(forKey: id)
+        if request.action == .locate { editorBusy = false }
+      }
       do {
         await selection?.value
         try session.authorize(request.context, selection: request.selection.ticket)
         let owner = try await actions()
+        if request.action == .locate {
+          if let pending = await owner.pendingEditorReceiptID(), pending != request.receiptID {
+            try Task.checkCancellation(); try session.authorize(request.context, selection: request.selection.ticket)
+            hostWindow.notice.stringValue = "Editor effect is unknown. Check Editor Result before requesting another move."
+            return // Preserve the original receipt, including after a second click.
+          }
+          editorRequest = request
+          let receipt = try await owner.jump(request)
+          try Task.checkCancellation()
+          try session.authorize(request.context, selection: request.selection.ticket)
+          hostWindow.notice.stringValue = receipt.feedback
+          return
+        }
         let result = try await owner.perform(request)
         try Task.checkCancellation()
         try session.authorize(request.context, selection: request.selection.ticket)
-        let accepted = textView.acceptSourceResult(result, for: request)
-        if accepted, request.action == .locate {
-          if let anchor = result.destinationAnchor { _ = textView.navigate(toAnchor: anchor) }
-          hostWindow.notice.stringValue = "Source location verified. Opening the editor is not available through this connection."
+        _ = textView.acceptSourceResult(result, for: request)
+      } catch {
+        if !Task.isCancelled, !disposed, (try? session.authorize(request.context, selection: request.selection.ticket)) != nil {
+          if request.action == .locate {
+            let status: NativeReaderEditorReceipt.Status
+            switch error {
+            case NativeReaderOperationFailure.unknownEffect: status = .unknown
+            case NativeReaderOperationFailure.unavailable: status = .unavailable
+            default: status = .stale
+            }
+            hostWindow.notice.stringValue = NativeReaderEditorReceipt(context: request.context,
+                selectionTicket: request.selection.ticket, receiptID: request.receiptID, status: status).feedback
+          } else { report(error) }
         }
-      } catch { if !Task.isCancelled { report(error) } }
+      }
+    }
+  }
+  private func checkEditorReceipt() {
+    guard !disposed, !editorBusy, visibleMode == .nativeReflow, let request = editorRequest, let actions,
+          actionTasks.count < 8 else { return }
+    editorBusy = true; hostWindow.notice.stringValue = "Checking editor result…"
+    let id = UUID()
+    actionTasks[id] = Task {
+      defer { actionTasks.removeValue(forKey: id); editorBusy = false }
+      do {
+        try session.authorize(request.context, selection: request.selection.ticket)
+        let owner = try await actions()
+        let receipt = try await owner.jump(request, query: true)
+        try Task.checkCancellation(); try session.authorize(request.context, selection: request.selection.ticket)
+        hostWindow.notice.stringValue = receipt.feedback
+      } catch { if !Task.isCancelled { hostWindow.notice.stringValue = "Editor result unavailable for this selection. No move was retried." } }
     }
   }
   private func chat(_ command: NativeReaderChatCommand, context: NativeReaderRequestContext) {
@@ -758,6 +811,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !disposed else { return }
     originalPageView.releaseSelection()
     cancel()
+    let revoke = revokeEditorConsent; Task { await revoke() }
     if let selection = store.selection { textView.releaseSelection(ticket: selection.ticket) }
     textView.cancel()
   }
@@ -774,7 +828,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   func dispose() {
     if let observer = layoutObserver { NotificationCenter.default.removeObserver(observer); layoutObserver = nil }
-    cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose(); hostWindow.window?.close() }
+    cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose()
+    let revoke = revokeEditorConsent; Task { await revoke() }
+    hostWindow.window?.close() }
 }
 
 @MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate {
@@ -792,6 +848,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   var onOpenOffline: ((NativeDocumentIdentity) -> Void)?
   var onCancelStorage: (() -> Void)?
   var onLastEdit: (() -> Void)?
+  var onEditorReceipt: (() -> Void)?
   var onAccount: (() -> Void)?
   var onManageAccount: ((URL) -> Void)?
   let contents = NSPopUpButton()
@@ -849,7 +906,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     let controls = NSStackView()
     for (title, action) in [("Copy", #selector(copySelected)), ("Source", #selector(sourceSelected)),
                              ("Highlight", #selector(highlightSelected)), ("Ask", #selector(askSelected)),
-                             ("Locate Source", #selector(locateSelected)), ("Last Edit", #selector(lastEdit)), ("Account", #selector(account))] {
+                             ("Locate Source", #selector(locateSelected)), ("Check Editor Result", #selector(editorReceipt)),
+                             ("Last Edit", #selector(lastEdit)), ("Account", #selector(account))] {
       let button = NSButton(title: title, target: self, action: action)
       controls.addArrangedSubview(button)
       if title != "Copy" { liveButtons.append(button) }
@@ -1082,6 +1140,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func lastEdit() { onLastEdit?() }
   @objc func locateSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.locate) }
+  @objc func editorReceipt() { guard currentMode == .nativeReflow else { return }; onEditorReceipt?() }
   @objc func account() { onAccount?() }
   @objc func manageAccountExplicitly() { if let homepage { onManageAccount?(homepage) } }
   func windowWillClose(_ notification: Notification) { onClose?() }

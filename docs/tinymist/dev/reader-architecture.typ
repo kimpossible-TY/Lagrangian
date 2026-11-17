@@ -254,3 +254,19 @@ inspection stays native; OriginalPageView keeps link key traversal and current
 page/operation freshness, while its geometry/print colors remain independent of
 reflow font/theme. No new auth/editor APIs, conversation DB or model/tool limits
 are created here.
+
+
+= Native explicit editor effects
+
+`NativeReaderActions.perform(.locate)` still resolves correspondence only;
+`jump(_:query:)` and `NativeReaderEditorReceipt` separately own native effect
+requests and bounded feedback. FlowApp composes an explicitly chosen private
+editor descriptor and fresh consent through the local manager into the real
+managed client. The new `/api/native-editor` adapter coordinates selection leases,
+ten-second preparations and durable no-replay effect receipts over existing
+AcceptedSnapshot, SavedSourceNavigation, EditorAttachments and NeovimEditor.
+The unchanged terminal/Lua owner performs the final saved-source cursor move.
+Source coordinates and registration details remain private to those owners;
+no source writer or HTTP registration authority is added. Native service restart
+requires new editor consent. See #link("native-reader-editor-actions.typ")[NA15
+contracts, bounds, headless evidence and pending delivery/GUI acceptance].

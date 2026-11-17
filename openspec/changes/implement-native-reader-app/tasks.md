@@ -82,3 +82,10 @@ recorded revision; final app evidence must be rebound after the delivery owner s
 
 These tasks do not implement NA15/NA16 editor/auth APIs, create a final app,
 or close official final GUI/VO/OS13/live/packaging acceptance.
+
+## 10. NA15 explicit native editor actions (component only)
+
+- [x] 10.1 Compose explicit FlowApp editor consent, production loopback transport and existing mapping/attachment/Neovim owners with a separate bounded effect receipt; preserve source and transport authority.
+- [x] 10.2 Verify actual compiler -> Swift native action -> production HTTP -> registered headless Neovim with an independent cursor/buffer oracle, plus freshness/lifetime/duplicate/cancel/new-selection/unknown-receipt negatives and zero source writes.
+- [x] 10.3 Run affected Services/source/editor/terminal/Neovim regressions, full production Swift warnings-as-errors/macOS13 compile, canonical Typst and strict OpenSpec; report exact delivery/inventory delta and immutable-source evidence.
+- [ ] 10.4 Integration PM binds the new component/source/backend/reader/app artifacts and obtains real F10 native interaction/visual acceptance; NA16 follows the verified shared-file handoff separately.

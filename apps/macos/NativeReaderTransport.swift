@@ -78,8 +78,9 @@ struct NativeReaderAttachment {
     let serviceID: String
     let service: [String: Int64]
     let editorAttachment: String?
+    let editorConsentID: UUID?
 
-    init(data: Data) throws {
+    init(data: Data, editorConsentID: UUID? = nil) throws {
         guard data.count <= 1024 * 1024,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let urlString = object["url"] as? String, let url = URL(string: urlString),
@@ -100,6 +101,7 @@ struct NativeReaderAttachment {
         self.service = ["pid": pid.int64Value, "startedAt": start.int64Value]
         serviceID = "reader:\(pid.int64Value):\(start.int64Value)"
         editorAttachment = object["editorAttachment"] as? String
+        self.editorConsentID = editorConsentID
     }
 }
 
@@ -108,6 +110,35 @@ struct NativeReaderManagedEditor {
     let executable: String
     let ownerPID: Int
     let controlFile: String
+    var consentID: UUID? = nil
+
+    /// Explicitly chosen private local descriptor; never discovered from processes,
+    /// environment, ports or HTTP. The chooser supplies fresh consent each time.
+    static func consentedDescriptor(_ url: URL) throws -> Self {
+        func privateFile(_ url: URL) throws {
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard url.isFileURL, attrs[.type] as? FileAttributeType == .typeRegular,
+                  (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+                  let mode = attrs[.posixPermissions] as? NSNumber, mode.intValue & 0o077 == 0 else {
+                throw NativeReaderOperationFailure.unavailable
+            }
+        }
+        try privateFile(url)
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count <= 16384,
+              let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(value.keys) == ["address", "executable", "ownerPID", "controlFile"],
+              let address = value["address"] as? String, !address.isEmpty, address.utf8.count <= 4096, !address.contains("\0"),
+              let executable = value["executable"] as? String, executable.hasPrefix("/"),
+              FileManager.default.isExecutableFile(atPath: executable),
+              let pid = value["ownerPID"] as? NSNumber, CFGetTypeID(pid) != CFBooleanGetTypeID(),
+              pid.doubleValue == Double(pid.int32Value), pid.int32Value > 0, kill(pid.int32Value, 0) == 0,
+              let control = value["controlFile"] as? String, control.hasPrefix("/") else {
+            throw NativeReaderOperationFailure.unavailable
+        }
+        try privateFile(URL(fileURLWithPath: control))
+        return Self(address: address, executable: executable, ownerPID: pid.intValue, controlFile: control, consentID: UUID())
+    }
 }
 
 struct NativeReaderManagedResolver {
@@ -121,8 +152,16 @@ struct NativeReaderManagedResolver {
         if let editor {
             args += ["--editor-server", editor.address, "--nvim", editor.executable,
                      "--owner-pid", String(editor.ownerPID), "--control-file", editor.controlFile]
+            if editor.consentID != nil { args += ["--native-editor-consent"] }
         }
-        let attachment = try NativeReaderAttachment(data: await attach(args))
+        let data: Data
+        do { data = try await attach(args) }
+        catch { throw NativeReaderOperationFailure.unavailable } // Never surface private argv/manager stderr.
+        if editor?.consentID != nil {
+            guard let plan = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  plan["nativeEditorActions"] as? Int == 1 else { throw NativeReaderOperationFailure.unavailable }
+        }
+        let attachment = try NativeReaderAttachment(data: data, editorConsentID: editor?.consentID)
         var request = URLRequest(url: attachment.baseURL.appendingPathComponent("api/state"))
         request.timeoutInterval = 5
         let response = try await network.send(request, 1024 * 1024)
@@ -147,14 +186,111 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
     private var acceptedContext: NativeReaderRequestContext?
     private var inputID: String?
     private var disposed = false
+    private var editorSequence = 0
+    private var editorSelection: NativeReaderSelection?
+    private var editorContext: NativeReaderRequestContext?
+    private var editorSynced = false
+    private var editorEnabled = true
 
     init(attachment: NativeReaderAttachment, network: NativeReaderNetwork) {
         self.attachment = attachment
         self.network = network
     }
 
-    func invalidate() { active = nil }
-    func dispose() { disposed = true; active = nil }
+    func invalidate() async {
+        guard !disposed else { return }
+        active = nil
+        if editorEnabled { await closeEditor(permanent: false) }
+    }
+    func dispose() async { disposed = true; active = nil; await closeEditor(permanent: true) }
+
+    func revokeEditorConsent() async {
+        editorEnabled = false
+        await closeEditor(permanent: true)
+    }
+
+    private func closeEditor(permanent: Bool) async {
+        editorSynced = false
+        guard let context = editorContext, let consent = attachment.editorConsentID,
+              let token = attachment.editorAttachment else { return }
+        editorSequence += 1
+        // Local authority is already revoked. This bounded best-effort tombstone
+        // never dispatches a move, and cannot claim rollback of an in-flight RPC.
+        var values: [String: Any] = ["documentID": context.target.documentID, "serviceID": context.target.serviceID,
+            "revision": context.target.revision, "generation": context.generation,
+            "viewID": context.viewID.uuidString.lowercased(), "requestID": context.requestID.uuidString.lowercased(),
+            "schemaVersion": 1, "capabilities": NativeReaderDocument.supportedCapabilities.sorted(),
+            "inputID": inputID ?? "", "operation": permanent ? "close" : "revoke", "consentID": consent.uuidString.lowercased(),
+            "editorAttachment": token, "sequence": editorSequence]
+        values["selection"] = NSNull()
+        if var request = try? request(path: "api/native-editor", fields: values) {
+            request.timeoutInterval = 3
+            _ = try? await network.send(request, 16384)
+        }
+    }
+
+    func syncEditor(_ selection: NativeReaderSelection?, context: NativeReaderRequestContext) async throws {
+        try check(context)
+        editorSequence += 1; editorSelection = selection; editorContext = context; editorSynced = false
+        guard editorEnabled, attachment.editorConsentID != nil, attachment.editorAttachment != nil else { return }
+        let sequence = editorSequence
+        let result: [String: Any]
+        do { result = try await call("api/native-editor", fields: editorFields(operation: "sync", context: context), context: context) }
+        catch let error as NativeReaderContractError { throw error }
+        catch { throw NativeReaderOperationFailure.unavailable }
+        guard editorSequence == sequence, result["status"] as? String == "ready" else { throw NativeReaderContractError.staleGeneration }
+        editorSynced = true
+    }
+
+    private func editorFields(operation: String, context: NativeReaderRequestContext, receipt: UUID? = nil) throws -> [String: Any] {
+        try check(context)
+        guard let consent = attachment.editorConsentID, let token = attachment.editorAttachment else {
+            throw NativeReaderOperationFailure.unavailable
+        }
+        var values: [String: Any] = ["operation": operation, "consentID": consent.uuidString.lowercased(),
+            "editorAttachment": token, "sequence": editorSequence]
+        values["selection"] = try editorSelection.map { try selectionFields($0, context: context) } ?? (NSNull() as Any)
+        if let receipt { values["receiptID"] = receipt.uuidString.lowercased() }
+        return values
+    }
+
+    func editor(_ request: NativeReaderSourceRequest, query: Bool = false) async throws -> NativeReaderEditorReceipt {
+        try Task.checkCancellation(); try check(request.context)
+        guard editorEnabled, editorSynced, editorSelection == request.selection, editorContext == request.context else {
+            throw NativeReaderOperationFailure.unavailable
+        }
+        let sequence = editorSequence
+        func current() throws {
+            try Task.checkCancellation(); try check(request.context)
+            guard editorSynced, editorSequence == sequence, editorSelection == request.selection else {
+                throw NativeReaderContractError.invalidSelection
+            }
+        }
+        var result: [String: Any]
+        var dispatched = false
+        if query {
+            result = try await call("api/native-editor", fields: editorFields(operation: "receipt", context: request.context, receipt: request.receiptID), context: request.context)
+        } else {
+            result = try await call("api/native-editor", fields: editorFields(operation: "prepare", context: request.context, receipt: request.receiptID), context: request.context)
+            try current()
+            if result["status"] as? String == "ready" {
+                dispatched = true
+                result = try await call("api/native-editor", fields: editorFields(operation: "jump", context: request.context, receipt: request.receiptID), context: request.context, mutation: true)
+            }
+        }
+        do { try current() }
+        catch { if dispatched { throw NativeReaderOperationFailure.unknownEffect }; throw error }
+        guard result["receiptID"] as? String == request.receiptID.uuidString.lowercased(),
+              result["inputID"] as? String == inputID,
+              result["selectionTicket"] as? String == request.selection.ticket.uuidString.lowercased(),
+              result["consentID"] as? String == attachment.editorConsentID?.uuidString.lowercased(),
+              result["sequence"] as? Int == sequence,
+              let raw = result["status"] as? String, let status = NativeReaderEditorReceipt.Status(rawValue: raw) else {
+            throw NativeReaderOperationFailure.unknownEffect
+        }
+        return NativeReaderEditorReceipt(context: request.context, selectionTicket: request.selection.ticket,
+                                         receiptID: request.receiptID, status: status)
+    }
 
     func check(_ context: NativeReaderRequestContext) throws {
         guard !disposed else { throw NativeReaderContractError.disposed }
@@ -301,6 +437,7 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
     private var pageTransport: NativeReaderOriginalPageTransport?
     private var epoch = 0
     private var disposed = false
+    private var editorConsentRevoked = false
 
     init(resolver: NativeReaderManagedResolver, root: String, entry: String, readerID: String? = nil, editor: NativeReaderManagedEditor? = nil) {
         self.resolver = resolver; self.root = root; self.entry = entry; self.readerID = readerID; self.editor = editor
@@ -310,13 +447,14 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         guard !disposed else { throw NativeReaderContractError.disposed }
         epoch += 1
         let current = epoch
-        var (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID, editor: transport == nil ? editor : nil)
+        var (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID,
+            editor: transport == nil && !editorConsentRevoked ? editor : nil)
         guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
         let replaced = transport?.attachment.serviceID != attachment.serviceID || transport?.attachment.baseURL != attachment.baseURL || transport?.attachment.documentID != attachment.documentID
         if replaced {
             // Existing attachments are service-bound. Register once per incarnation,
             // rather than leaking a registration on every readiness poll.
-            if transport != nil, editor != nil {
+            if transport != nil, let editor, editor.consentID == nil {
                 (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID, editor: editor)
                 guard !disposed, epoch == current else { throw NativeReaderContractError.staleGeneration }
             }
@@ -341,6 +479,11 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
     func currentActions() throws -> NativeReaderActions {
         guard !disposed, let actions else { throw NativeReaderOperationFailure.unavailable }
         return actions
+    }
+    func revokeEditorConsent() async {
+        guard editor?.consentID != nil else { return }
+        editorConsentRevoked = true; epoch += 1
+        await transport?.revokeEditorConsent()
     }
     func invalidate() async {
         epoch += 1

@@ -301,8 +301,14 @@ class ReaderManager:
             return json.loads(response.read(1024 * 1024))
 
     def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
-               owner_pid=None, control_file=None):
+               owner_pid=None, control_file=None, native_editor_consent=False):
         """Reuse the normal HTML lifecycle/plan; never start a presentation-owned compiler."""
+        if native_editor_consent:
+            # Only the explicit local native composition opts in. HTTP has no
+            # registration route, executable/address input or default-editor grant.
+            if not editor_server or not Path(nvim).is_absolute() or not control_file:
+                raise ValueError("Explicit native editor configuration is required")
+            EditorAttachments.private(Path(control_file))
         profile = self.match_document(root, entry, identifier)
         if self.job_pid(profile) is None:
             self.control("start", profile)
@@ -330,7 +336,8 @@ class ReaderManager:
                 raise ValueError("The installed HTML Reader needs an upgrade for shared editor attachments; no separate Reader was started")
             attachments = EditorAttachments(self.data / "documents" / profile["id"], expected_document, service)
             with self.locked(timeout=2):
-                token, path = attachments.register(editor_server, nvim, owner_pid, control_file)
+                token, path = attachments.register(editor_server, nvim, owner_pid, control_file,
+                                                   jump_only=native_editor_consent)
             try:
                 if self.request(url, "api/editor-attachment", {"token": token}).get("connected") is not True:
                     raise ValueError("The HTML Reader rejected the editor attachment")
@@ -338,6 +345,8 @@ class ReaderManager:
                 path.unlink(missing_ok=True)
                 raise
             plan.update(editorAttachment=token, attachmentFile=str(path))
+            if native_editor_consent:
+                plan["nativeEditorActions"] = 1
         return plan
 
     def agent(self, profile):
@@ -443,10 +452,12 @@ def main(argv=None, *, manager=None):
         parser.add_argument("--nvim", default="nvim")
         parser.add_argument("--owner-pid", type=int)
         parser.add_argument("--control-file")
+        parser.add_argument("--native-editor-consent", action="store_true")
         options = parser.parse_args(arguments[1:])
         print(json.dumps(manager.attach(options.root, options.entry, identifier=options.reader_service,
                                        editor_server=options.editor_server, nvim=options.nvim,
-                                       owner_pid=options.owner_pid, control_file=options.control_file)))
+                                       owner_pid=options.owner_pid, control_file=options.control_file,
+                                       native_editor_consent=options.native_editor_consent)))
         return
     if arguments == ["--profiles"]:
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))

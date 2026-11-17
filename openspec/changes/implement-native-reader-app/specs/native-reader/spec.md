@@ -201,3 +201,42 @@ The reflow reader SHALL expose Light/Dark/Automatic and font/zoom preview, cance
 - **THEN** the same publication/input/digest bytes are validated, staged, PDFKit-reopened and atomically saved after current snapshot/operation checks
 - **AND** cancel/stale/dispose/tamper/invalid or changed destination preserves the previous file
 - **AND** offline PDF recovery stores only identity/digest/page/scale/unscaled offsets, does not store PDF selection, and does not enable offline mode switching
+
+### Requirement: Explicit native editor movement has a separate effect receipt
+The native reader SHALL distinguish verified source correspondence from actual
+editor movement. Locate Source SHALL compose the existing saved-source mapping,
+private service-bound attachment and final Neovim jump owner, with zero source
+writes. FlowApp SHALL require explicit local editor selection and consent without
+process discovery, default opt-in or HTTP registration authority.
+
+#### Scenario: Explicit move to compiler-verified saved source
+- **WHEN** a current native selection requests Locate Source through a consented managed editor
+- **THEN** production local HTTP dispatches only to its exact locally registered executable/address
+- **AND** jumped is reported only after the existing editor owner returns jumped
+- **AND** mapping-only locate retains its previous result contract
+- **AND** private source coordinates, paths, hashes, address and token remain outside product feedback and accessibility
+
+#### Scenario: Changed source, attachment or view before effect
+- **WHEN** source/input/service/view/generation/selection/request/consent/attachment or prepared source span changes, the owner/control lifetime ends, or a newer selection is invalid
+- **THEN** pending work fails closed without guessing coordinates, overwriting buffers or releasing another selection
+- **AND** native service restart requires new explicit editor consent
+- **AND** a foreign attachment cannot close another view or change its pending selection
+
+#### Scenario: Dirty buffer, duplicate UUID or lost acknowledgment
+- **WHEN** the target has unsaved contents or the request's response is lost, cancelled or late
+- **THEN** modified, stale, error and unknown effect remain distinct from jumped
+- **AND** a private bounded receipt is committed before dispatch and a duplicate UUID never repeats the effect
+- **AND** Check Editor Result performs a bounded read without automatic redispatch
+- **AND** another dirty buffer, source bytes, user editor lifetime and other attachments are preserved
+
+#### Scenario: Independent headless and GUI acceptance
+- **WHEN** the native action is exercised against an isolated compiler/production HTTP/actual Neovim fixture
+- **THEN** an independent raw editor RPC oracle verifies file, one-based line and UTF-8 byte column plus unchanged buffers/source bytes
+- **AND** injected transport faults, fake callbacks and actual effects are identified separately
+- **AND** headless success does not complete real native interaction, visual or OS runtime acceptance
+
+#### Scenario: Movement consent cannot authorize a source writer
+- **WHEN** a native movement-only attachment is supplied to an existing source-write endpoint or the native Highlight operation
+- **THEN** the attachment/source adapter refuses it before any source or buffer write
+- **AND** legacy terminal source-write attachments retain their existing explicit contract
+- **AND** host close/dispose revokes native consent even during pending managed resolution while document reopening remains possible

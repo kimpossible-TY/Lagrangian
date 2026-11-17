@@ -419,3 +419,54 @@ Review marks retain per-mark32 and total256 unique UUID budgets checked before
 adoption; browser marks/source authority are unchanged. The old18-case design is
 immutable history; Planner's new125-case design supersedes it without creating
 assignments or passes. No current app/GUI/VO/OS13/live completion is inferred.
+
+## NA15 native editor effects
+
+The Locate Source control calls `NativeReaderActions.jump(_:query:)`; existing
+`perform(.locate)` remains mapping-only. Its independent typed effect receipt can
+say jumped only after the existing `tinymist.reader.jump` owner returns jumped.
+Native feedback receives no source coordinates, private paths, tokens or address.
+
+FlowApp consumes one explicitly chosen private local descriptor and user Connect
+consent into `NativeReaderManagedClient`. The manager's additive local
+`--native-editor-consent` validates the exact executable/private control before
+normal registration and acknowledges `nativeEditorActions: 1`. Native service
+restart cannot renew that consent. Legacy terminal registrations remain compatible.
+HTTP cannot choose or register executable/address/path/coordinates.
+
+`/api/native-editor` retains native transport guards and additionally requires a
+real loopback peer and loopback Host. `services/native_editor_actions.py` owns
+selection synchronization, prepare, dispatch, read-only receipt and revoke/close.
+It reuses AcceptedSnapshot/SavedSourceNavigation/EditorAttachments/NeovimEditor;
+source mapping/navigation, terminal and Lua remain unchanged. Prepare and final
+dispatch must agree on the verified private source span and exact registration,
+control and executable identities. Client/server also bind document/service/
+revision/input/view/generation/full selection/request/receipt/consent/sequence.
+Newer failed selection updates revoke old pending work; foreign attachments cannot
+close another view. Edit-lock then publication-lock order is preserved.
+
+A ten-second prepare and bounded 128 view/tombstone, 128 pending and 4096 consumed
+receipt capacities fail closed on exhaustion. The private SQLite store commits
+unknown before RPC, then persists the result. Duplicate UUIDs cannot redispatch,
+including after lost acknowledgments. A 2.5-second RPC timeout or late cancellation
+leaves effect unknown; one explicit Check Editor Result read may recover it.
+An obsolete result cannot adopt into newer selection/view state. Native invalidation
+revokes locally before a bounded best-effort server notification. No editor, shared
+service, other attachment, source bytes or clipboard is disposed or changed.
+
+Dedicated tests use real saved compilation, Swift action/production HTTP/local
+registration and actual headless Neovim; raw Neovim RPC independently observes
+file/line/UTF-8 byte column and buffer preservation. Fault gates/response loss are
+injected and must be reported separately from the actual effect. Real GUI, visual,
+VoiceOver/OS13 runtime and final installed delivery remain unverified. The existing
+source registry already includes all modified Swift; the helper and exact source
+correction inventory require integration-owner delivery rebinding before shipping.
+NA16 inherits these shared API/bytes sequentially without widening account authority.
+
+Native registrations carry an additive `nativeJumpOnly: true` marker. The existing
+attachment write resolver rejects that marker, so the unmodified source-write
+owner cannot use a movement-only token. Connection acknowledgment checks the
+private record without granting write authority. Swift also rejects Highlight
+under this consent. Legacy terminal records retain their fields and behavior.
+Host close/dispose explicitly revokes native editor consent and supersedes pending
+managed resolution; reopening the document does not silently restore consent.

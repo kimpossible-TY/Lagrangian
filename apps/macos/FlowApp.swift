@@ -15,6 +15,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return NSPasteboard.Name("io.github.kimpossible-ty.lagrangian.dev.copy." + digest)
   }
   var nativeProfile: Profile?
+  private var consentedEditors: [String: NativeReaderManagedEditor] = [:]
   var managedResolver: NativeReaderManagedResolver?
   var nativeWindow: NativeReaderWindowController?
   var offlineWindow: NativeReaderWindowController?
@@ -53,7 +54,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
             return {}
           }
-          let client = NativeReaderManagedClient(resolver: resolver, root: profile.root, entry: profile.entry)
+          let client = NativeReaderManagedClient(resolver: resolver, root: profile.root, entry: profile.entry,
+                                                 editor: self.consentedEditors.removeValue(forKey: profile.id))
           self.nativeWindow = NativeReaderWindowController(provider: client, target: { _ in try await client.target() },
             assets: { document, context in
               let actions = try await client.currentActions()
@@ -110,6 +112,39 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
   }
   var settingsTabs: NSTabView?
+  /// Explicit profile-local consent. Choosing a descriptor never scans editors or
+  /// grants registration through HTTP. Reconnect requires this action again.
+  @MainActor @objc func connectEditor() {
+    guard let profile = active else { return }
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+    panel.message = "Choose the private local editor descriptor for this project. Connect permits explicit Locate Source moves only."
+    panel.begin { [weak self] response in
+      guard let self, response == .OK, let url = panel.url, self.active?.id == profile.id else { return }
+      Task { @MainActor in
+        do {
+          let editor = try await Task.detached { try NativeReaderManagedEditor.consentedDescriptor(url) }.value
+          guard self.active?.id == profile.id else { return }
+          let consent = NSAlert()
+          consent.messageText = "Connect this editor for the selected project?"
+          consent.informativeText = "Only explicit Locate Source actions may move its cursor. Unsaved buffers and source files are preserved. Closing the connection or restarting the service requires new consent."
+          consent.addButton(withTitle: "Connect"); consent.addButton(withTitle: "Cancel")
+          guard consent.runModal() == .alertFirstButtonReturn else { return }
+          self.consentedEditors[profile.id] = editor
+          self.nativeWindow?.dispose(); self.nativeWindow = nil
+        } catch {
+          let alert = NSAlert(); alert.messageText = "Editor descriptor unavailable"
+          alert.informativeText = "Use an existing private local descriptor with an exact executable, address, live owner and private control file."
+          alert.runModal()
+        }
+      }
+    }
+  }
+  @MainActor @objc func disconnectEditor() {
+    guard let profile = active else { return }
+    consentedEditors.removeValue(forKey: profile.id)
+    nativeWindow?.dispose(); nativeWindow = nil
+  }
   /// Explicit local action does not enter ReadingSessionController.read/start or
   /// resolve a manager. Keep the current live document/service independent.
   @MainActor @objc func openOffline() {
@@ -179,6 +214,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       ("읽기 시작", #selector(openPreview), "o"),
       ("외부 Reader 열기", #selector(openExternalPreview), ""),
       ("오프라인 문서 열기", #selector(openOffline), ""),
+      ("Connect Editor…", #selector(connectEditor), ""),
+      ("Disconnect Editor", #selector(disconnectEditor), ""),
       ("프로젝트 설정", #selector(showSettings), ""),
       ("선택한 프로젝트 시작", #selector(start), ""),
       ("선택한 프로젝트 중지", #selector(stop), ""),

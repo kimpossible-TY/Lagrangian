@@ -34,7 +34,7 @@ def handler_for(state, *, public_url=None, homepage_url=None):
     import socket
     from flow_reader.server.native_pages import NativePageService
     pages = NativePageService(state, native)
-    native_posts = {"/api/native-action", "/api/native-chat"}
+    native_posts = {"/api/native-action", "/api/native-chat", "/api/native-editor"}
     compiler_pool = getattr(state, "compiler_pool", None)
     compiler_assets = getattr(state, "compiler_assets", None)
     compiler_actions = {"/api/compiler/" + action for action in
@@ -75,9 +75,15 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
                 if path in native_posts:
-                    if path == "/api/native-chat" and request.get("operation") == "events":
+                    if path == "/api/native-editor":
+                        if (self.client_address[0] != "127.0.0.1" or self.headers.get("Host") not in
+                                {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}):
+                            return self.respond(b'{"error":"Invalid editor scope"}', "application/json", 403)
+                        result = native.editor(request, self.native_connected)
+                    elif path == "/api/native-chat" and request.get("operation") == "events":
                         return self.native_events(request)
-                    result = native.action(request) if path == "/api/native-action" else native.chat(request)
+                    else:
+                        result = native.action(request) if path == "/api/native-action" else native.chat(request)
                 elif path in chat_actions:
                     chat = state.paragraph_chat
                     action = path.rsplit("/", 1)[-1]
@@ -133,7 +139,7 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                                 raise ValueError("Invalid compiler lease")
                             result = compiler_pool.submit(worker, job, lease, request.get("result"))
                 elif path == "/api/editor-attachment":
-                    result = {"connected": state.editor_attachments.resolve(request.get("token")) is not None}
+                    result = {"connected": state.editor_attachments.record(request.get("token")) is not None}
                 elif path == "/api/focus":
                     try:
                         result = state.save_focus(request.get("revision"), request.get("fragments"),

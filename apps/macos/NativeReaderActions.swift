@@ -20,6 +20,7 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
     let transport: NativeReaderTransport
     private let wait: (UInt64) async throws -> Void
     private var selection: NativeReaderSelection?
+    private var uncertainJump: UUID?
     private var conversations: [UUID: NativeReaderConversation] = [:]
     private var frozenTickets: [UUID: UUID] = [:]
     private var frozenContexts: [UUID: NativeReaderRequestContext] = [:]
@@ -39,12 +40,40 @@ actor NativeReaderActions: NativeReaderSourceOperations, NativeReaderChatOperati
     func updateSelection(_ value: NativeReaderSelection?, context: NativeReaderRequestContext) async throws {
         try await transport.check(context)
         selection = nil // An over-limit/new selection must never leave an old actionable ticket.
+        try await transport.syncEditor(value, context: context)
         if let value { _ = try await transport.selectionFields(value, context: context) }
         selection = value
     }
 
+    func jump(_ request: NativeReaderSourceRequest, query: Bool = false) async throws -> NativeReaderEditorReceipt {
+        guard request.action == .locate, selection == request.selection else { throw NativeReaderContractError.invalidSelection }
+        if !query, uncertainJump != nil { throw NativeReaderOperationFailure.unknownEffect }
+        if query, let pending = uncertainJump, pending != request.receiptID { throw NativeReaderOperationFailure.unknownEffect }
+        // Keep an uncertain effect blocked across actor reentrancy and failures.
+        if !query { uncertainJump = request.receiptID }
+        do {
+            let result = try await transport.editor(request, query: query)
+            guard selection == request.selection else { throw NativeReaderContractError.invalidSelection }
+            if result.status != .unknown { uncertainJump = nil }
+            return result
+        } catch {
+            // Before-prepare failures prove no dispatch; after-dispatch failures do
+            // not. Transport labels lost/invalid effect acknowledgments unknown.
+            if !query, case NativeReaderOperationFailure.unavailable = error { uncertainJump = nil }
+            throw error
+        }
+    }
+
+    func pendingEditorReceiptID() -> UUID? { uncertainJump }
+
     func perform(_ request: NativeReaderSourceRequest) async throws -> NativeReaderSourceResult {
         guard selection?.ticket == request.selection.ticket else { throw NativeReaderContractError.invalidSelection }
+        if request.action == .highlight, transport.attachment.editorConsentID != nil {
+            // The new Connect consent is movement-only, never a source-write opt-in.
+            try await transport.check(request.context)
+            return NativeReaderSourceResult(context: request.context, selectionTicket: request.selection.ticket,
+                status: .unsupported, verifiedText: nil, destinationAnchor: nil)
+        }
         let operation: String
         switch request.action { case .excerpt: operation = "excerpt"; case .locate: operation = "locate"; case .highlight: operation = "highlight" }
         var fields: [String: Any] = ["operation": operation, "receiptID": request.receiptID.uuidString.lowercased(),

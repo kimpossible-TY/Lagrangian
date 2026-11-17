@@ -23,3 +23,13 @@ Native reader workers need one executable, loss-aware document and interaction c
 ## Impact
 
 NA01 owns the shared Swift/Python contract and fixtures. NA02 text, NA03 objects, NA04 services and NA05 shell consume the same committed contract. No new dependency, HTTP implementation, source writer, authentication authority, installation or P0 source modification is included. Canonical detail: `docs/tinymist/dev/native-reader-app-contract.typ`.
+
+## NA15 additive editor effect implementation
+
+Connect explicit native Locate Source to the existing saved-source and private
+editor owners with a distinct effect receipt; preserve read-only locate semantics.
+FlowApp composes one consented local editor without discovery or default opt-in.
+This adds a bounded loopback-only editor adapter and no-replay receipt store, not
+a source writer or account authority. Canonical contract:
+`docs/tinymist/dev/native-reader-editor-actions.typ`. NA16, exact delivery rebinding
+and real native interaction/visual acceptance remain separate follow-ups.

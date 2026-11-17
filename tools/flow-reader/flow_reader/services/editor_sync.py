@@ -57,9 +57,11 @@ class EditorAttachments:
 
     def resolve(self, token):
         record = self.record(token)
-        return NeovimEditor(record["address"], record["executable"]) if record else None
+        # Native movement consent grants no source-write capability. Existing
+        # terminal registrations retain their schema and write behavior.
+        return NeovimEditor(record["address"], record["executable"]) if record and not record.get("nativeJumpOnly") else None
 
-    def register(self, address, executable, owner_pid, control_file=None):
+    def register(self, address, executable, owner_pid, control_file=None, *, jump_only=False):
         # Called only by the local manager. No HTTP registration or executable input.
         NeovimEditor(address, executable)
         executable = shutil.which(executable)
@@ -88,6 +90,8 @@ class EditorAttachments:
         record = {"documentID": self.document_id, "service": self.service,
                   "address": address, "executable": str(Path(executable).resolve()),
                   "ownerPID": owner_pid, "controlFile": control_file}
+        if jump_only:
+            record["nativeJumpOnly"] = True
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:
             json.dump(record, stream)
@@ -107,6 +111,33 @@ class NeovimEditor:
             raise ValueError("Expected a Neovim server address")
         self.address = address
         self.executable = executable
+
+    def jump(self, location, current):
+        """Only an existing private attachment may supply this editor/location.
+
+        Keep source coordinates out of argv, and reuse the terminal Lua owner.
+        An interrupted RPC has an unknown effect; it must never be dispatched again.
+        """
+        payload = {key: location[key] for key in ("path", "source_hash", "line", "column")}
+        descriptor, temporary = tempfile.mkstemp(prefix="flow-reader-jump-", suffix=".json")
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False)
+            expression = ("luaeval(" + vim_string("require('tinymist.reader').jump(_A)")
+                          + ", json_decode(join(readfile(" + vim_string(temporary) + "), '')))")
+            if not current():
+                return "stale"
+            try:
+                result = subprocess.run([self.executable, "--server", self.address, "--remote-expr", expression],
+                                        capture_output=True, text=True, timeout=2.5, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                return "unknown"
+            status = result.stdout.strip()
+            if result.returncode or status not in {"jumped", "modified", "stale", "error"}:
+                return "unknown"
+            return status
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def write(self, path, original, updated):
         payload = {"path": str(path), "original": original.decode("utf-8"),

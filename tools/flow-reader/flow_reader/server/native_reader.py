@@ -33,6 +33,19 @@ class NativeReaderService:
     def __init__(self, state):
         self.state = state
         self.cached = None  # One complete accepted revision, never an independent source store.
+        from flow_reader.services.native_editor_actions import NativeEditorActions
+        with state.lock:
+            if not hasattr(state, "_native_editor_actions"):
+                state._native_editor_actions = NativeEditorActions(state)
+        self.editor_actions = state._native_editor_actions
+
+    def editor(self, request, connected=lambda: True):
+        result = self.editor_actions.handle(self, request, connected)
+        # Only bounded states and correlation IDs cross the private owner boundary.
+        return self.envelope(request, **result, receiptID=request.get("receiptID"),
+                             inputID=request.get("inputID"),
+                             selectionTicket=(request.get("selection") or {}).get("ticket"),
+                             consentID=request.get("consentID"), sequence=request.get("sequence"))
 
     def target(self, request, *, current=True):
         state = self.state

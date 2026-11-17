@@ -77,6 +77,29 @@ protocol NativeReaderSourceOperations {
     func perform(_ request: NativeReaderSourceRequest) async throws -> NativeReaderSourceResult
 }
 
+/// A mapping result is never an editor effect receipt. No coordinates or private
+/// registration details enter this DTO or its accessible feedback.
+struct NativeReaderEditorReceipt {
+    enum Status: String { case jumped, modified, stale, unmapped, ambiguous, refused, error, unknown, unavailable }
+    let context: NativeReaderRequestContext
+    let selectionTicket: UUID
+    let receiptID: UUID
+    let status: Status
+    var feedback: String {
+        switch status {
+        case .jumped: return "Editor moved to the verified saved source."
+        case .modified: return "Editor has unsaved changes. Save explicitly and select again."
+        case .stale: return "Source, selection or editor lifetime changed. Select again after reconnecting."
+        case .unmapped: return "No verified source mapping is available."
+        case .ambiguous: return "Source mapping is ambiguous."
+        case .refused: return "Editor request was refused."
+        case .error: return "Editor refused the move."
+        case .unknown: return "Editor effect is unknown. Check Editor Result; do not repeat the move."
+        case .unavailable: return "No explicitly connected editor is available. Use Connect Editor in the app menu."
+        }
+    }
+}
+
 struct NativeReaderChatState {
     let context: NativeReaderRequestContext
     let conversationID: UUID
