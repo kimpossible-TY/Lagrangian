@@ -21,6 +21,10 @@ import Foundation
     private(set) var restoration = NativeReaderRestoration.initial
     private(set) var failure: String?
     private(set) var isReadOnly = true
+    // Read-only after a transport failure is not an offline snapshot. The
+    // session alone owns whether the accepted/pending content came from recovery.
+    private(set) var isRecoveredCopy = false
+    var hasRecoveryCopy: Bool { isRecoveredCopy || pending?.restoration != nil }
     var onChange: (() -> Void)?
     var onSelection: ((NativeReaderSelection?, NativeReaderRequestContext) -> Void)?
     private let provider: NativeReaderDocumentProviding
@@ -160,7 +164,7 @@ import Foundation
                 throw NativeReaderOperationFailure.rejected(code: "adoption-not-published")
             }
             context = candidate.context
-            isReadOnly = offline
+            isReadOnly = offline; isRecoveredCopy = offline
             if let value = candidate.restoration {
                 restoration = value
                 if let ticket = value.selectionTicket {

@@ -118,3 +118,37 @@ answer/composer system Cut/Copy/Paste is outside that seam. Runtime, source,
 receipt, recovery and resource limits are specified in
 #link("native-reader-app-contract.typ")[the current contract], not waived by
 fixture success. Final GUI/AX/official/PM gates remain open.
+
+
+== Feature wiring inspection after the review-fix baseline
+
+The source-level local wiring follow-up starts at24666ce2. It does not rebuild or
+replace the older09c application or the frozen111-test evidence. Its separate
+records live under `test-output/feature-wiring-v1`: reachability.json maps all
+F01–18 entrypoints to existing owners and observable effects; final-binding.json
+binds fresh compiler inputs/tests to the new source commit. Helper-only, missing
+API, unsupported fidelity and actual GUI status are recorded separately.
+
+Inspect the native document's Mark for review/Undo review/Clear review, Contents/
+Back, Theme/Text size and Zoom/Fit controls. Strikes must preserve exact logical
+copy and AX selection through resize/reflow and disappear on undo/clear or a new
+accepted snapshot. Heading/reference navigation must use only typed mappings.
+Last Edit/Locate Source remain bound to the current existing source/history owner;
+a missing editor attachment or anchor is a failure/unavailable state, not a jump.
+
+Save Offline, Refresh Saved and Open Saved must use the current profile's typed
+store. The home Offline action must work without starting a service. Reopen into
+a fresh managed view while target/network/assets operations fail if invoked;
+expect native body/object paint, retained held selection/marks, disabled source/
+chat/account and no inference. A newer private draft and its separate pending
+question/model/UUID must survive. Verify Cancel/close against delayed owned disk
+operations and reject stale completions. Reject selection33+ or display0.25 save
+without replacing the previous file; ordinary local copy/AX still permits the
+full selection. Do not infer complete application autosave or all saved display
+states from this bounded explicit-save path.
+
+Internal AppKit target/action, private-board, renderer pixel and typed-storage
+checks run with activation prohibited and zero visible windows. No app staging,
+real GUI/AX/VoiceOver, live account, external inference, service installation or
+actual OS13 execution is performed by this task. The delivery owner must rebind
+and stage the final exact commit before independent GUI inspection.

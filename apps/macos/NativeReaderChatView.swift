@@ -385,13 +385,13 @@ private enum NativeAnswerPreparation {
         updateControls()
     }
 
-    private func persistCurrentDraft() {
-        if let value = conversation {
-            persistDraft?(NativeReaderRecoveredDraft(conversationID: value.state.conversationID, version: value.state.version,
-                text: composer.string, pendingMessageID: pendingMessage, model: models.titleOfSelectedItem,
-                pendingQuestion: pendingQuestion, pendingModel: pendingModel))
-        }
+    var recoveryDraft: NativeReaderRecoveredDraft? {
+        guard let value = conversation else { return nil }
+        return NativeReaderRecoveredDraft(conversationID: value.state.conversationID, version: value.state.version,
+            text: composer.string, pendingMessageID: pendingMessage, model: models.titleOfSelectedItem,
+            pendingQuestion: pendingQuestion, pendingModel: pendingModel)
     }
+    private func persistCurrentDraft() { if let draft = recoveryDraft { persistDraft?(draft) } }
 
     func textDidChange(_ notification: Notification) {
         guard !disposed else { return }

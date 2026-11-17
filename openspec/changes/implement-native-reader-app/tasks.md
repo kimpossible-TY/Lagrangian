@@ -62,3 +62,12 @@
 These checks do not close final application staging, official independent reviews,
 GUI/AX/VoiceOver or actual OS13 gates. Historical task completion is scoped to its
 recorded revision; final app evidence must be rebound after the delivery owner stages it.
+
+
+## 8. NA06 native local feature reachability (not final acceptance)
+
+- [x] 8.1 Record all F01–18 actual entrypoints/owners/effects; preserve existing paths and identify source/editor/account gaps precisely.
+- [x] 8.2 Wire review add/undo/clear to native range paint and Contents/Back to canonical mappings; test actual target/action, pixels, reflow, replacement and selection/AX.
+- [x] 8.3 Wire window-local theme/font/zoom through existing render keys and verify native controls without OS settings changes.
+- [x] 8.4 Wire profile-bound typed offline save/list/open and home entry, restoration/paint, read-only draft/pending state and cancellation/close/limits/isolation through actual controls.
+- [x] 8.5 Run affected raw canonical regressions including N1–N5/F1–F6/LS01, Typst/strict OpenSpec and final compiler/commit byte binding; retain remaining app/GUI/official gates.

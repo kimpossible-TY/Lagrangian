@@ -347,3 +347,38 @@ host OS27.2.1, target13 and single partial GUI Read/AXPress -25200 interruption
 are distinct evidence. Actual OS13, complete GUI/AX, official final code/docs
 review and a restaged final app remain gates. NA/ B/C/D/882/C19/G1 labels and
 current inspection entrypoints are defined in the canonical verification guide.
+
+
+## NA06 native local feature wiring (fixed24666 follow-up)
+
+Native controls consume existing owners: LocalReview add/undo/clear paints current
+TextView range geometry without modifying text/source/AX; Contents and Back use
+canonical node/anchor mappings; Theme/Text size/Zoom/Fit reuse local appearance
+and render keys without OS preferences/schema changes. New snapshot/cancel revokes
+old marks/return while same-snapshot reflow preserves logical selection and marks.
+
+FlowApp composes an explicit profile+target namespace under support for the sole
+typed RecoveryStore. Its list operation reuses the exact envelope/hash/document
+validator also used by load. Save Offline captures current renderer restoration,
+accepted assets, marks and typed chat pending/newer-draft fields. UI save/list/open
+are injected operations delegated to that actor. Busy/cancel/close/request epochs
+reject obsolete callbacks and bounded atomic save retains prior files on failure.
+The home offline action composes a separate native reader without live startup
+or managed attachment; restore remains read-only with zero live fetch operations.
+Typed32 fragments/zoom0.5–4 are not widened to match local33+/0.25 display. Saved
+drafts are read-only offline; no history read, restore or layout sends inference.
+Only actual matching visible-mode draw acknowledges paint.
+
+Last Edit and Locate Source use existing Actions/source-history endpoints and
+TextView anchor mappings. Full editor delivery still requires an explicitly
+composed NativeReaderManagedEditor consent descriptor, absent from the current
+FlowApp settings/composition. Native-action locate returns a verified display
+anchor, not an editor dispatch; a separate guarded explicit dispatch/receipt
+contract is missing. Native account UI reads existing status/models and
+permits an explicit configured Homepage action; it does not invent native
+login/logout, credentials or source authority. These gaps are returned to their
+owners rather than hiding missing runtime UI behind model-only claims.
+
+Reachability and actual target/action/pixel/storage tests are separate from final
+GUI/AX/official review and new app/resource binding. Delivery/archive producer
+paths and old evidence remain untouched; no app build/staging in this assignment.

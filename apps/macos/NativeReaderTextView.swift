@@ -174,6 +174,7 @@ final class NativeReaderBodyTextView: NSTextView {
         guard let reader = reader, !reader.isDisposed, let key = reader.renderKey, key == reader.requestedRenderKey else { return }
         reader.beginBodyDraw()
         super.draw(dirtyRect)
+        reader.paintLocalReview(in: dirtyRect)
         reader.endBodyDraw(key: key, dirtyRect: dirtyRect)
     }
     override func accessibilityChildren() -> [Any]? { reader?.accessibilityNodes ?? [] }
@@ -246,6 +247,48 @@ final class NativeReaderBodyTextView: NSTextView {
     private var pendingSelectionAffinity: NSSelectionAffinity?
     private var pendingCaret: NativeReaderTextPosition?
     private var returningAnchor: NativeReaderViewportAnchor?
+    private var reviewSelections = [NativeReaderSelection]()
+    var canReturnFromReference: Bool { returningAnchor != nil && renderKey != nil && renderKey == requestedRenderKey }
+    func setReviewSelections(_ values: [NativeReaderSelection]) throws {
+        guard !isDisposed else { throw NativeReaderContractError.disposed }
+        if !values.isEmpty {
+            guard let document = store.document else { throw NativeReaderContractError.invalidDocument }
+            for value in values { try value.validateLocal(in: document) }
+        }
+        reviewSelections = values; bodyTextView.needsDisplay = true
+    }
+    fileprivate func paintLocalReview(in dirty: NSRect) {
+        guard !isDisposed, !isCancelled, let key = renderKey, key == requestedRenderKey else { return }
+        NSColor.systemRed.withAlphaComponent(0.85).setStroke()
+        for selection in reviewSelections {
+            for fragment in selection.fragments {
+                for rect in rects(blockID: fragment.blockID, logical: fragment.rangeUTF16) where rect.intersects(dirty) {
+                    let line = NSBezierPath(); line.lineWidth = 1.5
+                    line.move(to: NSPoint(x: rect.minX, y: rect.midY)); line.line(to: NSPoint(x: rect.maxX, y: rect.midY)); line.stroke()
+                }
+            }
+        }
+    }
+    /// Renderer-owned normalized viewport and logical selection; storage retains
+    /// its independent 32-fragment/0.5–4 validation, never truncating display state.
+    func captureViewport() throws -> (blockID: String?, offset: Double) {
+        guard store.document != nil, renderKey != nil, renderKey == requestedRenderKey else { throw NativeReaderTextFailure.staleGeometry }
+        let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
+        return (viewportAnchor()?.position.blockID,
+            maximum > 0 ? min(1, max(0, Double(scrollView.contentView.bounds.minY / maximum))) : 0)
+    }
+    func restorePresentation(offset: Double) throws {
+        guard store.document != nil, renderKey != nil, renderKey == requestedRenderKey, let map = textMap,
+              offset.isFinite, (0...1).contains(offset) else { throw NativeReaderTextFailure.staleGeometry }
+        if let first = store.selection?.fragments.first, let last = store.selection?.fragments.last {
+            let start = try map.presentation(of: .init(blockID: first.blockID, utf16: first.rangeUTF16.lowerBound, affinity: .upstream))
+            let end = try map.presentation(of: .init(blockID: last.blockID, utf16: last.rangeUTF16.upperBound, affinity: .downstream))
+            suppressSelection = true; bodyTextView.setSelectedRange(NSRange(location: start, length: end-start)); suppressSelection = false
+        }
+        let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: maximum * CGFloat(offset)))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
     var logicalText: String { store.document?.blocks.map(\.displayText).joined(separator: "\n") ?? "" }
     var plainSelectedText: String? { store.selection?.fragments.map(\.exact).joined(separator: "\n") }
     var outline: [NativeReaderNode] { store.document?.blocks.flatMap(\.orderedNodes).filter { $0.kind == .heading && $0.visible } ?? [] }
@@ -379,6 +422,7 @@ final class NativeReaderBodyTextView: NSTextView {
                 pendingViewportAnchor = nil; pendingCaret = nil
                 pendingSelectionAffinity = nil; returningAnchor = nil; focusedNodeID = nil
             }
+            returningAnchor = nil; reviewSelections = []
             self.context = context
             isCancelled = false
             operationSerial += 1
@@ -830,18 +874,21 @@ extension NativeReaderTextView {
         }) { _ = activate(nodeID: node.id) }
     }
     @discardableResult func navigate(toAnchor anchor: String) -> Bool {
-        guard !isDisposed, renderKey != nil,
-              let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.anchors.contains(anchor) }) }),
-              let node = block.orderedNodes.first(where: { $0.anchors.contains(anchor) }),
+        guard let node = store.document?.blocks.flatMap(\.orderedNodes).first(where: { $0.anchors.contains(anchor) }) else { return false }
+        return navigate(toNodeID: node.id)
+    }
+    @discardableResult func navigate(toNodeID id: String) -> Bool {
+        guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey,
+              let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == id }) }),
+              let node = block.orderedNodes.first(where: { $0.id == id }), node.visible,
               let range = try? textMap?.presentationRange(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]) else { return false }
         returningAnchor = viewportAnchor()
         bodyTextView.scrollRangeToVisible(range)
-        focusedNodeID = node.id
-        callbacks.focusChanged(node.id)
+        focusedNodeID = node.id; callbacks.focusChanged(node.id)
         return true
     }
     @discardableResult func returnFromReference() -> Bool {
-        guard let anchor = returningAnchor, !isDisposed else { return false }
+        guard let anchor = returningAnchor, !isDisposed, renderKey != nil, renderKey == requestedRenderKey else { return false }
         returningAnchor = nil
         restoreViewport(anchor)
         return true

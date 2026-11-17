@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import subprocess
 import time
@@ -883,6 +884,315 @@ class GUIFixtureGuards(unittest.TestCase):
             with self.assertRaises(ValueError): gui_setup(root, '/missing/compiler', '/missing/cache')
             self.assertEqual(marker.read_text(),'owned marker')
 
+
+
+# Production AppKit controls, exercised offscreen through their real target/action.
+FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
+
+@MainActor final class StorageGate {
+  var blocked=false, entered=false
+  var continuation:CheckedContinuation<Void,Never>?
+  func wait()async { if blocked { entered=true; await withCheckedContinuation{continuation=$0} } }
+  func release(){blocked=false;continuation?.resume();continuation=nil}
+}
+@MainActor func featurePaint(_ view:NSView,_ url:URL)throws->String{
+  let size=view.bounds.size
+  let bitmap=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:Int(size.width),pixelsHigh:Int(size.height),bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0)!
+  let context=NSGraphicsContext(bitmapImageRep:bitmap)!
+  view.displayIgnoringOpacity(view.bounds,in:context)
+  let data=bitmap.representation(using:.png,properties:[:])!;try data.write(to:url);return NativeReaderRecoverySnapshot.digest(data)
+}
+@MainActor func featureViews(_ view:NSView)->[NSView]{[view]+view.subviews.flatMap{featureViews($0)}}
+@MainActor func featureButton(_ root:NSView,_ title:String)throws->NSButton{
+  guard let b=featureViews(root).compactMap({$0 as? NSButton}).first(where:{$0.title==title}) else {throw FlowError(message:"Missing delivered control: "+title)}
+  root.layoutSubtreeIfNeeded()
+  let bounds=b.convert(b.bounds,to:root)
+  try check(!b.isHiddenOrHasHiddenAncestor && !bounds.isEmpty && root.bounds.contains(bounds),"laid-out reachable control "+title)
+  try check(b.target != nil && b.action != nil,"real target/action for "+title);return b
+}
+@MainActor func featurePopup(_ root:NSView,_ label:String)throws->NSPopUpButton{
+  guard let p=featureViews(root).compactMap({$0 as? NSPopUpButton}).first(where:{$0.accessibilityLabel()==label}),p.action != nil,p.target != nil else {throw FlowError(message:"Missing reachable popup: "+label)}
+  return p
+}
+@MainActor func featureSelect(_ popup:NSPopUpButton,_ index:Int)throws{
+  popup.selectItem(at:index);try check(NSApp.sendAction(popup.action!,to:popup.target,from:popup),"native popup target/action")
+}
+@main struct FeatureWiringTests {
+  @MainActor static func main()async {do{try await run()}catch{fputs("FEATURE FAILURE: \(error)\n",stderr);exit(1)}}
+  @MainActor static func run()async throws{
+    _ = NSApplication.shared;NSApp.setActivationPolicy(.prohibited);FindPasteboardIsolation.install()
+    let args=CommandLine.arguments,out=URL(fileURLWithPath:args[3]),mode=args[1]
+    let fixture=URL(fileURLWithPath:mode=="long" ? args[7] : args[2]),provider=NativeReaderFixtureProvider(url:fixture)
+    let runtime=NativeReaderRuntime(node:URL(fileURLWithPath:args[4]),helper:URL(fileURLWithPath:args[5]),runtime:URL(fileURLWithPath:args[6]))
+    let disk=NativeReaderRecoveryStore(root:out.appendingPathComponent("owned-storage")),gate=StorageGate()
+    let storage=NativeReaderOfflineStorage(save:{snapshot in await gate.wait();try Task.checkCancellation();try await disk.save(snapshot)},list:{try await disk.list()},load:{identity in await gate.wait();try Task.checkCancellation();return try await disk.load(identity:identity)})
+    let host=NativeReaderWindowController(provider:provider,target:{_ in try await provider.load().identity},assets:{doc,_ in
+      var result=[String:Data]();for a in doc.assets{result[a.id]=try Data(contentsOf:fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(a.id))};return result
+    },runtime:runtime,show:false,avoidActivation:true,offlineStorage:storage)
+    defer{host.dispose()}
+    let profile=Profile(id:"feature",name:"Owned feature fixture",root:out.path,entry:"main.typ",fonts:[],packages:"",port:24650,publicURL:"",label:"test.feature")
+    _ = host.open(profile){_ in};try await until{host.session.state == .reading || host.session.failure != nil}
+    try check(host.session.failure==nil,"actual compiler snapshot accepted")
+    let root=host.hostWindow.window!.contentView!,text=host.textView,document=host.store.document!,logical=text.logicalText
+    root.layoutSubtreeIfNeeded();try await ready(host)
+    func click(_ title:String)throws {let b=try featureButton(root,title);try check(b.isEnabled,"active "+title);b.performClick(nil)}
+    func firstSelection()throws{
+      let block=document.blocks.first{$0.kind == .paragraph && !$0.displayText.isEmpty}!
+      try text.select(from:.init(blockID:block.id,utf16:0,affinity:.upstream),to:.init(blockID:block.id,utf16:block.displayText.utf16.count,affinity:.downstream))
+    }
+    func storageIdle()async throws{try await until{(try? featureButton(root,"Cancel").isEnabled)==false}}
+    func fileBytes()throws->Data{let urls=try FileManager.default.contentsOfDirectory(at:disk.root,includingPropertiesForKeys:nil);return try Data(contentsOf:urls.first{$0.pathExtension=="json"}!)}
+    switch mode {
+    case "review":
+      try firstSelection();let held=host.store.selection!,ax=text.bodyTextView.accessibilityValue()
+      let before=try featurePaint(text.bodyTextView,out.appendingPathComponent("review-before.png"))
+      try click("Mark for review");try check(host.localReview.marks.count==1,"review owner receives selected mark")
+      let after=try featurePaint(text.bodyTextView,out.appendingPathComponent("review-after.png"));try check(after != before,"actual native strike pixels")
+      try check(text.logicalText==logical && text.bodyTextView.accessibilityValue()==ax && host.store.selection==held,"review preserves exact text AX selection")
+      try click("Undo review");try check(host.localReview.marks.isEmpty,"UI undo")
+      let undone=try featurePaint(text.bodyTextView,out.appendingPathComponent("review-undo.png"));try check(undone==before,"undo removes native paint")
+      try click("Mark for review");try click("Mark for review");try click("Clear review");try check(host.localReview.marks.isEmpty,"UI clear")
+      try click("Mark for review");try text.setAppearance(.init(fontSize:18,zoom:1,theme:.dark));host.hostWindow.onAppearance?();try await ready(host)
+      try check(host.localReview.marks.count==1 && host.store.selection==held,"marks survive current-key reflow with selection")
+      _ = try featurePaint(text.bodyTextView,out.appendingPathComponent("review-reflow.png"))
+      host.refresh();try await until{host.session.state == .reading || host.session.failure != nil}
+      try check(host.localReview.marks.count==1 && host.store.document==document,"held refresh retains accepted marks")
+      try click("Release selection");try await until{host.store.document?.generation != document.generation};try await ready(host)
+      try check(host.localReview.marks.isEmpty,"new accepted snapshot revokes old review")
+      try firstSelection();try click("Mark for review");host.cancel();try check(host.localReview.marks.isEmpty,"cancel invalidates review paint")
+    case "navigation":
+      let popup=try featurePopup(root,"Contents");try check(popup.numberOfItems==text.outline.count && popup.numberOfItems>0,"typed outline reaches native control")
+      let anchor=text.viewportAnchor();try featureSelect(popup,popup.numberOfItems-1)
+      try check(text.focusedNodeID==text.outline.last?.id,"outline uses canonical node mapping")
+      try click("Back");try check(!text.canReturnFromReference,"one native reference return consumed")
+      if let anchor{try check(text.viewportAnchor()?.position.blockID==anchor.position.blockID,"native return viewport")}
+      try featureSelect(popup,0);host.refresh();try await until{host.session.state == .reading};try await ready(host)
+      try check(!text.canReturnFromReference,"replacement invalidates old reference return")
+    case "appearance":
+      try firstSelection();let selected=host.store.selection!
+      let theme=try featurePopup(root,"Theme"),font=try featurePopup(root,"Text size")
+      try featureSelect(theme,1);try await ready(host)
+      try check(text.textAppearance.theme == .dark && host.hostWindow.window?.appearance?.name == .darkAqua,"window-local theme")
+      try featureSelect(font,3);try await ready(host);try check(text.textAppearance.fontSize==18,"font control binds render key")
+      try click("Zoom +");try await ready(host);try check(text.textAppearance.zoom==1.25,"native reflow zoom")
+      try click("Zoom −");try await ready(host);try click("Fit");try await ready(host)
+      try check(text.textAppearance.zoom==1 && text.logicalText==logical && host.store.selection==selected,"appearance retains logical AX selection")
+    case "offline", "cancel":
+      try firstSelection();try click("Mark for review");try click("Save Offline");try await storageIdle()
+      let saved=try await disk.load(identity:document.identity),bytes=try fileBytes()
+      try check(saved.reviewMarks.count==1 && saved.restoration.fragments.count==1,"UI save includes review/selection")
+      try click("Refresh Saved");try await storageIdle();let list=try featurePopup(root,"Saved documents");try check(list.numberOfItems==1,"UI validated list")
+      if mode=="cancel"{
+        gate.blocked=true;try click("Save Offline");try await until{gate.entered};var tick=false;Task{@MainActor in tick=true};await Task.yield();try check(tick,"storage wait leaves main runloop responsive")
+        try click("Cancel");gate.release();try await Task.sleep(nanoseconds:30_000_000)
+        let currentBytes=try fileBytes();try check(currentBytes==bytes,"cancelled write preserves prior atomic file")
+      }
+      var calls=0,events=[NativeReadProgress]()
+      let resolver=NativeReaderManagedResolver(attach:{_ in calls+=1;throw NativeReaderOperationFailure.unavailable},network:.init(send:{_,_ in calls+=1;throw NativeReaderOperationFailure.unavailable},stream:{_ in AsyncThrowingStream{$0.finish()}}))
+      let managed=NativeReaderManagedClient(resolver:resolver,root:out.path,entry:"main.typ")
+      let restored=NativeReaderWindowController(provider:managed,target:{_ in calls+=1;return try await managed.target()},assets:{_,_ in calls+=1;throw NativeReaderOperationFailure.unavailable},runtime:runtime,actions:{calls+=1;throw NativeReaderOperationFailure.unavailable},show:false,avoidActivation:true,offlineStorage:storage)
+      var nativeDraws=0
+      let originalPaint=restored.textView.callbacks.painted
+      restored.textView.callbacks.painted={key in nativeDraws+=1;originalPaint(key)}
+      defer{restored.dispose()};restored.openOfflineLibrary(profile){events.append($0)}
+      let rr=restored.hostWindow.window!.contentView!
+      try await until{(try? featureButton(rr,"Open Saved").isEnabled)==true}
+      if mode=="cancel"{
+        gate.entered=false;gate.blocked=true;try featureButton(rr,"Open Saved").performClick(nil);try await until{gate.entered}
+        restored.hostWindow.window!.close();gate.release();try await Task.sleep(nanoseconds:30_000_000)
+        try check(restored.store.document==nil,"closed view rejects late disk load")
+        restored.openOfflineLibrary(profile){events.append($0)};try await until{(try? featureButton(rr,"Open Saved").isEnabled)==true}
+      }
+      try featureButton(rr,"Open Saved").performClick(nil)
+      try await until{restored.store.document != nil && restored.session.state == .offline};try await ready(restored)
+      try check(calls==0 && restored.session.isReadOnly,"fresh managed offline UI uses zero target/network/assets/actions")
+      try check(restored.localReview.marks.count==1 && restored.store.selection?.fragments==host.store.selection?.fragments,"UI restoration preserves marks/selection")
+      try check(restored.textView.bodyTextView.selectedRange().length>0,"restored native selection presentation")
+      let acknowledgments=events.filter{if case .painted=$0{return true};return false}.count
+      try check(acknowledgments<=nativeDraws,"accepted/layout cannot acknowledge without actual native draw callback")
+      _ = try featurePaint(restored.textView.bodyTextView,out.appendingPathComponent("offline-painted.png"))
+      try check(events.contains{if case .painted=$0{return true};return false},"visible-mode native draw acknowledgment")
+      for title in ["Source","Highlight","Ask","Locate Source","Last Edit","Account"]{let b=try featureButton(rr,title);try check(!b.isEnabled,"offline disabled "+title);b.performClick(nil)}
+      try check(calls==0,"read-only UI creates no source/chat/account calls")
+      var bad=saved.assets;let asset=document.assets[0];bad[asset.id]=Data("bad".utf8)
+      do{try await disk.save(.init(document:document,assets:bad,restoration:.initial,drafts:[]));throw FlowError(message:"corrupt save accepted")}catch NativeReaderContractError.invalidDocument{}
+      let currentBytes=try fileBytes();try check(currentBytes==bytes,"invalid asset save retains previous bytes")
+    case "long":
+      try click("Save Offline");try await storageIdle();let bytes=try fileBytes()
+      let first=document.blocks[0],last=document.blocks[32]
+      try text.select(from:.init(blockID:first.id,utf16:0,affinity:.upstream),to:.init(blockID:last.id,utf16:last.displayText.utf16.count,affinity:.downstream))
+      try check(host.store.selection?.fragments.count==33,"actual compiler33 local display selection")
+      try click("Save Offline");try check(host.hostWindow.notice.stringValue.contains("32 blocks"),"explicit stored-selection cap rejection")
+      let currentBytes=try fileBytes();try check(currentBytes==bytes && host.store.selection?.fragments.count==33,"over-cap save retains file and full display selection")
+      try click("Release selection");var appearance=text.textAppearance;appearance.zoom=0.25;try text.setAppearance(appearance);host.hostWindow.onAppearance?();try await ready(host)
+      try click("Save Offline");let quarterBytes=try fileBytes();try check(quarterBytes==bytes,"display0.25 does not relax typed recovery0.5")
+    case "drafts":
+      let id=UUID(),pending=UUID();let draft=NativeReaderRecoveredDraft(conversationID:id,version:2,text:"newer private question N",pendingMessageID:pending,model:"fixture-model",pendingQuestion:"original uncertain question M",pendingModel:"fixture-model")
+      var assets=[String:Data]();for a in document.assets{assets[a.id]=try Data(contentsOf:fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(a.id))}
+      try await disk.save(.init(document:document,assets:assets,restoration:.initial,drafts:[draft]))
+      try click("Refresh Saved");try await storageIdle();try click("Open Saved");try await until{host.session.state == .offline};try await ready(host)
+      let picker=try featurePopup(root,"Recovered drafts");try featureSelect(picker,0)
+      try check(featureViews(root).compactMap{$0 as? NSTextField}.contains{$0.stringValue.contains("newer private question N")},"recovered newer draft visible through native control")
+      try click("Save Offline");try await storageIdle();let again=try await disk.load(identity:document.identity)
+      try check(again.drafts.count==1 && again.drafts[0].pendingMessageID==pending && again.drafts[0].pendingQuestion=="original uncertain question M" && again.drafts[0].text==draft.text && again.drafts[0].pendingModel==draft.pendingModel,"typed pending UUID/question/model independent of newer draft survives UI open/save")
+    case "remote":
+      let marker=try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:args[8]))) as! [String:Any]
+      let attachment=try JSONSerialization.data(withJSONObject:marker["attachment"]!)
+      let remoteProfile=try JSONDecoder().decode(Profile.self,from:JSONSerialization.data(withJSONObject:marker["profile"]!))
+      let http=NativeReaderNetwork.urlSession();var requests=[[String:String]]()
+      let observed=NativeReaderNetwork(send:{request,limit in requests.append(["method":request.httpMethod ?? "GET","path":request.url!.path]);return try await http.send(request,limit)},stream:http.stream)
+      let managed=NativeReaderManagedClient(resolver:.init(attach:{_ in attachment},network:observed),root:remoteProfile.root,entry:remoteProfile.entry)
+      let remote=NativeReaderWindowController(provider:managed,target:{_ in try await managed.target()},assets:{doc,context in
+        let actions=try await managed.currentActions();var bytes=[String:Data]();for a in doc.assets{bytes[a.id]=try await actions.transport.asset(a,context:context)};return bytes
+      },runtime:runtime,actions:{try await managed.currentActions()},show:false,avoidActivation:true,offlineStorage:NativeReaderOfflineStorage(owner:disk))
+      defer{remote.dispose()};var opened=[URL]();remote.openHomepage={opened.append($0)}
+      _ = remote.open(remoteProfile){_ in};try await until{remote.session.state == .reading || remote.session.failure != nil}
+      try check(remote.session.failure==nil,"production scoped backend accepted in actual host");try await ready(remote)
+      let rr=remote.hostWindow.window!.contentView!
+      try featureButton(rr,"Account").performClick(nil)
+      try await until{requests.filter{$0["path"]?.hasSuffix("/api/chat/auth")==true}.count==2}
+      try await until{featureViews(rr).compactMap{$0 as? NSTextField}.contains{$0.stringValue=="Account connected" || $0.stringValue=="Plan unavailable" || $0.stringValue=="Sign in on the configured Homepage."}}
+      try check(opened.isEmpty,"status/models do not open account or authenticate")
+      let manage=try featureButton(rr,"Manage Account");if manage.isEnabled{manage.performClick(nil);try check(opened.count==1,"explicit configured Homepage callback only")}
+      try featureButton(rr,"Last Edit").performClick(nil)
+      try await until{remote.hostWindow.notice.stringValue.contains("No saved edit location")}
+      try check(requests.contains{$0["path"]?.hasSuffix("/api/native-action")==true},"Last Edit reaches existing guarded production route")
+      let probe=remote.store.document!.blocks.first{$0.kind == .paragraph && $0.displayText.contains("Source and chat probe")}!
+      try remote.textView.select(from:.init(blockID:probe.id,utf16:0,affinity:.upstream),to:.init(blockID:probe.id,utf16:probe.displayText.utf16.count,affinity:.downstream))
+      try featureButton(rr,"Ask").performClick(nil)
+      try await until{remote.chatView != nil && remote.chatView!.models.numberOfItems>0}
+      let chat=remote.chatView!;chat.composer.string="New live private draft from native composer"
+      chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
+      try await ready(remote)
+      try await until{(try? featureButton(rr,"Save Offline").isEnabled)==true}
+      try featureButton(rr,"Save Offline").performClick(nil);try await until{(try? featureButton(rr,"Cancel").isEnabled)==false}
+      let composerSnapshot=try await disk.load(identity:remote.store.document!.identity)
+      try check(composerSnapshot.drafts.count==1 && composerSnapshot.drafts[0].text==chat.composer.string && composerSnapshot.drafts[0].model=="fixture-model","actual native composer getter is wired to UI offline save without Send")
+      let paragraph=remote.store.document!.blocks.first{$0.kind == .paragraph && !$0.displayText.isEmpty}!
+      try remote.textView.select(from:.init(blockID:paragraph.id,utf16:0,affinity:.upstream),to:.init(blockID:paragraph.id,utf16:paragraph.displayText.utf16.count,affinity:.downstream))
+      try featureButton(rr,"Mark for review").performClick(nil);try check(remote.localReview.marks.count==1,"local review on production HTTP publication")
+      try featureSelect(featurePopup(rr,"Theme"),1);try await ready(remote)
+      try featureButton(rr,"Save Offline").performClick(nil)
+      try await until{(try? featureButton(rr,"Cancel").isEnabled)==false}
+      let saved=try await disk.list();try check(saved.count==1,"actual HTTP publication saved by native control")
+      try JSONSerialization.data(withJSONObject:requests,options:.prettyPrinted).write(to:out.appendingPathComponent("owned-http-requests.json"))
+    case "isolation":
+      let environment=AppEnvironment(variables:["FLOW_DATA_DIR":out.appendingPathComponent("data").path,"FLOW_LOG_DIR":out.appendingPathComponent("logs").path],userHome:out.appendingPathComponent("user"),executable:out.appendingPathComponent("Lagrangian"))
+      let one=NativeReaderRecoveryStore(root:environment.nativeRecoveryRoot(for:profile));var other=profile;other.id="other";let two=NativeReaderRecoveryStore(root:environment.nativeRecoveryRoot(for:other))
+      try check(one.root != two.root,"profile/target namespace isolation")
+      try await host.saveRecovery(to:one)
+      let delegate=FlowApp(environment:environment,isolated:true,noActivate:true,nativeRuntime:runtime)
+      delegate.settings.profiles=[profile];delegate.settings.selectedID=profile.id;delegate.buildWindow()
+      defer{delegate.offlineWindow?.dispose();delegate.window.close()}
+      try featureButton(delegate.window.contentView!,"오프라인 문서").performClick(nil)
+      try await until{delegate.offlineWindow != nil}
+      try check(delegate.nativeWindow==nil,"Home offline entry avoids live Read/provider")
+      let offline=delegate.offlineWindow!,localRoot=offline.hostWindow.window!.contentView!
+      try await until{(try? featureButton(localRoot,"Open Saved").isEnabled)==true}
+      try featureButton(localRoot,"Open Saved").performClick(nil);try await until{offline.store.document != nil && offline.session.state == .offline};try await ready(offline)
+      try check(offline.store.document?.identity==document.identity,"Home action opens saved profile snapshot")
+      delegate.settings.profiles.append(other);delegate.settings.selectedID=other.id
+      try featureButton(delegate.window.contentView!,"오프라인 문서").performClick(nil)
+      let different=delegate.offlineWindow!;try await until{different.hostWindow.notice.stringValue.contains("No saved")}
+      try check(different.store.document==nil,"other profile Home action cannot open prior namespace")
+      let empty=try await two.list();try check(empty.isEmpty,"other profile cannot enumerate saved namespace")
+    default:throw FlowError(message:"unknown feature")
+    }
+    try check(NSApp.windows.allSatisfy{!$0.isVisible && !$0.isKeyWindow && !$0.isMainWindow},"activation prohibited and visibleWindows0")
+    try JSONSerialization.data(withJSONObject:["case":mode,"assertions":assertions,"visibleWindows":0,"actualControls":true,"GUIAcceptance":false],options:.prettyPrinted).write(to:out.appendingPathComponent("result.json"))
+    print("feature pass "+mode+" assertions=\(assertions)")
+  }
+  @MainActor static func ready(_ host:NativeReaderWindowController)async throws{try await until{host.textView.renderKey != nil && host.textView.renderKey==host.textView.requestedRenderKey && host.acceptedPaintKey==host.textView.renderKey}}
+}
+
+'''
+
+class FeatureWiringUI(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.output=Path(os.environ['NA06_PREP_OUTPUT'])/('features-'+str(time.time_ns()));cls.output.mkdir()
+        cls.commands=[];swift=cls.output/'FeatureWiringTests.swift';swift.write_text(FEATURE_SWIFT)
+        cls.binary=cls.output/'FeatureWiringTests'
+        sys.path.insert(0,str(ROOT/'tools/flow-reader'))
+        import shutil
+        from flow_reader.compiler.build import compile_project
+        from flow_reader.compiler.project import Project,document_identity
+        from flow_reader.document.sections import split_document
+        from flow_reader.document.native_document import import_accepted_document
+        long=cls.output/'long';source=long/'source';source.mkdir(parents=True)
+        shutil.copyfile(DEV/'test-output/long-selection-independent-v1/fixture-33/source/main.typ',source/'main.typ')
+        wrapper=long/'offline-typst';compiler=shutil.which('typst')
+        if not compiler:raise RuntimeError('explicit prebuilt compiler missing')
+        sandbox="(version 1)(allow default)(deny network*)"
+        wrapper.write_text('#!'+sys.executable+'\nimport os,sys\nos.execv("/usr/bin/sandbox-exec",["sandbox-exec","-p",'+repr(sandbox)+','+repr(compiler)+']+sys.argv[1:])\n');wrapper.chmod(0o700)
+        cache=long/'typst-packages'
+        shutil.copytree(Path(os.environ['FLOW_TEST_PACKAGE_CACHE']),cache)
+        os.environ['TYPST_PACKAGE_CACHE_PATH']=str(cache)
+        report=compile_project(Project(source,Path('main.typ'),ROOT/'tools/flow-reader/packages',compiler=str(wrapper)),long/'compiled',map_sources=False)
+        (long/'compiler-report.json').write_text(json.dumps(report,indent=2))
+        if report['exitCode']!=0 or not report['contentGatePassed']:raise RuntimeError('actual compiler fixture failed')
+        bundle=split_document((long/'compiled/document.html').read_text(),report['revision'],max_blocks=16)
+        model=import_accepted_document(bundle,document_id=document_identity(source,Path('main.typ')),service_id='offline-no-service',generation=1,identity_scope='fixture').document
+        cls.longFixture=long/'native.json';cls.longFixture.write_text(json.dumps(model,ensure_ascii=False,indent=2))
+
+        sources=[p for p in package.swift_sources() if p.name!='main.swift']
+        if fixed := os.environ.get('FEATURE_WIRING_FIXED_SOURCES'):
+            fixed=Path(fixed).resolve()
+            if not fixed.is_relative_to(DEV/'test-output/feature-wiring-v1'):raise RuntimeError('Fixed counterexample inputs must remain isolated')
+            sources=[fixed/p.name for p in sources]
+        cls.command(['/usr/bin/swiftc',*package.swift_flags(),*sources,swift,'-o',cls.binary])
+    @classmethod
+    def command(cls,argv):
+        inputs={str(x):package.digest(Path(x)) for x in argv if str(x).endswith('.swift')}
+        started=time.monotonic();p=subprocess.run(list(map(str,argv)),cwd=ROOT,capture_output=True,text=True,timeout=180)
+        cls.commands.append(dict(argv=list(map(str,argv)),cwd=str(ROOT),exit=p.returncode,elapsed=time.monotonic()-started,stdout=p.stdout,stderr=p.stderr,sourceBefore=inputs,sourceAfter={x:package.digest(Path(x)) for x in inputs},environment={k:os.environ.get(k) for k in ['TMPDIR','CLANG_MODULE_CACHE_PATH','SWIFT_MODULECACHE_PATH']}))
+        (cls.output/'commands.json').write_text(json.dumps(cls.commands,indent=2))
+        if p.returncode:raise AssertionError(p.stdout+p.stderr)
+        return p
+    def scenario(self,name):
+        out=self.output/('case-'+name);out.mkdir()
+        p=self.command([self.binary,name,os.environ['FLOW_NATIVE_FIXTURE'],out,os.environ['FLOW_TEST_NODE'],ROOT/'tools/flow-reader/native/math_layout.mjs',os.environ['FLOW_TEST_NATIVE_RUNTIME'],self.longFixture])
+        self.assertIn('feature pass '+name,p.stdout)
+    def test_production_http_account_history_and_local_controls(self):
+        import shutil
+        root=GUI_ROOT/('feature-remote-'+str(time.time_ns()))
+        gui_setup(root,shutil.which('typst'),os.environ['FLOW_TEST_PACKAGE_CACHE'])
+        log=(root/'serve.log').open('w')
+        argv=[sys.executable,'-B',str(GUI_SCRIPT),'gui-fixture','serve','--root',str(root),'--seconds','120']
+        proc=subprocess.Popen(argv,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT)
+        started=time.monotonic();marker=None
+        try:
+            while time.monotonic()-started<30:
+                marker=json.loads((root/'fixture.json').read_text())
+                if marker.get('running'):break
+                if proc.poll() is not None:raise AssertionError((root/'serve.log').read_text())
+                time.sleep(.05)
+            if not marker or not marker.get('running'):raise AssertionError('owned backend did not become ready')
+            out=self.output/'case-remote';out.mkdir()
+            self.command([self.binary,'remote',os.environ['FLOW_NATIVE_FIXTURE'],out,os.environ['FLOW_TEST_NODE'],ROOT/'tools/flow-reader/native/math_layout.mjs',os.environ['FLOW_TEST_NATIVE_RUNTIME'],self.longFixture,root/'fixture.json'])
+            effects=json.loads((root/'effects.json').read_text())
+            self.assertEqual(effects['inference'],[],'account/history/review/appearance/save must not infer')
+        finally:
+            try:gui_stop(root)
+            finally:
+                try:code=proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:proc.terminate();code=proc.wait(timeout=5)
+                log.close()
+                (root/'process-result.json').write_text(json.dumps(dict(argv=argv,pid=proc.pid,exit=code,elapsed=time.monotonic()-started,root=str(root)),indent=2))
+        self.assertEqual(code,0)
+        for port in marker['ports']:
+            import socket
+            with socket.socket() as sock:
+                sock.settimeout(.2);self.assertNotEqual(sock.connect_ex(('127.0.0.1',port)),0,'owned backend port remains open')
+
+    def test_native_review_buttons(self):self.scenario('review')
+    def test_native_outline_and_return_controls(self):self.scenario('navigation')
+    def test_native_appearance_controls(self):self.scenario('appearance')
+    def test_native_offline_save_list_open_controls(self):self.scenario('offline')
+    def test_native_storage_cancel_close_and_late_load(self):self.scenario('cancel')
+    def test_native_recovery_limits_preserve_long_selection(self):self.scenario('long')
+    def test_native_recovered_pending_and_newer_draft(self):self.scenario('drafts')
+    def test_native_home_offline_profile_isolation(self):self.scenario('isolation')
 
 if __name__ == '__main__':
     import sys

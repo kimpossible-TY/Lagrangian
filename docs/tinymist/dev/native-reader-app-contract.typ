@@ -61,16 +61,16 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F04], [NA03/06], [Integrated immutable full-PDF lazy viewport plus semantic reflow.], [Raw vector deltas, general page fidelity and independent GUI remain; review-fix source requires restaging.],
   [F05], [NA03/06], [MathML+text/number, cell/span/header, vector asset/caption/annotation.], [Fixture paint feasible; general math/CeTZ/decoration/reflow fidelity unverified.],
   [F06], [NA02/04/06], [Grapheme selection fragments and ticket-bound verified excerpt.], [Pointer/keyboard/copy/AX and service ack; no source reconstructed from math.],
-  [F07], [NA04/06], [Optimistic native mark over existing guarded highlight.], [Server freshness/lock/receipt, uncertain result, no automatic resend.],
-  [F08], [NA04/06], [Bounded local review paint/store; source untouched.], [Undo/clear/failure and explicit browser-mark coexistence policy.],
-  [F09], [NA02/04/06], [Outline, semantic anchors, one return, independent edit navigation.], [Current-target validation and resize/reflow restoration.],
+  [F07], [NA04/06], [Explicit native request to the existing guarded source-highlight owner.], [Server freshness/lock/receipt, uncertain result, no automatic resend.],
+  [F08], [NA04/06], [Mark for review / Undo review / Clear review over native range geometry; source untouched.], [Typed32-fragment mark budget; independent GUI/pixel fidelity and browser coexistence remain scoped.],
+  [F09], [NA02/04/06], [Contents popup, native anchors, Back and guarded Last Edit.], [Current target/mapping and independent GUI; exact editor delivery requires existing owner attachment.],
   [F10], [NA04/06], [Read existing saved source-history/editor attachment owner.], [Freshness/unsaved buffer defenses and exact editor delivery.],
   [F11], [NA04/06], [Native composer, typed conversation messages/versions/sequence.], [Streaming/cancel/model selection and safe Markdown+math paint.],
   [F12], [NA04/06], [Bounded recovery copy; explicit Send/message UUID.], [Lost ack reread and newer-draft protection; no automatic Send.],
   [F13], [NA04/06], [Native account presentation over ChatAuth/HomeAccount.], [Consent/authority/credential boundary; no live login tested.],
   [F14], [NA04/05/06], [Existing lifecycle/power operations plus generation/selection hold.], [Bounded reconnect/sleep/network, late callback and view lifetime.],
-  [F15], [NA02/03/05/06], [Native theme/font/zoom/focus and semantic AX tree.], [Bounded headless text/object/current-page AX checks; independent GUI/VoiceOver/fidelity pending.],
-  [F16], [NA04/06], [Complete snapshot+assets, transactional native offline copy/export.], [Atomic cancel/failure/read-only; offline never authorizes source writes.],
+  [F15], [NA02/03/05/06], [Window-local Theme/Text size and Zoom/Fit controls; native AX tree.], [Bounded headless text/object/current-page AX checks; independent GUI/VoiceOver/fidelity pending.],
+  [F16], [NA04/06], [Save Offline / saved-document list / Open Saved from a profile-bound typed store.], [Atomic/cancel/read-only limits and pending-draft recovery; independent full app resume remains pending.],
   [F17], [NA04/06], [Existing manager/origin/prefix and external consumers retained.], [Web/mobile/terminal/editor/service lifetime regression.],
   [F18], [NA05/06], [Canonical source/resource packaging with external engine provenance.], [Fixed09c staged portable delivery exists; changed source needs new app binding; no live install here.],
 )
@@ -360,3 +360,76 @@ page-component 19-path input recorded as `C19Exact` in the fixed
 `09c5186bff1850b17f6e85fe2f3115153520bc94`; subsequent review fixes need new
 source/app binding and are not implicitly part of that old app. See
 #link("native-reader-app-verification.typ")[current inspection entrypoint].
+
+
+== Native local feature controls — NA06 wiring
+
+Model/data presence alone is not delivered UI. The document window now exposes
+Mark for review, Undo review and Clear review through NativeReaderLocalReview.
+Its paint callback draws current-key red strikes over actual TextKit range
+rectangles. It never changes the attributed logical text, selection/AX offsets,
+source files or browser marks. Reflow retains marks on the same accepted
+snapshot; a newly adopted snapshot or cancellation clears old paint. A review
+mark uses the existing typed32-fragment bound and rejects an oversized mark
+without truncating the ordinary display selection.
+
+Contents is a native heading popup populated only from the accepted typed tree.
+Selection delegates to TextView's node-to-presentation mapping. Internal links
+and annotation references retain their existing anchor owner; Back consumes one
+saved native viewport. New adoption invalidates an old return. Last Edit reads
+only the existing guarded last-change API and navigates an actually mapped
+anchor. Locate Source uses the existing source operation, not invented file or
+PDF coordinates. External links use an explicit native activation and the
+existing safe URI policy; no automatic URL open occurs.
+
+Theme and Text size controls and Zoom +/Zoom −/Fit update the existing per-window
+TextView appearance/render key. Window appearance is local; global macOS
+settings and settings schema are unchanged. Object/math preparation remains
+asynchronous and uses retained accepted assets for current-key reflow. These
+settings are per open reader; font/theme are not newly persisted into a storage
+schema. Typed recovery independently keeps its0.5–4 zoom bound.
+
+Save Offline captures accepted document/assets, renderer-owned normalized
+viewport and exact held selection, local review marks and the current typed
+composer recovery (including original uncertain question/model separately from
+a newer draft). Refresh Saved and Open Saved enumerate/load only an explicitly
+composed profile/target namespace below AppEnvironment.support. RecoveryStore
+alone decodes/validates the existing envelope, SHA256, identity, assets and
+budgets; there is no second JSON validator, database or migration. Each entry
+is validated before display and again when opened. Invalid/cancelled saves
+preserve the previous atomic file. Selection33+ and display0.25 remain valid
+local states but cannot be saved through typed32/zoom0.5 limits.
+
+The home window/menu offers a local offline library action without entering
+service start, manager attachment or live Read. It composes a separate local
+reader and does not close the user's live document/service. Opening a saved
+copy uses captured validated assets with zero live target/network/assets
+operations. Source, chat and account actions remain disabled and authorization
+still rejects them. Saved drafts are visible read-only; pending UUID/question/
+model are retained without inference or automatic Send. Reattaching a matching
+authorized conversation may explicitly restore its draft; authoritative history
+and the original retry guards still own lost-Send recovery.
+
+Storage work is asynchronous and injectable as concrete typed save/list/load
+operations. Busy controls and Cancel, window lifetime, operation epoch and
+request tickets reject obsolete completions. Cancelling after an already
+committed atomic save does not claim rollback. Command completion, accepted
+snapshot and layout remain distinct from the matching visible-mode native draw
+receipt. Offscreen target/action tests do not establish real GUI acceptance.
+
+F10/F13 retain their authority boundaries: FlowApp does not yet compose the
+existing NativeReaderManagedEditor address/executable/ownerPID/controlFile
+consent descriptor, so configured-editor source jumps/highlights remain
+conditional on the existing owner. Moreover, native-action locate currently
+returns a verified display anchor only: SavedSourceNavigation resolves source
+location, and the native envelope deliberately omits file/line/editor data. It
+does not dispatch an editor jump. The UI reports verified location separately
+from unavailable editor opening. A guarded explicit editor-dispatch operation
+and a consented attachment must come from the existing owner; the host never
+fabricates coordinates or opts into an arbitrary editor.
+The native account adapter reads status/models and exposes an explicit configured
+Homepage action; it has no native login/logout/credential operation. Full native
+authentication management is not inferred from status or from opening a URL.
+These concrete gaps require the existing source/auth owners, not a host-side
+permission bypass or token store. Current source needs new app/delivery binding;
+F01–18 official/GUI/AX acceptance remains pending.

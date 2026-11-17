@@ -223,3 +223,21 @@ See #link("native-reader-app-contract.typ")[wire/local/recovery contracts],
 #link("native-reader-chat-math.typ")[answer math]. The final source list includes
 the page view/transport at staged09c5186b. A new source fix requires delivery
 rebinding; no common writer, credential owner or framework is introduced here.
+
+
+= Native local interaction composition
+
+FlowApp composes NativeReaderWindowController with profile/target-namespaced
+RecoveryStore operations from AppEnvironment. Its separate explicit offline
+library action never starts a live service or resolves an attachment. HostWindow
+owns native controls and delegates policy to TextView (outline/reference return,
+appearance, normalized viewport), NativeReaderLocalReview (bounded mark history)
+and RecoveryStore (typed list/load/save, hashes, privacy and atomic budgets).
+TextView paints local review lines through its current-key range geometry;
+logical text, source mappings and accessibility offsets are unchanged. The
+controller serializes local storage actions, cancels obsolete operations and
+binds restore/paint to the exact view request. ChatView exposes only its existing
+typed draft/pending state for explicit saved recovery, with no new token/auth DB.
+Native source/history and account actions still use NativeReaderActions and
+existing endpoint/consent owners. See the canonical native contract and
+verification guide for reachable controls and conditional editor/auth gaps.

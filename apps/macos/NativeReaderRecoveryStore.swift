@@ -142,9 +142,41 @@ actor NativeReaderRecoveryStore {
         if directoryFD >= 0 { _ = fsync(directoryFD); close(directoryFD) }
     }
 
+    struct Entry: Equatable {
+        let identity: NativeDocumentIdentity
+        let title: String
+    }
+
+    /// Enumerate only this explicitly composed profile namespace. The identical
+    /// typed envelope/hash/document validator serves both list and open.
+    func list() throws -> [Entry] {
+        try Task.checkCancellation()
+        try directory()
+        let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey])
+            .filter { $0.lastPathComponent.range(of: "^[0-9a-f]{64}\\.json$", options: .regularExpression) != nil }
+        guard files.count <= 8 else { throw NativeReaderOperationFailure.rejected(code: "recovery-budget") }
+        var bytes = 0, result = [Entry]()
+        for url in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            try Task.checkCancellation()
+            bytes += try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard bytes <= 256 * 1024 * 1024 else { throw NativeReaderOperationFailure.rejected(code: "recovery-budget") }
+            let snapshot = try read(url)
+            let heading = snapshot.document.blocks.flatMap(\.orderedNodes).first { $0.kind == .heading && !$0.displayText.isEmpty }?.displayText
+            result.append(Entry(identity: snapshot.document.identity, title: heading.map { String($0.prefix(120)) } ?? "Saved document"))
+        }
+        return result
+    }
+
     func load(identity: NativeDocumentIdentity) throws -> NativeReaderRecoverySnapshot {
         try directory()
-        let fd = open(file(identity).path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        let snapshot = try read(file(identity))
+        guard snapshot.document.identity == identity else { throw NativeReaderContractError.wrongTarget }
+        return snapshot
+    }
+
+    private func read(_ url: URL) throws -> NativeReaderRecoverySnapshot {
+        try Task.checkCancellation()
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw NativeReaderOperationFailure.unavailable }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         defer { try? handle.close() }
@@ -156,7 +188,7 @@ actor NativeReaderRecoveryStore {
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
         guard envelope.schema == 1, NativeReaderRecoverySnapshot.digest(envelope.payload) == envelope.sha256 else { throw NativeReaderContractError.invalidDocument }
         let snapshot = try JSONDecoder().decode(NativeReaderRecoverySnapshot.self, from: envelope.payload)
-        guard snapshot.document.identity == identity else { throw NativeReaderContractError.wrongTarget }
+        guard file(snapshot.document.identity) == url else { throw NativeReaderContractError.wrongTarget }
         try snapshot.validate()
         return snapshot
     }
@@ -181,6 +213,11 @@ struct NativeReaderReviewMark: Codable {
         guard marks.count < 256, !marks.contains(where: { $0.id == mark.id }),
               marks.allSatisfy({ $0.identity == document.identity }) else { throw NativeReaderOperationFailure.rejected(code: "review-limit") }
         marks.append(mark); paint?(marks)
+    }
+    func restore(_ values: [NativeReaderReviewMark], document: NativeReaderDocument) throws {
+        guard values.count <= 256, Set(values.map(\.id)).count == values.count else { throw NativeReaderContractError.invalidDocument }
+        for value in values { try value.validate(in: document) }
+        marks = values; paint?(marks)
     }
     func undo() { if !marks.isEmpty { marks.removeLast(); paint?(marks) } }
     func clear() { marks.removeAll(); paint?(marks) }

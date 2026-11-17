@@ -16,6 +16,29 @@ struct NativeReaderRuntime {
   }
 }
 
+/// Concrete typed disk operations are composed once per profile. Injection is
+/// for owned storage/cancellation tests; validation remains in RecoveryStore.
+struct NativeReaderOfflineStorage {
+  let save: (NativeReaderRecoverySnapshot) async throws -> Void
+  let list: () async throws -> [NativeReaderRecoveryStore.Entry]
+  let load: (NativeDocumentIdentity) async throws -> NativeReaderRecoverySnapshot
+  init(owner: NativeReaderRecoveryStore) {
+    save = { try await owner.save($0) }; list = { try await owner.list() }
+    load = { try await owner.load(identity: $0) }
+  }
+  init(save: @escaping (NativeReaderRecoverySnapshot) async throws -> Void,
+       list: @escaping () async throws -> [NativeReaderRecoveryStore.Entry],
+       load: @escaping (NativeDocumentIdentity) async throws -> NativeReaderRecoverySnapshot) {
+    self.save = save; self.list = list; self.load = load
+  }
+}
+
+/// An offline library has no live document operation. It cannot impersonate a
+/// managed attachment or acquire source/chat authority.
+struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
+  func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument { throw NativeReaderOperationFailure.unavailable }
+}
+
 /// One window, one store, one session. Heavy preparation never publishes a snapshot.
 @MainActor final class NativeReaderWindowController {
   typealias Target = (Profile) async throws -> NativeDocumentIdentity
@@ -38,6 +61,15 @@ struct NativeReaderRuntime {
   private var acceptedAssets: (document: NativeReaderDocument, bytes: [String: Data])?
   private var chatWorker: (node: URL, helper: URL, runtime: URL, worker: NativeMathWorker)?
   private var profile: Profile?
+  let localReview = NativeReaderLocalReview()
+  private let offlineStorage: NativeReaderOfflineStorage?
+  private var storageTask: Task<Void, Never>?
+  private var storageEpoch = 0
+  private var storageIsOpening = false
+  private var recoveredDrafts = [NativeReaderRecoveredDraft]()
+  private var recoveredDraftIdentity: NativeDocumentIdentity?
+  private var pendingPresentation: (NativeReaderDocument, NativeReaderRestoration)?
+
   private let provider: NativeReaderDocumentProviding
   private let target: Target
   private let assets: Assets
@@ -66,9 +98,11 @@ struct NativeReaderRuntime {
        }, runtime: NativeReaderRuntime? = nil,
        actions: (() async throws -> NativeReaderActions)? = nil,
        originalPages: ((NativeReaderRequestContext) async throws -> NativeOriginalPageDelivery)? = nil,
-       invalidate: @escaping () async -> Void = {}, show: Bool = true, avoidActivation: Bool = false) {
+       invalidate: @escaping () async -> Void = {}, show: Bool = true, avoidActivation: Bool = false,
+       offlineStorage: NativeReaderOfflineStorage? = nil) {
     self.provider = provider; self.target = target; self.assets = assets; self.runtime = runtime
     self.actions = actions; self.invalidate = invalidate; self.show = show; self.avoidActivation = avoidActivation
+    self.offlineStorage = offlineStorage
     self.pageProvider = originalPages
     if self.pageProvider == nil, let managed = provider as? NativeReaderManagedClient {
       self.pageProvider = { try await managed.originalPages(for: $0) }
@@ -124,6 +158,34 @@ struct NativeReaderRuntime {
             self.store.document?.identity == binding.identity else { return }
       self.progress?(.painted)
     }
+    localReview.paint = { [weak self] marks in
+      guard let self else { return }
+      do { try self.textView.setReviewSelections(marks.map { mark in
+        NativeReaderSelection(ticket: mark.selection.selectionTicket!, fragments: mark.selection.fragments.map {
+          .init(blockID: $0.blockID, rangeUTF16: $0.start..<$0.end, exact: $0.exact)
+        })
+      }); self.hostWindow.reviewCount = marks.count }
+      catch { self.report(error) }
+    }
+    textView.callbacks.focusChanged = { [weak self] _ in self?.hostWindow.updateNavigation() }
+    textView.callbacks.semanticActivated = { [weak self] node, context in
+      guard let self, self.visibleMode == .nativeReflow, self.textView.context == context,
+            self.textView.renderKey == self.textView.requestedRenderKey,
+            node.kind == .link, let raw = node.link, !raw.hasPrefix("#"), let url = URL(string: raw),
+            NativeOriginalPDFAccess.safeURL(url) else { return }
+      self.openHomepage?(url) // Explicit native activation only.
+    }
+    hostWindow.onMarkReview = { [weak self] in self?.addReview() }
+    hostWindow.onUndoReview = { [weak self] in self?.localReview.undo() }
+    hostWindow.onClearReview = { [weak self] in self?.localReview.clear() }
+    hostWindow.onAppearance = { [weak self] in self?.layoutChanged() }
+    hostWindow.onSaveOffline = { [weak self] in self?.saveOfflineExplicitly() }
+    hostWindow.onListOffline = { [weak self] in self?.refreshSavedExplicitly() }
+    hostWindow.onOpenOffline = { [weak self] in self?.openSavedExplicitly($0) }
+    hostWindow.onCancelStorage = { [weak self] in self?.cancelStorage() }
+    hostWindow.onLastEdit = { [weak self] in self?.lastEditExplicitly() }
+    hostWindow.onAccount = { [weak self] in self?.accountExplicitly() }
+    hostWindow.onManageAccount = { [weak self] url in self?.openHomepage?(url) }
     textView.postsFrameChangedNotifications = true
     layoutObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self] _ in
       Task { @MainActor in self?.layoutChanged() }
@@ -131,12 +193,13 @@ struct NativeReaderRuntime {
 
   }
 
-  func open(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
+  func open(_ profile: Profile, refresh: Bool = true, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
     guard !disposed else { progress(.failed("Reader disposed")); return {} }
     guard self.profile == nil || self.profile == profile else {
       progress(.failed("Create a new view for another profile")); return {}
     }
     self.profile = profile; self.progress = progress
+    cancelStorage()
     requestTicket.cancel(); let ticket = ReadingOperationTicket(); requestTicket = ticket
     acceptedPaintKey = nil; paintedKey = nil; diagnostic = nil
     hostWindow.initialize()
@@ -148,7 +211,8 @@ struct NativeReaderRuntime {
       guard let self, self.requestTicket === ticket, !ticket.isCancelled else { return }
       self.closeView()
     }
-    session.refresh()
+    hostWindow.storageAvailable = offlineStorage != nil
+    if refresh { session.refresh() }
     return { [weak self] in
       ticket.cancel()
       Task { @MainActor in
@@ -239,7 +303,12 @@ struct NativeReaderRuntime {
       catch { self.cache = previous; throw error }
       self.acceptedAssets = (document, descriptors)
       self.acceptedPaintKey = key; self.paintedKey = nil; self.diagnostic = nil
-      if !reflowOnly { self.visibleMode = .nativeReflow; self.hostWindow.displayMode(.nativeReflow) }
+      if !reflowOnly {
+        self.localReview.clear()
+        self.visibleMode = .nativeReflow; self.hostWindow.displayMode(.nativeReflow)
+        self.hostWindow.refreshOutline()
+      }
+      self.applyPendingPresentation(); self.hostWindow.refreshLocalControls()
       if let chat = self.chatView {
         if self.chatContext == self.textView.context { self.configureChatMath(chat, key: key) }
         else { chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
@@ -250,6 +319,7 @@ struct NativeReaderRuntime {
   func setMode(_ mode: Mode) throws {
     guard !disposed, !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
     guard self.mode != mode else { return }
+    guard !session.hasRecoveryCopy else { throw NativeReaderOperationFailure.unavailable }
     self.mode = mode; session.refresh()
   }
 
@@ -299,6 +369,7 @@ struct NativeReaderRuntime {
       // same-actor installation cannot interleave a new request/selection here.
       try self.store.adopt(document, for: context)
       try self.originalPageView.store.adopt(prepared, for: ticket)
+      self.localReview.clear()
       self.acceptedPageDelivery = delivery; self.acceptedAssets = (document, descriptors)
       self.visibleMode = .originalPages; self.acceptedPaintKey = nil; self.paintedKey = nil
       self.hostWindow.displayMode(.originalPages); self.originalPageView.installed()
@@ -307,13 +378,24 @@ struct NativeReaderRuntime {
     })
   }
 
-  func saveRecovery(to owner: NativeReaderRecoveryStore, drafts: [NativeReaderRecoveredDraft] = []) async throws {
+  private func recoverySnapshot(drafts: [NativeReaderRecoveredDraft]) throws -> NativeReaderRecoverySnapshot {
     guard let document = store.document, let acceptedAssets, acceptedAssets.document == document else { throw NativeReaderOperationFailure.unavailable }
-    var snapshot = NativeReaderRecoverySnapshot(document: document, assets: acceptedAssets.bytes, restoration: session.restoration, drafts: drafts)
+    var restoration = session.restoration
+    if visibleMode == .nativeReflow {
+      let viewport = try textView.captureViewport()
+      restoration = NativeReaderRestoration(blockID: viewport.blockID, offset: viewport.offset,
+        zoom: Double(textView.textAppearance.zoom), selectionTicket: store.selection?.ticket,
+        fragments: store.selection?.fragments.map { .init(blockID: $0.blockID, start: $0.rangeUTF16.lowerBound, end: $0.rangeUTF16.upperBound, exact: $0.exact) } ?? [])
+    }
+    var snapshot = NativeReaderRecoverySnapshot(document: document, assets: acceptedAssets.bytes, restoration: restoration, drafts: drafts)
+    snapshot.reviewMarks = localReview.marks
     if visibleMode == .originalPages, let delivery = acceptedPageDelivery {
       snapshot.originalPages = NativeOriginalPageRecovery(publication: delivery.publication, data: delivery.data, viewport: try originalPageView.recovery())
     }
-    try await owner.save(snapshot)
+    try snapshot.validate(); return snapshot
+  }
+  func saveRecovery(to owner: NativeReaderRecoveryStore, drafts: [NativeReaderRecoveredDraft] = []) async throws {
+    try await owner.save(recoverySnapshot(drafts: drafts))
   }
   func restoreRecovery(_ snapshot: NativeReaderRecoverySnapshot) async throws {
     try snapshot.validate()
@@ -325,12 +407,136 @@ struct NativeReaderRuntime {
       guard let self else { throw NativeReaderContractError.disposed }
       return try await self.prepare(document, context: context, recoveryAssets: snapshot.assets, recoveryPages: snapshot.originalPages)
     })
+    try Task.checkCancellation()
+    guard let document = store.document, document.identity == snapshot.document.identity, session.isReadOnly else { throw NativeReaderContractError.staleGeneration }
+    recoveredDrafts = snapshot.drafts; recoveredDraftIdentity = document.identity
+    hostWindow.presentRecoveredDrafts(snapshot.drafts)
+    try localReview.restore(snapshot.reviewMarks, document: document)
+    if snapshot.originalPages == nil {
+      pendingPresentation = (document, snapshot.restoration)
+      var appearance = textView.textAppearance; appearance.zoom = CGFloat(snapshot.restoration.zoom)
+      try textView.setAppearance(appearance)
+      layoutChanged(); applyPendingPresentation()
+    }
+  }
+  private func applyPendingPresentation() {
+    guard let pending = pendingPresentation, pending.0 == store.document,
+          textView.renderKey == textView.requestedRenderKey else { return }
+    do { try textView.restorePresentation(offset: pending.1.offset); pendingPresentation = nil }
+    catch { report(error) }
+  }
+
+  func openOfflineLibrary(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void = { _ in }) {
+    _ = open(profile, refresh: false, progress: progress)
+    hostWindow.notice.stringValue = "Choose a saved document to read offline."
+    hostWindow.present(); refreshSavedExplicitly()
+  }
+  private func addReview() {
+    guard visibleMode == .nativeReflow, let document = store.document, let selection = store.selection else {
+      hostWindow.notice.stringValue = "Select text to mark for review."; return
+    }
+    let location = NativeReaderRestoration(blockID: selection.fragments.first?.blockID, offset: 0, zoom: 1,
+      selectionTicket: selection.ticket, fragments: selection.fragments.map { .init(blockID: $0.blockID, start: $0.rangeUTF16.lowerBound, end: $0.rangeUTF16.upperBound, exact: $0.exact) })
+    do { try localReview.add(.init(id: UUID(), identity: document.identity, selection: location), document: document) }
+    catch { hostWindow.notice.stringValue = "Review mark unavailable. Select at most 32 blocks; your selection is retained." }
+  }
+  private func storedDrafts() -> [NativeReaderRecoveredDraft] {
+    var result = recoveredDraftIdentity == store.document?.identity ? recoveredDrafts : []
+    if let draft = chatView?.recoveryDraft {
+      result.removeAll { $0.conversationID == draft.conversationID }; result.append(draft)
+    }
+    return result
+  }
+  private func storageOperation(opening: Bool = false, _ operation: @escaping @MainActor () async throws -> Void) {
+    guard !disposed, !requestTicket.isCancelled, storageTask == nil, offlineStorage != nil else { return }
+    storageEpoch += 1; let epoch = storageEpoch, ticket = requestTicket
+    hostWindow.storageBusy = true; storageIsOpening = opening
+    storageTask = Task { [weak self] in
+      guard let self else { return }
+      defer { if self.storageEpoch == epoch { self.storageTask = nil; self.storageIsOpening = false; self.hostWindow.storageBusy = false } }
+      do { try await operation() }
+      catch {
+        if self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled, !self.disposed {
+          self.hostWindow.notice.stringValue = "Offline operation failed; the previous saved copy is unchanged."
+        }
+      }
+    }
+  }
+  func cancelStorage() {
+    storageEpoch += 1; storageTask?.cancel(); storageTask = nil; hostWindow.storageBusy = false
+    if storageIsOpening {
+      pendingPresentation = nil; acceptedPaintKey = nil; paintedKey = nil
+      session.cancel() // Revoke a cancelled restore candidate, including later layout retries.
+    }
+    storageIsOpening = false
+  }
+  private func saveOfflineExplicitly() {
+    guard let storage = offlineStorage else { return }
+    let snapshot: NativeReaderRecoverySnapshot
+    do { snapshot = try recoverySnapshot(drafts: storedDrafts()) }
+    catch NativeReaderTextFailure.staleGeometry { hostWindow.notice.stringValue = "Document layout is updating. Try saving when it is ready."; return }
+    catch { hostWindow.notice.stringValue = "Cannot save this reading state. Select at most 32 blocks and use 50%–400% zoom; the previous copy is unchanged."; return }
+    let epoch = storageEpoch + 1, ticket = requestTicket
+    storageOperation { [weak self] in
+      try await storage.save(snapshot); try Task.checkCancellation()
+      guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
+      self.hostWindow.notice.stringValue = "Saved for offline reading."
+    }
+  }
+  private func refreshSavedExplicitly() {
+    guard let storage = offlineStorage else { return }
+    let epoch = storageEpoch + 1, ticket = requestTicket
+    storageOperation { [weak self] in
+      let entries = try await storage.list(); try Task.checkCancellation()
+      guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
+      self.hostWindow.setSavedDocuments(entries)
+      self.hostWindow.notice.stringValue = entries.isEmpty ? "No saved documents in this project." : "Choose a saved document to open."
+    }
+  }
+  private func openSavedExplicitly(_ identity: NativeDocumentIdentity) {
+    guard let storage = offlineStorage else { return }
+    guard !session.hasSelection else { hostWindow.notice.stringValue = "Release the selection before opening a saved document."; return }
+    let epoch = storageEpoch + 1, ticket = requestTicket
+    storageOperation(opening: true) { [weak self] in
+      let snapshot = try await storage.load(identity); try Task.checkCancellation()
+      guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
+      try await self.restoreRecovery(snapshot)
+      guard self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled else { return }
+      self.hostWindow.notice.stringValue = "Offline copy · source and chat actions are unavailable."
+    }
+  }
+  private func lastEditExplicitly() {
+    guard visibleMode == .nativeReflow, let context = session.context, let actions, actionTasks.count < 8 else { return }
+    let id = UUID()
+    actionTasks[id] = Task { [weak self] in
+      guard let self else { return }; defer { self.actionTasks.removeValue(forKey: id) }
+      do {
+        try self.session.authorize(context)
+        let owner = try await actions(), anchor = try await owner.lastChange(context: context)
+        try Task.checkCancellation(); try self.session.authorize(context)
+        guard let anchor, self.textView.navigate(toAnchor: anchor) else { self.hostWindow.notice.stringValue = "No saved edit location is available for this document."; return }
+      } catch { if !Task.isCancelled { self.report(error) } }
+    }
+  }
+  private func accountExplicitly() {
+    guard let context = session.context, let actions, actionTasks.count < 8 else { return }
+    let id = UUID()
+    actionTasks[id] = Task { [weak self] in
+      guard let self else { return }; defer { self.actionTasks.removeValue(forKey: id) }
+      do {
+        try self.session.authorize(context); let owner = try await actions()
+        let state = try await owner.account(context: context)
+        try Task.checkCancellation(); try self.session.authorize(context)
+        self.hostWindow.presentAccount(state)
+      } catch { if !Task.isCancelled { self.report(error) } }
+    }
   }
 
   /// Reprepare only the latest layout key. Session retains incoming candidates;
   /// an accepted snapshot reflow never adopts/releases selection or changes service state.
   private func layoutChanged() {
     guard !disposed, !requestTicket.isCancelled else { return }
+    hostWindow.refreshLocalControls()
     // The initial offscreen/AppKit layout has no retained view to invalidate.
     // Its in-flight candidate already rechecks the exact key in publishPending;
     // restarting it would revoke an awaited offline restore for a frame notice.
@@ -355,6 +561,7 @@ struct NativeReaderRuntime {
 
   private func sessionChanged() {
     guard !disposed, !requestTicket.isCancelled else { return }
+    hostWindow.updateReaderControls(readOnly: session.isReadOnly)
     if let failure = session.failure {
       let message = diagnostic ?? failure
       hostWindow.notice.stringValue = message
@@ -401,7 +608,11 @@ struct NativeReaderRuntime {
         let result = try await owner.perform(request)
         try Task.checkCancellation()
         try session.authorize(request.context, selection: request.selection.ticket)
-        _ = textView.acceptSourceResult(result, for: request)
+        let accepted = textView.acceptSourceResult(result, for: request)
+        if accepted, request.action == .locate {
+          if let anchor = result.destinationAnchor { _ = textView.navigate(toAnchor: anchor) }
+          hostWindow.notice.stringValue = "Source location verified. Opening the editor is not available through this connection."
+        }
       } catch { if !Task.isCancelled { report(error) } }
     }
   }
@@ -437,7 +648,7 @@ struct NativeReaderRuntime {
     })
     configureChatMath(chat, key: key)
     chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
-    chat.present(conversation); chatView = chat; chatContext = context; hostWindow.attachChat(chat)
+    chat.present(conversation, recovered: recoveredDraftIdentity == context.target ? recoveredDrafts.first { $0.conversationID == conversation.state.conversationID } : nil); chatView = chat; chatContext = context; hostWindow.attachChat(chat)
     return chat
   }
 
@@ -467,6 +678,7 @@ struct NativeReaderRuntime {
   }
 
   func cancel() {
+    cancelStorage(); pendingPresentation = nil; localReview.clear()
     preparingKey = nil
     originalPageView.cancel()
     reflowTask?.cancel(); reflowTask = nil
@@ -485,6 +697,41 @@ struct NativeReaderRuntime {
   let notice = NSTextField(wrappingLabelWithString: "Native Reader · reflow / original PDF; source actions require reflow")
   var onClose: (() -> Void)?
   var changeMode: ((NativeReaderWindowController.Mode) -> Void)?
+  var onMarkReview: (() -> Void)?
+  var onUndoReview: (() -> Void)?
+  var onClearReview: (() -> Void)?
+  var onAppearance: (() -> Void)?
+  var onSaveOffline: (() -> Void)?
+  var onListOffline: (() -> Void)?
+  var onOpenOffline: ((NativeDocumentIdentity) -> Void)?
+  var onCancelStorage: (() -> Void)?
+  var onLastEdit: (() -> Void)?
+  var onAccount: (() -> Void)?
+  var onManageAccount: ((URL) -> Void)?
+  let contents = NSPopUpButton()
+  let theme = NSPopUpButton()
+  let textSize = NSPopUpButton()
+  let savedDocuments = NSPopUpButton()
+  private let back = NSButton(title: "Back", target: nil, action: nil)
+  private let undoReview = NSButton(title: "Undo review", target: nil, action: nil)
+  private let clearReview = NSButton(title: "Clear review", target: nil, action: nil)
+  private let saveOffline = NSButton(title: "Save Offline", target: nil, action: nil)
+  private let refreshSaved = NSButton(title: "Refresh Saved", target: nil, action: nil)
+  private let openSaved = NSButton(title: "Open Saved", target: nil, action: nil)
+  private let cancelStorage = NSButton(title: "Cancel", target: nil, action: nil)
+  private let manageAccount = NSButton(title: "Manage Account", target: nil, action: nil)
+  private let accountStatus = NSTextField(labelWithString: "Account")
+  private let recoveredDraftPicker = NSPopUpButton()
+  private let recoveredDraftText = NSTextField(wrappingLabelWithString: "")
+  private let recoveredDraftRow = NSStackView()
+  private var savedEntries = [NativeReaderRecoveryStore.Entry]()
+  private var recoveredDrafts = [NativeReaderRecoveredDraft]()
+  private var homepage: URL?
+  private var liveButtons = [NSButton]()
+  private var reflowRows = [NSView]()
+  var reviewCount = 0 { didSet { undoReview.isEnabled = reviewCount > 0; clearReview.isEnabled = reviewCount > 0 } }
+  var storageAvailable = false { didSet { updateOfflineControls() } }
+  var storageBusy = false { didSet { updateOfflineControls() } }
   private var original: NativeReaderOriginalPageView?
   private var originalScroll: NativeReaderPageScrollView?
   private var currentMode: NativeReaderWindowController.Mode = .nativeReflow
@@ -500,26 +747,57 @@ struct NativeReaderRuntime {
   required init?(coder: NSCoder) { nil }
   func initialize() { if window == nil { loadWindow() } }
   override func loadWindow() {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 720),
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false; window.delegate = self; window.title = "Lagrangian · Native Reader"
     stack.orientation = .vertical; stack.alignment = .width
     let controls = NSStackView()
     for (title, action) in [("Copy", #selector(copySelected)), ("Source", #selector(sourceSelected)),
-                             ("Highlight", #selector(highlightSelected)), ("Ask", #selector(askSelected))] {
-      controls.addArrangedSubview(NSButton(title: title, target: self, action: action))
+                             ("Highlight", #selector(highlightSelected)), ("Ask", #selector(askSelected)),
+                             ("Locate Source", #selector(locateSelected)), ("Last Edit", #selector(lastEdit)), ("Account", #selector(account))] {
+      let button = NSButton(title: title, target: self, action: action)
+      controls.addArrangedSubview(button)
+      if title != "Copy" { liveButtons.append(button) }
     }
     sourceControls.addArrangedSubview(controls)
     let paging = NSStackView()
     for (title, action) in [("Reflow", #selector(reflowMode)), ("Original PDF", #selector(pageMode)),
                             ("Previous", #selector(previousPage)), ("Next", #selector(nextPage)),
-                            ("Zoom +", #selector(zoomIn)), ("Fit", #selector(fitPage)),
+                            ("Zoom +", #selector(zoomIn)), ("Zoom −", #selector(zoomOut)), ("Fit", #selector(fitPage)),
                             ("Release selection", #selector(releasePageSelection)), ("Copy PDF", #selector(copySelected))] {
       paging.addArrangedSubview(NSButton(title: title, target: self, action: action))
     }
     findField.placeholderString = "Find in PDF"; findField.target = self; findField.action = #selector(findPage)
     stack.addArrangedSubview(notice); stack.addArrangedSubview(sourceControls); stack.addArrangedSubview(paging)
+    contents.setAccessibilityLabel("Contents"); contents.target = self; contents.action = #selector(outlineSelected)
+    back.target = self; back.action = #selector(returnFromReference)
+    let navigation = NSStackView(views: [NSTextField(labelWithString: "Contents"), contents, back])
+    theme.addItems(withTitles: ["Light", "Dark"]); theme.setAccessibilityLabel("Theme")
+    theme.target = self; theme.action = #selector(appearanceChanged)
+    textSize.addItems(withTitles: ["12", "14", "16", "18", "24", "32"]); textSize.selectItem(withTitle: "14"); textSize.setAccessibilityLabel("Text size")
+    textSize.target = self; textSize.action = #selector(appearanceChanged)
+    let appearance = NSStackView(views: [NSTextField(labelWithString: "Theme"), theme, NSTextField(labelWithString: "Text size"), textSize])
+    let mark = NSButton(title: "Mark for review", target: self, action: #selector(markSelected))
+    undoReview.target = self; undoReview.action = #selector(undoReviewExplicitly)
+    clearReview.target = self; clearReview.action = #selector(clearReviewExplicitly)
+    let review = NSStackView(views: [mark, undoReview, clearReview])
+    undoReview.isEnabled = false; clearReview.isEnabled = false
+    reflowRows = [navigation, appearance, review]
+    for row in reflowRows { stack.addArrangedSubview(row) }
+    savedDocuments.setAccessibilityLabel("Saved documents"); savedDocuments.target = self; savedDocuments.action = #selector(savedDocumentSelected)
+    saveOffline.target = self; saveOffline.action = #selector(saveOfflineExplicitly)
+    refreshSaved.target = self; refreshSaved.action = #selector(refreshSavedExplicitly)
+    openSaved.target = self; openSaved.action = #selector(openSavedExplicitly)
+    cancelStorage.target = self; cancelStorage.action = #selector(cancelStorageExplicitly)
+    stack.addArrangedSubview(NSStackView(views: [saveOffline, savedDocuments, refreshSaved, openSaved, cancelStorage]))
+    manageAccount.target = self; manageAccount.action = #selector(manageAccountExplicitly); manageAccount.isEnabled = false
+    stack.addArrangedSubview(NSStackView(views: [accountStatus, manageAccount]))
+    recoveredDraftRow.orientation = .vertical; recoveredDraftRow.alignment = .leading
+    recoveredDraftPicker.setAccessibilityLabel("Recovered drafts"); recoveredDraftPicker.target = self; recoveredDraftPicker.action = #selector(recoveredDraftSelected)
+    recoveredDraftRow.addArrangedSubview(recoveredDraftPicker); recoveredDraftRow.addArrangedSubview(recoveredDraftText); recoveredDraftRow.isHidden = true
+    stack.addArrangedSubview(recoveredDraftRow)
     stack.addArrangedSubview(findField); stack.addArrangedSubview(reader)
+    updateOfflineControls(); updateNavigation()
     stack.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(stack)
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16),
@@ -533,7 +811,14 @@ struct NativeReaderRuntime {
     guard show, NSApp.activationPolicy() != .prohibited else { return }
     if avoidActivation { window?.orderFrontRegardless() } else { showWindow(nil) }
   }
-  func attachChat(_ chat: NativeReaderChatView) { stack.addArrangedSubview(chat) }
+  func attachChat(_ chat: NativeReaderChatView) {
+    stack.addArrangedSubview(chat)
+    // Only the explicit composer needs extra height; keep the PDF viewport's
+    // ordinary initial size and native scroll behavior unchanged.
+    if let window, let content = window.contentView, content.frame.height < 960 {
+      window.setContentSize(NSSize(width: content.frame.width, height: 960))
+    }
+  }
   func installOriginal(_ view: NativeReaderOriginalPageView) {
     guard original == nil else { return }; original = view
     let scroll = NativeReaderPageScrollView()
@@ -547,14 +832,26 @@ struct NativeReaderRuntime {
     // Source/Highlight/Ask cannot dispatch the retained hidden reflow selection.
     originalScroll?.isHidden = mode != .originalPages
     sourceControls.isHidden = mode == .originalPages
+    for row in reflowRows { row.isHidden = mode != .nativeReflow }
+    recoveredDraftRow.isHidden = recoveredDrafts.isEmpty
     window?.contentView?.layoutSubtreeIfNeeded()
   }
   @objc func reflowMode() { changeMode?(.nativeReflow) }
   @objc func pageMode() { changeMode?(.originalPages) }
   @objc func previousPage() { if let original { pageAction { try original.jump(to: max(0, original.store.pageIndex - 1)) } } }
   @objc func nextPage() { if let original { pageAction { try original.jump(to: original.store.pageIndex + 1) } } }
-  @objc func zoomIn() { if let original { pageAction { try original.zoom(original.store.displayedScale * 1.25) } } }
-  @objc func fitPage() { if let original { pageAction { try original.zoom(nil) } } }
+  @objc func zoomIn() {
+    if currentMode == .nativeReflow { reader.changeZoom(by: 1.25); onAppearance?() }
+    else if let original { pageAction { try original.zoom(original.store.displayedScale * 1.25) } }
+  }
+  @objc func zoomOut() {
+    if currentMode == .nativeReflow { reader.changeZoom(by: 1 / 1.25); onAppearance?() }
+    else if let original { pageAction { try original.zoom(original.store.displayedScale / 1.25) } }
+  }
+  @objc func fitPage() {
+    if currentMode == .nativeReflow { var value = reader.textAppearance; value.zoom = 1; try? reader.setAppearance(value); onAppearance?() }
+    else if let original { pageAction { try original.zoom(nil) } }
+  }
   @objc func releasePageSelection() {
     if currentMode == .originalPages { original?.releaseSelection() }
     else if let selected = reader.store.selection { reader.releaseSelection(ticket: selected.ticket) }
@@ -573,6 +870,70 @@ struct NativeReaderRuntime {
   @objc func sourceSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.excerpt) }
   @objc func highlightSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.highlight) }
   @objc func askSelected() { guard currentMode == .nativeReflow else { return }; reader.openChat() }
+  func refreshOutline() {
+    let previous = contents.selectedItem?.representedObject as? String
+    contents.removeAllItems()
+    for node in reader.outline {
+      let item = NSMenuItem(title: String(repeating: "  ", count: min(5, max(0, (node.headingLevel ?? 1)-1))) + String(node.displayText.prefix(120)), action: nil, keyEquivalent: "")
+      item.representedObject = node.id; contents.menu?.addItem(item)
+    }
+    if let previous, let item = contents.itemArray.first(where: { $0.representedObject as? String == previous }) { contents.select(item) }
+    updateNavigation()
+  }
+  func updateNavigation() { contents.isEnabled = currentMode == .nativeReflow && !reader.outline.isEmpty; back.isEnabled = reader.canReturnFromReference }
+  func updateReaderControls(readOnly: Bool) {
+    for button in liveButtons { button.isEnabled = !readOnly && currentMode == .nativeReflow }
+    if readOnly { homepage = nil; manageAccount.isEnabled = false; accountStatus.stringValue = "Offline · account actions unavailable" }
+    updateNavigation(); updateOfflineControls()
+  }
+  private func updateOfflineControls() {
+    let prepared = reader.store.document != nil && (currentMode == .originalPages || (reader.renderKey != nil && reader.renderKey == reader.requestedRenderKey))
+    saveOffline.isEnabled = storageAvailable && !storageBusy && prepared
+    refreshSaved.isEnabled = storageAvailable && !storageBusy
+    openSaved.isEnabled = storageAvailable && !storageBusy && !savedEntries.isEmpty
+    savedDocuments.isEnabled = !storageBusy && !savedEntries.isEmpty
+    cancelStorage.isEnabled = storageBusy
+  }
+  func refreshLocalControls() { updateOfflineControls() }
+  func setSavedDocuments(_ entries: [NativeReaderRecoveryStore.Entry]) {
+    savedEntries = entries; savedDocuments.removeAllItems(); savedDocuments.addItems(withTitles: entries.map(\.title)); updateOfflineControls()
+  }
+  func presentRecoveredDrafts(_ values: [NativeReaderRecoveredDraft]) {
+    recoveredDrafts = values; recoveredDraftPicker.removeAllItems()
+    for (index, _) in values.enumerated() { recoveredDraftPicker.addItem(withTitle: "Saved draft \(index+1)") }
+    recoveredDraftRow.isHidden = values.isEmpty; recoveredDraftSelected()
+  }
+  func presentAccount(_ state: NativeReaderAccountState) {
+    accountStatus.stringValue = state.signedIn ? (state.planEnabled ? "Account connected" : "Plan unavailable") : "Sign in on the configured Homepage."
+    homepage = state.homepage; manageAccount.isEnabled = state.homepage != nil
+  }
+  @objc func outlineSelected() { guard currentMode == .nativeReflow, let id = contents.selectedItem?.representedObject as? String else { return }; _ = reader.navigate(toNodeID: id); updateNavigation() }
+  @objc func returnFromReference() { guard currentMode == .nativeReflow else { return }; _ = reader.returnFromReference(); updateNavigation() }
+  @objc func appearanceChanged() {
+    guard currentMode == .nativeReflow else { return }
+    var value = reader.textAppearance; value.theme = theme.indexOfSelectedItem == 1 ? .dark : .light
+    if let title = textSize.titleOfSelectedItem, let size = Double(title) { value.fontSize = CGFloat(size) }
+    do { try reader.setAppearance(value); window?.appearance = NSAppearance(named: value.theme == .dark ? .darkAqua : .aqua); onAppearance?() }
+    catch { notice.stringValue = "Display settings unavailable." }
+  }
+  @objc func markSelected() { guard currentMode == .nativeReflow else { return }; onMarkReview?() }
+  @objc func undoReviewExplicitly() { onUndoReview?() }
+  @objc func clearReviewExplicitly() { onClearReview?() }
+  @objc func savedDocumentSelected() { updateOfflineControls() }
+  @objc func saveOfflineExplicitly() { onSaveOffline?() }
+  @objc func refreshSavedExplicitly() { onListOffline?() }
+  @objc func openSavedExplicitly() { let i = savedDocuments.indexOfSelectedItem; guard savedEntries.indices.contains(i) else { return }; onOpenOffline?(savedEntries[i].identity) }
+  @objc func cancelStorageExplicitly() { onCancelStorage?() }
+  @objc func recoveredDraftSelected() {
+    let i = recoveredDraftPicker.indexOfSelectedItem
+    guard recoveredDrafts.indices.contains(i) else { recoveredDraftText.stringValue = ""; return }
+    let draft = recoveredDrafts[i]
+    recoveredDraftText.stringValue = draft.text + (draft.pendingMessageID == nil ? "" : "\nPrevious Send is unconfirmed. Reconnect and refresh its conversation before an explicit retry.")
+  }
+  @objc func lastEdit() { onLastEdit?() }
+  @objc func locateSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.locate) }
+  @objc func account() { onAccount?() }
+  @objc func manageAccountExplicitly() { if let homepage { onManageAccount?(homepage) } }
   func windowWillClose(_ notification: Notification) { onClose?() }
 }
 

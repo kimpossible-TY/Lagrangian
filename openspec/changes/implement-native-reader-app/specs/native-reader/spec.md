@@ -150,3 +150,26 @@ Plain copy of completed native math answers SHALL restore each selected formula'
 - **WHEN** two or more identical formulas are adjacent in a full or partial selection
 - **THEN** plain copy includes every selected formula exactly once in order
 - **AND** it does not merge equal formula strings or send inference
+
+
+### Requirement: Reachable native local reading controls
+The app SHALL expose local review add/undo/clear, typed Contents/reference Back and window-local theme/font/zoom through actual native controls. Controls SHALL delegate to existing local review, mapping, geometry and appearance owners without source writes or global settings changes.
+
+#### Scenario: Review or navigate the accepted native document
+- **WHEN** a native control marks, undoes, clears, navigates or changes appearance
+- **THEN** the corresponding native pixels/viewport/render key change while logical copy and AX selection remain exact
+- **AND** same-snapshot reflow retains review marks while accepted replacement/cancel revokes obsolete marks and return state
+
+### Requirement: Reachable verified offline library
+The app SHALL offer explicit profile-bound save/list/open controls and a home offline entry without live service startup. RecoveryStore SHALL remain the only typed hash/identity/asset/budget/atomic storage owner. Offline restoration SHALL reuse native preparation/paint and stay read-only without live target/network/assets calls or automatic inference.
+
+#### Scenario: Save and open an offline native document
+- **WHEN** an accepted document is saved and opened through native controls into a fresh view
+- **THEN** its validated assets, normalized viewport, held selection, review marks and bounded pending/newer draft state are restored
+- **AND** only matching native draw acknowledges paint while source/chat/account remain unavailable offline
+- **AND** another profile cannot list/open that namespace
+
+#### Scenario: Unsupported saved state or obsolete disk operation
+- **WHEN** selection exceeds32 fragments, zoom is below0.5, bytes fail validation, or a disk request is cancelled/closed/superseded
+- **THEN** the previous durable file is retained and the app does not claim successful save/restore from an obsolete callback
+- **AND** the full ordinary local display selection is not truncated to make save succeed

@@ -17,6 +17,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   var nativeProfile: Profile?
   var managedResolver: NativeReaderManagedResolver?
   var nativeWindow: NativeReaderWindowController?
+  var offlineWindow: NativeReaderWindowController?
   var nativeReadOverride: ReadingSessionController.NativeRead?
   let environment: AppEnvironment
   let store: SettingsStore
@@ -45,7 +46,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return bytes
               }.value
-            }, runtime: self.nativeRuntime, avoidActivation: self.noActivate)
+            }, runtime: self.nativeRuntime, avoidActivation: self.noActivate,
+               offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         } else {
           guard let resolver = self.managedResolver else {
             progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
@@ -59,7 +61,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               for asset in document.assets { assets[asset.id] = try await actions.transport.asset(asset, context: context) }
               return assets
             }, runtime: self.nativeRuntime, actions: { try await client.currentActions() },
-            invalidate: { await client.invalidate() }, avoidActivation: self.noActivate)
+            invalidate: { await client.invalidate() }, avoidActivation: self.noActivate,
+               offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         }
         self.nativeWindow?.copyText = self.copyText
         self.nativeWindow?.openHomepage = { NSWorkspace.shared.open($0) }
@@ -107,6 +110,18 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
   }
   var settingsTabs: NSTabView?
+  /// Explicit local action does not enter ReadingSessionController.read/start or
+  /// resolve a manager. Keep the current live document/service independent.
+  @MainActor @objc func openOffline() {
+    guard let profile = active else { return }
+    offlineWindow?.dispose()
+    let window = NativeReaderWindowController(provider: NativeReaderOfflineProvider(), target: { _ in throw NativeReaderOperationFailure.unavailable },
+      runtime: nativeRuntime, show: true, avoidActivation: noActivate,
+      offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
+    window.copyText = copyText
+    offlineWindow = window
+    window.openOfflineLibrary(profile)
+  }
   @objc func showSettings() { showWindow(); settingsTabs?.selectTabViewItem(at: 1) }
   var statusItem: NSStatusItem!
   var window: NSWindow!
@@ -147,7 +162,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     readingIntent += 1
     readingEnvironment.dispose()
     session.dispose()
-    nativeWindow?.dispose()
+    nativeWindow?.dispose(); offlineWindow?.dispose()
   }
   func sleepChanged(_ sleeping: Bool) {
     if sleeping { readingIntent += 1 }
@@ -163,6 +178,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       ("Lagrangian 열기…", #selector(showWindow), ","),
       ("읽기 시작", #selector(openPreview), "o"),
       ("외부 Reader 열기", #selector(openExternalPreview), ""),
+      ("오프라인 문서 열기", #selector(openOffline), ""),
       ("프로젝트 설정", #selector(showSettings), ""),
       ("선택한 프로젝트 시작", #selector(start), ""),
       ("선택한 프로젝트 중지", #selector(stop), ""),
@@ -253,6 +269,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         button("주소 복사", #selector(copyURL)),
         button("시작", #selector(start)), button("중지", #selector(stop)),
         button("재시작", #selector(restart)), button("로그", #selector(openLogs)),
+        button("오프라인 문서", #selector(openOffline)),
       ]))
     controls[#selector(openPreview)]?.keyEquivalent = "\r"
     let definitions = [
@@ -356,7 +373,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       return active != nil && !mutating && snapshot?.isBusy != true
     }
     if action == #selector(stop) { return active != nil && !mutating }
-    if [#selector(copyURL), #selector(openLogs)].contains(action) { return active != nil }
+    if [#selector(copyURL), #selector(openLogs), #selector(openOffline)].contains(action) { return active != nil }
     return true
   }
   func updateControls() {

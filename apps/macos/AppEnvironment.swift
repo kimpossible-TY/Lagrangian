@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 enum LagrangianIdentity {
   static let bundleID = "io.github.kimpossible-ty.lagrangian"
@@ -33,6 +34,15 @@ struct AppEnvironment {
 
   func nativeReaderBundle() throws -> NativeReaderBundleEnvironment? {
     try NativeReaderBundleEnvironment.load(executable: executable)
+  }
+
+  /// Profile/target namespace is independent of service PID/revision. Typed
+  /// entries still validate their complete document identity when opened.
+  func nativeRecoveryRoot(for profile: Profile) -> URL {
+    let target = [profile.id, URL(fileURLWithPath: profile.root).standardizedFileURL.path, profile.entry]
+    let bytes = (try? JSONEncoder().encode(target)) ?? Data()
+    let key = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    return support.appendingPathComponent("native-reader/" + key, isDirectory: true)
   }
 
   func focusFile(for profile: Profile) -> URL {
