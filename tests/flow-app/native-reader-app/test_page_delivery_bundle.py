@@ -275,7 +275,11 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
                 # Host-side observation of our fixture PID only. macOS refuses
                 # to exec ps inside this sandbox; the backend remains sandboxed.
                 process=self.command(['/bin/ps','-p',str(child.pid),'-o','command='],sandbox=False).stdout
-                self.assertIn(str(self.python),process)
+                # Official framework Python's bin launcher execs its bundled
+                # Python.app image; ps reports that image, not the bin launcher.
+                image=self.root/'python/Resources/Python.app/Contents/MacOS/Python'
+                self.assertTrue(process.startswith(str(image)+' '))
+                self.assertIn(str(image.relative_to(self.root)),self.manifest['files'])
                 self.assertIn('manager --backend --managed',process)
                 attached=json.loads(self.command([self.python,'-s','-B','-c',self.attach_code(),self.root,self.project,child.pid],loopback=True).stdout)
                 self.assertEqual(attached['url'],f'http://127.0.0.1:{shared}/d/reader/')
