@@ -1,5 +1,9 @@
 """AppKit reading actions with isolated settings and injected service operations."""
 import importlib.util
+import os
+import hashlib
+import json
+import time
 from pathlib import Path
 import subprocess
 import sys
@@ -12,17 +16,37 @@ package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
 
 
+def compile_fixture(cls, name, arguments):
+    output = os.environ.get('GUI_PREP_OUTPUT')
+    if output:
+        root = Path(output).resolve()
+        if not root.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/integration')):
+            raise RuntimeError('UI evidence must remain in isolated integration output')
+        folder = root / (name + '-' + str(time.time_ns())); folder.mkdir()
+        cls.executable = folder / name
+        argv = ['/usr/bin/swiftc', *package.swift_flags(), *arguments, '-o', cls.executable]
+        started = time.monotonic()
+        result = subprocess.run(list(map(str, argv)), capture_output=True, text=True)
+        (folder / 'compile.json').write_text(json.dumps(dict(argv=list(map(str, argv)), cwd=str(ROOT),
+            exit=result.returncode, elapsed=time.monotonic()-started, stdout=result.stdout, stderr=result.stderr,
+            environment={k:os.environ.get(k) for k in ['TMPDIR','CLANG_MODULE_CACHE_PATH','SWIFT_MODULECACHE_PATH']},
+            sourceSHA256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in package.swift_sources() + [ROOT / 'tests/flow-app/FlowAppTests.swift', ROOT / 'tests/flow-app/ReadingSessionTests.swift']},
+            binarySHA256=hashlib.sha256(cls.executable.read_bytes()).hexdigest() if result.returncode==0 else None),indent=2))
+        if result.returncode: raise RuntimeError(result.stderr)
+    else:
+        temp = tempfile.TemporaryDirectory(prefix=name+'-')
+        cls.addClassCleanup(temp.cleanup)
+        cls.executable = Path(temp.name) / name
+        package.run(['/usr/bin/swiftc', *package.swift_flags(), *arguments, '-o', cls.executable])
+
+
 @unittest.skipUnless(sys.platform == 'darwin', 'AppKit tests require macOS')
 class ReadingUI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        temp = tempfile.TemporaryDirectory(prefix='flow-ui-tests-')
-        cls.addClassCleanup(temp.cleanup)
-        cls.executable = Path(temp.name) / 'flow-ui-tests'
-        package.run([
-            '/usr/bin/swiftc', *package.swift_flags(),
+        compile_fixture(cls, 'flow-ui-tests', [
             *(p for p in package.swift_sources() if p.name != 'main.swift'),
-            ROOT / 'tests/flow-app/FlowAppTests.swift', '-o', cls.executable,
+            ROOT / 'tests/flow-app/FlowAppTests.swift',
         ])
 
     def scenario(self, name):
@@ -52,13 +76,9 @@ class ReadingUI(unittest.TestCase):
 class NativeShell(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        import os
-        temp = tempfile.TemporaryDirectory(prefix='native-shell-tests-')
-        cls.addClassCleanup(temp.cleanup)
-        cls.executable = Path(temp.name) / 'native-shell-tests'
-        package.run(['/usr/bin/swiftc', *package.swift_flags(), '-D', 'NATIVE_SHELL_TESTS',
+        compile_fixture(cls, 'native-shell-tests', ['-D', 'NATIVE_SHELL_TESTS',
             *(p for p in package.swift_sources() if p.name != 'main.swift'),
-            ROOT / 'tests/flow-app/ReadingSessionTests.swift', '-o', cls.executable])
+            ROOT / 'tests/flow-app/ReadingSessionTests.swift'])
         cls.fixture = os.environ.get('FLOW_NATIVE_FIXTURE')
 
     def scenario(self, name, fixture=False):

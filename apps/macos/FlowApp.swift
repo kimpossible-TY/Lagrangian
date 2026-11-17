@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import UniformTypeIdentifiers
 
 final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -6,6 +7,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let fixture: URL?
   let noActivate: Bool
   let nativeRuntime: NativeReaderRuntime?
+  let copyText: (String) -> Bool
+  /// Stable per isolated home so an independent inspector can read only its board.
+  static func isolatedCopyBoard(home: URL) -> NSPasteboard.Name {
+    let digest = SHA256.hash(data: Data(home.standardizedFileURL.path.utf8))
+      .map { String(format: "%02x", $0) }.joined()
+    return NSPasteboard.Name("io.github.kimpossible-ty.lagrangian.dev.copy." + digest)
+  }
   var nativeProfile: Profile?
   var managedResolver: NativeReaderManagedResolver?
   var nativeWindow: NativeReaderWindowController?
@@ -53,9 +61,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }, runtime: self.nativeRuntime, actions: { try await client.currentActions() },
             invalidate: { await client.invalidate() }, avoidActivation: self.noActivate)
         }
-        self.nativeWindow?.copyText = { text in
-          NSPasteboard.general.clearContents(); return NSPasteboard.general.setString(text, forType: .string)
-        }
+        self.nativeWindow?.copyText = self.copyText
         self.nativeWindow?.openHomepage = { NSWorkspace.shared.open($0) }
       }
       return self.nativeWindow!.open(profile, progress: progress)
@@ -79,6 +85,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     self.isolated = isolated
     self.fixture = fixture
     self.environment = environment
+    let privateBoard = isolated ? NSPasteboard(name: Self.isolatedCopyBoard(home: environment.userHome)) : nil
+    copyText = { text in
+      let board = privateBoard ?? NSPasteboard.general
+      board.clearContents()
+      return board.setString(text, forType: .string)
+    }
     store = SettingsStore(directory: environment.support)
     launchAgents = LaunchAgentService(environment: environment)
     self.projectService = projectService ?? ProjectService(store: store, launchAgents: isolated ? IsolatedProjectController() : launchAgents)
