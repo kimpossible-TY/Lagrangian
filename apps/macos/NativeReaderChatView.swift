@@ -388,7 +388,7 @@ private enum NativeAnswerPreparation {
     var recoveryDraft: NativeReaderRecoveredDraft? {
         guard let value = conversation else { return nil }
         return NativeReaderRecoveredDraft(conversationID: value.state.conversationID, version: value.state.version,
-            text: composer.string, pendingMessageID: pendingMessage, model: models.titleOfSelectedItem,
+            text: composer.string, pendingMessageID: pendingMessage, model: models.titleOfSelectedItem ?? preferredModel,
             pendingQuestion: pendingQuestion, pendingModel: pendingModel)
     }
     private func persistCurrentDraft() { if let draft = recoveryDraft { persistDraft?(draft) } }

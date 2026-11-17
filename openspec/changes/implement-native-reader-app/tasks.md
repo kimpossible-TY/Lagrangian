@@ -71,3 +71,14 @@ recorded revision; final app evidence must be rebound after the delivery owner s
 - [x] 8.3 Wire window-local theme/font/zoom through existing render keys and verify native controls without OS settings changes.
 - [x] 8.4 Wire profile-bound typed offline save/list/open and home entry, restoration/paint, read-only draft/pending state and cancellation/close/limits/isolation through actual controls.
 - [x] 8.5 Run affected raw canonical regressions including N1–N5/F1–F6/LS01, Typst/strict OpenSpec and final compiler/commit byte binding; retain remaining app/GUI/official gates.
+
+
+## 9. Closure review v2 and original local display/export paths
+
+- [x] 9.1 Reproduce C1–C3 at fixed09e; bind recovery attachments to actual candidate completion, retain latest draft state on reopen and exit PDF link key-loop boundaries.
+- [x] 9.2 Add Automatic and native reflow display preview/cancel/apply with exact selection/anchor rollback and retained layout guards.
+- [x] 9.3 Wire explicit Export PDF to accepted original bytes, native chooser and validated atomic disk owner; test cancellation/freshness/destination/tamper preservation with PDFKit.
+- [x] 9.4 Align R04/R05/R06/R08/R09/R10 canonical docs and delta; run affected native regressions, Typst and strict OpenSpec with exact source bindings and actual exits/skips.
+
+These tasks do not implement NA15/NA16 editor/auth APIs, create a final app,
+or close official final GUI/VO/OS13/live/packaging acceptance.

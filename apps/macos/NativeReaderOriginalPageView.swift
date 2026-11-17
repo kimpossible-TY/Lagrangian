@@ -258,8 +258,12 @@ import AppKit
         do {
             if event.keyCode == 48, let key = pageKey, current(key), !links.isEmpty {
                 let step = event.modifierFlags.contains(.shift) ? -1 : 1
-                let next = ((focusedLink ?? (step > 0 ? -1 : 0)) + step + links.count) % links.count
-                focusLink(next, key: key); return
+                let next = (focusedLink ?? (step > 0 ? -1 : links.count)) + step
+                if !links.indices.contains(next) {
+                    focusedLink = nil
+                    if step > 0 { window?.selectNextKeyView(self) } else { window?.selectPreviousKeyView(self) }
+                } else { focusLink(next, key: key) }
+                return
             }
             if [36, 49].contains(event.keyCode), let key = pageKey, current(key), let index = focusedLink, links.indices.contains(index) {
                 try activate(links[index]); return

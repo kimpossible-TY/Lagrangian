@@ -152,3 +152,33 @@ checks run with activation prohibited and zero visible windows. No app staging,
 real GUI/AX/VoiceOver, live account, external inference, service installation or
 actual OS13 execution is performed by this task. The delivery owner must rebind
 and stage the final exact commit before independent GUI inspection.
+
+
+== Closure review v2 inspection paths (not final app acceptance)
+
+Use actual Open Saved controls with painted A and a gated B preparation. Resize
+and change font, or select A while B waits, then explicitly release. Verify B's
+marks/UUIDs/drafts/pending question/model/zoom/viewport together, once, and resave;
+Cancel/close must reject late B without changing A. In a production localhost
+fixture, explicitly Send M once to a fake provider, lose only its acknowledgment,
+save/restore/reconnect, confirm M through Refresh conversation, edit N2, reopen
+same Ask and resave. N2/model and cleared pending state must survive; history,
+reopen, display changes and storage cause zero additional inference.
+
+Preview Display → Light/Dark/Automatic, text size and zoom → Cancel Display must
+restore window appearance, canonical selection/AX and logical viewport anchor;
+Apply Display must keep prepared values. InitialLight/14pt/zoom1 and reflow Fit1
+are separate from Original PDF's width-fit/0.1–8 scale and held-selection policy.
+No OS setting or PDF print colors are changed. Export PDF uses the accepted
+Original PDF and a native save chooser. In headless tests inject owned chooser
+results without showing a panel, compare bytes/digest and PDFKit page count, then
+exercise cancel/stale/dispose/tamper/invalid/changed destination preservation.
+One/multi-link PDF Tab/ShiftTab must reach actual adjacent key views, not wrap.
+
+Original PDF offline save stores page/scale/unscaled offsets, not PDF selection;
+reflow stores exact selection32/normalized viewport/zoom0.5–4. Marks have per-mark32
+and collection256 unique UUIDs validated before adoption. These bounded checks do
+not imply automatic crash autosave or offline mode switching. The historical
+feature-wiring18-case draft is unchanged; Planner's125-case design supersedes it.
+Both remain design evidence with actual assignment/pass0 until PM binds real
+source/app/owner/receipts. Source/headless evidence is not GUI/VO/OS13/live proof.

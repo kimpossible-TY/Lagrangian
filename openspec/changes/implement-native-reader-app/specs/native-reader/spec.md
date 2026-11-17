@@ -165,7 +165,7 @@ The app SHALL offer explicit profile-bound save/list/open controls and a home of
 
 #### Scenario: Save and open an offline native document
 - **WHEN** an accepted document is saved and opened through native controls into a fresh view
-- **THEN** its validated assets, normalized viewport, held selection, review marks and bounded pending/newer draft state are restored
+- **THEN** its validated assets and native-reflow normalized viewport, held selection, review marks and bounded pending/newer draft state are restored
 - **AND** only matching native draw acknowledges paint while source/chat/account remain unavailable offline
 - **AND** another profile cannot list/open that namespace
 
@@ -173,3 +173,31 @@ The app SHALL offer explicit profile-bound save/list/open controls and a home of
 - **WHEN** selection exceeds32 fragments, zoom is below0.5, bytes fail validation, or a disk request is cancelled/closed/superseded
 - **THEN** the previous durable file is retained and the app does not claim successful save/restore from an obsolete callback
 - **AND** the full ordinary local display selection is not truncated to make save succeed
+
+
+### Requirement: Candidate-bound recovery attachments and current conversation state
+The native host SHALL apply validated recovery attachments once at the same candidate's actual adoption completion, after restored selection, including layout retries and held release. Pending recovery SHALL remain cancellable. Initial recovered drafts SHALL be consumed separately from current conversation drafts maintained through existing persistence callbacks.
+
+#### Scenario: Recovery preparation changes while A is accepted
+- **WHEN** resize/font changes or a new selection holds B during its preparation
+- **THEN** A remains accepted until explicit release permits B's actual adoption
+- **AND** B's marks, pending/newer draft fields, zoom and viewport attach once to B; cancel/close cannot replay them on A or a later request
+
+#### Scenario: Reopen a confirmed conversation with a newer private draft
+- **WHEN** exact history confirms pending M and the user edits N2 then reopens the same conversation
+- **THEN** N2 and its model survive and the resolved pending UUID/question/model do not resurrect
+- **AND** only explicit Send can infer
+
+### Requirement: Reachable local display preview and original PDF export
+The reflow reader SHALL expose Light/Dark/Automatic and font/zoom preview, cancel and apply controls through its existing render-key and viewport owners. Automatic SHALL inherit only the reader window. Export PDF SHALL atomically publish the exact accepted Original PDF bytes through an explicit native action and save chooser.
+
+#### Scenario: Preview, cancel and apply reading appearance
+- **WHEN** the user previews appearance changes then cancels or applies
+- **THEN** cancellation restores the previous window-local appearance and renderer anchor/selection, while apply commits current prepared layout
+- **AND** PDF print colors/glyphs, source mappings and global OS settings are unchanged
+
+#### Scenario: Export current original bytes or reject an obsolete choice
+- **WHEN** the user explicitly exports the accepted Original PDF
+- **THEN** the same publication/input/digest bytes are validated, staged, PDFKit-reopened and atomically saved after current snapshot/operation checks
+- **AND** cancel/stale/dispose/tamper/invalid or changed destination preserves the previous file
+- **AND** offline PDF recovery stores only identity/digest/page/scale/unscaled offsets, does not store PDF selection, and does not enable offline mode switching

@@ -70,7 +70,7 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F13], [NA04/06], [Native account presentation over ChatAuth/HomeAccount.], [Consent/authority/credential boundary; no live login tested.],
   [F14], [NA04/05/06], [Existing lifecycle/power operations plus generation/selection hold.], [Bounded reconnect/sleep/network, late callback and view lifetime.],
   [F15], [NA02/03/05/06], [Window-local Theme/Text size and Zoom/Fit controls; native AX tree.], [Bounded headless text/object/current-page AX checks; independent GUI/VoiceOver/fidelity pending.],
-  [F16], [NA04/06], [Save Offline / saved-document list / Open Saved from a profile-bound typed store.], [Atomic/cancel/read-only limits and pending-draft recovery; independent full app resume remains pending.],
+  [F16], [NA04/06], [Save Offline / saved-document list / Open Saved; explicit Export PDF of the accepted Original PDF.], [Atomic/cancel/read-only limits and pending-draft recovery; independent full app resume remains pending.],
   [F17], [NA04/06], [Existing manager/origin/prefix and external consumers retained.], [Web/mobile/terminal/editor/service lifetime regression.],
   [F18], [NA05/06], [Canonical source/resource packaging with external engine provenance.], [Fixed09c staged portable delivery exists; changed source needs new app binding; no live install here.],
 )
@@ -192,7 +192,7 @@ GUI/VoiceOver, F04 ordered deltas/full page fidelity, TeX and runtime delivery r
 open gates. No live installation, service restart, push, Rust or Cloud build occurs.
 
 
-== Core review correction contract — NA06
+== Core review correction contract — NA06 <core-review-ec2>
 
 Retained layout authority is the exact currently accepted snapshot and its
 accepted view/context, independently of the newest transport request generation.
@@ -254,7 +254,7 @@ full-snapshot/reset contract over the existing accepted HTML owner. See
 #link("native-reader-original-pages.typ")[the original-page contract] for exact
 publication bindings, native composition, bounds, actions and verification.
 Reflow retained layout, fresh source operations, local display versus remote32
-selection and pending question/model recovery retain the ec2 correction contract.
+selection and pending question/model recovery retain the #link(<core-review-ec2>)[Core review correction contract], recorded at historical full source `ec2c4af91988f0db66d494cea97a551ffd7cf180` (ec2). This historical source identifier is not the current app build.
 Only visible-mode actual paint acknowledges Read. PDF text/bounds grant no source
 authority; page source actions are unsupported. Raw engine diff-v1 native
 consumption, final registry/app/delivery and actual GUI/VoiceOver remain separate
@@ -288,6 +288,28 @@ POST `api/native-chat` uses open with selection, draft with conversationID/versi
 draft, send with conversationID/version/messageID/question/model, cancel with
 conversationID/version, list (authoritative history), or events. Responses contain bounded typed
 conversations; versions, sequence, frozen target and selection remain guarded.
+The wire response is an object with a `conversations` array, at most128 records
+and unique UUID `conversation_id` values. Every record has nonnegative `version`
+and `sequence`, neither regressing from the previously accepted record; `thread`
+has at most256 messages and `draft` at most8000 Swift characters. Every message
+has a unique UUID `id`, `role` equal to `user` or `assistant`, `text` at most80000
+Swift characters, and string `status`. `streaming` means incomplete; other status
+strings are represented as complete. `attachment.state == "attached"` is the
+attached flag; other values do not grant Send authority. The whole batch is
+validated before any record is adopted. Example (UUIDs are fixture identifiers):
+
+```json
+{"conversations":[{"conversation_id":"9e5e59b4-0e45-4c64-99a4-579214d41c10",
+ "version":2,"sequence":3,"thread":[{"id":"5926b26e-e9de-47b1-adb5-76224e74774b",
+ "role":"user","text":"Question","status":"complete"}],"draft":"Next question",
+ "status":"idle","attachment":{"state":"attached"}}]}
+```
+
+These client string budgets use Swift `String.count` (extended grapheme
+clusters), not UTF8 bytes; JSON/SSE/asset byte budgets below are independent.
+ChatView separately bounds an adopted transcript to256 messages and512KiB total
+UTF8 text. Backend validation remains with its existing owner. These are not new model/tool
+round-trip, document-reading, eight-round/24-call/96k inference limits.
 UUID plus exact stored user-message content is required to confirm a lost Send;
 a missing/mismatched message requires the original explicit UUID/question/model
 retry, never automatic retransmission. Existing POST `api/chat/auth` status/models
@@ -371,7 +393,10 @@ rectangles. It never changes the attributed logical text, selection/AX offsets,
 source files or browser marks. Reflow retains marks on the same accepted
 snapshot; a newly adopted snapshot or cancellation clears old paint. A review
 mark uses the existing typed32-fragment bound and rejects an oversized mark
-without truncating the ordinary display selection.
+without truncating the ordinary display selection. A collection has at most256
+marks with unique UUIDs. A257th mark, duplicate ID or wrong identity is rejected
+without changing the selection, accepted marks or previous file. Save/load and
+LocalReview share collection validation, including validation before adoption.
 
 Contents is a native heading popup populated only from the accepted typed tree.
 Selection delegates to TextView's node-to-presentation mapping. Internal links
@@ -382,15 +407,26 @@ anchor. Locate Source uses the existing source operation, not invented file or
 PDF coordinates. External links use an explicit native activation and the
 existing safe URI policy; no automatic URL open occurs.
 
-Theme and Text size controls and Zoom +/Zoom −/Fit update the existing per-window
-TextView appearance/render key. Window appearance is local; global macOS
-settings and settings schema are unchanged. Object/math preparation remains
-asynchronous and uses retained accepted assets for current-key reflow. These
-settings are per open reader; font/theme are not newly persisted into a storage
-schema. Typed recovery independently keeps its0.5–4 zoom bound.
+Theme offers Light, Dark and Automatic; the initial resolved theme remains
+Light. Text size choices are12/14/16/18/24/32 points, initially14; reflow zoom
+starts at1 and is0.25–4. Automatic inherits the reader window's effective
+appearance; the concrete render key contains resolved light/dark colors. It
+never changes OS or global app appearance. Preview Display starts a window-local
+transaction; changing Theme/Text size or reflow Zoom/Fit also starts a preview.
+Apply Display commits it; Cancel Display restores the previous controls, local
+window appearance, font/zoom and renderer-owned viewport anchor on the same
+accepted snapshot, preserving exact logical/AX selection. A new snapshot revokes
+obsolete preview/viewport state. Apply waits for current layout; Cancel can
+revoke pending preparation. These controls concern reflow reading appearance,
+not recoloring/resynthesizing the Original PDF print glyphs. Reflow Fit resets
+zoom to1; Original PDF Fit uses its separate width-fit geometry and0.1–8 scale
+owner, retaining its selection-hold/raster-budget guards. Font/theme are not
+persisted via a new settings schema; typed reflow recovery independently keeps
+its0.5–4 zoom bound. Object/math preparation stays asynchronous with accepted
+snapshot assets.
 
-Save Offline captures accepted document/assets, renderer-owned normalized
-viewport and exact held selection, local review marks and the current typed
+Save Offline captures accepted document/assets, native-reflow renderer-owned
+normalized viewport and exact held selection, local review marks and the current typed
 composer recovery (including original uncertain question/model separately from
 a newer draft). Refresh Saved and Open Saved enumerate/load only an explicitly
 composed profile/target namespace below AppEnvironment.support. RecoveryStore
@@ -398,7 +434,11 @@ alone decodes/validates the existing envelope, SHA256, identity, assets and
 budgets; there is no second JSON validator, database or migration. Each entry
 is validated before display and again when opened. Invalid/cancelled saves
 preserve the previous atomic file. Selection33+ and display0.25 remain valid
-local states but cannot be saved through typed32/zoom0.5 limits.
+local reflow states but cannot be saved through typed32/zoom0.5 limits. Original
+PDF recovery instead stores identity/input fingerprint/digest, page, optional
+scale and unscaled display offsets; it does not store PDF display selection.
+Install clears PDF selection. A recovered copy does not support offline mode
+switching; PDF positions are never promoted to Typst source authority.
 
 The home window/menu offers a local offline library action without entering
 service start, manager attachment or live Read. It composes a separate local
@@ -408,7 +448,11 @@ operations. Source, chat and account actions remain disabled and authorization
 still rejects them. Saved drafts are visible read-only; pending UUID/question/
 model are retained without inference or automatic Send. Reattaching a matching
 authorized conversation may explicitly restore its draft; authoritative history
-and the original retry guards still own lost-Send recovery.
+and the original retry guards still own lost-Send recovery. Initial saved drafts
+are consumed once per matching conversation; current private state uses existing
+persistDraft/recoveryDraft callbacks. Reopening the same conversation must retain
+N2 and a history-confirmed clearing of pending M, not replay initial M/N. The
+preferred model is retained while the current model catalog is still loading.
 
 Storage work is asynchronous and injectable as concrete typed save/list/load
 operations. Busy controls and Cancel, window lifetime, operation epoch and
@@ -433,3 +477,27 @@ authentication management is not inferred from status or from opening a URL.
 These concrete gaps require the existing source/auth owners, not a host-side
 permission bypass or token store. Current source needs new app/delivery binding;
 F01–18 official/GUI/AX acceptance remains pending.
+
+
+== Candidate completion and original PDF export
+
+A validated recovery snapshot's marks/drafts/pending UUID/question/model and
+reflow zoom/viewport are bound to the same Session candidate. They are applied
+once only after its actual PreparedAdoption publication and selection restoration,
+including resize/font retries or selection hold/release. The initial await or
+matching identity alone is not completion. While held, the native Cancel control
+continues to revoke that candidate. Cancel/close cannot attach its metadata to A
+or resurrect B via a later layout retry.
+
+Export PDF is a native explicit control for the currently accepted Original PDF.
+The production chooser is an NSSavePanel; isolated tests inject only its result
+without displaying a panel. Existing accepted publication/input/digest-validated
+bytes are staged by RecoveryStore, reopened with PDFKit, then published by atomic
+rename after exact snapshot/request/operation checks. They are the original bytes,
+not a screenshot or a regenerated PDF. No source/chat/auth authority is granted.
+Cancel, stale snapshot, disposal, tampered bytes, symlink/nonregular/wrong-extension
+or missing-parent destinations, or a destination changed since staging cannot
+replace the previous file. Open directory descriptors bind the destination and
+bounded temporary files are removed on failure. Native Print is not newly added.
+These source/offscreen checks still require final app binding and independent
+actual GUI/export/AX/VoiceOver inspection.

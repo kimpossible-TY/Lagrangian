@@ -345,8 +345,7 @@ selection and 0.25 reflow zoom do not extend typed recovery's 32 fragments and
 successful persistence. The synthetic 256-page and current 37-paragraph fixtures,
 host OS27.2.1, target13 and single partial GUI Read/AXPress -25200 interruption
 are distinct evidence. Actual OS13, complete GUI/AX, official final code/docs
-review and a restaged final app remain gates. NA/ B/C/D/882/C19/G1 labels and
-current inspection entrypoints are defined in the canonical verification guide.
+review and a restaged final app remain gates. NA/B/C/D/882/ec2/C19/G1 labels are defined in `docs/tinymist/dev/native-reader-app-contract.typ` under Historical role names/Core review correction; current inspection entrypoints are in the canonical verification guide.
 
 
 ## NA06 native local feature wiring (fixed24666 follow-up)
@@ -382,3 +381,41 @@ owners rather than hiding missing runtime UI behind model-only claims.
 Reachability and actual target/action/pixel/storage tests are separate from final
 GUI/AX/official review and new app/resource binding. Delivery/archive producer
 paths and old evidence remain untouched; no app build/staging in this assignment.
+
+
+## Closure review v2: candidate, current draft, keyboard and explicit local UI
+
+Recovery attachments are candidate-local completion data, applied once after actual
+PreparedAdoption and restored selection, surviving layout retries/holds. Initial
+await return or matching identity is not publication. Held restore remains
+cancellable; close/cancel drops completion with the candidate. Initial saved drafts
+are consumed separately from current per-conversation state, using the existing
+persistDraft/recoveryDraft callbacks before ChatView replacement. Exact history
+confirmation of M and newer N2/model survive reopen and resave; no automatic Send.
+Current-page PDF link traversal exits to normal next/previous key views at its
+boundaries, keeping stale-page guards. Actual Full Keyboard Access/VO remains
+independently unverified.
+
+The native wire uses conversations<=128 unique UUID conversation_id, nonnegative
+nonregressing version/sequence, thread<=256 unique UUID id messages with role
+user|assistant, text<=80000 and status (streaming=incomplete), draft<=8000, and
+attachment.state==attached for attached authority. Entire batches validate first.
+String limits are Swift String.count; payload bytes remain separate. See canonical
+contract JSON example. These are not new inference round/tool limits.
+
+Reflow Light/Dark/Automatic (initialLight), Text size12/14/16/18/24/32 (initial14),
+window-local Preview/Apply/Cancel and Zoom/Fit preserve canonical selection and
+renderer-owned anchors. Automatic inherits the window, never changes OS settings.
+Reflow Fit means zoom1; PDF Fit means width-fit, without changing PDF print colors
+or glyph authority. Stored exact selection/normalized viewport apply to reflow32
+and zoom0.5–4. PDF recovery stores publication/digest/page/scale/unscaled offsets,
+not PDF selection; offline mode switching remains unsupported.
+
+Explicit Export PDF uses accepted Original PDF publication/input/digest bytes,
+existing typed validation and atomic disk ownership, native save chooser and
+snapshot/operation rechecks before publication. Tests inject chooser results only.
+Cancel/stale/dispose/tamper/invalid destination/changed destination preserve files.
+Review marks retain per-mark32 and total256 unique UUID budgets checked before
+adoption; browser marks/source authority are unchanged. The old18-case design is
+immutable history; Planner's new125-case design supersedes it without creating
+assignments or passes. No current app/GUI/VO/OS13/live completion is inferred.

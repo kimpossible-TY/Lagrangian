@@ -24,6 +24,7 @@ import Foundation
     // Read-only after a transport failure is not an offline snapshot. The
     // session alone owns whether the accepted/pending content came from recovery.
     private(set) var isRecoveredCopy = false
+    var hasPendingRecovery: Bool { pending?.restoration != nil }
     var hasRecoveryCopy: Bool { isRecoveredCopy || pending?.restoration != nil }
     var onChange: (() -> Void)?
     var onSelection: ((NativeReaderSelection?, NativeReaderRequestContext) -> Void)?
@@ -41,6 +42,7 @@ import Foundation
         // Explicit per-candidate operations retain validated recovery inputs
         // across a hold/retry without changing live transport policy.
         var preparation: Prepare? = nil
+        var didAdopt: (@MainActor (NativeReaderDocument) -> Void)? = nil
     }
     private var pending: Candidate?
     // Correlates NA02's selectionReleased callback after that same store was
@@ -174,6 +176,7 @@ import Foundation
                 }
             }
             pending = nil; state = offline ? .offline : .reading; failure = nil
+            candidate.didAdopt?(candidate.document) // Consumed exactly once, after actual publication and selection restoration.
             onChange?()
             return
         }
@@ -238,7 +241,7 @@ import Foundation
 
     /// Recovery uses the identical preparation/adopter path and stays read-only,
     /// even after successful publication. A held replacement awaits explicit release.
-    func restore(_ snapshot: NativeReaderRecoverySnapshot, matching identity: NativeDocumentIdentity, prepare restorationPrepare: Prepare? = nil) async throws {
+    func restore(_ snapshot: NativeReaderRecoverySnapshot, matching identity: NativeDocumentIdentity, prepare restorationPrepare: Prepare? = nil, didAdopt: (@MainActor (NativeReaderDocument) -> Void)? = nil) async throws {
         guard state != .disposed, state != .sleeping, snapshot.document.identity == identity else { throw NativeReaderContractError.wrongTarget }
         try snapshot.validate()
         task?.cancel(); epoch += 1
@@ -247,7 +250,7 @@ import Foundation
         let document = snapshot.document
         let candidate = document.rebinding(generation: generation)
         let request = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
-        pending = Candidate(document: candidate, context: request, restoration: snapshot.restoration, preparation: restorationPrepare)
+        pending = Candidate(document: candidate, context: request, restoration: snapshot.restoration, preparation: restorationPrepare, didAdopt: didAdopt)
         isReadOnly = true; state = .loading; failure = nil; onChange?()
         do {
             await invalidationTask?.value
@@ -255,6 +258,10 @@ import Foundation
             try await publishPending(epoch: current)
             try check(current, generation: generation, offline: true)
         } catch {
+            // A layout retry owns this same candidate now. The original await
+            // is not its completion; keep the candidate-local completion alive.
+            if epoch != current, pending?.context == request { return }
+            if context == request, store.document == candidate, isRecoveredCopy { return }
             if epoch == current, state != .disposed, state != .sleeping { fail() }
             throw error
         }

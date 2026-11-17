@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Explicit offline runtime inputs. No PATH, scratch install or checkout discovery.
 struct NativeReaderRuntime {
@@ -66,8 +67,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var storageTask: Task<Void, Never>?
   private var storageEpoch = 0
   private var storageIsOpening = false
+  private var exportTask: Task<Void, Never>?
+  private var exportEpoch = 0
   private var recoveredDrafts = [NativeReaderRecoveredDraft]()
   private var recoveredDraftIdentity: NativeDocumentIdentity?
+  private var currentDrafts = [UUID: NativeReaderRecoveredDraft]()
+  private var currentDraftIdentity: NativeDocumentIdentity?
   private var pendingPresentation: (NativeReaderDocument, NativeReaderRestoration)?
 
   private let provider: NativeReaderDocumentProviding
@@ -87,6 +92,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   var runtime: NativeReaderRuntime?
   var copyText: (String) -> Bool = { _ in false }
   var openHomepage: ((URL) -> Void)?
+  var choosePDFDestination: (NSWindow) async -> URL? = { window in
+    await withCheckedContinuation { continuation in
+      let panel = NSSavePanel(); panel.allowedContentTypes = [.pdf]; panel.nameFieldStringValue = "Document.pdf"
+      panel.beginSheetModal(for: window) { response in continuation.resume(returning: response == .OK ? panel.url : nil) }
+    }
+  }
   private var chatContext: NativeReaderRequestContext?
   private(set) var chatView: NativeReaderChatView?
   lazy var hostWindow = NativeReaderHostWindow(reader: textView, show: show, avoidActivation: avoidActivation)
@@ -179,6 +190,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.onUndoReview = { [weak self] in self?.localReview.undo() }
     hostWindow.onClearReview = { [weak self] in self?.localReview.clear() }
     hostWindow.onAppearance = { [weak self] in self?.layoutChanged() }
+    hostWindow.onExportPDF = { [weak self] in self?.exportPDFExplicitly() }
     hostWindow.onSaveOffline = { [weak self] in self?.saveOfflineExplicitly() }
     hostWindow.onListOffline = { [weak self] in self?.refreshSavedExplicitly() }
     hostWindow.onOpenOffline = { [weak self] in self?.openSavedExplicitly($0) }
@@ -311,7 +323,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.applyPendingPresentation(); self.hostWindow.refreshLocalControls()
       if let chat = self.chatView {
         if self.chatContext == self.textView.context { self.configureChatMath(chat, key: key) }
-        else { chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
+        else { self.rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
       }
     })
   }
@@ -403,22 +415,32 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     mode = snapshot.originalPages == nil ? .nativeReflow : .originalPages
     // Snapshot.validate above owns asset/hash authority. Candidate-local capture
     // keeps this input through held preparation retries; live closures stay idle.
+    let ticket = requestTicket, epoch = storageEpoch
     try await session.restore(snapshot, matching: snapshot.document.identity, prepare: { [weak self] document, context in
       guard let self else { throw NativeReaderContractError.disposed }
       return try await self.prepare(document, context: context, recoveryAssets: snapshot.assets, recoveryPages: snapshot.originalPages)
+    }, didAdopt: { [weak self] document in
+      guard let self, !self.disposed, self.requestTicket === ticket, !ticket.isCancelled,
+            self.storageEpoch == epoch, self.store.document == document else { return }
+      // Every fallible typed bound was checked before enqueue. This completion
+      // follows this candidate through resize/hold/release and is consumed once.
+      do {
+        try self.localReview.restore(snapshot.reviewMarks, document: document)
+        self.recoveredDrafts = snapshot.drafts; self.recoveredDraftIdentity = document.identity
+        self.currentDrafts.removeAll(); self.currentDraftIdentity = document.identity
+        self.hostWindow.presentRecoveredDrafts(snapshot.drafts)
+        if snapshot.originalPages == nil {
+          self.pendingPresentation = (document, snapshot.restoration)
+          var appearance = self.textView.textAppearance; appearance.zoom = CGFloat(snapshot.restoration.zoom)
+          try self.textView.setAppearance(appearance)
+          self.layoutChanged(); self.applyPendingPresentation()
+        }
+        self.storageIsOpening = false; self.hostWindow.storageBusy = false
+        self.hostWindow.notice.stringValue = "Offline copy · source and chat actions are unavailable."
+      } catch { self.report(error) }
     })
-    try Task.checkCancellation()
-    guard let document = store.document, document.identity == snapshot.document.identity, session.isReadOnly else { throw NativeReaderContractError.staleGeneration }
-    recoveredDrafts = snapshot.drafts; recoveredDraftIdentity = document.identity
-    hostWindow.presentRecoveredDrafts(snapshot.drafts)
-    try localReview.restore(snapshot.reviewMarks, document: document)
-    if snapshot.originalPages == nil {
-      pendingPresentation = (document, snapshot.restoration)
-      var appearance = textView.textAppearance; appearance.zoom = CGFloat(snapshot.restoration.zoom)
-      try textView.setAppearance(appearance)
-      layoutChanged(); applyPendingPresentation()
-    }
   }
+
   private func applyPendingPresentation() {
     guard let pending = pendingPresentation, pending.0 == store.document,
           textView.renderKey == textView.requestedRenderKey else { return }
@@ -440,9 +462,18 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     do { try localReview.add(.init(id: UUID(), identity: document.identity, selection: location), document: document) }
     catch { hostWindow.notice.stringValue = "Review mark unavailable. Select at most 32 blocks; your selection is retained." }
   }
+  private func rememberCurrentDraft() {
+    guard let draft = chatView?.recoveryDraft, let identity = chatContext?.target else { return }
+    if currentDraftIdentity != identity { currentDrafts.removeAll(); currentDraftIdentity = identity }
+    currentDrafts[draft.conversationID] = draft
+  }
   private func storedDrafts() -> [NativeReaderRecoveredDraft] {
+    rememberCurrentDraft()
     var result = recoveredDraftIdentity == store.document?.identity ? recoveredDrafts : []
-    if let draft = chatView?.recoveryDraft {
+    if currentDraftIdentity == store.document?.identity {
+      for draft in currentDrafts.values { result.removeAll { $0.conversationID == draft.conversationID }; result.append(draft) }
+    }
+    if let draft = chatView?.recoveryDraft, chatContext?.target == store.document?.identity {
       result.removeAll { $0.conversationID == draft.conversationID }; result.append(draft)
     }
     return result
@@ -453,7 +484,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.storageBusy = true; storageIsOpening = opening
     storageTask = Task { [weak self] in
       guard let self else { return }
-      defer { if self.storageEpoch == epoch { self.storageTask = nil; self.storageIsOpening = false; self.hostWindow.storageBusy = false } }
+      defer { if self.storageEpoch == epoch {
+        self.storageTask = nil
+        if !self.storageIsOpening || !self.session.hasPendingRecovery { self.storageIsOpening = false; self.hostWindow.storageBusy = false }
+      } }
       do { try await operation() }
       catch {
         if self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled, !self.disposed {
@@ -463,6 +497,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   func cancelStorage() {
+    exportEpoch += 1; exportTask?.cancel(); exportTask = nil; hostWindow.exportBusy = false
     storageEpoch += 1; storageTask?.cancel(); storageTask = nil; hostWindow.storageBusy = false
     if storageIsOpening {
       pendingPresentation = nil; acceptedPaintKey = nil; paintedKey = nil
@@ -502,7 +537,46 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
       try await self.restoreRecovery(snapshot)
       guard self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled else { return }
-      self.hostWindow.notice.stringValue = "Offline copy · source and chat actions are unavailable."
+      if !self.session.hasPendingRecovery { self.hostWindow.notice.stringValue = "Offline copy · source and chat actions are unavailable." }
+    }
+  }
+  private func currentExportSnapshot() throws -> (NativeReaderDocument, NativeOriginalPageRecovery, UUID) {
+    guard !disposed, !requestTicket.isCancelled, visibleMode == .originalPages,
+          let document = store.document, let accepted = originalPageView.store.accepted,
+          let delivery = acceptedPageDelivery, accepted.binding.identity == document.identity,
+          accepted.binding.requestGeneration == session.context?.generation,
+          accepted.binding.inputFingerprint == delivery.publication.inputFingerprint,
+          accepted.binding.pdfSHA256 == delivery.publication.pdfSHA256 else { throw NativeOriginalPageError.stale }
+    let original = NativeOriginalPageRecovery(publication: delivery.publication, data: delivery.data, viewport: try originalPageView.recovery())
+    try original.validate(document: document)
+    return (document, original, accepted.id)
+  }
+  private func exportPDFExplicitly() {
+    guard exportTask == nil, let window = hostWindow.window, let captured = try? currentExportSnapshot() else {
+      hostWindow.notice.stringValue = "Open a verified Original PDF before exporting."; return
+    }
+    exportEpoch += 1; let epoch = exportEpoch, ticket = requestTicket
+    hostWindow.exportBusy = true
+    exportTask = Task { [weak self] in
+      guard let self else { return }
+      defer { if self.exportEpoch == epoch { self.exportTask = nil; self.hostWindow.exportBusy = false } }
+      do {
+        guard let destination = await self.choosePDFDestination(window) else { return }
+        try Task.checkCancellation()
+        let before = try self.currentExportSnapshot()
+        guard self.exportEpoch == epoch, self.requestTicket === ticket, before.0 == captured.0, before.2 == captured.2 else { throw NativeOriginalPageError.stale }
+        let job = Task.detached(priority: .userInitiated) {
+          try NativeReaderRecoveryStore.stageOriginalPDF(captured.1, document: captured.0, to: destination)
+        }
+        let staged = try await withTaskCancellationHandler(operation: { try await job.value }, onCancel: { job.cancel() })
+        try Task.checkCancellation()
+        let current = try self.currentExportSnapshot()
+        guard self.exportEpoch == epoch, self.requestTicket === ticket, current.0 == captured.0, current.2 == captured.2 else { throw NativeOriginalPageError.stale }
+        try staged.commit()
+        self.hostWindow.notice.stringValue = "Original PDF exported."
+      } catch {
+        if self.exportEpoch == epoch, !Task.isCancelled, !self.disposed { self.hostWindow.notice.stringValue = "PDF export failed; the previous file is unchanged." }
+      }
     }
   }
   private func lastEditExplicitly() {
@@ -642,13 +716,24 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
                                       context: NativeReaderRequestContext) throws -> NativeReaderChatView {
     try session.authorize(context)
     guard let key = acceptedPaintKey, key.identity == context.target, key.documentGeneration == context.generation else { throw NativeObjectError.stale }
+    rememberCurrentDraft()
     chatView?.dispose(); chatView?.removeFromSuperview()
+    if currentDraftIdentity != context.target { currentDrafts.removeAll(); currentDraftIdentity = context.target }
     let chat = NativeReaderChatView(actions: actions, context: context, authorize: { [weak self] in
       guard let self else { throw NativeReaderContractError.disposed }; try self.session.authorize(context)
     })
     configureChatMath(chat, key: key)
     chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
-    chat.present(conversation, recovered: recoveredDraftIdentity == context.target ? recoveredDrafts.first { $0.conversationID == conversation.state.conversationID } : nil); chatView = chat; chatContext = context; hostWindow.attachChat(chat)
+    let id = conversation.state.conversationID
+    let recovered = currentDrafts[id] ?? (recoveredDraftIdentity == context.target ? recoveredDrafts.first { $0.conversationID == id } : nil)
+    recoveredDrafts.removeAll { $0.conversationID == id } // Initial recovery is consumed, never a live authority.
+    chatView = chat; chatContext = context
+    chat.persistDraft = { [weak self, weak chat] draft in
+      guard let self, let chat, self.chatView === chat, self.chatContext == context,
+            self.currentDraftIdentity == context.target, !self.disposed else { return }
+      self.currentDrafts[draft.conversationID] = draft
+    }
+    chat.present(conversation, recovered: recovered); hostWindow.attachChat(chat)
     return chat
   }
 
@@ -701,6 +786,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   var onUndoReview: (() -> Void)?
   var onClearReview: (() -> Void)?
   var onAppearance: (() -> Void)?
+  var onExportPDF: (() -> Void)?
   var onSaveOffline: (() -> Void)?
   var onListOffline: (() -> Void)?
   var onOpenOffline: ((NativeDocumentIdentity) -> Void)?
@@ -711,10 +797,18 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   let contents = NSPopUpButton()
   let theme = NSPopUpButton()
   let textSize = NSPopUpButton()
+  private let applyDisplay = NSButton(title: "Apply Display", target: nil, action: nil)
+  private let cancelDisplay = NSButton(title: "Cancel Display", target: nil, action: nil)
+  private var displayPreview: (document: NativeReaderDocument?, appearance: NativeReaderTextAppearance, theme: Int, windowAppearance: NSAppearance?, anchor: NativeReaderViewportAnchor?)?
+  private var pendingDisplayViewport: (NativeReaderDocument?, NativeReaderViewportAnchor, NativeReaderTextAppearance)?
+  private var committedTheme = 0
+  private var appearanceObservation: NSKeyValueObservation?
+
   let savedDocuments = NSPopUpButton()
   private let back = NSButton(title: "Back", target: nil, action: nil)
   private let undoReview = NSButton(title: "Undo review", target: nil, action: nil)
   private let clearReview = NSButton(title: "Clear review", target: nil, action: nil)
+  private let exportPDF = NSButton(title: "Export PDF", target: nil, action: nil)
   private let saveOffline = NSButton(title: "Save Offline", target: nil, action: nil)
   private let refreshSaved = NSButton(title: "Refresh Saved", target: nil, action: nil)
   private let openSaved = NSButton(title: "Open Saved", target: nil, action: nil)
@@ -730,6 +824,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var liveButtons = [NSButton]()
   private var reflowRows = [NSView]()
   var reviewCount = 0 { didSet { undoReview.isEnabled = reviewCount > 0; clearReview.isEnabled = reviewCount > 0 } }
+  var exportBusy = false { didSet { updateOfflineControls() } }
   var storageAvailable = false { didSet { updateOfflineControls() } }
   var storageBusy = false { didSet { updateOfflineControls() } }
   private var original: NativeReaderOriginalPageView?
@@ -772,11 +867,15 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     contents.setAccessibilityLabel("Contents"); contents.target = self; contents.action = #selector(outlineSelected)
     back.target = self; back.action = #selector(returnFromReference)
     let navigation = NSStackView(views: [NSTextField(labelWithString: "Contents"), contents, back])
-    theme.addItems(withTitles: ["Light", "Dark"]); theme.setAccessibilityLabel("Theme")
+    theme.addItems(withTitles: ["Light", "Dark", "Automatic"]); theme.setAccessibilityLabel("Theme")
     theme.target = self; theme.action = #selector(appearanceChanged)
     textSize.addItems(withTitles: ["12", "14", "16", "18", "24", "32"]); textSize.selectItem(withTitle: "14"); textSize.setAccessibilityLabel("Text size")
     textSize.target = self; textSize.action = #selector(appearanceChanged)
-    let appearance = NSStackView(views: [NSTextField(labelWithString: "Theme"), theme, NSTextField(labelWithString: "Text size"), textSize])
+    let preview = NSButton(title: "Preview Display", target: self, action: #selector(previewDisplayExplicitly))
+    applyDisplay.target = self; applyDisplay.action = #selector(applyDisplayExplicitly)
+    cancelDisplay.target = self; cancelDisplay.action = #selector(cancelDisplayExplicitly)
+    applyDisplay.isEnabled = false; cancelDisplay.isEnabled = false
+    let appearance = NSStackView(views: [NSTextField(labelWithString: "Theme"), theme, NSTextField(labelWithString: "Text size"), textSize, preview, applyDisplay, cancelDisplay])
     let mark = NSButton(title: "Mark for review", target: self, action: #selector(markSelected))
     undoReview.target = self; undoReview.action = #selector(undoReviewExplicitly)
     clearReview.target = self; clearReview.action = #selector(clearReviewExplicitly)
@@ -785,11 +884,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     reflowRows = [navigation, appearance, review]
     for row in reflowRows { stack.addArrangedSubview(row) }
     savedDocuments.setAccessibilityLabel("Saved documents"); savedDocuments.target = self; savedDocuments.action = #selector(savedDocumentSelected)
+    exportPDF.target = self; exportPDF.action = #selector(exportPDFExplicitly)
     saveOffline.target = self; saveOffline.action = #selector(saveOfflineExplicitly)
     refreshSaved.target = self; refreshSaved.action = #selector(refreshSavedExplicitly)
     openSaved.target = self; openSaved.action = #selector(openSavedExplicitly)
     cancelStorage.target = self; cancelStorage.action = #selector(cancelStorageExplicitly)
-    stack.addArrangedSubview(NSStackView(views: [saveOffline, savedDocuments, refreshSaved, openSaved, cancelStorage]))
+    stack.addArrangedSubview(NSStackView(views: [saveOffline, savedDocuments, refreshSaved, openSaved, cancelStorage, exportPDF]))
     manageAccount.target = self; manageAccount.action = #selector(manageAccountExplicitly); manageAccount.isEnabled = false
     stack.addArrangedSubview(NSStackView(views: [accountStatus, manageAccount]))
     recoveredDraftRow.orientation = .vertical; recoveredDraftRow.alignment = .leading
@@ -806,6 +906,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16),
       reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220)])
     self.window = window
+    appearanceObservation = window.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+      Task { @MainActor in self?.automaticAppearanceChanged() }
+    }
   }
   func present() {
     guard show, NSApp.activationPolicy() != .prohibited else { return }
@@ -841,15 +944,15 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func previousPage() { if let original { pageAction { try original.jump(to: max(0, original.store.pageIndex - 1)) } } }
   @objc func nextPage() { if let original { pageAction { try original.jump(to: original.store.pageIndex + 1) } } }
   @objc func zoomIn() {
-    if currentMode == .nativeReflow { reader.changeZoom(by: 1.25); onAppearance?() }
+    if currentMode == .nativeReflow { beginDisplayPreview(); reader.changeZoom(by: 1.25); onAppearance?() }
     else if let original { pageAction { try original.zoom(original.store.displayedScale * 1.25) } }
   }
   @objc func zoomOut() {
-    if currentMode == .nativeReflow { reader.changeZoom(by: 1 / 1.25); onAppearance?() }
+    if currentMode == .nativeReflow { beginDisplayPreview(); reader.changeZoom(by: 1 / 1.25); onAppearance?() }
     else if let original { pageAction { try original.zoom(original.store.displayedScale / 1.25) } }
   }
   @objc func fitPage() {
-    if currentMode == .nativeReflow { var value = reader.textAppearance; value.zoom = 1; try? reader.setAppearance(value); onAppearance?() }
+    if currentMode == .nativeReflow { beginDisplayPreview(); var value = reader.textAppearance; value.zoom = 1; try? reader.setAppearance(value); onAppearance?() }
     else if let original { pageAction { try original.zoom(nil) } }
   }
   @objc func releasePageSelection() {
@@ -892,9 +995,19 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     refreshSaved.isEnabled = storageAvailable && !storageBusy
     openSaved.isEnabled = storageAvailable && !storageBusy && !savedEntries.isEmpty
     savedDocuments.isEnabled = !storageBusy && !savedEntries.isEmpty
-    cancelStorage.isEnabled = storageBusy
+    cancelStorage.isEnabled = storageBusy || exportBusy
+    exportPDF.isEnabled = currentMode == .originalPages && original?.store.accepted != nil && !exportBusy
+    if exportBusy { saveOffline.isEnabled = false; openSaved.isEnabled = false; refreshSaved.isEnabled = false }
   }
-  func refreshLocalControls() { updateOfflineControls() }
+  func refreshLocalControls() {
+    updateOfflineControls()
+    if let preview = displayPreview, preview.document != reader.store.document { displayPreview = nil; cancelDisplay.isEnabled = false }
+    applyDisplay.isEnabled = displayPreview != nil && reader.renderKey != nil && reader.renderKey == reader.requestedRenderKey
+    if let pending = pendingDisplayViewport, pending.0 == reader.store.document,
+       reader.textAppearance == pending.2, reader.renderKey == reader.requestedRenderKey {
+      reader.restoreViewport(pending.1); pendingDisplayViewport = nil
+    }
+  }
   func setSavedDocuments(_ entries: [NativeReaderRecoveryStore.Entry]) {
     savedEntries = entries; savedDocuments.removeAllItems(); savedDocuments.addItems(withTitles: entries.map(\.title)); updateOfflineControls()
   }
@@ -909,17 +1022,54 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func outlineSelected() { guard currentMode == .nativeReflow, let id = contents.selectedItem?.representedObject as? String else { return }; _ = reader.navigate(toNodeID: id); updateNavigation() }
   @objc func returnFromReference() { guard currentMode == .nativeReflow else { return }; _ = reader.returnFromReference(); updateNavigation() }
+  private func beginDisplayPreview() {
+    guard currentMode == .nativeReflow, displayPreview == nil else { return }
+    displayPreview = (reader.store.document, reader.textAppearance, committedTheme, window?.appearance, reader.viewportAnchor())
+    cancelDisplay.isEnabled = true; applyDisplay.isEnabled = true
+  }
+  @objc func previewDisplayExplicitly() { beginDisplayPreview() }
+  @objc func applyDisplayExplicitly() {
+    guard currentMode == .nativeReflow, reader.renderKey == reader.requestedRenderKey else { return }
+    committedTheme = theme.indexOfSelectedItem
+    displayPreview = nil; pendingDisplayViewport = nil; applyDisplay.isEnabled = false; cancelDisplay.isEnabled = false
+  }
+  @objc func cancelDisplayExplicitly() {
+    guard let preview = displayPreview else { return }
+    displayPreview = nil; applyDisplay.isEnabled = false; cancelDisplay.isEnabled = false
+    guard preview.document == reader.store.document else { return }
+    theme.selectItem(at: preview.theme); textSize.selectItem(withTitle: String(Int(preview.appearance.fontSize)))
+    window?.appearance = preview.windowAppearance
+    if let anchor = preview.anchor { pendingDisplayViewport = (preview.document, anchor, preview.appearance) }
+    do { try reader.setAppearance(preview.appearance); onAppearance?(); refreshLocalControls() }
+    catch { notice.stringValue = "Display settings unavailable." }
+  }
+  private func automaticAppearanceChanged() {
+    guard currentMode == .nativeReflow, theme.titleOfSelectedItem == "Automatic", let window else { return }
+    var value = reader.textAppearance
+    value.theme = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+    guard value != reader.textAppearance else { return }
+    do { try reader.setAppearance(value); onAppearance?() } catch { notice.stringValue = "Display settings unavailable." }
+  }
   @objc func appearanceChanged() {
     guard currentMode == .nativeReflow else { return }
-    var value = reader.textAppearance; value.theme = theme.indexOfSelectedItem == 1 ? .dark : .light
+    beginDisplayPreview()
+    var value = reader.textAppearance
+    // The concrete render key always contains resolved colors, while Automatic
+    // inherits only this window's effective appearance (never changes the OS).
+    switch theme.titleOfSelectedItem {
+    case "Dark": window?.appearance = NSAppearance(named: .darkAqua); value.theme = .dark
+    case "Automatic": window?.appearance = nil; value.theme = window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+    default: window?.appearance = NSAppearance(named: .aqua); value.theme = .light
+    }
     if let title = textSize.titleOfSelectedItem, let size = Double(title) { value.fontSize = CGFloat(size) }
-    do { try reader.setAppearance(value); window?.appearance = NSAppearance(named: value.theme == .dark ? .darkAqua : .aqua); onAppearance?() }
+    do { try reader.setAppearance(value); onAppearance?(); refreshLocalControls() }
     catch { notice.stringValue = "Display settings unavailable." }
   }
   @objc func markSelected() { guard currentMode == .nativeReflow else { return }; onMarkReview?() }
   @objc func undoReviewExplicitly() { onUndoReview?() }
   @objc func clearReviewExplicitly() { onClearReview?() }
   @objc func savedDocumentSelected() { updateOfflineControls() }
+  @objc func exportPDFExplicitly() { onExportPDF?() }
   @objc func saveOfflineExplicitly() { onSaveOffline?() }
   @objc func refreshSavedExplicitly() { onListOffline?() }
   @objc func openSavedExplicitly() { let i = savedDocuments.indexOfSelectedItem; guard savedEntries.indices.contains(i) else { return }; onOpenOffline?(savedEntries[i].identity) }

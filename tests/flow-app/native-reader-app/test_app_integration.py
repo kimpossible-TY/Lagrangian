@@ -961,6 +961,46 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try click("Release selection");try await until{host.store.document?.generation != document.generation};try await ready(host)
       try check(host.localReview.marks.isEmpty,"new accepted snapshot revokes old review")
       try firstSelection();try click("Mark for review");host.cancel();try check(host.localReview.marks.isEmpty,"cancel invalidates review paint")
+    case "restore-resize", "restore-hold", "restore-cancel", "restore-close":
+      try firstSelection();try click("Mark for review");try click("Save Offline");try await storageIdle()
+      let saved=try await disk.load(identity:document.identity),originalBytes=try fileBytes(),oldKey=text.renderKey
+      let pending=UUID(),draft=NativeReaderRecoveredDraft(conversationID:UUID(),version:2,text:"newer N",pendingMessageID:pending,model:"fixture-model",pendingQuestion:"uncertain M",pendingModel:"fixture-model")
+      let restoration=NativeReaderRestoration(blockID:saved.restoration.blockID,offset:0.4,zoom:1.5,selectionTicket:saved.restoration.selectionTicket,fragments:saved.restoration.fragments)
+      var candidate=NativeReaderRecoverySnapshot(document:saved.document,assets:saved.assets,restoration:restoration,drafts:[draft]);candidate.reviewMarks=saved.reviewMarks
+      try await disk.save(candidate)
+      try click("Release selection")
+      let blocker=out.appendingPathComponent("helper-block"),wrapper=out.appendingPathComponent("gated-node")
+      try Data().write(to:blocker)
+      let script="#!/bin/sh\ni=0\nwhile [ -e '"+blocker.path+"' ] && [ \"$i\" -lt 1000 ]; do /bin/sleep 0.01; i=$((i+1)); done\nexec '"+runtime.node.path+"' \"$@\"\n"
+      try script.write(to:wrapper,atomically:true,encoding:.utf8);try FileManager.default.setAttributes([.posixPermissions:0o700],ofItemAtPath:wrapper.path)
+      host.runtime=NativeReaderRuntime(node:wrapper,helper:runtime.helper,runtime:runtime.runtime)
+      try click("Refresh Saved");try await storageIdle();try click("Open Saved")
+      try await until{host.preparingKey != nil};try await Task.sleep(nanoseconds:40_000_000)
+      if mode=="restore-resize"{text.frame.size.width-=63;var a=text.textAppearance;a.fontSize=18;try text.setAppearance(a);host.hostWindow.onAppearance?()}
+      else {try firstSelection()}
+      try check(host.store.document==document,"C1 A retained during candidate preparation")
+      if mode=="restore-cancel"{try click("Cancel")}
+      if mode=="restore-close"{host.hostWindow.window!.close()}
+      try FileManager.default.removeItem(at:blocker)
+      if mode=="restore-cancel" || mode=="restore-close"{
+        try await Task.sleep(nanoseconds:300_000_000)
+        try check(host.store.document==document && (mode=="restore-close" || text.renderKey==oldKey),"C1 cancelled/closed restore cannot adopt late B")
+      }else{
+        if mode=="restore-hold"{
+          try await until{host.preparingKey==nil};try check(host.store.document==document && host.store.selection != nil,"C1 held B keeps A selection")
+          try check((try? featureButton(root,"Cancel").isEnabled)==true,"C1 held restore remains cancellable")
+          try click("Release selection")
+        }
+        try await until{host.store.document?.generation != document.generation && host.session.state == .offline};try await ready(host)
+        try check(host.localReview.marks.map(\.id)==candidate.reviewMarks.map(\.id),"C1 marks bound to adopted B once")
+        try check(host.store.selection?.fragments==saved.restoration.fragments.map{.init(blockID:$0.blockID,rangeUTF16:$0.start..<$0.end,exact:$0.exact)},"C1 exact restored B selection")
+        try check(text.textAppearance.zoom==1.5,"C1 saved B zoom")
+        try await storageIdle();try click("Save Offline");try await storageIdle()
+        let again=try await disk.load(identity:document.identity)
+        try check(again.drafts.count==1 && again.drafts[0].text==draft.text && again.drafts[0].pendingMessageID==pending && again.drafts[0].pendingQuestion==draft.pendingQuestion && again.drafts[0].pendingModel==draft.pendingModel,"C1 candidate drafts/pending restored through actual Open/Save controls")
+        try check(again.reviewMarks.count==1 && again.restoration.zoom==1.5 && abs(again.restoration.offset-0.4)<0.15,"C1 viewport/zoom/marks survive resave")
+      }
+      try check(originalBytes.count>0,"C1 initial real stored file exists")
     case "invalid-review":
       try firstSelection();try click("Mark for review");try click("Save Offline");try await storageIdle()
       let saved=try await disk.load(identity:document.identity),priorBytes=try fileBytes(),priorKey=text.renderKey
@@ -977,6 +1017,23 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       if let anchor{try check(text.viewportAnchor()?.position.blockID==anchor.position.blockID,"native return viewport")}
       try featureSelect(popup,0);host.refresh();try await until{host.session.state == .reading};try await ready(host)
       try check(!text.canReturnFromReference,"replacement invalidates old reference return")
+    case "display-preview":
+      try firstSelection();let selected=host.store.selection!,before=text.textAppearance,anchor=text.viewportAnchor()
+      try click("Preview Display");let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
+      try check(theme.itemTitles==["Light","Dark","Automatic"],"F15 real theme choices")
+      try featureSelect(theme,1);try featureSelect(size,3);try click("Zoom +");try await ready(host)
+      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==18 && text.textAppearance.zoom>1,"F15 native preview paints requested theme/font/zoom")
+      try check(host.store.selection==selected && text.logicalText==logical,"F15 preview preserves exact canonical selection/logical text")
+      try click("Cancel Display");try await ready(host)
+      try check(text.textAppearance==before && host.store.selection==selected,"F15 Cancel restores appearance and held selection")
+      if let anchor,let after=text.viewportAnchor(){try check(anchor.position==after.position && abs(anchor.offsetY-after.offsetY)<2,"F15 rollback restores original logical viewport anchor")}
+      try click("Preview Display");try featureSelect(theme,2);try featureSelect(size,4);try click("Zoom +");try await ready(host)
+      try check(host.hostWindow.window!.appearance==nil,"F15 Automatic inherits this window only")
+      let committed=text.textAppearance;try click("Apply Display")
+      let cancelledDisplay=try featureButton(root,"Cancel Display");try check(!cancelledDisplay.isEnabled && text.textAppearance==committed,"F15 explicit Apply commits preview")
+      try click("Preview Display");try featureSelect(theme,1);try click("Cancel Display");try await ready(host)
+      try check(theme.titleOfSelectedItem=="Automatic" && text.textAppearance==committed && host.hostWindow.window!.appearance==nil,"F15 committed Automatic survives later preview rollback")
+      try click("Fit");try await ready(host);try check(text.textAppearance.zoom==1,"F15 reflow Fit uses existing zoom1 owner")
     case "appearance":
       try firstSelection();let selected=host.store.selection!
       let theme=try featurePopup(root,"Theme"),font=try featurePopup(root,"Text size")
@@ -1044,12 +1101,12 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try check(featureViews(root).compactMap{$0 as? NSTextField}.contains{$0.stringValue.contains("newer private question N")},"recovered newer draft visible through native control")
       try click("Save Offline");try await storageIdle();let again=try await disk.load(identity:document.identity)
       try check(again.drafts.count==1 && again.drafts[0].pendingMessageID==pending && again.drafts[0].pendingQuestion=="original uncertain question M" && again.drafts[0].text==draft.text && again.drafts[0].pendingModel==draft.pendingModel,"typed pending UUID/question/model independent of newer draft survives UI open/save")
-    case "remote":
+    case "remote", "remote-reopen":
       let marker=try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:args[8]))) as! [String:Any]
       let attachment=try JSONSerialization.data(withJSONObject:marker["attachment"]!)
       let remoteProfile=try JSONDecoder().decode(Profile.self,from:JSONSerialization.data(withJSONObject:marker["profile"]!))
-      let http=NativeReaderNetwork.urlSession();var requests=[[String:String]]()
-      let observed=NativeReaderNetwork(send:{request,limit in requests.append(["method":request.httpMethod ?? "GET","path":request.url!.path]);return try await http.send(request,limit)},stream:http.stream)
+      let http=NativeReaderNetwork.urlSession();var requests=[[String:String]]();var lostSend=false
+      let observed=NativeReaderNetwork(send:{request,limit in requests.append(["method":request.httpMethod ?? "GET","path":request.url!.path]);let response=try await http.send(request,limit);if mode=="remote-reopen", !lostSend, request.url!.path.hasSuffix("native-chat"), let body=request.httpBody, (try JSONSerialization.jsonObject(with:body) as? [String:Any])?["operation"] as? String == "send" {lostSend=true;throw URLError(.networkConnectionLost)};return response},stream:http.stream)
       let managed=NativeReaderManagedClient(resolver:.init(attach:{_ in attachment},network:observed),root:remoteProfile.root,entry:remoteProfile.entry)
       let remote=NativeReaderWindowController(provider:managed,target:{_ in try await managed.target()},assets:{doc,context in
         let actions=try await managed.currentActions();var bytes=[String:Data]();for a in doc.assets{bytes[a.id]=try await actions.transport.asset(a,context:context)};return bytes
@@ -1070,7 +1127,34 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try remote.textView.select(from:.init(blockID:probe.id,utf16:0,affinity:.upstream),to:.init(blockID:probe.id,utf16:probe.displayText.utf16.count,affinity:.downstream))
       try featureButton(rr,"Ask").performClick(nil)
       try await until{remote.chatView != nil && remote.chatView!.models.numberOfItems>0}
-      let chat=remote.chatView!;chat.composer.string="New live private draft from native composer"
+      var chat=remote.chatView!
+      if mode=="remote-reopen"{
+        chat.composer.string="uncertain original M";chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
+        try await until{chat.sendButton.isEnabled};try featureButton(rr,"Send").performClick(nil)
+        try await until{chat.recoveryDraft?.pendingMessageID != nil && chat.historyButton.isEnabled};fputs("C2 lost ack ready\n",stderr)
+        chat.composer.string="newer draft N";chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
+        try await ready(remote);try await until{(try? featureButton(rr,"Save Offline").isEnabled)==true}
+        try featureButton(rr,"Save Offline").performClick(nil);try await until{(try? featureButton(rr,"Cancel").isEnabled)==false}
+        let savedPending=try await disk.load(identity:remote.store.document!.identity);fputs("C2 saved pending\n",stderr)
+        try check(savedPending.drafts.first?.pendingQuestion=="uncertain original M","C2 real lost ack captures original question separately")
+        try featureButton(rr,"Release selection").performClick(nil);try await remote.restoreRecovery(savedPending);try await ready(remote)
+        try featureButton(rr,"Release selection").performClick(nil);remote.refresh();fputs("C2 live refresh issued\n",stderr)
+        try await until{remote.session.state == .reading};try await ready(remote);fputs("C2 live accepted\n",stderr)
+        let p=remote.store.document!.blocks.first{$0.id==probe.id}!
+        try remote.textView.select(from:.init(blockID:p.id,utf16:0,affinity:.upstream),to:.init(blockID:p.id,utf16:p.displayText.utf16.count,affinity:.downstream))
+        try featureButton(rr,"Ask").performClick(nil);try await until{remote.chatView != nil && remote.chatView!.models.numberOfItems>0}
+        chat=remote.chatView!;try featureButton(rr,"Refresh conversation").performClick(nil);fputs("C2 history issued\n",stderr)
+        try await until{chat.historyButton.isEnabled && chat.recoveryDraft?.pendingMessageID==nil};fputs("C2 history resolved\n",stderr)
+        chat.composer.string="latest draft N2";chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
+        try await Task.sleep(nanoseconds:400_000_000)
+        try featureButton(rr,"Refresh conversation").performClick(nil)
+        try await until{chat.historyButton.isEnabled && chat.notice.stringValue=="Conversation refreshed."};try await ready(remote)
+        try remote.textView.select(from:.init(blockID:p.id,utf16:0,affinity:.upstream),to:.init(blockID:p.id,utf16:p.displayText.utf16.count,affinity:.downstream))
+        let old=chat;try featureButton(rr,"Ask").performClick(nil);do{try await until{remote.chatView !== old && remote.chatView != nil}}catch{throw FlowError(message:"C2 reopen failed: "+remote.hostWindow.notice.stringValue+" selected=\(remote.store.selection != nil)")}
+        chat=remote.chatView!
+        try check(chat.composer.string=="latest draft N2" && chat.recoveryDraft?.pendingMessageID==nil && chat.recoveryDraft?.pendingQuestion==nil,"C2 reopened same conversation preserves N2 and resolved pending M")
+      }else{chat.composer.string="New live private draft from native composer"}
+
       chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
       try await ready(remote)
       try await until{(try? featureButton(rr,"Save Offline").isEnabled)==true}
@@ -1147,7 +1231,7 @@ class FeatureWiringUI(unittest.TestCase):
         sources=[p for p in package.swift_sources() if p.name!='main.swift']
         if fixed := os.environ.get('FEATURE_WIRING_FIXED_SOURCES'):
             fixed=Path(fixed).resolve()
-            if not fixed.is_relative_to(DEV/'test-output/feature-wiring-v1'):raise RuntimeError('Fixed counterexample inputs must remain isolated')
+            if not any(fixed.is_relative_to(DEV/'test-output'/name) for name in ['feature-wiring-v1','closure-review-fixes-v2']):raise RuntimeError('Fixed counterexample inputs must remain isolated')
             sources=[fixed/p.name for p in sources]
         cls.command(['/usr/bin/swiftc',*package.swift_flags(),*sources,swift,'-o',cls.binary])
     @classmethod
@@ -1162,7 +1246,9 @@ class FeatureWiringUI(unittest.TestCase):
         out=self.output/('case-'+name);out.mkdir()
         p=self.command([self.binary,name,os.environ['FLOW_NATIVE_FIXTURE'],out,os.environ['FLOW_TEST_NODE'],ROOT/'tools/flow-reader/native/math_layout.mjs',os.environ['FLOW_TEST_NATIVE_RUNTIME'],self.longFixture])
         self.assertIn('feature pass '+name,p.stdout)
-    def test_production_http_account_history_and_local_controls(self):
+    def test_production_http_account_history_and_local_controls(self):self.remote_scenario('remote')
+    def test_C2_restored_pending_history_reopen_latest_draft(self):self.remote_scenario('remote-reopen')
+    def remote_scenario(self,mode):
         import shutil
         root=GUI_ROOT/('feature-remote-'+str(time.time_ns()))
         gui_setup(root,shutil.which('typst'),os.environ['FLOW_TEST_PACKAGE_CACHE'])
@@ -1177,10 +1263,10 @@ class FeatureWiringUI(unittest.TestCase):
                 if proc.poll() is not None:raise AssertionError((root/'serve.log').read_text())
                 time.sleep(.05)
             if not marker or not marker.get('running'):raise AssertionError('owned backend did not become ready')
-            out=self.output/'case-remote';out.mkdir()
-            self.command([self.binary,'remote',os.environ['FLOW_NATIVE_FIXTURE'],out,os.environ['FLOW_TEST_NODE'],ROOT/'tools/flow-reader/native/math_layout.mjs',os.environ['FLOW_TEST_NATIVE_RUNTIME'],self.longFixture,root/'fixture.json'])
+            out=self.output/('case-'+mode);out.mkdir()
+            self.command([self.binary,mode,os.environ['FLOW_NATIVE_FIXTURE'],out,os.environ['FLOW_TEST_NODE'],ROOT/'tools/flow-reader/native/math_layout.mjs',os.environ['FLOW_TEST_NATIVE_RUNTIME'],self.longFixture,root/'fixture.json'])
             effects=json.loads((root/'effects.json').read_text())
-            self.assertEqual(effects['inference'],[],'account/history/review/appearance/save must not infer')
+            self.assertEqual(len(effects['inference']),1 if mode=='remote-reopen' else 0,'only one explicit M Send may infer; history/reopen/local operations zero inference')
         finally:
             try:gui_stop(root)
             finally:
@@ -1194,6 +1280,11 @@ class FeatureWiringUI(unittest.TestCase):
             with socket.socket() as sock:
                 sock.settimeout(.2);self.assertNotEqual(sock.connect_ex(('127.0.0.1',port)),0,'owned backend port remains open')
 
+    def test_F15_preview_cancel_commit_automatic(self):self.scenario('display-preview')
+    def test_C1_restore_resize(self):self.scenario('restore-resize')
+    def test_C1_restore_hold_release(self):self.scenario('restore-hold')
+    def test_C1_restore_cancel(self):self.scenario('restore-cancel')
+    def test_C1_restore_close(self):self.scenario('restore-close')
     def test_invalid_review_snapshot_rejected_before_adoption(self):self.scenario('invalid-review')
     def test_native_review_buttons(self):self.scenario('review')
     def test_native_outline_and_return_controls(self):self.scenario('navigation')

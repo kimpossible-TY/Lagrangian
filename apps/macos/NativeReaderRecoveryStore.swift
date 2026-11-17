@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import PDFKit
 import Darwin
 
 struct NativeReaderRestoration: Codable, Equatable {
@@ -139,6 +140,75 @@ actor NativeReaderRecoveryStore {
         guard rename(temporary.path, destination.path) == 0 else { throw NativeReaderOperationFailure.unavailable }
         let directoryFD = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
         if directoryFD >= 0 { _ = fsync(directoryFD); close(directoryFD) }
+    }
+
+    final class StagedPDF: @unchecked Sendable {
+        private let directory: Int32
+        private let temporary: String
+        private let name: String
+        private let previous: String?
+        private let destination: URL
+        private var committed = false
+        private static func fingerprint(_ directory: Int32, _ name: String) throws -> String? {
+            var info = stat()
+            if fstatat(directory, name, &info, AT_SYMLINK_NOFOLLOW) != 0 {
+                if errno == ENOENT { return nil }; throw NativeReaderOperationFailure.unavailable
+            }
+            guard info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else { throw NativeReaderOperationFailure.rejected(code: "export-destination") }
+            return "\(info.st_dev):\(info.st_ino):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec)"
+        }
+        init(data: Data, destination: URL) throws {
+            guard destination.isFileURL, destination.path.hasPrefix("/"), destination.pathExtension.lowercased() == "pdf",
+                  destination.standardizedFileURL.path == destination.path else { throw NativeReaderOperationFailure.rejected(code: "export-destination") }
+            var parent = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            guard parent >= 0 else { throw NativeReaderOperationFailure.unavailable }
+            do {
+                for part in destination.deletingLastPathComponent().pathComponents.dropFirst() {
+                    let next = openat(parent, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                    guard next >= 0 else { throw NativeReaderOperationFailure.rejected(code: "export-destination") }
+                    close(parent); parent = next
+                }
+                let name = destination.lastPathComponent
+                let previous = try Self.fingerprint(parent, name)
+                let temporary = ".lagrangian-export-" + UUID().uuidString
+                let fd = openat(parent, temporary, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+                guard fd >= 0 else { throw NativeReaderOperationFailure.unavailable }
+                let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+                do {
+                    defer { try? handle.close() }
+                    try Task.checkCancellation(); try handle.write(contentsOf: data); try handle.synchronize()
+                    try handle.seek(toOffset: 0)
+                    let read = try handle.readToEnd() ?? Data()
+                    guard read == data, let pdf = PDFDocument(data: read), !pdf.isEncrypted, !pdf.isLocked, (1...2048).contains(pdf.pageCount) else { throw NativeOriginalPageError.invalidPDF }
+                    try Task.checkCancellation()
+                } catch { unlinkat(parent, temporary, 0); throw error }
+                self.destination = destination; self.directory = parent; self.temporary = temporary; self.name = name; self.previous = previous
+            } catch { close(parent); throw error }
+        }
+        // Caller rechecks the accepted snapshot and operation immediately before
+        // this synchronous atomic publication. No async window remains here.
+        func commit() throws {
+            try Task.checkCancellation()
+            var checkDirectory = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            guard checkDirectory >= 0 else { throw NativeReaderOperationFailure.unavailable }
+            defer { close(checkDirectory) }
+            for part in destination.deletingLastPathComponent().pathComponents.dropFirst() {
+                let next = openat(checkDirectory, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                guard next >= 0 else { throw NativeReaderOperationFailure.rejected(code: "export-destination") }
+                close(checkDirectory); checkDirectory = next
+            }
+            var oldDirectory = stat(), currentDirectory = stat()
+            guard fstat(directory, &oldDirectory) == 0, fstat(checkDirectory, &currentDirectory) == 0,
+                  oldDirectory.st_dev == currentDirectory.st_dev, oldDirectory.st_ino == currentDirectory.st_ino,
+                  !committed, try Self.fingerprint(directory, name) == previous,
+                  renameat(directory, temporary, directory, name) == 0 else { throw NativeReaderOperationFailure.rejected(code: "export-destination-changed") }
+            committed = true; _ = fsync(directory)
+        }
+        deinit { if !committed { unlinkat(directory, temporary, 0) }; close(directory) }
+    }
+    nonisolated static func stageOriginalPDF(_ original: NativeOriginalPageRecovery, document: NativeReaderDocument, to destination: URL) throws -> StagedPDF {
+        try Task.checkCancellation(); try original.validate(document: document)
+        return try StagedPDF(data: original.data, destination: destination)
     }
 
     struct Entry: Equatable {

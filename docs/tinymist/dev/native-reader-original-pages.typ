@@ -119,3 +119,20 @@ independently of local selection of33+ fragments and0.25 display zoom. Those lar
 not silently converted to supported saved state; complete app resume remains an
 independent gate. The 256-page evidence is a synthetic compiler fixture, not a
 claim about arbitrary documents, full fidelity, real GUI or OS13 execution.
+
+
+== Native link traversal, recovery and export
+
+Tab moves within current-page typed links; at the last link it delegates to the
+window's next eligible key view. Shift+Tab at the first delegates to the previous
+key view. One-link and multi-link offscreen key loops are distinct from actual
+GUI routing, Full Keyboard Access and VoiceOver; stale page AX/actions still fail.
+PDF recovery retains publication/input/digest/page/scale/unscaled offsets only,
+not display selection, and offline mode switching is unsupported. The reflow
+selection32/zoom0.5–4 storage bounds do not describe PDF selection storage.
+Explicit Export PDF saves the accepted publication's original validated bytes via
+native chooser and existing RecoveryStore staging/atomic publication. Native
+PDFKit reopens staged/output bytes. No screenshot, regenerated PDF, recoloring or
+PDF-to-Typst source promotion occurs. Cancel/stale/dispose/tamper/destination
+failures preserve previous files. Reflow display preview is a separate owner from
+PDF width-fit/scale and its selection-hold/raster budgets.

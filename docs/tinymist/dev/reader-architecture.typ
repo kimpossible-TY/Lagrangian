@@ -241,3 +241,16 @@ typed draft/pending state for explicit saved recovery, with no new token/auth DB
 Native source/history and account actions still use NativeReaderActions and
 existing endpoint/consent owners. See the canonical native contract and
 verification guide for reachable controls and conditional editor/auth gaps.
+
+
+Session candidate completion owns publication-correlated recovery attachments;
+WindowController consumes that completion once and composes existing LocalReview,
+viewport and typed draft owners. ChatView persistDraft/recoveryDraft supplies the
+current conversation state; initial saved drafts are not a repeated override.
+HostWindow owns only native event routing, window-local display preview controls
+and explicit Export PDF chooser composition. RecoveryStore owns validated original
+bytes staging, no-follow directory descriptors and guarded atomic output. PDFKit
+inspection stays native; OriginalPageView keeps link key traversal and current
+page/operation freshness, while its geometry/print colors remain independent of
+reflow font/theme. No new auth/editor APIs, conversation DB or model/tool limits
+are created here.

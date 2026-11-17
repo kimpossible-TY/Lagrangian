@@ -227,13 +227,90 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
         let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:host.hostWindow.window!.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
         view.keyDown(with:tab);view.keyDown(with:enter)
         try check(callbacks==2,"N3 native Tab/Enter link activation")
+        let window=host.hostWindow.window!, before=NSTextField(string:"Before PDF"), after=NSTextField(string:"After PDF")
+        window.contentView!.addSubview(before);window.contentView!.addSubview(after)
+        before.frame=NSRect(x:0,y:0,width:120,height:24);after.frame=NSRect(x:130,y:0,width:120,height:24);window.autorecalculatesKeyViewLoop=false
+        before.nextKeyView=view;view.nextKeyView=after;after.nextKeyView=before
+        try check(window.makeFirstResponder(view),"C3 native PDF accepts keyboard focus")
+        for _ in 0..<links.count {view.keyDown(with:tab)}
+        try check(window.firstResponder === after || window.firstResponder === after.currentEditor(),"C3 final PDF link Tab exits to actual next native control")
+        let backtab=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[.shift],timestamp:0,windowNumber:window.windowNumber,context:nil,characters:"\t",charactersIgnoringModifiers:"\t",isARepeat:false,keyCode:48)!
+        try check(window.makeFirstResponder(view),"C3 focus enters PDF again")
+        for _ in 0...links.count {view.keyDown(with:backtab)}
+        try check(window.firstResponder === before || window.firstResponder === before.currentEditor(),"C3 first PDF link ShiftTab exits to actual previous native control")
+
         try view.jump(to:128);try await until{view.isPreparedForPaint}
         try check(!ax.isAccessibilityEnabled() && ax.accessibilityValue()==nil && !links[0].accessibilityPerformPress(),"N3 stale AX children invalidated")
         ax.setAccessibilitySelectedTextRange(range);await Task.yield()
         try check(view.selected==nil,"N3 stale AX cannot select replacement page")
+        let currentAX=(view.accessibilityChildren() ?? []).compactMap{$0 as? NSAccessibilityElement}.first!
+        let single=(currentAX.accessibilityChildren() ?? []).compactMap{$0 as? NSAccessibilityElement}
+        try check(single.count==1,"C3 actual middle page has one link")
+        try check(window.makeFirstResponder(view),"C3 single-link focus")
+        view.keyDown(with:tab);view.keyDown(with:tab)
+        try check(window.firstResponder === after || window.firstResponder === after.currentEditor(),"C3 single final link exits forward")
+        try check(window.makeFirstResponder(view),"C3 single-link reverse focus")
+        view.keyDown(with:backtab);view.keyDown(with:backtab)
+        try check(window.firstResponder === before || window.firstResponder === before.currentEditor(),"C3 single first link exits backward")
+
         try check((view.accessibilityChildren() ?? []).count==1,"N3 only one lazy page exposed, never 256-page AX tree")
         let metrics=await view.store.accepted!.access.metrics()
         try check(metrics["textPages"]!<=8 && metrics["renderedPages"]!<=3,"N3 lazy page/text budgets")
+    }
+    @MainActor static func reviewExport(_ host:NativeReaderWindowController,_ out:URL)async throws{
+        func views(_ v:NSView)->[NSView]{[v]+v.subviews.flatMap{views($0)}}
+        let root=host.hostWindow.window!.contentView!
+        func button(_ title:String)throws->NSButton{
+            root.layoutSubtreeIfNeeded()
+            guard let b=views(root).compactMap({$0 as? NSButton}).first(where:{$0.title==title}),b.target != nil,b.action != nil,!b.isHiddenOrHasHiddenAncestor,root.bounds.contains(b.convert(b.bounds,to:root)) else {throw FlowError(message:"Export native control unreachable: "+title)}
+            return b
+        }
+        let disk=NativeReaderRecoveryStore(root:out.appendingPathComponent("export-owned-recovery"))
+        try await host.saveRecovery(to:disk)
+        let saved=try await disk.load(identity:host.store.document!.identity),original=saved.originalPages!,document=saved.document
+        let target=out.appendingPathComponent("original-export.pdf"),old=Data("previous owned file".utf8)
+        try old.write(to:target)
+        host.choosePDFDestination={_ in target};let export=try button("Export PDF")
+        try check(export.isEnabled,"F16 actual Export PDF enabled for accepted original")
+        export.performClick(nil);try await until{host.hostWindow.notice.stringValue=="Original PDF exported."}
+        let bytes=try Data(contentsOf:target)
+        try check(bytes==original.data && NativeReaderRecoverySnapshot.digest(bytes)==original.publication.pdfSHA256,"F16 exports exact accepted revision/input/digest bytes")
+        try check(PDFDocument(url:target)?.pageCount==host.originalPageView.store.accepted!.binding.pages.count,"F16 exported original reopened by actual PDFKit")
+        host.choosePDFDestination={_ in nil};export.performClick(nil)
+        try await until{(try? button("Cancel").isEnabled)==false}
+        let targetBytes1=try Data(contentsOf:target);try check(targetBytes1==bytes,"F16 save panel cancel preserves old file")
+        var continuation:CheckedContinuation<URL?,Never>?,entered=false
+        host.choosePDFDestination={_ in entered=true;return await withCheckedContinuation{continuation=$0}}
+        export.performClick(nil);try await until{entered}
+        try button("Cancel").performClick(nil);continuation!.resume(returning:target);continuation=nil
+        try await Task.sleep(nanoseconds:30_000_000)
+        let targetBytes2=try Data(contentsOf:target);try check(targetBytes2==bytes,"F16 Cancel rejects late chooser and preserves previous file")
+        entered=false;export.performClick(nil);try await until{entered}
+        host.refresh();let generation=host.store.generation
+        try await until{host.session.state == .reading && host.store.document?.generation==generation}
+        continuation!.resume(returning:target);continuation=nil
+        try await until{(try? button("Cancel").isEnabled)==false}
+        let targetBytes3=try Data(contentsOf:target);try check(targetBytes3==bytes,"F16 changed accepted snapshot rejects late export chooser")
+        let bad=NativeOriginalPageRecovery(publication:original.publication,data:Data("tampered".utf8),viewport:original.viewport)
+        try await rejected("F16 tamper before staging"){_ = try NativeReaderRecoveryStore.stageOriginalPDF(bad,document:document,to:target)}
+        let link=out.appendingPathComponent("export-link.pdf");try FileManager.default.createSymbolicLink(at:link,withDestinationURL:target)
+        let directory=out.appendingPathComponent("directory.pdf");try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+        for invalid in [link,directory,out.appendingPathComponent("missing/child.pdf"),out.appendingPathComponent("wrong.txt")] {
+            try await rejected("F16 invalid destination"){_ = try NativeReaderRecoveryStore.stageOriginalPDF(original,document:document,to:invalid)}
+        }
+        let targetBytes4=try Data(contentsOf:target);try check(targetBytes4==bytes,"F16 invalid destination/tamper retain existing bytes")
+        let staged=try NativeReaderRecoveryStore.stageOriginalPDF(original,document:document,to:target)
+        let newer=Data("newer external owned edit".utf8);try newer.write(to:target)
+        try await rejected("F16 destination changed before atomic publication"){try staged.commit()}
+        let targetBytes5=try Data(contentsOf:target);try check(targetBytes5==newer,"F16 atomic guard retains newer destination")
+        entered=false;host.choosePDFDestination={_ in entered=true;return await withCheckedContinuation{continuation=$0}}
+        export.performClick(nil);try await until{entered};host.dispose();continuation!.resume(returning:target)
+        try await Task.sleep(nanoseconds:30_000_000)
+        let targetBytes6=try Data(contentsOf:target);try check(targetBytes6==newer,"F16 disposal rejects late chooser with zero writes")
+        let leftovers=try FileManager.default.contentsOfDirectory(atPath:out.path).filter{$0.hasPrefix(".lagrangian-export-")}
+        // This deliberately failed staging object stays alive until this scope
+        // ends; its destructor removes that one owned temporary file.
+        try check(leftovers.count<=1,"F16 bounded temporary staging")
     }
     @MainActor static func reviewN4(_ out: URL) async throws {
         let bytes=NSMutableData();var media=CGRect(x:0,y:0,width:320,height:900)
@@ -362,6 +439,7 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             if review == "N1" { try await reviewN1(host,pageSwitch) }
             else if review == "N2" { try await reviewN2(out) }
             else if review == "N3" { try await reviewN3(host) }
+            else if review == "EXPORT" { try await reviewExport(host,out) }
             else if review == "N4" { try await reviewN4(out) }
             else { throw NativeOriginalPageError.unsupported("review-case") }
             host.dispose()

@@ -99,16 +99,24 @@ class OriginalPageTests(unittest.TestCase):
         registry = json.loads((REPO / 'apps/macos/sources.json').read_text())
         paths = list(dict.fromkeys(registry['core'] + registry['native'] + ['NativeReaderWindowController.swift', 'NativeReaderOriginalPageView.swift', 'NativeReaderOriginalPageTransport.swift']))
         cls.sources = [REPO / 'apps/macos' / p for p in paths]
+        harness = HERE / 'OriginalPageTests.swift'
+        if fixed := os.environ.get('ORIGINAL_FIXED_SOURCES'):
+            fixed = Path(fixed).resolve()
+            allowed = DEV / 'test-output/closure-review-fixes-v2'
+            harness = Path(os.environ['ORIGINAL_FIXED_TEST']).resolve()
+            if not fixed.is_relative_to(allowed) or not harness.is_relative_to(allowed):
+                raise RuntimeError('Fixed before sources must remain in isolated closure evidence')
+            cls.sources = [fixed / p.name for p in cls.sources]
         cls.binary = OUT / 'OriginalPageTests'
         result = command(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target',
-            'arm64-apple-macosx13.0', '-parse-as-library', *cls.sources, HERE / 'OriginalPageTests.swift', '-o', cls.binary])
+            'arm64-apple-macosx13.0', '-parse-as-library', *cls.sources, harness, '-o', cls.binary])
         if result.returncode:
             raise RuntimeError('Swift13 compile failed: ' + result.stderr)
         save(OUT / 'environment.json', dict(OS=platform.platform(), macOS=platform.mac_ver(),
             sdk=command(['xcrun', '--show-sdk-path']).stdout.strip(),
             swift=command(['xcrun', 'swiftc', '--version']).stdout.strip(),
             target='arm64-apple-macosx13.0', warningsAsErrors=True, compilerSHA256=digest(compiler),
-            sources={str(p.relative_to(REPO)):digest(p) for p in cls.sources},
+            sources={(str(p.relative_to(REPO)) if p.is_relative_to(REPO) else str(p)):digest(p) for p in cls.sources},
             testSHA256=digest(HERE/'OriginalPageTests.swift'), binarySHA256=digest(cls.binary),
             registryChanged=False, newSourcesExplicit=True, GUI=False, VoiceOver=False))
 
@@ -199,6 +207,7 @@ class OriginalPageTests(unittest.TestCase):
     def test_review_N1_selection_begins_during_pdf_prepare(self): self.review_case('N1')
     def test_review_N2_offline_reflow_assets(self): self.review_case('N2')
     def test_review_N3_current_page_accessibility(self): self.review_case('N3')
+    def test_native_original_export_atomic_ui(self): self.review_case('EXPORT')
     def test_review_N4_real_clip_find_and_goto(self): self.review_case('N4')
 
     def test_saved_input_dependency_tamper_and_same_html_new_input(self):
