@@ -334,7 +334,7 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
 
     def test_final_app_acceptance_stays_distinct_from_delivery_integrity(self):
         self.assertEqual(self.manifest['capabilities']['originalPages'],'original-pdf-full-v1')
-        self.assertEqual(self.manifest['capabilities']['GUI'],'unverified; pre-GUI candidate')
+        self.assertEqual(self.manifest['capabilities']['GUI'],'unverified; fixed preparation integrated')
         self.assertEqual(self.manifest['capabilities']['sourceRevision'],self.manifest['sourceRevision'])
         self.assertFalse((self.out/'home/Library/LaunchAgents').exists())
 
@@ -348,4 +348,22 @@ raise SystemExit(cli(['--attach','--root',sys.argv[2],'--entry','main.typ'],mana
             'sourceRevision':cls.manifest['sourceRevision'],'sourceFiles':cls.manifest['sourceFiles']})
 
 
-if __name__=='__main__':unittest.main()
+def gui_fixture_owner():
+    """Compose final evidence storage with the unchanged fixed G1 fixture owner.
+
+    This changes only its storage base and reentry script. Root/argument/source/
+    HTTP/sandbox/clipboard/lifecycle policy remains in that owner.
+    """
+    spec = importlib.util.spec_from_file_location('final_gui_fixture_owner',
+        Path(__file__).with_name('test_app_integration.py'))
+    owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
+    owner.GUI_ROOT = DEV / 'test-output/delivery-production/NA13/final-app-v1'
+    owner.GUI_SCRIPT = Path(__file__).resolve()
+    return owner
+
+
+if __name__=='__main__':
+    if sys.argv[1:2]==['gui-fixture']:
+        gui_fixture_owner().gui_cli(sys.argv[2:])
+    else:
+        unittest.main()

@@ -70,3 +70,16 @@ Delivery SHALL bind integrated owner commits, canonical sources and packaged byt
 - **WHEN** source/runtime/requiredtests/code-review/docs/nativeGUI/AX artifacts match the current app/source, digests, passed statuses and zero required skips
 - **THEN** the verifier records the external PM decision
 - **AND** synthetic test receipts remain mechanism-only evidence and are never actual acceptance
+
+### Requirement: Final source identity and isolated inspection preparation
+The final app, runtime, reader and delivery source binding SHALL equal the frozen HEAD. Source changes after a build SHALL require rebuilding. Fixed GUI fixture policies SHALL be reused with an explicitly owned storage root. Inspection setup SHALL remain stopped; smoke SHALL use a separate bounded foreground fixture and private clipboard. Historical isolation failures and readonly updater limitations SHALL remain explicit.
+
+#### Scenario: Frozen final source
+- **WHEN** final review preparation builds the app
+- **THEN** runtime/source, reader/headSha and delivery/app sourceRevision agree with clean HEAD
+- **AND** no test-only or documentation-only later HEAD is mislabeled as that app
+
+#### Scenario: Prepared inspection without app activation
+- **WHEN** a new inspection root is set up and a separate smoke is executed
+- **THEN** inspection remains running=false and smoke processes/ports are cleaned
+- **AND** only named private-board copy and explicit owned source/service fixtures are used

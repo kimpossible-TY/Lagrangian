@@ -30,3 +30,9 @@ These tasks cover initial delivery production and its isolated checks. Final NA0
 - [x] 5.2 Supply explicit external PM receipt validation and meaningful negative fixtures, keeping actual final gate evidence absent.
 - [x] 5.3 Supply current-inventory relocated PDF/math/default/shared child regression and preserve v1/v2 artifacts; record actual raw registry prerequisites and failures separately.
 - [x] 5.4 Freeze integration code/test bytes and execute isolated one-build procedure; bind actual results and remaining gates in external c-merge-v1 evidence. No GUI preparation is included.
+
+## 6. Final fixed-source assembly and inspection readiness
+- [x] 6.1 Normally merge fixed GUI and published main inputs; preserve G1 seven, C19 and remote policies; fix only transferred C collection/input composition.
+- [x] 6.2 Supply fresh final-source runtime/reader/delivery/app binding and bounded source/native/packaged regression procedure; preserve prior artifacts.
+- [x] 6.3 Supply canonical G1 storage composition for a new setup-only inspection root, separate actual HTTP/privateboard smoke and explicit reviewer commands.
+- [x] 6.4 Record exact final SHA/source bytes, actual exits/skips/cleanup and external gates in final-app-v1; freeze the worktree for review.

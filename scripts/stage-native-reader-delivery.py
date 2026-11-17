@@ -167,22 +167,31 @@ def source_binding(root):
 
 
 def integrated_sources(root):
-    """Bind the immutable owner commits and their actual merged files."""
+    """Bind immutable upstream owners and the one transferred collection fix."""
     capabilities = read(root / RUNTIME_POLICY / 'backend-delivery.json')['capabilities']
     core, pages = capabilities['coreSource'], capabilities['originalPagesSource']
+    gui, published = capabilities['guiPreparationSource'], capabilities['publishedReaderSource']
     base = '9b2dc87651eb16a809bb48dbe4539614cfe30d6a'
-    for ancestor, descendant in [(base, core), (core, pages), (pages, 'HEAD')]:
+    for ancestor, descendant in [(base, core), (core, pages), (pages, 'HEAD'),
+                                  (gui, 'HEAD'), (published, 'HEAD')]:
         run(['git', '-C', root, 'merge-base', '--is-ancestor', ancestor, descendant])
-    core_files = run(['git', '-C', root, 'diff', '--name-only', base, core]).splitlines()
-    page_files = run(['git', '-C', root, 'diff', '--name-only', core, pages]).splitlines()
+    def changed(before, after):
+        return run(['git', '-C', root, 'diff', '--name-only', before, after]).splitlines()
+    revisions = {name:core for name in changed(base, core)}
+    revisions.update({name:pages for name in changed(core, pages)})
+    revisions.update({name:gui for name in changed(gui + '^', gui)})
+    revisions.update({name:published for name in changed('5d71618e7ee320edbe759511fe634024fc8104a6', published)})
+    # Explicit PM transfer C-TEST-COLLECT-01. No C implementation is overridden.
+    transferred = 'tests/flow-app/native-reader-app/test_original_pages.py'
+    revisions[transferred] = 'HEAD'
     records = {}
-    for name in sorted(set(core_files + page_files)):
-        revision = pages if name in page_files else core
+    for name, revision in sorted(revisions.items()):
         blob = subprocess.check_output(['git', '-C', str(root), 'show', revision + ':' + name])
         digest = hashlib.sha256(blob).hexdigest()
         require(sha(root / name) == digest, 'integrated owner source drift: ' + name)
         records[name] = digest
-    return {'coreRevision':core, 'pageRevision':pages, 'files':records}
+    return {'coreRevision':core, 'pageRevision':pages, 'guiRevision':gui,
+            'publishedReaderRevision':published, 'deliveryOwnedOverrides':[transferred], 'files':records}
 
 
 def verify(root, expected=None, signatures=True):
@@ -199,6 +208,8 @@ def verify(root, expected=None, signatures=True):
     rm = read(runtime / 'runtime-manifest.json')
     require(sha(runtime / 'runtime-manifest.json') == m['runtimeManifestSHA256'] and rm['helperSHA256'] == m['helperSHA256'], 'runtime/helper binding')
     require(sha(root / m['entrypoints']['helper']) == m['helperSHA256'], 'stale helper')
+    if m['capabilities'].get('guiPreparationSource'):
+        require(rm['source']['sourceSHA'] == m['sourceRevision'] and not rm['source']['dirty'], 'stale runtime sourceRevision')
     require(m['distribution'] == read(root / 'backend-delivery.json'), 'backend distribution manifest drift')
     if trust := m['distribution'].get('trustStore'):
         require(m['entrypoints'].get('trustStore') == 'certificates/cacert.pem' and sha(root / 'certificates/cacert.pem') == trust['sha256'], 'missing or modified trust data')
@@ -252,6 +263,7 @@ def stage_candidate(args):
     require(sha(runtime / 'runtime-manifest.json') == expected['runtimeManifestSHA256'], 'runtime input mismatch')
     rm = read(runtime / 'runtime-manifest.json')
     require(rm['helperSHA256'] == expected['helperSHA256'], 'runtime has old helper')
+    require(rm['source']['sourceSHA'] == expected['sourceRevision'] and not rm['source']['dirty'], 'stale runtime sourceRevision')
     run([runtime / 'node/bin/node', runtime / 'verify-runtime.mjs', '--verify', runtime, '--node', runtime / 'node/bin/node'])
     reader_bundle.check_manifest(read(args.reader_bundle / 'reader-bundle.json'), expected_head_sha=expected['sourceRevision'])
     reader_bundle.verify_unpacked_tree(args.reader_bundle)

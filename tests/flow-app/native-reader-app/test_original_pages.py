@@ -23,13 +23,14 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
-EVIDENCE = DEV / 'test-output/page-service/NA12'
+EVIDENCE = Path(os.environ.get('NATIVE_DELIVERY_EVIDENCE_DIR', str(DEV / 'test-output/page-service/NA12')))
 OUT = EVIDENCE / os.environ.get('NA12_RUN', 'run-' + str(time.time_ns()))
 if not OUT.is_relative_to(EVIDENCE) or OUT.exists():
     raise RuntimeError('NA12 needs new evidence directory')
 OUT.mkdir(parents=True)
 for key, path in {'TMPDIR': DEV / 'tmp/page-service', 'CLANG_MODULE_CACHE_PATH': DEV / 'cache/page-service/clang',
                   'SWIFT_MODULECACHE_PATH': DEV / 'cache/page-service/swift', 'TYPST_PACKAGE_CACHE_PATH': DEV / 'cache/page-service/packages'}.items():
+    path = Path(os.environ.get(key, path))
     path.mkdir(parents=True, exist_ok=True); os.environ[key] = str(path)
 tempfile.tempdir = os.environ['TMPDIR']
 sys.dont_write_bytecode = True
@@ -96,7 +97,7 @@ class OriginalPageTests(unittest.TestCase):
             'os.execv("/usr/bin/sandbox-exec",["sandbox-exec","-p",' + repr(profile) + ',' + repr(compiler) + ']+sys.argv[1:])\n')
         cls.wrapper.chmod(0o700)
         registry = json.loads((REPO / 'apps/macos/sources.json').read_text())
-        paths = registry['core'] + registry['native'] + ['NativeReaderWindowController.swift', 'NativeReaderOriginalPageView.swift', 'NativeReaderOriginalPageTransport.swift']
+        paths = list(dict.fromkeys(registry['core'] + registry['native'] + ['NativeReaderWindowController.swift', 'NativeReaderOriginalPageView.swift', 'NativeReaderOriginalPageTransport.swift']))
         cls.sources = [REPO / 'apps/macos' / p for p in paths]
         cls.binary = OUT / 'OriginalPageTests'
         result = command(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target',
@@ -288,7 +289,7 @@ class OriginalPageTests(unittest.TestCase):
         save(self.work/'disconnect.json',dict(actualPeerClosed=True,compilerInvoked=started.is_set(),publicationDropped=self.pages.accepted is None))
 
     def test_prebuilt_engine_source_anchor_probe(self):
-        engine=Path('/Users/taeyoung/Applications/Lagrangian.app/Contents/MacOS/flow-engine')
+        engine=Path(os.environ.get('FLOW_TEST_ENGINE', '/Users/taeyoung/Applications/Lagrangian.app/Contents/MacOS/flow-engine'))
         self.assertTrue(engine.is_file())
         profile='(version 1)(allow default)(deny network*)'
         invocations=[['--version'], ['compile','--help'], ['compile','--root',str(self.root),str(self.entry),str(self.work/'engine.pdf')],

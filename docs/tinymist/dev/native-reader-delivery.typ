@@ -149,5 +149,35 @@ Required suite prerequisites/skips fail; the historical optional certificate
 check is separate.
 
 No command here authorizes live installation, launchd changes, activation, push,
-manual CI, Cloud or Rust compilation. GUI preparation is deliberately excluded;
-its future fixed commit requires a new source binding/build in this session.
+manual CI, Cloud or Rust compilation. Fixed GUI preparation `1e32419dd2cb448fb183ce563e39736cf64a1fca` and
+published reader/homepage `4871104deef949d437deccef8b39ddd48ed07bef` are now
+integrated by normal no-ff merges. Their exact bytes are checked alongside C19;
+the transferred C test collects each actual Swift file once while retaining the
+standalone pre-registry path. The published unlimited tool-round/document-read
+policy is preserved with existing per-request and freshness/cancellation guards.
+
+The final source is frozen before runtime preparation, reader packaging, staging
+and app build. Runtime sourceSHA, reader headSha, delivery sourceRevision and app
+release.sourceRevision must all equal that final HEAD. Test/doc changes after a
+build require a fresh build from the new HEAD. Previous app/stage/evidence are
+immutable. Dependency/package/license/notice bytes stay unchanged.
+
+The canonical D `test_page_delivery_bundle.py gui-fixture` entry composes only the
+new inspection storage base and reentry script with G1
+`test_app_integration.py` owner functions. It does not replace test collection,
+classes, source/security validation, sandbox or lifecycle policy. Setup creates a
+new root; serve is explicit foreground with a bounded lifetime; stop cleans only
+that owned fixture. Inspection remains running=false. A separate smoke root
+checks real HTTP/fake provider/private board and is stopped and reaped. G1
+smoke1/2 may have discovered live profiles; their contents were not logged and
+no mutation was recorded. Those historical failures are not successes and are
+not relabeled as zero user-data access. Final serving uses an owned change_file
+and OS denial of the real user home. Body/verified Source copy uses the named
+private board. Composer/answer Cut/Copy/Paste and external links/editor actions
+are excluded from inspection; no user clipboard is inspected or changed.
+
+The readonly updater/fetch/reuse consumer is separately audited: CI publishes
+the current app/reader, and the updater fetches the same run and checks out its
+source SHA, but its existing local app build omits --delivery. This does not
+prove portable-payload propagation through that updater. No updater/live state
+is changed here. Actual final PM receipt remains absent; acceptance stays 2.

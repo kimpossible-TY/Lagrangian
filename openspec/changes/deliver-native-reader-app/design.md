@@ -29,3 +29,8 @@ This is a pre-GUI candidate: actual formal final gate evidence remains absent. I
 
 ## Migration Plan
 No live migration is executed. Build and verify isolated candidates, review the source-bound manifest, and hand exact outputs to NA06/NA08. Keep the immutable NA11 stage untouched. A future approved pipeline installation uses the standard updater.
+
+## Final inspection assembly
+Normal no-ff merges add fixed GUI preparation G1 and published main487. G1 seven files and published services/homepage are exact; only the transferred C test collection/input roots are changed. Runtime is freshly prepared from pinned dependencies at the final clean HEAD so runtime/reader/delivery/app source identities agree. A later source change invalidates the final-build binding and requires rebuilding.
+
+The D test launcher composes G1's evidence base/reentry script only; existing root, sandbox, source, HTTP, private-copy and bounded lifecycle policies remain with G1. Inspection is setup-only, separate smoke starts/stops an owned foreground fixture, and the actual user home is denied. The historical G1 smoke1/2 possible live-profile read is retained as an unverified early limitation. Composer clipboard and external actions are excluded. Existing updater build-without-delivery is a separately reported readonly consumer limitation.

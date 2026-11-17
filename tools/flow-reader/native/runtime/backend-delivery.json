@@ -90,13 +90,15 @@
     "coreSource": "ec2c4af91988f0db66d494cea97a551ffd7cf180",
     "originalPages": "original-pdf-full-v1",
     "coreFixes": "integrated; final review pending",
-    "GUI": "unverified; pre-GUI candidate",
+    "GUI": "unverified; fixed preparation integrated",
     "liveChat": "unverified",
     "originalPagesSource": "76f5ac13df10c2c16824323ab65fbf397ce4de7c",
     "sourceAnchors": "unsupported",
     "rawDiffNativeConsumer": "unverified; immutable PDF full reset only",
     "pdfSelection": "page-local display only",
     "macOS13Execution": "unverified",
-    "VoiceOverSpeech": "unverified"
+    "VoiceOverSpeech": "unverified",
+    "guiPreparationSource": "1e32419dd2cb448fb183ce563e39736cf64a1fca",
+    "publishedReaderSource": "4871104deef949d437deccef8b39ddd48ed07bef"
   }
 }
