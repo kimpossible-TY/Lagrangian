@@ -4,44 +4,66 @@ import AppKit
 /// NA03 may supply native math paint through the explicit attributed-math operation.
 enum NativeReaderAnswerPart: Equatable {
     case text(String), code(String), math(String)
-    static func parse(_ markdown: String) -> [Self] {
-        let text = String(markdown.prefix(80000))
-        var parts = [Self](), plain = "", math = "", code = ""
-        var inCode = false, inMath = false
-        func flushPlain() { if !plain.isEmpty { parts.append(.text(plain)); plain = "" } }
-        for line in text.components(separatedBy: "\n") {
-            if line.hasPrefix("```") && !inMath {
-                if inCode { parts.append(.code(code)); code = "" } else { flushPlain() }
-                inCode.toggle(); continue
-            }
-            if inCode { code += line + "\n"; continue }
-            if line.trimmingCharacters(in: .whitespaces) == "$$" {
-                if inMath { parts.append(.math(math)); math = "" } else { flushPlain() }
-                inMath.toggle(); continue
-            }
-            if inMath { math += line + "\n" } else { plain += line + "\n" }
-        }
-        if inCode { plain += "```\n" + code }
-        if inMath { plain += "$$\n" + math }
-        flushPlain()
-        var expanded = [Self]()
-        let pattern = #"\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|(?<!\\)\$[^$\n]+\$"#
-        let expression = try? NSRegularExpression(pattern: pattern)
-        for part in parts {
-            guard case .text(let value) = part, let expression else { expanded.append(part); continue }
-            let string = value as NSString
-            var position = 0
-            for match in expression.matches(in: value, range: NSRange(location: 0, length: string.length)) {
-                if match.range.location > position { expanded.append(.text(string.substring(with: NSRange(location: position, length: match.range.location-position)))) }
-                let token = string.substring(with: match.range)
-                let edge = token.hasPrefix("$") ? 1 : 2
-                expanded.append(.math(String(token.dropFirst(edge).dropLast(edge))))
-                position = NSMaxRange(match.range)
-            }
-            if position < string.length { expanded.append(.text(string.substring(from: position))) }
-        }
-        return expanded
+    struct Token {
+        let part: NativeReaderAnswerPart
+        let original: String
+        let display: Bool
     }
+    /// Single bounded scan. Unclosed math/code stays literal, including delimiters.
+    /// Backtick spans/fences shield math. A backslash escapes the next character.
+    static func tokens(_ markdown: String) -> [Token] {
+        guard markdown.utf8.count <= 80000 else { return [Token(part: .text(markdown), original: markdown, display: false)] }
+        let chars = Array(markdown)
+        var result = [Token](), plain = "", i = 0
+        func has(_ token: String, _ at: Int) -> Bool {
+            let t = Array(token)
+            return at + t.count <= chars.count && Array(chars[at..<at+t.count]) == t
+        }
+        func flush() {
+            if !plain.isEmpty { result.append(Token(part: .text(plain), original: plain, display: false)); plain = "" }
+        }
+        while i < chars.count {
+            if chars[i] == "`" {
+                var n = 1
+                while i+n < chars.count && chars[i+n] == "`" { n += 1 }
+                guard n <= 32 else { plain += String(chars[i...]); break }
+                let edge = String(repeating: "`", count: n), start = i
+                i += n
+                while i < chars.count && !has(edge, i) { i += 1 }
+                guard i < chars.count else { plain += String(chars[start...]); break }
+                let code = String(chars[start+n..<i]); i += n
+                flush(); result.append(Token(part: .code(code), original: String(chars[start..<i]), display: false))
+                continue
+            }
+            let opening: String?, closing: String?, display: Bool
+            if has("$$", i) { opening = "$$"; closing = "$$"; display = true }
+            else if has("\\[", i) { opening = "\\["; closing = "\\]"; display = true }
+            else if has("\\(", i) { opening = "\\("; closing = "\\)"; display = false }
+            else if chars[i] == "$" { opening = "$"; closing = "$"; display = false }
+            else { opening = nil; closing = nil; display = false }
+            if let opening, let closing {
+                let start = i, edge = opening.count
+                var end = i + edge
+                while end < chars.count {
+                    if has(closing, end) { break }
+                    if !display && chars[end] == "\n" { break }
+                    if chars[end] == "\\" { end += min(2, chars.count-end) } else { end += 1 }
+                }
+                if end < chars.count, has(closing, end), end > i+edge {
+                    let tex = String(chars[i+edge..<end])
+                    flush(); i = end + closing.count
+                    result.append(Token(part: .math(tex), original: String(chars[start..<i]), display: display))
+                    continue
+                }
+                // Do not reinterpret an unmatched opening as another delimiter.
+                plain += String(chars[i...]); break
+            }
+            plain.append(chars[i]); i += 1
+            if chars[i-1] == "\\", i < chars.count { plain.append(chars[i]); i += 1 }
+        }
+        flush(); return result
+    }
+    static func parse(_ markdown: String) -> [Self] { tokens(markdown).map(\.part) }
 
     @MainActor static func attributed(_ markdown: String, math: ((String) -> NSAttributedString?)? = nil) -> NSAttributedString {
         let result = NSMutableAttributedString(string: "")
@@ -75,11 +97,85 @@ enum NativeReaderAnswerPart: Equatable {
     }
 }
 
+private let answerMathCopy = NSAttributedString.Key("NativeAnswerOrdinaryCopy")
+
+/// Plain answer copy carries authored TeX delimiters. No document excerpt API.
+final class NativeReaderAnswerTextView: NSTextView {
+    var semanticValue = ""
+    override func accessibilityValue() -> String? { semanticValue }
+    func ordinaryText(in range: NSRange) -> String {
+        guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return "" }
+        var text = ""
+        storage.enumerateAttribute(answerMathCopy, in: range) { value, subrange, _ in
+            text += value as? String ?? (storage.string as NSString).substring(with: subrange)
+        }
+        return text
+    }
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string else { return false }
+        return pboard.setString(ordinaryText(in: selectedRange()), forType: .string)
+    }
+}
+
+private final class NativeAnswerMathCell: NSTextAttachmentCell {
+    let baseline: CGFloat
+    init(_ prepared: NativePreparedAnswerMath) {
+        baseline = CGFloat(prepared.layout.whole.descent)
+        super.init(imageCell: NSImage(cgImage: prepared.image, size: prepared.size))
+    }
+    required init(coder: NSCoder) { fatalError("not archived") }
+    override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: -baseline) }
+}
+
+private struct NativePreparedAnswerToken {
+    let token: NativeReaderAnswerPart.Token
+    let math: NativePreparedAnswerMath?
+    let failure: String?
+}
+private struct NativePreparedAnswerMessage {
+    let id: UUID
+    let tokens: [NativePreparedAnswerToken]
+}
+
+/// No effects except the injected math worker. One bounded transcript job per view;
+/// the view owns cancellation/adoption and does not queue another preparation.
+private enum NativeAnswerPreparation {
+    static func prepare(_ messages: [NativeReaderChatState.Message], worker: NativeMathWorker,
+                        context: NativeObjectContext) async throws -> [NativePreparedAnswerMessage] {
+        guard messages.count <= 256, messages.reduce(0, { $0 + $1.markdown.utf8.count }) <= 512 * 1024 else { throw NativeObjectError.budget }
+        var result = [NativePreparedAnswerMessage](), formulas = 0, cost = 0
+        for message in messages where message.complete && message.role == .assistant {
+            try Task.checkCancellation()
+            var tokens = [NativePreparedAnswerToken]()
+            for token in NativeReaderAnswerPart.tokens(message.markdown) {
+                try Task.checkCancellation()
+                var prepared: NativePreparedAnswerMath?, failure: String?
+                if case .math(let tex) = token.part {
+                    formulas += 1
+                    guard formulas <= 64 else { throw NativeObjectError.budget }
+                    do {
+                        prepared = try await worker.prepare(tex: tex, display: token.display, context: context)
+                        cost += prepared!.image.bytesPerRow * prepared!.image.height
+                        guard cost <= 16 * 1024 * 1024 else { throw NativeObjectError.budget }
+                    } catch {
+                        try Task.checkCancellation()
+                        if error as? NativeObjectError == .budget { throw error }
+                        failure = "Math unavailable: " + String(describing: error).prefix(128)
+                    }
+                }
+                tokens.append(NativePreparedAnswerToken(token: token, math: prepared, failure: failure))
+            }
+            result.append(NativePreparedAnswerMessage(id: message.id, tokens: tokens))
+        }
+        return result
+    }
+}
+
 /// Inline AppKit composer. The host anchors this view beside the selected native
 /// block; only the Send button calls send. Restoring/history/model changes cannot infer.
 @MainActor final class NativeReaderChatView: NSView, NSTextViewDelegate {
     let composer = NSTextView()
-    let answer = NSTextView()
+    let answer = NativeReaderAnswerTextView()
     let models = NSPopUpButton()
     let sendButton = NSButton(title: "Send", target: nil, action: nil)
     let cancelButton = NSButton(title: "Stop response", target: nil, action: nil)
@@ -87,6 +183,7 @@ enum NativeReaderAnswerPart: Equatable {
     let notice = NSTextField(wrappingLabelWithString: "")
     var persistDraft: ((NativeReaderRecoveredDraft) -> Void)?
     var openHomepage: ((URL) -> Void)?
+    // Compatibility operation: callers must supply immutable cache lookup only.
     var nativeMath: ((String) -> NSAttributedString?)?
     private let actions: NativeReaderActions
     private let context: NativeReaderRequestContext
@@ -103,6 +200,40 @@ enum NativeReaderAnswerPart: Equatable {
     private var draftTask: Task<Void, Never>?
     private var disposed = false
     private var operationEpoch = 0
+
+    private struct MathKey: Equatable {
+        struct Message: Equatable { let id: UUID; let text: String; let complete: Bool; let assistant: Bool }
+        let context: NativeReaderRequestContext
+        let object: NativeObjectContext
+        let conversation: UUID
+        let version: Int, sequence: Int
+        let messages: [Message]
+    }
+    private var mathWorker: NativeMathWorker?
+    private var mathContext: NativeObjectContext?
+    private var mathKey: MathKey?
+    private var mathEpoch = 0
+    private var mathTask: Task<Void, Never>?
+    private var preparedMessages = [NativePreparedAnswerMessage]()
+    private(set) var mathPreparationCount = 0
+    private(set) var preparedFormulaCount = 0
+    private(set) var mathFailure: String?
+
+    /// Host injection: pinned worker URLs and explicit current layout inputs.
+    /// Resize/theme/font changes call this again. It schedules no inference.
+    func configureMath(worker: NativeMathWorker, context: NativeObjectContext) throws {
+        guard !disposed, context.identity == self.context.target,
+              context.snapshotGeneration == self.context.generation else { throw NativeObjectError.stale }
+        try context.validate()
+        if mathContext == context, mathWorker === worker { return }
+        invalidateMath(); mathWorker = worker; mathContext = context
+        answer.appearance = NSAppearance(named: context.theme == .dark ? .darkAqua : .aqua)
+        if let conversation { present(conversation) }
+    }
+    private func invalidateMath() {
+        mathEpoch += 1; mathTask?.cancel(); mathTask = nil; mathKey = nil
+        preparedMessages = []; preparedFormulaCount = 0; mathFailure = nil
+    }
 
     init(actions: NativeReaderActions, context: NativeReaderRequestContext, authorize: @escaping () throws -> Void) {
         self.actions = actions; self.context = context; self.authorize = authorize
@@ -141,6 +272,7 @@ enum NativeReaderAnswerPart: Equatable {
         guard !disposed, value.state.context == context else { return }
         if let old = conversation, old.state.conversationID == value.state.conversationID,
            (value.state.version < old.state.version || value.state.sequence < old.state.sequence) { return }
+        guard value.state.messages.count <= 256, value.state.messages.reduce(0, { $0 + $1.markdown.utf8.count }) <= 512 * 1024 else { return }
         conversation = value
         if !dirty { composer.string = value.draft }
         if let recovered, recovered.conversationID == value.state.conversationID {
@@ -150,13 +282,70 @@ enum NativeReaderAnswerPart: Equatable {
             if let model = recovered.model { models.selectItem(withTitle: model) }
             notice.stringValue = "Recovered draft. Read authoritative history before retrying a pending Send."
         }
-        let output = NSMutableAttributedString(string: "")
-        for message in value.state.messages {
-            output.append(NSAttributedString(string: message.role == .user ? "You\n" : "Assistant\n", attributes: [.font: NSFont.boldSystemFont(ofSize: 14)]))
-            output.append(NativeReaderAnswerPart.attributed(message.markdown, math: nativeMath))
-        }
-        answer.textStorage?.setAttributedString(output)
+        prepareMathIfNeeded(value)
+        renderTranscript(value)
         updateControls()
+    }
+
+    private func prepareMathIfNeeded(_ value: NativeReaderConversation) {
+        guard let worker = mathWorker, let object = mathContext else { return }
+        let key = MathKey(context: context, object: object, conversation: value.state.conversationID,
+            version: value.state.version, sequence: value.state.sequence,
+            messages: value.state.messages.map { .init(id: $0.id, text: $0.markdown, complete: $0.complete, assistant: $0.role == .assistant) })
+        guard key != mathKey else { return }
+        invalidateMath(); mathKey = key
+        let epoch = mathEpoch, messages = value.state.messages
+        guard messages.contains(where: { $0.complete && $0.role == .assistant }) else { return }
+        mathPreparationCount += 1
+        let computation = Task.detached(priority: .userInitiated) {
+            try await NativeAnswerPreparation.prepare(messages, worker: worker, context: object)
+        }
+        mathTask = Task { [weak self] in
+            do {
+                let prepared = try await withTaskCancellationHandler(operation: { try await computation.value }, onCancel: { computation.cancel() })
+                guard let self, !disposed, epoch == mathEpoch, mathKey == key, let current = conversation else { return }
+                preparedMessages = prepared
+                preparedFormulaCount = prepared.reduce(0) { $0 + $1.tokens.filter { $0.math != nil }.count }
+                mathTask = nil
+                renderTranscript(current)
+            } catch {
+                guard let self, !disposed, epoch == mathEpoch, mathKey == key else { return }
+                mathTask = nil; mathFailure = "Math preparation unavailable"
+            }
+        }
+    }
+
+    // Synchronous presentation reads immutable pixels/metrics; no parser/helper/layout.
+    private func renderTranscript(_ value: NativeReaderConversation) {
+        let output = NSMutableAttributedString(string: "")
+        var semantic = ""
+        for message in value.state.messages {
+            let role = message.role == .user ? "You\n" : "Assistant\n"
+            output.append(NSAttributedString(string: role, attributes: [.font: NSFont.boldSystemFont(ofSize: 14), .foregroundColor: NSColor.labelColor]))
+            semantic += role
+            if message.complete, message.role == .assistant,
+               let prepared = preparedMessages.first(where: { $0.id == message.id }) {
+                for item in prepared.tokens {
+                    if let math = item.math {
+                        let attachment = NSTextAttachment(); attachment.attachmentCell = NativeAnswerMathCell(math)
+                        let text = NSMutableAttributedString(attachment: attachment)
+                        text.addAttribute(answerMathCopy, value: item.token.original, range: NSRange(location: 0, length: text.length))
+                        output.append(text); semantic += math.math.normalizedText
+                    } else {
+                        let original = item.token.original
+                        output.append(NSAttributedString(string: original, attributes: [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor.labelColor]))
+                        semantic += original
+                        if let failure = item.failure { semantic += " [" + failure + "]" }
+                    }
+                }
+            } else {
+                output.append(NSAttributedString(string: message.markdown, attributes: [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor.labelColor]))
+                semantic += message.markdown
+            }
+            output.append(NSAttributedString(string: "\n")); semantic += "\n"
+        }
+        answer.semanticValue = semantic
+        answer.textStorage?.setAttributedString(output)
     }
 
     func presentAccount(_ state: NativeReaderAccountState) {
@@ -265,6 +454,7 @@ enum NativeReaderAnswerPart: Equatable {
     @objc func cancelExplicitly() {
         guard !disposed, let record = conversation else { return }
         operation?.cancel()
+        invalidateMath()
         operationEpoch += 1
         let epoch = operationEpoch
         operation = Task { [weak self] in
@@ -280,6 +470,7 @@ enum NativeReaderAnswerPart: Equatable {
         cancelButton.isEnabled = !disposed && conversation?.status == "streaming"
     }
     func dispose() {
+        invalidateMath()
         disposed = true; operationEpoch += 1; subscription?.cancel(); operation?.cancel(); draftTask?.cancel()
         subscription = nil; operation = nil; draftTask = nil; updateControls()
     }

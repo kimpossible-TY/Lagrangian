@@ -392,6 +392,17 @@ struct NativeMathExecution: Codable {
     let elapsed: Double
     let stdoutBytes: Int
     let stderrBytes: Int
+    let peakResidentBytes: UInt64
+}
+
+/// Answer-only computation result. It carries no source range or source authority.
+/// Pixels, SVG validation and metrics are prepared on the worker actor, never UI.
+struct NativePreparedAnswerMath {
+    let tex: String
+    let math: NativeMath
+    let layout: NativeMathLayout
+    let image: CGImage
+    var size: CGSize { CGSize(width: layout.whole.width, height: layout.whole.ascent + layout.whole.descent) }
 }
 
 actor NativeMathWorker {
@@ -405,13 +416,50 @@ actor NativeMathWorker {
         self.record = record
     }
     func calculate(_ math: NativeMath, context: NativeObjectContext, width: Double) async throws -> NativeMathLayout {
+        let bytes = try await compute(["mathML": math.mathML], source: math.mathML, context: context, width: width)
+        return try NativeMathLayout.decode(bytes, math: math, context: context, width: width)
+    }
+
+    func prepare(tex: String, display: Bool, context: NativeObjectContext) async throws -> NativePreparedAnswerMath {
+        let bytes = try await compute(["kind": "tex", "tex": tex, "display": display], source: tex, context: context, width: context.width)
+        struct Meaning: Decodable {
+            let kind: String, normalizedTeX: String, normalizedMathML: String, semanticText: String
+            let display: Bool
+        }
+        let meaning = try JSONDecoder().decode(Meaning.self, from: bytes)
+        guard meaning.kind == "tex", meaning.display == display,
+              meaning.normalizedTeX == tex.trimmingCharacters(in: .whitespacesAndNewlines),
+              !meaning.normalizedMathML.isEmpty, meaning.normalizedMathML.utf8.count <= 65536,
+              !meaning.semanticText.isEmpty, meaning.semanticText.utf8.count <= 65536 else { throw NativeObjectError.stale }
+        // Existing layout validator binds the exact original input hash and metrics.
+        let binding = NativeMath(mathML: tex, normalizedText: "", display: display)
+        let layout = try NativeMathLayout.decode(bytes, math: binding, context: context, width: context.width)
+        let f = layout.whole, size = CGSize(width: f.width, height: f.ascent + f.descent)
+        guard size.width <= 4096, size.height <= 4096 else { throw NativeObjectError.budget }
+        let scene = try NativeVectorScene.decode(Data(f.svg.utf8), dark: context.theme == .dark, targetSize: size)
+        let w = Int(ceil(size.width * 2)), h = Int(ceil(size.height * 2))
+        guard w <= 8192, h <= 8192, w <= 4 * 1024 * 1024 / h,
+              let bitmap = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw NativeObjectError.budget }
+        bitmap.scaleBy(x: 2, y: 2); bitmap.translateBy(x: 0, y: CGFloat(h) / 2); bitmap.scaleBy(x: 1, y: -1)
+        scene.draw(in: bitmap, rect: CGRect(origin: .zero, size: size))
+        try Task.checkCancellation()
+        guard let image = bitmap.makeImage() else { throw NativeObjectError.invalidGeometry }
+        return NativePreparedAnswerMath(tex: meaning.normalizedTeX,
+            math: NativeMath(mathML: meaning.normalizedMathML, normalizedText: meaning.semanticText, display: display),
+            layout: layout, image: image)
+    }
+
+    private func compute(_ fields: [String: Any], source: String, context: NativeObjectContext, width: Double) async throws -> Data {
         guard active < 2 else { throw NativeObjectError.unsupported("math-worker-busy") }
+        try Task.checkCancellation()
         try context.validate()
         guard width.isFinite, (16...8192).contains(width) else { throw NativeObjectError.invalidGeometry }
-        guard math.mathML.utf8.count <= 65536 else { throw NativeObjectError.budget }
-        let input = try JSONSerialization.data(withJSONObject: ["mathML": math.mathML, "width": width,
-            "fontSize": context.fontSize, "font": "MathJaxNewcm", "context": ["revision": context.identity.revision,
-                "generation": context.generation, "theme": context.theme.rawValue]])
+        guard source.utf8.count <= 65536 else { throw NativeObjectError.budget }
+        var request = fields
+        request.merge(["width": width, "fontSize": context.fontSize, "font": "MathJaxNewcm", "context": ["revision": context.identity.revision,
+                "generation": context.generation, "theme": context.theme.rawValue]]) { _, new in new }
+        let input = try JSONSerialization.data(withJSONObject: request)
         active += 1; defer { active -= 1 }
         let cancellation = NativeMathCancellation(), node = self.node, helper = self.helper, runtime = self.runtime, timeout = self.timeout, record = self.record
         let bytes = try await withTaskCancellationHandler(operation: {
@@ -420,7 +468,7 @@ actor NativeMathWorker {
             }.value
         }, onCancel: { cancellation.cancel() })
         if Task.isCancelled { throw NativeObjectError.cancelled }
-        return try NativeMathLayout.decode(bytes, math: math, context: context, width: width)
+        return bytes
     }
     private nonisolated static func execute(node: URL, helper: URL, runtime: URL, input: Data,
                                             timeout: TimeInterval, cancellation: NativeMathCancellation, record: @Sendable (NativeMathExecution) -> Void) throws -> Data {
@@ -430,11 +478,12 @@ actor NativeMathWorker {
         if cancellation.isCancelled { throw NativeObjectError.cancelled }
         let process = Process(), stdinPipe = Pipe(), stdoutPipe = Pipe(), stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
-        process.arguments = ["-p", "(version 1)(allow default)(deny network*)(deny file-write*)", node.path, helper.path, "--runtime", runtime.path]
+        process.arguments = ["-p", "(version 1)(allow default)(deny network*)(deny file-write*)", node.path, "--max-old-space-size=128", "--stack-size=1024", helper.path, "--runtime", runtime.path]
         process.environment = ["PATH": "/usr/bin:/bin"]
         process.standardInput = stdinPipe; process.standardOutput = stdoutPipe; process.standardError = stderrPipe
         let start = ProcessInfo.processInfo.systemUptime
         var output = Data(), errors = Data()
+        var peakResidentBytes: UInt64 = 0
         try process.run()
         try? stdinPipe.fileHandleForReading.close()
         try? stdoutPipe.fileHandleForWriting.close(); try? stderrPipe.fileHandleForWriting.close()
@@ -447,7 +496,7 @@ actor NativeMathWorker {
             process.waitUntilExit()
             record(NativeMathExecution(argv: [process.executableURL!.path] + process.arguments!, exit: process.terminationStatus,
                 reason: process.terminationReason == .exit ? "exit" : "signal", elapsed: ProcessInfo.processInfo.systemUptime - start,
-                stdoutBytes: output.count, stderrBytes: errors.count))
+                stdoutBytes: output.count, stderrBytes: errors.count, peakResidentBytes: peakResidentBytes))
             try? stdinPipe.fileHandleForWriting.close(); try? stdoutPipe.fileHandleForReading.close(); try? stderrPipe.fileHandleForReading.close()
         }
         var sent = 0, inputClosed = false
@@ -463,6 +512,20 @@ actor NativeMathWorker {
             }
         }
         while true {
+            // V8 heap flags do not cover Buffers/native memory. Sample resident
+            // bytes as well; exceedance kills this child through the same defer.
+            var usage = rusage_info_v2()
+            let status = withUnsafeMutablePointer(to: &usage) { pointer in
+                pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                    proc_pid_rusage(process.processIdentifier, RUSAGE_INFO_V2, $0)
+                }
+            }
+            if status == 0 {
+                peakResidentBytes = max(peakResidentBytes, usage.ri_resident_size)
+                guard peakResidentBytes <= 256 * 1024 * 1024 else { throw NativeObjectError.budget }
+            } else if process.isRunning {
+                throw NativeObjectError.unsupported("math-helper-memory-observation")
+            }
             if cancellation.isCancelled { throw NativeObjectError.cancelled }
             if ProcessInfo.processInfo.systemUptime - start > timeout { throw NativeObjectError.unsupported("math-helper-timeout") }
             if !inputClosed {
