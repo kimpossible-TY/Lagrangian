@@ -10,6 +10,14 @@ struct Failure: Error, CustomStringConvertible { let description: String }
 func require(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
     if try !condition() { throw Failure(description: message) }
 }
+func expectFailure(_ expected: String, _ action: () throws -> Void) throws {
+    do { try action() }
+    catch let error as Failure {
+        try require(error.description == expected, "unexpected rejection: expected " + expected + "; got " + error.description)
+        return
+    }
+    throw Failure(description: "expected rejection missing: " + expected)
+}
 func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 func write(_ value: Any, _ url: URL) throws {
     try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: url)
@@ -36,10 +44,14 @@ struct WhitespaceOracle: Codable {
 struct CopyOracle: Codable { let startBlock: Int; let startUTF16: Int; let endBlock: Int; let endUTF16: Int; let text: String; let reverseText: String }
 struct EmphasisOracle: Codable { let block: Int; let text: String; let rangeUTF16: [Int] }
 struct LinkOracle: Codable { let block: Int; let target: String; let text: String }
+struct MathOracle: Codable {
+    let block: Int; let objectIndex: Int; let idSuffix: String; let inlineRangeUTF16: [Int]
+    let fixtureSource: String; let normalizedText: String; let scalars: [UInt32]; let origin: String
+}
 struct Oracle: Codable {
     let oracleOrigin: String; let reviewStatus: String; let roles: [String]; let texts: [String]; let anchors: [String: Int]
     let crossBlockCopy: CopyOracle; let emphasis: EmphasisOracle; let link: LinkOracle
-    let whitespace: [WhitespaceOracle]; let unsupported: [String]; let tableCells: [String]; let figureCaption: String; let unicode: [UnicodeOracle]
+    let math: MathOracle; let whitespace: [WhitespaceOracle]; let unsupported: [String]; let tableCells: [String]; let figureCaption: String; let unicode: [UnicodeOracle]
     let caretEquivalence: String; let coordinateSystem: String
 }
 func maps(_ s: String) -> Maps {
@@ -65,9 +77,11 @@ func copy(_ blocks: [Block], _ a: (Int, Int), _ b: (Int, Int)) throws -> String 
         try substring(blocks[i].text, i == start.0 ? start.1 : 0, i == end.0 ? end.1 : blocks[i].text.utf16.count)
     }.joined(separator: "\n")
 }
-func importModel(_ data: Data) throws -> Model {
+func importModel(_ data: Data, oracle: Oracle) throws -> Model {
     try require(data.count <= 4_000_000, "bounded import")
-    let m = try JSONDecoder().decode(Model.self, from: data)
+    let m: Model
+    do { m = try JSONDecoder().decode(Model.self, from: data) }
+    catch is DecodingError { throw Failure(description: "malformed model JSON") }
     try require(m.proofSchema == 1 && m.generation > 0 && !m.blocks.isEmpty && m.blocks.count <= 128, "schema/generation/blocks")
     try require(Set(m.requiredCapabilities).isSubset(of: ["native-text", "unsupported-placeholders"]), "unknown required capability")
     try require(m.provenance.compilerExit == 0, "compiler failure")
@@ -87,26 +101,61 @@ func importModel(_ data: Data) throws -> Model {
         }
     }
     for (_, i) in m.anchors { try require(m.blocks.indices.contains(i), "anchor bounds") }
+    // Fixed fixture oracle preserves the unsupported formula's content and identity.
+    // This does not assert native mathematical layout or a source-position map.
+    let math = oracle.math
+    try require(m.blocks.indices.contains(math.block), "math order/identity")
+    let block = m.blocks[math.block]
+    try require(block.objects.indices.contains(math.objectIndex), "math order/identity")
+    let object = block.objects[math.objectIndex]
+    try require(m.blocks.flatMap(\.objects).filter { $0.kind == "math" }.count == 1 && object.kind == "math" &&
+                block.id == String(m.identity.revision.value.prefix(12)) + ":" + String(math.block) &&
+                object.id == String(m.identity.revision.value.prefix(12)) + math.idSuffix &&
+                block.inlines.contains { $0.role == "math" && $0.rangeUTF16 == math.inlineRangeUTF16 }, "math order/identity")
+    try require(exact(object.normalizedText, math.normalizedText) && object.normalizedText.unicodeScalars.map(\.value) == math.scalars, "math content preservation")
     return m
 }
 struct Layout {
-    let identity: Identity; let generation: Int; let inputDigest: String; var complete: Bool
+    let identity: Identity; let generation: Int; var inputDigest: String; var complete: Bool
     let width: Double; let fontSize: Double; let lines: [[String: Any]]; let lineCount: Int; let caretCount: Int; let rawInteriorHits: Int
     let fonts: [[String: Any]]; let paintDigest: String
 }
 // Complete importer + geometry adoption is atomic. This object never owns server publication.
 struct Accepted {
+    let oracle: Oracle
     var model: Model; var layout: Layout; var digest: String
     mutating func adopt(_ data: Data, _ candidate: Layout, requested: Identity, generation: Int, layoutGeneration: Int = 1) throws {
-        let imported = try importModel(data)
+        let imported = try importModel(data, oracle: oracle)
         try require(imported.identity == requested && candidate.identity == requested, "stale document/service/revision/input")
         try require(imported.generation == generation && candidate.generation == layoutGeneration, "stale generation")
-        try require(candidate.complete && candidate.inputDigest == sha(data), "incomplete or mismatched geometry")
+        try require(candidate.complete, "incomplete geometry")
+        try require(candidate.inputDigest == sha(data), "geometry input digest mismatch")
         try require(candidate.width > 0 && candidate.fontSize > 0 && candidate.lineCount > 0, "layout failure")
         model = imported; layout = candidate; digest = sha(data)
     }
 }
 func rectJSON(_ r: CGRect) -> [Double] { [Double(r.origin.x), Double(r.origin.y), Double(r.width), Double(r.height)] }
+struct Caret: Hashable {
+    let utf16: Int
+    let affinity: String
+    var json: [String: Any] { ["utf16": utf16, "affinity": affinity] }
+}
+struct CaretStop { let caret: Caret; let x: CGFloat }
+func caretX(_ line: CTLine, _ caret: Caret) throws -> CGFloat {
+    try require(["primary", "secondary"].contains(caret.affinity), "unknown caret affinity")
+    var secondary: CGFloat = 0
+    let primary = CTLineGetOffsetForStringIndex(line, caret.utf16, &secondary)
+    return caret.affinity == "primary" ? primary : secondary
+}
+func validateCaretResult(_ line: CTLine, originX: CGFloat, hit: Caret, equivalents: Set<Caret>) throws {
+    // Reverse through CoreText using the RETURNED branch, not the requested branch.
+    try require(abs(try caretX(line, hit) - originX) <= 0.01, "caret branch round-trip")
+    try require(equivalents.contains(hit), "caret pair outside exact equivalence")
+}
+func validateRawHit(_ raw: CFIndex, start: Int, end: Int) throws {
+    try require(raw != kCFNotFound, "raw CoreText hit not found")
+    try require(raw >= start && raw <= end, "raw CoreText hit outside line")
+}
 func shape(_ m: Model, _ data: Data, width: Double, size: Double, oracle: Oracle, layoutGeneration: Int = 1) throws -> Layout {
     try require(width.isFinite && size.isFinite && width > 0 && size > 0, "layout input failure")
     let base = CTFontCreateWithName("Helvetica" as CFString, CGFloat(size), nil)
@@ -132,40 +181,83 @@ func shape(_ m: Model, _ data: Data, width: Double, size: Double, oracle: Oracle
             let advance = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
             try require(advance.isFinite && advance - CTLineGetTrailingWhitespaceWidth(line) <= width + 0.01, "line exceeds advance width block=\(bi) range=\(position)..<\(end) advance=\(advance) trailing=\(CTLineGetTrailingWhitespaceWidth(line)) width=\(width)")
             let lineLegal = legal.filter { $0 >= position && $0 <= end }
-            var stops = [(Int, CGFloat, String)]()
+            var stops = [CaretStop]()
             for offset in lineLegal {
                 var secondary: CGFloat = 0
                 let primary = CTLineGetOffsetForStringIndex(line, offset, &secondary)
-                stops.append((offset, primary, "primary"))
-                if abs(primary-secondary) > 0.01 { stops.append((offset, secondary, "secondary")) }
+                stops.append(CaretStop(caret: Caret(utf16: offset, affinity: "primary"), x: primary))
+                if abs(primary-secondary) > 0.01 { stops.append(CaretStop(caret: Caret(utf16: offset, affinity: "secondary"), x: secondary)) }
             }
             let advanceRect = CGRect(x: 0, y: -descent, width: advance, height: ascent+descent)
             let ink = CTLineGetImageBounds(line, nil)
-            func legalHit(_ point: CGPoint) -> Int? {
+            func legalHit(_ point: CGPoint) -> Caret? {
                 guard point.x >= 0 && point.x <= CGFloat(advance) && point.y >= -descent && point.y <= ascent else { return nil }
-                return stops.min(by: { abs($0.1-point.x) < abs($1.1-point.x) })?.0
+                return stops.min(by: { abs($0.x-point.x) < abs($1.x-point.x) })?.caret
             }
-            var hits = [[String: Any]]()
-            for (offset,x,affinity) in stops {
-                let equivalence = Set(stops.filter { abs($0.1-x) <= 0.01 }.map { $0.0 })
-                let raw = CTLineGetStringIndexForPosition(line, CGPoint(x: x, y: 0))
-                // CoreText returns a string insertion index, which may bisect a grapheme.
-                // Such raw values are observations only. Public candidates are legal stops.
-                if raw >= position && raw <= end && !legal.contains(raw) { rawInterior += 1 }
-                let resolved = legalHit(CGPoint(x: x, y: 0))
-                try require(resolved != nil && equivalence.contains(resolved!) && equivalence.contains(offset), "caret/hit mismatch")
+            var hits = [[String: Any]](), pointProbes = [[String: Any]](), caretNegatives = [[String: Any]]()
+            for stop in stops {
+                let equivalence = Set(stops.filter { abs($0.x-stop.x) <= 0.01 }.map { $0.caret })
+                let raw = CTLineGetStringIndexForPosition(line, CGPoint(x: stop.x, y: 0))
+                try validateRawHit(raw, start: position, end: end)
+                // Raw string indices may bisect graphemes; public candidates never do.
+                if !legal.contains(raw) { rawInterior += 1 }
+                guard let resolved = legalHit(CGPoint(x: stop.x, y: 0)) else { throw Failure(description: "caret hit missing") }
+                try validateCaretResult(line, originX: stop.x, hit: resolved, equivalents: equivalence)
+                let equivalentOffsets = Set(equivalence.map { $0.utf16 })
                 if legal.contains(raw) {
-                    try require(equivalence.contains(raw), "raw CoreText hit differs outside exact caret equivalence")
-                }
-                if raw > position && raw < end && !legal.contains(raw) {
+                    try require(equivalentOffsets.contains(raw), "raw CoreText hit differs outside exact caret equivalence")
+                } else {
                     guard let lower = legal.last(where: { $0 < raw }), let upper = legal.first(where: { $0 > raw }) else { throw Failure(description: "raw hit outside grapheme") }
-                    try require(equivalence.contains(lower) || equivalence.contains(upper), "raw hit not in equivalent adjacent grapheme")
+                    try require(equivalentOffsets.contains(lower) || equivalentOffsets.contains(upper), "raw hit not in equivalent adjacent grapheme")
                 }
-                hits.append(["utf16": offset, "x": Double(x), "affinity": affinity, "rawCoreTextHit": raw, "legalHit": resolved!, "equivalentUTF16": equivalence.sorted()])
+                hits.append(["utf16": stop.caret.utf16, "x": Double(stop.x), "inputAffinity": stop.caret.affinity,
+                             "rawCoreTextHit": raw, "legalHit": resolved.json, "returnedCaretXPt": Double(try caretX(line,resolved)),
+                             "equivalentCarets": stops.filter { equivalence.contains($0.caret) }.map { $0.caret.json }])
                 caretCount += 1
             }
             for point in [CGPoint(x: -1, y: 0), CGPoint(x: advance+1, y: 0), CGPoint(x: 0, y: ascent+1), CGPoint(x: 0, y: -descent-1)] {
                 try require(legalHit(point) == nil, "out-of-advance hit was accepted")
+            }
+            // Away from exact stops, nearest legal caret snapping has a Voronoi bound.
+            // This is distinct from the exact-x equivalence class used above.
+            func probe(_ point: CGPoint, kind: String) throws {
+                let raw = CTLineGetStringIndexForPosition(line, point)
+                try validateRawHit(raw, start: position, end: end)
+                guard let hit = legalHit(point) else { throw Failure(description: "advance-interior hit missing") }
+                let restoredX = try caretX(line, hit)
+                let minimum = stops.map { abs($0.x-point.x) }.min()!
+                try require(legal.contains(hit.utf16) && abs(abs(restoredX-point.x)-minimum) <= 0.01, "interior nearest legal caret")
+                guard let replay = legalHit(CGPoint(x: restoredX,y: 0)) else { throw Failure(description: "interior replay missing") }
+                let equivalent = Set(stops.filter { abs($0.x-restoredX) <= 0.01 }.map { $0.caret })
+                try validateCaretResult(line,originX: restoredX,hit: replay,equivalents: equivalent)
+                pointProbes.append(["kind": kind, "pointPt": [Double(point.x),Double(point.y)], "rawCoreTextHit": raw,
+                                    "legalHit": hit.json, "returnedCaretXPt": Double(restoredX), "insideInkBounds": ink.contains(point)])
+            }
+            let xs = Array(Set(stops.map { $0.x })).sorted()
+            for (left,right) in zip(xs,xs.dropFirst()) where right-left > 0.04 {
+                for fraction in [CGFloat(0.25),CGFloat(0.75)] {
+                    let point = CGPoint(x: left+(right-left)*fraction,y: 0)
+                    if point.x >= 0 && point.x <= CGFloat(advance) { try probe(point,kind: "off-caret-interior") }
+                }
+            }
+            for x in [CGFloat(advance)*0.25,CGFloat(advance)*0.5,CGFloat(advance)*0.75] {
+                let point = CGPoint(x: x,y: ascent-0.001)
+                if advanceRect.contains(point) && !ink.contains(point) { try probe(point,kind: "outside-ink-inside-advance") }
+            }
+            if bi == 8 && exact(b.text,"abc אבג 123") && position == 0 {
+                let secondary = stops.first { $0.caret.utf16 == 4 && $0.caret.affinity == "secondary" }
+                guard let branch = secondary else { throw Failure(description: "bidi branch fixture absent") }
+                let wrong = Caret(utf16: 4,affinity: "primary")
+                let equivalent = Set(stops.filter { abs($0.x-branch.x) <= 0.01 }.map { $0.caret })
+                try expectFailure("caret branch round-trip") { try validateCaretResult(line,originX: branch.x,hit: wrong,equivalents: equivalent) }
+                caretNegatives.append(["case": "wrong-bidi-branch", "expectedError": "caret branch round-trip", "inputCaret": branch.caret.json,
+                                       "inputXPt": Double(branch.x), "injectedHit": wrong.json, "injectedXPt": Double(try caretX(line,wrong)), "exit": 0])
+            }
+            if bi == 0 && position == 0 {
+                try expectFailure("raw CoreText hit not found") { try validateRawHit(kCFNotFound,start: position,end: end) }
+                try expectFailure("raw CoreText hit outside line") { try validateRawHit(end+1,start: position,end: end) }
+                try expectFailure("raw CoreText hit outside line") { try validateRawHit(position-2,start: position,end: end) }
+                caretNegatives.append(["case": "raw-not-found-and-line-bounds", "rejectedCount": 3, "exit": 0])
             }
             // Glyph/run bounds are observations, never substituted for advance/caret bounds.
             let c = oracle.crossBlockCopy
@@ -211,7 +303,7 @@ func shape(_ m: Model, _ data: Data, width: Double, size: Double, oracle: Oracle
                 }
                 runs.append(["rangeUTF16": [range.location,range.location+range.length], "font": name, "rtl": CTRunGetStatus(run).contains(.rightToLeft), "glyphIDs": glyphs.map(Int.init), "glyphStringIndicesUTF16": indices, "glyphPositionsPt": points.map { [Double($0.x),Double($0.y)] }, "inkBoundsPt": rectJSON(CTRunGetImageBounds(run, nil, CFRange(location: 0,length: 0))), "fragments": fragments])
             }
-            records.append(["block": bi, "id": b.id, "rangeUTF16": [position,end], "baselinePt": [0,Double(baseline)], "crossBlockCopySelectionUTF16": selectionRange, "advanceBoundsPt": rectJSON(advanceRect), "inkBoundsPt": rectJSON(ink), "trailingWhitespaceAdvancePt": CTLineGetTrailingWhitespaceWidth(line), "carets": hits, "runs": runs])
+            records.append(["block": bi, "id": b.id, "rangeUTF16": [position,end], "baselinePt": [0,Double(baseline)], "crossBlockCopySelectionUTF16": selectionRange, "advanceBoundsPt": rectJSON(advanceRect), "inkBoundsPt": rectJSON(ink), "trailingWhitespaceAdvancePt": CTLineGetTrailingWhitespaceWidth(line), "carets": hits, "pointProbes": pointProbes, "caretNegatives": caretNegatives, "runs": runs])
             painted.append((line,baseline)); baseline -= CGFloat(size*1.6); position = end
         }
         baseline -= CGFloat(size*0.4)
@@ -233,7 +325,8 @@ func run() throws {
     try require(!FileManager.default.fileExists(atPath: out.path), "report directory must be fresh")
     try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
     let data = try Data(contentsOf: input), oracleData = try Data(contentsOf: oracleURL)
-    let model = try importModel(data), oracle = try JSONDecoder().decode(Oracle.self, from: oracleData)
+    let oracle = try JSONDecoder().decode(Oracle.self, from: oracleData)
+    let model = try importModel(data, oracle: oracle)
     try require(sha(oracleData) == model.provenance.oracleSHA256, "oracle provenance mismatch")
     let root = input.deletingLastPathComponent()
     try require(sha(try Data(contentsOf: root.appendingPathComponent("source/main.typ"))) == model.provenance.fixtureSHA256, "fixture provenance mismatch")
@@ -255,6 +348,7 @@ func run() throws {
     try require(objects.first(where: { $0.kind == "table" })?.cells == oracle.tableCells, "table content lost")
     try require(objects.first(where: { $0.kind == "figure" })?.captions.contains(where: { $0.contains(oracle.figureCaption) }) == true, "figure caption lost")
     let sourceBytes = try Data(contentsOf: root.appendingPathComponent("source/main.typ"))
+    try require(sourceBytes.range(of: Data(oracle.math.fixtureSource.utf8)) != nil, "math authored source missing")
     for w in oracle.whitespace {
         try require(sourceBytes.range(of: Data(w.source.utf8)) != nil, "authored whitespace bytes missing")
         let wm = maps(w.source), wg = graphemes(w.source)
@@ -291,56 +385,93 @@ func run() throws {
         let name = "layout-\(Int(width))-\(Int(size)).json"
         try write(["identity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(layout.identity)), "layoutGeneration": layout.generation, "documentGeneration": model.generation, "widthPt": width, "fontSizePt": size, "originAxis": oracle.coordinateSystem, "caretEquivalence": oracle.caretEquivalence, "fontFallback": layout.fonts, "paintSHA256": layout.paintDigest, "bitmapScale": "1 pixel/pt for headless artifact only", "lines": layout.lines],out.appendingPathComponent(name))
         matrix.append(["widthPt": width,"fontSizePt": size,"lines": layout.lineCount,"carets": layout.caretCount,"rawMidGraphemeHitsExcluded": layout.rawInteriorHits,"exit": 0,"geometry": name])
+        try require(layout.lines.contains { ($0["pointProbes"] as? [[String: Any]] ?? []).contains { ($0["kind"] as? String) == "off-caret-interior" } }, "missing off-caret interior probes")
+        try require(layout.lines.contains { ($0["pointProbes"] as? [[String: Any]] ?? []).contains { ($0["kind"] as? String) == "outside-ink-inside-advance" } }, "missing ink/advance probes")
+        try require(layout.lines.flatMap { $0["caretNegatives"] as? [[String: Any]] ?? [] }.contains { ($0["case"] as? String) == "wrong-bidi-branch" }, "missing wrong branch injection")
         layouts.append(layout)
     } }
     try require(layouts[2].lineCount > layouts[8].lineCount, "actual reflow not observed")
     try require(layouts.flatMap(\.lines).contains { ($0["trailingWhitespaceAdvancePt"] as? Double ?? 0) > 0 }, "no whitespace advance observation")
     try require(layouts.flatMap(\.lines).contains { ($0["advanceBoundsPt"] as? [Double]) != ($0["inkBoundsPt"] as? [Double]) }, "ink/advance conflated")
-    var accepted = Accepted(model: model,layout: layouts[0],digest: sha(data)), negatives = [[String: Any]]()
+    var accepted = Accepted(oracle: oracle,model: model,layout: layouts[0],digest: sha(data)), negatives = [[String: Any]](), importerNegatives = [[String: Any]]()
     try accepted.adopt(data,layouts[0],requested: model.identity,generation: 1)
     let original = accepted.digest, originalPaint = accepted.layout.paintDigest
-    func negative(_ name: String, _ action: () throws -> Void) throws {
-        var rejected = false
-        do { try action() } catch { rejected = true }
-        try require(rejected && accepted.digest == original && accepted.layout.paintDigest == originalPaint && accepted.model.identity == model.identity, "last complete accepted not retained: " + name)
-        negatives.append(["case": name,"rejected": true,"lastAcceptedPreserved": true,"exit": 0])
+    func negative(_ name: String, expected: String, _ action: () throws -> Void) throws {
+        try expectFailure(expected,action)
+        try require(accepted.digest == original && accepted.layout.paintDigest == originalPaint && accepted.model.identity == model.identity, "last complete accepted not retained: " + name)
+        negatives.append(["case": name,"expectedError": expected,"rejected": true,"lastAcceptedPreserved": true,"exit": 0])
     }
     let raw = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     func mutation(_ change: (inout [String: Any]) -> Void) throws -> Data { var value = raw; change(&value); return try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) }
+    // Allowed metadata/serialization changes must pass both import and adoption.
+    // Text/identity remain identical, so only this control's layout digest is retargeted.
+    let otherBytes = try mutation { $0["extra"] = "allowed metadata; same logical model" }
+    let controlModel = try importModel(otherBytes,oracle: oracle)
+    try require(controlModel.identity == model.identity && zip(controlModel.blocks,model.blocks).allSatisfy { exact($0.text,$1.text) }, "normal mutation positive control")
+    var controlLayout = layouts[0]; controlLayout.inputDigest = sha(otherBytes)
+    var controlAccepted = accepted
+    try controlAccepted.adopt(otherBytes,controlLayout,requested: model.identity,generation: 1)
+    try require(controlAccepted.digest == sha(otherBytes), "normal mutation adoption positive control")
     for field in ["document","service","revision","input"] {
-        let changed = try mutation { value in var ident = value["identity"] as! [String: Any]; var part = ident[field] as! [String: Any]; part["value"] = "different-" + field; ident[field] = part; value["identity"] = ident }
-        try negative("stale-"+field) { try accepted.adopt(changed,layouts[0],requested: model.identity,generation: 1) }
+        var ident = raw["identity"] as! [String: Any]
+        var part = ident[field] as! [String: Any]; part["value"] = "different-request-" + field; ident[field] = part
+        let requested = try JSONDecoder().decode(Identity.self,from: JSONSerialization.data(withJSONObject: ident))
+        // Keep imported provenance valid so only request/result identity can reject.
+        try negative("stale-"+field,expected: "stale document/service/revision/input") { try accepted.adopt(data,layouts[0],requested: requested,generation: 1) }
     }
-    try negative("old-generation") { try accepted.adopt(data,layouts[0],requested: model.identity,generation: 2) }
-    try negative("old-layout-generation-after-resize") { try accepted.adopt(data,layouts[0],requested: model.identity,generation: 1,layoutGeneration: 2) }
+    try negative("old-generation",expected: "stale generation") { try accepted.adopt(data,layouts[0],requested: model.identity,generation: 2) }
+    try negative("old-layout-generation-after-resize",expected: "stale generation") { try accepted.adopt(data,layouts[0],requested: model.identity,generation: 1,layoutGeneration: 2) }
     let next = try mutation { $0["generation"] = 2 }
-    try negative("late-geometry-after-new-import") { try accepted.adopt(next,layouts[0],requested: model.identity,generation: 2) }
-    try negative("malformed-json") { try accepted.adopt(Data("{".utf8),layouts[0],requested: model.identity,generation: 1) }
-    let unknown = try mutation { v in var b = v["blocks"] as! [[String: Any]]; b[0]["role"] = "unknown-required"; v["blocks"] = b }
-    try negative("unknown-node") { try accepted.adopt(unknown,layouts[0],requested: model.identity,generation: 1) }
-    let unknownCapability = try mutation { $0["requiredCapabilities"] = ["unknown-required"] }
-    try negative("unknown-required-capability") { try accepted.adopt(unknownCapability,layouts[0],requested: model.identity,generation: 1) }
+    try negative("late-geometry-after-new-import",expected: "stale generation") { try accepted.adopt(next,layouts[0],requested: model.identity,generation: 2,layoutGeneration: 2) }
     var incomplete = layouts[0]; incomplete.complete = false
-    try negative("incomplete-layout") { try accepted.adopt(data,incomplete,requested: model.identity,generation: 1) }
+    try negative("incomplete-layout",expected: "incomplete geometry") { try accepted.adopt(data,incomplete,requested: model.identity,generation: 1) }
+    try negative("layout-failure",expected: "layout input failure") { _ = try shape(model,data,width: -1,size: 14,oracle: oracle) }
+    try negative("geometry-input-digest-mismatch",expected: "geometry input digest mismatch") { try accepted.adopt(otherBytes,layouts[0],requested: model.identity,generation: 1) }
+    let unknown = try mutation { v in var b = v["blocks"] as! [[String: Any]]; b[0]["role"] = "unknown-required"; v["blocks"] = b }
+    let unknownCapability = try mutation { $0["requiredCapabilities"] = ["unknown-required"] }
     let schema = try mutation { $0["proofSchema"] = 99 }
-    try negative("unknown-schema") { try accepted.adopt(schema,layouts[0],requested: model.identity,generation: 1) }
     let compilerFailure = try mutation { v in var p = v["provenance"] as! [String: Any]; p["compilerExit"] = 1; v["provenance"] = p }
-    try negative("compiler-failure") { try accepted.adopt(compilerFailure,layouts[0],requested: model.identity,generation: 1) }
     let badProvenance = try mutation { v in var p = v["provenance"] as! [String: Any]; var a = p["artifacts"] as! [String: String]; a["compiled/document.html"] = "wrong-compiler-artifact"; p["artifacts"] = a; v["provenance"] = p }
-    try negative("compiler-provenance-mismatch") { try accepted.adopt(badProvenance,layouts[0],requested: model.identity,generation: 1) }
     let lost = try mutation { v in var b = v["blocks"] as! [[String: Any]]; b[2]["text"] = "lost"; v["blocks"] = b }
-    try negative("import-offset-corruption") { try accepted.adopt(lost,layouts[0],requested: model.identity,generation: 1) }
-    try negative("layout-failure") { _ = try shape(model,data,width: -1,size: 14,oracle: oracle) }
-    let otherBytes = try mutation { $0["generation"] = 1; $0["extra"] = "different bytes" }
-    try negative("geometry-input-digest-mismatch") { try accepted.adopt(otherBytes,layouts[0],requested: model.identity,generation: 1) }
-    let nextModel = try importModel(next)
+    let unknownInline = try mutation { v in var b = v["blocks"] as! [[String: Any]]; var spans = b[0]["inlines"] as! [[String: Any]]; spans[0]["role"] = "unknown-required"; b[0]["inlines"] = spans; v["blocks"] = b }
+    func mathMutation(_ change: (inout [String: Any]) -> Void) throws -> Data {
+        try mutation { v in
+            var blocks = v["blocks"] as! [[String: Any]], objects = blocks[oracle.math.block]["objects"] as! [[String: Any]]
+            change(&objects[oracle.math.objectIndex]); blocks[oracle.math.block]["objects"] = objects; v["blocks"] = blocks
+        }
+    }
+    let mathLost = try mathMutation { $0["normalizedText"] = "" }
+    let mathAltered = try mathMutation { $0["normalizedText"] = "x+1" }
+    let mathReordered = try mathMutation { $0["normalizedText"] = "1+𝑥" }
+    let mathIdentity = try mathMutation { $0["id"] = "wrong-math-object" }
+    let importCases: [(String,Data,String)] = [
+        ("malformed-json",Data("{".utf8),"malformed model JSON"),
+        ("unknown-node",unknown,"unknown required block role"),
+        ("unknown-required-capability",unknownCapability,"unknown required capability"),
+        ("unknown-schema",schema,"schema/generation/blocks"),
+        ("compiler-failure",compilerFailure,"compiler failure"),
+        ("compiler-provenance-mismatch",badProvenance,"compiler/input provenance mismatch"),
+        ("import-offset-corruption",lost,"display or scalar offset corruption"),
+        ("unknown-inline",unknownInline,"unknown required inline"),
+        ("math-content-loss",mathLost,"math content preservation"),
+        ("math-content-altered",mathAltered,"math content preservation"),
+        ("math-content-reordered",mathReordered,"math content preservation"),
+        ("math-object-identity",mathIdentity,"math order/identity")
+    ]
+    for (name,bytes,expected) in importCases {
+        // No layout is involved here: removing a validator must make this assertion fail.
+        try expectFailure(expected) { _ = try importModel(bytes,oracle: oracle) }
+        importerNegatives.append(["case": name,"expectedError": expected,"directImportRejected": true,"exit": 0])
+        var matchedLayout = layouts[0]; matchedLayout.inputDigest = sha(bytes)
+        try negative(name,expected: expected) { try accepted.adopt(bytes,matchedLayout,requested: model.identity,generation: 1) }
+    }
+    let nextModel = try importModel(next,oracle: oracle)
     let nextLayout = try shape(nextModel,next,width: 640,size: 20,oracle: oracle,layoutGeneration: 10)
     try accepted.adopt(next,nextLayout,requested: nextModel.identity,generation: 2,layoutGeneration: 10)
-    var lateRejected = false
-    do { try accepted.adopt(data,layouts[0],requested: nextModel.identity,generation: 2,layoutGeneration: 10) } catch { lateRejected = true }
-    try require(lateRejected && accepted.digest == sha(next) && accepted.layout.paintDigest == nextLayout.paintDigest && accepted.model.generation == 2, "successful new snapshot overwritten by late old geometry")
-    negatives.append(["case": "late-old-result-after-successful-transition", "rejected": true, "lastAcceptedPreserved": true,"exit": 0])
-    try write(["status": "technical-pass", "exit": 0, "coverage": "real compiler normalized output; standalone CoreText shaping/paint/caret only", "inputSHA256": sha(data), "oracleSHA256": sha(oracleData), "oracleOrigin": oracle.oracleOrigin,"oracleFinalReview": oracle.reviewStatus,"matrix": matrix,"negativeCases": negatives,"excludedIllegalEndpoints": excluded,"limitations": ["PM/CodeTester independent oracle review pending","No GUI, VoiceOver, TextKit interaction, source authority or live service verified","math/table/figure placeholders; native fidelity unsupported","ligature glyphs and fallback are observations only; scalar spelling remains exact"]],out.appendingPathComponent("summary.json"))
+    try expectFailure("stale generation") { try accepted.adopt(data,layouts[0],requested: nextModel.identity,generation: 2,layoutGeneration: 10) }
+    try require(accepted.digest == sha(next) && accepted.layout.paintDigest == nextLayout.paintDigest && accepted.model.generation == 2, "successful new snapshot overwritten by late old geometry")
+    negatives.append(["case": "late-old-result-after-successful-transition", "expectedError": "stale generation", "rejected": true, "lastAcceptedPreserved": true,"exit": 0])
+    try write(["status": "technical-pass", "exit": 0, "coverage": "real compiler normalized output; standalone CoreText shaping/paint/caret only", "inputSHA256": sha(data), "oracleSHA256": sha(oracleData), "oracleOrigin": oracle.oracleOrigin,"oracleFinalReview": oracle.reviewStatus,"matrix": matrix,"negativeCases": negatives,"importerNegativeCases": importerNegatives,"positiveControls": ["original import/adoption", "allowed metadata import/adoption with matching digest", "successful new generation"],"excludedIllegalEndpoints": excluded,"limitations": ["PM/CodeTester independent oracle review pending","No GUI, VoiceOver, TextKit interaction, source authority or live service verified","math/table/figure placeholders; native fidelity unsupported","ligature glyphs and fallback are observations only; scalar spelling remains exact"]],out.appendingPathComponent("summary.json"))
     print("{\"status\":\"technical-pass\",\"matrix\":9,\"negativeCases\":\(negatives.count),\"excludedIllegalEndpoints\":\(excluded),\"exit\":0}")
 }
 do { try run() } catch {

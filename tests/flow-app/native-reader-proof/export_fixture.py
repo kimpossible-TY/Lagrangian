@@ -267,7 +267,7 @@ def main():
                               "input": identity(digest(source), "observed-local-bytes", "controlled fixture SHA256; not server authority")},
                  "generation": 1, "units": {"ranges": "half-open UTF16", "codepoint": "Unicode scalar", "bytes": "UTF8", "carets": "extended-grapheme endpoints", "source": "raw UTF8 bytes/CRLF preserved", "display": "exact text with explicit object placeholders", "canonical": "normalized HTML scalar sequence"},
                  "blocks": blocks, "anchors": anchors, "diagnostics": diagnostics,
-                 "provenance": {"derived": derived, "testRevision": command(["git", "rev-parse", "HEAD"]),
+                 "provenance": {"derived": derived, "testRevision": command(["git", "-C", str(REPO), "rev-parse", "HEAD"]),
                                 "testFiles": source_hashes, "modules": module_hashes, "fixtureSHA256": digest(source),
                                 "oracleSHA256": digest(oracle_path), "artifacts": artifacts, "dependencies": deps,
                                 "localPackageFiles": packages, "environment": environment, "compilerExit": report["exitCode"],
