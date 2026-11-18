@@ -59,12 +59,20 @@ try {
       const refs = [...callout.querySelectorAll(':scope > [role="doc-noteref"]')];
       const paragraph = callout.querySelector("p");
       const notes = refs.map((ref) => document.getElementById(ref.dataset.readerNote));
-      return refs.length === 3 && new Set(notes).size === 3 &&
-        notes.every((note) => note?.dataset.noteMode === "side" && note.parentElement.parentElement === callout.parentElement &&
-          Math.abs(note.getBoundingClientRect().top - callout.getBoundingClientRect().top) < callout.getBoundingClientRect().height) &&
+      return (
+        refs.length === 3 &&
+        new Set(notes).size === 3 &&
+        notes.every(
+          (note) =>
+            note?.dataset.noteMode === "side" &&
+            note.parentElement.parentElement === callout.parentElement &&
+            Math.abs(note.getBoundingClientRect().top - callout.getBoundingClientRect().top) <
+              callout.getBoundingClientRect().height,
+        ) &&
         paragraph.classList.contains("flow-annotation-side") &&
         document.getElementById(paragraph.querySelector('[role="doc-noteref"]').dataset.readerNote)
-          ?.parentElement.parentElement === callout;
+          ?.parentElement.parentElement === callout
+      );
     }),
   );
   const target = await page
@@ -294,16 +302,21 @@ try {
   for (let i = 0; i < expectedBodies.length; i++) {
     const ref = propositionLinks.nth(i);
     await ref.scrollIntoViewIfNeeded();
-    const beforeURL = phone.url(), beforeY = await phone.evaluate(() => scrollY);
+    const beforeURL = phone.url(),
+      beforeY = await phone.evaluate(() => scrollY);
     await ref.tap();
     const dialog = phone.locator('.flow-note[data-open="true"]');
     await dialog.locator(".flow-note-body").getByText(expectedBodies[i]).waitFor();
-    check(`Proposition reference ${i + 1} opens its own body in place`,
-      phone.url() === beforeURL && Math.abs((await phone.evaluate(() => scrollY)) - beforeY) < 2);
+    check(
+      `Proposition reference ${i + 1} opens its own body in place`,
+      phone.url() === beforeURL && Math.abs((await phone.evaluate(() => scrollY)) - beforeY) < 2,
+    );
     if (i === 1) await phone.keyboard.press("Escape");
     else await dialog.locator(".flow-note-close").tap();
-    check(`Proposition reference ${i + 1} regains focus`,
-      await ref.evaluate((node) => node === document.activeElement));
+    check(
+      `Proposition reference ${i + 1} regains focus`,
+      await ref.evaluate((node) => node === document.activeElement),
+    );
   }
   await phone.close();
 

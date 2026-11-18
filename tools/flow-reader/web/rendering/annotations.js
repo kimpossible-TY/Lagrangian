@@ -37,8 +37,7 @@ export function popoverPosition(target, size, viewport) {
 }
 
 const painted = (node) => !node.closest("mjx-assistive-mml,.flow-math-stage");
-const noteHost = (node) =>
-  node?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li,.flow-callout");
+const noteHost = (node) => node?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li,.flow-callout");
 
 function inkRectangles(host) {
   const ink = [

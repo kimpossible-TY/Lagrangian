@@ -11,14 +11,28 @@ import {
 test("footnote registration groups direct callout references and preserves nested hosts", () => {
   const previousDocument = globalThis.document;
   const makeNode = (tag, classes = []) => ({
-    tag, classes, dataset: {}, children: [], parent: null,
-    append(node) { node.parent = this; this.children.push(node); },
-    after(node) { this.inserted = node; },
+    tag,
+    classes,
+    dataset: {},
+    children: [],
+    parent: null,
+    append(node) {
+      node.parent = this;
+      this.children.push(node);
+    },
+    after(node) {
+      this.inserted = node;
+    },
     closest(selector) {
       for (let node = this; node; node = node.parent) {
-        if (selector.split(",").some((part) =>
-          part.startsWith(".") ? node.classes.includes(part.slice(1)) : node.tag === part,
-        )) return node;
+        if (
+          selector
+            .split(",")
+            .some((part) =>
+              part.startsWith(".") ? node.classes.includes(part.slice(1)) : node.tag === part,
+            )
+        )
+          return node;
       }
       return null;
     },
@@ -29,7 +43,13 @@ test("footnote registration groups direct callout references and preserves neste
     const paragraph = makeNode("p");
     callout.append(paragraph);
     const references = [];
-    for (const [host, target] of [[callout, "one"], [callout, "two"], [callout, "three"], [paragraph, "four"], [paragraph, "four"]]) {
+    for (const [host, target] of [
+      [callout, "one"],
+      [callout, "two"],
+      [callout, "three"],
+      [paragraph, "four"],
+      [paragraph, "four"],
+    ]) {
       const ref = makeNode("sup");
       ref.querySelector = () => ({ hash: `#${target}`, textContent: target });
       host.append(ref);
@@ -44,10 +64,20 @@ test("footnote registration groups direct callout references and preserves neste
       },
       loadFootnote() {},
     };
-    TextAnnotations.prototype.prepareFootnotes.call(adapter, { querySelectorAll: () => references }, "test");
+    TextAnnotations.prototype.prepareFootnotes.call(
+      adapter,
+      { querySelectorAll: () => references },
+      "test",
+    );
     assert.equal(records.length, 4);
-    assert.deepEqual(callout.inserted.children.map((node) => node.dataset.footnoteTarget), ["one", "two", "three"]);
-    assert.deepEqual(paragraph.inserted.children.map((node) => node.dataset.footnoteTarget), ["four"]);
+    assert.deepEqual(
+      callout.inserted.children.map((node) => node.dataset.footnoteTarget),
+      ["one", "two", "three"],
+    );
+    assert.deepEqual(
+      paragraph.inserted.children.map((node) => node.dataset.footnoteTarget),
+      ["four"],
+    );
     assert.equal(references[3].dataset.readerNote, references[4].dataset.readerNote);
     assert.equal(new Set(references.slice(0, 3).map((node) => node.dataset.readerNote)).size, 3);
   } finally {
