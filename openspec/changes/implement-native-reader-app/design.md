@@ -1,6 +1,8 @@
 # Design
 
-## Context
+## Context — Historical NA01
+
+This opening context records NA01 planning, not current endpoint/P0 status. See Current wire and the later component sections for implemented behavior; final App/GUI acceptance stays separate.
 
 NA01 starts from `f8058a29735dea6b40a5c1362a14ae12aad3396a` (authorized fast-forward from `3e5a05c66bb0fdcffb19a90fd70e1bc2bd2cd9e2`). P0's four files are inherited inputs, untouched; their independent review/testing remains pending. See proposal.md for motivation and `docs/tinymist/dev/native-reader-app-contract.typ` for the F01–18 handoff. No native HTTP endpoint currently exists; NR03 B09 and P0 are not service implementations.
 
@@ -33,7 +35,7 @@ Semantic model contains no UI geometry. NA02 owns top-left AppKit point geometry
 
 Contract errors: invalidDocument, unsupportedSchema, unsupportedRequiredCapability, wrongTarget, staleGeneration, selectionHeld, disposed, invalidSelection. Adapter failures: rejected(bounded code), unavailable, unsupported, cancelledBeforeDispatch, unknownEffect. A timeout/cancel after dispatch of highlight/Send remains unknownEffect; query existing receipt/message owner before any explicit retry. Stale selection ack must not release a newer ticket. Request cancellation cannot imply rollback or cancel shared OAuth. No automatic Send.
 
-### Existing owners and future transport candidate
+### Historical NA01: existing owners and future transport candidate
 
 NA04 may implement an additive `GET /d/<registered-id>/api/native-document` under existing Host/Origin and exact service/document/revision checks, using this importer and existing revision-bound assets. This is a **candidate for NA04 implementation and negative testing**, not an existing endpoint or shipped transport. Bind service incarnation to the observed manager instance (not PID alone); generation is local correlation. Limit JSON to 32 MiB, individual sections to 16 MiB, tree depth 128/nodes 100000; enforce transport limits before decoding. Current importer handles complete snapshots, not streaming deltas. Request/stream timeouts, asset budgets, chat/action payload limits and reconnect backpressure remain explicit NA04 implementation gates, preserving stricter existing owner limits.
 
@@ -563,3 +565,38 @@ are separate from baseline semantics. Isolated busy never suggests disabled Stop
 Actual filesystem/compiler/HTTP/Neovim and offscreen AppKit evidence remain
 separate from GUI, v4 artifacts, sourcepin/delivery registration and NA16. The PM
 receives a fixed source-only component and exact Git-blob delta, not a new App.
+
+
+## v6 lifetime correction over H5 (source component)
+
+SF2-B1: final native state receipt owns a per-operation URLSession data task.
+An absolute deadline at caller deadline minus2.75s cancels it and awaits actual
+completion before exact cleanup. Request idle bytes cannot postpone this;
+ordinary shared session timeouts remain unchanged. CommandRunner preparation,
+pending retry, final probe and cleanup still share the original ten-second budget.
+
+SF2-P1: operation issuance captures the verified actual document separately from
+its stable original caller request and reader ID. Withdrawal checks the private
+operation and exact registration digest/inode without re-resolving root/entry
+aliases. Existing v1 records retain their earlier resolved-binding compatibility;
+missing alias spelling never captured by v1 is not guessed or migrated.
+
+V501: a readonly manager CLI query returns opaque registered document/reader
+scope and stable request binding. The shared resolver gates new consent on this
+scope, including equivalent entry spellings and supported aliases, and retains
+original withdrawal arguments for disappeared/retargeted aliases. It does not
+copy path policy into Swift, scan journals, stop services or revoke body/Source/Ask.
+Other actual document/reader scopes remain independent. Exact input/output types,
+including64 lowercase hex operation, finite epoch reservation deadline and single
+boolean `released` confirmation, are canonical in native-reader-editor-actions.typ.
+
+The original acceptance design is
+`/Users/taeyoung/Documents/Codex/2026-11-08/task/openmausbot-setup/bot-workspaces/lagrangian/native-reader-20261117/app-plan-native-actions-acceptance/acceptance-plan.json`,
+plan_id `lagrangian-native-app-actions-acceptance-20261118-v1`,
+design_source_revision `09e78630a6afb51436e45da140c3588c82c295f5`.
+That revision is an immutable design identifier, not current artifact source.
+PM binds its unchanged125 cases to final source/artifact and actual independent
+results later. v6 REPORT/handoff under the external DevSSD test-output directory
+are component evidence only. Historical H5/resume5 and earlier failed queued-cancel
+results remain unchanged. No App build, GUI/VO/actual OS13, F04 raw-delta, F13/NA16,
+live-provider, real receipt or complete125case acceptance is implied.

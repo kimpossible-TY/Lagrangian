@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -344,13 +345,29 @@ class ReaderManager:
         with build_opener(NoReaderRedirect).open(request, timeout=timeout) as response:
             return json.loads(response.read(1024 * 1024))
 
+    @staticmethod
+    def operation_request(root, entry, identifier=None):
+        # Stable lexical caller binding, not a new attach/source authority.
+        # Do NOT consult current symlinks during operation withdrawal.
+        canonical = lambda p: unicodedata.normalize("NFC", os.path.abspath(p))
+        return canonical(root), canonical(os.path.join(root, entry)), identifier
+
+    @staticmethod
+    def native_scope_identity(profile):
+        return hashlib.sha256(json.dumps([profile["id"], document_identity(profile["root"], profile["entry"])],
+                                         separators=(",", ":")).encode()).hexdigest()
+
+    def native_scope(self, root, entry, identifier=None):
+        request = self.operation_request(root, entry, identifier)
+        request_binding = hashlib.sha256(json.dumps(request, separators=(",", ":")).encode()).hexdigest()
+        try: profile = self.match_document(root, entry, identifier)
+        except ValueError: return {"scope": None, "requestBinding": request_binding}
+        return {"scope": self.native_scope_identity(profile), "requestBinding": request_binding}
+
     def native_operation(self, root, entry, operation, identifier=None):
-        # Withdrawal-only target binding. No live profile/source/service is needed
-        # to retire a previously durable intent; this cannot approve an attach.
-        root = Path(root).resolve()
-        entry = (root / entry).resolve()
-        canonical = lambda p: unicodedata.normalize("NFC", str(p))
-        return NativeEditorOperation(self.data, operation, canonical(root), canonical(entry), identifier)
+        # Binding may survive missing/retargeted aliases. Actual document binding
+        # is captured separately ONLY after normal registered-path validation.
+        return NativeEditorOperation(self.data, operation, *self.operation_request(root, entry, identifier))
 
     def release_native_operation(self, root, entry, operation, identifier=None, deadline=None):
         owner = self.native_operation(root, entry, operation, identifier)
@@ -379,7 +396,10 @@ class ReaderManager:
             operation = self.native_operation(root, entry, native_editor_operation, identifier)
             expected_document = document_identity(profile["root"], profile["entry"])
             with self.locked(timeout=1):
-                operation.reserve(profile["id"], expected_document, native_editor_deadline)
+                actual_root, actual_entry, _, _ = self._document_paths(profile["root"], profile["entry"])
+                operation.reserve(profile["id"], expected_document, native_editor_deadline,
+                    document_root=unicodedata.normalize("NFC", str(actual_root)),
+                    document_entry=unicodedata.normalize("NFC", str(actual_entry)))
         elif native_editor_deadline is not None:
             raise ValueError("Native deadline requires an operation")
         def remaining():
@@ -447,7 +467,9 @@ class ReaderManager:
             plan.update(editorAttachment=token, attachmentFile=str(path))
             if native_editor_consent:
                 plan["nativeEditorActions"] = 1
-            if operation: plan["nativeEditorOperation"] = operation.identifier
+            if operation:
+                plan["nativeEditorOperation"] = operation.identifier
+                plan["nativeEditorScope"] = self.native_scope_identity(profile)
         return plan
 
     def native_editor_local(self, root, entry, token, *, identifier=None, descriptor=False):
@@ -590,6 +612,16 @@ def main(argv=None, *, manager=None):
     if arguments == ["--serve-all"]:
         command = manager.server_arguments(["--managed", "--data", str(manager.data)])
         os.execv(command[0], command)
+        return
+    if arguments[:1] == ["--native-editor-scope"]:
+        import argparse
+        parser = argparse.ArgumentParser(description="Read exact native document/registered reader scope; no service effects")
+        parser.add_argument("--root", required=True); parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service"); parser.add_argument("--native-editor-deadline", type=float)
+        options = parser.parse_args(arguments[1:])
+        if options.native_editor_deadline is not None and (not math.isfinite(options.native_editor_deadline) or options.native_editor_deadline <= time.time()):
+            raise ValueError("Native scope query deadline expired")
+        print(json.dumps(manager.native_scope(options.root, options.entry, options.reader_service)))
         return
     if arguments[:1] == ["--release-native-editor-operation"]:
         import argparse

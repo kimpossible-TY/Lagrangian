@@ -327,6 +327,22 @@ The local manager SHALL export only the four explicit chooser fields from a live
 - **THEN** the existing descriptor validator and consent owner SHALL bind the same live editor identity without source-write or account authority
 
 
+#### Scenario: Slow-drip final state response cannot extend native lifetime
+- **WHEN** the final state response continues delivering bytes past the operation deadline
+- **THEN** the actual owned URLSession request SHALL be cancelled and its termination awaited with cleanup/grace remaining inside the caller budget
+- **AND** late response data SHALL NOT adopt a plan or preserve its exact native registration
+
+#### Scenario: Issuance alias is removed, renamed or retargeted before withdrawal
+- **WHEN** a known native operation is withdrawn after its original root/entry alias changes
+- **THEN** the local owner SHALL validate the stable original request/reader binding and private registration digest/inode without resolving the alias again
+- **AND** fresh attachment validation SHALL still require the current actual registered document and unchanged service/source guards
+
+#### Scenario: Equivalent document spelling cannot bypass pending retirement
+- **WHEN** a new consented native editor grant uses equivalent spelling or a supported alias of a document with pending cleanup
+- **THEN** the resolver SHALL use the existing manager's verified registered document/reader scope to block that grant until exact cleanup confirmation
+- **AND** it SHALL retain original withdrawal arguments, preserve independent document/reader scopes and leave editor-free body/Source/Ask authority independent
+
+
 ### Requirement: Managed canonical-equivalent paths preserve registered authority
 The manager SHALL accept canonical-equivalent resolved Unicode root/entry only
 when the actual existing directory and regular file identities and project scope

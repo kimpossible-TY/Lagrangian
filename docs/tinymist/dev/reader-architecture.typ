@@ -340,3 +340,21 @@ rediscovery after the entire app dies. Historical299 response-only cleanup gaps
 and current source-only evidence are distinct in external
 `native-reader-identity-ui-v5/resume5-handoff.md`. Frozen d7 App/GUI and final
 registration/build/PM acceptance remain separate.
+
+
+= v6 operation lifetime boundaries (source component)
+
+NativeReaderTransport owns one absolute-deadline URLSession data request and
+waits for its actual task termination before reserving exact cleanup/grace.
+ReaderManager owns the read-only opaque registered document/reader scope query;
+the resolver uses it to gate pending editor grants across equivalent spellings.
+Each lease still holds its stable original request for withdrawal. EditorAttachments'
+operation owner separates that request from the actual issuance document and
+verifies private journal/registration digest and inode without re-resolving aliases.
+These responsibilities add no Source, account, terminal or HTTP deletion power.
+Plain body/Source/Ask remain independent of pending editor retirement. See
+#link("native-reader-editor-actions.typ")[the exact local interoperability and compatibility limits].
+The external `test-output/native-reader-lifetime-v6/REPORT.md` binds this source
+component, not the frozen d7/v4 App or a new GUI result. PM integration, registry
+and delivery remain separate; legacy without-operation cleanup, automatic whole
+app restart recovery and journal pruning are not upgraded by these changes.

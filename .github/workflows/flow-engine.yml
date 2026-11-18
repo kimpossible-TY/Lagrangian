@@ -63,8 +63,9 @@ jobs:
           test "$(uname -m)" = arm64
 
       - name: Package the reader bundle
-        # Runs on an engine cache hit and on a miss. Reader sources are not
-        # engine inputs, so a web-only change still publishes a new bundle.
+        # Runs on a hit and miss. tools/flow-reader is outside the engine hash;
+        # embedded reader-common/paged/DOM and specified build inputs remain included.
+        # A web-only change still publishes a new bundle.
         run: python3 scripts/package-reader-bundle.py --head-sha "${{ github.sha }}" --worktree --output dist/reader-bundle
 
       - name: Hash engine inputs

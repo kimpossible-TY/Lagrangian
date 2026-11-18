@@ -80,8 +80,11 @@ Current external artifact locator: `test-output/native-app-corrections-v4/`
 native-reader workspace bind source d7cd069f2249a405061bf220cfd7e0184f75c7fe to
 its v4 App. Historical09c and review-fix restaging notes are prior evidence, not
 current artifact status. The external `native-reader-identity-ui-v5/`
-`resume2-handoff.md` describes the unregistered, unpackaged successor component
+`resume5-handoff.md` describes the v5 unregistered, unpackaged successor component
 and a separate frozen-d7 fixture; it does not replace the d7 App or GUI gates.
+`resume2-*` is historical failed/intermediate evidence. The later v6 source-only
+component is bound separately by external `native-reader-lifetime-v6/REPORT.md`;
+neither component is registered/packaged into the frozen d7 App.
 
 == Historical NA01 executed scope and evidence
 
@@ -493,6 +496,14 @@ pending after resolve throws. The next explicit connect/Read/close can perform
 one bounded pending attempt; only confirmed absence removes it. No operation scan,
 automatic retry loop, quota expansion or editor/service/other-token deletion is
 introduced. Only a new consented editor grant is gated by pending cleanup.
+The read-only manager scope query binds that gate to a verified registered
+reader/document, including equivalent entry spelling and supported aliases;
+Swift consumes opaque bindings. Original request arguments remain with each
+retained lease for withdrawal after alias deletion/rename/retarget. Withdrawal
+validates the private original operation and registration digest/inode without
+consulting the current alias; a different document never becomes its target.
+Exact CLI formats/boolean confirmation and legacy record compatibility are in
+#link("native-reader-editor-actions.typ")[the local operation interoperability contract].
 An editor-free body Read does not attempt or confirm that retirement: accepted
 body, Source and Ask remain available while the prior editor cleanup is pending.
 It receives no editor consent or movement authority.
@@ -500,15 +511,19 @@ It receives no editor consent or movement authority.
 The ten-second native resolve budget includes pending retry, preparation/ack,
 follow-up state verification and cleanup. Preparation gets at most6.5 seconds,
 its owned process at most7, and cleanup at most2.5; each is shortened by remaining
-deadline and final state verification reserves cleanup/grace. Late state success
-is refused. These are bounded budgets and measured fixture elapsed times, not
+deadline and final state verification reserves2.75 seconds of cleanup/grace.
+The actual URLSession task is cancelled at that absolute operation deadline and
+its completion is awaited, including slow-drip bodies; idle bytes cannot extend
+it. Late state success is refused and ordinary network timeouts are unchanged. These are bounded budgets and measured fixture elapsed times, not
 OS real-time scheduling guarantees. CommandRunner cancellation terminates/waits
 only its own manager process. It does not roll back a previously started shared
 service or automatically recover an entire crashed app.
 
 Historical299 source had no pre-response cleanup binding (actual timeout/SIGKILL
 left two active registrations); `resume2-*` witnesses remain immutable. Current
-source-only evidence is external `native-reader-identity-ui-v5/resume5-handoff.md`.
+v5 source-only evidence is external `native-reader-identity-ui-v5/resume5-handoff.md`.
+Current v6 lifetime counterexamples and bounded after results are external
+`native-reader-lifetime-v6/REPORT.md`; H5 evidence is immutable.
 A surviving app caller retains pending operations; after both app and manager
 crash the explicit exact-operation local recovery API is tested, but automatic
 app-process restart recovery is not implemented. Private bounded operation

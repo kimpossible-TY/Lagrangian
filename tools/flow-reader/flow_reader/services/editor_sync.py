@@ -177,7 +177,7 @@ class NativeEditorOperation:
             raise ValueError("Invalid native reader ID")
         self.data = Path(data); self.directory = self.data / "native-editor-operations"
         self.identifier = identifier; self.path = self.directory / (identifier + ".json")
-        self.binding = dict(version=1, operation=identifier, root=root, entry=entry, readerID=reader_id)
+        self.binding = dict(version=2, operation=identifier, root=root, entry=entry, readerID=reader_id)
 
     @staticmethod
     def sync_directory(path):
@@ -190,9 +190,18 @@ class NativeEditorOperation:
         EditorAttachments.private(self.path)
         if self.path.stat().st_size > 16384: raise ValueError("Native operation exceeds bound")
         value = json.loads(self.path.read_bytes())
-        if (not isinstance(value, dict) or set(value) != self.KEYS
-                or any(value.get(k) != v for k, v in self.binding.items())
-                or type(value["version"]) is not int or type(value["state"]) is not str
+        if not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] not in {1, 2}:
+            raise ValueError("Invalid native operation version")
+        expected = dict(self.binding)
+        keys = self.KEYS | {"documentRoot", "documentEntry"} if value["version"] == 2 else self.KEYS
+        if value["version"] == 1:
+            # Compatibility only: old records never captured caller spelling.
+            # No migration/scan or guessed alias binding is authorized.
+            import unicodedata
+            expected.update(version=1, root=unicodedata.normalize("NFC", str(Path(expected["root"]).resolve())),
+                            entry=unicodedata.normalize("NFC", str(Path(expected["entry"]).resolve())))
+        if (set(value) != keys or any(value.get(k) != v for k, v in expected.items())
+                or type(value["state"]) is not str
                 or value["state"] not in {"reserved", "prepared", "issued", "cancelled"}
                 or type(value["deadline"]) not in {int, float} or not math.isfinite(value["deadline"])):
             raise ValueError("Native operation binding changed")
@@ -216,6 +225,15 @@ class NativeEditorOperation:
             raise ValueError("Missing native publication fingerprint")
         if value["state"] == "reserved" and identity is not None:
             raise ValueError("Unexpected native publication fingerprint")
+        if value["version"] == 2:
+            actual = [value["documentRoot"], value["documentEntry"]]
+            if value["token"] is None:
+                if actual != [None, None]: raise ValueError("Invalid unissued document binding")
+            else:
+                if any(not isinstance(p, str) or not Path(p).is_absolute() or len(p.encode()) > 4096 or "\0" in p for p in actual):
+                    raise ValueError("Missing validated document binding")
+                try: Path(actual[1]).relative_to(actual[0])
+                except ValueError: raise ValueError("Invalid validated document scope") from None
         return value
 
     def write(self, value, *, exclusive=False):
@@ -235,14 +253,16 @@ class NativeEditorOperation:
             self.sync_directory(self.directory)
         finally: temporary.unlink(missing_ok=True)
 
-    def reserve(self, profile_id, document_id, deadline):
+    def reserve(self, profile_id, document_id, deadline, *, document_root=None, document_entry=None):
         if type(deadline) not in {int, float} or not math.isfinite(deadline) or not 0 < deadline - time.time() <= 7:
             raise ValueError("Native preparation deadline expired or invalid")
         if (not isinstance(profile_id, str) or not isinstance(document_id, str)
                 or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", profile_id) or not re.fullmatch(r"[0-9a-f]{24}", document_id)):
             raise ValueError("Invalid native document binding")
         value = dict(self.binding, state="reserved", token=secrets.token_hex(32), profileID=profile_id,
-                     documentID=document_id, deadline=deadline, recordSHA256=None, recordIdentity=None)
+                     documentID=document_id, deadline=deadline, recordSHA256=None, recordIdentity=None,
+                     documentRoot=document_root if document_root is not None else self.binding["root"],
+                     documentEntry=document_entry if document_entry is not None else self.binding["entry"])
         self.write(value, exclusive=True)  # an existing tombstone/intent is never reused
 
     def current(self):
@@ -292,7 +312,8 @@ class NativeEditorOperation:
     def cancel(self):
         if not os.path.lexists(self.path):
             self.write(dict(self.binding, state="cancelled", token=None, profileID=None,
-                            documentID=None, deadline=0, recordSHA256=None, recordIdentity=None), exclusive=True)
+                            documentID=None, deadline=0, recordSHA256=None, recordIdentity=None,
+                            documentRoot=None, documentEntry=None), exclusive=True)
         value = self.read()
         value["state"] = "cancelled"
         self.write(value)  # durable revocation precedes deletion, even if deletion fails

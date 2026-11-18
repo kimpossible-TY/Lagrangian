@@ -11,6 +11,23 @@ struct NativeReaderHTTPResponse {
 struct NativeReaderNetwork {
     var send: (URLRequest, Int) async throws -> NativeReaderHTTPResponse
     var stream: (URLRequest) -> AsyncThrowingStream<Data, Error>
+    var sendUntil: ((URLRequest, Int, Date) async throws -> NativeReaderHTTPResponse)? = nil
+
+    func send(_ request: URLRequest, _ limit: Int, before deadline: Date) async throws -> NativeReaderHTTPResponse {
+        if let sendUntil { return try await sendUntil(request, limit, deadline) }
+        // Injected adapters keep their cancellation contract. The actual
+        // URLSession adapter below cancels AND awaits didCompleteWithError.
+        return try await withThrowingTaskGroup(of: NativeReaderHTTPResponse.self) { group in
+            group.addTask { try await send(request, limit) }
+            group.addTask {
+                let seconds = deadline.timeIntervalSinceNow
+                if seconds > 0 { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
 
     static func urlSession() -> Self {
         let config = URLSessionConfiguration.ephemeral
@@ -61,7 +78,96 @@ struct NativeReaderNetwork {
                 // Closing this view cancels only this HTTP subscription, never inference/OAuth.
                 continuation.onTermination = { _ in task.cancel() }
             }
+        }, sendUntil: { request, limit, deadline in
+            try await NativeReaderDeadlineRequest.perform(request, limit: limit, deadline: deadline)
         })
+    }
+}
+
+/// One bounded request, not a global session timeout or resident retry loop.
+/// Deadline/cancel only resume after URLSession confirms the owned task ended.
+private final class NativeReaderDeadlineRequest: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private let request: URLRequest
+    private let limit: Int
+    private let deadline: Date
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var timer: DispatchSourceTimer?
+    private var continuation: CheckedContinuation<NativeReaderHTTPResponse, Error>?
+    private var response: HTTPURLResponse?
+    private var data = Data()
+    private var failure: Error?
+    private var finished = false
+
+    init(_ request: URLRequest, limit: Int, deadline: Date) {
+        self.request = request; self.limit = limit; self.deadline = deadline
+    }
+    static func perform(_ request: URLRequest, limit: Int, deadline: Date) async throws -> NativeReaderHTTPResponse {
+        let owner = NativeReaderDeadlineRequest(request, limit: limit, deadline: deadline)
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { owner.start($0) }
+        }, onCancel: { owner.cancel(CancellationError()) })
+    }
+    private func start(_ continuation: CheckedContinuation<NativeReaderHTTPResponse, Error>) {
+        lock.lock()
+        if let failure { lock.unlock(); continuation.resume(throwing: failure); return }
+        if deadline.timeIntervalSinceNow <= 0 { lock.unlock(); continuation.resume(throwing: URLError(.timedOut)); return }
+        self.continuation = continuation
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false; config.urlCache = nil
+        config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 35
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        self.session = session
+        let task = session.dataTask(with: request); self.task = task
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + max(0, deadline.timeIntervalSinceNow))
+        timer.setEventHandler { [weak self] in self?.cancel(URLError(.timedOut)) }
+        self.timer = timer; timer.resume()
+        lock.unlock(); task.resume()
+    }
+    private func cancel(_ error: Error) {
+        lock.lock()
+        if !finished && failure == nil { failure = error }
+        let task = self.task
+        lock.unlock(); task?.cancel()
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        lock.lock()
+        let valid = (response as? HTTPURLResponse).map { $0.url == request.url && response.expectedContentLength <= limit } ?? false
+        if valid { self.response = response as? HTTPURLResponse }
+        else { failure = NativeReaderOperationFailure.unavailable }
+        let accept = valid && failure == nil
+        lock.unlock(); completionHandler(accept ? .allow : .cancel)
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        if data.count > limit - self.data.count { failure = NativeReaderOperationFailure.rejected(code: "payload-limit") }
+        else if failure == nil { self.data.append(data) }
+        let cancel = failure != nil
+        lock.unlock(); if cancel { dataTask.cancel() }
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true; timer?.cancel(); timer = nil
+        let completion = continuation; continuation = nil
+        let failure = self.failure ?? error
+        let response = self.response, data = self.data
+        self.task = nil; self.session = nil
+        lock.unlock()
+        session.finishTasksAndInvalidate()
+        if let failure { completion?.resume(throwing: failure) }
+        else if let response {
+            completion?.resume(returning: .init(status: response.statusCode, headers: response.allHeaderFields.reduce(into: [:]) {
+                $0[String(describing: $1.key).lowercased()] = String(describing: $1.value)
+            }, data: data))
+        } else { completion?.resume(throwing: NativeReaderOperationFailure.unavailable) }
     }
 }
 
@@ -174,20 +280,42 @@ actor NativeReaderEditorLease {
 
 /// Resolver copies and successive FlowApp clients share this owner. It retains
 /// only caller-known leases, never discovers operations by scanning the journal.
+struct NativeReaderEditorScope {
+    let identity: String?
+    let requestBinding: String
+    init(data: Data) throws {
+        func digest(_ value: Any?) -> String? {
+            guard let value = value as? String,
+                  value.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { return nil }
+            return value
+        }
+        guard data.count <= 1024,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == ["scope", "requestBinding"],
+              let request = digest(object["requestBinding"]),
+              object["scope"] is NSNull || digest(object["scope"]) != nil else {
+            throw NativeReaderOperationFailure.unavailable
+        }
+        identity = digest(object["scope"]); requestBinding = request
+    }
+}
+
 actor NativeReaderEditorRetirements {
     private struct Entry {
-        let scope: [String]
+        let scope: NativeReaderEditorScope
         let lease: NativeReaderEditorLease
     }
     private var entries: [String: Entry] = [:]
-    func retain(_ operation: String, root: String, entry: String, readerID: String?, lease: NativeReaderEditorLease) {
-        entries[operation] = Entry(scope: [root, entry, readerID ?? ""], lease: lease)
+    func retain(_ operation: String, scope: NativeReaderEditorScope, lease: NativeReaderEditorLease) {
+        entries[operation] = Entry(scope: scope, lease: lease)
     }
-    /// One bounded pending attempt per explicit entry. Never retry live leases;
-    /// confirmation alone removes an entry. A second pending lease blocks attach.
-    func retry(root: String, entry: String, readerID: String?, deadline: Date) async -> Bool {
-        let scope = [root, entry, readerID ?? ""]
-        let matching = entries.filter { $0.value.scope == scope }
+    /// Manager owns document equivalence. Stable caller binding also recovers a
+    /// known operation after its alias disappeared/retargeted; it grants nothing.
+    func retry(scope: NativeReaderEditorScope, deadline: Date) async -> Bool {
+        let matching = entries.filter {
+            $0.value.scope.requestBinding == scope.requestBinding ||
+                (scope.identity != nil && $0.value.scope.identity == scope.identity)
+        }
         var attempted = false
         var remains = false
         for (id, item) in matching.sorted(by: { $0.key < $1.key }) {
@@ -211,20 +339,31 @@ struct NativeReaderManagedResolver {
     var network: NativeReaderNetwork
     var retirements = NativeReaderEditorRetirements()
 
+    private func editorScope(root: String, entry: String, readerID: String?, deadline: Date) async throws -> NativeReaderEditorScope {
+        var args = ["--native-editor-scope", "--root", root, "--entry", entry,
+                    "--native-editor-deadline", String(deadline.timeIntervalSince1970)]
+        if let id = readerID { args += ["--reader-service", id] }
+        return try NativeReaderEditorScope(data: await attach(args))
+    }
     func retryEditorCleanup(root: String, entry: String, readerID: String? = nil,
-                            deadline: Date = Date().addingTimeInterval(2.5)) async -> Bool {
-        await retirements.retry(root: root, entry: entry, readerID: readerID, deadline: deadline)
+                            deadline: Date = Date().addingTimeInterval(3.5)) async -> Bool {
+        do {
+            let scope = try await editorScope(root: root, entry: entry, readerID: readerID, deadline: deadline)
+            return await retirements.retry(scope: scope, deadline: deadline)
+        } catch { return false }
     }
 
     func resolve(root: String, entry: String, readerID: String? = nil, editor: NativeReaderManagedEditor? = nil) async throws -> (NativeReaderAttachment, NativeDocumentIdentity) {
         let callerDeadline = Date().addingTimeInterval(10)
         // Pending editor retirement gates a NEW movement grant, never body,
         // Source or Ask authority. Plain Read neither retries nor confirms it.
+        let scope: NativeReaderEditorScope?
         if editor?.consentID != nil {
-            guard await retryEditorCleanup(root: root, entry: entry, readerID: readerID, deadline: callerDeadline) else {
+            scope = try await editorScope(root: root, entry: entry, readerID: readerID, deadline: callerDeadline)
+            guard scope?.identity != nil, await retirements.retry(scope: scope!, deadline: callerDeadline) else {
                 throw NativeReaderOperationFailure.unavailable
             }
-        }
+        } else { scope = nil }
         try Task.checkCancellation()
         var args = ["--attach", "--root", root, "--entry", entry]
         if let id = readerID { args += ["--reader-service", id] }
@@ -254,7 +393,7 @@ struct NativeReaderManagedResolver {
                     throw NativeReaderOperationFailure.unavailable
                 }
             })
-            await retirements.retain(operation!, root: root, entry: entry, readerID: readerID, lease: lease!)
+            await retirements.retain(operation!, scope: scope!, lease: lease!)
         } else { operation = nil; lease = nil }
         let data: Data
         do { data = try await attach(args) }
@@ -270,7 +409,8 @@ struct NativeReaderManagedResolver {
         try Task.checkCancellation()
         if editor?.consentID != nil {
             guard plan?["nativeEditorActions"] as? Int == 1,
-                  plan?["nativeEditorOperation"] as? String == operation else { throw NativeReaderOperationFailure.unavailable }
+                  plan?["nativeEditorOperation"] as? String == operation,
+                  plan?["nativeEditorScope"] as? String == scope?.identity else { throw NativeReaderOperationFailure.unavailable }
         }
         let attachment = try NativeReaderAttachment(data: data, editorConsentID: editor?.consentID, editorLease: lease)
         var request = URLRequest(url: attachment.baseURL.appendingPathComponent("api/state"))
@@ -279,7 +419,9 @@ struct NativeReaderManagedResolver {
             guard remaining > 0 else { throw NativeReaderOperationFailure.unavailable }
             request.timeoutInterval = min(5, remaining)
         } else { request.timeoutInterval = 5 }
-        let response = try await network.send(request, 1024 * 1024)
+        let response: NativeReaderHTTPResponse
+        if operation != nil { response = try await network.send(request, 1024 * 1024, before: callerDeadline.addingTimeInterval(-2.75)) }
+        else { response = try await network.send(request, 1024 * 1024) }
         if operation != nil, callerDeadline.timeIntervalSinceNow <= 2.75 {
             throw NativeReaderOperationFailure.unavailable
         }

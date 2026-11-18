@@ -83,12 +83,13 @@ struct CommandRunner {
   static func nativeReaderManager(_ path: String, _ arguments: [String]) async throws -> Data {
     let cancellation = CommandCancellation()
     let cleanup = arguments.first == "--release-native-editor-operation"
-    var timeout: TimeInterval = cleanup ? 2.5 : arguments.contains("--native-editor-operation") ? 7 : 10
+    let query = arguments.first == "--native-editor-scope"
+    var timeout: TimeInterval = query ? 1 : cleanup ? 2.5 : arguments.contains("--native-editor-operation") ? 7 : 10
     if let index = arguments.firstIndex(of: "--native-editor-deadline"), index + 1 < arguments.count,
        let deadline = TimeInterval(arguments[index + 1]), deadline.isFinite {
       // Reserve TERM/KILL grace on cleanup; attach gets <=0.5s past its
       // manager deadline to report failure. The resolver reserves cleanup too.
-      timeout = min(timeout, deadline - Date().timeIntervalSince1970 + (cleanup ? -0.2 : 0.5))
+      timeout = min(timeout, deadline - Date().timeIntervalSince1970 + (cleanup || query ? -0.2 : 0.5))
     }
     guard timeout > 0 else { throw NativeReaderOperationFailure.unavailable }
     return try await withTaskCancellationHandler(operation: {

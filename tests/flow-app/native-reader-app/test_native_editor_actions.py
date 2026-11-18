@@ -40,6 +40,12 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
             binding=json.loads((allowed/'binding.json').read_text())
             if sha(fixed_transport)!=binding['sha256']:raise RuntimeError('Before snapshot changed')
             sources=[fixed_transport if p.name=='NativeReaderTransport.swift' else p for p in sources]
+        if os.environ.get('LIFETIME_BEFORE') == '1':
+            before=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-reader-lifetime-v6/before')
+            binding=json.loads((before/'binding.json').read_text())
+            frozen=before/'NativeReaderTransport.swift'
+            if sha(frozen)!=binding['files']['apps/macos/NativeReaderTransport.swift']:raise RuntimeError('H5 before bytes changed')
+            sources=[frozen if p.name=='NativeReaderTransport.swift' else p for p in sources]
         # Outer command owns the single Swift lock. Never invoke a nested lock.
         if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
             raise RuntimeError('Wrap this top-level test once with with-native-swift-lock.py')
@@ -93,13 +99,18 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
     def queued_effect(self,mode):
         import sqlite3
         held=threading.Event();release=threading.Event();errors=[]
-        def gate():
-            with self.state.selection.edit_lock:
-                held.set();release.wait(20)
-        lock_thread=threading.Thread(target=gate);lock_thread.start();self.assertTrue(held.wait(5))
         marker=self.work/'gate'
+        def gate():
+            deadline=time.monotonic()+15
+            while not Path(str(marker)+'.ready').exists() and time.monotonic()<deadline:time.sleep(.01)
+            if not Path(str(marker)+'.ready').exists():errors.append('setup ready missing');return
+            with self.state.selection.edit_lock:
+                held.set();Path(str(marker)+'.held').write_text('actual edit_lock held after setup')
+                release.wait() # no timer may unlock a queued effect before revocation
+        lock_thread=threading.Thread(target=gate);lock_thread.start()
         def observe():
             try:
+                self.assertTrue(held.wait(15),'setup must complete before actual effect lock')
                 deadline=time.monotonic()+15
                 coordinator=self.state._native_editor_actions
                 while time.monotonic()<deadline:
@@ -122,7 +133,11 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
                     self.assertEqual(len(revoked),1)
                     self.assertTrue(revoked[0]['binding']!=queued_view['binding'] or revoked[0]['closed'])
                 self.save('actual-effect-gate.json',dict(jumpPersistedBeforeGate=True,rowsBefore=rows,revokedBeforeRelease=True,sourceBefore=sha(self.entry)))
-            except Exception as error:errors.append(repr(error))
+            except Exception as error:
+                errors.append(repr(error))
+                # Failed precondition stays failed. Revoke only this test token
+                # before releasing the lock, so fixture cleanup cannot move it.
+                self.state.editor_attachments.release_native(self.token)
             finally:release.set()
         observer=threading.Thread(target=observe);observer.start()
         try:self.run_swift(mode)
@@ -187,19 +202,32 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         statement='   op=sys.argv[sys.argv.index("--native-editor-operation")+1] if "--native-editor-operation" in sys.argv else None\n   Path(MARKER).write_text(json.dumps(dict(pid=os.getpid(),operation=op,phase="afterRealAckBeforePlan")))\n'.replace('MARKER',repr(str(self.work/'registered')))
         if fault=='delay':statement+='   if not Path('+repr(str(self.work/'registered.retry'))+').exists():time.sleep(60)\n'
         if fault=='exception':statement+='   raise ValueError("injected post-issuance failure")\n'
-        if fault=='state-budget':
-            statement+='   time.sleep(5.0);self.post_ack=True\n'
+        if fault in ['state-budget','slow-drip']:
+            statement+='   time.sleep(1.0);self.post_ack=True\n' if fault=='slow-drip' else '   time.sleep(5.0);self.post_ack=True\n'
         if fault=='not-ready':
             text=text.replace('  result=super().request(url,path,*args,**kwargs)', '  if path=="api/state":raise ValueError("injected not-ready")\n  result=super().request(url,path,*args,**kwargs)')
         text=text.replace('   Path('+repr(str(self.work/'registered'))+').write_text("acknowledged before response")\n   time.sleep(60)\n',statement)
         delayed=[]
-        if fault=='state-budget':
+        if fault in ['state-budget','slow-drip']:
             flag=self.work/'delay-native-state'
             text=text.replace('  return result\n', '  if path=="api/state" and getattr(self,"post_ack",False):Path('+repr(str(flag))+').write_text("native probe only")\n  return result\n')
+            _,drip_body,_=self.http('GET','/api/state');drip_done=threading.Event()
             original_get=self.server.RequestHandlerClass.do_GET
             def delayed_get(handler):
                 if handler.path=='/api/state' and flag.exists():
                     delayed.append(dict(path=handler.path,start=time.monotonic()))
+                    if fault=='slow-drip':
+                        payload=drip_body+b' '*1200
+                        handler.send_response(200);handler.send_header('Content-Type','application/json');handler.send_header('Content-Length',str(len(payload)));handler.end_headers()
+                        stride=(len(payload)+119)//120
+                        delayed[-1].update(configuredDuration=12,idleGap=.1,bytesSent=0,peerDisconnected=False)
+                        try:
+                            for offset in range(0,len(payload),stride):
+                                handler.wfile.write(payload[offset:offset+stride]);handler.wfile.flush()
+                                delayed[-1]['bytesSent']+=len(payload[offset:offset+stride]);time.sleep(.1)
+                        except (BrokenPipeError,ConnectionResetError):delayed[-1]['peerDisconnected']=True
+                        finally:delayed[-1]['end']=time.monotonic();drip_done.set()
+                        return
                     time.sleep(3.5)
                     handler.send_response(503);handler.send_header('Content-Length','0');handler.end_headers()
                     delayed[-1]['end']=time.monotonic();return
@@ -220,7 +248,7 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
             if mode in ['response-kill','response-term','response-pending','response-pending-client','response-pending-body','response-owner-crash']:
                 deadline=time.monotonic()+10
                 while not (self.work/'registered').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
-                self.assertTrue((self.work/'registered').exists())
+                self.assertTrue((self.work/'registered').exists(),Path(str(self.work/'registered')+'.first-error').read_text() if Path(str(self.work/'registered')+'.first-error').exists() else 'actual registration marker missing')
                 marker=json.loads((self.work/'registered').read_text())
                 operation=marker['operation'];self.assertIsNotNone(operation)
                 if mode in ['response-pending','response-pending-client','response-pending-body']:
@@ -243,6 +271,7 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
                 fcntl.flock(lock,fcntl.LOCK_UN);lock.close();lock=None
                 Path(str(self.work/'registered')+'.retry').write_text('user explicit retry; no nonce')
             stdout,stderr=child.communicate(timeout=15)
+            self.save('response-attempt.json',dict(argv=command,exit=child.returncode,stdout=stdout,stderr=stderr,elapsed=time.monotonic()-start,activeIncrease=len(set(self.state.editor_attachments.directory.glob('*.json'))-before),requiredActiveIncrease=0,delayed=delayed))
             if mode=='response-owner-crash':self.assertEqual(child.returncode,-9)
             else:self.assertEqual(child.returncode,0,stdout+stderr)
             elapsed=time.monotonic()-start;self.assertLess(elapsed,10)
@@ -264,6 +293,9 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
                 self.assertNotEqual(ids[0],ids[1])
                 self.assertEqual(sum(a[a.index('--native-editor-operation')+1]==ids[0] for a in releases),2)
                 self.assertEqual(manager.native_operation(str(self.root),self.entry.name,ids[0]).read()['state'],'cancelled')
+            if fault=='slow-drip':
+                self.assertTrue(drip_done.wait(1),'server must observe request termination, not wait full12s')
+                self.assertTrue(delayed[0]['peerDisconnected']);flag.unlink()
             if fault=='state-budget':
                 self.assertEqual(len(delayed),1,'real follow-up state request reached delayed HTTP handler')
                 self.assertGreater(elapsed,5)
@@ -280,6 +312,8 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         finally:
             if lock:lock.close()
             if child.poll() is None:child.kill();child.wait(timeout=5)
+
+    def test_V6_B1_real_slow_drip_absolute_deadline(self):self.response_lifetime('response-state-budget','slow-drip')
 
     def test_SF2_pending_editor_does_not_block_plain_body_Source_Ask(self):self.response_lifetime('response-pending-body')
 
@@ -324,6 +358,116 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         self.assertEqual({str(p):sha(p) for p in [terminal_path,self.record_path,self.control]},retained)
         self.assert_unchanged(self.before)
         self.save('cleanup-retry.json',dict(argv=command,exit=child.returncode,stdout=stdout,stderr=stderr,realLockContention=True,exactAbsent=True,retained=retained))
+
+    def test_V6_V501_pending_canonical_scope_blocks_spelling_and_alias_bypass(self):
+        wrapper,args,manager,terminal=self.response_boundary_fixture()
+        root_alias=self.work/'registered-root-alias';root_alias.symlink_to(self.root,target_is_directory=True)
+        # A different registered document/service remains independently usable.
+        from flow_reader.compiler.project import Project
+        from flow_reader.server.state import ReaderState
+        from flow_reader.server.http import handler_for
+        from http.server import ThreadingHTTPServer
+        other_root=self.work/'independent-source';other_root.mkdir();other_entry=other_root/self.entry.name;other_entry.write_text('= Independent document\nUnrelated body.\n')
+        other_state=ReaderState(Project(other_root,Path(other_entry.name),REPO/'tools/flow-reader/packages',compiler=str(self.compiler)),self.work/'manager-data/documents/other','',False)
+        self.addCleanup(other_state.close);other_state.compile();self.assertTrue(other_state.report['contentGatePassed'])
+        other_server=ThreadingHTTPServer(('127.0.0.1',0),handler_for(other_state));other_server.daemon_threads=True
+        server_thread=threading.Thread(target=other_server.serve_forever);server_thread.start()
+        def close_other():other_server.shutdown();server_thread.join(3);other_server.server_close()
+        self.addCleanup(close_other)
+        settings=self.work/'response-manager.json';inventory=json.loads(settings.read_text())
+        inventory['other']=dict(id='other',root=str(other_root),entry=other_entry.name,port=other_server.server_port)
+        inventory['otherPID']=other_state.focus.service['pid'];settings.write_text(json.dumps(inventory))
+        fail=self.work/'cleanup-fails';fail.write_text('bounded injected cleanup command failure')
+        text=wrapper.read_text().replace('from flow_reader.services.manager import ReaderManager,main',
+            'from flow_reader.services.manager import ReaderManager,main\nif sys.argv[1:2]==["--release-native-editor-operation"] and "--reader-service" not in sys.argv and Path('+repr(str(fail))+').exists():sys.exit(7)')
+        wrapper.write_text(text)
+        descriptor=manager.native_editor_local(str(self.root),self.entry.name,terminal.stem,descriptor=True)['descriptorFile']
+        text=wrapper.read_text().replace('return [v["profile"]]','return [v["profile"],v["other"]]').replace('return v["pid"]','return v["otherPID"] if p["id"]=="other" else v["pid"]')
+        wrapper.write_text(text)
+        marker=self.work/'scope-gate';config=self.work/'scope-config.json'
+        config.write_text(json.dumps(dict(manager=str(wrapper),root=str(self.root),entry=self.entry.name,aliasRoot=str(root_alias),otherRoot=str(other_root),otherEntry=other_entry.name,descriptor=descriptor)))
+        before=set(self.state.editor_attachments.directory.glob('*.json'))
+        retained={str(p):sha(p) for p in [terminal,self.record_path,self.control]}
+        command=[str(self.binary),str(config),'scope-pending',str(marker)]
+        start=time.monotonic();child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            deadline=time.monotonic()+15
+            while not Path(str(marker)+'.blocked').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+            blocked=Path(str(marker)+'.blocked').exists()
+            retarget_blocked=False
+            if blocked:
+                root_alias.unlink();root_alias.symlink_to(other_root,target_is_directory=True)
+                Path(str(marker)+'.retargeted').write_text('same original request now names other registered document')
+                deadline=time.monotonic()+10
+                while not Path(str(marker)+'.retarget-blocked').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+                retarget_blocked=Path(str(marker)+'.retarget-blocked').exists()
+            # Old raw scope policy issues another native grant instead of this
+            # signal. Do not change the expectation to its observed result.
+            fail.unlink();Path(str(marker)+'.retry').write_text('explicit cleanup retry')
+            stdout,stderr=child.communicate(timeout=12)
+            after=set(self.state.editor_attachments.directory.glob('*.json'))
+            self.save('scope-attempt.json',dict(argv=command,exit=child.returncode,elapsed=time.monotonic()-start,blocked=blocked,retargetBlocked=retarget_blocked,stdout=stdout,stderr=stderr,activeIncrease=len(after-before),requiredIncrease=0,retainedBefore=retained,retainedAfter={str(p):sha(p) for p in [terminal,self.record_path,self.control]}))
+            self.assertTrue(blocked,'same document main vs ./main or supported root alias must not grant while pending')
+            self.assertTrue(retarget_blocked,'stable original request must still gate pending when alias retargets to another registered document')
+            self.assertEqual(child.returncode,0,stdout+stderr);self.assertEqual(after,before)
+            self.assertEqual(list(other_state.editor_attachments.directory.glob('*.json')),[])
+            self.assertEqual(other_entry.read_text(),'= Independent document\nUnrelated body.\n')
+            self.assertEqual({str(p):sha(p) for p in [terminal,self.record_path,self.control]},retained)
+            self.assert_unchanged(self.before)
+        finally:
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+
+    def alias_lifetime(self, kind, mutation, pending=False):
+        import fcntl
+        wrapper,args,manager,terminal=self.response_boundary_fixture()
+        root_alias=self.work/'root-alias';entry_alias=self.root/'entry-alias.typ'
+        root_alias.symlink_to(self.root,target_is_directory=True);entry_alias.symlink_to(self.entry)
+        alias=root_alias if kind=='root' else entry_alias
+        caller_root=str(root_alias if kind=='root' else self.root);caller_entry=self.entry.name if kind=='root' else entry_alias.name
+        other=self.work/'other-target';other.mkdir();otherfile=other/self.entry.name;otherfile.write_text('unrelated target retained')
+        descriptor=manager.native_editor_local(str(self.root),self.entry.name,terminal.stem,descriptor=True)['descriptorFile']
+        config=self.work/'alias-config.json';config.write_text(json.dumps(dict(manager=str(wrapper),root=caller_root,entry=caller_entry,descriptor=descriptor)))
+        if pending:
+            text=wrapper.read_text().replace('and False:', 'and True:')
+            wrapper.write_text(text)
+        retained={str(p):sha(p) for p in [terminal,self.record_path,self.control,otherfile]}
+        before=set(self.state.editor_attachments.directory.glob('*.json'));marker=self.work/'alias-gate'
+        command=[str(self.binary),str(config),'alias-pending' if pending else 'alias-close',str(marker)]
+        start=time.monotonic();child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);lock=None
+        try:
+            ready=Path(str(marker)+('.pending' if pending else '.adopted'))
+            if pending:
+                deadline=time.monotonic()+10
+                while not (self.work/'registered').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+                self.assertTrue((self.work/'registered').exists())
+                lock=(self.work/'manager-data/control.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
+                Path(str(marker)+'.locked').write_text('real manager lock')
+            deadline=time.monotonic()+10
+            while not ready.exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+            self.assertTrue(ready.exists())
+            if mutation=='delete':alias.unlink()
+            elif mutation=='rename':alias.rename(alias.with_name(alias.name+'-renamed'))
+            else:alias.unlink();alias.symlink_to(other if kind=='root' else otherfile,target_is_directory=kind=='root')
+            if lock:fcntl.flock(lock,fcntl.LOCK_UN);lock.close();lock=None
+            Path(str(marker)+'.changed').write_text('alias changed; retry exact caller')
+            stdout,stderr=child.communicate(timeout=8)
+            after=set(self.state.editor_attachments.directory.glob('*.json'))
+            self.save('alias-attempt.json',dict(argv=command,exit=child.returncode,elapsed=time.monotonic()-start,stdout=stdout,stderr=stderr,kind=kind,mutation=mutation,pending=pending,activeIncrease=len(after-before),requiredActiveIncrease=0,retainedBefore=retained,retainedAfter={str(p):sha(p) for p in [terminal,self.record_path,self.control,otherfile]}))
+            self.assertEqual(child.returncode,0,stdout+stderr);self.assertEqual(after,before)
+            self.assertEqual({str(p):sha(p) for p in [terminal,self.record_path,self.control,otherfile]},retained)
+            self.assert_unchanged(self.before);self.assertIsNone(self.editor.poll())
+        finally:
+            if lock:lock.close()
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+
+    def test_V6_P1_entry_delete_close(self):self.alias_lifetime('entry','delete')
+    def test_V6_P1_entry_rename_close(self):self.alias_lifetime('entry','rename')
+    def test_V6_P1_entry_retarget_close(self):self.alias_lifetime('entry','retarget')
+    def test_V6_P1_root_delete_close(self):self.alias_lifetime('root','delete')
+    def test_V6_P1_root_rename_close(self):self.alias_lifetime('root','rename')
+    def test_V6_P1_root_retarget_close(self):self.alias_lifetime('root','retarget')
+    def test_V6_P1_entry_retarget_pending_caller(self):self.alias_lifetime('entry','retarget',True)
+    def test_V6_P1_root_delete_pending_caller(self):self.alias_lifetime('root','delete',True)
 
     def test_SF1_editor_owner_exit_preserves_source_and_ask(self):
         self.registration_owner=subprocess.Popen([sys.executable,'-c','import sys;sys.stdin.read()'],stdin=subprocess.PIPE)

@@ -293,3 +293,52 @@ class NativeOperationLifetime(unittest.TestCase):
         for deadline in [float('nan'),float('inf'),time.time()-1]:
             with self.assertRaises(ValueError):self.manager.release_native_operation(str(self.root),self.entry.name,op.identifier,deadline=deadline)
         self.assertEqual(op.path.read_bytes(),before)
+
+    def test_v6_manager_scope_equivalence_alias_retarget_and_distinct_readers(self):
+        profile=self.manager.profiles()[0];profiles=[profile];self.manager.profiles=lambda:profiles
+        original=self.manager.native_scope(str(self.root),self.entry.name)
+        alias=self.base/'scope-alias';alias.symlink_to(self.root,target_is_directory=True)
+        same=self.manager.native_scope(str(alias),'./'+self.entry.name)
+        self.assertEqual(same['scope'],original['scope']);self.assertNotEqual(same['requestBinding'],original['requestBinding'])
+        self.assertEqual(self.manager.native_scope(str(self.root),'./'+self.entry.name)['scope'],original['scope'])
+        other=self.base/'other-root';other.mkdir();(other/self.entry.name).write_text('unrelated source')
+        profiles.append(dict(profile,id='other',root=str(other)))
+        unrelated=self.manager.native_scope(str(other),self.entry.name,'other')
+        self.assertNotEqual(unrelated['scope'],original['scope'])
+        profiles.append(dict(profile,id='second-reader'))
+        self.assertIsNone(self.manager.native_scope(str(self.root),self.entry.name)['scope'],'ambiguous inventory cannot authorize a new grant')
+        self.assertNotEqual(self.manager.native_scope(str(self.root),self.entry.name,'fixture')['scope'],self.manager.native_scope(str(self.root),self.entry.name,'second-reader')['scope'])
+        alias.unlink();alias.symlink_to(other,target_is_directory=True)
+        retarget=self.manager.native_scope(str(alias),'./'+self.entry.name,'fixture')
+        self.assertIsNone(retarget['scope'])
+        # Stable spelling is a withdrawal correlation, never a target grant.
+        stable=self.manager.native_scope(str(alias),'./'+self.entry.name)
+        self.assertEqual(stable['requestBinding'],same['requestBinding'])
+        self.assertNotEqual(stable['scope'],same['scope'])
+        self.assertFalse(self.data.exists(),'readonly query must not create control, journal, service or attachment')
+
+    def test_v6_stable_request_actual_binding_and_wrong_caller(self):
+        alias=self.base/'root-alias';alias.symlink_to(self.root,target_is_directory=True)
+        import secrets
+        identifier=secrets.token_hex(32)
+        op=self.manager.native_operation(str(alias),self.entry.name,identifier,'fixture')
+        op.reserve('fixture',self.document,time.time()+6.5,document_root=str(self.root),document_entry=str(self.entry))
+        token,path=self.register(op);op.issued();record=op.read()
+        self.assertEqual(record['root'],str(alias));self.assertEqual(record['documentRoot'],str(self.root))
+        before=sha(path)
+        for root,entry,rid in [(str(self.root),self.entry.name,'fixture'),(str(alias),'other.typ','fixture'),(str(alias),self.entry.name,'other')]:
+            with self.assertRaises(ValueError):self.manager.release_native_operation(root,entry,identifier,rid)
+            self.assertEqual(sha(path),before)
+        alias.unlink()
+        self.assertTrue(self.manager.release_native_operation(str(alias),self.entry.name,identifier,'fixture')['released'])
+        self.assertFalse(path.exists());self.assertFalse(self.manager.release_native_operation(str(alias),self.entry.name,identifier,'fixture')['released'])
+
+    def test_v6_legacy_record_compatibility_and_state_document_completeness(self):
+        op=self.reserve();value=op.read()
+        for key in ['documentRoot','documentEntry']:
+            bad=dict(value);bad[key]=None;op.write(bad)
+            with self.assertRaises(ValueError):op.cancel()
+        op.write(value)
+        old=dict(value,version=1);old.pop('documentRoot');old.pop('documentEntry');op.write(old)
+        token,path=self.register(op);op.issued();self.assertEqual(op.read()['version'],1)
+        self.assertTrue(op.cancel());self.assertFalse(path.exists())

@@ -136,3 +136,15 @@ Historical299 and resume2 failure witnesses remain unchanged. Legacy direct
 native-consent without an operation remains response-token-only. Automatic
 entire-app restart recovery and journal pruning are not provided; final
 registration/build/GUI/125case/NA16 gates remain open.
+
+
+## 15. v6 bounded request and stable operation binding source component
+
+- [x] 15.1 Preserve H5 slow-drip and alias-withdrawal failures, cancel/await the actual final URLSession request within the absolute budget, and verify exact own cleanup/preservation.
+- [x] 15.2 Separate stable original withdrawal from validated issuance binding; use manager-owned document/reader scope to close equivalent-spelling pending-gate bypass, with actual caller reentry and independent-scope tests.
+- [x] 15.3 Verify actual transmitted edit_lock gate before cancel/invalid-selection; run affected Source/Ask, terminal, Unicode and owner regressions and align canonical/generated/strict documentation.
+- [ ] 15.4 PM separately integrates/registers/builds and binds the unchanged125case acceptance design to the final artifact; GUI/VO/actual OS13/live/F04/F13/NA16 remain separate.
+
+The exact design path/plan_id/design_source_revision and PM binding responsibility
+are in design.md's v6 section. Component evidence will be in external DevSSD
+`test-output/native-reader-lifetime-v6/REPORT.md`, not retroactive formalcase results.

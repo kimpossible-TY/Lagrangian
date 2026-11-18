@@ -51,9 +51,12 @@ private actor UITrace {
     /// Existing tests inject local inventory only; echo its caller correlation,
     /// never use this fake plan in the real-manager R1 lifetime tests.
     private static func fixturePlan(_ data: Data, _ argv: [String]) throws -> Data {
+        if argv.first == "--native-editor-scope" {
+            return Data(("{\"scope\":\"" + String(repeating: "a", count: 64) + "\",\"requestBinding\":\"" + String(repeating: "b", count: 64) + "\"}").utf8)
+        }
         if argv.first == "--release-native-editor-operation" { return Data("{\"released\":false}".utf8) }
         var value = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        if let index = argv.firstIndex(of: "--native-editor-operation") { value["nativeEditorOperation"] = argv[index + 1] }
+        if let index = argv.firstIndex(of: "--native-editor-operation") { value["nativeEditorOperation"] = argv[index + 1]; value["nativeEditorScope"] = String(repeating: "a", count: 64) }
         return try JSONSerialization.data(withJSONObject: value)
     }
 
@@ -267,6 +270,56 @@ private actor UITrace {
         let config = try Data(contentsOf: URL(fileURLWithPath: args[1]))
         let mode = args[2]
         let object = try JSONSerialization.jsonObject(with: config) as! [String: Any]
+        if mode == "scope-pending" {
+            let manager=object["manager"] as! String, marker=args[3]
+            let root=object["root"] as! String, entry=object["entry"] as! String
+            let editor=try NativeReaderManagedEditor.consentedDescriptor(URL(fileURLWithPath:object["descriptor"] as! String))
+            let resolver=NativeReaderManagedResolver(attach:{try await CommandRunner.nativeReaderManager(manager,$0)},network:.urlSession())
+            let first=NativeReaderManagedClient(resolver:resolver,root:object["aliasRoot"] as! String,entry:entry,editor:editor)
+            _ = try await first.target();await first.dispose() // injected release failure: pending remains
+            for (otherRoot, otherEntry) in [(root,"./"+entry),(object["aliasRoot"] as! String,entry)] {
+                let next=NativeReaderManagedClient(resolver:resolver,root:otherRoot,entry:otherEntry,editor:editor)
+                var rejected=false
+                do{_ = try await next.target()}catch{rejected=true}
+                await next.dispose();try require(rejected)
+            }
+            let independent=NativeReaderManagedClient(resolver:resolver,root:object["otherRoot"] as! String,
+                entry:object["otherEntry"] as! String,readerID:"other",editor:editor)
+            _ = try await independent.target();await independent.dispose()
+            try Data().write(to:URL(fileURLWithPath:marker+".blocked"))
+            for _ in 0..<1000 {if FileManager.default.fileExists(atPath:marker+".retargeted"){break};try await Task.sleep(nanoseconds:10_000_000)}
+            let retarget=NativeReaderManagedClient(resolver:resolver,root:object["aliasRoot"] as! String,entry:entry,editor:editor)
+            var rejected=false
+            do{_ = try await retarget.target()}catch{rejected=true}
+            await retarget.dispose();try require(rejected)
+            try Data().write(to:URL(fileURLWithPath:marker+".retarget-blocked"))
+            for _ in 0..<1000 {if FileManager.default.fileExists(atPath:marker+".retry"){break};try await Task.sleep(nanoseconds:10_000_000)}
+            try require(await resolver.retryEditorCleanup(root:root,entry:"./"+entry))
+            let fresh=NativeReaderManagedClient(resolver:resolver,root:root,entry:entry,editor:editor)
+            _ = try await fresh.target();await fresh.dispose()
+            print("{\"canonicalScopeBlocked\":true,\"explicitRetryRecovered\":true,\"freshConsent\":true,\"independentScopeUsable\":true,\"externalNonceInput\":false,\"skips\":0}");return
+        }
+        if mode.hasPrefix("alias-") {
+            let manager=object["manager"] as! String, marker=args[3]
+            let root=object["root"] as! String,entry=object["entry"] as! String
+            let editor=try NativeReaderManagedEditor.consentedDescriptor(URL(fileURLWithPath:object["descriptor"] as! String))
+            let resolver=NativeReaderManagedResolver(attach:{try await CommandRunner.nativeReaderManager(manager,$0)},network:.urlSession())
+            let client=NativeReaderManagedClient(resolver:resolver,root:root,entry:entry,editor:editor)
+            if mode=="alias-close" {
+                _ = try await client.target()
+                try Data().write(to:URL(fileURLWithPath:marker+".adopted"))
+            } else {
+                let first=Task{try await client.target()}
+                for _ in 0..<500 {if FileManager.default.fileExists(atPath:marker+".locked"){break};try await Task.sleep(nanoseconds:10_000_000)}
+                first.cancel();var rejected=false
+                do{_ = try await first.value}catch{rejected=true};try require(rejected)
+                try Data().write(to:URL(fileURLWithPath:marker+".pending"))
+            }
+            for _ in 0..<500 {if FileManager.default.fileExists(atPath:marker+".changed"){break};try await Task.sleep(nanoseconds:10_000_000)}
+            if mode=="alias-close" {await client.dispose()}
+            else {try require(await resolver.retryEditorCleanup(root:root,entry:entry))}
+            print("{\"sameProductionCaller\":true,\"externalNonceInput\":false,\"skips\":0}");return
+        }
         if mode == "lease-retry" { try await retirement(object, marker: args[3]); return }
         if mode == "response-pending-client" || mode == "response-pending-body" {
             await MainActor.run { _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited) }
@@ -282,7 +335,7 @@ private actor UITrace {
             }
             first.cancel()
             var rejected = false
-            do { _ = try await first.value } catch { rejected = true }
+            do { _ = try await first.value } catch { rejected = true; try Data(String(describing:error).utf8).write(to:URL(fileURLWithPath:marker+".first-error")) }
             try require(rejected)
             try Data().write(to: URL(fileURLWithPath: marker + ".pending"))
             if mode == "response-pending-body" {
@@ -461,8 +514,11 @@ private actor UITrace {
             print("{\"mode\":\"selection-race\",\"skips\":0,\"assertions\":3}");return
         }
         if mode.hasPrefix("queued-") {
-            let pending=Task{try await owner.jump(request)}
             let marker=URL(fileURLWithPath:args[3])
+            try Data().write(to: URL(fileURLWithPath: marker.path + ".ready"))
+            for _ in 0..<1000 { if FileManager.default.fileExists(atPath: marker.path + ".held") { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+            try require(FileManager.default.fileExists(atPath: marker.path + ".held"))
+            let pending=Task{try await owner.jump(request)}
             for _ in 0..<1500 {if FileManager.default.fileExists(atPath:marker.path+".queued"){break};try await Task.sleep(nanoseconds:10_000_000)}
             try require(FileManager.default.fileExists(atPath:marker.path+".queued"))
             if mode=="queued-invalid" {

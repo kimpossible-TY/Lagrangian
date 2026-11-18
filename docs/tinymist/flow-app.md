@@ -12,15 +12,15 @@ Use Flow to manage a document’s live preview while editing its Typst source in
 2. Click **Add Project** (프로젝트 추가…) and select the document’s `.typ` entry file. The [reading demo](examples/reading-demo.typ) is a small document for trying selection, highlights, references, and themes.
 3. Check **Project folder** (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
 4. Add any required font or package folders, then click **Save settings** (설정 저장).
-5. Click **Start reading** (읽기 시작). Flow saves changed settings, starts the preview if needed, and opens your browser once the engine has a document available. Save a source edit in your editor to see the preview update.
+5. In the native candidate identified by your release/inspection packet, click **Read** (읽기). Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate **External Reader** action when you explicitly want the web reader.
 
-**Result:** Flow runs a preview for this project and opens it in your browser. The same window shows settings validation, the start request, the running engine and document readiness. The browser reports its own rendering progress. If preparation fails, the explanation stays in the window; correct the cause and choose **Read again** (다시 읽기). **Logs** (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
+**Result in the native candidate:** Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; do not apply their behavior to a newer native inspection packet. If preparation fails, the explanation stays in the window; correct the cause and choose **Read again** (다시 읽기). **Logs** (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
 
 ### Project controls and settings
 
 Choose a project from the picker to open or control its preview. **Stop** (중지) disables its service until you use Start again; **Restart** (재시작) restarts it. Closing the project window or quitting the menu bar app leaves started previews running.
 
-**Start reading** also works for an already running project. It waits for an available document before opening the configured address. **Start** starts the service without opening a browser. Switching projects or choosing **Stop** cancels a pending browser opening. Service and settings operations run in the background so the window remains responsive.
+**Read** also works for an already running project and waits for its available document before native preparation. **External Reader** is the explicit web action; the existing phone/tablet web URL remains available. Service start/stop/restart controls manage the service separately from Read. Switching projects or stopping cancels the current pending Read. Service and settings operations run in the background so the window remains responsive.
 
 Font paths are relative to the project root and separated by semicolons. For example, `fonts;../shared-fonts` selects two folders. The local package folder is optional; use it when your document depends on local packages. Saving changed settings restarts a running preview.
 
