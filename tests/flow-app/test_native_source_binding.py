@@ -41,7 +41,11 @@ class FixedSourceBinding(unittest.TestCase):
         cls.git('checkout','--quiet',INPUT)
         for name in owner.DELIVERY_SOURCE_PATHS:
             shutil.copy2(ROOT/name,cls.root/name)
-        cls.commit()
+        # Clean HEAD already contains these bytes. Commit only a real dirty
+        # delivery overlay in this private clone; mutation tests still commit.
+        cls.git('add','--all')
+        if cls.git('diff','--cached','--name-only').strip():
+            cls.commit()
         cls.fixed = cls.git('rev-parse','HEAD').strip()
 
     @classmethod
@@ -199,7 +203,8 @@ class FixedSourceBinding(unittest.TestCase):
 
     def test_committed_drift_cannot_be_accepted_by_old_correction(self):
         # The docs-only correction cannot grant any native-source authority.
-        self.metadata(lambda m:m.update(ownerCorrections=[x for x in m['ownerCorrections'] if x['revision']!=DOCS_CORRECTION]))
+        # Remove this exact historical entry, not a later native correction.
+        self.metadata(lambda m:m['ownerCorrections'].remove(next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)))
         with self.assertRaisesRegex(ValueError,'owner source drift'):self.binding()
         self.setUp()
         self.metadata(lambda m:m.update(ownerCorrections=[x for x in m['ownerCorrections'] if x['revision']!=CURRENT_CORRECTION]))
