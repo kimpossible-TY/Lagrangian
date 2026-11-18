@@ -46,6 +46,10 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
             frozen=before/'NativeReaderTransport.swift'
             if sha(frozen)!=binding['files']['apps/macos/NativeReaderTransport.swift']:raise RuntimeError('H5 before bytes changed')
             sources=[frozen if p.name=='NativeReaderTransport.swift' else p for p in sources]
+        if os.environ.get('SCOPE_V8_BEFORE') == '1':
+            frozen=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-reader-scope-v8/before/NativeReaderTransport.swift')
+            if sha(frozen) != __import__('hashlib').sha256(subprocess.check_output(['git','show','60161890bfb79520071ad20db992273aa7d624c8:apps/macos/NativeReaderTransport.swift'],cwd=REPO)).hexdigest():raise RuntimeError('H7 snapshot changed')
+            sources=[frozen if p.name=='NativeReaderTransport.swift' else p for p in sources]
         # Outer command owns the single Swift lock. Never invoke a nested lock.
         if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
             raise RuntimeError('Wrap this top-level test once with with-native-swift-lock.py')
@@ -416,6 +420,89 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
             self.assert_unchanged(self.before)
         finally:
             if child.poll() is None:child.kill();child.wait(timeout=5)
+
+    def scope_v8(self,kind):
+        wrapper,args,manager,terminal=self.response_boundary_fixture()
+        from flow_reader.compiler.project import Project
+        from flow_reader.server.state import ReaderState
+        from flow_reader.server.http import handler_for
+        from http.server import ThreadingHTTPServer
+        if kind=='s1':
+            b_root=self.root;b_dir=self.root/'b';b_dir.mkdir();(b_dir/'sub').mkdir()
+            b_entry='b/'+self.entry.name;request_root=self.root;request_entry='link/../'+self.entry.name
+            (self.root/'link').symlink_to(b_dir/'sub',target_is_directory=True)
+        else:
+            b_root=self.work/'independent-B';b_root.mkdir();b_entry=self.entry.name
+            request_root=self.work/'query-alias';request_root.symlink_to(self.root,target_is_directory=True);request_entry=self.entry.name
+        b_file=b_root/b_entry;b_file.write_text('= Independent B\nActual B body.\n')
+        state=ReaderState(Project(b_root,Path(b_entry),REPO/'tools/flow-reader/packages',compiler=str(self.compiler)),self.work/'manager-data/documents/other','',False)
+        self.addCleanup(state.close);state.compile();self.assertTrue(state.report['contentGatePassed'])
+        server=ThreadingHTTPServer(('127.0.0.1',0),handler_for(state));server.daemon_threads=True
+        thread=threading.Thread(target=server.serve_forever);thread.start()
+        def close():server.shutdown();thread.join(3);server.server_close()
+        self.addCleanup(close)
+        c_root=self.work/'independent-C';c_root.mkdir();c_entry=c_root/self.entry.name;c_entry.write_text('= Independent C\nUntouched C body.\n')
+        c_state=ReaderState(Project(c_root,Path(c_entry.name),REPO/'tools/flow-reader/packages',compiler=str(self.compiler)),self.work/'manager-data/documents/c','',False)
+        self.addCleanup(c_state.close);c_state.compile();self.assertTrue(c_state.report['contentGatePassed'])
+        c_server=ThreadingHTTPServer(('127.0.0.1',0),handler_for(c_state));c_server.daemon_threads=True
+        c_thread=threading.Thread(target=c_server.serve_forever);c_thread.start()
+        def close_c():c_server.shutdown();c_thread.join(3);c_server.server_close()
+        self.addCleanup(close_c)
+        settings=self.work/'response-manager.json';v=json.loads(settings.read_text());v['other']=dict(id='other',root=str(b_root),entry=b_entry,port=server.server_port);v['otherPID']=state.focus.service['pid']
+        v['c']=dict(id='c',root=str(c_root),entry=c_entry.name,port=c_server.server_port);v['cPID']=c_state.focus.service['pid'];settings.write_text(json.dumps(v))
+        fail=self.work/'cleanup-fails';fail.write_text('bounded cleanup command failure')
+        text=wrapper.read_text().replace('return [v["profile"]]','return [v["profile"],v["other"]]').replace('return v["pid"]','return v["otherPID"] if p["id"]=="other" else (v["cPID"] if p["id"]=="c" else v["pid"])').replace('return [v["profile"],v["other"]]','return [v["profile"],v["other"],v["c"]]')
+        # Gate AFTER readonly query has captured A, BEFORE attach can match B.
+        gate=self.work/'query-retargeted'
+        injection=''
+        if kind=='r1':
+            injection='\n def native_scope(self,root,entry,identifier=None):\n  result=super().native_scope(root,entry,identifier)\n  if root=='+repr(str(request_root))+' and not Path('+repr(str(gate))+').exists():\n   alias=Path(root);alias.unlink();alias.symlink_to('+repr(str(b_root))+',target_is_directory=True);Path('+repr(str(gate))+').write_text(json.dumps(result))\n  return result\n'
+        text=text.replace('with open(',injection+'\nwith open(',1)
+        condition='sys.argv[sys.argv.index("--root")+1]!='+repr(str(c_root)) if kind=='r1' else '"--entry" in sys.argv and __import__("unicodedata").normalize("NFC",sys.argv[sys.argv.index("--entry")+1])=='+repr(__import__('unicodedata').normalize('NFC',request_entry))
+        text=text.replace('from flow_reader.services.manager import ReaderManager,main','from flow_reader.services.manager import ReaderManager,main\nif sys.argv[1:2]==["--release-native-editor-operation"] and Path('+repr(str(fail))+').exists() and ('+condition+'):sys.exit(7)')
+        if os.environ.get('SCOPE_V8_BEFORE')=='1':
+            snapshot=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-reader-scope-v8/before/manager.py')
+            text=text.replace('from flow_reader.services.manager import ReaderManager,main','import importlib.util\nspec=importlib.util.spec_from_file_location("h7_manager",'+repr(str(snapshot))+');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);ReaderManager=module.ReaderManager;main=module.main')
+        wrapper.write_text(text)
+        descriptor=manager.native_editor_local(str(self.root),self.entry.name,terminal.stem,descriptor=True)['descriptorFile']
+        marker=self.work/'scope-v8-gate';config=self.work/'scope-v8.json'
+        config.write_text(json.dumps(dict(manager=str(wrapper),descriptor=descriptor,root=str(self.root),entry=self.entry.name,requestRoot=str(request_root),requestEntry=request_entry,otherRoot=str(b_root),otherEntry=b_entry)))
+        retained={str(p):sha(p) for p in [terminal,self.record_path,self.control,self.entry,b_file,c_entry]}
+        beforeA=set(self.state.editor_attachments.directory.glob('*.json'));beforeB=set(state.editor_attachments.directory.glob('*.json'))
+        command=[str(self.binary),str(config),'scope-v8-'+kind,str(marker)];start=time.monotonic()
+        child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        def wait(suffix):
+            end=time.monotonic()+20
+            while not Path(str(marker)+suffix).exists() and child.poll() is None and time.monotonic()<end:time.sleep(.01)
+            return Path(str(marker)+suffix).exists()
+        try:
+            first=wait('.first');issuedB=len(set(state.editor_attachments.directory.glob('*.json'))-beforeB)
+            Path(str(marker)+'.continue').write_text('explicit next request')
+            blocked=wait('.blocked');pendingB=len(set(state.editor_attachments.directory.glob('*.json'))-beforeB)
+            # While B is still pending, independently query/grant/release C via
+            # the production local CLI. Never inject a nonce into the Swift caller.
+            import secrets
+            c_args=['--root',str(c_root),'--entry',c_entry.name]
+            c_scope=json.loads(subprocess.check_output([str(wrapper),'--native-editor-scope',*c_args],text=True))
+            c_op=secrets.token_hex(32)
+            c_attach=[str(wrapper),'--attach',*c_args,*args[args.index('--editor-server'):], '--native-editor-operation',c_op,'--native-editor-deadline',str(time.time()+6.5)]
+            c_plan=json.loads(subprocess.check_output(c_attach,text=True));c_path=Path(c_plan['attachmentFile']);self.assertTrue(c_path.exists())
+            c_release=[str(wrapper),'--release-native-editor-operation',*c_args,'--native-editor-operation',c_op]
+            self.assertEqual(json.loads(subprocess.check_output(c_release,text=True)),{'released':True});self.assertFalse(c_path.exists())
+            self.assertEqual(list(c_state.editor_attachments.directory.glob('*.json')),[])
+            fail.unlink();Path(str(marker)+'.retry').write_text('explicit exact cleanup')
+            stdout,stderr=child.communicate(timeout=18)
+            self.save('scope-v8-oracle.json',dict(argv=command,exit=child.returncode,elapsed=time.monotonic()-start,independentCLegacyAPI=True,independentCGrantedAndConfirmed=True,independentCArguments=c_attach,firstReached=first,issuedBBeforePlan=issuedB,pendingB=pendingB,blockedReached=blocked,stdout=stdout,stderr=stderr,retained=retained,retainedAfter={str(p):sha(p) for p in retained},activeA=len(set(self.state.editor_attachments.directory.glob('*.json'))-beforeA),activeB=len(set(state.editor_attachments.directory.glob('*.json'))-beforeB),fake=['inventory/PID observation','post-query alias retarget','bounded cleanup exit7'],real=['APFS symlink semantics','production CommandRunner/resolver/manager','actual registration/HTTP ack/state','compiler/headless editor'],externalNonceInput=False))
+            self.assertTrue(first);self.assertTrue(blocked)
+            if kind=='r1':self.assertEqual(issuedB,0,'query A must never issue B, including before a response is available')
+            self.assertEqual(child.returncode,0,stdout+stderr)
+            self.assertEqual(set(self.state.editor_attachments.directory.glob('*.json')),beforeA);self.assertEqual(set(state.editor_attachments.directory.glob('*.json')),beforeB)
+            self.assertEqual({str(p):sha(p) for p in retained},retained);self.assertIsNone(self.editor.poll());self.assert_unchanged(self.before)
+        finally:
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+
+    def test_V8_R1_query_retarget_cannot_issue_mismatching_scope(self):self.scope_v8('r1')
+    def test_V8_S1_pending_symlink_dotdot_does_not_block_independent_document(self):self.scope_v8('s1')
 
     def alias_lifetime(self, kind, mutation, pending=False):
         import fcntl

@@ -159,3 +159,15 @@ are in design.md's v6 section. Component evidence will be in external DevSSD
 
 v7 evidence locator: external DevSSD `test-output/native-reader-ui-v7/REPORT.md`.
 The missing parallel-planning skill and bounded source-only scope remain explicit.
+
+
+## 17. v8 pre-issuance scope source component
+
+- [x] 17.1 Preserve actual H7 query/retarget issuance and symlink-dotdot pending counterexamples; bind expected manager scope before reservation/publication and preserve original request expressions.
+- [x] 17.2 Verify actual CommandRunner/manager/HTTP caller recovery, independent scopes/tokens, alias withdrawal, deadline and Source/Ask/terminal/Unicode boundaries with source-bound evidence.
+- [x] 17.3 Align V601–604 canonical/generated docs and PDF/HTML/strict checks; freeze a clean component and exact H7/d7 Git-blob deltas.
+- [ ] 17.4 PM separately integrates/registers/builds and obtains actual GUI/VO/OS13/NA16/full125/PM-receipt acceptance.
+
+External evidence: DevSSD `test-output/native-reader-scope-v8/REPORT.md`.
+The parallel-planning attachment is now supplied/read; the historical v7 missing
+locator remains historical. This executor follows the existing single-writer plan.

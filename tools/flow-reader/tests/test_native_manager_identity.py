@@ -20,7 +20,7 @@ from flow_reader.services.editor_sync import EditorAttachments
 from flow_reader.compiler.project import document_identity
 if fixed := os.environ.get('NATIVE_IDENTITY_MANAGER_SOURCE'):
     fixed = Path(fixed).resolve()
-    if not fixed.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-reader-identity-ui-v5')):
+    if not any(fixed.is_relative_to(Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output')/name) for name in ('native-reader-identity-ui-v5','native-reader-scope-v8')):
         raise RuntimeError('Frozen source must remain in this task evidence root')
     spec = importlib.util.spec_from_file_location('fixed_identity_manager',fixed)
     module = importlib.util.module_from_spec(spec);sys.modules[spec.name]=module;spec.loader.exec_module(module)
@@ -342,3 +342,48 @@ class NativeOperationLifetime(unittest.TestCase):
         old=dict(value,version=1);old.pop('documentRoot');old.pop('documentEntry');op.write(old)
         token,path=self.register(op);op.issued();self.assertEqual(op.read()['version'],1)
         self.assertTrue(op.cancel());self.assertFalse(path.exists())
+
+
+class NativeScopeV8(unittest.TestCase):
+    setUp = NativeOperationLifetime.setUp
+    evidence = NativeOperationLifetime.evidence
+    def test_S1_symlink_dotdot_preserves_independent_request_bindings(self):
+        a=self.root/'a';b=self.root/'b';a.mkdir();b.mkdir();(b/'sub').mkdir()
+        (a/'main.typ').write_text('independent A');(b/'main.typ').write_text('independent B')
+        (a/'link').symlink_to(b/'sub',target_is_directory=True)
+        profiles=[dict(id=n,root=str(self.root),entry=n+'/main.typ',port=24000+i) for i,n in enumerate(('a','b'))]
+        self.manager.profiles=lambda:profiles
+        supplied='a/link/../main.typ'
+        self.assertTrue((self.root/supplied).samefile(b/'main.typ'))
+        scope_b=self.manager.native_scope(str(self.root),supplied)
+        scope_a=self.manager.native_scope(str(self.root),'a/main.typ')
+        self.assertNotEqual(scope_a['scope'],scope_b['scope'])
+        OUT.mkdir(exist_ok=True,parents=True)
+        (OUT/('S1-'+str(time.time_ns())+'.json')).write_text(json.dumps(dict(a=scope_a,b=scope_b,actualB=str((self.root/supplied).resolve()),sourceA=sha(a/'main.typ'),sourceB=sha(b/'main.typ')),indent=2))
+        self.assertNotEqual(scope_a['requestBinding'],scope_b['requestBinding'],'different actual documents must not share withdrawal correlation through lexical dotdot removal')
+
+    def test_R1_expected_scope_rejects_before_any_operation_or_registration(self):
+        import secrets
+        a=self.root; b=self.base/'other';b.mkdir();(b/self.entry.name).write_text('independent B')
+        profiles=[dict(id='a',root=str(a),entry=self.entry.name,port=24000),dict(id='b',root=str(b),entry=self.entry.name,port=24001)]
+        self.manager.profiles=lambda:profiles
+        alias=self.base/'query-alias';alias.symlink_to(a,target_is_directory=True)
+        expected=self.manager.native_scope(str(alias),self.entry.name)['scope']
+        alias.unlink();alias.symlink_to(b,target_is_directory=True)
+        effects=[];self.manager.job_pid=lambda p:effects.append('pid') or os.getpid()
+        operation=secrets.token_hex(32)
+        try:
+            self.manager.attach(str(alias),self.entry.name,editor_server='owned',nvim=sys.executable,owner_pid=os.getpid(),control_file=str(self.control),native_editor_consent=True,native_editor_operation=operation,native_editor_deadline=time.time()+6.5,native_editor_expected_scope=expected)
+        except ValueError as error:self.assertIn('scope',str(error))
+        self.assertEqual(effects,[],'scope rejection must precede service/probe effects')
+        self.assertFalse((self.data/'native-editor-operations'/(operation+'.json')).exists(),'no intent for mismatching issuance')
+        self.assertFalse(list(self.data.glob('documents/*/editor-attachments/*.json')))
+
+    def test_R1_expected_scope_shape_and_operation_association_fail_closed(self):
+        import secrets
+        for scope in ['', 'g'*64, 'a'*63, 1, 'A'*64]:
+            with self.subTest(scope=scope),self.assertRaisesRegex(ValueError,'scope'):
+                self.manager.attach(str(self.root),self.entry.name,native_editor_expected_scope=scope,native_editor_operation=secrets.token_hex(32))
+        with self.assertRaisesRegex(ValueError,'scope'):
+            self.manager.attach(str(self.root),self.entry.name,native_editor_expected_scope='a'*64)
+        self.assertFalse(self.data.exists())

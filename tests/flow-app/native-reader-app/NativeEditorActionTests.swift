@@ -270,6 +270,35 @@ private actor UITrace {
         let config = try Data(contentsOf: URL(fileURLWithPath: args[1]))
         let mode = args[2]
         let object = try JSONSerialization.jsonObject(with: config) as! [String: Any]
+        if mode == "scope-v8-r1" || mode == "scope-v8-s1" {
+            let manager=object["manager"] as! String, marker=args[3]
+            let editor=try NativeReaderManagedEditor.consentedDescriptor(URL(fileURLWithPath:object["descriptor"] as! String))
+            let resolver=NativeReaderManagedResolver(attach:{try await CommandRunner.nativeReaderManager(manager,$0)},network:.urlSession())
+            let root=object["root"] as! String, entry=object["entry"] as! String
+            let requestRoot=object["requestRoot"] as! String, requestEntry=object["requestEntry"] as! String
+            let bRoot=object["otherRoot"] as! String, bEntry=object["otherEntry"] as! String
+            func connect(_ root:String,_ entry:String) async -> Bool {
+                let client=NativeReaderManagedClient(resolver:resolver,root:root,entry:entry,editor:editor)
+                var accepted=false
+                do{_ = try await client.target();accepted=true}catch{}
+                await client.dispose();return accepted
+            }
+            let first=await connect(requestRoot,requestEntry)
+            try require(first == (mode == "scope-v8-s1"))
+            try Data().write(to:URL(fileURLWithPath:marker+".first"))
+            for _ in 0..<1000 {if FileManager.default.fileExists(atPath:marker+".continue"){break};try await Task.sleep(nanoseconds:10_000_000)}
+            let independent=await connect(mode == "scope-v8-r1" ? bRoot:root,mode == "scope-v8-r1" ? bEntry:entry)
+            let blocked = !(await connect(bRoot,"./"+bEntry))
+            try Data().write(to:URL(fileURLWithPath:marker+".blocked"))
+            for _ in 0..<1000 {if FileManager.default.fileExists(atPath:marker+".retry"){break};try await Task.sleep(nanoseconds:10_000_000)}
+            let recoveredB=await resolver.retryEditorCleanup(root:bRoot,entry:bEntry)
+            let recovered=await resolver.retryEditorCleanup(root:requestRoot,entry:requestEntry)
+            let freshB=await connect(bRoot,bEntry), freshA=await connect(root,entry)
+            let result=try JSONSerialization.data(withJSONObject:["independentAccepted":independent,"pendingBBlocked":blocked,"recoveredOriginal":recovered,"recoveredB":recoveredB,"freshA":freshA,"freshB":freshB,"externalNonceInput":false,"skips":0])
+            try result.write(to:URL(fileURLWithPath:marker+".result"))
+            print(String(data:result,encoding:.utf8)!)
+            try require(independent && blocked && recovered && recoveredB && freshB && freshA);return
+        }
         if mode == "scope-pending" {
             let manager=object["manager"] as! String, marker=args[3]
             let root=object["root"] as! String, entry=object["entry"] as! String

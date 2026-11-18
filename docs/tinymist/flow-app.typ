@@ -20,7 +20,7 @@ Use Flow to manage a document's live preview while editing its Typst source in y
 + Click *Add Project* (프로젝트 추가…) and select the document's `.typ` entry file. The #link("examples/reading-demo.typ")[reading demo] is a small document for trying selection, highlights, references, and themes.
 + Check *Project folder* (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
 + Add any required font or package folders, then click *Save settings* (설정 저장).
-+ In the native candidate identified by your release/inspection packet, click *Read* (읽기). Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate *External Reader* action when you explicitly want the web reader.
++ In the native candidate identified by your release/inspection packet, click *Read* (읽기 시작). Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate *External Reader* action when you explicitly want the web reader.
 
 *Result in the native candidate:* Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; do not apply their behavior to a newer native inspection packet. If preparation fails, the explanation stays in the window; correct the cause and choose *Read again* (다시 읽기). *Logs* (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
 
@@ -92,7 +92,7 @@ edit, and an older result cannot dismiss a newer selection.
 
 = Select and copy text
 
-Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device's Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Copy, Highlight, Save for Codex, and Red strike.
+Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device's Copy action for ordinary copying. In the paged web preview, the toolbar near the bottom offers Copy, Highlight, Save for Codex, and Red strike. HTML and terminal readers instead use Ask to open a composer; only explicit Send starts inference. Native Reader actions are described separately below.
 
 If a selection starts or ends inside a formula, it expands to the complete expression after the selection settles. Formula numbering, attached labels and nearby prose stay outside that expression. *Copy* (복사) writes complete formulas as Typst source including `$...$`, keeps surrounding prose as displayed, and separates copied blocks with one newline. If a formula has no verified source, Copy uses the displayed text and reports that the Typst source could not be confirmed.
 
@@ -100,7 +100,7 @@ If a selection starts or ends inside a formula, it expands to the complete expre
 
 *Result:* The selection stays on the rendered revision while you use it. Preview updates wait during an active text selection on desktop and touch devices; dismiss the selection to apply pending edits. On a touch device, wait for the formula selection handles to settle before copying so the whole expression is included.
 
-Dragging or long-pressing does not save a Codex source location. Use *Save for Codex* to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
+In the paged web preview, dragging or long-pressing does not save a Codex source location. Use *Save for Codex* to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
 
 = Highlight in source
 
@@ -112,11 +112,11 @@ Use a highlight when you want a passage marked in the Typst document itself, inc
 
 *Result:* This edits the original `.typ` source. The normal source watcher recompiles it, and the highlight appears in exports. To remove a source highlight, edit the source in your editor; the browser's mark-undo action applies to red strikes.
 
-*Conditions:* Flow must map the full selection to a supported source range, and the candidate document must compile before it is saved. Plain literal text can use the built-in `highlight` function. Complete equations require the source module's callable `highlighted` helper; see *Document setup* below. Whole inline references can be included with supported text or equation selections. Partial equations or references, reused content, other code or markup, selections spanning source files, and changed source snapshots cannot be edited automatically. If the action is rejected, the selection stays available so you can use Save for Codex instead.
+*Conditions:* Flow must map the full selection to a supported source range, and the candidate document must compile before it is saved. Plain literal text can use the built-in `highlight` function. Complete equations require the source module's callable `highlighted` helper; see *Document setup* below. Whole inline references can be included with supported text or equation selections. Partial equations or references, reused content, other code or markup, selections spanning source files, and changed source snapshots cannot be edited automatically. If the action is rejected, the selection stays available so you can use Save for Codex in the paged web preview instead; in HTML or terminal, use Ask and then explicitly Send only when ready.
 
-= Save text for Codex
+= Save text for Codex (paged web preview)
 
-Use this to preserve a passage and its location before asking Codex to explain, review, or edit it.
+Use this paged-preview action to preserve a passage and its location before asking Codex to explain, review, or edit it.
 
 + Select the text you want to discuss.
 + Choose *Save for Codex* (Codex 저장) and wait for confirmation that the selected text was saved.
@@ -201,7 +201,7 @@ The small status ring shows activity while the browser prepares the renderer, co
 - *Long wait or compilation error:* open Logs in Flow and check the document in your editor. A responding HTTP server does not prove successful compilation.
 - *Mobile URL does not connect:* confirm that the Mac is awake, the preview is started, the device has tailnet access, and the route points to the current local port. Check the HTTPS address saved in Flow.
 - *Theme colors do not change:* confirm the document's theme input contract below.
-- *Highlight is rejected or a saved selection is stale:* wait for rendering and select again. Unsupported source ranges can be saved for Codex instead.
+- *Highlight is rejected or a saved selection is stale:* wait for rendering and select again. In a paged web preview, unsupported source ranges can be saved with Save for Codex instead. In HTML/terminal, Ask opens the composer and only explicit Send submits it.
 - *macOS requests document access:* complete the native consent prompt on the Mac. Preview activity itself is not proof that a permission prompt is open.
 
 = Document setup

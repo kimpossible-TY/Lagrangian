@@ -387,3 +387,23 @@ failure/retained-result/refresh guidance over a pending preparing message.
 #### Scenario: Recovered copy receives refresh target action
 - **WHEN** a restored offline copy is displayed
 - **THEN** the refresh control SHALL be disabled and its callback SHALL preserve the copy without live target/document operations or new authority
+
+
+### Requirement: Native editor issuance binds queried manager scope
+The managed native caller SHALL provide its queried expected scope with the
+operation. The manager SHALL reject mismatching actual registered document/reader
+scope before reservation or registration, including when no response is received.
+
+#### Scenario: Alias changes after scope query
+- **WHEN** the caller queries A and its alias names B before attach
+- **THEN** the expected-A operation SHALL NOT publish a B registration
+- **AND** pending exact cleanup SHALL keep its original caller binding without granting new authority
+
+### Requirement: Original withdrawal expression preserves symlink semantics
+The manager SHALL retain symlink-sensitive dot components in the original caller
+expression and use actual registered scope for document equivalence.
+
+#### Scenario: Independent documents separated by a symlink and dotdot
+- **WHEN** `link/../main.typ` resolves to B while `main.typ` resolves to A
+- **THEN** their request bindings SHALL remain distinct and B pending cleanup SHALL NOT block independent A
+- **AND** original alias disappearance or retarget SHALL NOT prevent exact own withdrawal

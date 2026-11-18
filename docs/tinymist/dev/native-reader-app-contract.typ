@@ -641,3 +641,15 @@ record actual frame/content measurements, failed attempts and final regressions.
 These are offscreen AppKit checks, not new App/GUI/AX-input/VO/actual macOS13
 acceptance. Frozen d7/v4 captures remain only their own partial unverified evidence;
 PM integration/sourcepin/delivery and full125case/NA16 remain separate.
+
+
+= v8 source-only editor scope correction
+
+The consented native manager call includes the previously queried expected scope.
+A query-A/alias-retarget-B race is rejected before reservation or registration,
+not merely by comparing the returned plan. Stable original withdrawal expressions
+retain symlink-sensitive dot components; manager-owned actual scope still binds
+equivalent document spellings. Command/parse/shape query failure preserves pending
+cleanup and rejects new editor consent; plain body/Source/Ask remain independent.
+This component does not replace the frozen d7 App, update sourcepin or establish
+new GUI/VO/OS13/NA16/full125/PM-receipt acceptance.

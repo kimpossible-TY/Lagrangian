@@ -345,7 +345,8 @@ registration/build/PM acceptance remain separate.
 = v6 operation lifetime boundaries (source component)
 
 NativeReaderTransport owns one absolute-deadline URLSession data request and
-waits for its actual task termination before reserving exact cleanup/grace.
+reserves2.75seconds before the final request, then cancels and awaits its actual
+task termination before exact cleanup.
 ReaderManager owns the read-only opaque registered document/reader scope query;
 the resolver uses it to gate pending editor grants across equivalent spellings.
 Each lease still holds its stable original request for withdrawal. EditorAttachments'
@@ -358,3 +359,14 @@ The external `test-output/native-reader-lifetime-v6/REPORT.md` binds this source
 component, not the frozen d7/v4 App or a new GUI result. PM integration, registry
 and delivery remain separate; legacy without-operation cleanup, automatic whole
 app restart recovery and journal pruning are not upgraded by these changes.
+
+
+= v8 pre-issuance scope correction (source component)
+
+The manager CLI, not Swift, owns expected-scope validation before durable intent
+and editor registration. The resolver supplies its queried scope with the opaque
+operation and retains that lease before invocation; response loss cannot create
+a differently scoped issuance. Original request expressions retain symlink-sensitive
+dot components. Actual document equivalence remains in the read-only manager
+query. Frozen d7 App and v7 UI evidence are separate; this source component is not
+registered, packaged or GUI-accepted by these tests.

@@ -349,8 +349,12 @@ class ReaderManager:
     def operation_request(root, entry, identifier=None):
         # Stable lexical caller binding, not a new attach/source authority.
         # Do NOT consult current symlinks during operation withdrawal.
-        canonical = lambda p: unicodedata.normalize("NFC", os.path.abspath(p))
-        return canonical(root), canonical(os.path.join(root, entry)), identifier
+        # Prefix relative roots without reducing dot components: link/.. has
+        # filesystem semantics which abspath/normpath would silently change.
+        original_root = os.fspath(root)
+        if not os.path.isabs(original_root): original_root = os.path.join(os.getcwd(), original_root)
+        canonical = lambda p: unicodedata.normalize("NFC", p)
+        return canonical(original_root), canonical(os.path.join(original_root, entry)), identifier
 
     @staticmethod
     def native_scope_identity(profile):
@@ -380,7 +384,7 @@ class ReaderManager:
 
     def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
                owner_pid=None, control_file=None, native_editor_consent=False,
-               native_editor_operation=None, native_editor_deadline=None):
+               native_editor_operation=None, native_editor_deadline=None, native_editor_expected_scope=None):
         """Reuse the normal HTML lifecycle/plan; never start a presentation-owned compiler."""
         if native_editor_consent:
             # Only the explicit local native composition opts in. HTTP has no
@@ -388,7 +392,14 @@ class ReaderManager:
             if not editor_server or not Path(nvim).is_absolute() or not control_file:
                 raise ValueError("Explicit native editor configuration is required")
             EditorAttachments.private(Path(control_file))
+        if native_editor_expected_scope is not None:
+            if (native_editor_operation is None or not isinstance(native_editor_expected_scope, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", native_editor_expected_scope)):
+                raise ValueError("Invalid expected native editor scope")
         profile = dict(self.match_document(root, entry, identifier))
+        issuance_scope = self.native_scope_identity(profile) if native_editor_operation is not None else None
+        if native_editor_expected_scope is not None and issuance_scope != native_editor_expected_scope:
+            raise ValueError("Managed native editor scope changed before issuance")
         operation = None
         if native_editor_operation is not None:
             if not native_editor_consent:
@@ -397,6 +408,8 @@ class ReaderManager:
             expected_document = document_identity(profile["root"], profile["entry"])
             with self.locked(timeout=1):
                 actual_root, actual_entry, _, _ = self._document_paths(profile["root"], profile["entry"])
+                if self.native_scope_identity(profile) != issuance_scope:
+                    raise ValueError("Managed native editor scope changed before reservation")
                 operation.reserve(profile["id"], expected_document, native_editor_deadline,
                     document_root=unicodedata.normalize("NFC", str(actual_root)),
                     document_entry=unicodedata.normalize("NFC", str(actual_entry)))
@@ -412,7 +425,7 @@ class ReaderManager:
         original_file = file_identity() if operation else None
         def current_profile():
             current = self.match_document(root, entry, identifier)
-            if current != profile or file_identity() != original_file:
+            if current != profile or file_identity() != original_file or self.native_scope_identity(current) != issuance_scope:
                 raise ValueError("Managed document/profile changed during native preparation")
             return current
         if self.job_pid(profile) is None:
@@ -469,7 +482,7 @@ class ReaderManager:
                 plan["nativeEditorActions"] = 1
             if operation:
                 plan["nativeEditorOperation"] = operation.identifier
-                plan["nativeEditorScope"] = self.native_scope_identity(profile)
+                plan["nativeEditorScope"] = issuance_scope
         return plan
 
     def native_editor_local(self, root, entry, token, *, identifier=None, descriptor=False):
@@ -658,6 +671,7 @@ def main(argv=None, *, manager=None):
         parser.add_argument("--control-file")
         parser.add_argument("--native-editor-consent", action="store_true")
         parser.add_argument("--native-editor-operation")
+        parser.add_argument("--native-editor-expected-scope")
         parser.add_argument("--native-editor-deadline", type=float)
         options = parser.parse_args(arguments[1:])
         print(json.dumps(manager.attach(options.root, options.entry, identifier=options.reader_service,
@@ -665,7 +679,8 @@ def main(argv=None, *, manager=None):
                                        owner_pid=options.owner_pid, control_file=options.control_file,
                                        native_editor_consent=options.native_editor_consent,
                                        native_editor_operation=options.native_editor_operation,
-                                       native_editor_deadline=options.native_editor_deadline)))
+                                       native_editor_deadline=options.native_editor_deadline,
+                                       native_editor_expected_scope=options.native_editor_expected_scope)))
         return
     if arguments == ["--profiles"]:
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))

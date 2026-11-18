@@ -376,7 +376,7 @@ struct NativeReaderManagedResolver {
         let lease: NativeReaderEditorLease?
         if editor?.consentID != nil {
             operation = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
-            args += ["--native-editor-operation", operation!, "--native-editor-deadline",
+            args += ["--native-editor-operation", operation!, "--native-editor-expected-scope", scope!.identity!, "--native-editor-deadline",
                      String(min(Date().timeIntervalSince1970 + 6.5,
                                 callerDeadline.timeIntervalSince1970 - 3))]
             var release = ["--release-native-editor-operation", "--root", root, "--entry", entry,

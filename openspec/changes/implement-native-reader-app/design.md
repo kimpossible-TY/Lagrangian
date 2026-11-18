@@ -635,3 +635,19 @@ and PDF input, failures, scope and final Git-blob deltas are external DevSSD
 `test-output/native-reader-ui-v7/REPORT.md` and handoff. Historical d7 GUI52 partial8/
 notrun44/passed0 and visual18 unverified8/notrun10/passed0 remain unchanged, not
 v7 evidence. No sourcepin/App build/full125 acceptance or NA16 work occurs here.
+
+
+## v8 pre-issuance scope and original request expression
+
+The production resolver passes `--native-editor-expected-scope` (queried opaque
+64lowercasehex) with its native operation. The manager validates it against the
+actual registered document/reader before reservation, rechecks freshness before
+publication and echoes the captured issuance scope. Optional-field legacy callers
+retain prior compatibility, not this pre-response race guarantee. Stable withdrawal
+keeps original absolute/NFC request expressions including symlink-sensitive `..`;
+manager scope owns equivalence. No new HTTP authority, journal scan, service restart
+or automatic retry is introduced. Scope query has a 1s ceiling, shortened to
+`min(1, deadline-now-0.2)` for an optional finite-future epoch; failure preserves
+pending and denies a grant. Null scope can correlate original withdrawal only.
+The final state request reserves 2.75s first, cancels/awaits actual task completion,
+then performs exact cleanup. Frozen App/GUI and full acceptance remain PM gates.
