@@ -20,6 +20,9 @@ DOCS_CORRECTION = '72bd0b385d8d71ef4ad7f30d5067e9171493bc05'
 DOCS_BASE = '7c98e620ea1480764ac536c578894bf2d12e6cd6'
 CORRECTION = '338304a374bdd75ba76151a34bc8c284510ce725'
 BASE = '09c5186bff1850b17f6e85fe2f3115153520bc94'
+CHAT_BASE = '016734db869f8892bf2cd1e330be2fb4edda962f'
+CHAT_CORRECTION = '8e57062ea768320c3fe64f266eb50f40f53d16c1'
+RUNNER_CORRECTION = 'bb0123aedde56ec83117c217571a77bc7d6614d6'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
 owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
 
@@ -65,7 +68,10 @@ class FixedSourceBinding(unittest.TestCase):
     def binding(self):return owner.integrated_sources(self.root)
 
     def latest_digest(self, binding, name):
-        snapshots = [*binding['ownerCorrections'], binding['fixedApplicationSources']]
+        fixed = binding['fixedApplicationSources']
+        prefix = json.loads(self.git('show', fixed['revision'] + ':' + str(POLICY)))['sourceProvenance']['ownerCorrections']
+        corrections = binding['ownerCorrections']
+        snapshots = [*corrections[:len(prefix)], fixed, *corrections[len(prefix):]]
         return next(f['sha256'] for c in reversed(snapshots) for f in c['files'] if f['path'] == name)
 
     def test_na19_fixed_snapshot_is_exact_and_not_head_delegation(self):
@@ -76,7 +82,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual({f['path'] for f in fixed['files']}, expected)
         for item in fixed['files']:
             self.assertEqual(item['sha256'], hashlib.sha256(self.git_bytes('show', fixed['revision'] + ':' + item['path'])).hexdigest())
-            self.assertEqual(binding['files'][item['path']], item['sha256'])
+            self.assertEqual(binding['files'][item['path']], self.latest_digest(binding, item['path']))
         for name in ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']:
             self.assertEqual(json.loads((self.root/'apps/macos/sources.json').read_text())['native'].count(name), 1)
         self.assertNotIn('apps/macos/FlowApp.swift', owner.DELIVERY_SOURCE_PATHS)
@@ -93,12 +99,38 @@ class FixedSourceBinding(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 owner.runtime_source_binding(altered, digest, INPUT)
 
+    def test_successor_registered_overlapping_chat_bytes_win(self):
+        m = self.binding()
+        correction = next(c for c in m['ownerCorrections'] if c['revision'] == CHAT_CORRECTION)
+        self.assertEqual(correction['baseRevision'], CHAT_BASE)
+        self.assertEqual({f['path'] for f in correction['files']}, set(self.git('diff','--no-renames','--name-only',CHAT_BASE,CHAT_CORRECTION).splitlines()))
+        for item in correction['files']:
+            self.assertEqual(item['baseSHA256'], hashlib.sha256(self.git_bytes('show', CHAT_BASE+':'+item['path'])).hexdigest() if self.git('ls-tree',CHAT_BASE,'--',item['path']).strip() else None)
+            self.assertEqual(item['sha256'], hashlib.sha256(self.git_bytes('show',CHAT_CORRECTION+':'+item['path'])).hexdigest())
+            self.assertEqual(m['files'][item['path']],self.latest_digest(m,item['path']))
+        for name in ['NativeReaderChatView.swift','NativeReaderWindowController.swift']:
+            path = 'apps/macos/'+name
+            self.assertEqual(m['files'][path],hashlib.sha256((self.root/path).read_bytes()).hexdigest())
+
+    def test_successor_missing_bad_base_digest_and_ancestry_reject(self):
+        for kind in ['missing','base','digest','ancestry']:
+            with self.subTest(kind=kind):
+                self.setUp()
+                def change(m):
+                    c=next(c for c in m['ownerCorrections'] if c['revision']==CHAT_CORRECTION)
+                    if kind=='missing':m['ownerCorrections'].remove(c)
+                    elif kind=='base':c['baseRevision']=DOCS_BASE
+                    elif kind=='digest':c['files'][0]['sha256']='0'*64
+                    else:c['revision']=self.git('commit-tree',self.git('rev-parse','HEAD^{tree}').strip(),'-m','owned unrelated source').strip()
+                self.metadata(change)
+                with self.assertRaises((ValueError,subprocess.CalledProcessError)):self.binding()
+
     def test_fixed_owner_and_historical_bytes_are_distinct(self):
         m=self.binding();c=m['ownerCorrections'][0]
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
         current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION])
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
@@ -120,7 +152,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertNotIn('tests/flow-app/native-reader-app/test_original_pages.py',m['deliveryOwnedOverrides'])
 
     def test_docs_correction_has_exact_fixed_chain_and_bytes(self):
-        m=self.binding();c=m['ownerCorrections'][-1]
+        m=self.binding();c=next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)
         self.assertEqual(c['revision'],DOCS_CORRECTION)
         self.assertEqual(c['baseRevision'],DOCS_BASE)
         self.assertEqual(self.git('rev-parse',DOCS_CORRECTION+'^').strip(),DOCS_BASE)
@@ -149,7 +181,7 @@ class FixedSourceBinding(unittest.TestCase):
                     self.commit()
                 else:
                     def change(m):
-                        item=m['ownerCorrections'][-1]['files'][0]
+                        item=next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)['files'][0]
                         if kind=='swap':item['baseSHA256'],item['sha256']=item['sha256'],item['baseSHA256']
                         else:item['path']='apps/macos/NativeReaderSession.swift'
                     self.metadata(change)
@@ -240,7 +272,8 @@ class FixedSourceBinding(unittest.TestCase):
         p.write_text(p.read_text()+'\n// owned delivery correction\n');self.commit()
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
-        self.assertEqual(m['ownerCorrections'][-1]['revision'],DOCS_CORRECTION)
+        self.assertEqual(m['ownerCorrections'][-1]['revision'],RUNNER_CORRECTION)
+        self.assertEqual(next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)['baseRevision'],DOCS_BASE)
 
     def test_added_file_needs_fixed_inventory_and_explicit_original_absence(self):
         before=self.git('rev-parse','HEAD').strip()
@@ -252,6 +285,48 @@ class FixedSourceBinding(unittest.TestCase):
             'files':[{'path':name,'baseSHA256':None,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}]}))
         m=self.binding();self.assertEqual(m['files'][name],hashlib.sha256(path.read_bytes()).hexdigest())
         self.assertIsNone(m['ownerCorrections'][-1]['files'][0]['baseSHA256'])
+
+
+
+
+class RuntimeSigningBoundaryTests(unittest.TestCase):
+    """Fake verified manifests/identity; real private copy and mutation counters. No Keychain."""
+    def test_retained_certificate_rejected_before_copy_or_sign(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'source';(source/'runtime').mkdir(parents=True)
+            (source/'runtime/runtime-manifest.json').write_text(json.dumps(dict(source=dict(sourceSHA=owner.RETAINED_RUNTIME_SOURCE['sourceSHA']))))
+            m=dict(sourceRevision=CHAT_CORRECTION,signing='ad-hoc',entrypoints=dict(runtime='runtime',node='runtime/node'))
+            original=(source/'runtime/runtime-manifest.json').read_bytes()
+            with patch.object(owner,'verify',return_value=m),patch.object(owner.shutil,'copytree') as copied,patch.object(owner,'run',side_effect=ValueError('injected signer called')) as sign:
+                with self.assertRaisesRegex(ValueError,'retained runtime.*ad-hoc'):
+                    owner.copy_signed(source,root/'candidate','FAKE-CERTIFICATE-NO-KEYCHAIN')
+                copied.assert_not_called();sign.assert_not_called()
+            self.assertEqual(original,(source/'runtime/runtime-manifest.json').read_bytes());self.assertFalse((root/'candidate').exists())
+
+    def test_retained_adhoc_copy_preserves_all_original_bytes(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'source';(source/'runtime').mkdir(parents=True)
+            (source/'runtime/runtime-manifest.json').write_text(json.dumps(dict(source=dict(sourceSHA=owner.RETAINED_RUNTIME_SOURCE['sourceSHA']))))
+            (source/'runtime/signed-node').write_bytes(b'fake signed immutable input')
+            m=dict(sourceRevision=CHAT_CORRECTION,signing='ad-hoc',entrypoints=dict(runtime='runtime',node='runtime/signed-node'))
+            original=owner.inventory(source)
+            with patch.object(owner,'verify',return_value=m),patch.object(owner,'run') as sign:
+                owner.copy_signed(source,root/'candidate','-');sign.assert_not_called()
+            self.assertEqual(owner.inventory(source),original);self.assertEqual(owner.inventory(root/'candidate'),original)
+
+    def test_current_source_runtime_keeps_private_certificate_resigning_path(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'source';(source/'runtime').mkdir(parents=True)
+            (source/'runtime/runtime-manifest.json').write_text(json.dumps(dict(source=dict(sourceSHA=CHAT_CORRECTION))))
+            m=dict(sourceRevision=CHAT_CORRECTION,signing='ad-hoc',entrypoints=dict(runtime='runtime',node='runtime/node'))
+            original=owner.inventory(source)
+            with patch.object(owner,'verify',return_value=m),patch.object(owner,'run') as commands,patch.object(owner,'sign_images',return_value=[]):
+                owner.copy_signed(source,root/'candidate','FAKE-CERTIFICATE-NO-KEYCHAIN')
+                self.assertTrue(any('--sign' in list(map(str,c.args[0])) for c in commands.call_args_list))
+            self.assertEqual(owner.inventory(source),original)
 
 
 if __name__=='__main__':unittest.main()

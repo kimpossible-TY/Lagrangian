@@ -228,14 +228,28 @@ def resolve_engine(requested=None, probe=True):
                          '--follow-system-theme. Reuse a compatible installed Flow engine.')
     return engine, version
 
+def publish_app(candidate, output):
+    candidate_manifest = validate(candidate, allow_development=True)
+    identifier = candidate_manifest.get('bundleIdentifier', APP_ID)
+    def same_identity(existing):
+        manifest = validate(existing, allow_development=True)
+        if manifest.get('bundleIdentifier', APP_ID) != identifier:
+            raise ValueError('Build publication bundle identifier mismatch')
+        return manifest
+    delivery_module().publish_verified(candidate, output, same_identity)
+
+
 def build(args):
+    identifier = bundle_identifier(getattr(args, 'bundle_id', None))
+    if identifier != APP_ID and args.output is None:
+        raise ValueError('Development bundle requires an explicit isolated --output')
     engine_build = None
     if getattr(args, 'build_engine', False):
         args.engine, engine_build = build_native_engine(args.jobs)
     # A cached engine is untrusted until the run/artifact or explicit delivery
     # owner authenticates its bytes. Never execute even --version before that.
     engine, _ = resolve_engine(args.engine, probe=False)
-    app = args.output.expanduser().resolve()
+    app = (args.output or ROOT / 'dist/Lagrangian.app').expanduser().resolve()
     if app.name != APP_BUNDLE: raise ValueError('Unexpected output app name')
     selected_identity = None
     if not getattr(args, 'management_only', False):
@@ -267,7 +281,7 @@ def build(args):
             manifest = build_bundle(candidate_args, staged, engine, engine_version, engine_build)
             if payload is not None:
                 native_delivery_consumer.current_delivery(SimpleNamespace(**globals()), payload, engine)
-        delivery_module().publish_verified(staged, app, lambda candidate: validate(candidate, allow_development=True))
+        publish_app(staged, app)
     write_json(app.parent / 'release.json', {**manifest, 'appExecutableSHA256': digest(executable(app)),
                                            'bundleChecksum': bundle_checksum(app)})
     print(app)
@@ -652,7 +666,6 @@ def replace_app(source, destination, data_dir=None, check_health=True):
         # Validate before touching user data, then let the candidate's native,
         # tested migration owner move legacy directories before recovery files
         # create the new data root.
-        validate(source)
         run([executable(source), '--migrate-data'])
         data_dir = DATA
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -1688,7 +1701,7 @@ def restore_hosting(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest='command', required=True)
-    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--bundle-id', help='Explicit io.github.kimpossible-ty.lagrangian.development.<name> for an isolated ad-hoc build'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--management-only', action='store_true', help='Explicit nonshipping management fixture; require-delivery verification rejects it'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
+    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, help='Explicit isolated output required for development IDs; production defaults to dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--bundle-id', help='Explicit io.github.kimpossible-ty.lagrangian.development.<name> for an isolated ad-hoc build'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--management-only', action='store_true', help='Explicit nonshipping management fixture; require-delivery verification rejects it'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
     fetch = sub.add_parser('fetch-engine', help='Download a macOS arm64 engine built by GitHub Actions without compiling Rust')
     fetch.add_argument('--branch', default='main', help='Branch whose latest successful flow-engine run is downloaded')
     fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run. Pass the same id to scripts/fetch-reader-bundle.py so the engine and the reader come from one run')

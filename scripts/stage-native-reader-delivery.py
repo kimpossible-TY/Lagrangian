@@ -357,6 +357,11 @@ def runtime_source_binding(manifest, manifest_sha, revision, repo=None):
                 'retained runtime helper drift')
 
 
+def runtime_signing_policy(manifest, revision, identity):
+    require(identity == '-' or manifest['source']['sourceSHA'] == revision,
+            'retained runtime requires ad-hoc development; certificate signing requires a current-source runtime')
+
+
 def integrated_sources(root):
     """Bind historical owners, explicit fixed corrections and current delivery bytes."""
     root = Path(root).resolve(strict=True)
@@ -414,13 +419,13 @@ def integrated_sources(root):
     corrections = provenance['ownerCorrections']
     require(isinstance(corrections, list) and corrections, 'fixed owner correction inventory missing')
     approved, seen_revisions, corrected_paths = [], set(), set()
-    for correction in corrections:
+    def apply_correction(correction, previous):
         require(isinstance(correction, dict) and set(correction) == {'revision', 'baseRevision', 'files'}, 'owner correction fields')
         rev, before = revision(correction['revision']), revision(correction['baseRevision'])
         require(rev not in seen_revisions and rev != before, 'duplicate/empty owner correction')
         seen_revisions.add(rev)
         for first, second in [(baseline, before), (before, rev), (rev, head)]: ancestor(first, second)
-        if approved: ancestor(approved[-1]['revision'], before)
+        ancestor(previous, before)
         files = correction['files']
         require(isinstance(files, list) and files, 'owner correction files missing')
         records, seen_paths = [], set()
@@ -437,14 +442,19 @@ def integrated_sources(root):
         require(seen_paths == changed(before, rev), 'owner correction exact path inventory mismatch')
         corrected_paths.update(seen_paths)
         approved.append({'revision':rev, 'baseRevision':before, 'files':records})
+        return rev
 
     fixed = FIXED_APPLICATION_SOURCES
     fixed_base, fixed_rev = revision(fixed['baseRevision']), revision(fixed['revision'])
     ancestor(fixed_base, fixed_rev); ancestor(fixed_rev, head)
     original_provenance = json.loads(git('show', fixed_rev + ':' + str(RUNTIME_POLICY / 'backend-delivery.json')))
     original_corrections = original_provenance['sourceProvenance']['ownerCorrections']
+    previous = baseline
+    for correction in corrections[:len(original_corrections)]:
+        previous = apply_correction(correction, previous)
     require(corrections[:len(original_corrections)] == original_corrections,
             'unregistered source changes / owner source drift in historical correction chain')
+    ancestor(previous, fixed_base)
     require({f['path'] for f in fixed['files']} == changed(fixed_base, fixed_rev) - set(DELIVERY_SOURCE_PATHS),
             'fixed application exact path inventory mismatch')
     for item in fixed['files']:
@@ -453,6 +463,10 @@ def integrated_sources(root):
                 and item['sha256'] == blob(fixed_rev, name), 'fixed application source digest mismatch')
         revisions[name] = fixed_rev
         corrected_paths.add(name)
+
+    previous = fixed_rev
+    for correction in corrections[len(original_corrections):]:
+        previous = apply_correction(correction, previous)
 
     # Current delivery edits are bounded by exact owner paths, never a prefix.
     require(not (changed(baseline, head) - corrected_paths - set(DELIVERY_SOURCE_PATHS)),
@@ -527,6 +541,8 @@ def copy_signed(source, output, identity):
     inventory verification still belong to its shipped producer/verifier.
     """
     original = verify(source)
+    runtime_signing_policy(read(Path(source) / original['entrypoints']['runtime'] / 'runtime-manifest.json'),
+                           original['sourceRevision'], identity)
     shutil.copytree(source, output, symlinks=True)
     m = dict(original)
     if m['signing'] != ('ad-hoc' if identity == '-' else identity):
@@ -583,6 +599,7 @@ def stage_candidate(args):
     rm = read(runtime / 'runtime-manifest.json')
     require(rm['helperSHA256'] == expected['helperSHA256'], 'runtime has old helper')
     runtime_source_binding(rm, expected['runtimeManifestSHA256'], expected['sourceRevision'], repo)
+    runtime_signing_policy(rm, expected['sourceRevision'], args.identity)
     require(sha(runtime / 'node/bin/node') == rm['node']['sha256'], 'runtime node pre-execution hash mismatch')
     require(sha(runtime / 'verify-runtime.mjs') == sha(repo / 'scripts/prepare-native-reader-runtime.mjs'),
             'runtime verifier pre-execution hash mismatch')

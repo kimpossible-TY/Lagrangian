@@ -424,4 +424,76 @@ class ExternalEngineBundle(unittest.TestCase):
             self.assertEqual(output.split('designated => ', 1)[1].strip(), requirement)
 
 
+
+
+class RepairPublicationTests(unittest.TestCase):
+    """Actual build/publication edges over temporary fake validated bundles, no signer/installer."""
+    def exercise(self, existing_id, candidate_id, *, explicit=True):
+        from contextlib import contextmanager, ExitStack
+        owner = package.delivery_module()
+        with tempfile.TemporaryDirectory(prefix='publication-boundary-') as tmp, ExitStack() as stack:
+            root = Path(tmp).resolve(); output = root/('explicit' if explicit else 'dist')/'Lagrangian.app'
+            def fixture(app, identifier, marker):
+                resources=app/'Contents/Resources';resources.mkdir(parents=True)
+                (resources/'release.json').write_text(json.dumps(dict(bundleIdentifier=identifier, marker=marker)))
+                mac=app/'Contents/MacOS';mac.mkdir();(mac/'Lagrangian').write_text(marker)
+                return json.loads((resources/'release.json').read_text())
+            fixture(output,existing_id,'existing valid bytes');external=output.parent/'release.json';external.write_text('external release binding')
+            def inventory():return {str(p.relative_to(root)):package.digest(p) for p in root.rglob('*') if p.is_file()}
+            before=inventory()
+            @contextmanager
+            def consume(*args,**kwargs):yield None,None
+            def validate(app,**kwargs):return json.loads((app/'Contents/Resources/release.json').read_text())
+            def build(args,app,*_):return fixture(app,candidate_id,'new valid candidate')
+            for name,value in [('ROOT',root),('resolve_engine',lambda *a,**k:(root/'fake-engine','fixture')),('build_bundle',build),('validate',validate),('delivery_module',lambda:owner)]:stack.enter_context(patch.object(package,name,value))
+            stack.enter_context(patch.object(package.native_delivery_consumer,'consume',consume))
+            args=['flow-app','build','--management-only','--identity','-','--bundle-id',candidate_id]
+            if explicit:args+=['--output',str(output)]
+            error=None
+            with patch.object(sys,'argv',args):
+                try:package.main()
+                except SystemExit as e:error=e
+            after=inventory()
+            print(json.dumps(dict(existingID=existing_id,candidateID=candidate_id,explicitOutput=explicit,rejected=error is not None,before=before,after=after),sort_keys=True))
+            rejected=existing_id!=candidate_id or (candidate_id!=package.APP_ID and not explicit)
+            if rejected:
+                self.assertIsInstance(error,SystemExit,'Cross-ID/default dev publication must reject')
+                self.assertEqual(error.code,1)
+                self.assertEqual(before,after,'Rejected exchange preserves bundle and external release.json')
+            else:
+                self.assertIsNone(error)
+                self.assertEqual((output/'Contents/MacOS/Lagrangian').read_text(),'new valid candidate')
+                self.assertNotEqual(before,after)
+
+    def test_publication_rejects_cross_identity_and_preserves_external_binding(self):
+        prod=package.APP_ID;a=prod+'.development.fixture-a';b=prod+'.development.fixture-b'
+        for old,new in [(prod,a),(a,prod),(a,b),(b,a)]:
+            with self.subTest(old=old,new=new):self.exercise(old,new)
+
+    def test_same_identity_exchange_and_default_production_build_remain_supported(self):
+        for value,explicit in [(package.APP_ID,True),(package.APP_ID+'.development.fixture-a',True),(package.APP_ID,False)]:
+            with self.subTest(value=value,explicit=explicit):self.exercise(value,value,explicit=explicit)
+
+    def test_development_build_requires_explicit_output(self):
+        self.exercise(package.APP_ID,package.APP_ID+'.development.fixture-a',explicit=False)
+
+
+class ReplacementRevalidationTests(unittest.TestCase):
+    def test_preflight_once_and_lock_internal_revalidation_for_default_and_explicit_data(self):
+        for explicit in [False,True]:
+            with self.subTest(explicit=explicit), tempfile.TemporaryDirectory(prefix='replace-validation-') as tmp:
+                root=Path(tmp);data=root/'data';calls=[]
+                def validate(source):
+                    calls.append(str(source))
+                    if len(calls)==1:return {}
+                    self.assertTrue((data/'install.lock').exists(),'Second validation must occur inside lock')
+                    raise ValueError('injected inner revalidation rejects changed candidate')
+                with patch.object(package,'validate',side_effect=validate),patch.object(package,'DATA',data),patch.object(package,'run') as command,patch.object(package,'running') as mutation:
+                    with self.assertRaisesRegex(ValueError,'inner revalidation'):
+                        package.replace_app(root/'candidate',root/'destination',data_dir=data if explicit else None)
+                    self.assertEqual(len(calls),2)
+                    mutation.assert_not_called()
+                    self.assertEqual(command.call_count,0 if explicit else 1)
+
+
 if __name__ == '__main__': unittest.main()

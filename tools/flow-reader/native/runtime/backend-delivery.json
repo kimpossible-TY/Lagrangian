@@ -599,6 +599,53 @@
             "sha256": "d40f13f03f14c72454d91d8b158a0f99ff77bd15bf2c0a710b2382e72dd51355"
           }
         ]
+      },
+      {
+        "revision": "8e57062ea768320c3fe64f266eb50f40f53d16c1",
+        "baseRevision": "016734db869f8892bf2cd1e330be2fb4edda962f",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderChatView.swift",
+            "baseSHA256": "f986905413cd43fb1c5a46a43272b5bf535b5fd8406971ab9da80c74db448561",
+            "sha256": "e6c410cbfbca11c6232641b38c9b60ee2ea6b8b6162624ad5311da2a42f535ed"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "11391d5bf7a4f29fa33e7a02f1e58808d128f99a8ce2816e07ec5f9b8cf48e9c",
+            "sha256": "4f1c388e7e79a71b2db216bb9820f4f998391b408ba78438a7078e5db04981a4"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/NativeChatRecoveryTests.swift",
+            "baseSHA256": null,
+            "sha256": "1f0182c21b97023f0d069e2df1fd011d71954961e91a633b3bd1f661fb8cd0ff"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/NativeFloatingCapsuleTests.swift",
+            "baseSHA256": "5d6132a90eacdece221fbc85964ee61ec8b08c963d17ff15437e04d3bd440a10",
+            "sha256": "dc916e3a4f204a6c8d9ccfd4d60ab9a8e41f48db64088b90bd900178e43f6d9b"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_native_chat_recovery.py",
+            "baseSHA256": null,
+            "sha256": "d8db0ed33f856864d5d6cf79808c42f8c40410af409c5f2c1cd61e0f8a8a6e99"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_native_floating_capsule.py",
+            "baseSHA256": "200216dc613f048ef3591d30582057ff03d3ca83b89bddadb691d4b2656df24a",
+            "sha256": "b31ed76d797779e0b615332b14eb1fde81ba210aba0a0f3079b8066bc052eb4a"
+          }
+        ]
+      },
+      {
+        "revision": "bb0123aedde56ec83117c217571a77bc7d6614d6",
+        "baseRevision": "8e57062ea768320c3fe64f266eb50f40f53d16c1",
+        "files": [
+          {
+            "path": "tests/flow-app/native-reader-app/test_native_floating_capsule.py",
+            "baseSHA256": "b31ed76d797779e0b615332b14eb1fde81ba210aba0a0f3079b8066bc052eb4a",
+            "sha256": "224f814524fdc2fb7f9196d97d3e5a8943645194983fcd281ff34482c7ad4a81"
+          }
+        ]
       }
     ]
   }
