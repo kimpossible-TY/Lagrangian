@@ -103,6 +103,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   private var chatContext: NativeReaderRequestContext?
+  // One retained UI association, not a draft store or operation authority.
+  // Draft text/pending fields stay in currentDrafts/recoveredDrafts; all effects
+  // still use Session and Actions. A different context/passage cannot reuse it.
+  private var retainedChatPresentation: (context: NativeReaderRequestContext, selection: NativeReaderSelection,
+      conversation: NativeReaderConversation, models: [String])?
   private var editorRequest: NativeReaderSourceRequest?
   private var editorBusy = false
   private let revokeEditorConsent: () async -> Void
@@ -520,9 +525,18 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     catch { hostWindow.notice.stringValue = "Review mark unavailable. Select at most 32 blocks; your selection is retained." }
   }
   private func rememberCurrentDraft() {
-    guard let draft = chatView?.recoveryDraft, let identity = chatContext?.target else { return }
+    guard let chat = chatView, let draft = chat.recoveryDraft, let context = chatContext else { return }
+    let identity = context.target
     if currentDraftIdentity != identity { currentDrafts.removeAll(); currentDraftIdentity = identity }
     currentDrafts[draft.conversationID] = draft
+    if let conversation = chat.presentationConversation, conversation.state.context == context,
+       conversation.state.conversationID == draft.conversationID {
+      let previous = retainedChatPresentation
+      let selection = chat.presentationSelection ?? (previous?.context == context && previous?.conversation.state.conversationID == draft.conversationID ? previous?.selection : nil)
+      if let selection {
+        retainedChatPresentation = (context, selection, conversation, chat.presentationModels)
+      }
+    }
   }
   private func storedDrafts() -> [NativeReaderRecoveredDraft] {
     rememberCurrentDraft()
@@ -913,7 +927,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       capsuleFocusReturn = hostWindow.window?.firstResponder
       rememberCurrentDraft()
       chatView?.dispose(); chatView?.removeFromSuperview()
-      let chat = NativeReaderChatView(resolveActions: actions, context: context, selection: selection, authorize: { [weak self] in
+      let retained = retainedChatPresentation
+      let resumes = retained?.context == context && retained?.selection.fragments == selection.fragments
+      let needsOpen = !resumes || retained?.selection.ticket != selection.ticket
+      let chat = NativeReaderChatView(resolveActions: actions, context: context, selection: needsOpen ? selection : nil, authorize: { [weak self] in
         guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
         try self.session.authorize(context)
       }, authorizeSend: { [weak self] in
@@ -921,6 +938,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         try self.session.authorize(context, selection: selection.ticket)
       })
       bindComposer(chat, context: context)
+      if resumes, let retained {
+        chat.restoreModelChoices(retained.models)
+        try chat.adopt(retained.conversation)
+      }
       if let key = acceptedPaintKey { configureChatMath(chat, key: key) }
       hostWindow.attachChat(chat); dismissedCapsule = .init(context: context, ticket: selection.ticket, originalPDF: false)
       hostWindow.hideCapsule(); hostWindow.window?.makeFirstResponder(chat.composer)
@@ -940,7 +961,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     rememberCurrentDraft()
     chatView?.dispose(); chatView?.removeFromSuperview()
     let selectedTicket = store.selection?.ticket
-    let chat = NativeReaderChatView(resolveActions: { actions }, context: context, selection: nil, authorize: { [weak self] in
+    let chat = NativeReaderChatView(actions: actions, context: context, authorize: { [weak self] in
       guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
       try self.session.authorize(context)
     }, authorizeSend: { [weak self] in
@@ -957,6 +978,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private func bindComposer(_ chat: NativeReaderChatView, context: NativeReaderRequestContext) {
     if currentDraftIdentity != context.target { currentDrafts.removeAll(); currentDraftIdentity = context.target }
     chatView = chat; chatContext = context
+    chat.refreshAuthorization()
     chat.onDismiss = { [weak self, weak chat] in if let chat { self?.dismissComposer(chat) } }
     chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
     chat.recoverConversation = { [weak self, weak chat] conversation in
@@ -1015,6 +1037,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     requestTicket.cancel(); progress = nil; acceptedPaintKey = nil; paintedKey = nil
     selectionTask?.cancel(); selectionTask = nil
     actionTasks.values.forEach { $0.cancel() }; actionTasks.removeAll()
+    retainedChatPresentation = nil
     chatView?.dispose(); session.cancel()
   }
   func dispose() {

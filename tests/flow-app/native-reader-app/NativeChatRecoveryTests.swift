@@ -6,6 +6,9 @@ private actor RecoveryHTTP {
     var requests = [[String: String]]()
     var providerMessages = Set<String>()
     var messages = [[String: Any]]()
+    var factoryResolutions = 0
+    func factoryResolved() { factoryResolutions += 1 }
+    func factoryCount() -> Int { factoryResolutions }
     var version = 1
     var streaming = false
     var loseNext = true
@@ -84,7 +87,7 @@ private actor RecoveryHTTP {
         let attachment = try NativeReaderAttachment(data:JSONSerialization.data(withJSONObject:["url":"http://127.0.0.1:12345/","documentID":document.identity.documentID,"service":["pid":Int64(service[1])!,"startedAt":Int64(service[2])!]]))
         let transport = NativeReaderTransport(attachment:attachment,network:NativeReaderNetwork(send:{r,_ in try await http.send(r)},stream:{_ in AsyncThrowingStream { _ in }}))
         let actions = NativeReaderActions(transport:transport)
-        let host = NativeReaderWindowController(provider:transport,target:{_ in await http.identity()},actions:{actions},show:false,avoidActivation:true)
+        let host = NativeReaderWindowController(provider:transport,target:{_ in await http.identity()},actions:{await http.factoryResolved();return actions},show:false,avoidActivation:true)
         let profile = Profile(id:"chat-repair",name:"Chat repair",root:fixture.path,entry:"main.typ",fonts:[],packages:"",port:23621,publicURL:"",label:"owned.chat-repair")
         _ = host.open(profile) {_ in }
         try await until { host.session.state == .reading && host.textView.renderKey != nil && host.textView.renderKey == host.textView.requestedRenderKey }
@@ -107,14 +110,88 @@ private actor RecoveryHTTP {
     private static func start(_ host: NativeReaderWindowController, _ http: RecoveryHTTP, streaming: Bool) async throws -> NativeReaderChatView {
         try await select(host)
         let before = await http.records()
+        let factoriesBeforeAsk = await http.factoryCount()
         let chat = try await ask(host); text(chat,m)
+        try await Task.sleep(nanoseconds:350_000_000)
         try check(await http.records() == before,"Ask/edit performs no owner HTTP/account/provider effects")
+        let factoryCount = await http.factoryCount(), providerCount = await http.providerCount()
+        try check(factoryCount == factoriesBeforeAsk && providerCount == 0,"Initial Ask/edit has zero additional factory/provider resolution")
+        print("Initial Ask/edit observed factory before=\(factoriesBeforeAsk), after=\(factoryCount), provider=\(providerCount), HTTP delta=0")
         try click(chat.sendButton)
         try await until { streaming ? chat.cancelButton.isEnabled && chat.historyButton.isEnabled : chat.notice.stringValue.contains("acknowledgment unavailable") }
         return chat
     }
+    private static func userResume(document: NativeReaderDocument, fixture: URL, mode: String, out: URL) async throws {
+        let (host,http,_) = try await setup(document,fixture,streaming:false);defer {host.dispose()}
+        let first = try await start(host,http,streaming:false)
+        let original = await http.records().first { $0["operation"] == "send" }!
+        text(first,n2,model:"model-N2")
+        let selected = host.store.selection!.ticket
+        if mode == "chat-ui-esc" {
+            try check(first.textView(first.composer,doCommandBy:#selector(NSResponder.cancelOperation(_:))),"Actual ESC callback")
+        } else { try click(first.dismissButton) }
+        try check(host.chatView == nil && host.store.selection?.ticket == selected,"Close removes composer and retains selection")
+        try check(host.hostWindow.window?.firstResponder === host.textView.bodyTextView,"Close returns original body focus")
+        if mode == "chat-ui-close" { try await select(host); await http.confirmLost() }
+        let requests = await http.records(), factories = await http.factoryCount()
+        var resumed = try await ask(host) // No text/model setter or accepted-conversation seam.
+        let draft = resumed.recoveryDraft
+        let restored = equal(resumed.composer.string,n2) && resumed.models.titleOfSelectedItem == "model-N2" && draft?.pendingMessageID?.uuidString.lowercased() == original["messageID"] && equal(draft?.pendingQuestion,m) && draft?.pendingModel == "model-M"
+        let afterAskRequests = await http.records(), afterAskFactories = await http.factoryCount()
+        let quiet = afterAskRequests == requests && afterAskFactories == factories
+        try save(["restoredWithoutRetyping":restored,"zeroInitialEffects":quiet,"composer":resumed.composer.string,"model":resumed.models.titleOfSelectedItem ?? "nil","pendingID":draft?.pendingMessageID?.uuidString ?? "nil","pendingQuestion":draft?.pendingQuestion ?? "nil","pendingModel":draft?.pendingModel ?? "nil","original":original,"requestsBefore":requests,"requestsAfter":await http.records(),"factoriesBefore":factories,"factoriesAfter":await http.factoryCount(),"bodyFocusReturned":host.hostWindow.window?.firstResponder === resumed.composer],out,mode+"-resume")
+        try check(restored && quiet && !resumed.sendButton.isEnabled && resumed.historyButton.isEnabled,"Actual Ask restores N2/model/pending M without retyping or factory/HTTP effects")
+        if mode == "chat-ui-close" {
+            // Closing again before any explicit rebind must not promote a UI ticket to authority.
+            try click(resumed.dismissButton)
+            resumed = try await ask(host)
+            try check(equal(resumed.composer.string,n2) && resumed.models.titleOfSelectedItem == "model-N2" && resumed.recoveryDraft?.pendingMessageID?.uuidString.lowercased() == original["messageID"],"Repeated user Close/Ask restores the same pending M without retyping")
+            try check(await http.records() == requests,"Repeated Close/Ask performs no HTTP")
+            try check(await http.factoryCount() == factories,"Repeated Close/Ask does not resolve factory")
+        }
+        let newer = "N3 — latest explicit edit A\u{030A} 🧪"
+        text(resumed,newer)
+        try await Task.sleep(nanoseconds:350_000_000)
+        try click(resumed.sendButton,forced:true)
+        try await Task.sleep(nanoseconds:50_000_000)
+        let afterEditRequests = await http.records(), afterEditFactories = await http.factoryCount()
+        try check(equal(resumed.composer.string,newer) && afterEditRequests == requests && afterEditFactories == factories,"N3 wins; unknown Send cannot resolve a factory or dispatch")
+        try click(resumed.historyButton);try await until { resumed.historyButton.isEnabled }
+        try check(equal(resumed.composer.string,newer),"Explicit history does not overwrite N3")
+        if mode == "chat-ui-esc" {
+            try check(!resumed.sendButton.isEnabled && resumed.recoveryDraft?.pendingMessageID != nil,"Unconfirmed M blocks a new question")
+            text(resumed,m,model:"model-M");try click(resumed.sendButton);try await until { resumed.historyButton.isEnabled }
+            let sends = await http.records().filter{$0["operation"]=="send"}
+            let awaitProviderCount = await http.providerCount()
+            try check(sends.count == 2 && sends[0]["messageID"]==sends[1]["messageID"] && sends[0]["question"]==sends[1]["question"] && sends[0]["model"]==sends[1]["model"] && awaitProviderCount==1,"Only original explicit M retry; no duplicate provider effect")
+        } else {
+            try check(resumed.recoveryDraft?.pendingMessageID == nil && resumed.sendButton.isEnabled,"Confirmed M permits explicit N3")
+            try click(resumed.sendButton);try await until { resumed.historyButton.isEnabled }
+            let sends = await http.records().filter{$0["operation"]=="send"}
+            try check(sends.count == 2 && sends.last?["question"] == newer && sends.first?["messageID"] != sends.last?["messageID"],"Reselected same passage rebinds only on explicit N3 Send")
+        }
+        let next = "N4 — confirmed conversation local draft 🧪"
+        text(resumed,next,model:"model-N2")
+        try click(resumed.dismissButton)
+        let beforeLocalAsk = await http.records(), beforeLocalFactories = await http.factoryCount()
+        resumed = try await ask(host)
+        try check(equal(resumed.composer.string,next) && resumed.models.titleOfSelectedItem == "model-N2" && resumed.recoveryDraft?.pendingMessageID == nil,"Confirmed conversation Ask restores latest local draft/model")
+        text(resumed,"N5 — newer local edit 🧪")
+        try await Task.sleep(nanoseconds:350_000_000)
+        try check(await http.records() == beforeLocalAsk,"Reopened Ask and edit have zero HTTP effects without pending Send")
+        try check(await http.factoryCount() == beforeLocalFactories,"Reopened Ask and edit do not resolve owner without pending Send")
+        try await select(host,offset:2)
+        text(resumed,"stale current selection question")
+        let beforeStale = await http.records()
+        try check(!resumed.sendButton.isEnabled && resumed.historyButton.isEnabled,"Stale Send disabled; context history remains available")
+        try click(resumed.sendButton,forced:true);try await Task.sleep(nanoseconds:80_000_000)
+        try check(await http.records() == beforeStale,"Forced stale Send has no HTTP effect")
+        try save(["requests":await http.records(),"factories":await http.factoryCount(),"noGUI":true,"sameOriginalPendingID":original["messageID"]!],out,mode+"-result")
+    }
+
     static func run(document: NativeReaderDocument, fixture: URL, mode: String, out: URL) async throws {
-        if mode == "chat-restrictions" {
+        if mode.hasPrefix("chat-ui-") { try await userResume(document:document,fixture:fixture,mode:mode,out:out) }
+        else if mode == "chat-restrictions" {
             var rows = [[String: Any]](); var valid = true
             for boundary in ["offline","restored","revision","disposed"] {
                 let (host,http,_) = try await setup(document,fixture,streaming:true)
@@ -160,9 +237,12 @@ private actor RecoveryHTTP {
                 if mode == "chat-close" {
                     try check(chat.textView(chat.composer,doCommandBy:#selector(NSResponder.cancelOperation(_:))),"ESC routed through host dismiss")
                     try check(host.chatView == nil,"ESC removes current composer")
+                    try save(["acceptedPaintReady":host.acceptedPaintKey?.documentGeneration == context.generation,"renderReady":host.textView.renderKey == host.textView.requestedRenderKey],out,"chat-close-seam-precondition-"+String(checks))
+                    try await until { host.acceptedPaintKey?.documentGeneration == context.generation && host.acceptedPaintKey == host.textView.renderKey }
                     current = try host.presentChat(await owner.conversation(id)!,actions:owner,context:context)
                     current.presentAccount(.init(signedIn:true,planEnabled:true,homepage:nil,models:["model-M","model-N2"]))
                 } else {
+                    try await select(host,offset:1) // Different passage: exercise explicit lazy adoption.
                     current = try await ask(host)
                     // A newly authored local draft is newer than any stored recovery text.
                     text(current,n2)
@@ -192,6 +272,8 @@ private actor RecoveryHTTP {
                 if confirmed && original && latest {
                     try check(current.recoveryDraft?.pendingMessageID == nil && current.sendButton.isEnabled,"Confirmed history permits next explicit N2")
                     try click(current.dismissButton)
+                    try save(["acceptedPaintReady":host.acceptedPaintKey?.documentGeneration == context.generation,"renderReady":host.textView.renderKey == host.textView.requestedRenderKey],out,"chat-close-seam-precondition-"+String(checks))
+                    try await until { host.acceptedPaintKey?.documentGeneration == context.generation && host.acceptedPaintKey == host.textView.renderKey }
                     current = try host.presentChat(await owner.conversation(id)!,actions:owner,context:context)
                     current.presentAccount(.init(signedIn:true,planEnabled:true,homepage:nil,models:["model-M","model-N2"]))
                     try check(equal(current.composer.string,n2) && current.recoveryDraft?.pendingMessageID == nil,"Reentry preserves N2 and never resurrects resolved M")

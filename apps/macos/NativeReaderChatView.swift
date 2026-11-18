@@ -210,6 +210,15 @@ private enum NativeAnswerPreparation {
     private let context: NativeReaderRequestContext
     private let authorize: () throws -> Void
     private let authorizeSend: () throws -> Void
+    // UI projection only. Effect-time authorization remains in every action.
+    // Passive present/paint/copy/AX/resize must never invoke injected operations.
+    private var controlAvailability = (conversation: true, selection: true)
+    var presentationConversation: NativeReaderConversation? { conversation }
+    var presentationSelection: NativeReaderSelection? { localSelection == nil ? initialSelection : nil }
+    var presentationModels: [String] { models.itemTitles }
+    func restoreModelChoices(_ choices: [String]) {
+        models.removeAllItems(); models.addItems(withTitles: choices)
+    }
     private var conversation: NativeReaderConversation?
     private var homepage: URL?
     private var preferredModel: String?
@@ -265,8 +274,10 @@ private enum NativeAnswerPreparation {
         preparedMessages = []; preparedFormulaCount = 0; mathFailure = nil
     }
 
-    convenience init(actions: NativeReaderActions, context: NativeReaderRequestContext, authorize: @escaping () throws -> Void) {
-        self.init(resolveActions: { actions }, context: context, selection: nil, authorize: authorize)
+    convenience init(actions: NativeReaderActions, context: NativeReaderRequestContext, authorize: @escaping () throws -> Void,
+                     authorizeSend: (() throws -> Void)? = nil) {
+        self.init(resolveActions: { actions }, context: context, selection: nil, authorize: authorize, authorizeSend: authorizeSend)
+        resolvedActions = actions
     }
     init(resolveActions: @escaping () async throws -> NativeReaderActions, context: NativeReaderRequestContext,
          selection: NativeReaderSelection?, authorize: @escaping () throws -> Void,
@@ -315,7 +326,9 @@ private enum NativeAnswerPreparation {
         return false
     }
     func refreshAuthorization() {
-        if initialSelection != nil, !unknownEffect, (try? authorizeSend()) == nil { notice.stringValue = "선택이 변경되어 전송할 수 없습니다. 현재 내용을 다시 선택해 질문하세요. 초안은 유지됩니다." }
+        let live = (try? authorize()) != nil
+        controlAvailability = (live, live && (try? authorizeSend()) != nil)
+        if initialSelection != nil, !unknownEffect, !controlAvailability.selection { notice.stringValue = "선택이 변경되어 전송할 수 없습니다. 현재 내용을 다시 선택해 질문하세요. 초안은 유지됩니다." }
         updateControls()
     }
     required init?(coder: NSCoder) { nil }
@@ -447,6 +460,8 @@ private enum NativeAnswerPreparation {
         editGeneration += 1; dirty = true
         if let value = conversation {
             persistCurrentDraft()
+            // A locally reopened Ask stays local until an explicit operation resolves its owner.
+            guard resolvedActions != nil else { updateControls(); return }
             let generation = editGeneration, text = composer.string
             draftTask?.cancel()
             draftTask = Task { [weak self] in
@@ -500,13 +515,15 @@ private enum NativeAnswerPreparation {
     }
 
     private func sendLocalExplicitly() {
-        guard !disposed, operation == nil, let selection = localSelection,
+        guard !disposed, operation == nil, !unknownEffect, let selection = localSelection,
+              pendingMessage == nil || (pendingQuestion.map { Array($0.unicodeScalars) == Array(composer.string.unicodeScalars) } == true && pendingModel == models.titleOfSelectedItem),
               !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         do { try authorizeSend() } catch { notice.stringValue = "선택이 변경되었습니다. 현재 내용을 다시 선택하세요."; updateControls(); return }
         // Seal this click's intent before any account/selection/open await.
         // Native draft edits and model changes require another explicit Send.
         let question = composer.string, generation = editGeneration, modelGeneration = modelEditGeneration
         let selectedModel = models.titleOfSelectedItem ?? preferredModel
+        let knownConversation = conversation?.state.conversationID
         func intentIsCurrent() -> Bool {
             editGeneration == generation && modelEditGeneration == modelGeneration &&
                 Array(composer.string.unicodeScalars) == Array(question.unicodeScalars) &&
@@ -536,11 +553,18 @@ private enum NativeAnswerPreparation {
                 try Task.checkCancellation(); try authorizeSend()
                 guard !disposed, operationEpoch == epoch,
                       let record = await actions.conversation(state.conversationID) else { return }
-                dirty = true; localSelection = nil
-                let restored = try adopt(record, preservingLocalDraft: true)
-                if restored {
-                    notice.stringValue = "이전 대화와 초안을 복원했습니다. 대화를 확인한 뒤 명시적으로 다시 Send를 누르세요."
-                    return
+                dirty = true
+                if let knownConversation {
+                    guard record.state.conversationID == knownConversation else { throw NativeReaderOperationFailure.unavailable }
+                    present(record) // Already restored/reconciled in this view; never replay older recovery.
+                    localSelection = nil
+                } else {
+                    let restored = try adopt(record, preservingLocalDraft: true)
+                    localSelection = nil
+                    if restored {
+                        notice.stringValue = "이전 대화와 초안을 복원했습니다. 대화를 확인한 뒤 명시적으로 다시 Send를 누르세요."
+                        return
+                    }
                 }
                 // If open completed after an edit, adopt its conversation while
                 // retaining the current draft; do not continue the old Send.
@@ -634,8 +658,8 @@ private enum NativeAnswerPreparation {
     @objc func manageExplicitly() { if !disposed, let homepage { openHomepage?(homepage) } }
     private func updateControls() {
         let retryMatches = pendingMessage == nil || (pendingQuestion.map { Array($0.unicodeScalars) == Array(composer.string.unicodeScalars) } == true && pendingModel == models.titleOfSelectedItem)
-        let live = (try? authorize()) != nil
-        let current = live && (try? authorizeSend()) != nil
+        let live = controlAvailability.conversation
+        let current = controlAvailability.selection
         sendButton.isEnabled = current && retryMatches && !disposed && operation == nil && !unknownEffect && (localSelection != nil || (conversation != nil && models.numberOfItems > 0)) && !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         cancelButton.isEnabled = live && !disposed && conversation?.status == "streaming"
         historyButton.isEnabled = live && !disposed && operation == nil && conversation != nil

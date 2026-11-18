@@ -104,13 +104,16 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
         pinned = os.environ.get('NATIVE_CHAT_SNAPSHOT')
         if pinned:
             pinned = Path(pinned).resolve()
-            if pinned != CHAT_O/'baseline': raise RuntimeError('Only task-owned H20 baseline permitted')
+            allowed = {CHAT_O/'baseline':'016734db869f8892bf2cd1e330be2fb4edda962f', CHAT_O/'followup/baseline':'d04891d5b1ab83ccf4d9e4b054e80818baa514c7'}
+            if pinned not in allowed: raise RuntimeError('Only fixed task-owned baseline permitted')
             binding = json.loads((pinned/'binding.json').read_text())
-            if binding['revision'] != '016734db869f8892bf2cd1e330be2fb4edda962f': raise RuntimeError('Wrong baseline')
+            if binding['revision'] != allowed[pinned]: raise RuntimeError('Wrong baseline')
             for name, digest in binding['files'].items():
                 if sha(pinned/name) != digest: raise RuntimeError('Baseline drift')
             sources = [pinned/p.name if p.name in binding['files'] else p for p in sources]
-        cls.binary = D/('tmp/native-cream-chat-repair' if cls.out.is_relative_to(CHAT_O) else 'tmp/native-cream-na19')/(cls.out.name+'-Capsule')
+        binary_name = '-'.join(cls.out.relative_to(CHAT_O).parts) if cls.out.is_relative_to(CHAT_O) else cls.out.name
+        cls.binary = D/('tmp/native-cream-chat-repair' if cls.out.is_relative_to(CHAT_O) else 'tmp/native-cream-na19')/(binary_name+'-Capsule')
+        if cls.binary.exists(): raise RuntimeError('Refuse to overwrite an existing test binary')
         argv = ['swiftc','-parse-as-library','-swift-version','5','-warnings-as-errors','-target','arm64-apple-macosx13.0',
                 '-module-cache-path',os.environ['SWIFT_MODULECACHE_PATH']]
         if before: argv += ['-D','NA19_BEFORE']
@@ -166,3 +169,6 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
     def test_chat_close_reenter(self): self.scenario('chat-close')
     def test_chat_selection_controls(self): self.scenario('chat-selection')
     def test_chat_context_restrictions(self): self.scenario('chat-restrictions')
+
+    def test_chat_user_Ask_resume_ESC(self): self.scenario('chat-ui-esc')
+    def test_chat_user_Ask_resume_close_reselect(self): self.scenario('chat-ui-close')
