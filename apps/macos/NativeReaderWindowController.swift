@@ -354,10 +354,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func setMode(_ mode: Mode) throws {
-    hostWindow.requestMode(mode)
-    guard !disposed, !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
-    guard self.mode != mode else { return }
+    // These requests cannot start preparation. Keep live selection holds below
+    // requestMode so their explicit release/reattempt guidance remains visible.
+    guard !disposed else { throw NativeReaderContractError.disposed }
     guard !session.hasRecoveryCopy else { throw NativeReaderOperationFailure.unavailable }
+    hostWindow.requestMode(mode)
+    guard !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
+    guard self.mode != mode else { return }
     if mode == .nativeReflow { try hostWindow.resolveAutomaticAppearance() }
     self.mode = mode; session.refresh()
   }
@@ -661,7 +664,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   private func updatePresentation() {
-    hostWindow.updateStatus(state: session.state, failed: session.failure != nil, allowsRefresh: !session.hasRecoveryCopy)
+    hostWindow.updateStatus(state: session.state, failed: session.failure != nil, allowsRefresh: !session.hasRecoveryCopy,
+                            allowsModeSwitch: !disposed && !session.hasRecoveryCopy)
   }
   private func sessionChanged() {
     guard !disposed, !requestTicket.isCancelled else { return }
@@ -874,6 +878,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private let auxiliary = NSStackView()
   private let toolsScroll = NSScrollView()
   private var requestedMode: NativeReaderWindowController.Mode?
+  private var allowsModeSwitch = true
   private var requestWasHeld = false
   private var latestState = NativeReaderSession.State.idle
   private var failedState = false
@@ -1118,15 +1123,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     requestedMode = mode == currentMode ? nil : mode; requestWasHeld = reader.store.selection != nil || original?.selected != nil
     refreshStatus()
   }
-  func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true) {
-    latestState = state; failedState = failed; refreshButton?.isEnabled = allowsRefresh; refreshStatus()
+  func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true, allowsModeSwitch: Bool = true) {
+    latestState = state; failedState = failed; refreshButton?.isEnabled = allowsRefresh
+    self.allowsModeSwitch = allowsModeSwitch
+    for button in modeButtons { button.isEnabled = allowsModeSwitch }
+    if !allowsModeSwitch { requestedMode = nil; requestWasHeld = false }
+    refreshStatus()
   }
   func showRetainedFailure() { retainedFailure = true; refreshStatus() }
   private func refreshStatus() {
     func name(_ mode: NativeReaderWindowController.Mode) -> String { mode == .nativeReflow ? "본문" : "원본 PDF" }
     for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? currentMode == .nativeReflow : currentMode == .originalPages) ? .on : .off }
     modeStatus.stringValue = "현재: " + name(currentMode) + (requestedMode.map { " · 전환 요청: " + name($0) } ?? "")
-    if retainedFailure || failedState {
+    if latestState == .disposed {
+      selectionStatus.stringValue = "읽기 창이 닫혀 모드를 전환할 수 없습니다."
+    } else if !allowsModeSwitch {
+      selectionStatus.stringValue = "오프라인 복원본에서는 모드를 전환할 수 없습니다. 원문·대화 작업은 사용할 수 없습니다."
+    } else if retainedFailure || failedState {
       selectionStatus.stringValue = reader.store.document == nil ? "문서를 불러오지 못했습니다. ‘새로고침’을 누르세요." : "이전 읽기 결과를 표시 중입니다. 최신 결과를 보려면 ‘새로고침’을 누르세요."
     } else if let requestedMode {
       let next = name(requestedMode)

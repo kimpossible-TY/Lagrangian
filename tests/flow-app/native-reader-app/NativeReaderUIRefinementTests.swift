@@ -13,6 +13,12 @@ private actor UIInput: NativeReaderDocumentProviding {
     return document.rebinding(generation: context.generation)
   }
 }
+private actor UIPathCalls {
+  var targets=0, pages=0
+  func target() { targets += 1 }
+  func page() { pages += 1 }
+  func counts() -> [Int] { [targets,pages] }
+}
 @main struct NativeReaderUIRefinementTests {
   @MainActor static var checks = 0
   @MainActor static func check(_ condition: Bool, _ reason: String) throws {
@@ -45,7 +51,9 @@ private actor UIInput: NativeReaderDocumentProviding {
     let doc=try NativeReaderDocument.decode(Data(contentsOf:base.appendingPathComponent("document.json"))),input=UIInput(doc)
     let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:base.appendingPathComponent("publication.json"))) as! [String:Any]
     let pdf=try Data(contentsOf:base.appendingPathComponent("publication.pdf"))
-    let host=NativeReaderWindowController(provider:input,target:{_ in doc.identity},originalPages:{context in
+    let paths=UIPathCalls()
+    let host=NativeReaderWindowController(provider:input,target:{_ in await paths.target();return doc.identity},originalPages:{context in
+      await paths.page()
       var value=raw;value["generation"]=context.generation;value["viewID"]=context.viewID.uuidString.lowercased();value["requestID"]=context.requestID.uuidString.lowercased()
       return .init(publication:try JSONDecoder().decode(NativeOriginalPagePublication.self,from:JSONSerialization.data(withJSONObject:value)),data:pdf)
     },show:false,avoidActivation:true)
@@ -55,7 +63,46 @@ private actor UIInput: NativeReaderDocumentProviding {
     try await until { host.session.state == .reading && host.textView.renderKey != nil && host.textView.renderKey == host.textView.requestedRenderKey }
     let window=host.hostWindow.window!,root=window.contentView!
     window.setFrame(NSRect(x:0,y:0,width:980,height:752),display:false);root.layoutSubtreeIfNeeded()
-    if mode=="request-failure" {
+    if mode=="recovery-reflow" || mode=="recovery-original" {
+      if mode=="recovery-original" {
+        try click(root,"pageMode")
+        try await until{host.visibleMode == .originalPages && host.session.state == .reading && host.originalPageView.isPreparedForPaint}
+      }
+      var snapshot=NativeReaderRecoverySnapshot(document:host.store.document!,assets:[:],restoration:.initial,drafts:[])
+      if mode=="recovery-original" {
+        let context=host.session.context!
+        var value=raw;value["generation"]=context.generation;value["viewID"]=context.viewID.uuidString.lowercased();value["requestID"]=context.requestID.uuidString.lowercased()
+        let publication=try JSONDecoder().decode(NativeOriginalPagePublication.self,from:JSONSerialization.data(withJSONObject:value))
+        snapshot.originalPages=NativeOriginalPageRecovery(publication:publication,data:pdf,viewport:try host.originalPageView.recovery())
+      }
+      try snapshot.validate()
+      try await host.restoreRecovery(snapshot)
+      try await until{host.session.hasRecoveryCopy && host.session.state == .offline}
+      let original = mode=="recovery-original"
+      try check(host.visibleMode == (original ? .originalPages:.nativeReflow),"valid restored visible mode")
+      try check(!host.session.hasSelection,"counterexample has no retained selection")
+      let document=host.store.document,context=host.session.context,priorCalls=await paths.counts(),priorProvider=await input.count()
+      let action=original ? "reflowMode":"pageMode",control=try button(root,action),enabled=control.isEnabled
+      // Deliberately send target/action even if the policy disables its button.
+      // A stale/programmatic action must not bypass the recovery guard.
+      try check(NSApp.sendAction(control.action!,to:control.target,from:control),"actual recovered mode target/action")
+      try await Task.sleep(nanoseconds:150_000_000)
+      let text=labels(root),afterCalls=await paths.counts(),afterProvider=await input.count()
+      var sourceDenied=false
+      do{try host.session.authorize(context!)}catch{sourceDenied=true}
+      try save(["labels":text,"buttonEnabled":enabled,"targetAction":action,"providerBefore":priorProvider,"providerAfter":afterProvider,"targetAndPagesBefore":priorCalls,"targetAndPagesAfter":afterCalls,"mode":original ? "originalPages":"nativeReflow","sameDocument":host.store.document==document,"sameContext":host.session.context==context,"readOnly":host.session.isReadOnly,"sourceDenied":sourceDenied,"snapshotValidated":true,"snapshotHasOriginalPages":snapshot.originalPages != nil,"visibleWindows":NSApp.windows.filter{$0.isVisible}.count],out.appendingPathComponent("recovery-oracle.json"))
+      try check(host.visibleMode == (original ? .originalPages:.nativeReflow) && host.store.document==document && host.session.context==context,"rejected mode preserves current document/context/mode")
+      try check(host.session.isReadOnly && sourceDenied,"offline authority remains read only")
+      try check(priorCalls==afterCalls && priorProvider==afterProvider,"rejected mode has zero target/provider/PDF preparation effects")
+      try check(text.contains(original ? "현재: 원본 PDF":"현재: 본문") && text.contains("오프라인") && text.contains("전환할 수 없습니다") && !text.contains("준비"),"recovered mode rejection explains current offline copy, never pending preparation")
+      try check(!enabled && !(try button(root,"refreshDocument")).isEnabled,"mode and refresh controls agree with unsupported recovery actions")
+      let frozenCalls=await paths.counts(),frozenProvider=await input.count()
+      host.dispose()
+      _=NSApp.sendAction(control.action!,to:control.target,from:control)
+      let disposedCalls=await paths.counts(),disposedProvider=await input.count()
+      try check(disposedCalls==frozenCalls && disposedProvider==frozenProvider,"disposed action creates no live work")
+      try check(!labels(root).contains("모드를 준비"),"disposed request never leaves preparing mode intent")
+    } else if mode=="request-failure" {
       let previous=host.store.document
       await input.fail(true);try click(root,"pageMode");try await until{host.session.failure != nil}
       let text=labels(root)

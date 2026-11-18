@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 R=Path(__file__).resolve().parents[3]
 D=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 O=D/'test-output/native-reader-ui-v7'
+RECOVERY_O=D/'test-output/native-reader-recovery-status-v9'
 OUT = None  # Collection/import never creates or validates fixture storage.
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def save(p,v):p.write_text(json.dumps(v,ensure_ascii=False,indent=2)+'\n')
@@ -21,7 +22,7 @@ class NativeUIRefinement(unittest.TestCase):
   if not configured or sys.platform != 'darwin':
    raise unittest.SkipTest('Optional macOS fixture requires explicit NATIVE_UI_OUTPUT; import/collection has no storage effects')
   OUT = Path(configured).resolve()
-  if not OUT.is_relative_to(O.resolve()):raise RuntimeError('UI evidence must stay in v7 owned output')
+  if not any(OUT.is_relative_to(root.resolve()) for root in (O,RECOVERY_O)):raise RuntimeError('UI evidence must stay in an explicitly owned v7/v9 output')
   if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):raise RuntimeError('Use one outer shared Swift lock')
   OUT.mkdir(exist_ok=True,parents=True)
   sys.path.insert(0,str(R/'tools/flow-reader'))
@@ -59,6 +60,10 @@ class NativeUIRefinement(unittest.TestCase):
    for name,value in binding['files'].items():
     if sha(before/name)!=value:raise RuntimeError('Pinned pending-failure snapshot changed')
    sources=[before/p.name if p.name in binding['files'] else p for p in sources]
+  if os.environ.get('NATIVE_RECOVERY_BEFORE')=='1':
+   before=RECOVERY_O/'before';binding=json.loads((before/'binding.json').read_text());frozen=before/'NativeReaderWindowController.swift'
+   if binding['revision']!='cb31c504d21a16dd8fc4786537c7917a14970588' or sha(frozen)!=binding['sha256']:raise RuntimeError('Pinned H8 recovery snapshot changed')
+   sources=[frozen if p.name=='NativeReaderWindowController.swift' else p for p in sources]
   harness=R/'tests/flow-app/native-reader-app/NativeReaderUIRefinementTests.swift';cls.binary=OUT/'NativeReaderUIRefinementTests'
   argv=['swiftc','-parse-as-library','-swift-version','5','-warnings-as-errors','-target','arm64-apple-macosx13.0','-module-cache-path',os.environ['SWIFT_MODULECACHE_PATH'],*map(str,sources),str(harness),'-o',str(cls.binary)]
   start=time.monotonic();p=subprocess.run(argv,cwd=R,capture_output=True,text=True,timeout=180)
@@ -74,3 +79,6 @@ class NativeUIRefinement(unittest.TestCase):
  def test_auxiliary_focus_commands_large_fonts(self):self.scenario('tools')
 
  def test_requested_mode_failure_keeps_prior_view_and_refresh_contract(self):self.scenario('request-failure')
+
+ def test_recovered_reflow_rejects_original_mode_without_preparing(self):self.scenario('recovery-reflow')
+ def test_recovered_original_rejects_reflow_without_preparing(self):self.scenario('recovery-original')
