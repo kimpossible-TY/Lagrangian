@@ -415,7 +415,7 @@ Test a replacement engine for compatibility before bundling it, and keep its ver
 
 Managed-service native app inspection uses a Lagrangian-owned temporary project
 and a local fake inference provider. This procedure has an explicit service owner;
-see #doc-ref(<local-native-fixture-inspection>, "local-native-fixture-inspection")[local fixture inspection] for the service-free path. The production document, source and conversation
+see #doc-ref(<local-native-fixture-inspection>, "isolated-native-fixture-inspection")[local fixture inspection] for the service-free path. The production document, source and conversation
 APIs retain their existing guards. An explicit dev root isolates data, logs,
 home and service paths; dev-only no-activate avoids forced foreground activation.
 Reader body Copy and verified Source copy use a private named pasteboard in this
@@ -530,7 +530,7 @@ current authorization.
 
 Local fixture inspection uses only local document data and bundled math, without
 a manager, account or inference provider. It is distinct from
-#doc-ref(<managed-native-inspection>, "managed-native-inspection")[managed-service inspection].
+#doc-ref(<managed-native-inspection>, "isolated-native-reader-inspection")[managed-service inspection].
 For an explicitly prepared development app, the existing arguments
 `--dev-root ABS --dev-no-activate --native-reader-fixture ABS` select a local
 fixture and bundled mathematical runtime. The fixture must have fixture scope.
