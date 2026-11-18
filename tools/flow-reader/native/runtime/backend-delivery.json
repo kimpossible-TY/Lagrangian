@@ -835,6 +835,58 @@
             "sha256": "d016611da6d59aa6c0beb9799a81715ec49c361c013154942c2fa07f2ffb6749"
           }
         ]
+      },
+      {
+        "baseRevision": "e59290106c875472cb096d8b8e068cf77ee90d4b",
+        "revision": "00f76c6a59dcfacebf950def09a45fa0c19a2404",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderChatView.swift",
+            "baseSHA256": "20bc9eb42a076b69da33bab5f191cad178b174fa3bf07ee6c8a18a578a4226b0",
+            "sha256": "cc0a7fd008c7962da7aa910f50e8a8348b531cffd97743a645d87fd4d71580e2"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "7f9c5a61a9b6541763c321318a4f936ff7f1d2adc956179ef2e1afca0dbcdb58",
+            "sha256": "8aebd32f55050e37d61564e6a37f502b454a43694e5fa2e4d79ff53d17d7610b"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/NativeChatRecoveryTests.swift",
+            "baseSHA256": "05046a52e592fe59b382a6e419d685d1920f779a172b1381353b555e9cb9c01e",
+            "sha256": "7b1f92f2135e28580e14dd5b337916ccdfc78ae3e8c62390949af2c4dea6b5fc"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_native_review_repair.py",
+            "baseSHA256": "4d858b26c75fa018b1f68977efccc261ef2c16b8e21737413d0e38253ecb7817",
+            "sha256": "5321750294221244e104e1e424b41a62f6010040c326e6c499411783496b4cce"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_text_interaction.py",
+            "baseSHA256": "f13403d6619d68f7c4c309e005203a8e3f2ea5a7724d723dbcf0ac6ed13d9310",
+            "sha256": "7873042dbb64d1d61bd06fdec21afa572a8f51236abc99cf2af92a5742035949"
+          }
+        ]
+      },
+      {
+        "baseRevision": "00f76c6a59dcfacebf950def09a45fa0c19a2404",
+        "revision": "876f646630f6e3b280621285578e12ca86f5a7b0",
+        "files": [
+          {
+            "path": "docs/tinymist/dev/native-cream-design.typ",
+            "baseSHA256": "3950068092d30924bbdba1d7229705fa6f6fefcc08df9c984fa29dd0990fc9b1",
+            "sha256": "74be893e16d5f082420cacc4fb97302505cf6b89ce9fd442935fbdfba1ee2a6c"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/design.md",
+            "baseSHA256": "2028a17200426177750a1c993080c4161b9401a8389471fe2f458a8ef4d863b9",
+            "sha256": "f789dd2cab40ab5230907c037bcb0630e5e6ba7d433077261f8649a069e46131"
+          },
+          {
+            "path": "openspec/changes/refine-native-cream-design/design.md",
+            "baseSHA256": "d016611da6d59aa6c0beb9799a81715ec49c361c013154942c2fa07f2ffb6749",
+            "sha256": "cbb34a3dd8e1aeb159c3c95f08896ce4d07d1e058042cf422efb226588d8351f"
+          }
+        ]
       }
     ]
   }
