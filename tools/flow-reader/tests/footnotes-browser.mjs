@@ -35,7 +35,7 @@ try {
   await page.goto(origin);
   await page.waitForFunction(
     () =>
-      document.querySelectorAll('[data-note-kind="footnote"][data-note-mode="side"]').length === 4,
+      document.querySelectorAll('[data-note-kind="footnote"][data-note-mode="side"]').length === 8,
   );
   await settle(page);
   check(
@@ -50,6 +50,21 @@ try {
       );
       const refs = [...paragraph.querySelectorAll("[data-reader-note]")];
       return refs.length === 2 && refs[0].dataset.readerNote === refs[1].dataset.readerNote;
+    }),
+  );
+  check(
+    "Direct proposition references have separate nearby notes and nested paragraphs keep their own host",
+    await page.evaluate(() => {
+      const callout = document.querySelector("figure > .flow-proposition");
+      const refs = [...callout.querySelectorAll(':scope > [role="doc-noteref"]')];
+      const paragraph = callout.querySelector("p");
+      const notes = refs.map((ref) => document.getElementById(ref.dataset.readerNote));
+      return refs.length === 3 && new Set(notes).size === 3 &&
+        notes.every((note) => note?.dataset.noteMode === "side" && note.parentElement.parentElement === callout.parentElement &&
+          Math.abs(note.getBoundingClientRect().top - callout.getBoundingClientRect().top) < callout.getBoundingClientRect().height) &&
+        paragraph.classList.contains("flow-annotation-side") &&
+        document.getElementById(paragraph.querySelector('[role="doc-noteref"]').dataset.readerNote)
+          ?.parentElement.parentElement === callout;
     }),
   );
   const target = await page
@@ -270,6 +285,26 @@ try {
     );
   }
   await phone.screenshot({ path: `${output}/phone.png` });
+  const propositionLinks = phone.locator("figure > .flow-proposition > [role=doc-noteref] a");
+  const expectedBodies = [
+    "An isometric isomorphism preserves the norm.",
+    "A Hilbert space is complete.",
+    "Every element is the limit of a sequence.",
+  ];
+  for (let i = 0; i < expectedBodies.length; i++) {
+    const ref = propositionLinks.nth(i);
+    await ref.scrollIntoViewIfNeeded();
+    const beforeURL = phone.url(), beforeY = await phone.evaluate(() => scrollY);
+    await ref.tap();
+    const dialog = phone.locator('.flow-note[data-open="true"]');
+    await dialog.locator(".flow-note-body").getByText(expectedBodies[i]).waitFor();
+    check(`Proposition reference ${i + 1} opens its own body in place`,
+      phone.url() === beforeURL && Math.abs((await phone.evaluate(() => scrollY)) - beforeY) < 2);
+    if (i === 1) await phone.keyboard.press("Escape");
+    else await dialog.locator(".flow-note-close").tap();
+    check(`Proposition reference ${i + 1} regains focus`,
+      await ref.evaluate((node) => node === document.activeElement));
+  }
   await phone.close();
 
   // Hold a remote body while the reader replaces its source section.
@@ -314,7 +349,7 @@ try {
   release();
   await delayed.waitForFunction(
     () =>
-      document.querySelectorAll('[data-note-kind="footnote"][data-note-mode="side"]').length === 4,
+      document.querySelectorAll('[data-note-kind="footnote"][data-note-mode="side"]').length === 8,
   );
   await settle(delayed);
   check(

@@ -5,7 +5,55 @@ import {
   sideAnnotations,
   popoverPosition,
   labelPosition,
+  TextAnnotations,
 } from "../web/rendering/annotations.js";
+
+test("footnote registration groups direct callout references and preserves nested hosts", () => {
+  const previousDocument = globalThis.document;
+  const makeNode = (tag, classes = []) => ({
+    tag, classes, dataset: {}, children: [], parent: null,
+    append(node) { node.parent = this; this.children.push(node); },
+    after(node) { this.inserted = node; },
+    closest(selector) {
+      for (let node = this; node; node = node.parent) {
+        if (selector.split(",").some((part) =>
+          part.startsWith(".") ? node.classes.includes(part.slice(1)) : node.tag === part,
+        )) return node;
+      }
+      return null;
+    },
+  });
+  try {
+    globalThis.document = { createElement: (tag) => makeNode(tag) };
+    const callout = makeNode("div", ["flow-callout", "flow-proposition"]);
+    const paragraph = makeNode("p");
+    callout.append(paragraph);
+    const references = [];
+    for (const [host, target] of [[callout, "one"], [callout, "two"], [callout, "three"], [paragraph, "four"], [paragraph, "four"]]) {
+      const ref = makeNode("sup");
+      ref.querySelector = () => ({ hash: `#${target}`, textContent: target });
+      host.append(ref);
+      references.push(ref);
+    }
+    const records = [];
+    const adapter = {
+      register(nodes, note, options) {
+        const record = { nodes, note, ...options };
+        records.push(record);
+        return record;
+      },
+      loadFootnote() {},
+    };
+    TextAnnotations.prototype.prepareFootnotes.call(adapter, { querySelectorAll: () => references }, "test");
+    assert.equal(records.length, 4);
+    assert.deepEqual(callout.inserted.children.map((node) => node.dataset.footnoteTarget), ["one", "two", "three"]);
+    assert.deepEqual(paragraph.inserted.children.map((node) => node.dataset.footnoteTarget), ["four"]);
+    assert.equal(references[3].dataset.readerNote, references[4].dataset.readerNote);
+    assert.equal(new Set(references.slice(0, 3).map((node) => node.dataset.readerNote)).size, 3);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
 
 test("short labels find free space above preceding mathematical lines", () => {
   const target = { left: 100, right: 300, top: 140 };

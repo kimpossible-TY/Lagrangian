@@ -7,6 +7,13 @@ A prose footnote remains beside its reference.#footnote[The original *footnote e
 
 Two references share a single note in this paragraph: #footnote(<shared-note>) and #footnote(<shared-note>).
 
+#html.elem("figure")[#html.elem("div", attrs: (class: "flow-callout flow-proposition"))[
+  Isometric isomorphism#footnote[An isometric isomorphism preserves the norm.],
+  Hilbert space#footnote[A Hilbert space is complete.], and
+  dense#footnote[Every element is the limit of a sequence.].
+  #html.elem("p")[A nested paragraph#footnote[The nested paragraph has its own note.].]
+]]
+
 $ a &= b #footnote[The first mathematical footnote retains its full explanation.] \
     &= c #footnote[The second mathematical footnote keeps $frac(1, 2)$ and its own number.] $ <footnote-equation>
 

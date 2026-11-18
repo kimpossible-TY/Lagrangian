@@ -37,6 +37,8 @@ export function popoverPosition(target, size, viewport) {
 }
 
 const painted = (node) => !node.closest("mjx-assistive-mml,.flow-math-stage");
+const noteHost = (node) =>
+  node?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li,.flow-callout");
 
 function inkRectangles(host) {
   const ink = [
@@ -204,7 +206,7 @@ export class TextAnnotations {
     for (const reference of root.querySelectorAll('[role="doc-noteref"]')) {
       if (reference.closest('a,nav,[role="doc-endnotes"],.flow-notes')) continue;
       const link = reference.querySelector('a[href^="#"]');
-      const host = reference.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li");
+      const host = noteHost(reference);
       if (!link || !host) continue;
       let target;
       try {
@@ -427,7 +429,7 @@ export class TextAnnotations {
         // Short mannot names keep their nearby labels even on a wide screen.
         // Footnotes and longer explanations use the available side column.
         if (record.kind === "text" && record.short) continue;
-        const host = this.fragments(record)[0]?.closest(".flow-equation,p,h1,h2,h3,h4,h5,h6,li");
+        const host = noteHost(this.fragments(record)[0]);
         const chatLayout = this.article.classList.contains("reader-paragraph-chat");
         if (
           !host ||
