@@ -23,6 +23,7 @@ BASE = '09c5186bff1850b17f6e85fe2f3115153520bc94'
 CHAT_BASE = '016734db869f8892bf2cd1e330be2fb4edda962f'
 CHAT_CORRECTION = '8e57062ea768320c3fe64f266eb50f40f53d16c1'
 RUNNER_CORRECTION = 'bb0123aedde56ec83117c217571a77bc7d6614d6'
+FIXTURE_CORRECTION = '9ebe1fd44ef00ae4bec0565a7c7157586084a7cd'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
 owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
 
@@ -130,7 +131,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
         current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION])
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
@@ -198,7 +199,7 @@ class FixedSourceBinding(unittest.TestCase):
 
     def test_committed_drift_cannot_be_accepted_by_old_correction(self):
         # The docs-only correction cannot grant any native-source authority.
-        self.metadata(lambda m:m['ownerCorrections'].pop())
+        self.metadata(lambda m:m.update(ownerCorrections=[x for x in m['ownerCorrections'] if x['revision']!=DOCS_CORRECTION]))
         with self.assertRaisesRegex(ValueError,'owner source drift'):self.binding()
         self.setUp()
         self.metadata(lambda m:m.update(ownerCorrections=[x for x in m['ownerCorrections'] if x['revision']!=CURRENT_CORRECTION]))
@@ -272,7 +273,7 @@ class FixedSourceBinding(unittest.TestCase):
         p.write_text(p.read_text()+'\n// owned delivery correction\n');self.commit()
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
-        self.assertEqual(m['ownerCorrections'][-1]['revision'],RUNNER_CORRECTION)
+        self.assertEqual(m['ownerCorrections'][-1]['revision'],FIXTURE_CORRECTION)
         self.assertEqual(next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)['baseRevision'],DOCS_BASE)
 
     def test_added_file_needs_fixed_inventory_and_explicit_original_absence(self):

@@ -6,15 +6,15 @@ Read and review live Typst documents on your Mac, phone, or tablet. This guide c
 
 ## Open your first preview
 
-Use Flow to manage a document’s live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see **First installation** below.
+Use Flow to manage a document’s live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see [First installation](#first-installation) below. For version identification and guide matching, see [Identifying installed versions and guides](#identifying-installed-versions-and-guides) below.
 
-1. Open `~/Applications/Lagrangian.app`. The Flow menu appears in the menu bar.
+1. Open `~/Applications/Lagrangian.app` (received via Finder or installed package). The Flow menu appears in the menu bar.
 2. Click **Add Project** (프로젝트 추가…) and select the document’s `.typ` entry file. The [reading demo](examples/reading-demo.typ) is a small document for trying selection, highlights, references, and themes.
 3. Check **Project folder** (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
 4. Add any required font or package folders, then click **Save settings** (설정 저장).
-5. In the native candidate identified by your release/inspection packet, click **Read** (읽기 시작). Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate **External Reader** action when you explicitly want the web reader.
+5. Click **Read** (읽기 시작). In an installed app supporting native reading, Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate **External Reader** action when you explicitly want the web reader.
 
-**Result in the native candidate:** Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; do not apply their behavior to a newer native inspection packet. If preparation fails, the explanation stays in the window; correct the cause and choose **Read again** (다시 읽기). **Logs** (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
+**Result in an installed native app:** Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; check the guide and metadata bundled with the app as described in [Identifying installed versions and guides](#identifying-installed-versions-and-guides). If preparation fails, the explanation stays in the window; correct the cause and choose **Read again** (다시 읽기). **Logs** (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
 
 ### Project controls and settings
 
@@ -58,9 +58,9 @@ When using Highlight offline, the Reader first stores an explicit request on the
 
 ## Select and copy text
 
-Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device’s Copy action for ordinary copying. In the paged web preview, the toolbar near the bottom offers Copy, Highlight, Save for Codex, and Red strike. HTML and terminal readers instead use Ask to open a composer; only explicit Send starts inference. Native Reader actions are described separately below.
+Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device’s Copy action for ordinary copying. In the paged web preview, the toolbar near the bottom offers Copy, Highlight, Save for Codex, and Red strike. HTML and terminal readers instead use Ask to open a composer; only explicit Send starts inference. Native Reader selection, source copying, and conversation actions follow the dedicated native component flow described in [Native reading controls and source component](#native-reading-controls-and-source-component) below.
 
-If a selection starts or ends inside a formula, it expands to the complete expression after the selection settles. Formula numbering, attached labels and nearby prose stay outside that expression. **Copy** (복사) writes complete formulas as Typst source including `$...$`, keeps surrounding prose as displayed, and separates copied blocks with one newline. If a formula has no verified source, Copy uses the displayed text and reports that the Typst source could not be confirmed.
+If a selection starts or ends inside a formula, it expands to the complete expression after the selection settles. Formula numbering, attached labels and nearby prose stay outside that expression. **Copy** (복사) writes complete formulas as Typst source including `$...$`, keeps surrounding prose as displayed, and separates copied blocks with one newline. If a formula has no verified source, Copy uses the displayed text and reports that the Typst source could not be confirmed. (In the native Reader, ordinary body or Original PDF copy copies displayed text, while verified Typst source copying is a separate permission and pathway.)
 
 ![Reading demo with a selected sentence and the Highlight, Save for Codex, and Red strike actions](images/mobile-selection.png)
 
@@ -324,6 +324,15 @@ python3 scripts/flow-app.py restore-tail-hosting
 
 The restore command reinstates the old registry, launcher, preview and reader LaunchAgents, reader configuration, and `tinymist-flow.app` background manager from the migration backup. Unrelated hosted services are preserved. The adapter does not create or change Tailscale Serve routes.
 
+## Identifying installed versions and guides
+
+Use the information inside the exact app bundle you intend to run. A source checkout identifies its Git revision. A packaged app also has a bundle and executable identity.
+
+1. In Finder, select the app bundle and choose **Show Package Contents**. Read `Contents/Resources/release.json`.
+2. `version` identifies the app release. `sourceRevision` identifies the build checkout commit and `sourceDirty` records whether it included local changes. `engineVersion`, `engineSHA256` and `engineInputSHA256` identify the engine independently. `managementOnly` identifies management-only delivery. Builds with a verified native payload can also record `nativeDeliveryCapabilities`. Older manifests may omit those fields.
+3. Choose **사용·업데이트·복구 안내** in Flow’s menu to open that app’s `Contents/Resources/UserGuide.pdf`. Use the guide shipped with the app you are checking.
+4. For a packaged development candidate, compare the bundle and executable hashes with its supplied inspection record and use its designated isolated profile. A source-only candidate has no packaged executable to inspect. Build metadata identifies the inputs and capabilities. Feature acceptance requires the separate results for that build.
+
 ## Maintaining the Flow app
 
 Use this repository for the app, engine, preview frontend, branding, packaging, tests, and documentation. Keep app work in `apps/macos`, branding in `assets/branding`, and behavior contracts in OpenSpec. Package a compatible external engine or build the maintained engine sources. Both paths supply mobile selection, assistant focus, device themes, change restoration, selected text actions, and preview activity status. Small local fixes can stay lightweight. Preserve upstream copyright, Apache License 2.0, and applicable third-party notices.
@@ -336,16 +345,40 @@ Independent native app inspection uses a Lagrangian-owned temporary project and 
 
 See [the isolated inspection procedure](dev/native-reader-app-verification.typ) for setup, bounded foreground serve, exact app arguments, clipboard inspection and owned cleanup. Preparing that fixture does not launch the app, install or restart a service, verify original PDF delivery, or establish GUI/VoiceOver and complete native application acceptance. Use only the approved final staged app for the later independent inspection.
 
-The historical09c staged candidate integrates core/page/G1/published inputs. GUI inspection is partial, official final review needs fixes, and final PM acceptance is incomplete. Current intermediate inspection uses the external PM packet with exact full source/App/executable hashes and a new isolated root; historical resource09e design IDs never override its top-level source revision. For the historical frozen NA13 inspection use `tests/flow-app/native-reader-app/test_page_delivery_bundle.py gui-fixture` and `test-output/delivery-production/NA13/final-app-v1/inspection-commands.json`. Its `gui-inspection-001` is setup-only/running=false; follow the recorded serve/status/appCommand/stop commands without rerunning setup there. A new inspection requires a new root and exact pinned compiler/package inputs. NA14 source requires its own final integration, GUI/AX and review evidence; prior GUI evidence cannot be relabelled for its new executable bytes.
+The historical 09c staged candidate integrated core, page and published inputs. Its partial GUI results belong to that build. For a new packaged inspection, match the candidate’s build metadata and isolated profile as described in [Identifying installed versions and guides](#identifying-installed-versions-and-guides). For the historical frozen NA13 inspection use `tests/flow-app/native-reader-app/test_page_delivery_bundle.py gui-fixture` and `test-output/delivery-production/NA13/final-app-v1/inspection-commands.json`. Its `gui-inspection-001` is setup-only/running=false; follow the recorded serve/status/appCommand/stop commands without rerunning setup there. A new inspection requires a new root and exact pinned compiler/package inputs. NA14 source requires its own final integration, GUI/AX and review evidence; prior GUI evidence cannot be relabelled for its new executable bytes.
 
-## Pending source component: home feedback
+## Historical source component: home feedback
 
 The v5 source component separates **Service start** (서비스 시작), **Service stop** (서비스 중지) and **Service restart** (서비스 재시작) from **Start reading** (읽기 시작). While settings load, home explains waiting and the next step after completion; if that state persists, close and reopen the app safely. Empty, error and document preparation states show the corresponding next step instead of directing a currently disabled Read action. This changes feedback, not service permissions, readiness checks, saved settings, automatic initialization or Read behavior.
 
-This is a source component awaiting PM integration and a separately bound build. It does not change the frozen v4 App or establish real GUI/visual acceptance. The initial GUI loading cause remains unknown; no new retry/timer or service restart is introduced by these labels.
+The v5 source observation was made before that component had a separately bound build. Its feedback changes do not establish the cause of the original GUI loading issue. Match a packaged app to its own guide and results.
 
-### v7 native reading controls — source component
+### Native reading controls and source component
 
-This section describes the unpackaged v7 source, not a change to the frozen v4/d7 app. The visible primary commands are “본문”, “원본 PDF”, “목차”, PDF search, “선택 해제”, “복사” and “새로고침”. “읽기 도구” (Command–Option–T) opens the scrollable source/review, display, offline and account controls. Collapsing it returns keyboard focus from its children to that same button. Native popup opening/foreground behavior still needs separate GUI inspection.
+Use this section for a build with the cream native Reader controls. The earlier v7 source component introduced the reading tools disclosure. The cream candidate adds a selection capsule and a local question composer. The frozen v4/d7 app has its own guide and evidence.
 
-“현재” identifies the accepted visible mode; “전환 요청” identifies only the requested destination. If a body or PDF display selection holds the view, release it explicitly and press the destination mode again. Selecting a PDF search hit also creates a display selection; a query by itself does not establish a hold. Errors keep the previous reading result and explain the explicit refresh action. “새로고침” is disabled for a restored offline copy; it does not reconnect that copy or acquire new source/account consent. Existing explicit Home Read and External Reader behavior remain separate. No app was built or launched for this source component, and headless checks do not establish native GUI acceptance.
+**본문** switches to the native body and **원본 PDF** opens the original pages. **목차** navigates the body, and **PDF에서 검색** searches the original pages. **읽기 도구** (Command–Option–T) opens source, display, offline and account tools. Closing the drawer returns focus to its button when a child control had focus.
+
+“현재” shows the accepted visible mode. “전환 요청” shows the requested mode. If an active body or PDF selection holds the view, choose **선택 해제**, then choose the new mode again. Selecting a PDF search result creates a display selection. Typing a search query alone does not hold the view. **새로고침** is disabled for a restored offline copy. When restoration is in progress or fails, the recovery status takes precedence and the existing recovery controls handle retry or cancel.
+
+#### Select, copy, and ask
+
+1. Select text in **본문**. The active selection holds background replacement. Use **선택 작업** to open or refocus the capsule. The Reader can place it beside the selection or dock it on a separate row when the text fills that area. **닫기** or Escape closes the capsule and leaves the selection in place.
+2. Choose **질문하기** in the capsule or under **원문·대화** in **읽기 도구**. For a live selection of at most 32 blocks, this opens the local question composer. Opening or editing a new question there does not fetch its account, models or conversation, save a server draft or start inference. Selection-related eligibility checks may run independently.
+3. Enter the question and click **Send** when ready to submit. For a new composer, the first **Send** checks the current selection, account, permissions and available models before opening the conversation. If no model was selected, it may use the first available model and continue the same explicit **Send**. If you change the question or model during preparation, review the current draft and click **Send** again. A stale selection or unavailable permission prevents submission. **Save for Codex** belongs to the paged web preview.
+
+Closing the composer and choosing Ask again for the same conversation restores its latest local draft and selected model, including the original pending Send UUID, question and model when its acknowledgment is unknown. Recovery never sends. A newer edit stays visible when history confirms an older message. Changing or clearing the selection blocks a new Send; Stop and Refresh conversation retain the existing conversation/context authorization. Stop response is available only when the accepted conversation is streaming; local account/open preparation alone provides no Stop target. Explicit history confirmation or an explicit retry of the original message is required before an uncertain Send can advance.
+
+**복사** copies display text in both **본문** and **원본 PDF**, including a full display selection longer than the limit for source and chat actions. To copy verified Typst source, use **원문 보기** on a live eligible body selection. The app checks the current document and source before copying. **원문 강조** also requires source write permission. **편집기 위치로** requires a current, explicitly connected editor.
+
+In **원본 PDF** or a restored or offline read-only copy, you can read and copy display text. Live source, editor and question actions are unavailable there. Pending retirement of an editor connection on an otherwise live body does not block ordinary reading or Ask. A new editor action still needs its own current authorization.
+
+## Isolated native fixture inspection
+
+For an explicitly prepared development app, the existing arguments `--dev-root ABS --dev-no-activate --native-reader-fixture ABS` select a local fixture and bundled mathematical runtime. The fixture must have fixture scope. This path does not create a Reader manager or connect an editor, even through a direct editor method. External Reader, browser/Homepage opening, file choosers, log/settings reveal and external guide opening are disabled and reject their callbacks. Home address copy and body copy use the same private named pasteboard. Normal nonfixture behavior keeps its existing owners.
+
+Settings, recovery drafts, logs and startup timeline use the development root. Necessary verification children receive a dedicated HOME, CFFIXED\_USER\_HOME, TMPDIR, XDG\_CACHE\_HOME and FLOW\_READER\_DATA\_DIR before starting. Math retains its existing PATH-only environment with file writes and network access denied. Fixture CLI access is limited to version, profiles, config validation and nonexecuting launch-plan/agent-plist introspection; it cannot serve or control a service. No global environment or OS appearance setting is changed.
+
+The offscreen checks use a virtual ordinary home and injected external operations; they do not certify a GUI launch or complete AppKit/LaunchServices-managed file isolation. Platform caches, actual native input, VoiceOver and macOS 13 execution remain separate acceptance gates. Use the exact source/app and fixture binding from the current integration handoff; an old fixture/app is not current evidence.
+
+The fixture keeps the existing local offline recovery library under its dev-profile root, including saved drafts. Offscreen construction respects the existing showNativeWindow input; it does not grant manager, editor or external effects.
