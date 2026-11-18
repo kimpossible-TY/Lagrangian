@@ -112,10 +112,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private struct ChatPresentation {
     let context: NativeReaderRequestContext
     let selection: NativeReaderSelection
+    let conversationID: UUID
+  }
+  private struct ChatConversationPresentation {
     let conversation: NativeReaderConversation
     let models: [String]
   }
   private var retainedChatPresentations = [ChatPresentation]()
+  private var retainedChatConversations = [UUID: ChatConversationPresentation]()
   private var editorRequest: NativeReaderSourceRequest?
   private var editorBusy = false
   private let revokeEditorConsent: () async -> Void
@@ -540,12 +544,18 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     currentDrafts[draft.conversationID] = draft
     if let conversation = chat.presentationConversation, conversation.state.context == context,
        conversation.state.conversationID == draft.conversationID {
-      let previous = retainedChatPresentations.last { $0.context == context && $0.conversation.state.conversationID == draft.conversationID }
-      let selection = chat.presentationSelection ?? (previous?.context == context && previous?.conversation.state.conversationID == draft.conversationID ? previous?.selection : nil)
+      let previous = retainedChatPresentations.last { $0.context == context && $0.conversationID == draft.conversationID }
+      let selection = chat.presentationSelection ?? previous?.selection
       if let selection {
         retainedChatPresentations.removeAll { $0.context == context && $0.selection.fragments == selection.fragments }
-        retainedChatPresentations.append(.init(context: context, selection: selection, conversation: conversation, models: chat.presentationModels))
+        retainedChatPresentations.append(.init(context: context, selection: selection, conversationID: draft.conversationID))
+        let existing = retainedChatConversations[draft.conversationID]?.conversation
+        if existing?.state.context != context || (conversation.state.version >= existing!.state.version && conversation.state.sequence >= existing!.state.sequence) {
+          retainedChatConversations[draft.conversationID] = .init(conversation: conversation, models: chat.presentationModels)
+        }
         if retainedChatPresentations.count > 32 { retainedChatPresentations.removeFirst() }
+        let identifiers = Set(retainedChatPresentations.map(\.conversationID))
+        retainedChatConversations = retainedChatConversations.filter { identifiers.contains($0.key) }
       }
     }
   }
@@ -940,7 +950,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       rememberCurrentDraft()
       chatView?.dispose(); chatView?.removeFromSuperview()
       let retained = retainedChatPresentations.last { $0.context == context && $0.selection.fragments == selection.fragments }
-      let resumes = retained?.context == context && retained?.selection.fragments == selection.fragments
+      let latest = retained.flatMap { retainedChatConversations[$0.conversationID] }
+      let resumes = latest?.conversation.state.context == context
       let needsOpen = !resumes || retained?.selection.ticket != selection.ticket
       let chat = NativeReaderChatView(resolveActions: actions, context: context, selection: needsOpen ? selection : nil, authorize: { [weak self] in
         guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
@@ -950,9 +961,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         try self.session.authorize(context, selection: selection.ticket)
       })
       bindComposer(chat, context: context)
-      if resumes, let retained {
-        chat.restoreModelChoices(retained.models)
-        try chat.adopt(retained.conversation)
+      if resumes, let latest {
+        chat.restoreModelChoices(latest.models)
+        try chat.adopt(latest.conversation)
       }
       if let key = acceptedPaintKey { configureChatMath(chat, key: key) }
       hostWindow.attachChat(chat); dismissedCapsule = .init(context: context, ticket: selection.ticket, originalPDF: false)
@@ -1052,6 +1063,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     selectionTask?.cancel(); selectionTask = nil
     actionTasks.values.forEach { $0.cancel() }; actionTasks.removeAll()
     retainedChatPresentations.removeAll()
+    retainedChatConversations.removeAll()
     chatView?.dispose(); session.cancel()
   }
   func dispose() {

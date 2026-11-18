@@ -234,6 +234,7 @@ private enum NativeAnswerPreparation {
     private var draftTask: Task<Void, Never>?
     private var disposed = false
     private var operationEpoch = 0
+    private var cancelling = false
 
     private struct MathKey: Equatable {
         struct Message: Equatable { let id: UUID; let text: String; let complete: Bool; let assistant: Bool }
@@ -639,14 +640,15 @@ private enum NativeAnswerPreparation {
     }
 
     @objc func cancelExplicitly() {
-        guard !disposed, let record = conversation, record.status == "streaming" else { return }
+        guard !disposed, !cancelling, let record = conversation, record.status == "streaming" else { return }
+        cancelling = true
         operation?.cancel()
         invalidateMath()
         operationEpoch += 1
         let epoch = operationEpoch
         operation = Task { [weak self] in
             guard let self else { return }
-            defer { if operationEpoch == epoch { operation = nil; updateControls() } }
+            defer { if operationEpoch == epoch { cancelling = false; operation = nil; updateControls() } }
             do {
                 try authorize()
                 let actions = try await owner()
@@ -679,12 +681,12 @@ private enum NativeAnswerPreparation {
         let live = controlAvailability.conversation
         let current = controlAvailability.selection
         sendButton.isEnabled = current && retryMatches && !disposed && operation == nil && !unknownEffect && (localSelection != nil || (conversation != nil && models.numberOfItems > 0)) && !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        cancelButton.isEnabled = live && !disposed && conversation?.status == "streaming"
+        cancelButton.isEnabled = live && !disposed && !cancelling && conversation?.status == "streaming"
         historyButton.isEnabled = live && !disposed && operation == nil && conversation != nil
     }
     func dispose() {
         invalidateMath()
         disposed = true; operationEpoch += 1; subscription?.cancel(); operation?.cancel(); draftTask?.cancel()
-        subscription = nil; operation = nil; draftTask = nil; updateControls()
+        subscription = nil; operation = nil; draftTask = nil; cancelling = false; updateControls()
     }
 }

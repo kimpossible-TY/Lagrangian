@@ -15,7 +15,12 @@ private actor RecoveryHTTP {
     var cancelWaiting = false
     var cancelGate: CheckedContinuation<Void, Never>?
     var gateNextCancel = false
+    var gateAppliedCancel = false
+    var rangeUpdates = false
+    var lastRange: String?
     func gateCancel() { gateNextCancel = true }
+    func gateCancelAfterApply() { gateAppliedCancel = true }
+    func enableRangeUpdates() { rangeUpdates = true }
     func enteredCancel() -> Bool { cancelWaiting }
     func releaseCancel() { cancelGate?.resume();cancelGate=nil;cancelWaiting=false }
     var separatePassages = false
@@ -58,6 +63,14 @@ private actor RecoveryHTTP {
         requests.append(fields.reduce(into: ["path": request.url!.path, "operation": operation]) { result, item in
             if let string = item.value as? String { result[item.key] = string }
         })
+        if let selection = fields["selection"] as? [String: Any], let ticket = selection["ticket"] as? String {
+            requests[requests.count - 1]["selectionTicket"] = ticket
+            if rangeUpdates {
+                let range = String(data: try JSONSerialization.data(withJSONObject: selection["fragments"]!, options: [.sortedKeys]), encoding: .utf8)!
+                if let lastRange, lastRange != range { version += 1 }
+                lastRange = range
+            }
+        }
         var object: [String: Any]
         if request.url!.path.hasSuffix("native-document") {
             let query = URLComponents(url:request.url!,resolvingAgainstBaseURL:false)!.queryItems!
@@ -83,8 +96,10 @@ private actor RecoveryHTTP {
                 version += 1
             }
             if operation == "cancel" {
+                guard fields["version"] as? Int == version else { throw URLError(.badServerResponse) }
                 if gateNextCancel { gateNextCancel=false;cancelWaiting=true;await withCheckedContinuation { cancelGate=$0 } }
                 streaming = false; interrupted = true; version += 1
+                if gateAppliedCancel { gateAppliedCancel=false;cancelWaiting=true;await withCheckedContinuation { cancelGate=$0 } }
             }
             object = fields
             object["conversations"] = [["conversation_id":(separatePassages ? (activeID ?? id) : id).uuidString.lowercased(),"version":version,"sequence":version,
@@ -159,6 +174,7 @@ private actor RecoveryHTTP {
         let streaming = mode.hasPrefix("review-stop")
         let (host,http,_) = try await setup(document,fixture,streaming:streaming,separate:!streaming,fixtureMode:mode == "review-edit")
         defer { host.dispose() }
+        if mode == "review-range" { await http.enableRangeUpdates() }
         if mode == "review-edit" {
             try await select(host)
             let chat = try await ask(host)
@@ -187,6 +203,47 @@ private actor RecoveryHTTP {
             return
         }
         let first = try await start(host,http,streaming:streaming)
+        if mode == "review-range" {
+            let original = first.recoveryDraft!.pendingMessageID!, id = first.recoveryDraft!.conversationID
+            text(first,n2,model:"model-N2")
+            try await select(host,offset:1)
+            let a2 = try await ask(host);text(a2,n2,model:"model-N2")
+            try click(a2.sendButton)
+            try await until { a2.historyButton.isEnabled }
+            try check(a2.recoveryDraft?.conversationID == id && a2.recoveryDraft!.version > first.recoveryDraft!.version,"Same paragraph open advances same UUID version")
+            let latest = n2 + " / A2 latest"
+            text(a2,latest,model:"model-N2")
+            let version = a2.recoveryDraft!.version
+            try await select(host)
+            let before = await http.records(), factories = await http.factoryCount()
+            let a1 = try await ask(host)
+            let restored = equal(a1.composer.string,latest) && a1.recoveryDraft?.version == version && a1.recoveryDraft?.conversationID == id && a1.recoveryDraft?.pendingMessageID == original && a1.models.titleOfSelectedItem == "model-N2" && a1.historyButton.isEnabled
+            try save(["restored":restored,"expectedVersion":version,"actualVersion":a1.recoveryDraft?.version ?? -1,"composer":a1.composer.string,"requests":await http.records()],out,mode)
+            try check(restored,"A1 -> A2 -> A1 restores latest same UUID snapshot/draft/model/pending")
+            let quiet = await http.records(), quietFactories = await http.factoryCount()
+            try check(quiet == before && quietFactories == factories,"Same-range association Ask is HTTP/account/factory0")
+            try click(a1.historyButton);try await until { a1.historyButton.isEnabled }
+            try click(a1.dismissButton)
+            let reopened = try await ask(host)
+            text(reopened,m,model:"model-M")
+            try save(["sendEnabled":reopened.sendButton.isEnabled,"refreshEnabled":reopened.historyButton.isEnabled,"pendingID":reopened.recoveryDraft?.pendingMessageID?.uuidString ?? "nil","notice":reopened.notice.stringValue],out,mode+"-reopened")
+            try check(!reopened.sendButton.isEnabled && reopened.historyButton.isEnabled && reopened.recoveryDraft?.pendingMessageID == original,"Reopened matching original Send requires another successful Refresh")
+            await http.confirmLost();try click(reopened.historyButton);try await until { reopened.historyButton.isEnabled && reopened.recoveryDraft?.pendingMessageID == nil }
+            text(reopened,latest,model:"model-N2")
+            let ready = await http.records()
+            try await select(host,offset:2)
+            try check(!reopened.sendButton.isEnabled,"Stale selection disables new question")
+            try click(reopened.sendButton,forced:true)
+            try check(await http.records() == ready,"Forced stale Send dispatch0")
+            try await select(host)
+            let current = try await ask(host), ticket = host.store.selection!.ticket
+            try click(current.sendButton);try await until { current.historyButton.isEnabled }
+            let final = await http.records(), sends = final.filter { $0["operation"] == "send" }
+            try check(final.last { $0["operation"] == "open" }?["selectionTicket"] == ticket.uuidString.lowercased(),"Explicit Send reauthorizes current selection ticket through existing owner")
+            try check(sends.count == 2 && sends.last?["question"] == latest && sends.last?["model"] == "model-N2","Confirmed original then explicit latest question once")
+            try save(["restored":true,"UUID":id.uuidString,"pendingOriginal":original.uuidString,"currentTicket":ticket.uuidString,"requests":final],out,mode+"-complete")
+            return
+        }
         if streaming {
             try click(first.dismissButton)
             let requests = await http.records(), factories = await http.factoryCount()
@@ -194,7 +251,21 @@ private actor RecoveryHTTP {
             let quietRequests = await http.records(), quietFactories = await http.factoryCount()
             try check(quietRequests == requests && quietFactories == factories,"Streaming reentry HTTP/factory0")
             if mode == "review-stop-late" { await http.gateCancel() }
+            if mode == "review-stop-duplicate" { await http.gateCancelAfterApply() }
             try click(current.cancelButton)
+            if mode == "review-stop-duplicate" {
+                for _ in 0..<1000 { if await http.enteredCancel() { break };try await Task.sleep(nanoseconds:1_000_000) }
+                try check(await http.enteredCancel(),"First Stop applied; reply remains gated")
+                let disabled = !current.cancelButton.isEnabled
+                try click(current.cancelButton,forced:true)
+                await Task.yield();await http.releaseCancel()
+                try await until { current.historyButton.isEnabled }
+                try await Task.sleep(nanoseconds:80_000_000)
+                let count = await http.records().filter { $0["operation"] == "cancel" }.count
+                try save(["disabledDuringStop":disabled,"cancelRequests":count,"status":current.presentationConversation?.status ?? "nil"],out,mode)
+                try check(disabled && count == 1 && current.presentationConversation?.status == "interrupted" && !current.cancelButton.isEnabled,"Duplicate Stop preserves genuine first completion without Refresh")
+                return
+            }
             if mode == "review-stop-late" {
                 for _ in 0..<1000 { if await http.enteredCancel() { break };try await Task.sleep(nanoseconds:1_000_000) }
                 try check(await http.enteredCancel(),"Injected cancel response gate reached")

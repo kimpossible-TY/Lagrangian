@@ -12,7 +12,7 @@ class ReviewRepair(unittest.TestCase):
   configured=os.environ.get('REVIEW_REPAIR_OUTPUT')
   if not configured:raise unittest.SkipTest('Optional native review tests require explicit fresh task output and one outer Swift lock')
   cls.out=Path(configured).resolve()
-  if not cls.out.is_relative_to(O) or cls.out.exists() or not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):raise RuntimeError('Fresh task output and single Swift lock required')
+  if not any(cls.out.is_relative_to(root) for root in [O,D/'test-output/native-cream-reader-repair3']) or cls.out.exists() or not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):raise RuntimeError('Fresh task output and single Swift lock required')
   cls.out.mkdir(parents=True)
   helper=cls.out/'ReviewEffects.swift'
   helper.write_text('''import AppKit
@@ -59,8 +59,9 @@ enum ReviewEffects {
    return actual_run(actual,*args,**kwargs)
   path=R/'tests/flow-app/native-reader-app/test_native_ui_refinement.py';spec=importlib.util.spec_from_file_location('review_fixture_ui',path);ui=importlib.util.module_from_spec(spec);spec.loader.exec_module(ui)
   ui.O=cls.out;ui.RECOVERY_O=cls.out;os.environ['NATIVE_UI_OUTPUT']=str(cls.out/'fixture')
-  os.environ['FLOW_READER_PACKAGES']=str(O/'typst-package-cache')
-  os.environ['FLOW_TEST_PACKAGE_CACHE']=str(O/'typst-package-cache')
+  packages=os.environ.get('FLOW_TEST_PACKAGE_CACHE',str(O/'typst-package-cache'))
+  os.environ['FLOW_READER_PACKAGES']=packages
+  os.environ['FLOW_TEST_PACKAGE_CACHE']=packages
   try:
    subprocess.run=adapt;ui.NativeUIRefinement.setUpClass()
    cls.fixture=ui.OUT;cls.ui=ui
@@ -84,5 +85,7 @@ enum ReviewEffects {
  def test_two_passage_draft_associations(self):self.scenario('review-cache')
  def test_late_stop_rejects_disposed_view(self):self.scenario('review-stop-late')
  def test_reentered_streaming_stop(self):self.scenario('review-stop')
+ def test_same_paragraph_range_reentry(self):self.scenario('review-range')
+ def test_duplicate_stop_keeps_first_completion(self):self.scenario('review-stop-duplicate')
 
 if __name__=='__main__':unittest.main()

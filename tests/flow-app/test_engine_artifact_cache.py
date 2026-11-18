@@ -242,6 +242,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         import tempfile
         from unittest.mock import patch
         package = load('fresh_app_cache_fixture', ROOT / 'scripts/flow-app.py')
+        runtime_owner = package.delivery_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); repo = root / 'checkout'; repo.mkdir()
             write(repo / 'apps/macos/sources.json', json.dumps({'core':['main.swift'],'native':[],'app':[]}))
@@ -254,12 +255,22 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
             write(payload / 'backend.py','current backend')
             write(payload / 'helper.mjs','current helper')
             write(payload / 'delivery-manifest.json','fixture manifest')
+            write(payload / 'runtime/runtime-manifest.json', json.dumps({'source': {'sourceSHA': '1' * 40}}))
             revision = ['1' * 40]
+            policy_checks, copied_development = [], []
             def source_binding(_):
                 return {str(p.relative_to(repo)): package.digest(p) for p in repo.rglob('*') if p.is_file()}
             class Delivery:
                 @staticmethod
-                def copy_signed(source, output, identity):
+                def read(path): return runtime_owner.read(path)
+                @staticmethod
+                def bundle_runtime_policy(manifest, head, identity, *, development=False):
+                    policy_checks.append((head, identity, development))
+                    return runtime_owner.bundle_runtime_policy(manifest, head, identity, development=development)
+                @staticmethod
+                def copy_signed(source, output, identity, *, development=False):
+                    runtime_owner.bundle_runtime_policy(Delivery.read(source/'runtime/runtime-manifest.json'), revision[0], identity, development=development)
+                    copied_development.append(development)
                     shutil.copytree(source, output, symlinks=True)
                     return Delivery.verify(source)
                 @staticmethod
@@ -271,7 +282,8 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 def verify(path):
                     return {'sourceRevision':revision[0], 'sourceFiles':source_binding(repo),
                             'engineInputSHA256':package.digest(engine), 'signing':'ad-hoc',
-                            'payloadSHA256':package.bundle_checksum(payload), 'runtimeManifestSHA256':'fixture', 'capabilities':{'fixture':True}}
+                            'payloadSHA256':package.bundle_checksum(payload), 'runtimeManifestSHA256':package.digest(payload/'runtime/runtime-manifest.json'),
+                            'entrypoints':{'runtime':'runtime'}, 'capabilities':{'fixture':True}}
             def capture(argv, **kwargs):
                 args = list(map(str, argv))
                 if args[:2] == ['git','-C']:
@@ -294,6 +306,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                     if mutation:
                         target={'swift':repo/'apps/macos/main.swift','resource':repo/'assets/branding/lagrangian.png','backend':payload/'backend.py','helper':payload/'helper.mjs'}[mutation]
                         target.write_text('updated '+mutation); revision[0]=str(index+1)*40
+                    write(payload / 'runtime/runtime-manifest.json', json.dumps({'source': {'sourceSHA': revision[0]}}))
                     output=root/str(index)/'Lagrangian.app'
                     args=argparse.Namespace(identity='-',version='0.1.0',delivery=payload,engine_provenance=provenance)
                     manifest=package.build_bundle(args,output,engine,'fixture prebuilt')
@@ -309,3 +322,5 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 # Same production build boundary is called after hit or miss;
                 # cache acquisition supplies only engine bytes/provenance.
                 self.assertFalse(any((root/str(i)/'Lagrangian.app').is_symlink() for i in range(5)))
+                self.assertEqual(policy_checks, [(str(i)*40, '-', False) for i in range(1,6)])
+                self.assertEqual(copied_development, [False]*5)

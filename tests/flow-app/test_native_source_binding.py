@@ -292,7 +292,10 @@ class FixedSourceBinding(unittest.TestCase):
         self.git('merge-base', '--is-ancestor', ANCHOR_DELIVERY, 'HEAD')
         for name in guide_paths:
             self.assertIn(name, owner.DELIVERY_SOURCE_PATHS)
-            expected = hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+':'+name)).hexdigest()
+            historical = hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+':'+name)).hexdigest()
+            original = hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+'^:'+name)).hexdigest()
+            self.assertNotEqual(historical, original)
+            expected = hashlib.sha256(self.git_bytes('show', 'HEAD:'+name)).hexdigest()
             self.assertEqual(m['files'][name], expected)
             self.assertEqual(m['files'][name], hashlib.sha256((self.root/name).read_bytes()).hexdigest())
             self.assertNotEqual(expected, hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+'^:'+name)).hexdigest())
@@ -308,6 +311,18 @@ class FixedSourceBinding(unittest.TestCase):
             self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',REVIEW_CODE+':'+item['path'])).hexdigest())
         self.assertEqual(m['files']['scripts/flow-app.py'],hashlib.sha256((self.root/'scripts/flow-app.py').read_bytes()).hexdigest())
         self.assertEqual(next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)['baseRevision'],DOCS_BASE)
+
+    def test_legal_guide_followup_preserves_historical_anchor_proof(self):
+        for name, note in [('docs/tinymist/flow-app.typ', '\n// Legal delivery-owned guide follow-up.\n'),
+                           ('docs/tinymist/flow-app.md', '\n<!-- Legal delivery-owned guide follow-up. -->\n')]:
+            path = self.root/name
+            path.write_text(path.read_text()+note)
+        self.commit()
+        current = self.binding()
+        for name in ['docs/tinymist/flow-app.typ', 'docs/tinymist/flow-app.md']:
+            self.assertEqual(current['files'][name], hashlib.sha256((self.root/name).read_bytes()).hexdigest())
+            self.assertNotEqual(current['files'][name], hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+':'+name)).hexdigest())
+        self.test_explicit_delivery_edit_keeps_fixed_owner_bytes()
 
     def test_added_file_needs_fixed_inventory_and_explicit_original_absence(self):
         before=self.git('rev-parse','HEAD').strip()

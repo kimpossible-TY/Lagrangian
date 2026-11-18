@@ -20,7 +20,8 @@ REPO = HERE.parents[2]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 PRODUCT = ['apps/macos/NativeReaderTextView.swift', 'apps/macos/NativeReaderSelection.swift',
            'apps/macos/NativeReaderAccessibility.swift']
-COMMON = ['apps/macos/NativeReaderDocument.swift', 'apps/macos/NativeReaderOperations.swift']
+COMMON = ['apps/macos/NativeReaderDocument.swift', 'apps/macos/NativeReaderOperations.swift',
+          'apps/macos/NativeReaderInputTextView.swift']
 
 
 def sha(path):
@@ -170,7 +171,9 @@ class CoreLongSelection(unittest.TestCase):
         argv = ['/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors', '-target', 'arm64-apple-macosx13.0',
                 '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'], *[REPO / p for p in COMMON + PRODUCT], HERE / 'TextInteractionTests.swift', '-o', cls.binary]
         result = subprocess.run(list(map(str, argv)), capture_output=True, text=True, cwd=REPO)
-        cls.commands.append(dict(argv=list(map(str, argv)), exit=result.returncode, stdout=result.stdout, stderr=result.stderr))
+        cls.commands.append(dict(argv=list(map(str, argv)), exit=result.returncode, stdout=result.stdout, stderr=result.stderr,
+                                 inputSHA256={str(p): sha(p) for p in [*[REPO / name for name in COMMON + PRODUCT], HERE / 'TextInteractionTests.swift']},
+                                 binarySHA256=sha(cls.binary) if result.returncode == 0 else None))
         save(cls.out / 'commands.json', cls.commands)
         if result.returncode: raise RuntimeError(result.stderr)
 
