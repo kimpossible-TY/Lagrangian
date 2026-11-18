@@ -283,7 +283,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     NSApp.mainMenu = main
   }
   func button(_ title: String, _ selector: Selector) -> NSButton {
-    let result = NSButton(title: title, target: self, action: selector)
+    let result = NativeDesignButton(title: title, target: self, action: selector)
     controls[selector] = result
     return result
   }
@@ -292,6 +292,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       contentRect: NSRect(x: 0, y: 0, width: 760, height: 900),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.minSize = NSSize(width: 720, height: 860)
+    NativeChrome.install(on: window)
     window.title = LagrangianIdentity.appName
     window.isReleasedWhenClosed = false
     window.center()
@@ -307,12 +308,11 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
       content.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
     ])
-    let icon = NSImageView()
-    icon.image = NSImage(named: NSImage.applicationIconName)
+    let icon = NativeBrandMarkView()
     icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 59).isActive = true
     let title = NSTextField(labelWithString: LagrangianIdentity.appName)
-    title.font = .systemFont(ofSize: 26, weight: .semibold)
+    title.font = NativeAppDesign.Typography.font(.brandTitle)
     let sub = NSTextField(labelWithString: "문서에서 프리뷰까지, 한 흐름으로.")
     sub.textColor = .secondaryLabelColor
     let heading = NSStackView(views: [title, sub])
@@ -398,6 +398,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     footer.font = .systemFont(ofSize: 11)
     footer.textColor = .secondaryLabelColor
     content.addArrangedSubview(footer)
+    NativeChrome.apply(to: window.contentView!)
   }
   func populate() {
     picker.removeAllItems()

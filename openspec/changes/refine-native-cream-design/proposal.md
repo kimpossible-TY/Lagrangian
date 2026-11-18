@@ -9,8 +9,8 @@ the AppKit app. Existing content, service and effect owners must remain intact.
 
 - NA18 adds reusable opaque AppKit surfaces, semantic button paint, chrome
   typography, preference-aware colors, and an exact three-layer vector adapter.
-- NA19 will apply these components to home/settings, reader and conversation
-  chrome, and implement the selection capsule using existing guarded operations.
+- NA19 applies these components to home/settings, reader and conversation
+  chrome, and implements the selection capsule using existing guarded operations.
 - NA20 will register new sources and assemble an isolated development app.
 - Independent review, regression, documentation and actual GUI acceptance remain
   separate follow-up gates. NA18 is source-component evidence only.
@@ -32,7 +32,7 @@ None.
 
 NA18 adds only NativeAppDesign.swift, NativeBrandMark.swift, focused tests and the
 new canonical `docs/tinymist/dev/native-cream-design.typ` with this design delta.
-No current app composition or source registry changes in NA18. No HTML, DOM,
+NA19 applies these components to current app composition; source registry remains NA20-only. No HTML, DOM,
 WKWebView, SCSS pipeline, document/PDF/math paint or new credential/effect owner.
 Existing `implement-native-reader-app` artifacts remain untouched.
 

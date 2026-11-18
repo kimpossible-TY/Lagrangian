@@ -290,6 +290,32 @@ final class NativeReaderBodyTextView: NSTextView {
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
     var logicalText: String { store.document?.blocks.map(\.displayText).joined(separator: "\n") ?? "" }
+    /// Read-only current selection geometry, clipped to the actual native viewport.
+    /// No selection, source, layout or content authority is changed by this query.
+    func visibleSelectionRects(in view: NSView) -> [NSRect] {
+        guard !isDisposed, !isCancelled, renderKey != nil, renderKey == requestedRenderKey,
+              let selection = store.selection else { return [] }
+        let visible = bodyTextView.visibleRect
+        return selection.fragments.flatMap { fragment in
+            rects(blockID: fragment.blockID, logical: fragment.rangeUTF16).compactMap { rect in
+                let clipped = rect.intersection(visible)
+                return clipped.isEmpty ? nil : bodyTextView.convert(clipped, to: view)
+            }
+        }
+    }
+
+    /// Conservative actual TextKit used bounds, including attachments, clipped
+    /// to the visible viewport. nil means geometry cannot establish empty space.
+    /// This query does not alter rendering, selection or source authority.
+    func visibleUsedContentBounds(in view: NSView) -> NSRect? {
+        guard !isDisposed, !isCancelled, renderKey != nil, renderKey == requestedRenderKey,
+              let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer else { return nil }
+        let used = manager.usedRect(for: container).offsetBy(dx: bodyTextView.textContainerOrigin.x,
+                                                           dy: bodyTextView.textContainerOrigin.y)
+        let clipped = used.intersection(bodyTextView.visibleRect)
+        return clipped.isEmpty ? .zero : bodyTextView.convert(clipped, to: view)
+    }
+
     var plainSelectedText: String? { store.selection?.fragments.map(\.exact).joined(separator: "\n") }
     var outline: [NativeReaderNode] { store.document?.blocks.flatMap(\.orderedNodes).filter { $0.kind == .heading && $0.visible } ?? [] }
 

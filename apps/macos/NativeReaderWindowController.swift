@@ -88,6 +88,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var selectionTask: Task<Void, Never>?
   private var disposed = false
   private var layoutObserver: NSObjectProtocol?
+  private var capsuleScrollObserver: NSObjectProtocol?
+  private var dismissedCapsule: NativeFloatingCapsule.Binding?
+  private var capsuleCapabilities: (NativeFloatingCapsule.Binding, [NativeFloatingCapsule.Action: String])?
+  private weak var capsuleFocusReturn: NSResponder?
   private var reflowTask: Task<Void, Never>?
   var runtime: NativeReaderRuntime?
   var copyText: (String) -> Bool = { _ in false }
@@ -138,6 +142,21 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       guard let self, !self.session.hasRecoveryCopy else { return }
       self.refresh()
     }
+    hostWindow.onCancelRecovery = { [weak self] in
+      guard let self, self.session.hasPendingRecovery else { return }
+      if self.storageIsOpening { self.cancelStorage() } else { self.session.cancel() }
+      self.hostWindow.notice.stringValue = "복원을 취소했습니다. 저장 목록에서 문서를 다시 열 수 있습니다."
+    }
+    hostWindow.capsule.onAction = { [weak self] in self?.capsuleAction($0, $1) }
+    hostWindow.capsule.onDismiss = { [weak self] binding in
+      guard let self, self.hostWindow.capsule.binding == binding else { return }
+      self.dismissedCapsule = binding; self.hostWindow.hideCapsule(); self.returnCapsuleFocus()
+    }
+    hostWindow.onRetryRecovery = { [weak self] in
+      guard let self, self.session.hasPendingRecovery, self.session.failure != nil else { return }
+      self.session.preparationChanged()
+    }
+    hostWindow.onShowCapsule = { [weak self] in self?.updateCapsule(reopen: true, focus: true) }
     hostWindow.onEditorReceipt = { [weak self] in self?.checkEditorReceipt() }
     textView.cachedObject = { [weak self] node, key in
       guard let cache = self?.cache, cache.key == key else { return nil }
@@ -212,6 +231,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     textView.postsFrameChangedNotifications = true
     layoutObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: textView, queue: .main) { [weak self] _ in
       Task { @MainActor in self?.layoutChanged() }
+    }
+    textView.scrollView.contentView.postsBoundsChangedNotifications = true
+    capsuleScrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: .main) { [weak self] notification in
+      Task { @MainActor in
+        guard let self, let clip = notification.object as? NSClipView,
+              clip === self.textView.scrollView.contentView || clip === self.originalPageView.enclosingScrollView?.contentView else { return }
+        self.updateCapsule()
+      }
     }
 
   }
@@ -639,6 +666,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   /// Reprepare only the latest layout key. Session retains incoming candidates;
   /// an accepted snapshot reflow never adopts/releases selection or changes service state.
   private func layoutChanged() {
+    updateCapsule()
     guard !disposed, !requestTicket.isCancelled else { return }
     hostWindow.refreshLocalControls()
     // The initial offscreen/AppKit layout has no retained view to invalidate.
@@ -659,13 +687,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         try Task.checkCancellation()
         guard try prepared.isCurrent() else { return }
         try prepared.adopt()
+        self.updateCapsule()
       } catch { if !Task.isCancelled { self.report(error) } }
     }
   }
 
   private func updatePresentation() {
     hostWindow.updateStatus(state: session.state, failed: session.failure != nil, allowsRefresh: !session.hasRecoveryCopy,
-                            allowsModeSwitch: !disposed && !session.hasRecoveryCopy)
+                            allowsModeSwitch: !disposed && !session.hasRecoveryCopy,
+                            pendingRecovery: session.hasPendingRecovery)
+    chatView?.refreshAuthorization()
+    updateCapsule()
   }
   private func sessionChanged() {
     guard !disposed, !requestTicket.isCancelled else { return }
@@ -695,13 +727,25 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   private func selectionChanged(_ selection: NativeReaderSelection?, context: NativeReaderRequestContext) {
     guard visibleMode == .nativeReflow else { return }
+    updateCapsule()
     actionTasks.values.forEach { $0.cancel() }
     let previous = selectionTask
     previous?.cancel()
     guard !session.isReadOnly, let actions else { return }
     selectionTask = Task {
       await previous?.value
-      do { try Task.checkCancellation(); let owner = try await actions(); try Task.checkCancellation(); try await owner.updateSelection(selection, context: context) }
+      do { try Task.checkCancellation(); let owner = try await actions(); try Task.checkCancellation(); try await owner.updateSelection(selection, context: context)
+        if let selection {
+          let binding = NativeFloatingCapsule.Binding(context: context, ticket: selection.ticket, originalPDF: false)
+          let transport = owner.transport
+          let attachment = transport.attachment
+          var unavailable = [NativeFloatingCapsule.Action: String]()
+          if attachment.editorAttachment == nil || attachment.editorConsentID == nil { unavailable[.editor] = "먼저 홈에서 편집기를 연결하세요." }
+          if attachment.editorAttachment == nil || attachment.editorConsentID != nil { unavailable[.highlight] = "현재 연결은 원문 쓰기 권한을 제공하지 않습니다." }
+          guard self.store.selection?.ticket == selection.ticket, self.session.context == context else { return }
+          self.capsuleCapabilities = (binding, unavailable); self.updateCapsule()
+        }
+      }
       catch { if !Task.isCancelled { report(error) } }
     }
   }
@@ -775,6 +819,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   private func chat(_ command: NativeReaderChatCommand, context: NativeReaderRequestContext) {
     guard visibleMode == .nativeReflow else { report(NativeOriginalPageError.unsupported("pdf-source-actions-unavailable")); return }
+    if case .open(let selection) = command {
+      presentLocalComposer(selection, context: context); return
+    }
     guard let actions else { report(NativeReaderOperationFailure.unavailable); return }
     let selection = selectionTask
     guard actionTasks.count < 8 else { report(NativeReaderOperationFailure.unavailable); return }
@@ -792,6 +839,95 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         chat.presentAccount(try await owner.account(context: context))
       } catch { if !Task.isCancelled { report(error) } }
     }
+  }
+
+  private func returnCapsuleFocus() {
+    guard let window = hostWindow.window else { return }
+    if let view = capsuleFocusReturn as? NSView, view.window === window, !view.isHiddenOrHasHiddenAncestor {
+      window.makeFirstResponder(view)
+    } else { window.makeFirstResponder(visibleMode == .nativeReflow ? textView.bodyTextView : originalPageView) }
+  }
+  private func updateCapsule(reopen: Bool = false, focus: Bool = false) {
+    guard !disposed, !requestTicket.isCancelled, let context = session.context,
+          let root = hostWindow.window?.contentView else { hostWindow.hideCapsule(); return }
+    let binding: NativeFloatingCapsule.Binding
+    var unavailable = [NativeFloatingCapsule.Action: String]()
+    let rects: [NSRect], viewport: NSRect
+    if visibleMode == .originalPages {
+      guard let selected = originalPageView.selected, let ticket = originalPageView.store.selection?.0,
+            selected.snapshotID == originalPageView.store.accepted?.id,
+            let rect = try? originalPageView.store.viewRect(forPageRect: selected.pageBounds),
+            let clip = originalPageView.enclosingScrollView?.contentView else { hostWindow.hideCapsule(); return }
+      binding = .init(context: context, ticket: ticket, originalPDF: true)
+      viewport = clip.convert(clip.bounds, to: root)
+      rects = [originalPageView.convert(rect, to: root).intersection(viewport)].filter { !$0.isEmpty }
+      for action in [NativeFloatingCapsule.Action.source, .highlight, .ask, .editor] { unavailable[action] = "원본 PDF는 복사·검색·탐색만 지원합니다." }
+    } else {
+      guard let selection = store.selection, let document = store.document,
+            textView.renderKey == textView.requestedRenderKey else { hostWindow.hideCapsule(); return }
+      binding = .init(context: context, ticket: selection.ticket, originalPDF: false)
+      rects = textView.visibleSelectionRects(in: root)
+      viewport = textView.scrollView.contentView.convert(textView.scrollView.contentView.bounds, to: root)
+      let eligible = (try? selection.validate(in: document)) != nil
+      let live = (try? session.authorize(context, selection: selection.ticket)) != nil && actions != nil
+      if !eligible || !live {
+        for action in [NativeFloatingCapsule.Action.source, .highlight, .ask, .editor] {
+          unavailable[action] = !eligible ? "원문·대화는 최대 32개 블록을 지원합니다. 전체 선택은 유지됩니다." : "오프라인·복원·준비 중에는 원문·대화를 사용할 수 없습니다."
+        }
+      } else if capsuleCapabilities?.0 == binding { unavailable = capsuleCapabilities!.1 }
+      else { unavailable[.editor] = "편집기 연결 상태를 확인 중입니다."; unavailable[.highlight] = "원문 쓰기 권한을 확인 중입니다." }
+    }
+    // Selection changes invalidate Send through the existing Session authority,
+    // but an unsent local draft stays visible until explicit dismissal/replacement.
+    chatView?.refreshAuthorization()
+    if reopen { dismissedCapsule = nil }
+    guard dismissedCapsule != binding, !rects.isEmpty else { hostWindow.hideCapsule(); return }
+    let summary = unavailable[.ask] ?? "선택한 내용 · 질문하기는 작성기만 엽니다. 명시 전송 전에는 요청하지 않습니다."
+    hostWindow.capsule.present(binding, unavailable: unavailable, summary: summary)
+    hostWindow.placeCapsule(viewport: viewport, avoiding: rects)
+    if focus { capsuleFocusReturn = hostWindow.window?.firstResponder; hostWindow.capsule.focusFirstAction() }
+  }
+  private func capsuleAction(_ binding: NativeFloatingCapsule.Binding, _ action: NativeFloatingCapsule.Action) {
+    guard hostWindow.capsule.binding == binding, session.context == binding.context,
+          (visibleMode == .originalPages) == binding.originalPDF else { return }
+    if binding.originalPDF {
+      guard originalPageView.store.selection?.0 == binding.ticket, action == .copy else { return }
+      _ = originalPageView.copyDisplay(); return
+    }
+    guard store.selection?.ticket == binding.ticket else { return }
+    if action == .copy { _ = textView.copyPlainText(); return }
+    guard (try? session.authorize(binding.context, selection: binding.ticket)) != nil else { return }
+    switch action {
+    case .copy: break
+    case .source: _ = textView.requestSource(.excerpt)
+    case .highlight: _ = textView.requestSource(.highlight)
+    case .editor: hostWindow.locateSelected()
+    case .ask: textView.openChat()
+    }
+  }
+  private func presentLocalComposer(_ selection: NativeReaderSelection, context: NativeReaderRequestContext) {
+    do {
+      try session.authorize(context, selection: selection.ticket)
+      guard let document = store.document, let actions else { throw NativeReaderOperationFailure.unavailable }
+      try selection.validate(in: document)
+      capsuleFocusReturn = hostWindow.window?.firstResponder
+      chatView?.dispose(); chatView?.removeFromSuperview()
+      let chat = NativeReaderChatView(resolveActions: actions, context: context, selection: selection, authorize: { [weak self] in
+        guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
+        try self.session.authorize(context, selection: selection.ticket)
+      })
+      chatView = chat; chatContext = context
+      chat.onDismiss = { [weak self, weak chat] in if let chat { self?.dismissComposer(chat) } }
+      chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
+      if let key = acceptedPaintKey { configureChatMath(chat, key: key) }
+      hostWindow.attachChat(chat); dismissedCapsule = .init(context: context, ticket: selection.ticket, originalPDF: false)
+      hostWindow.hideCapsule(); hostWindow.window?.makeFirstResponder(chat.composer)
+    } catch { report(error) }
+  }
+  private func dismissComposer(_ chat: NativeReaderChatView) {
+    guard chatView === chat else { return }
+    rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); chatView = nil; chatContext = nil
+    returnCapsuleFocus()
   }
 
   /// Compose an existing owner's accepted conversation; no Send/account action is implicit.
@@ -847,6 +983,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func cancel() {
+    hostWindow.hideCapsule()
     cancelStorage()
     // A closed ticket may be cancelled again by its outer lifecycle owner.
     // Do not advance store authority or invalidate another frame twice.
@@ -861,7 +998,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     chatView?.dispose(); session.cancel()
   }
   func dispose() {
+    if let observer = capsuleScrollObserver { NotificationCenter.default.removeObserver(observer); capsuleScrollObserver = nil }
     if let observer = layoutObserver { NotificationCenter.default.removeObserver(observer); layoutObserver = nil }
+    if let observer = capsuleScrollObserver { NotificationCenter.default.removeObserver(observer); capsuleScrollObserver = nil }
     cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose()
     let revoke = revokeEditorConsent; Task { await revoke() }
     hostWindow.window?.close() }
@@ -871,8 +1010,18 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   let reader: NativeReaderTextView
   let notice = NSTextField(wrappingLabelWithString: "원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
   var onRefresh: (() -> Void)?
+  var onCancelRecovery: (() -> Void)?
+  var onRetryRecovery: (() -> Void)?
+  var onShowCapsule: (() -> Void)?
+  let capsule = NativeFloatingCapsule()
+  private var capsuleDocked = false
+  private var capsuleConstraints = [NSLayoutConstraint]()
+  private var pendingRecovery = false
+  private let retryRecoveryButton = NativeDesignButton(title: "복원 재시도", target: nil, action: nil)
+  private let cancelRecoveryButton = NativeDesignButton(title: "복원 취소", target: nil, action: nil)
+  private let brandMark = NativeBrandMarkView()
   private var refreshButton: NSButton?
-  private let toolsButton = NSButton(title: "읽기 도구", target: nil, action: nil)
+  private let toolsButton = NativeDesignButton(title: "읽기 도구", target: nil, action: nil)
   private let modeStatus = NSTextField(wrappingLabelWithString: "현재: 본문")
   private let selectionStatus = NSTextField(wrappingLabelWithString: "문서를 준비하고 있습니다…")
   private let auxiliary = NSStackView()
@@ -903,23 +1052,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   let contents = NSPopUpButton()
   let theme = NSPopUpButton()
   let textSize = NSPopUpButton()
-  private let applyDisplay = NSButton(title: "Apply Display", target: nil, action: nil)
-  private let cancelDisplay = NSButton(title: "Cancel Display", target: nil, action: nil)
+  private let applyDisplay = NativeDesignButton(title: "Apply Display", target: nil, action: nil)
+  private let cancelDisplay = NativeDesignButton(title: "Cancel Display", target: nil, action: nil)
   private var displayPreview: (document: NativeReaderDocument?, appearance: NativeReaderTextAppearance, theme: Int, windowAppearance: NSAppearance?, anchor: NativeReaderViewportAnchor?)?
   private var pendingDisplayViewport: (NativeReaderDocument?, NativeReaderViewportAnchor, NativeReaderTextAppearance)?
   private var committedTheme = 0
   private var appearanceObservation: NSKeyValueObservation?
 
   let savedDocuments = NSPopUpButton()
-  private let back = NSButton(title: "Back", target: nil, action: nil)
-  private let undoReview = NSButton(title: "Undo review", target: nil, action: nil)
-  private let clearReview = NSButton(title: "Clear review", target: nil, action: nil)
-  private let exportPDF = NSButton(title: "Export PDF", target: nil, action: nil)
-  private let saveOffline = NSButton(title: "Save Offline", target: nil, action: nil)
-  private let refreshSaved = NSButton(title: "Refresh Saved", target: nil, action: nil)
-  private let openSaved = NSButton(title: "Open Saved", target: nil, action: nil)
-  private let cancelStorage = NSButton(title: "Cancel", target: nil, action: nil)
-  private let manageAccount = NSButton(title: "Manage Account", target: nil, action: nil)
+  private let back = NativeDesignButton(title: "Back", target: nil, action: nil)
+  private let undoReview = NativeDesignButton(title: "Undo review", target: nil, action: nil)
+  private let clearReview = NativeDesignButton(title: "Clear review", target: nil, action: nil)
+  private let exportPDF = NativeDesignButton(title: "Export PDF", target: nil, action: nil)
+  private let saveOffline = NativeDesignButton(title: "Save Offline", target: nil, action: nil)
+  private let refreshSaved = NativeDesignButton(title: "Refresh Saved", target: nil, action: nil)
+  private let openSaved = NativeDesignButton(title: "Open Saved", target: nil, action: nil)
+  private let cancelStorage = NativeDesignButton(title: "Cancel", target: nil, action: nil)
+  private let manageAccount = NativeDesignButton(title: "Manage Account", target: nil, action: nil)
   private let accountStatus = NSTextField(wrappingLabelWithString: "계정")
   private let recoveredDraftPicker = NSPopUpButton()
   private let recoveredDraftText = NSTextField(wrappingLabelWithString: "")
@@ -951,16 +1100,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false; window.delegate = self; window.title = "Lagrangian · 읽기"
+    NativeChrome.install(on: window)
     stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
     auxiliary.orientation = .vertical; auxiliary.alignment = .leading; auxiliary.spacing = 6
-    func row(_ views: [NSView], in parent: NSStackView = stack) -> NativeReaderControlRow {
-      let row = NativeReaderControlRow(views)
+    func row(_ views: [NSView], in parent: NSStackView = stack) -> NativeChromeControlRow {
+      let row = NativeChromeControlRow(views)
       parent.addArrangedSubview(row); row.translatesAutoresizingMaskIntoConstraints = false
       row.widthAnchor.constraint(equalTo: parent.widthAnchor).isActive = true
       return row
     }
     func command(_ title: String, _ action: Selector) -> NSButton {
-      let button = NSButton(title: title, target: self, action: action)
+      let button = NativeDesignButton(title: title, target: self, action: action)
       button.identifier = NSUserInterfaceItemIdentifier(NSStringFromSelector(action))
       button.setAccessibilityLabel(title)
       return button
@@ -972,7 +1122,15 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     toolsButton.keyEquivalent = "t"; toolsButton.keyEquivalentModifierMask = [.command, .option]
     toolsButton.setAccessibilityLabel("읽기 도구 펼치기")
     let refresh = command("새로고침", #selector(refreshDocument)); refreshButton = refresh
-    _ = row([reflow, pdf, toolsButton, refresh])
+    brandMark.widthAnchor.constraint(equalToConstant: 28).isActive = true
+    brandMark.heightAnchor.constraint(equalToConstant: 26).isActive = true
+    _ = row([brandMark, reflow, pdf, toolsButton, refresh, command("선택 작업", #selector(showSelectionActions))])
+    retryRecoveryButton.target = self; retryRecoveryButton.action = #selector(retryRecovery)
+    cancelRecoveryButton.target = self; cancelRecoveryButton.action = #selector(cancelRecovery)
+    retryRecoveryButton.identifier = NSUserInterfaceItemIdentifier("retryRecovery")
+    cancelRecoveryButton.identifier = NSUserInterfaceItemIdentifier("cancelRecovery")
+    retryRecoveryButton.isHidden = true; cancelRecoveryButton.isHidden = true
+    _ = row([retryRecoveryButton, cancelRecoveryButton])
     contents.setAccessibilityLabel("목차"); contents.identifier = NSUserInterfaceItemIdentifier("contents")
     contents.target = self; contents.action = #selector(outlineSelected)
     back.title = "돌아가기"; back.target = self; back.action = #selector(returnFromReference)
@@ -1066,11 +1224,44 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -12),
       reader.widthAnchor.constraint(equalTo: stack.widthAnchor),
       reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220)])
+    NativeChrome.apply(to: window.contentView!)
+    toolsScroll.drawsBackground = false
     self.window = window
     appearanceObservation = window.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
       Task { @MainActor in self?.automaticAppearanceChanged() }
     }
   }
+  func hideCapsule() {
+    capsule.hide()
+    if capsuleDocked {
+      NSLayoutConstraint.deactivate(capsuleConstraints); capsuleConstraints = []
+      stack.removeArrangedSubview(capsule); capsule.removeFromSuperview(); capsuleDocked = false
+    }
+  }
+  func placeCapsule(viewport: NSRect, avoiding rects: [NSRect]) {
+    guard let root = window?.contentView else { return }
+    let size = capsule.preferredSize(width: min(560, max(120, viewport.width - 16)))
+    // Only renderer-verified empty space may host an overlay. PDF page content
+    // and unavailable/stale geometry are conservatively occupied in full.
+    let occupied: [NSRect]
+    if currentMode == .originalPages { occupied = [viewport] }
+    else if let used = reader.visibleUsedContentBounds(in: root) { occupied = used.isEmpty ? [] : [used] }
+    else { occupied = [viewport] }
+    if !capsuleDocked, let frame = NativeFloatingCapsule.placement(size: size, viewport: viewport.insetBy(dx: 8, dy: 8), avoiding: rects, occupied: occupied) {
+      if capsule.superview !== root { capsule.removeFromSuperview(); root.addSubview(capsule) }
+      capsule.translatesAutoresizingMaskIntoConstraints = true; capsule.frame = frame
+    } else if !capsuleDocked {
+      capsule.removeFromSuperview()
+      let index = stack.arrangedSubviews.firstIndex(where: { $0 === reader }) ?? stack.arrangedSubviews.count
+      stack.insertArrangedSubview(capsule, at: index); capsule.translatesAutoresizingMaskIntoConstraints = false
+      capsuleConstraints = [capsule.widthAnchor.constraint(equalTo: stack.widthAnchor), capsule.heightAnchor.constraint(equalToConstant: size.height)]
+      NSLayoutConstraint.activate(capsuleConstraints); capsuleDocked = true
+    } else { capsuleConstraints.last?.constant = size.height }
+    capsule.layoutSubtreeIfNeeded()
+  }
+  @objc func showSelectionActions() { onShowCapsule?() }
+  @objc func retryRecovery() { if pendingRecovery && failedState { onRetryRecovery?() } }
+  @objc func cancelRecovery() { if pendingRecovery { onCancelRecovery?() } }
   func present() {
     guard show, NSApp.activationPolicy() != .prohibited else { return }
     if avoidActivation { window?.orderFrontRegardless() } else { showWindow(nil) }
@@ -1088,12 +1279,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     let scroll = NativeReaderPageScrollView()
     scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.autohidesScrollers = true
     scroll.documentView = view; originalScroll = scroll
+    scroll.contentView.postsBoundsChangedNotifications = true
     view.isHidden = true; scroll.isHidden = true; stack.addArrangedSubview(scroll)
     scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
     scroll.translatesAutoresizingMaskIntoConstraints = false
     scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
   }
   func displayMode(_ mode: NativeReaderWindowController.Mode) {
+    hideCapsule()
     currentMode = mode
     retainedFailure = false
     if requestedMode == mode { requestedMode = nil; requestWasHeld = false }
@@ -1123,24 +1316,33 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     requestedMode = mode == currentMode ? nil : mode; requestWasHeld = reader.store.selection != nil || original?.selected != nil
     refreshStatus()
   }
-  func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true, allowsModeSwitch: Bool = true) {
+  func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true, allowsModeSwitch: Bool = true, pendingRecovery: Bool = false) {
+    self.pendingRecovery = pendingRecovery
+    cancelRecoveryButton.isHidden = !pendingRecovery
+    retryRecoveryButton.isHidden = !pendingRecovery || !failed
     latestState = state; failedState = failed; refreshButton?.isEnabled = allowsRefresh
     self.allowsModeSwitch = allowsModeSwitch
     for button in modeButtons { button.isEnabled = allowsModeSwitch }
     if !allowsModeSwitch { requestedMode = nil; requestWasHeld = false }
+    brandMark.phase = failed ? .error : (state == .loading ? .busy : (state == .offline ? .offline : .idle))
     refreshStatus()
   }
   func showRetainedFailure() { retainedFailure = true; refreshStatus() }
   private func refreshStatus() {
     func name(_ mode: NativeReaderWindowController.Mode) -> String { mode == .nativeReflow ? "본문" : "원본 PDF" }
     for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? currentMode == .nativeReflow : currentMode == .originalPages) ? .on : .off }
+    for button in modeButtons { (button as? NativeDesignButton)?.designRole = button.state == .on ? .primary : .standard }
     modeStatus.stringValue = "현재: " + name(currentMode) + (requestedMode.map { " · 전환 요청: " + name($0) } ?? "")
     if latestState == .disposed {
       selectionStatus.stringValue = "읽기 창이 닫혀 모드를 전환할 수 없습니다."
+    } else if pendingRecovery && (retainedFailure || failedState) {
+      selectionStatus.stringValue = "복원하지 못했습니다. " + (reader.store.document == nil ? "" : "이전 읽기 결과를 표시 중입니다. ") + "‘복원 재시도’ 또는 ‘복원 취소’ 후 저장 문서를 다시 여세요. 원문·대화는 사용할 수 없습니다."
+    } else if pendingRecovery && latestState == .loading {
+      selectionStatus.stringValue = "저장 문서를 복원 준비 중입니다… 이전 읽기 결과는 유지됩니다. ‘복원 취소’로 중단할 수 있습니다."
+    } else if retainedFailure || failedState {
+      selectionStatus.stringValue = (reader.store.document == nil ? "문서를 불러오지 못했습니다. " : "이전 읽기 결과를 표시 중입니다. ") + (refreshButton?.isEnabled == true ? "최신 결과를 보려면 ‘새로고침’을 누르세요." : "저장 문서를 다시 열어 복원하세요.")
     } else if !allowsModeSwitch {
       selectionStatus.stringValue = "오프라인 복원본에서는 모드를 전환할 수 없습니다. 원문·대화 작업은 사용할 수 없습니다."
-    } else if retainedFailure || failedState {
-      selectionStatus.stringValue = reader.store.document == nil ? "문서를 불러오지 못했습니다. ‘새로고침’을 누르세요." : "이전 읽기 결과를 표시 중입니다. 최신 결과를 보려면 ‘새로고침’을 누르세요."
     } else if let requestedMode {
       let next = name(requestedMode)
       if reader.store.selection != nil { selectionStatus.stringValue = "본문에서 선택한 내용이 있어 전환을 보류합니다. ‘선택 해제’ 후 ‘\(next)’ 버튼을 다시 누르세요." }
@@ -1225,7 +1427,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   private func invalidateControlLayout() {
     func invalidate(_ view: NSView) {
-      if view is NativeReaderControlRow { view.invalidateIntrinsicContentSize(); view.needsLayout = true }
+      if view is NativeChromeControlRow { view.invalidateIntrinsicContentSize(); view.needsLayout = true }
       for child in view.subviews { invalidate(child) }
     }
     invalidate(stack)
@@ -1356,42 +1558,5 @@ struct NativeReaderFixtureProvider: NativeReaderDocumentProviding {
     let value = try await load()
     guard value.identity == context.target else { throw NativeReaderContractError.wrongTarget }
     return value.rebinding(generation: context.generation)
-  }
-}
-
-
-/// Wrapping layout for repeated native command groups. No DOM/CSS policy or
-/// hidden duplicate commands; actual controls participate in native key loops.
-@MainActor private final class NativeReaderControlRow: NSView {
-  private var lastHeight: CGFloat = 0
-  override var isFlipped: Bool { true }
-  init(_ controls: [NSView]) { super.init(frame: .zero); for view in controls { addSubview(view) } }
-  required init?(coder: NSCoder) { nil }
-  private func arrange(apply: Bool) -> CGFloat {
-    let width = max(1, bounds.width), gap: CGFloat = 6
-    var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-    for view in subviews where !view.isHidden {
-      var size = view.fittingSize
-      if let popup = view as? NSPopUpButton {
-        size.width = min(280, size.width); popup.toolTip = popup.titleOfSelectedItem
-      }
-      size.width = min(width, max(32, size.width)); size.height = max(24, size.height)
-      if let text = view as? NSTextField, text.cell?.wraps == true {
-        size.height = max(size.height, text.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: size.width, height: 10000)).height)
-      }
-      if x > 0 && x + size.width > width { x = 0; y += rowHeight + gap; rowHeight = 0 }
-      if apply { view.frame = NSRect(origin: NSPoint(x: x, y: y), size: size) }
-      x += size.width + gap; rowHeight = max(rowHeight, size.height)
-    }
-    return y + rowHeight
-  }
-  override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: arrange(apply: false)) }
-  override func layout() {
-    super.layout(); let height = arrange(apply: true)
-    if abs(lastHeight-height) > 0.5 { lastHeight = height; invalidateIntrinsicContentSize() }
-  }
-  override func setFrameSize(_ size: NSSize) {
-    let changed = frame.width != size.width; super.setFrameSize(size)
-    if changed { invalidateIntrinsicContentSize(); needsLayout = true }
   }
 }

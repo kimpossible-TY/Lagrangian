@@ -6,11 +6,11 @@
 - [x] 1.4 Compile and run focused production AppKit tests; preserve exact commands, input hashes, failures and bounded evidence.
 - [x] 1.5 Compile new canonical Typst, strictly validate this delta, commit only authorized files and bind handoff to that commit.
 
-## NA19 — explicit PM follow-up only; not started
+## NA19 — explicitly resumed in the same design session
 
-- [ ] 2.1 Apply shared chrome to home/settings, reader and conversation while preserving content and operation owners.
-- [ ] 2.2 Implement selection capsule lifetime, placement, focus and guarded composer behavior with existing freshness/effect policy.
-- [ ] 2.3 Preserve UI7-C1 failure precedence, permissions, offline and explicit-Send gates; verify affected behavior.
+- [x] 2.1 Apply shared chrome to home/settings, reader and conversation while preserving content and operation owners.
+- [x] 2.2 Implement selection capsule lifetime, placement, focus and guarded composer behavior with existing freshness/effect policy.
+- [x] 2.3 Preserve UI7-C1 and UI9-C1 loading/failure precedence, permissions, offline and explicit-Send gates; verify affected behavior.
 
 ## NA20 — explicit PM follow-up only; not started
 
