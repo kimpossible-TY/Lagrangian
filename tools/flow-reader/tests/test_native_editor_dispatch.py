@@ -49,7 +49,7 @@ class CompilerEditorFixture(unittest.TestCase):
         self.evidence.mkdir(mode=0o700)
         self.work = Path(tempfile.mkdtemp(prefix='na15-', dir=os.environ['TMPDIR'])).resolve()
         # Retain isolated fixture bytes for independent oracle inspection.
-        self.root = self.work / 'source'; self.root.mkdir()
+        self.root = self.work / getattr(self, 'source_directory', 'source'); self.root.mkdir()
         self.entry = self.root / getattr(self,"entry_filename","한글' main.typ")
         self.original = '= Native fixture\n\nPréface 한글 target passage.\n\nOther independent paragraph.\n\n#include \"included.typ\"\n'
         if 'SF1_' in self._testMethodName or 'SF2_' in self._testMethodName:
@@ -75,8 +75,9 @@ class CompilerEditorFixture(unittest.TestCase):
         self.assertTrue(self.state.report.get('contentGatePassed'), self.state.report)
         self.assertIsNotNone(self.state.revision)
         self.save('compiler-report.json', self.state.report)
-        setup = 'lua vim.opt.rtp:append('+json.dumps(str(REPO/'editors/neovim'))+"); require('tinymist.reader').setup({auto_open=false, root="+json.dumps(str(self.root))+'})'
-        self.editor = subprocess.Popen([shutil.which('nvim'), '--headless', '-u', 'NONE', '-i', 'NONE', '-n', '--listen', str(self.socket), '-c', setup, str(self.entry)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        setup = 'lua vim.opt.rtp:append('+json.dumps(str(REPO/'editors/neovim'))+"); require('tinymist.reader').setup({auto_open=false, root="+json.dumps(str(self.root),ensure_ascii=False)+'})'
+        editor_log=(self.evidence/'editor-stderr.log').open('w');self.addCleanup(editor_log.close)
+        self.editor = subprocess.Popen([shutil.which('nvim'), '--headless', '-u', 'NONE', '-i', 'NONE', '-n', '--listen', str(self.socket), '-c', setup, str(self.entry)], stdout=subprocess.DEVNULL, stderr=editor_log)
         self.addCleanup(self.stop_editor)
         deadline = time.monotonic()+5
         while not self.socket.exists() and self.editor.poll() is None and time.monotonic()<deadline:
@@ -159,6 +160,51 @@ class CompilerEditorFixture(unittest.TestCase):
         self.assertEqual(sha(self.dependency),self.dependency_hash)
         self.assertEqual(self.oracle(),before)
         self.assertEqual(self.entry.read_bytes(),self.original.encode() if source is None else source)
+
+
+class NativeManagerEditorIdentityTests(CompilerEditorFixture):
+    source_directory = "프로젝트 ' space"
+
+    def test_unicode_manager_attachment_to_actual_http_and_same_editor(self):
+        import unicodedata
+        from test_native_manager_identity import ReaderManager
+        self.assertTrue(self.rpc("return package.loaded['tinymist.reader'] ~= nil"),'actual Unicode Lua setup must load unchanged owner')
+        profile=dict(id='fixture',root=str(self.root),entry=self.entry.name,port=self.server.server_port)
+        class Owned(ReaderManager):
+            def profiles(manager):return [profile, *manager.extra_profiles]
+            def job_pid(manager, _profile):return self.state.focus.service['pid']
+            def control(manager,*_args):raise AssertionError('No service lifecycle operation allowed')
+        manager=Owned(self.work/'manager-data',self.work/'agents');manager.extra_profiles=[]
+        nfd=lambda value:unicodedata.normalize('NFD',str(value))
+        self.assertTrue(self.root.samefile(nfd(self.root)))
+        self.assertTrue(self.entry.samefile(Path(nfd(self.root))/nfd(self.entry.name)))
+        before_record=self.record_path.read_bytes()
+        plan=manager.attach(nfd(self.root),nfd(self.entry.name),editor_server=str(self.socket),
+            nvim=shutil.which('nvim'),owner_pid=self.editor.pid,control_file=str(self.control),native_editor_consent=True)
+        self.save('manager-attachment.json',dict(plan=plan,registered=profile,suppliedRoot=nfd(self.root),suppliedEntry=nfd(self.entry.name),sameFile=True,
+            fake=['configured profile inventory','managed PID observation'],real=['filesystem stat/content','ReaderManager match/attach','production HTTP','private editor registration','headless Neovim']))
+        self.assertEqual(plan['documentID'],self.state.document_id)
+        self.assertEqual(plan['service'],self.state.focus.service)
+        self.assertEqual(plan['nativeEditorActions'],1)
+        self.assertNotEqual(plan['editorAttachment'],self.token)
+        self.assertIsNone(self.state.editor_attachments.resolve(plan['editorAttachment']))
+        payload={**self.request,'editorAttachment':plan['editorAttachment'],'viewID':str(uuid4())}
+        self.assertEqual(self.action('sync',payload)['status'],'ready')
+        self.assertEqual(self.action('prepare',payload)['status'],'ready')
+        self.assertEqual(self.action('jump',payload)['status'],'jumped')
+        actual=self.oracle();self.save('actual-editor-after.json',actual)
+        self.assertEqual((actual['file'],actual['line'],actual['columnUTF8']),(str(self.entry),3,len('Préface 한글 '.encode())))
+        self.assertEqual(actual['buffers'],self.before['buffers']);self.assertEqual(sha(self.entry),hashlib.sha256(self.original.encode()).hexdigest())
+        self.assertEqual(sha(self.dependency),self.dependency_hash)
+        manager.extra_profiles=[{**profile,'id':'second','root':nfd(self.root),'entry':nfd(self.entry.name)}]
+        with self.assertRaisesRegex(ValueError,'Multiple'):manager.attach(nfd(self.root),nfd(self.entry.name))
+        self.assertEqual(manager.match_document(nfd(self.root),nfd(self.entry.name),'fixture'),profile)
+        with self.assertRaises(ValueError):manager.attach(nfd(self.root),'different.typ')
+        self.assertEqual(self.oracle(),actual)
+        manager.extra_profiles=[]
+        self.assertEqual(manager.native_editor_local(nfd(self.root),nfd(self.entry.name),plan['editorAttachment']),{'released':True})
+        self.assertFalse(Path(plan['attachmentFile']).exists());self.assertEqual(self.record_path.read_bytes(),before_record)
+        self.save('identity-effect-oracle.json',dict(actual=actual,sourceSHA256=sha(self.entry),dependencySHA256=sha(self.dependency),originalTokenPreserved=True,newTokenRetired=True,ambiguousAndOtherFileEffects=0))
 
 
 class NativeEditorDispatchTests(CompilerEditorFixture):

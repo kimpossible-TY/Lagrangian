@@ -104,3 +104,11 @@ or close official final GUI/VO/OS13/live/packaging acceptance.
 - [ ] 12.3 Make the owned fixture manager argv-only with root/marker/symlink negatives.
 - [ ] 12.4 Align V301–V306 canonical/generated docs and strict contracts; freeze corrections for separately bound intermediate app production (actual artifact results remain in the external handoff).
 - [ ] 12.5 Correct SF1/SF2, verify the actual queued effect gate and production descriptor provenance with exact own-token/other-token lifetime evidence; keep GUI and NA16 acceptance open.
+
+
+## 13. v5 Unicode identity and narrow feedback source component
+
+- [x] 13.1 Preserve frozen d7 filesystem counterexamples, implement canonical-equivalent actual identity/scope matching and exact withdrawal-only cleanup, and verify positive/negative filesystem policy.
+- [x] 13.2 Verify actual manager attachment/HTTP/headless editor effect and affected shared/native lease guards; compare offscreen control semantics with frozen d7, then verify loading/empty/error/ready/isolated-busy feedback.
+- [x] 13.3 Validate affected Typst/HTML/generated/OpenSpec and Swift/macOS13 inputs, commit a clean component and report exact Git-blob delivery delta with immutable v4 evidence.
+- [ ] 13.4 PM separately integrates/registers/builds this fixed component and obtains actual GUI/visual acceptance; NA16 and full feature acceptance remain independent.

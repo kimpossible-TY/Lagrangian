@@ -187,6 +187,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let picker = NSPopUpButton()
   let status = NSTextField(labelWithString: "프로젝트를 선택하세요")
   let detail = NSTextField(wrappingLabelWithString: "")
+  let homeSummary = NSTextField(wrappingLabelWithString: "")
   let activity = NSProgressIndicator()
   var controls: [Selector: NSButton] = [:]
   var fields: [String: NSTextField] = [:]
@@ -249,9 +250,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       ("Connect Editor…", #selector(connectEditor), ""),
       ("Disconnect Editor", #selector(disconnectEditor), ""),
       ("프로젝트 설정", #selector(showSettings), ""),
-      ("선택한 프로젝트 시작", #selector(start), ""),
-      ("선택한 프로젝트 중지", #selector(stop), ""),
-      ("선택한 프로젝트 재시작", #selector(restart), ""),
+      ("선택한 프로젝트 서비스 시작", #selector(start), ""),
+      ("선택한 프로젝트 서비스 중지", #selector(stop), ""),
+      ("선택한 프로젝트 서비스 재시작", #selector(restart), ""),
       ("로그 보기", #selector(openLogs), ""),
       ("사용·업데이트·복구 안내", #selector(guide), ""),
       ("앱 정보", #selector(about), ""),
@@ -335,10 +336,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     content.addArrangedSubview(
       NSStackView(views: [
         button("읽기 시작", #selector(openPreview)), button("외부 Reader", #selector(openExternalPreview)),
-        button("주소 복사", #selector(copyURL)),
-        button("시작", #selector(start)), button("중지", #selector(stop)),
-        button("재시작", #selector(restart)), button("로그", #selector(openLogs)),
-        button("오프라인 문서", #selector(openOffline)),
+        button("주소 복사", #selector(copyURL)), button("오프라인 문서", #selector(openOffline)),
+      ]))
+    content.addArrangedSubview(
+      NSStackView(views: [
+        button("서비스 시작", #selector(start)), button("서비스 중지", #selector(stop)),
+        button("서비스 재시작", #selector(restart)), button("로그", #selector(openLogs)),
       ]))
     controls[#selector(openPreview)]?.keyEquivalent = "\r"
     let definitions = [
@@ -363,8 +366,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     tabs.tabViewType = .topTabsBezelBorder
     let home = NSTabViewItem(identifier: "home")
     home.label = "홈"
-    let summary = NSTextField(wrappingLabelWithString: "프로젝트를 선택하고 읽기를 시작하세요. 문서 창은 앱 안에서 열립니다. 외부 Reader는 기존 프리뷰를 엽니다.")
-    home.view = summary
+    home.view = homeSummary
     let project = NSTabViewItem(identifier: "settings")
     project.label = "프로젝트 설정"
     project.view = settingsPanel
@@ -454,6 +456,21 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     login.isEnabled = enabled(#selector(toggleLogin))
     for field in fields.values { field.isEnabled = active != nil && !mutating }
     for (action, control) in controls { control.isEnabled = enabled(action) }
+    if mutating {
+      homeSummary.stringValue = settings.profiles.isEmpty
+        ? "프로젝트 설정을 불러오는 중입니다. 준비가 끝나면 프로젝트를 선택하고 읽기를 시작할 수 있습니다. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
+        : "프로젝트 설정을 확인하고 저장하는 중입니다. 작업이 끝날 때까지 기다려 주세요. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
+    } else if snapshot?.phase == .failed {
+      homeSummary.stringValue = active == nil
+        ? "설정을 확인하는 중 오류가 발생했습니다. 위의 오류 내용을 확인하세요. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
+        : "위의 오류와 프로젝트 설정을 확인한 뒤 다시 읽기를 시작할 수 있습니다. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
+    } else if snapshot?.isBusy == true {
+      homeSummary.stringValue = "문서를 준비하고 있습니다. 준비가 끝날 때까지 기다려 주세요."
+    } else if active == nil {
+      homeSummary.stringValue = "프로젝트를 추가하면 읽기를 시작할 수 있습니다. 프로젝트 추가에서 문서를 선택하세요."
+    } else {
+      homeSummary.stringValue = "프로젝트를 선택하고 읽기를 시작하세요. 문서 창은 앱 안에서 열립니다. 외부 Reader는 기존 프리뷰를 엽니다. 서비스 제어는 읽기 시작과 별도입니다."
+    }
   }
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled(menuItem.action) }
   func mutate<T>(

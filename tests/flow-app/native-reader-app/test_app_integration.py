@@ -1443,6 +1443,160 @@ class FeatureWiringUI(unittest.TestCase):
     def test_native_recovered_pending_and_newer_draft(self):self.scenario('drafts')
     def test_native_home_offline_profile_isolation(self):self.scenario('isolation')
 
+
+# v5 feedback regression: reuse the read-only existing composition fixture in an
+# owned instrumented copy. This does not launch the packaged app or order windows.
+class IdentityHomeFeedbackTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
+            raise RuntimeError('Wrap this Swift-containing top-level command once with the shared lock')
+        if explicit := os.environ.get('NATIVE_IDENTITY_UI_OUTPUT'):
+            root=Path(explicit).resolve()
+            if not root.is_relative_to(DEV/'test-output/native-reader-identity-ui-v5'):
+                raise RuntimeError('v5 UI evidence root only')
+            root.mkdir(parents=True,exist_ok=True)
+        else:
+            cls.temp=tempfile.TemporaryDirectory(prefix='identity-ui-');cls.addClassCleanup(cls.temp.cleanup);root=Path(cls.temp.name)
+        cls.out=root/('controls-'+str(time.time_ns()));cls.out.mkdir()
+        original=ROOT/'tests/flow-app/FlowAppTests.swift'
+        text=original.read_text()
+        cases=r'''
+    case "identity-loading", "identity-empty", "identity-services", "identity-isolated":
+      let wording = CommandLine.arguments.count < 4
+      var observations: [[String: Any]] = []
+      func homeText() -> String {
+        guard let field = delegate.settingsTabs?.tabViewItem(at: 0).view as? NSTextField else { fatalError("native home label not found") }
+        return field.stringValue
+      }
+      func capture(_ name: String) {
+        observations.append(["state": name, "home": homeText(), "status": delegate.status.stringValue,
+          "picker": delegate.picker.isEnabled, "read": delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,
+          "services": services.actions, "probes": probes.count, "opens": opens.count, "readingIntent": delegate.readingIntent, "phase": String(describing: delegate.snapshot!.phase), "busy": delegate.snapshot!.isBusy,
+          "buttons": [#selector(FlowApp.start), #selector(FlowApp.stop), #selector(FlowApp.restart)].map {
+            ["title": delegate.controls[$0]!.title, "enabled": delegate.controls[$0]!.isEnabled,
+             "targetMatches": delegate.controls[$0]!.target === delegate, "action": NSStringFromSelector(delegate.controls[$0]!.action!)] as [String: Any]
+          }, "mainWindowVisible": delegate.window.isVisible, "activationProhibited": NSApp.activationPolicy() == .prohibited])
+        let data = try! JSONSerialization.data(withJSONObject: observations, options: [.prettyPrinted, .sortedKeys])
+        try! data.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+      }
+      if CommandLine.arguments[1] == "identity-loading" {
+        let entered=DispatchSemaphore(value:0);let releaseLoad=DispatchSemaphore(value:0)
+        delegate.settings=Settings();delegate.populate()
+        delegate.mutate("프로젝트 설정을 불러오는 중…", work: {
+          entered.signal(); _ = releaseLoad.wait(timeout: .now()+5)
+          return Settings(selectedID:profile.id,profiles:[profile,other])
+        }, success: { loaded in delegate.settings=loaded;delegate.populate() })
+        var didEnter=false
+        waitUntil("actual storage load entered") { if !didEnter { didEnter = entered.wait(timeout:.now()) == .success }; return didEnter }
+        capture("loading")
+        // Independent expectations describe usable controls, not implementation branches.
+        let text=homeText()
+        check(!delegate.picker.isEnabled && !delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"loading must keep picker/Read disabled")
+        if wording { check(text.contains("불러오는") && text.contains("끝나면") && text.contains("닫") && text.contains("다시"),"loading needs honest wait/after-completion/reopen feedback")
+        check(!text.contains("프로젝트를 선택하고 읽기를 시작하세요."),"loading must not direct an impossible immediate action") }
+        check(services.actions.isEmpty && probes.isEmpty,"feedback started a service/read")
+        releaseLoad.signal();waitUntil("loading to ready") { !delegate.mutating && delegate.snapshot?.phase == .stopped }
+        capture("ready-after-load")
+        check(delegate.picker.isEnabled && delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"ready controls differ")
+        check(services.actions.isEmpty && probes.isEmpty,"ready feedback changed effects")
+        if wording { check(homeText().contains("읽기"),"ready feedback") }
+        let failedLoad=DispatchSemaphore(value:0);let failRelease=DispatchSemaphore(value:0)
+        delegate.mutate("프로젝트 설정을 불러오는 중…", work: { () throws -> Bool in
+          failedLoad.signal(); _ = failRelease.wait(timeout:.now()+5);throw FlowError(message:"owned load failure")
+        }, success: { _ in fatalError("failed load adopted") })
+        var didFailEnter=false
+        waitUntil("failing load entered") { if !didFailEnter { didFailEnter = failedLoad.wait(timeout:.now()) == .success }; return didFailEnter }
+        capture("loading-existing-profile");failRelease.signal()
+        waitUntil("load to error") { !delegate.mutating && delegate.snapshot?.phase == .failed }
+        capture("error-after-load")
+        check(delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"error retry policy")
+        if wording { check(homeText().contains("오류"),"error feedback") }
+        check(services.actions.isEmpty && probes.isEmpty,"failed loading emitted a Read/service effect")
+      } else if CommandLine.arguments[1] == "identity-empty" {
+        delegate.settings=Settings();delegate.populate();capture("empty")
+        check(!delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"empty Read disabled")
+        if wording { check(homeText().contains("추가"),"empty needs available Add step, not Read") }
+        delegate.session.reportFailure(FlowError(message:"owned load failure"));capture("empty-error")
+        check(!delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"empty error Read disabled")
+        if wording { check(homeText().contains("오류") && homeText().contains("닫"),"empty error feedback") }
+        check(services.actions.isEmpty && probes.isEmpty,"empty/error feedback emitted an effect")
+      } else if CommandLine.arguments[1] == "identity-isolated" {
+        let isolated = FlowApp(environment:environment,projectService:ProjectService(store:storage,launchAgents:services),isolated:true,showNativeWindow:false)
+        var progress: ((NativeReadProgress)->Void)?
+        isolated.session = ReadingSessionController(launchAgents:services,onChange:{ [weak isolated] in isolated?.render($0) },openBrowser:{ _ in fatalError("isolated opened browser") },nativeRead:{ _,callback in progress=callback;return {} },probe:{ _,_ in fatalError("native used legacy probe") })
+        isolated.settings=Settings(selectedID:profile.id,profiles:[profile]);isolated.buildWindow();isolated.populate()
+        defer { isolated.session.dispose();isolated.window.close() }
+        let read = isolated.controls[#selector(FlowApp.openPreview)]!
+        check(NSApp.sendAction(read.action!,to:read.target,from:read),"isolated Read target/action")
+        waitUntil("isolated native preparation") { progress != nil }
+        let text=(isolated.settingsTabs?.tabViewItem(at:0).view as! NSTextField).stringValue
+        let row:[String:Any] = ["state":"isolated-busy","home":text,"read":read.isEnabled,"stop":isolated.controls[#selector(FlowApp.stop)]!.isEnabled,"picker":isolated.picker.isEnabled,"services":services.actions,"readingIntent":isolated.readingIntent,"busy":isolated.snapshot!.isBusy,"mainWindowVisible":isolated.window.isVisible]
+        try JSONSerialization.data(withJSONObject:[row],options:[.prettyPrinted,.sortedKeys]).write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
+        check(!read.isEnabled && !isolated.controls[#selector(FlowApp.stop)]!.isEnabled && isolated.picker.isEnabled && isolated.snapshot!.isBusy,"isolated busy guard changed")
+        if wording { check(text.contains("준비") && !text.contains("서비스 중지"),"isolated busy cannot instruct disabled Stop") }
+        check(services.actions.isEmpty,"native isolated service effect")
+        progress?(.accepted);progress?(.windowInitialized);progress?(.painted)
+        waitUntil("isolated paint stage") { isolated.snapshot?.phase == .painted }
+      } else {
+        capture("ready")
+        var commandCount=0
+        for (selector,title) in [(#selector(FlowApp.start),"서비스 시작"),(#selector(FlowApp.stop),"서비스 중지"),(#selector(FlowApp.restart),"서비스 재시작")] {
+          let control=delegate.controls[selector]!
+          if wording { check(control.title==title,"service labels must distinguish reading from service control") }
+          check(control.target === delegate && control.action==selector && control.isEnabled,"service target/action/enabled changed")
+          check(NSApp.sendAction(selector,to:control.target,from:control),"native target/action rejected")
+          capture(title+"-requested")
+          commandCount += 1
+          waitUntil("service effect") { services.actions.count==commandCount }
+          if selector != #selector(FlowApp.stop) {
+            let expectedProbes = commandCount == 1 ? 1 : 2
+            waitUntil("service readiness probe") { probes.count==expectedProbes }
+            check(opens.isEmpty,"service control opened a document")
+            probes.last?(.ready)
+          }
+          waitUntil("service ready/stopped") { delegate.snapshot?.isBusy == false && delegate.snapshot?.phase == (selector == #selector(FlowApp.stop) ? .stopped : .ready) }
+          capture(title+"-settled")
+        }
+        check(services.actions==["start","stop","restart"] && probes.count==2 && opens.isEmpty && delegate.readingIntent==3,"existing service effects/readiness/intent")
+        let read=delegate.controls[#selector(FlowApp.openPreview)]!
+        check(NSApp.sendAction(read.action!,to:read.target,from:read),"explicit Read target/action")
+        waitUntil("explicit Read probe") { probes.count==3 }
+        capture("reading-busy")
+        check(!read.isEnabled && delegate.controls[#selector(FlowApp.stop)]!.isEnabled && delegate.picker.isEnabled,"Read enabled policy changed")
+        if wording { check(homeText().contains("준비") && !homeText().contains("프로젝트를 선택하고 읽기를 시작하세요."),"busy reading feedback must wait") }
+        probes.last?(.ready);waitUntil("explicit Read completes") { opens.count==1 }
+        capture("read-ready")
+        check(services.actions==["start","stop","restart","start"] && delegate.readingIntent==4,"explicit Read retains existing idempotent start and intent")
+      }
+      check(!delegate.window.isVisible && NSApp.activationPolicy() == .prohibited,"offscreen policy")
+'''
+        text=text.replace('    case "timeline-owner":',cases+'\n    case "timeline-owner":',1)
+        if text==original.read_text():raise RuntimeError('Existing fixture instrumentation point changed')
+        source=cls.out/'FlowAppTests.swift';source.write_text(text);cls.binary=cls.out/'FeedbackTests'
+        sources=package.swift_sources();sources=[p for p in sources if p.name!='main.swift']
+        if before := os.environ.get('NATIVE_IDENTITY_UI_FIXED_FLOWAPP'):
+            before=Path(before).resolve()
+            if not before.is_relative_to(DEV/'test-output/native-reader-identity-ui-v5'):raise RuntimeError('Frozen FlowApp evidence root only')
+            sources=[before if p.name=='FlowApp.swift' else p for p in sources]
+        argv=['/usr/bin/swiftc',*package.swift_flags(),'-parse-as-library',*sources,source,'-o',cls.binary]
+        start=time.monotonic();result=subprocess.run(list(map(str,argv)),cwd=ROOT,capture_output=True,text=True,timeout=180)
+        (cls.out/'compile.json').write_text(json.dumps(dict(argv=list(map(str,argv)),exit=result.returncode,elapsed=time.monotonic()-start,stdout=result.stdout,stderr=result.stderr,productionInputs={str(p):package.digest(p) for p in sources},originalReadOnlyFixture=dict(path=str(original),sha256=package.digest(original)),instrumentedHarness=dict(path=str(source),sha256=package.digest(source)),environment={k:os.environ.get(k) for k in ['TMPDIR','CLANG_MODULE_CACHE_PATH','SWIFT_MODULECACHE_PATH']}),indent=2))
+        if result.returncode:raise RuntimeError(result.stderr)
+
+    def scenario(self,name):
+        folder=self.out/(name+'-'+str(time.time_ns()));folder.mkdir()
+        argv=[str(self.binary),'identity-'+name,str(folder/'controls.json')]
+        if os.environ.get('NATIVE_IDENTITY_UI_SEMANTICS_ONLY')=='1':argv.append('semantics-only')
+        start=time.monotonic();r=subprocess.run(argv,cwd=ROOT,capture_output=True,text=True,timeout=20)
+        (folder/'command.json').write_text(json.dumps(dict(argv=argv,exit=r.returncode,elapsed=time.monotonic()-start,stdout=r.stdout,stderr=r.stderr,actualGUI=False),indent=2))
+        self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+    def test_loading_ready_error_controls(self):self.scenario('loading')
+    def test_empty_error_controls(self):self.scenario('empty')
+    def test_service_labels_and_actual_actions(self):self.scenario('services')
+    def test_isolated_busy_feedback(self):self.scenario('isolated')
+
 if __name__ == '__main__':
     import sys
     if sys.argv[1:2]==['gui-fixture']:gui_cli(sys.argv[2:])

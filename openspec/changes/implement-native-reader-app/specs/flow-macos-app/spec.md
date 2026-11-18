@@ -50,3 +50,16 @@ Paged, HTML and native readers SHALL retain accepted content, reading position, 
 - **WHEN** the page or native view is hidden, offline or disposed
 - **THEN** retry work is reduced or suspended and disposed sessions cannot publish updates
 - **AND** returning online or visible triggers recovery without duplicate connection loops
+
+
+### Requirement: Home feedback describes available native actions
+Loading feedback SHALL explain waiting, the step after completion and safe
+close/reopen if it persists without instructing use of disabled controls.
+Empty/error/busy feedback SHALL match the existing state; service lifecycle
+labels SHALL distinguish service start/stop/restart from Read without changing
+enabled policy, targets/actions, readiness probes, settings or Read intent.
+
+#### Scenario: Loading and isolated preparation
+- **WHEN** profile loading disables selection/Read, or isolated preparation disables service Stop
+- **THEN** home SHALL provide a usable waiting/next-step explanation and SHALL NOT instruct that disabled action
+- **AND** no extra retry, initialization, timer, inference or service restart is introduced

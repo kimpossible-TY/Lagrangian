@@ -295,3 +295,24 @@ EditorAttachments retire exactly that native token and export a live existing
 registration's four-field private chooser descriptor; HTTP never owns arbitrary
 registration/deletion or path discovery. Shared terminal tokens/controls and the32
 quota remain with the original owner. See native-reader-editor-actions.typ.
+
+
+= v5 managed identity and home feedback component
+
+ReaderManager alone resolves canonical-equivalent existing Unicode root/entry
+spellings with both actual filesystem identities and scope/type validation. It
+returns the original registered profile and retains ambiguity and explicit
+service selection. The separate withdrawal-only local path retires an exact
+private native token after a missing source without granting new attachment,
+descriptor, source or account authority. EditorAttachments still owns private
+record/native-only removal; document_identity and accepted/source/Lua owners
+remain unchanged. No source spelling migration or parallel identity store exists.
+
+FlowApp derives home feedback from existing mutation/snapshot/active state.
+Loading explains waiting, the later usable step and safe close/reopen if it
+persists; empty/error/busy feedback avoids disabled actions. Service labels name
+service start/stop/restart separately from Read. Existing enabled/selector/action,
+service readiness probes and Read intent behavior remain unchanged. Offscreen
+actual AppKit controls are compared against frozen d7 semantics, with fake
+service operations and prohibited activation. These are source-component checks;
+v4 App, delivery/sourcepin, real GUI and NA16 are separate unchanged boundaries.

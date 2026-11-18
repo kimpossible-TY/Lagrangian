@@ -298,3 +298,21 @@ The local manager SHALL export only the four explicit chooser fields from a live
 #### Scenario: Choose the manager-provided editor descriptor
 - **WHEN** the user exports a registered editor descriptor locally and explicitly selects that generated private file
 - **THEN** the existing descriptor validator and consent owner SHALL bind the same live editor identity without source-write or account authority
+
+
+### Requirement: Managed canonical-equivalent paths preserve registered authority
+The manager SHALL accept canonical-equivalent resolved Unicode root/entry only
+when the actual existing directory and regular file identities and project scope
+match the registered document. It SHALL return the original registered profile
+without migration, retain ambiguity rejection and exact explicit service ID,
+and SHALL NOT equate different-root or differently named hardlinks by inode alone.
+
+#### Scenario: NFC and NFD name the same registered filesystem objects
+- **WHEN** supplied root and entry have canonical-equivalent Unicode spelling and the same actual objects
+- **THEN** the existing attachment/document/service and source guards use the unchanged registered profile
+- **AND** different files, escaping symlinks, missing paths, wrong types and ambiguous unselected registrations remain refused
+
+#### Scenario: Source disappears before native lease retirement
+- **WHEN** the exact manager-issued native token is retired after its source is renamed or deleted
+- **THEN** the local withdrawal-only path may reuse its bounded private registration data to retire only that token
+- **AND** it SHALL NOT approve a new attachment/descriptor, modify another token, stop an editor/service or grant source authority

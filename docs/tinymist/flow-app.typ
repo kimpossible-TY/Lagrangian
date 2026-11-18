@@ -422,3 +422,19 @@ serve/status/appCommand/stop commands without rerunning setup there. A new
 inspection requires a new root and exact pinned compiler/package inputs.
 NA14 source requires its own final integration, GUI/AX and review evidence;
 prior GUI evidence cannot be relabelled for its new executable bytes.
+
+
+= Pending source component: home feedback
+
+The v5 source component separates *Service start* (서비스 시작), *Service stop*
+(서비스 중지) and *Service restart* (서비스 재시작) from *Start reading* (읽기 시작).
+While settings load, home explains waiting and the next step after completion;
+if that state persists, close and reopen the app safely. Empty, error and document
+preparation states show the corresponding next step instead of directing a
+currently disabled Read action. This changes feedback, not service permissions,
+readiness checks, saved settings, automatic initialization or Read behavior.
+
+This is a source component awaiting PM integration and a separately bound build.
+It does not change the frozen v4 App or establish real GUI/visual acceptance.
+The initial GUI loading cause remains unknown; no new retry/timer or service
+restart is introduced by these labels.

@@ -12,6 +12,8 @@ import re
 import subprocess
 import sys
 import time
+import stat
+import unicodedata
 from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
@@ -279,19 +281,60 @@ class ReaderManager:
             arguments.append("--semantic-canvases")
         return arguments
 
-    def match_document(self, root, entry, identifier=None):
-        root = Path(root).resolve()
-        entry = (root / entry).resolve()
-        entry.relative_to(root)
-        matches = [profile for profile in self.profiles()
-                   if Path(profile["root"]).resolve() == root
-                   and (Path(profile["root"]) / profile["entry"]).resolve() == entry
-                   and (identifier is None or profile["id"] == identifier)]
+    @staticmethod
+    def _document_paths(root, entry, *, withdrawal=False):
+        """Resolved spelling plus real scope/type, not an inode-only alias grant."""
+        root = Path(root).resolve(strict=not withdrawal)
+        entry = (root / entry).resolve(strict=not withdrawal)
+        canonical = lambda path: Path(unicodedata.normalize("NFC", str(path)))
+        canonical(entry).relative_to(canonical(root))
+        root_info = root.stat() if root.exists() else None
+        entry_info = entry.stat() if entry.exists() else None
+        if ((root_info and not stat.S_ISDIR(root_info.st_mode))
+                or (entry_info and not stat.S_ISREG(entry_info.st_mode))):
+            raise ValueError("Managed document requires a directory and regular entry")
+        if not withdrawal and (root_info is None or entry_info is None):
+            raise ValueError("Managed document is missing")
+        if root_info is not None and entry_info is not None:
+            # Unicode spelling of the absolute entry may differ from root.
+            # Verify the real directory at the canonical prefix boundary too.
+            boundary = Path(*entry.parts[:len(root.parts)]).stat()
+            if (boundary.st_dev, boundary.st_ino) != (root_info.st_dev, root_info.st_ino):
+                raise ValueError("Entry is outside its actual project directory")
+        return root, entry, root_info, entry_info
+
+    def _match_document(self, root, entry, identifier=None, *, withdrawal=False):
+        try:
+            supplied = self._document_paths(root, entry, withdrawal=withdrawal)
+        except (OSError, ValueError, RuntimeError) as error:
+            raise ValueError("No managed HTML Reader matches this project and entry") from error
+        matches = []
+        for profile in self.profiles():
+            if identifier is not None and profile["id"] != identifier:
+                continue
+            try:
+                registered = self._document_paths(profile["root"], profile["entry"], withdrawal=withdrawal)
+            except (OSError, ValueError, RuntimeError):
+                continue
+            if any(unicodedata.normalize("NFC", str(a)) != unicodedata.normalize("NFC", str(b))
+                   for a, b in zip(supplied[:2], registered[:2])):
+                continue
+            # Missing-path spelling may select only a withdrawal, never attach,
+            # descriptor publication or source authority. Existing paths must
+            # still identify exactly the same actual directory and file.
+            if any(a is not None and b is not None and
+                   (a.st_dev, a.st_ino) != (b.st_dev, b.st_ino)
+                   for a, b in zip(supplied[2:], registered[2:])):
+                continue
+            matches.append(profile)
         if not matches:
             raise ValueError("No managed HTML Reader matches this project and entry; configure its HTML profile first")
         if len(matches) != 1:
             raise ValueError("Multiple HTML Readers match this document; select --reader-service ID")
         return matches[0]
+
+    def match_document(self, root, entry, identifier=None):
+        return self._match_document(root, entry, identifier)
 
     @staticmethod
     def request(url, path, payload=None, *, timeout=2):
@@ -352,10 +395,32 @@ class ReaderManager:
     def native_editor_local(self, root, entry, token, *, identifier=None, descriptor=False):
         # These local-only operations neither probe/start a service nor accept an
         # arbitrary filesystem path. The token is the exact manager-issued lease.
-        profile = self.match_document(root, entry, identifier)
-        document = document_identity(profile["root"], profile["entry"])
-        attachments = EditorAttachments(self.data / "documents" / profile["id"], document, {})
+        profile = self._match_document(root, entry, identifier, withdrawal=not descriptor)
+        output = self.data / "documents" / profile["id"]
         with self.locked(timeout=2):
+            if not descriptor and not (Path(profile["root"]) / profile["entry"]).is_file():
+                # Source may have been renamed/deleted since this exact lease
+                # was issued. Read only its bounded private local record, then
+                # delegate retirement to the attachment owner. This documentID
+                # is not an attachment/descriptor/source authorization proof.
+                if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+                    raise ValueError("Invalid native attachment token")
+                directory = output / "editor-attachments"
+                if not directory.exists():
+                    return {"released": False}
+                EditorAttachments.private(directory, directory=True)
+                path = directory / (token + ".json")
+                if not path.exists():
+                    return {"released": False}
+                EditorAttachments.private(path)
+                if path.stat().st_size > 16384:
+                    raise ValueError("Native registration exceeds its bound")
+                document = json.loads(path.read_text()).get("documentID")
+                if not isinstance(document, str) or not re.fullmatch(r"[0-9a-f]{24}", document):
+                    raise ValueError("Invalid retired document identity")
+            else:
+                document = document_identity(profile["root"], profile["entry"])
+            attachments = EditorAttachments(output, document, {})
             if not descriptor:
                 return {"released": attachments.release_native(token)}
             # record() needs the original service identity only as data; it still

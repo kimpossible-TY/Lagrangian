@@ -197,11 +197,45 @@ source bytes and the independent Neovim cursor/buffers remain unchanged. This is
 separate from delaying a prepare response. Existing after-dispatch uncertainty
 and exact original receipt lookup remain unchanged.
 
-The v4 quota regression uses an ASCII registered entry. Existing Unicode
-native/editor suites remain separate. A retained reproduction shows that the
-manager's unchanged Path.resolve equality can reject NFC/NFD-equivalent entry
-spellings for the same macOS file. This is a known matching gap, not an accepted
-Unicode manager/F10 path; PM/NA15 must define a safe correction that retains the
-registered document identity. No matching-policy, Lua or terminal expansion is
-included here. Its exact reproduction/input and owner request are in the v4
-`unicode-manager-repro.json` and handoff.
+The immutable v4 quota regression used an ASCII registered entry. Its retained
+Unicode manager reproduction failed when NFC/NFD spellings named the same macOS
+file but resolved Path strings differed. That gap remains a limitation of the
+frozen d7/v4 App and its historical acceptance packet. The v5 source component
+below corrects matching; it has not been registered, packaged or GUI accepted.
+Existing v4 reports and original design/case hashes remain unchanged.
+
+= v5 managed document identity and source-only verification
+
+ReaderManager owns this correction. A new attachment requires an existing actual
+directory and regular entry, with the resolved entry inside the actual project
+boundary. Registered and supplied resolved spellings must be Unicode canonical
+equivalents (NFC comparison), and their device/inode identities must match for
+both root and entry. Only then is the original registered profile, ID and entry
+spelling returned. Normalized text alone and samefile/inode alone are insufficient;
+different roots or hardlink names do not become the same document authority.
+Compatibility normalization and case folding are not added. Existing exact
+resolved aliases inside the approved document scope retain their contract;
+symlink targets outside that root, missing paths and wrong types fail closed.
+Multiple matching registrations remain ambiguous without the exact explicit
+reader-service ID. Source mapping, accepted input/service checks and Lua's final
+saved-source/modified-buffer checks remain with their unchanged owners.
+
+Withdrawal is separate from new attachment or descriptor publication. If source
+has been renamed/deleted, the registered spelling may select only the local
+retirement path. It reads only that exact64-hex token's bounded private record
+under the selected profile directory, then delegates native-only removal to
+EditorAttachments.release_native. Its retained document ID is retirement data,
+not a fresh source/input or editor grant. Other tokens, control files, source,
+editor and service are preserved; no HTTP deletion API or new discovery exists.
+A live entry still uses the existing document_identity owner and rejects a
+mismatched record. Descriptor export always requires live validated paths.
+
+The filesystem oracle uses actual NFC/NFD root+entry names with spaces, quotes
+and Hangul, real stat/content and hardlinks; it does not mock samefile or aliases.
+The manager-to-production-HTTP fixture moves the same isolated headless Neovim
+cursor to independently specified line/UTF-8 column and compares source/buffer
+bytes. Configured profile inventory and managed PID observation are explicit test
+inputs; HTTP, compilation, registration and editor effect are real. APFS results
+do not certify other filesystems, races after observation, native GUI/focus,
+VoiceOver or actual macOS13. The source component's fixed SHA and exact delivery
+delta go to PM for later sourcepin/packaging approval, not to the immutable v4 App.

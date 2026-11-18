@@ -521,3 +521,25 @@ private chooser descriptor export. There is no HTTP deletion/registration API,
 quota increase, source writer or editor/service/control termination. Gated tests
 observe a transmitted jump's committed unknown row while the actual edit_lock is
 held, revoke it, and independently compare editor/source state after release.
+
+
+## v5 managed Unicode identity and narrow home feedback
+
+ReaderManager compares canonical-equivalent resolved root/entry spellings only
+alongside actual directory/regular-file device+inode identity and project scope.
+It preserves registered spelling/IDs, exact resolved legacy aliases, explicit
+service selection and ambiguity rejection. No casefold/NFKC, inode-only hardlink
+authority, source mapping formula, document migration or backend effect policy
+is added. Missing source is refused for attachment/descriptor. Local withdrawal
+may still select its registered spelling, read only its exact bounded private
+native lease and reuse EditorAttachments retirement; that prior record supplies
+no current source/editor authority. Live records retain document_identity checks.
+
+FlowApp's existing snapshot/mutation state drives honest loading/ready/error/
+empty/busy text, and service labels distinguish lifecycle from Read. Enabled
+policy, targets/actions, service readiness probes and readingIntent are unchanged.
+A read-only d7 FlowApp fixture is instrumented in owned output; wording assertions
+are separate from baseline semantics. Isolated busy never suggests disabled Stop.
+Actual filesystem/compiler/HTTP/Neovim and offscreen AppKit evidence remain
+separate from GUI, v4 artifacts, sourcepin/delivery registration and NA16. The PM
+receives a fixed source-only component and exact Git-blob delta, not a new App.
