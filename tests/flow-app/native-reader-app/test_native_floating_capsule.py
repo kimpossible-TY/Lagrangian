@@ -14,6 +14,8 @@ R = Path(__file__).resolve().parents[3]
 D = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 O = D / 'test-output/native-cream-na19'
 CHAT_O = D / 'test-output/native-cream-chat-repair'
+PACKAGING_O = D / 'test-output/native-cream-packaging-repair'
+TASK_ROOTS = {O: 'native-cream-na19', CHAT_O: 'native-cream-chat-repair', PACKAGING_O: 'native-cream-packaging-repair'}
 NEW = ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']
 H18 = '567841a5d200f15904c9cc824b9d15103a38b992'
 
@@ -29,7 +31,8 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
         if not configured:
             raise unittest.SkipTest('Requires explicit isolated NA19 output and outer shared Swift lock')
         cls.out = Path(configured).resolve()
-        if sys.platform != 'darwin' or not any(cls.out.is_relative_to(root) for root in (O, CHAT_O)) or cls.out.exists():
+        task_root = next((root for root in TASK_ROOTS if cls.out.is_relative_to(root)), None)
+        if sys.platform != 'darwin' or task_root is None or cls.out == task_root or cls.out.exists():
             raise RuntimeError('Use a fresh attempt under NA19 output on macOS')
         if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
             raise RuntimeError('Use the shared outer Swift lock once')
@@ -111,8 +114,8 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
             for name, digest in binding['files'].items():
                 if sha(pinned/name) != digest: raise RuntimeError('Baseline drift')
             sources = [pinned/p.name if p.name in binding['files'] else p for p in sources]
-        binary_name = '-'.join(cls.out.relative_to(CHAT_O).parts) if cls.out.is_relative_to(CHAT_O) else cls.out.name
-        cls.binary = D/('tmp/native-cream-chat-repair' if cls.out.is_relative_to(CHAT_O) else 'tmp/native-cream-na19')/(binary_name+'-Capsule')
+        binary_name = '-'.join(cls.out.relative_to(task_root).parts)
+        cls.binary = D/'tmp'/TASK_ROOTS[task_root]/(binary_name+'-Capsule')
         if cls.binary.exists(): raise RuntimeError('Refuse to overwrite an existing test binary')
         argv = ['swiftc','-parse-as-library','-swift-version','5','-warnings-as-errors','-target','arm64-apple-macosx13.0',
                 '-module-cache-path',os.environ['SWIFT_MODULECACHE_PATH']]
