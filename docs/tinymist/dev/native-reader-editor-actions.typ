@@ -173,27 +173,56 @@ and Ask keep their accepted-document authority. Wrong document/input/context and
 invalid/over32 source selections still fail. No error turns a mapping receipt
 into an editor effect or resends an uncertain jump.
 
-The local manager returns an exact issued token and attachment file. The native
-resolver retains a cleanup lease across its state probe after receiving the
-response. Failed/cancelled/late/superseded resolution, Disconnect, disposal and
-transport replacement request retirement of only that native registration through
-`--release-native-editor --root ROOT --entry ENTRY --token TOKEN` (optionally
-`--reader-service ID`). It performs no service start/restart, editor/control-file
-termination, arbitrary HTTP file deletion or quota increase. The existing32
-active-attachment bound and other native/terminal tokens remain intact.
-Local consent/effect revocation is separate from confirmed file removal. In the
-v5 source component, a valid manager result confirms absence; a bounded command,
-lock or result-validation failure leaves pending retirement. Concurrent attempts
-coalesce, and a later explicit release can retry; no automatic loop runs and a
-lost lease is not durably recovered. Actual lock-contention and explicit-retry
-witnesses are in `native-reader-identity-ui-v5/resume2-editor1` under DevSSD
-`test-output`. SF2-R1 remains open: an actual ten-second CommandRunner timeout
-and SIGKILL after real registration/HTTP ack but before plan response leave
-active tokens. A pre-known caller operation/token plus atomic registration must
-be implemented by the existing EditorAttachments owner before the lifetime
-requirement is satisfied; its source is readonly in this assignment. Changing
-only the timeout, quota, or manager-side post-return token log cannot close that
-gap. This component is not a new App or overall F10 acceptance.
+The current production native resolver creates an opaque operation and retained
+lease before attach. It calls local `--attach` with `--native-editor-operation`
+and `--native-editor-deadline`, in addition to explicit movement consent. Under
+the existing manager lock, EditorAttachments stores a private bounded durable
+operation intent before publication. Reserved requires token/profile/document and
+deadline; prepared/issued also require complete record SHA-256 and inode. Only a
+complete fsynced staging record becomes visible through exclusive hard-link
+publication. A partial staging file is never an attachment. Cancellation first
+persists the tombstone, then verifies that exact operation/digest/inode before
+reusing the existing native-token retirement owner. Replacement/collision fails
+closed without removing the other file.
+
+`--release-native-editor-operation --root ROOT --entry ENTRY
+--native-editor-operation OPERATION` withdraws only that exact locally known
+operation, optionally scoped by `--reader-service ID`. It needs no live service,
+current source file or current registration in config to withdraw old authority.
+It cannot approve a new attachment/descriptor. The existing token release remains
+compatible; no HTTP registration/delete/path authority is added. Terminal default
+register is unchanged in call shape, private policy, source authority and32 quota.
+Direct legacy native-consent attach without an operation is still compatible but
+has only response-token cleanup, not the new pre-response crash guarantee.
+
+Resolver copies and successive FlowApp clients share the caller-known leases.
+Command/lock/invalid-result failure stays pending after resolve throws, instead
+of losing the nonce in a stack local. A subsequent explicit connect, Read or close
+may try one pending lease within its budget; confirmation alone removes it.
+Concurrent attempts coalesce. Only a new consented editor grant is blocked by
+unconfirmed cleanup. Plain body Read does not retry or confirm editor retirement,
+and keeps accepted Source/Ask authority with zero editor movement permission.
+No journal scan, timer, automatic retry/inference or service/editor/control
+termination occurs.
+Private journals/tombstones are retained; automatic pruning and automatic recovery
+following an entire app-process restart are not provided. Tests separately cover
+surviving-caller recovery and explicit exact-operation recovery after both test
+processes die. They do not prove automatic restart recovery.
+
+The ten-second native caller budget includes pending retry, prepare/ack, final
+HTTP state verification and cleanup. Manager preparation is at most6.5 seconds,
+its process ceiling7, cleanup process ceiling2.5, shortened by remaining deadline.
+The final state request reserves cleanup/TERM grace and late success is rejected.
+These are measured bounded fixture budgets, not OS real-time guarantees. Process
+cancellation performs bounded TERM/KILL and waits only for its own manager child;
+shared-service lifecycle rollback is not implied.
+
+Historical299 used a response-bound lease: its retained `resume2-*` timeout and
+SIGKILL witnesses leak two registrations and desired oracle exits1. The current
+component's actual registration-before-plan gates, state-delay combination,
+manager crash, pending-client retry, malformed journal and lock witnesses are in
+DevSSD `test-output/native-reader-identity-ui-v5/resume5-handoff.md`. This is a
+source-only correction, not a new App, actual GUI or overall F10 acceptance.
 
 The local production descriptor export is
 `--native-editor-descriptor --root ROOT --entry ENTRY --token EXISTING_TOKEN`.

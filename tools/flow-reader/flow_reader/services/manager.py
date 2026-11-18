@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -19,7 +20,7 @@ from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.compiler.project import document_identity
-from flow_reader.services.editor_sync import EditorAttachments
+from flow_reader.services.editor_sync import EditorAttachments, NativeEditorOperation
 DEFAULT_DATA = Path.home() / "Library/Application Support/Lagrangian/reader"
 LABEL_PREFIX = "io.github.kimpossible-ty.lagrangian.reader."
 LEGACY_LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
@@ -343,8 +344,26 @@ class ReaderManager:
         with build_opener(NoReaderRedirect).open(request, timeout=timeout) as response:
             return json.loads(response.read(1024 * 1024))
 
+    def native_operation(self, root, entry, operation, identifier=None):
+        # Withdrawal-only target binding. No live profile/source/service is needed
+        # to retire a previously durable intent; this cannot approve an attach.
+        root = Path(root).resolve()
+        entry = (root / entry).resolve()
+        canonical = lambda p: unicodedata.normalize("NFC", str(p))
+        return NativeEditorOperation(self.data, operation, canonical(root), canonical(entry), identifier)
+
+    def release_native_operation(self, root, entry, operation, identifier=None, deadline=None):
+        owner = self.native_operation(root, entry, operation, identifier)
+        if deadline is not None and (type(deadline) not in {int, float} or not math.isfinite(deadline)):
+            raise ValueError("Invalid native cleanup deadline")
+        budget = 2 if deadline is None else min(2, deadline - time.time() - .2)
+        if budget <= 0: raise ValueError("Native cleanup deadline expired")
+        with self.locked(timeout=budget):
+            return {"released": owner.cancel()}
+
     def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
-               owner_pid=None, control_file=None, native_editor_consent=False):
+               owner_pid=None, control_file=None, native_editor_consent=False,
+               native_editor_operation=None, native_editor_deadline=None):
         """Reuse the normal HTML lifecycle/plan; never start a presentation-owned compiler."""
         if native_editor_consent:
             # Only the explicit local native composition opts in. HTTP has no
@@ -352,16 +371,39 @@ class ReaderManager:
             if not editor_server or not Path(nvim).is_absolute() or not control_file:
                 raise ValueError("Explicit native editor configuration is required")
             EditorAttachments.private(Path(control_file))
-        profile = self.match_document(root, entry, identifier)
+        profile = dict(self.match_document(root, entry, identifier))
+        operation = None
+        if native_editor_operation is not None:
+            if not native_editor_consent:
+                raise ValueError("Native operation requires explicit movement consent")
+            operation = self.native_operation(root, entry, native_editor_operation, identifier)
+            expected_document = document_identity(profile["root"], profile["entry"])
+            with self.locked(timeout=1):
+                operation.reserve(profile["id"], expected_document, native_editor_deadline)
+        elif native_editor_deadline is not None:
+            raise ValueError("Native deadline requires an operation")
+        def remaining():
+            if operation is None: return 2
+            return max(.001, min(2, operation.current()["deadline"] - time.time()))
+        def file_identity():
+            _, _, root_info, file_info = self._document_paths(profile["root"], profile["entry"])
+            return (root_info.st_dev, root_info.st_ino, file_info.st_dev, file_info.st_ino,
+                    file_info.st_size, file_info.st_mtime_ns, file_info.st_ctime_ns)
+        original_file = file_identity() if operation else None
+        def current_profile():
+            current = self.match_document(root, entry, identifier)
+            if current != profile or file_identity() != original_file:
+                raise ValueError("Managed document/profile changed during native preparation")
+            return current
         if self.job_pid(profile) is None:
             self.control("start", profile)
         url = self.document_url(profile)
         expected_document = document_identity(profile["root"], profile["entry"])
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + (max(0, native_editor_deadline - time.time()) if operation else 15)
         while True:
             pid = self.job_pid(profile)
             try:
-                state = self.request(url, "api/state")
+                state = self.request(url, "api/state", timeout=remaining()) if operation else self.request(url, "api/state")
                 break
             except (OSError, ValueError):
                 if time.monotonic() >= deadline:
@@ -379,17 +421,33 @@ class ReaderManager:
                 raise ValueError("The installed HTML Reader needs an upgrade for shared editor attachments; no separate Reader was started")
             attachments = EditorAttachments(self.data / "documents" / profile["id"], expected_document, service)
             with self.locked(timeout=2):
+                if operation:
+                    operation.current(); current_profile()
                 token, path = attachments.register(editor_server, nvim, owner_pid, control_file,
-                                                   jump_only=native_editor_consent)
+                                                   jump_only=native_editor_consent, operation=operation)
             try:
-                if self.request(url, "api/editor-attachment", {"token": token}).get("connected") is not True:
+                acknowledgment = (self.request(url, "api/editor-attachment", {"token": token}, timeout=remaining()) if operation
+                                  else self.request(url, "api/editor-attachment", {"token": token}))
+                if acknowledgment.get("connected") is not True:
                     raise ValueError("The HTML Reader rejected the editor attachment")
+                if operation:
+                    latest = self.request(url, "api/state", timeout=remaining())
+                    if latest.get("service") != service or latest.get("documentID") != expected_document:
+                        raise ValueError("Managed service incarnation changed during native preparation")
+                    with self.locked(timeout=min(1, remaining())):
+                        current_profile()
+                        if self.job_pid(profile) != pid:
+                            raise ValueError("Managed service changed during native preparation")
+                        operation.issued()
             except BaseException:
-                path.unlink(missing_ok=True)
+                if operation:
+                    with self.locked(timeout=1): operation.cancel()
+                else: path.unlink(missing_ok=True)
                 raise
             plan.update(editorAttachment=token, attachmentFile=str(path))
             if native_editor_consent:
                 plan["nativeEditorActions"] = 1
+            if operation: plan["nativeEditorOperation"] = operation.identifier
         return plan
 
     def native_editor_local(self, root, entry, token, *, identifier=None, descriptor=False):
@@ -533,6 +591,18 @@ def main(argv=None, *, manager=None):
         command = manager.server_arguments(["--managed", "--data", str(manager.data)])
         os.execv(command[0], command)
         return
+    if arguments[:1] == ["--release-native-editor-operation"]:
+        import argparse
+        parser = argparse.ArgumentParser(description="Withdraw exact local native operation")
+        parser.add_argument("--root", required=True)
+        parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service")
+        parser.add_argument("--native-editor-operation", required=True)
+        parser.add_argument("--native-editor-deadline", type=float)
+        options = parser.parse_args(arguments[1:])
+        print(json.dumps(manager.release_native_operation(options.root, options.entry,
+            options.native_editor_operation, options.reader_service, options.native_editor_deadline)))
+        return
     if arguments[:1] in (["--release-native-editor"], ["--native-editor-descriptor"]):
         import argparse
         parser = argparse.ArgumentParser(description="Own local editor registration lifetime")
@@ -555,11 +625,15 @@ def main(argv=None, *, manager=None):
         parser.add_argument("--owner-pid", type=int)
         parser.add_argument("--control-file")
         parser.add_argument("--native-editor-consent", action="store_true")
+        parser.add_argument("--native-editor-operation")
+        parser.add_argument("--native-editor-deadline", type=float)
         options = parser.parse_args(arguments[1:])
         print(json.dumps(manager.attach(options.root, options.entry, identifier=options.reader_service,
                                        editor_server=options.editor_server, nvim=options.nvim,
                                        owner_pid=options.owner_pid, control_file=options.control_file,
-                                       native_editor_consent=options.native_editor_consent)))
+                                       native_editor_consent=options.native_editor_consent,
+                                       native_editor_operation=options.native_editor_operation,
+                                       native_editor_deadline=options.native_editor_deadline)))
         return
     if arguments == ["--profiles"]:
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))

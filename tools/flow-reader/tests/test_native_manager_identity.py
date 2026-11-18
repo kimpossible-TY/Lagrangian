@@ -136,3 +136,160 @@ class NativeManagerIdentity(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class NativeOperationLifetime(unittest.TestCase):
+    """Existing owner, real private files/stat, no editor RPC mocks for identity."""
+    def setUp(self):
+        from flow_reader.services.editor_sync import NativeEditorOperation
+        self.Operation=NativeEditorOperation
+        self.base=Path(tempfile.mkdtemp(prefix='operation-',dir=os.environ['TMPDIR']))
+        self.root=self.base/'source';self.root.mkdir();self.entry=self.root/'main.typ';self.entry.write_text('owned source')
+        self.data=self.base/'data';self.output=self.data/'documents/fixture'
+        self.document='a'*24;self.service=dict(pid=os.getpid(),startedAt=123)
+        self.owner=EditorAttachments(self.output,self.document,self.service)
+        self.control=self.base/'control';self.control.write_text('{}');self.control.chmod(0o600)
+        self.manager=ReaderManager(self.data,self.base/'agents')
+        self.manager.profiles=lambda:[dict(id='fixture',root=str(self.root),entry=self.entry.name,port=24000)]
+        self.retain=[]
+        self.addCleanup(self.evidence)
+
+    def evidence(self):
+        OUT.mkdir(exist_ok=True,parents=True);target=OUT/(self._testMethodName+'-'+str(time.time_ns()));target.mkdir()
+        (target/'operations.json').write_text(json.dumps(dict(files={str(p.relative_to(self.data)):sha(p) for p in self.data.rglob('*') if p.is_file()},base=str(self.base),realFilesystem=True,sourceSHA256=sha(self.entry) if self.entry.exists() else None),indent=2))
+
+    def operation(self, value=None):
+        import secrets
+        return self.manager.native_operation(str(self.root),self.entry.name,value or secrets.token_hex(32))
+
+    def reserve(self):
+        op=self.operation();op.reserve('fixture',self.document,time.time()+6.5);return op
+
+    def register(self,op=None,jump=True):
+        return self.owner.register('owned-no-rpc',sys.executable,os.getpid(),str(self.control),jump_only=jump,operation=op)
+
+    def test_atomic_publication_has_prior_intent_complete_bytes_and_same_inode(self):
+        op=self.reserve();original=op.prepare;observed=[]
+        def inspect(data,identity):
+            self.assertFalse((self.owner.directory/(op.read()['token']+'.json')).exists())
+            self.assertEqual(op.read()['state'],'reserved')
+            staging=self.owner.directory/('.native-'+op.identifier)
+            self.assertEqual(staging.read_bytes(),data);self.assertEqual(json.loads(data)['nativeOperation'],op.identifier)
+            original(data,identity);self.assertEqual(op.read()['recordIdentity'],[staging.stat().st_dev,staging.stat().st_ino]);observed.append(True)
+        op.prepare=inspect
+        token,path=self.register(op);self.assertEqual(observed,[True]);self.assertEqual(op.read()['state'],'prepared')
+        self.assertEqual(json.loads(path.read_text())['nativeOperation'],op.identifier);op.issued()
+        self.assertIsNone(self.owner.resolve(token),'movement consent cannot become source writer')
+        self.assertTrue(op.cancel());self.assertFalse(path.exists());self.assertFalse(op.cancel())
+        with self.assertRaises(ValueError):op.issued()
+
+    def test_cancel_before_reserve_tombstone_blocks_late_and_reentry(self):
+        op=self.operation();self.assertFalse(op.cancel())
+        with self.assertRaises(FileExistsError):op.reserve('fixture',self.document,time.time()+6)
+        with self.assertRaises(ValueError):op.current()
+        again=self.operation(op.identifier);self.assertFalse(again.cancel())
+
+    def test_wrong_binding_ids_terminal_conversion_collision_and_replacement(self):
+        op=self.reserve();terminal,path=self.register(jump=False);before=sha(path)
+        with self.assertRaises(ValueError):self.register(op,jump=False)
+        for root,entry,rid in [(str(self.base),str(self.entry),None),(str(self.root),str(self.root/'other.typ'),None),(str(self.root),str(self.entry),'other')]:
+            bad=self.Operation(self.data,op.identifier,root,entry,rid)
+            with self.assertRaises(ValueError):bad.cancel()
+        for value in ['','../escape','G'*64,'0'*63]:
+            with self.assertRaises(ValueError):self.operation(value or '../escape')
+        value=op.read();value['token']=terminal;op.write(value)
+        with self.assertRaises(FileExistsError):self.register(op)
+        with self.assertRaises(ValueError):op.cancel()
+        self.assertEqual(sha(path),before)
+        op2=self.reserve();token,native=self.register(op2);saved=native.read_bytes();native.unlink();native.write_bytes(saved);native.chmod(0o600)
+        with self.assertRaises(ValueError):op2.cancel()
+        self.assertTrue(native.exists(),'byte-identical replacement inode must be preserved')
+        self.assertEqual(sha(path),before)
+
+    def test_source_missing_profile_removed_withdrawal_only_and_other_tokens(self):
+        terminal,tp=self.register(jump=False);other,np=self.register();before={str(p):sha(p) for p in [tp,np,self.control]}
+        op=self.reserve();token,path=self.register(op);op.issued()
+        self.entry.unlink();self.manager.profiles=lambda:[]
+        self.assertTrue(self.manager.release_native_operation(str(self.root),self.entry.name,op.identifier)['released'])
+        self.assertFalse(path.exists());self.assertEqual({str(p):sha(p) for p in [tp,np,self.control]},before)
+        with self.assertRaises(ValueError):self.manager.match_document(self.root,self.entry.name)
+
+    def test_existing_32_quota_is_unchanged_and_collision_preserves_files(self):
+        files=[self.register(jump=i%2==0)[1] for i in range(32)];before={str(p):sha(p) for p in files}
+        op=self.reserve()
+        with self.assertRaisesRegex(ValueError,'Too many'):self.register(op)
+        self.assertEqual({str(p):sha(p) for p in files},before);self.assertFalse(op.cancel())
+
+    def test_intent_symlink_mode_and_incomplete_stage_fail_closed(self):
+        op=self.reserve();op.path.chmod(0o644)
+        with self.assertRaises(ValueError):op.current()
+        op.path.chmod(0o600)
+        moved=op.path.with_suffix('.retained');op.path.rename(moved);op.path.symlink_to(moved)
+        with self.assertRaises(ValueError):op.cancel()
+        op.path.unlink();moved.rename(op.path)
+        self.owner.directory.mkdir(mode=0o700,parents=True,exist_ok=True)
+        stage=self.owner.directory/('.native-'+op.identifier);stage.write_text('{partial');stage.chmod(0o600)
+        self.assertEqual(list(self.owner.directory.glob('*.json')),[])
+        self.assertFalse(op.cancel());self.assertFalse(stage.exists())
+
+    def test_budget_expiry_and_fault_before_publication_do_not_issue(self):
+        from unittest.mock import patch
+        op=self.operation()
+        for budget in [-1,8,float('inf')]:
+            with self.assertRaises(ValueError):op.reserve('fixture',self.document,time.time()+budget)
+        op=self.reserve();real=os.link
+        def fail_publish(source,target,**kwargs):
+            if Path(target).parent==self.owner.directory:raise OSError('injected publish failure')
+            return real(source,target,**kwargs)
+        with patch('os.link',side_effect=fail_publish),self.assertRaises(OSError):self.register(op)
+        self.assertEqual(op.read()['state'],'prepared');self.assertEqual(list(self.owner.directory.glob('*.json')),[])
+        self.assertFalse(op.cancel())
+
+    def test_malformed_journal_never_confirms_absence_or_removes_another_file(self):
+        op=self.reserve();original=op.read()
+        bad=[]
+        for state in ['reserved','prepared','issued']:
+            value=dict(original,state=state,token=None,profileID=None,documentID=None,recordSHA256=None,recordIdentity=None)
+            bad.append(value)
+        for state in ['prepared','issued']:
+            bad.append(dict(original,state=state))
+        bad.extend([dict(original,recordSHA256='b'*64),dict(original,recordIdentity=[1,2]),dict(original,state='unknown'),
+                    dict(original,state='cancelled',token=None,profileID=None,documentID=None),
+                    dict(original,state='cancelled',token=None,profileID=None,documentID=None,deadline=0,recordSHA256='b'*64,recordIdentity=[1,2]),
+                    dict(original,version=True),dict(original,state=[])])
+        for value in bad:
+            op.write(value)
+            with self.subTest(state=value['state']),self.assertRaises(ValueError):op.cancel()
+            self.assertEqual(op.path.read_bytes(),json.dumps(value,sort_keys=True,separators=(',',':')).encode())
+        op.write(original);self.assertFalse(op.cancel())
+
+    def test_state_service_profile_and_source_changes_cannot_complete_native_plan(self):
+        import secrets
+        for fault in ['service','profile','source']:
+            self.manager.profiles=lambda:[dict(id='fixture',root=str(self.root),entry=self.entry.name,port=24000)]
+            self.manager.job_pid=lambda p,**kw:os.getpid()
+            state=dict(documentID=__import__('flow_reader.compiler.project',fromlist=['document_identity']).document_identity(str(self.root),self.entry.name),service=self.service,editorAttachments=1)
+            op=secrets.token_hex(32);after_ack=False;original=self.entry.read_bytes()
+            def request(url,path,payload=None,**kw):
+                nonlocal after_ack
+                if path=='api/editor-attachment':
+                    after_ack=True
+                    if fault=='profile':self.manager.profiles=lambda:[]
+                    if fault=='source':self.entry.write_bytes(original+b'changed by negative fixture')
+                    return dict(connected=True)
+                if after_ack and fault=='service':return {**state,'service':{**self.service,'startedAt':124}}
+                return state
+            self.manager.request=request
+            with self.subTest(fault=fault),self.assertRaises(ValueError):
+                self.manager.attach(str(self.root),self.entry.name,editor_server='owned-no-rpc',nvim=sys.executable,owner_pid=os.getpid(),control_file=str(self.control),native_editor_consent=True,native_editor_operation=op,native_editor_deadline=time.time()+6.5)
+            self.entry.write_bytes(original)
+            self.assertEqual(list(self.owner.directory.glob('*.json')),[])
+            self.assertEqual(self.manager.native_operation(str(self.root),self.entry.name,op).read()['state'],'cancelled')
+
+    def test_journal_write_bound_preserves_old_and_invalid_cleanup_deadline_fails(self):
+        op=self.reserve();before=op.path.read_bytes();value=op.read();value['extra']='x'*17000
+        with self.assertRaises(ValueError):op.write(value)
+        self.assertEqual(op.path.read_bytes(),before)
+        for deadline in [float('nan'),float('inf'),time.time()-1]:
+            with self.assertRaises(ValueError):self.manager.release_native_operation(str(self.root),self.entry.name,op.identifier,deadline=deadline)
+        self.assertEqual(op.path.read_bytes(),before)

@@ -483,17 +483,40 @@ existing private registration owner supplies that descriptor; a fixture-written
 JSON file alone does not establish this production path. SF1 separates optional
 editor synchronization from valid native selection adoption: editor-only failure
 leaves Source/excerpt/mapping and Ask available, while an actual editor jump is
-unavailable and old pending work is revoked. After a manager response, SF2 retains the exact token for that native client.
-Local consent/effect revocation is immediate; registration deletion is a separate
-bounded manager command. In the v5 source component a valid local release result
-confirms absence (including already absent); command/lock/JSON failure leaves the
-lease pending, not cached as successful, and a subsequent explicit release may
-retry. There is no automatic retry loop. Losing the owner can still leave a
-pending registration; this is not a durable recovery guarantee. A pre-response
-timeout/SIGKILL can still lose the token (SF2-R1): crash-safe pre-known issuance
-binding needs a narrow change in the existing EditorAttachments registration
-owner, outside this component's write scope. No service/editor termination,
-other-token deletion or quota expansion is permitted.
+unavailable and old pending work is revoked. SF2 now creates a caller-known opaque operation and cleanup lease before calling
+the local manager. The existing EditorAttachments owner durably reserves its exact
+token/target intent before publishing a complete record atomically. Cancellation
+persists a tombstone before exact digest/inode-bound retirement, so late issuance
+or adoption cannot revive the operation. Same-profile resolver copies and later
+ManagedClients share retained leases: a failed command/probe/parse cleanup remains
+pending after resolve throws. The next explicit connect/Read/close can perform
+one bounded pending attempt; only confirmed absence removes it. No operation scan,
+automatic retry loop, quota expansion or editor/service/other-token deletion is
+introduced. Only a new consented editor grant is gated by pending cleanup.
+An editor-free body Read does not attempt or confirm that retirement: accepted
+body, Source and Ask remain available while the prior editor cleanup is pending.
+It receives no editor consent or movement authority.
+
+The ten-second native resolve budget includes pending retry, preparation/ack,
+follow-up state verification and cleanup. Preparation gets at most6.5 seconds,
+its owned process at most7, and cleanup at most2.5; each is shortened by remaining
+deadline and final state verification reserves cleanup/grace. Late state success
+is refused. These are bounded budgets and measured fixture elapsed times, not
+OS real-time scheduling guarantees. CommandRunner cancellation terminates/waits
+only its own manager process. It does not roll back a previously started shared
+service or automatically recover an entire crashed app.
+
+Historical299 source had no pre-response cleanup binding (actual timeout/SIGKILL
+left two active registrations); `resume2-*` witnesses remain immutable. Current
+source-only evidence is external `native-reader-identity-ui-v5/resume5-handoff.md`.
+A surviving app caller retains pending operations; after both app and manager
+crash the explicit exact-operation local recovery API is tested, but automatic
+app-process restart recovery is not implemented. Private bounded operation
+journals/tombstones are retained without a background sweeper. Legacy direct
+native-consent calls without an operation remain compatible with response-token
+cleanup only; they do not obtain the new crash-gap guarantee. Production FlowApp
+always supplies the operation. This component is not registered or packaged in
+the frozen d7 App and does not establish final F10 or GUI acceptance.
 
 Actual chooser/consent/focus interaction and overall F10 acceptance remain
 unverified. The frozen d7 App retains its NFC/NFD manager matching gap. The later v5

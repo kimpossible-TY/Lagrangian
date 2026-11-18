@@ -1,5 +1,8 @@
 """Neovim owns final writes to verified source without overwriting dirty buffers."""
 import json
+import hashlib
+import math
+import time
 import os
 from pathlib import Path
 import re
@@ -98,7 +101,7 @@ class EditorAttachments:
         # terminal registrations retain their schema and write behavior.
         return NeovimEditor(record["address"], record["executable"]) if record and not record.get("nativeJumpOnly") else None
 
-    def register(self, address, executable, owner_pid, control_file=None, *, jump_only=False):
+    def register(self, address, executable, owner_pid, control_file=None, *, jump_only=False, operation=None):
         # Called only by the local manager. No HTTP registration or executable input.
         NeovimEditor(address, executable)
         executable = shutil.which(executable)
@@ -111,8 +114,14 @@ class EditorAttachments:
             control_file = str(Path(control_file).resolve(strict=True))
             if not Path(control_file).is_file():
                 raise ValueError("Editor control file is unavailable")
+        if operation is not None:
+            if not jump_only or operation.document_id != self.document_id or operation.output != self.directory.parent:
+                raise ValueError("Operation does not own this native registration")
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.private(self.directory, directory=True)
+        token = operation.reserved_token() if operation is not None else secrets.token_hex(32)
+        if os.path.lexists(self.directory / (token + ".json")):
+            raise FileExistsError("Preserve existing editor registration")
         active = 0
         for path in self.directory.glob("*.json"):
             if re.fullmatch(r"[0-9a-f]{64}", path.stem):
@@ -122,17 +131,185 @@ class EditorAttachments:
                     path.unlink(missing_ok=True)
         if active >= 32:
             raise ValueError("Too many active editor attachments")
-        token = secrets.token_hex(32)
         path = self.directory / (token + ".json")
         record = {"documentID": self.document_id, "service": self.service,
                   "address": address, "executable": str(Path(executable).resolve()),
                   "ownerPID": owner_pid, "controlFile": control_file}
         if jump_only:
             record["nativeJumpOnly"] = True
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as stream:
-            json.dump(record, stream)
+        if operation is not None:
+            record["nativeOperation"] = operation.identifier
+        data = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        staging = self.directory / (".native-" + operation.identifier if operation else ".registration-" + token)
+        descriptor = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(data); stream.flush(); os.fsync(stream.fileno())
+                identity = os.fstat(stream.fileno())
+            if operation is not None:
+                # The complete bytes and inode are durable in intent BEFORE
+                # publication. A killed partial file is never a registration.
+                operation.prepare(data, identity)
+            os.link(staging, path, follow_symlinks=False)  # exclusive publication, never replace
+            NativeEditorOperation.sync_directory(self.directory)
+        finally:
+            staging.unlink(missing_ok=True)
         return token, path
+
+
+
+class NativeEditorOperation:
+    """Private local issuance journal. Callers serialize methods with manager.lock.
+
+    A caller knows identifier before attach. Tombstones prevent late issuance;
+    recovery never needs a live service or source file, only the exact binding.
+    Journals are retained (no background pruning/retry or replay-permitting eviction).
+    """
+    KEYS = {"version", "operation", "root", "entry", "readerID", "state", "token",
+            "profileID", "documentID", "deadline", "recordSHA256", "recordIdentity"}
+
+    def __init__(self, data, identifier, root, entry, reader_id=None):
+        if not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-f]{64}", identifier):
+            raise ValueError("Invalid native operation")
+        if any(not isinstance(v, str) or not Path(v).is_absolute() or len(v.encode()) > 4096 or "\0" in v for v in (root, entry)):
+            raise ValueError("Invalid native operation target")
+        if reader_id is not None and (not isinstance(reader_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", reader_id)):
+            raise ValueError("Invalid native reader ID")
+        self.data = Path(data); self.directory = self.data / "native-editor-operations"
+        self.identifier = identifier; self.path = self.directory / (identifier + ".json")
+        self.binding = dict(version=1, operation=identifier, root=root, entry=entry, readerID=reader_id)
+
+    @staticmethod
+    def sync_directory(path):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try: os.fsync(fd)
+        finally: os.close(fd)
+
+    def read(self):
+        EditorAttachments.private(self.directory, directory=True)
+        EditorAttachments.private(self.path)
+        if self.path.stat().st_size > 16384: raise ValueError("Native operation exceeds bound")
+        value = json.loads(self.path.read_bytes())
+        if (not isinstance(value, dict) or set(value) != self.KEYS
+                or any(value.get(k) != v for k, v in self.binding.items())
+                or type(value["version"]) is not int or type(value["state"]) is not str
+                or value["state"] not in {"reserved", "prepared", "issued", "cancelled"}
+                or type(value["deadline"]) not in {int, float} or not math.isfinite(value["deadline"])):
+            raise ValueError("Native operation binding changed")
+        for name, pattern in [("token", r"[0-9a-f]{64}"), ("documentID", r"[0-9a-f]{24}"),
+                              ("profileID", r"[a-z0-9][a-z0-9-]{0,63}"), ("recordSHA256", r"[0-9a-f]{64}")]:
+            if value[name] is not None and (not isinstance(value[name], str) or not re.fullmatch(pattern, value[name])):
+                raise ValueError("Invalid native operation record")
+        identity = value["recordIdentity"]
+        if identity is not None and (not isinstance(identity, list) or len(identity) != 2 or any(type(n) is not int or n < 0 for n in identity)):
+            raise ValueError("Invalid native registration identity")
+        if (value["token"] is None) != (value["profileID"] is None) or (value["profileID"] is None) != (value["documentID"] is None):
+            raise ValueError("Incomplete native operation binding")
+        if (value["recordSHA256"] is None) != (identity is None):
+            raise ValueError("Incomplete registration fingerprint")
+        if value["token"] is None:
+            if value["state"] != "cancelled" or value["deadline"] != 0 or identity is not None:
+                raise ValueError("Invalid pre-issuance cancellation tombstone")
+        elif value["deadline"] <= 0:
+            raise ValueError("Missing native issuance deadline")
+        if value["state"] in {"prepared", "issued"} and identity is None:
+            raise ValueError("Missing native publication fingerprint")
+        if value["state"] == "reserved" and identity is not None:
+            raise ValueError("Unexpected native publication fingerprint")
+        return value
+
+    def write(self, value, *, exclusive=False):
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        EditorAttachments.private(self.directory, directory=True)
+        if os.path.lexists(self.path): EditorAttachments.private(self.path)
+        data = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        if len(data) > 16384: raise ValueError("Native operation exceeds bound")
+        fd, temporary = tempfile.mkstemp(prefix=".intent-", dir=self.directory)
+        temporary = Path(temporary)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush(); os.fsync(stream.fileno())
+            if exclusive: os.link(temporary, self.path, follow_symlinks=False)
+            else: os.replace(temporary, self.path)
+            self.sync_directory(self.directory)
+        finally: temporary.unlink(missing_ok=True)
+
+    def reserve(self, profile_id, document_id, deadline):
+        if type(deadline) not in {int, float} or not math.isfinite(deadline) or not 0 < deadline - time.time() <= 7:
+            raise ValueError("Native preparation deadline expired or invalid")
+        if (not isinstance(profile_id, str) or not isinstance(document_id, str)
+                or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", profile_id) or not re.fullmatch(r"[0-9a-f]{24}", document_id)):
+            raise ValueError("Invalid native document binding")
+        value = dict(self.binding, state="reserved", token=secrets.token_hex(32), profileID=profile_id,
+                     documentID=document_id, deadline=deadline, recordSHA256=None, recordIdentity=None)
+        self.write(value, exclusive=True)  # an existing tombstone/intent is never reused
+
+    def current(self):
+        value = self.read()
+        if value["state"] == "cancelled" or time.time() >= value["deadline"]:
+            raise ValueError("Native operation cancelled or expired")
+        return value
+
+    @property
+    def output(self):
+        output = self.data / "documents" / self.read()["profileID"]
+        if any(path.is_symlink() for path in [self.data, self.data / "documents", output]):
+            raise ValueError("Native operation output cannot be a symlink")
+        return output
+
+    @property
+    def document_id(self): return self.read()["documentID"]
+
+    def reserved_token(self):
+        value = self.current()
+        if value["state"] != "reserved": raise ValueError("Native operation already issued")
+        return value["token"]
+
+    def prepare(self, data, identity):
+        value = self.current()
+        if value["state"] != "reserved": raise ValueError("Native operation already prepared")
+        value.update(state="prepared", recordSHA256=hashlib.sha256(data).hexdigest(), recordIdentity=[identity.st_dev, identity.st_ino])
+        self.write(value)
+
+    def verify_registration(self, value, path):
+        EditorAttachments.private(path)
+        info = path.stat()
+        if (info.st_size > 16384 or [info.st_dev, info.st_ino] != value["recordIdentity"]
+                or hashlib.sha256(path.read_bytes()).hexdigest() != value["recordSHA256"]):
+            raise ValueError("Preserve replaced native registration")
+        record = json.loads(path.read_bytes())
+        if (record.get("nativeOperation") != self.identifier or record.get("nativeJumpOnly") is not True
+                or record.get("documentID") != value["documentID"]):
+            raise ValueError("Not this operation's native registration")
+
+    def issued(self):
+        value = self.current()
+        if value["state"] != "prepared": raise ValueError("Native operation not prepared")
+        self.verify_registration(value, self.output / "editor-attachments" / (value["token"] + ".json"))
+        value["state"] = "issued"; self.write(value)
+
+    def cancel(self):
+        if not os.path.lexists(self.path):
+            self.write(dict(self.binding, state="cancelled", token=None, profileID=None,
+                            documentID=None, deadline=0, recordSHA256=None, recordIdentity=None), exclusive=True)
+        value = self.read()
+        value["state"] = "cancelled"
+        self.write(value)  # durable revocation precedes deletion, even if deletion fails
+        if value["token"] is None: return False
+        directory = self.output / "editor-attachments"
+        if not directory.exists(): return False
+        EditorAttachments.private(directory, directory=True)
+        target = directory / (value["token"] + ".json")
+        released = False
+        if os.path.lexists(target):
+            self.verify_registration(value, target)
+            released = EditorAttachments(self.output, value["documentID"], {}).release_native(value["token"])
+        staging = directory / (".native-" + self.identifier)
+        if os.path.lexists(staging):
+            EditorAttachments.private(staging); staging.unlink()
+        self.sync_directory(directory)
+        return released
 
 
 def vim_string(value):

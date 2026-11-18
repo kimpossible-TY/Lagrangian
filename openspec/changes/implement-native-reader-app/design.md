@@ -513,17 +513,30 @@ VoiceOver, macOS13 or PM acceptance receipt.
 NativeReaderActions separates validated body selection from optional editor sync,
 revoking prior pending work first. Source/mapping/Ask remain available after an
 editor-only failure; stale contexts/inputs and invalid selections are not relaxed.
-NativeReaderManagedResolver owns an exact local manager-issued cleanup lease until
-adoption, then transport lifetime owns it. After a response, failed probes and
-late/cancelled/epoch-superseded resolves request retirement of that exact token,
-including before any editor context exists. Revoking local consent/effect is not
-confirmation of registration-file deletion. The v5 lease coalesces concurrent
-attempts, confirms only a successful typed manager result, and leaves failed
-commands pending for a subsequent explicit release, without a retry loop.
-The existing owner is not durable: a lost lease can leave its pending file.
-Pre-response timeout/SIGKILL still leaks (SF2-R1); fixing that crash gap needs
-pre-known token/operation binding and atomic registration in the existing
-EditorAttachments owner, which is readonly in this component assignment. The local manager/EditorAttachments own token retirement and the four-field
+Historical299 NativeReaderManagedResolver only retained a response-bound token
+lease, leaving pre-response timeout/SIGKILL untracked; its actual2 leaks and
+exit1 desired oracle remain historical in resume2 evidence. The current source
+creates a caller-known operation and retained lease before attach. The manager
+serializes a durable private operation intent and EditorAttachments publishes only
+complete fsynced records atomically with exclusive token collision semantics.
+Cancel tombstones precede exact operation/digest/inode retirement. Malformed
+reserved/prepared/issued state is not confirmed absence. Shared resolver copies
+retain failed pending leases for a later explicit connect/Read/close; confirmation
+alone removes an entry, and a live lease is not retried or revoked by a new Read.
+Pending cleanup gates only a new consented editor grant. Plain editor-free body
+Read leaves that retirement pending and retains accepted Source/Ask operations,
+without inferring editor authority. A ten-second resolve budget covers pending
+retry, prepare/ack, final HTTP state
+and cleanup. Subcall ceilings are shortened by remaining time; late success is
+rejected. Actual cancellation terminates/waits for only the owned manager process,
+not its shared service. There is no background retry, directory scan or new
+credential/source authority. Private bounded journals/tombstones are retained;
+automatic pruning and automatic entire-app restart recovery are not implemented.
+The known-operation recovery API is tested after process death, separately from
+surviving production caller reentry. Legacy native-consent without an operation
+remains response-bound; normal terminal register stays compatible. Current
+witnesses are external resume5 evidence; no App build/GUI acceptance is implied.
+ The local manager/EditorAttachments own token retirement and the four-field
 private chooser descriptor export. There is no HTTP deletion/registration API,
 quota increase, source writer or editor/service/control termination. Gated tests
 observe a transmitted jump's committed unknown row while the actual edit_lock is

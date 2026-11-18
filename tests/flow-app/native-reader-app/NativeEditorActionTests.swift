@@ -45,9 +45,18 @@ private actor UITrace {
 }
 
 @main struct NativeEditorActionTests {
-    static func require(_ value: Bool) throws {
-        if !value { throw NativeReaderOperationFailure.rejected(code: "test-assertion") }
+    static func require(_ value: Bool, line: Int = #line) throws {
+        if !value { throw NativeReaderOperationFailure.rejected(code: "test-assertion-line-\(line)") }
     }
+    /// Existing tests inject local inventory only; echo its caller correlation,
+    /// never use this fake plan in the real-manager R1 lifetime tests.
+    private static func fixturePlan(_ data: Data, _ argv: [String]) throws -> Data {
+        if argv.first == "--release-native-editor-operation" { return Data("{\"released\":false}".utf8) }
+        var value = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        if let index = argv.firstIndex(of: "--native-editor-operation") { value["nativeEditorOperation"] = argv[index + 1] }
+        return try JSONSerialization.data(withJSONObject: value)
+    }
+
     @MainActor private static func until(_ predicate: () -> Bool) async throws {
         for _ in 0..<800 {
             if predicate() { return }
@@ -86,8 +95,8 @@ private actor UITrace {
             return response
         }, stream: real.stream)
         flow.managedResolver = NativeReaderManagedResolver(attach: { argv in
-            await trace.attachment(consented: argv.contains("--native-editor-consent"))
-            return config
+            if argv.first == "--attach" { await trace.attachment(consented: argv.contains("--native-editor-consent")) }
+            return try fixturePlan(config, argv)
         }, network: network)
         var consentCalls = 0
         if mode != "ui-no-consent" {
@@ -190,7 +199,7 @@ private actor UITrace {
         let real=NativeReaderNetwork.urlSession()
         func resolver(_ gate:Gate?=nil,_ failProbe:Bool=false)->NativeReaderManagedResolver {
             NativeReaderManagedResolver(attach:{argv in
-                let data=try await Task.detached{Data(try CommandRunner(timeout:10).run(manager,argv).utf8)}.value
+                let data=try await CommandRunner.nativeReaderManager(manager,argv)
                 if argv.first=="--attach",let gate {await gate.stop()}
                 return data
             },network:.init(send:{request,limit in
@@ -259,15 +268,99 @@ private actor UITrace {
         let mode = args[2]
         let object = try JSONSerialization.jsonObject(with: config) as! [String: Any]
         if mode == "lease-retry" { try await retirement(object, marker: args[3]); return }
-        if mode == "response-timeout" {
-            let start = Date()
-            do {
-                _ = try CommandRunner(timeout: 10).run(object["manager"] as! String, object["attachArguments"] as! [String])
-                throw NativeReaderOperationFailure.rejected(code: "expected-command-timeout")
-            } catch let error as FlowError {
-                try require(error.message.contains("초과"))
-                print("{\"actualCommandRunnerTimeout\":true,\"elapsed\":\(Date().timeIntervalSince(start)),\"skips\":0}")
+        if mode == "response-pending-client" || mode == "response-pending-body" {
+            await MainActor.run { _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited) }
+            let manager = object["manager"] as! String
+            let marker = object["registered"] as! String
+            let editor = try NativeReaderManagedEditor.consentedDescriptor(URL(fileURLWithPath: object["descriptor"] as! String))
+            let resolver = NativeReaderManagedResolver(attach: { try await CommandRunner.nativeReaderManager(manager, $0) }, network: .urlSession())
+            let client = NativeReaderManagedClient(resolver: resolver, root: object["root"] as! String, entry: object["entry"] as! String, editor: editor)
+            let first = Task { try await client.target() }
+            for _ in 0..<500 {
+                if FileManager.default.fileExists(atPath: marker + ".locked") { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
             }
+            first.cancel()
+            var rejected = false
+            do { _ = try await first.value } catch { rejected = true }
+            try require(rejected)
+            try Data().write(to: URL(fileURLWithPath: marker + ".pending"))
+            if mode == "response-pending-body" {
+                let body = NativeReaderManagedClient(resolver: resolver, root: object["root"] as! String,
+                    entry: object["entry"] as! String, editor: nil)
+                let identity = try await body.target()
+                let context = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 1, target: identity)
+                let document = try await body.document(for: context)
+                let actions = try await body.currentActions()
+                let block = document.blocks.first { $0.canonicalText == "Préface 한글 target passage." }!
+                let lower = "Préface 한글 ".utf16.count
+                let selection = NativeReaderSelection(ticket: UUID(), blockID: block.id,
+                    rangeUTF16: lower..<(lower + 6), exact: "target")
+                try await actions.updateSelection(selection, context: context)
+                let request = NativeReaderSourceRequest(context: context, selection: selection, action: .locate, receiptID: UUID())
+                try require(try await actions.perform(request).status == .verified)
+                // Source excerpt is intentionally complete-math-only. Reuse
+                // SF1's existing expression owner; do not widen plain-text policy.
+                let equation = document.blocks.first { $0.kind == .equation }!
+                let expression = NativeReaderSelection(ticket: UUID(), blockID: equation.id,
+                    rangeUTF16: 0..<equation.canonicalText.utf16.count, exact: equation.canonicalText)
+                try await actions.updateSelection(expression, context: context)
+                let excerpt = try await actions.perform(.init(context: context, selection: expression, action: .excerpt, receiptID: UUID()))
+                try require(excerpt.status == .verified && excerpt.verifiedText?.contains("frac") == true)
+                _ = try await actions.perform(.open(expression), context: context)
+                let movement = NativeReaderSourceRequest(context: context, selection: expression, action: .locate, receiptID: UUID())
+                do { _ = try await actions.jump(movement); throw FlowError(message: "body acquired editor authority") }
+                catch NativeReaderOperationFailure.unavailable {}
+                await body.dispose()
+                try Data().write(to: URL(fileURLWithPath: marker + ".body"))
+            }
+            for _ in 0..<500 {
+                if FileManager.default.fileExists(atPath: marker + ".retry") { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let start = Date()
+            _ = try await client.target() // SAME production caller; no operation supplied by harness.
+            let elapsed = Date().timeIntervalSince(start)
+            try require(elapsed < 10)
+            await client.dispose()
+            print("{\"sameManagedClientRecovered\":true,\"bodySourceAskWhilePending\":\(mode == "response-pending-body"),\"externalNonceInput\":false,\"retryElapsed\":\(elapsed),\"skips\":0}")
+            return
+        }
+        if mode.hasPrefix("response-") {
+            let start = Date(), gate = Gate()
+            let manager = object["manager"] as! String
+            let editor = try NativeReaderManagedEditor.consentedDescriptor(URL(fileURLWithPath: object["descriptor"] as! String))
+            let resolver = NativeReaderManagedResolver(attach: { argv in
+                let data = try await CommandRunner.nativeReaderManager(manager, argv)
+                if argv.first == "--attach" {
+                    if mode == "response-loss" { throw URLError(.networkConnectionLost) }
+                    if mode == "response-late" { await gate.stop() }
+                }
+                return data
+            }, network: .urlSession())
+            let task = Task { try await resolver.resolve(root: object["root"] as! String, entry: object["entry"] as! String, editor: editor) }
+            if mode == "response-late" {
+                try await gate.wait(); task.cancel(); await gate.open()
+            } else if mode == "response-cancel" || mode == "response-pending" {
+                for _ in 0..<500 {
+                    if FileManager.default.fileExists(atPath: object["registered"] as! String) { break }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                // Python's lock observer acknowledges its actual flock first.
+                if mode == "response-pending" {
+                    for _ in 0..<500 {
+                        if FileManager.default.fileExists(atPath: (object["registered"] as! String) + ".locked") { break }
+                        try await Task.sleep(nanoseconds: 10_000_000)
+                    }
+                }
+                task.cancel()
+            }
+            var rejected = false
+            do { _ = try await task.value } catch { rejected = true }
+            try require(rejected)
+            let elapsed = Date().timeIntervalSince(start)
+            try require(elapsed < 10)
+            print("{\"mode\":\"\(mode)\",\"rejected\":true,\"elapsed\":\(elapsed),\"skips\":0}")
             return
         }
         if mode == "SF2" { try await leases(object); return }
@@ -327,7 +420,7 @@ private actor UITrace {
                         && argv.contains(editor.executable) && argv.contains(editor.controlFile))
                     if mode == "managed-pending-close" { await gate.stop() }
                 }
-                return config // Injected local inventory; actual registered attachment and HTTP below.
+                return try fixturePlan(config, argv) // Explicit fake inventory; actual attachment/HTTP below.
             }, network: network)
             let client = NativeReaderManagedClient(resolver: resolver, root: "/fixture", entry: "fixture.typ", editor: editor)
             managedClient = client

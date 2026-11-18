@@ -151,15 +151,16 @@ actor NativeReaderEditorLease {
     private(set) var retirement = Retirement.active
     private var task: Task<Bool, Never>?
     private var attempt = 0
-    private let cleanup: () async throws -> Void
-    init(cleanup: @escaping () async throws -> Void) { self.cleanup = cleanup }
-    @discardableResult func release() async -> Bool {
+    private let cleanup: (Date) async throws -> Void
+    init(cleanup: @escaping () async throws -> Void) { self.cleanup = { _ in try await cleanup() } }
+    init(boundedCleanup: @escaping (Date) async throws -> Void) { self.cleanup = boundedCleanup }
+    @discardableResult func release(deadline: Date = Date().addingTimeInterval(2.5)) async -> Bool {
         if retirement == .confirmed { return true }
         if task == nil {
             attempt += 1
             retirement = .pending
             let cleanup = self.cleanup
-            task = Task { do { try await cleanup(); return true } catch { return false } }
+            task = Task { do { try await cleanup(deadline); return true } catch { return false } }
         }
         let current = attempt
         let confirmed = await task!.value
@@ -171,12 +172,60 @@ actor NativeReaderEditorLease {
     }
 }
 
+/// Resolver copies and successive FlowApp clients share this owner. It retains
+/// only caller-known leases, never discovers operations by scanning the journal.
+actor NativeReaderEditorRetirements {
+    private struct Entry {
+        let scope: [String]
+        let lease: NativeReaderEditorLease
+    }
+    private var entries: [String: Entry] = [:]
+    func retain(_ operation: String, root: String, entry: String, readerID: String?, lease: NativeReaderEditorLease) {
+        entries[operation] = Entry(scope: [root, entry, readerID ?? ""], lease: lease)
+    }
+    /// One bounded pending attempt per explicit entry. Never retry live leases;
+    /// confirmation alone removes an entry. A second pending lease blocks attach.
+    func retry(root: String, entry: String, readerID: String?, deadline: Date) async -> Bool {
+        let scope = [root, entry, readerID ?? ""]
+        let matching = entries.filter { $0.value.scope == scope }
+        var attempted = false
+        var remains = false
+        for (id, item) in matching.sorted(by: { $0.key < $1.key }) {
+            let state = await item.lease.retirement
+            if state == .confirmed { entries[id] = nil; continue }
+            guard state == .pending else { continue }
+            if !attempted && deadline.timeIntervalSinceNow > 0 {
+                attempted = true
+                let limit = min(deadline, Date().addingTimeInterval(2.5))
+                if await item.lease.release(deadline: limit) { entries[id] = nil; continue }
+            }
+            remains = true
+        }
+        return !remains
+    }
+}
+
 struct NativeReaderManagedResolver {
     /// Supply an asynchronous bounded runner for the installed manage.py. No shell or preview-port probing.
     var attach: ([String]) async throws -> Data
     var network: NativeReaderNetwork
+    var retirements = NativeReaderEditorRetirements()
+
+    func retryEditorCleanup(root: String, entry: String, readerID: String? = nil,
+                            deadline: Date = Date().addingTimeInterval(2.5)) async -> Bool {
+        await retirements.retry(root: root, entry: entry, readerID: readerID, deadline: deadline)
+    }
 
     func resolve(root: String, entry: String, readerID: String? = nil, editor: NativeReaderManagedEditor? = nil) async throws -> (NativeReaderAttachment, NativeDocumentIdentity) {
+        let callerDeadline = Date().addingTimeInterval(10)
+        // Pending editor retirement gates a NEW movement grant, never body,
+        // Source or Ask authority. Plain Read neither retries nor confirms it.
+        if editor?.consentID != nil {
+            guard await retryEditorCleanup(root: root, entry: entry, readerID: readerID, deadline: callerDeadline) else {
+                throw NativeReaderOperationFailure.unavailable
+            }
+        }
+        try Task.checkCancellation()
         var args = ["--attach", "--root", root, "--entry", entry]
         if let id = readerID { args += ["--reader-service", id] }
         if let editor {
@@ -184,37 +233,56 @@ struct NativeReaderManagedResolver {
                      "--owner-pid", String(editor.ownerPID), "--control-file", editor.controlFile]
             if editor.consentID != nil { args += ["--native-editor-consent"] }
         }
-        let data: Data
-        do { data = try await attach(args) }
-        catch { throw NativeReaderOperationFailure.unavailable } // Never surface private argv/manager stderr.
-        let plan = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let operation: String?
         let lease: NativeReaderEditorLease?
-        if editor?.consentID != nil, let token = plan?["editorAttachment"] as? String,
-           token.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
-           let path = plan?["attachmentFile"] as? String, path.hasPrefix("/") {
-            var release = ["--release-native-editor", "--root", root, "--entry", entry, "--token", token]
+        if editor?.consentID != nil {
+            operation = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
+            args += ["--native-editor-operation", operation!, "--native-editor-deadline",
+                     String(min(Date().timeIntervalSince1970 + 6.5,
+                                callerDeadline.timeIntervalSince1970 - 3))]
+            var release = ["--release-native-editor-operation", "--root", root, "--entry", entry,
+                           "--native-editor-operation", operation!]
             if let id = readerID { release += ["--reader-service", id] }
             let runner = attach, releaseArguments = release
-            lease = NativeReaderEditorLease {
-                let data = try await runner(releaseArguments)
+            // The owner exists BEFORE the manager can publish any registration.
+            lease = NativeReaderEditorLease(boundedCleanup: { deadline in
+                let arguments = releaseArguments + ["--native-editor-deadline", String(deadline.timeIntervalSince1970)]
+                let data = try await runner(arguments)
                 guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      Set(result.keys) == ["released"],
-                      let released = result["released"] as? NSNumber,
-                      CFGetTypeID(released) == CFBooleanGetTypeID() else {
+                      Set(result.keys) == ["released"], let value = result["released"] as? NSNumber,
+                      CFGetTypeID(value) == CFBooleanGetTypeID() else {
                     throw NativeReaderOperationFailure.unavailable
                 }
-                // false is also a confirmed absence (already withdrawn).
-            }
-        } else { lease = nil }
+            })
+            await retirements.retain(operation!, root: root, entry: entry, readerID: readerID, lease: lease!)
+        } else { operation = nil; lease = nil }
+        let data: Data
+        do { data = try await attach(args) }
+        catch {
+            await lease?.release(deadline: callerDeadline)
+            if error is CancellationError { throw CancellationError() }
+            throw NativeReaderOperationFailure.unavailable
+        }
+        let plan: [String: Any]?
+        do { plan = try JSONSerialization.jsonObject(with: data) as? [String: Any] }
+        catch { await lease?.release(deadline: callerDeadline); throw NativeReaderOperationFailure.unavailable }
         do {
         try Task.checkCancellation()
         if editor?.consentID != nil {
-            guard plan?["nativeEditorActions"] as? Int == 1 else { throw NativeReaderOperationFailure.unavailable }
+            guard plan?["nativeEditorActions"] as? Int == 1,
+                  plan?["nativeEditorOperation"] as? String == operation else { throw NativeReaderOperationFailure.unavailable }
         }
         let attachment = try NativeReaderAttachment(data: data, editorConsentID: editor?.consentID, editorLease: lease)
         var request = URLRequest(url: attachment.baseURL.appendingPathComponent("api/state"))
-        request.timeoutInterval = 5
+        if operation != nil {
+            let remaining = callerDeadline.timeIntervalSinceNow - 2.75 // cleanup + TERM grace
+            guard remaining > 0 else { throw NativeReaderOperationFailure.unavailable }
+            request.timeoutInterval = min(5, remaining)
+        } else { request.timeoutInterval = 5 }
         let response = try await network.send(request, 1024 * 1024)
+        if operation != nil, callerDeadline.timeIntervalSinceNow <= 2.75 {
+            throw NativeReaderOperationFailure.unavailable
+        }
         guard response.status == 200, response.data.count <= 1024 * 1024,
               let object = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
               object["documentID"] as? String == attachment.documentID,
@@ -226,7 +294,7 @@ struct NativeReaderManagedResolver {
         try Task.checkCancellation()
         return (attachment, NativeDocumentIdentity(documentID: attachment.documentID,
             serviceID: attachment.serviceID, revision: revision, scope: .service))
-        } catch { await lease?.release(); throw error }
+        } catch { await lease?.release(deadline: callerDeadline); throw error }
     }
 }
 
@@ -548,7 +616,8 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
     func revokeEditorConsent() async {
         guard editor?.consentID != nil else { return }
         editorConsentRevoked = true; epoch += 1
-        await transport?.revokeEditorConsent()
+        if let transport { await transport.revokeEditorConsent() }
+        else { _ = await resolver.retryEditorCleanup(root: root, entry: entry, readerID: readerID) }
     }
     func invalidate() async {
         epoch += 1
@@ -559,5 +628,6 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         disposed = true; epoch += 1
         let pages = pageTransport, document = transport
         await pages?.dispose(); await document?.dispose()
+        if document == nil { _ = await resolver.retryEditorCleanup(root: root, entry: entry, readerID: readerID) }
     }
 }

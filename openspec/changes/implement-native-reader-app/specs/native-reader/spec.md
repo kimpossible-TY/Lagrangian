@@ -282,24 +282,32 @@ New selection SHALL revoke old pending editor work before optional synchronizati
 ### Requirement: Native registration has an exact local lifetime
 The native resolver SHALL retain its manager-issued lease through resolution and retire only its own native token on disconnect/dispose/replacement or failed/cancelled/superseded/late resolution. Existing local owners SHALL preserve other tokens, control/editor/service lifetimes and the32 quota; HTTP SHALL NOT delete arbitrary paths.
 
-#### Scenario: Current source component is not final lifetime acceptance
-- **WHEN** assessing the current component against the lifetime requirement
-- **THEN** the following implementation gate remains, without weakening the SHALL above
+#### Scenario: Native attach fails before the manager response
+- **WHEN** timeout, cancellation, exception, lost/late response or manager termination occurs after registration but before plan adoption
+- **THEN** the pre-existing caller operation lease SHALL withdraw only its durably bound registration
+- **AND** the existing local owner SHALL atomically publish only a complete record, reject collision/replacement and preserve other native/terminal registrations and service/editor/source state
 
-Frozen d7 used a
-best-effort once-only response-bound release. The v5 source component distinguishes
-local effect revocation from confirmed absence and retains failed release attempts
-as pending for a subsequent explicit retry. It does not guarantee durable cleanup
-if that owner is lost. SF2-R1 pre-response CommandRunner timeout/SIGKILL remains
-open: the existing registration owner must support crash-safe pre-known issuance
-binding before this requirement can be accepted. Neither a successful retry nor
-33+ normal reconnects proves that boundary. Exact results/limits are in external
-DevSSD `test-output/native-reader-identity-ui-v5/resume2-handoff.md`; PM owns the
-remaining registration-owner permission and final App/GUI validation.
+#### Scenario: Cleanup cannot confirm absence yet
+- **WHEN** exact local cleanup fails under lock contention or command failure after resolve throws
+- **THEN** the shared production caller owner SHALL retain that exact pending operation for a subsequent explicit bounded connect/Read/close retry without an externally supplied nonce
+- **AND** confirmation alone removes the lease; no scan or automatic retry loop SHALL revive effect authority
 
-#### Scenario: Failed local cleanup cannot confirm deletion
-- **WHEN** a bounded exact-token release command fails under manager lock contention
-- **THEN** local consent stays revoked, retirement remains pending, and a later explicit release can confirm absence without an automatic retry loop or authority revival
+#### Scenario: Pending editor retirement does not revoke body authority
+- **WHEN** a previous editor operation remains pending under local manager lock contention and an editor-free explicit Read resolves the same accepted document
+- **THEN** body, verified Source and Ask SHALL remain available without retrying or confirming editor retirement and without editor consent or movement authority
+- **AND** a subsequent new consented editor grant SHALL still require exact pending recovery by the retained production caller
+
+#### Scenario: Preparation and state confirmation share a caller budget
+- **WHEN** native attach, pending retry or follow-up HTTP state is slow
+- **THEN** the resolver SHALL include pending retry, prepare/ack, state validation and cleanup in its ten-second budget, shorten subcall deadlines and reject late success while reserving cleanup time
+- **AND** process cancellation SHALL wait for only the owned manager process; it does not imply shared-service rollback or OS real-time scheduling guarantees
+
+#### Scenario: Current source component has bounded recovery scope
+- **WHEN** assessing the new operation-backed native production path against historical299
+- **THEN** the old resume2 timeout/SIGKILL leaks and desired exit1 SHALL remain historical evidence, not be overwritten
+- **AND** actual malformed-journal, crash, deadline and production pending-client witnesses SHALL be bound in external `native-reader-identity-ui-v5/resume5-handoff.md`
+- **AND** explicit known-operation local recovery after an entire app crash SHALL NOT be presented as automatic app-restart recovery; journals remain retained without automatic pruning
+- **AND** compatible legacy direct native-consent without operation remains response-token-only, while production FlowApp supplies the operation and final App/GUI/F10 acceptance remains separate
 
 #### Scenario: Reconnect without consuming other registrations
 - **WHEN** the same live editor reconnects and disconnects at least33 times, with concurrent terminal/native registrations

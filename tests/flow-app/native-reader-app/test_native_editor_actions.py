@@ -33,6 +33,13 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
             allowed=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-app-corrections-v4')
             if not fixed.is_relative_to(allowed): raise RuntimeError('Fixed source evidence must remain isolated')
             sources=[fixed/p.name for p in sources]
+        if fixed_transport := os.environ.get('NA15_FIXED_TRANSPORT'):
+            fixed_transport=Path(fixed_transport).resolve()
+            allowed=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117/test-output/native-reader-identity-ui-v5/resume5-before')
+            if fixed_transport.parent != allowed:raise RuntimeError('Before transport must be the exact owned snapshot')
+            binding=json.loads((allowed/'binding.json').read_text())
+            if sha(fixed_transport)!=binding['sha256']:raise RuntimeError('Before snapshot changed')
+            sources=[fixed_transport if p.name=='NativeReaderTransport.swift' else p for p in sources]
         # Outer command owns the single Swift lock. Never invoke a nested lock.
         if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
             raise RuntimeError('Wrap this top-level test once with with-native-swift-lock.py')
@@ -169,34 +176,127 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         manager=ReaderManager(data=self.work/'manager-data',agents=self.work/'agents');manager.profiles=lambda:[profile]
         return wrapper,args,manager,terminal_path
 
-    def test_SF2_response_before_plan_timeout_and_sigkill_known_gap(self):
-        wrapper,args,manager,terminal_path=self.response_boundary_fixture(delay=True)
+    def response_lifetime(self, mode, fault='delay'):
+        import signal
+        import fcntl
+        wrapper,args,manager,terminal_path=self.response_boundary_fixture(delay=False)
         retained={str(p):sha(p) for p in [terminal_path,self.record_path,self.control]}
         before=set(self.state.editor_attachments.directory.glob('*.json'))
-        config=self.work/'timeout.json';config.write_text(json.dumps(dict(manager=str(wrapper),attachArguments=args)))
-        command=[str(self.binary),str(config),'response-timeout',str(self.work/'unused')]
-        start=time.monotonic();result=subprocess.run(command,capture_output=True,text=True,timeout=20)
-        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-        self.assertTrue((self.work/'registered').exists())
-        timed=set(self.state.editor_attachments.directory.glob('*.json'))-before
-        self.assertEqual(len(timed),1,'known R1 leak must be measured, not hidden')
-        for path in timed:self.assertTrue(self.state.editor_attachments.record(path.stem))
-        (self.work/'registered').unlink()
-        child=subprocess.Popen([str(wrapper),*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        text=wrapper.read_text().replace('import json,time','import json,time,os')
+        text=text.replace('  if path=="api/editor-attachment" and False:', '  if path=="api/editor-attachment" and True:')
+        statement='   op=sys.argv[sys.argv.index("--native-editor-operation")+1] if "--native-editor-operation" in sys.argv else None\n   Path(MARKER).write_text(json.dumps(dict(pid=os.getpid(),operation=op,phase="afterRealAckBeforePlan")))\n'.replace('MARKER',repr(str(self.work/'registered')))
+        if fault=='delay':statement+='   if not Path('+repr(str(self.work/'registered.retry'))+').exists():time.sleep(60)\n'
+        if fault=='exception':statement+='   raise ValueError("injected post-issuance failure")\n'
+        if fault=='state-budget':
+            statement+='   time.sleep(5.0);self.post_ack=True\n'
+        if fault=='not-ready':
+            text=text.replace('  result=super().request(url,path,*args,**kwargs)', '  if path=="api/state":raise ValueError("injected not-ready")\n  result=super().request(url,path,*args,**kwargs)')
+        text=text.replace('   Path('+repr(str(self.work/'registered'))+').write_text("acknowledged before response")\n   time.sleep(60)\n',statement)
+        delayed=[]
+        if fault=='state-budget':
+            flag=self.work/'delay-native-state'
+            text=text.replace('  return result\n', '  if path=="api/state" and getattr(self,"post_ack",False):Path('+repr(str(flag))+').write_text("native probe only")\n  return result\n')
+            original_get=self.server.RequestHandlerClass.do_GET
+            def delayed_get(handler):
+                if handler.path=='/api/state' and flag.exists():
+                    delayed.append(dict(path=handler.path,start=time.monotonic()))
+                    time.sleep(3.5)
+                    handler.send_response(503);handler.send_header('Content-Length','0');handler.end_headers()
+                    delayed[-1]['end']=time.monotonic();return
+                return original_get(handler)
+            self.server.RequestHandlerClass.do_GET=delayed_get
+
+        if fault=='before-publication':
+            before_link='real_link=os.link\ndef gated_link(source,target,**kwargs):\n if Path(target).parent.name=="editor-attachments" and Path(target).suffix==".json":\n  op=sys.argv[sys.argv.index("--native-editor-operation")+1]\n  Path(MARKER).write_text(json.dumps(dict(pid=os.getpid(),operation=op,phase="durablePreparedBeforePublication")))\n  time.sleep(60)\n return real_link(source,target,**kwargs)\nos.link=gated_link\n'.replace('MARKER',repr(str(self.work/'registered')))
+            text=text.replace('class Owned(ReaderManager):',before_link+'class Owned(ReaderManager):')
+        wrapper.write_text(text)
+        terminal=terminal_path.stem
+        descriptor=manager.native_editor_local(str(self.root),self.entry.name,terminal,descriptor=True)['descriptorFile']
+        config=self.work/'response.json';config.write_text(json.dumps(dict(manager=str(wrapper),descriptor=descriptor,root=str(self.root),entry=self.entry.name,registered=str(self.work/'registered'))))
+        command=[str(self.binary),str(config),mode,str(self.work/'unused')]
+        start=time.monotonic();child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        lock=None;killed=None;reentry=False
         try:
-            deadline=time.monotonic()+10
-            while not (self.work/'registered').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
-            self.assertTrue((self.work/'registered').exists());child.kill();stdout,stderr=child.communicate(timeout=5)
+            if mode in ['response-kill','response-term','response-pending','response-pending-client','response-pending-body','response-owner-crash']:
+                deadline=time.monotonic()+10
+                while not (self.work/'registered').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+                self.assertTrue((self.work/'registered').exists())
+                marker=json.loads((self.work/'registered').read_text())
+                operation=marker['operation'];self.assertIsNotNone(operation)
+                if mode in ['response-pending','response-pending-client','response-pending-body']:
+                    lock=(self.work/'manager-data/control.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
+                    Path(str(self.work/'registered')+'.locked').write_text('real lock acquired')
+                else:
+                    if mode=='response-owner-crash':child.kill()
+                    killed=signal.SIGTERM if mode=='response-term' else signal.SIGKILL
+                    os.kill(marker['pid'],killed)
+            if mode in ['response-pending-client','response-pending-body']:
+                deadline=time.monotonic()+8
+                while not Path(str(self.work/'registered')+'.pending').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+                self.assertTrue(Path(str(self.work/'registered')+'.pending').exists())
+                self.assertEqual(len(set(self.state.editor_attachments.directory.glob('*.json'))-before),1)
+                if mode=='response-pending-body':
+                    deadline=time.monotonic()+8
+                    while not Path(str(self.work/'registered')+'.body').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+                    if child.poll() is None:self.assertTrue(Path(str(self.work/'registered')+'.body').exists(),'body/Source/Ask must finish before lock release')
+                    self.assertEqual(len(set(self.state.editor_attachments.directory.glob('*.json'))-before),1,'plain Read must not claim retirement')
+                fcntl.flock(lock,fcntl.LOCK_UN);lock.close();lock=None
+                Path(str(self.work/'registered')+'.retry').write_text('user explicit retry; no nonce')
+            stdout,stderr=child.communicate(timeout=15)
+            if mode=='response-owner-crash':self.assertEqual(child.returncode,-9)
+            else:self.assertEqual(child.returncode,0,stdout+stderr)
+            elapsed=time.monotonic()-start;self.assertLess(elapsed,10)
+            if mode in ['response-pending','response-owner-crash']:
+                if lock:
+                    self.assertEqual(len(set(self.state.editor_attachments.directory.glob('*.json'))-before),1)
+                    fcntl.flock(lock,fcntl.LOCK_UN);lock.close();lock=None
+                reentry_result=subprocess.run([str(wrapper),'--release-native-editor-operation','--root',str(self.root),'--entry',self.entry.name,'--native-editor-operation',operation],capture_output=True,text=True,timeout=4)
+                self.assertEqual(reentry_result.returncode,0,reentry_result.stderr);reentry=True
+            if mode in ['response-pending-client','response-pending-body']:
+                calls=[json.loads(x) for x in (self.evidence/'response-manager-commands.jsonl').read_text().splitlines()]
+                attaches=[a for a in calls if a[0]=='--attach']
+                releases=[a for a in calls if a[0]=='--release-native-editor-operation']
+                self.assertEqual(len(attaches),3 if mode=='response-pending-body' else 2)
+                if mode=='response-pending-body':
+                    plain=[a for a in attaches if '--native-editor-operation' not in a]
+                    self.assertEqual(len(plain),1);self.assertNotIn('--editor-server',plain[0])
+                ids=[a[a.index('--native-editor-operation')+1] for a in attaches if '--native-editor-operation' in a]
+                self.assertNotEqual(ids[0],ids[1])
+                self.assertEqual(sum(a[a.index('--native-editor-operation')+1]==ids[0] for a in releases),2)
+                self.assertEqual(manager.native_operation(str(self.root),self.entry.name,ids[0]).read()['state'],'cancelled')
+            if fault=='state-budget':
+                self.assertEqual(len(delayed),1,'real follow-up state request reached delayed HTTP handler')
+                self.assertGreater(elapsed,5)
+                flag.unlink()
+            after=set(self.state.editor_attachments.directory.glob('*.json'))
+            self.assertEqual(after,before,'R1: active native registration increase must be zero')
+            self.assertFalse(list(self.state.editor_attachments.directory.glob('.native-*')))
+            self.assertEqual({str(p):sha(p) for p in [terminal_path,self.record_path,self.control]},retained)
+            self.assertIsNone(self.editor.poll());self.assert_unchanged(self.before)
+            if (self.work/'registered').exists():
+                marker=json.loads((self.work/'registered').read_text());operation=marker['operation']
+                self.assertEqual(manager.native_operation(str(self.root),self.entry.name,operation).read()['state'],'cancelled')
+            self.save('response-lifetime.json',dict(argv=command,exit=child.returncode,stdout=stdout,stderr=stderr,elapsed=elapsed,activeIncrease=0,requiredActiveIncrease=0,managerSignal=int(killed) if killed else None,reentry=reentry,sameProductionCaller=mode in ['response-pending-client','response-pending-body'],bodySourceAskWhilePending=mode=='response-pending-body',externalNonceInput=False if mode in ['response-pending-client','response-pending-body'] else None,delayedHTTP=delayed,fault=fault,retained=retained,sourceAndBufferPreserved=True,fake=['inventory/PID observation','explicit post-real-ack or pre-publication gate'],real=['production CommandRunner native budget/cancel','durable intent','atomic registration','HTTP ack','headless editor','exact operation cleanup']))
         finally:
+            if lock:lock.close()
             if child.poll() is None:child.kill();child.wait(timeout=5)
-        self.assertEqual(child.returncode,-9)
-        leaked=set(self.state.editor_attachments.directory.glob('*.json'))-before
-        self.assertEqual(len(leaked),2)
-        self.assertEqual({str(p):sha(p) for p in [terminal_path,self.record_path,self.control]},retained)
-        self.assertIsNone(self.editor.poll());self.assert_unchanged(self.before)
-        for path in leaked:self.assertTrue(manager.native_editor_local(str(self.root),self.entry.name,path.stem)['released'])
-        self.assertEqual(set(self.state.editor_attachments.directory.glob('*.json')),before)
-        self.save('response-gap.json',dict(command=command,exit=result.returncode,stdout=result.stdout,stderr=result.stderr,elapsed=time.monotonic()-start,sigkillExit=child.returncode,leakedActive=2,cleanupExactOwned=2,retained=retained,knownGap=True,issue='R1 remains blocked: existing EditorAttachments.register generates token internally before returning it; pre-known operation binding needs this readonly owner API',fake=['profile inventory/PID observation','post-real-ack delay'],real=['CommandRunner ten-second timeout','actual manager registration','production HTTP acknowledgment','SIGKILL','headless editor','exact local release']))
+
+    def test_SF2_pending_editor_does_not_block_plain_body_Source_Ask(self):self.response_lifetime('response-pending-body')
+
+    def test_SF2_pending_same_production_client_retains_and_recovers_operation(self):self.response_lifetime('response-pending-client')
+    def test_SF2_combined_post_registration_delay_and_real_state_timeout_budget(self):self.response_lifetime('response-state-budget','state-budget')
+    def test_SF2_not_ready_budget_without_issuance(self):self.response_lifetime('response-budget','not-ready')
+
+    def test_SF2_response_before_plan_timeout_recovered(self):self.response_lifetime('response-timeout')
+    def test_SF2_response_before_plan_SIGKILL_recovered(self):self.response_lifetime('response-kill')
+    def test_SF2_response_before_plan_SIGTERM_recovered(self):self.response_lifetime('response-term')
+    def test_SF2_response_before_plan_Taskcancel_recovered(self):self.response_lifetime('response-cancel')
+    def test_SF2_response_before_plan_exception_recovered(self):self.response_lifetime('response-exception','exception')
+    def test_SF2_response_lost_recovered(self):self.response_lifetime('response-loss','none')
+    def test_SF2_response_late_cancel_rejects_adoption(self):self.response_lifetime('response-late','none')
+    def test_SF2_response_cleanup_lock_failure_reentry(self):self.response_lifetime('response-pending')
+    def test_SF2_response_caller_and_manager_crash_reentry(self):self.response_lifetime('response-owner-crash')
+    def test_SF2_response_crash_before_atomic_publication(self):self.response_lifetime('response-kill','before-publication')
 
     def test_SF2_failed_cleanup_lock_is_pending_until_explicit_retry(self):
         import fcntl

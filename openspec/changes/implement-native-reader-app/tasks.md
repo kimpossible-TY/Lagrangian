@@ -124,6 +124,15 @@ the known Unicode technical aggregate1 remain historical, not v5 acceptance.
 
 - [x] 14.1 Preserve the actual post-registration/pre-response ten-second CommandRunner timeout and SIGKILL leak witnesses, with exact cleanup and unrelated token/editor/source preservation; distinguish this known R1 gap from successful normal reconnects.
 - [x] 14.2 Keep failed local release pending, coalesce concurrent attempts and allow an explicit retry after real manager lock contention; do not claim attempted deletion as confirmed or add a retry loop.
-- [ ] 14.3 Obtain the narrow existing EditorAttachments registration-owner change for a pre-known operation/token and atomic issuance; then verify exception/cancel/late/crash/deadline lifetime closure before accepting SF2-R1. No duplicate registration policy or new arbitrary deletion API.
+- [x] 14.3 Add the authorized existing EditorAttachments operation-intent/atomic-issuance extension and verify response-before-timeout, manager termination, exception/cancel/late/deadline boundaries with exact own recovery. This closes the tested source-component SF2-R1 path, not automatic entire-app restart recovery or final App/F10 acceptance; existing registration policy remains with its owner.
 - [x] 14.4 Create separate external frozen-d7 wrappers with verified owned TMPDIR before product imports; run minimal-env/bad-TMPDIR/sandbox actual compiler/two-loopback-port/cleanup smokes and hand off a distinct cold setup-only root without App launch.
 - [x] 14.5 Align V401–V406 canonical/generated docs and validate PDF/HTML/strict OpenSpec; report the source-only component and exact final Git-blob delta separately from frozen d7 App/GUI and NA16.
+
+- [x] 14.6 Retain failed exact leases in the shared production resolver for explicit bounded caller reentry, validate complete journal states, and bind preparation/final state/cleanup to one budget. Preserve before failures and verify body/Source/Ask while editor cleanup stays pending, followed by original-operation recovery with no external nonce input.
+
+Follow-up source evidence is external DevSSD
+`test-output/native-reader-identity-ui-v5/resume5-handoff.md` and final binding.
+Historical299 and resume2 failure witnesses remain unchanged. Legacy direct
+native-consent without an operation remains response-token-only. Automatic
+entire-app restart recovery and journal pruning are not provided; final
+registration/build/GUI/125case/NA16 gates remain open.

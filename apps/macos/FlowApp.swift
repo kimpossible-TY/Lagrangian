@@ -117,12 +117,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     startupTimeline?.owner = self
     if let manager = nativeManager {
       managedResolver = NativeReaderManagedResolver(attach: { arguments in
-        try await Task.detached {
-          guard manager.isFileURL, FileManager.default.isExecutableFile(atPath: manager.path) else {
-            throw NativeReaderOperationFailure.unavailable
-          }
-          return Data(try CommandRunner(timeout: 10).run(manager.path, arguments).utf8)
-        }.value
+        guard manager.isFileURL, FileManager.default.isExecutableFile(atPath: manager.path) else {
+          throw NativeReaderOperationFailure.unavailable
+        }
+        return try await CommandRunner.nativeReaderManager(manager.path, arguments)
       }, network: .urlSession())
     }
   }
@@ -160,8 +158,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let editor = try await Task.detached { try NativeReaderManagedEditor.consentedDescriptor(descriptor) }.value
     guard active == profile else { throw NativeReaderContractError.wrongTarget }
     guard consent() else { return false }
-    consentedEditors[profile.id] = editor
     nativeWindow?.dispose(); nativeWindow = nil
+    if let resolver = managedResolver,
+       !(await resolver.retryEditorCleanup(root: profile.root, entry: profile.entry)) {
+      throw NativeReaderOperationFailure.unavailable
+    }
+    guard active == profile else { throw NativeReaderContractError.wrongTarget }
+    consentedEditors[profile.id] = editor
     return true
   }
   @MainActor @objc func disconnectEditor() {

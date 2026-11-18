@@ -320,3 +320,23 @@ service readiness probes and Read intent behavior remain unchanged. Offscreen
 actual AppKit controls are compared against frozen d7 semantics, with fake
 service operations and prohibited activation. These are source-component checks;
 v4 App, delivery/sourcepin, real GUI and NA16 are separate unchanged boundaries.
+
+
+= Native local issuance and retained cleanup
+
+`services/editor_sync.py` owns private durable native-operation intents, exact
+native-token retirement and atomic complete registration publication;
+`services/manager.py` serializes them with its existing lock and validates managed
+document/service identity. These are local-only operations, not HTTP authority.
+`NativeReaderManagedResolver` and its shared retained-lease actor preserve exact
+caller-known pending operations across failed resolve and later explicit clients;
+`NativeReaderManagedClient` and FlowApp compose that owner. `CommandRunner` owns
+bounded cancellation/exit of its manager subprocess. No directory scan, source
+writer, new daemon or credential owner is added. The ten-second resolve budget
+includes pending retry, prepare/ack, final state and cleanup with late-adoption
+rejection. Exact-process restart recovery is a separate unsupported automation:
+private journals support explicit known-operation recovery, not automatic nonce
+rediscovery after the entire app dies. Historical299 response-only cleanup gaps
+and current source-only evidence are distinct in external
+`native-reader-identity-ui-v5/resume5-handoff.md`. Frozen d7 App/GUI and final
+registration/build/PM acceptance remain separate.
