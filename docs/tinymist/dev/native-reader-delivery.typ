@@ -160,8 +160,20 @@ standalone pre-registry path. The published unlimited tool-round/document-read
 policy is preserved with existing per-request and freshness/cancellation guards.
 
 The final source is frozen before runtime preparation, reader packaging, staging
-and app build. Runtime sourceSHA, reader headSha, delivery sourceRevision and app
-release.sourceRevision must all equal that final HEAD. Test/doc changes after a
+and app build. For production, runtime sourceSHA, reader headSha, delivery
+sourceRevision and app release.sourceRevision must all equal that final HEAD.
+The existing delivery owner permits byte-preserving ad-hoc staging of one
+registered retained runtime: manifest SHA-256
+`aa824a56c4d310a9977cdcc1f7a65dd718b92fcba46605347cad20dd431623fc`
+and the exact clean producer record at
+`d7cd069f2249a405061bf220cfd7e0184f75c7fe` must match its fixed registration.
+Staging still checks producer ancestry and inputs, Node distribution, helper,
+manifest and payload hashes. An app may consume this retained runtime only with
+an explicitly validated development bundle namespace and ad-hoc identity; generic
+staging does not make it production-eligible. Production apps still require a
+current-H runtime, and retained certificate combinations are refused. The app,
+reader and delivery always bind the final HEAD independently of the retained
+runtime producer. Test/doc changes after a
 build require a fresh build from the new HEAD. Previous app/stage/evidence are
 immutable. Dependency/package/license/notice bytes stay unchanged.
 

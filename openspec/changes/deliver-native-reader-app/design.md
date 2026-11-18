@@ -61,6 +61,17 @@ staging does not make a retained payload production-eligible. Before candidate
 copy/compile, and again during signed app validation, the existing delivery owner
 checks the runtime producer against application revision and validated namespace.
 Retained certificate combinations remain refused before copying or signing.
+
+The retained exception accepts only the fixed runtime manifest SHA-256
+`aa824a56c4d310a9977cdcc1f7a65dd718b92fcba46605347cad20dd431623fc`
+and exact registered clean producer record at
+`d7cd069f2249a405061bf220cfd7e0184f75c7fe`, including its producer input digests.
+The existing staging owner still verifies ancestry, Node distribution, helper,
+runtime inventory and immutable payload hashes before ad-hoc staging. This
+staging permission grants no production bundle eligibility: only a validated
+development namespace with ad-hoc identity may consume the retained bytes.
+Current-H production runtime and fresh-runtime certificate paths retain their
+existing policy. No runtime guard, producer record or original payload changes.
 Current-H production/certificate policy remains available; injected identity tests
 are distinct from real certificate/Keychain acceptance. Original retained payload,
 manifest, signature and producer records remain byte-preserved.

@@ -170,6 +170,9 @@ An uncreated initial draft and app restart have no immediate restoration guarant
 edit wins. Successful explicit Refresh must precede unknown-Send resolution:
 matching original history permits a new question, absent confirmation permits only
 the original question/model/UUID retry, and failed Refresh retains uncertainty.
+Closing and reopening an unconfirmed pending Send requires a fresh successful
+Refresh before retry. Refresh is available for an open conversation when no
+other conversation action is in flight, using existing context authorization.
 New Send still requires current selection authority, while Stop/history use the
 existing conversation/context authority. Stop requires an accepted streaming
 conversation; local account/open preparation alone supplies no Stop target. Initial Ask
@@ -255,12 +258,19 @@ showNativeWindow input; it does not grant manager, editor or external effects.
 
 ## NA24 review repair boundaries
 
-Fixture windows share a guarded field editor with their multiline inputs. Standard
+Fixture field editors and multiline input views enforce the same clipboard restrictions. Standard
 Cut/Copy/Paste is refused at the responder, including keyboard and direct action
 entry; normal AppKit editing is unchanged. Existing private home/body/PDF Copy
 remains separate. Offline Original PDF rendering stays available, while fixture
 Export UI, forced callback, destination selection and staging refuse effects.
 Normal export still validates and publishes exact accepted bytes.
+
+Known exact-range associations reference a conversation UUID; one bounded latest
+display snapshot per UUID supplies draft adoption across ranges in the same
+paragraph. Separate paragraphs remain separate, and this cache never authorizes
+Send. While Stop is in flight, both its button and handler refuse duplicate Stop
+entry without cancelling the genuine first completion. Disposal/context/epoch
+and monotonic accepted-record checks still reject stale replies.
 
 Stop uses existing conversation/context authorization. After its owner await,
 cancellation, lifetime, operation epoch, context and conversation identity are

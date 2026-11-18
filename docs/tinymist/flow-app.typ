@@ -499,7 +499,8 @@ Within the same living Reader context and exact selected range, Ask can reopen
 an already created conversation and restore its latest local draft and selected
 model, including an unconfirmed Send's original UUID, question and model.
 Switching between known passages keeps their drafts separate within the bounded
-presentation cache. A new selection ticket is checked again by the existing
+presentation cache. Known ranges in the same paragraph reuse that conversation's
+latest accepted snapshot, draft and pending identity. A new selection ticket is checked again by the existing
 owner when you explicitly Send. This does not promise immediate recovery of a
 first draft before its conversation exists, or recovery across an app restart.
 Recovery never sends. A newer edit stays visible when history confirms an older
@@ -507,12 +508,18 @@ message.
 Changing or clearing the selection blocks a new Send; Stop and Refresh conversation
 retain the existing conversation/context authorization. Stop response is available
 only when the accepted conversation is streaming; local account/open preparation alone provides no Stop target.
+While a Stop is in flight, its button and repeated callbacks cannot start another
+Stop or discard the first completion.
 For an unconfirmed Send, first choose *Refresh conversation* successfully.
 If the valid same-conversation history confirms the original user message, you
 may explicitly Send a new question. If it does not confirm that message, retry
 only the original question and model; the app reuses its original message UUID.
 A failed Refresh keeps the uncertainty and pending message in place. Reopening
-the composer or editing its draft is not a retry.
+the composer or editing its draft is not a retry. If Refresh did not confirm the
+pending message and you close and reopen the composer, refresh that conversation
+again before retrying. Refresh is available for an open conversation when no other
+conversation action is running; it retains conversation/context authorization
+when the selection changes.
 
 *복사* copies display text in both *본문* and *원본 PDF*, including a full display
 selection longer than the limit for source and chat actions. To copy verified

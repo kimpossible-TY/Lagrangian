@@ -691,6 +691,12 @@ requires successful explicit Refresh first: confirmed original history permits a
 new explicit question, otherwise retry is limited to the original question/model/UUID.
 A failed Refresh retains pending uncertainty. Stop presents its accepted result
 only after lifetime/epoch/context/conversation and monotonic record checks.
+An unconfirmed pending Send restored by closing and reopening the composer needs
+another successful explicit Refresh before retry. Refresh requires an open
+conversation and no other conversation action in flight. Exact-range associations
+reference UUIDs with one latest display snapshot per UUID, including multiple
+ranges in the same paragraph. In-flight Stop rejects duplicate button/handler
+entry while preserving its first completion and all late-response guards.
 
 Fixture settings/search/composer responders refuse standard system clipboard
 editing, while the existing home/body/PDF Copy operation remains private. Fixture
