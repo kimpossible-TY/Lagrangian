@@ -600,3 +600,38 @@ results later. v6 REPORT/handoff under the external DevSSD test-output directory
 are component evidence only. Historical H5/resume5 and earlier failed queued-cancel
 results remain unchanged. No App build, GUI/VO/actual OS13, F04 raw-delta, F13/NA16,
 live-provider, real receipt or complete125case acceptance is implied.
+
+
+## v7 host hierarchy and mode-state presentation
+
+The existing NativeReaderHostWindow composes wrapping native command rows and a
+bounded scrollable disclosure. Mode/outline/search and current/requested/status
+remain primary and leading aligned; source/review/display/offline/account retain
+native controls/selectors and existing enabled/consent/IO owners. No web body,
+CSS/ARIA port, framework, shared model or source-authority policy is introduced.
+NativeReaderControlRow owns only repeated measured control layout; title/font
+changes invalidate that layout at existing host update points. The host does not
+raise the existing window minimum to make a size test pass.
+
+A requested-mode value records UI intent only. Existing session selection guards
+and atomic adoption own actual transition. Search provenance references an actual
+PDF display-selection ticket; query strings are never selection authority.
+Failure/retained-result guidance outranks requested-mode preparing text while
+showing both visible and requested mode. Explicit refresh reuses existing Read
+lifetime; recovery-copy state disables the control and rejects its callback,
+without changing the shared session or transport. Native key equivalents/focus
+return are exercised offscreen; real popup/foreground, AX-input and VO remain open.
+
+Apple-design interaction/content principles and web guidelines pinned at
+434b7f91364665f2f733b310ec54809bf8f37937, SHA256
+d246b026f4f29b5823a9cc857f9edf3d2507002e055e32040cadeaf3b38e0234, inform
+hierarchy/labels/focus only. No CSS/ARIA is translated into AppKit policy.
+The requested lagrangian-parallel-planning skill was not found in the stated
+searches (also recorded by the existing PM contract); it is not claimed as read.
+Existing single-writer/fixed-plan/shared-Swift-lock rules apply without delegation.
+
+Before/after fixed-input frames, real AppKit controls, compiler-accepted semantic
+and PDF input, failures, scope and final Git-blob deltas are external DevSSD
+`test-output/native-reader-ui-v7/REPORT.md` and handoff. Historical d7 GUI52 partial8/
+notrun44/passed0 and visual18 unverified8/notrun10/passed0 remain unchanged, not
+v7 evidence. No sourcepin/App build/full125 acceptance or NA16 work occurs here.

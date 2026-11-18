@@ -594,3 +594,50 @@ validated profile in settings order, including identical names, so selection
 persists the exact chosen profile ID. Repeated cancellation of an already closed
 native Read ticket is idempotent; it cannot advance accepted-view authority or
 revive that ticket through a later environment signal.
+
+
+== v7 native toolbar and mode feedback (source component)
+
+The host keeps native mode buttons, Contents/Back, page navigation and PDF search
+in a fixed leading-aligned primary area. Copy and explicit selection release stay
+near the current/requested mode and next-action text. Source/review, display,
+offline and account controls remain their existing AppKit controls and selectors
+inside the initially collapsed “읽기 도구” area. It scrolls independently and
+has a native Command–Option–T equivalent; collapsing a focused child returns
+focus to the disclosure button. This does not promise popup focus behavior in a
+real GUI: the prior Dogfood popup/foreground concern remains unverified here.
+
+Major commands and mode/state presentation use Korean. Document content, source
+coordinates, wire enums, errors and receipts are not translated or reinterpreted.
+Raw diagnostics remain in the auxiliary area, separate from human mode/status
+text. Existing enabled conditions, consent and persistence owners remain intact.
+The “새로고침” (refresh) button invokes only the explicit existing refresh path; a
+recovered offline copy disables it and the callback independently rejects live
+refresh while the existing session reports a recovery copy. A read-only retained
+view after a live failure may explicitly retry. No new consent, automatic Read,
+service start/restart or source/account authority is added.
+
+Requested mode is presentation intent, not accepted mode. The visible mode only
+changes on the existing atomic adoption. Body selection and immutable-PDF display
+selection still block mode changes through NativeReaderSession.hasSelection.
+Search results alone do not hold selection; the host search command explicitly
+selects a hit through the original PDF owner, which does hold it. A search-hit
+explanation is tied to the actual display selection ticket, not a nonempty query.
+Release does not automatically approve a blocked mode; the user presses the mode
+again. The bounded offscreen case keeps its query while explicitly switching
+after release; this is not proof of the old GUI observation's cause or resolution.
+A failed request/preparation takes priority over the pending intent and identifies
+the previous visible result plus an explicit refresh action, rather than saying
+that the requested mode is still preparing indefinitely.
+
+No full-window minimum-width contract was found: the prior NSWindow.minSize
+was0×32 and contentMinSize0×0; neither is raised. The measured window matrix is
+980×752 and640×752, reader text14/32pt, plus injected control-font13/32pt stress
+in Light/Dark. It is distinct from NA01's320/640/960pt CoreText-only matrix and
+is not a claim that every smaller window works. Popup titles retain the existing
+bounded menu text and full selected title as help when their native cell narrows.
+External DevSSD `test-output/native-reader-ui-v7/REPORT.md` and final input binding
+record actual frame/content measurements, failed attempts and final regressions.
+These are offscreen AppKit checks, not new App/GUI/AX-input/VO/actual macOS13
+acceptance. Frozen d7/v4 captures remain only their own partial unverified evidence;
+PM integration/sourcepin/delivery and full125case/NA16 remain separate.

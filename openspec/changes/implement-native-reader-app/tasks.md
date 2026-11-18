@@ -148,3 +148,14 @@ registration/build/GUI/125case/NA16 gates remain open.
 The exact design path/plan_id/design_source_revision and PM binding responsibility
 are in design.md's v6 section. Component evidence will be in external DevSSD
 `test-output/native-reader-lifetime-v6/REPORT.md`, not retroactive formalcase results.
+
+
+## 16. v7 native UI source component
+
+- [x] 16.1 Preserve actual fixed-H6 header/mode-feedback counterexamples, implement native primary/disclosure hierarchy and Korean major commands with original ownership/guards.
+- [x] 16.2 Verify body/PDF/search-selected holds, mode-request failure priority, explicit refresh/recovery guards, auxiliary scroll/focus/actions and measured980/640×752/font/Light-Dark cases offscreen.
+- [x] 16.3 Run affected Original PDF and app display/recovery regressions, canonical/generated/strict checks, freeze a clean component and exact H6/d7 Git-blob deltas.
+- [ ] 16.4 PM integrates/registers/builds and obtains actual GUI/visual/VO/OS13/full125/NA16 acceptance separately; historical captures and source-only tests are not those gates.
+
+v7 evidence locator: external DevSSD `test-output/native-reader-ui-v7/REPORT.md`.
+The missing parallel-planning skill and bounded source-only scope remain explicit.

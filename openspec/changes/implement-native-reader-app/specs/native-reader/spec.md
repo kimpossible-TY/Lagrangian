@@ -359,3 +359,31 @@ and SHALL NOT equate different-root or differently named hardlinks by inode alon
 - **WHEN** the exact manager-issued native token is retired after its source is renamed or deleted
 - **THEN** the local withdrawal-only path may reuse its bounded private registration data to retire only that token
 - **AND** it SHALL NOT approve a new attachment/descriptor, modify another token, stop an editor/service or grant source authority
+
+
+### Requirement: Native reading hierarchy preserves command reachability
+The native host SHALL keep mode, outline and search in a stable primary area and
+retain auxiliary source/review/display/offline/account commands through a
+keyboard-accessible scrollable disclosure. Existing selectors, enabled guards,
+consent, source/account and persistence authority SHALL remain with their owners.
+
+#### Scenario: Collapse a focused auxiliary command
+- **WHEN** the user closes the auxiliary area while a child owns focus
+- **THEN** focus SHALL return to the disclosure trigger, the current mode SHALL remain identified and the hidden commands SHALL remain reachable by reopening it
+
+### Requirement: Visible mode and pending intent remain distinct
+Native status SHALL distinguish the accepted visible mode from requested mode,
+explain actual selection holds with explicit release/reattempt, and prioritize
+failure/retained-result/refresh guidance over a pending preparing message.
+
+#### Scenario: Requested Original PDF fails while body remains visible
+- **WHEN** an Original PDF request fails before successful adoption
+- **THEN** status SHALL identify the retained body and requested PDF, explain the previous result and explicit refresh action, and SHALL NOT imply indefinite preparation or automatically approve a mode
+
+#### Scenario: Search query remains after display selection release
+- **WHEN** the user explicitly releases a PDF hit's actual display selection and requests another mode
+- **THEN** the query text alone SHALL NOT be treated as selection authority and existing transition/freshness guards SHALL decide adoption
+
+#### Scenario: Recovered copy receives refresh target action
+- **WHEN** a restored offline copy is displayed
+- **THEN** the refresh control SHALL be disabled and its callback SHALL preserve the copy without live target/document operations or new authority

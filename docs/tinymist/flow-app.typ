@@ -438,3 +438,23 @@ This is a source component awaiting PM integration and a separately bound build.
 It does not change the frozen v4 App or establish real GUI/visual acceptance.
 The initial GUI loading cause remains unknown; no new retry/timer or service
 restart is introduced by these labels.
+
+
+== v7 native reading controls — source component
+
+This section describes the unpackaged v7 source, not a change to the frozen
+v4/d7 app. The visible primary commands are “본문”, “원본 PDF”, “목차”,
+PDF search, “선택 해제”, “복사” and “새로고침”. “읽기 도구” (Command–Option–T)
+opens the scrollable source/review, display, offline and account controls.
+Collapsing it returns keyboard focus from its children to that same button.
+Native popup opening/foreground behavior still needs separate GUI inspection.
+
+“현재” identifies the accepted visible mode; “전환 요청” identifies only the
+requested destination. If a body or PDF display selection holds the view, release
+it explicitly and press the destination mode again. Selecting a PDF search hit
+also creates a display selection; a query by itself does not establish a hold.
+Errors keep the previous reading result and explain the explicit refresh action.
+“새로고침” is disabled for a restored offline copy; it does not reconnect that
+copy or acquire new source/account consent. Existing explicit Home Read and
+External Reader behavior remain separate. No app was built or launched for this
+source component, and headless checks do not establish native GUI acceptance.

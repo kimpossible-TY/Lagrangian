@@ -111,7 +111,7 @@ class OriginalPageTests(unittest.TestCase):
             cls.sources = [fixed / p.name for p in cls.sources]
         cls.binary = OUT / 'OriginalPageTests'
         result = command(['xcrun', 'swiftc', '-swift-version', '5', '-warnings-as-errors', '-target',
-            'arm64-apple-macosx13.0', '-parse-as-library', *cls.sources, harness, '-o', cls.binary])
+            'arm64-apple-macosx13.0', '-module-cache-path', os.environ['SWIFT_MODULECACHE_PATH'], '-parse-as-library', *cls.sources, harness, '-o', cls.binary])
         if result.returncode:
             raise RuntimeError('Swift13 compile failed: ' + result.stderr)
         save(OUT / 'environment.json', dict(OS=platform.platform(), macOS=platform.mac_ver(),

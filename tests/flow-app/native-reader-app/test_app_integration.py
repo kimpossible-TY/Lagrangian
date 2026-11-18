@@ -977,15 +977,21 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
 }
 @MainActor func featureViews(_ view:NSView)->[NSView]{[view]+view.subviews.flatMap{featureViews($0)}}
 @MainActor func featureButton(_ root:NSView,_ title:String)throws->NSButton{
-  guard let b=featureViews(root).compactMap({$0 as? NSButton}).first(where:{$0.title==title}) else {throw FlowError(message:"Missing delivered control: "+title)}
-  root.layoutSubtreeIfNeeded()
+  let selectors = ["Source":"sourceSelected", "Highlight":"highlightSelected", "Ask":"askSelected", "Locate Source":"locateSelected", "Check Editor Result":"editorReceipt", "Last Edit":"lastEdit", "Account":"account", "Copy":"copySelected", "Reflow":"reflowMode", "Original PDF":"pageMode", "Previous":"previousPage", "Next":"nextPage", "Release selection":"releasePageSelection", "Mark for review":"markSelected", "Undo review":"undoReviewExplicitly", "Clear review":"clearReviewExplicitly", "Save Offline":"saveOfflineExplicitly", "Refresh Saved":"refreshSavedExplicitly", "Open Saved":"openSavedExplicitly", "Cancel":"cancelStorageExplicitly", "Export PDF":"exportPDFExplicitly", "Manage Account":"manageAccountExplicitly", "Back":"returnFromReference", "Preview Display":"previewDisplayExplicitly", "Apply Display":"applyDisplayExplicitly", "Cancel Display":"cancelDisplayExplicitly", "Zoom +":"zoomIn", "Zoom −":"zoomOut", "Fit":"fitPage"]
+  guard let b=featureViews(root).compactMap({$0 as? NSButton}).first(where:{ $0.title==title || (selectors[title] != nil && $0.identifier?.rawValue==selectors[title]) }) else {throw FlowError(message:"Missing delivered control: "+title)}
+  if b.isHiddenOrHasHiddenAncestor, let disclosure=featureViews(root).compactMap({$0 as? NSButton}).first(where:{$0.action==NSSelectorFromString("toggleTools")}) {
+    try check(NSApp.sendAction(disclosure.action!,to:disclosure.target,from:disclosure),"explicit native tool disclosure")
+  }
+  _ = b.scrollToVisible(b.bounds);root.layoutSubtreeIfNeeded()
   let bounds=b.convert(b.bounds,to:root)
   try check(!b.isHiddenOrHasHiddenAncestor && !bounds.isEmpty && root.bounds.contains(bounds),"laid-out reachable control "+title)
   try check(b.target != nil && b.action != nil,"real target/action for "+title);return b
 }
 @MainActor func featurePopup(_ root:NSView,_ label:String)throws->NSPopUpButton{
-  guard let p=featureViews(root).compactMap({$0 as? NSPopUpButton}).first(where:{$0.accessibilityLabel()==label}),p.action != nil,p.target != nil else {throw FlowError(message:"Missing reachable popup: "+label)}
-  return p
+  let ids=["Contents":"contents","Theme":"theme","Text size":"textSize","Saved documents":"savedDocuments","Recovered drafts":"recoveredDrafts"]
+  guard let p=featureViews(root).compactMap({$0 as? NSPopUpButton}).first(where:{$0.accessibilityLabel()==label || (ids[label] != nil && $0.identifier?.rawValue==ids[label])}),p.action != nil,p.target != nil else {throw FlowError(message:"Missing reachable popup: "+label)}
+  if p.isHiddenOrHasHiddenAncestor { let button=featureViews(root).compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!;try check(NSApp.sendAction(button.action!,to:button.target,from:button),"explicit popup disclosure") }
+  _ = p.scrollToVisible(p.bounds);return p
 }
 @MainActor func featureSelect(_ popup:NSPopUpButton,_ index:Int)throws{
   popup.selectItem(at:index);try check(NSApp.sendAction(popup.action!,to:popup.target,from:popup),"native popup target/action")
@@ -1009,6 +1015,11 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
     try check(host.session.failure==nil,"actual compiler snapshot accepted")
     let root=host.hostWindow.window!.contentView!,text=host.textView,document=host.store.document!,logical=text.logicalText
     root.layoutSubtreeIfNeeded();try await ready(host)
+    // Stabilize actual expanded geometry before selection/pixel/IO baselines.
+    // The v7 refinement suite separately tests disclosure transitions/focus.
+    let disclosure=featureViews(root).compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!
+    try check(NSApp.sendAction(disclosure.action!,to:disclosure.target,from:disclosure),"explicit auxiliary command disclosure before baseline")
+    root.layoutSubtreeIfNeeded();await Task.yield();try await ready(host)
     func click(_ title:String)throws {let b=try featureButton(root,title);try check(b.isEnabled,"active "+title);b.performClick(nil)}
     func firstSelection()throws{
       let block=document.blocks.first{$0.kind == .paragraph && !$0.displayText.isEmpty}!
@@ -1152,13 +1163,13 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try step("profile-switched");try check(app.nativeProfile==profile && native.store.generation==closed,"F14 selected unread profile cannot reuse old intent")
     case "D1":
       let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
-      try check(text.textAppearance.theme == .light && theme.titleOfSelectedItem=="Light","D1 independent Light initial")
+      try check(text.textAppearance.theme == .light && theme.indexOfSelectedItem==0,"D1 independent Light initial")
       try featureSelect(theme,1);try await ready(host)
       host.refresh();try await until{host.store.document?.generation != document.generation};try await ready(host)
       let displayed=text.textAppearance,anchor=text.viewportAnchor()
       try check(displayed.theme == .dark,"D1 refresh keeps displayed Dark")
       try featureSelect(size,3);try await ready(host);try click("Cancel Display");try await ready(host)
-      try check(theme.titleOfSelectedItem=="Dark" && text.textAppearance==displayed && host.hostWindow.window?.appearance?.name == .darkAqua,"D1 popup/window/render-key rollback agree after new generation")
+      try check(theme.indexOfSelectedItem==1 && text.textAppearance==displayed && host.hostWindow.window?.appearance?.name == .darkAqua,"D1 popup/window/render-key rollback agree after new generation")
       if let anchor,let current=text.viewportAnchor(){try check(anchor.position==current.position && abs(anchor.offsetY-current.offsetY)<2,"D1 viewport rollback")}
       try featureSelect(size,4);try await ready(host)
       try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==24,"D1 subsequent font preview keeps displayed theme")
@@ -1166,7 +1177,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
     case "display-preview":
       try firstSelection();let selected=host.store.selection!,before=text.textAppearance,anchor=text.viewportAnchor()
       try click("Preview Display");let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
-      try check(theme.itemTitles==["Light","Dark","Automatic"],"F15 real theme choices")
+      try check(theme.itemTitles==["밝게","어둡게","자동"],"F15 real theme choices")
       try featureSelect(theme,1);try featureSelect(size,3);try click("Zoom +");try await ready(host)
       try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==18 && text.textAppearance.zoom>1,"F15 native preview paints requested theme/font/zoom")
       try check(host.store.selection==selected && text.logicalText==logical,"F15 preview preserves exact canonical selection/logical text")
@@ -1178,7 +1189,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let committed=text.textAppearance;try click("Apply Display")
       let cancelledDisplay=try featureButton(root,"Cancel Display");try check(!cancelledDisplay.isEnabled && text.textAppearance==committed,"F15 explicit Apply commits preview")
       try click("Preview Display");try featureSelect(theme,1);try click("Cancel Display");try await ready(host)
-      try check(theme.titleOfSelectedItem=="Automatic" && text.textAppearance==committed && host.hostWindow.window!.appearance==nil,"F15 committed Automatic survives later preview rollback")
+      try check(theme.indexOfSelectedItem==2 && text.textAppearance==committed && host.hostWindow.window!.appearance==nil,"F15 committed Automatic survives later preview rollback")
       try click("Fit");try await ready(host);try check(text.textAppearance.zoom==1,"F15 reflow Fit uses existing zoom1 owner")
     case "appearance":
       try firstSelection();let selected=host.store.selection!
@@ -1263,7 +1274,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let rr=remote.hostWindow.window!.contentView!
       try featureButton(rr,"Account").performClick(nil)
       try await until{requests.filter{$0["path"]?.hasSuffix("/api/chat/auth")==true}.count==2}
-      try await until{featureViews(rr).compactMap{$0 as? NSTextField}.contains{$0.stringValue=="Account connected" || $0.stringValue=="Plan unavailable" || $0.stringValue=="Sign in on the configured Homepage."}}
+      try await until{featureViews(rr).compactMap{$0 as? NSTextField}.contains{$0.stringValue=="계정 연결됨" || $0.stringValue=="이용 가능한 플랜이 없습니다" || $0.stringValue=="설정된 홈페이지에서 로그인하세요."}}
       try check(opened.isEmpty,"status/models do not open account or authenticate")
       let manage=try featureButton(rr,"Manage Account");if manage.isEnabled{manage.performClick(nil);try check(opened.count==1,"explicit configured Homepage callback only")}
       try featureButton(rr,"Last Edit").performClick(nil)

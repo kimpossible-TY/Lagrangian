@@ -138,16 +138,19 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
         let root=host.hostWindow.window!.contentView!,window=host.hostWindow.window!
         func views(_ v:NSView)->[NSView]{[v]+v.subviews.flatMap{views($0)}}
         let all=views(root)
-        let theme=all.compactMap{$0 as? NSPopUpButton}.first{$0.accessibilityLabel()=="Theme"}!
+        let theme=all.compactMap{$0 as? NSPopUpButton}.first{$0.identifier?.rawValue=="theme"}!
         func click(_ title:String)throws{
-            let button=all.compactMap{$0 as? NSButton}.first{$0.title==title}!
+            let selector=["Preview Display":"previewDisplayExplicitly","Apply Display":"applyDisplayExplicitly","Cancel Display":"cancelDisplayExplicitly","Reflow":"reflowMode","Original PDF":"pageMode"][title]!
+            let button=all.compactMap{$0 as? NSButton}.first{$0.identifier?.rawValue==selector}!
+            if button.isHiddenOrHasHiddenAncestor { let toggle=all.compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!;try check(NSApp.sendAction(toggle.action!,to:toggle.target,from:toggle),"D2 explicit tool disclosure") }
+            _ = button.scrollToVisible(button.bounds)
             try check(button.isEnabled && !button.isHiddenOrHasHiddenAncestor,"D2 reachable control "+title)
             button.performClick(nil)
         }
         // The host starts in real Original PDF with a prepared raster. Change
         // only this owned window's effective appearance, never NSApp/the OS.
         try click("Reflow");try await until{host.visibleMode == .nativeReflow && host.textView.renderKey==host.textView.requestedRenderKey}
-        theme.selectItem(withTitle:"Automatic");try check(NSApp.sendAction(theme.action!,to:theme.target,from:theme),"D2 native Automatic action")
+        theme.selectItem(at:2);try check(NSApp.sendAction(theme.action!,to:theme.target,from:theme),"D2 native Automatic action")
         try await until{host.textView.renderKey==host.textView.requestedRenderKey}
         try click("Apply Display")
         for (appearance,expected) in [(NSAppearance.Name.darkAqua,NativeReaderTextAppearance.Theme.dark),(.aqua,.light)] {
@@ -155,7 +158,7 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             window.appearance=NSAppearance(named:appearance)
             try await Task.sleep(nanoseconds:30_000_000)
             try click("Reflow");try await until{host.visibleMode == .nativeReflow && host.textView.renderKey==host.textView.requestedRenderKey}
-            try check(theme.titleOfSelectedItem=="Automatic" && host.textView.textAppearance.theme==expected && host.textView.renderKey?.appearance.theme==expected,"D2 Reflow resolves current window appearance before preparation both directions")
+            try check(theme.indexOfSelectedItem==2 && host.textView.textAppearance.theme==expected && host.textView.renderKey?.appearance.theme==expected,"D2 Reflow resolves current window appearance before preparation both directions")
         }
     }
     @MainActor private static func reviewN1(_ host: NativeReaderWindowController, _ source: PageSwitch) async throws {
@@ -286,7 +289,11 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
         let root=host.hostWindow.window!.contentView!
         func button(_ title:String)throws->NSButton{
             root.layoutSubtreeIfNeeded()
-            guard let b=views(root).compactMap({$0 as? NSButton}).first(where:{$0.title==title}),b.target != nil,b.action != nil,!b.isHiddenOrHasHiddenAncestor,root.bounds.contains(b.convert(b.bounds,to:root)) else {throw FlowError(message:"Export native control unreachable: "+title)}
+            let selector=["Export PDF":"exportPDFExplicitly","Cancel":"cancelStorageExplicitly"][title]!
+            guard let b=views(root).compactMap({$0 as? NSButton}).first(where:{$0.identifier?.rawValue==selector}),b.target != nil,b.action != nil else {throw FlowError(message:"Export native control missing: "+title)}
+            if b.isHiddenOrHasHiddenAncestor { let toggle=views(root).compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!;try check(NSApp.sendAction(toggle.action!,to:toggle.target,from:toggle),"export explicit tool disclosure") }
+            _ = b.scrollToVisible(b.bounds);root.layoutSubtreeIfNeeded()
+            try check(!b.isHiddenOrHasHiddenAncestor && root.bounds.contains(b.convert(b.bounds,to:root)),"Export laid-out reachable "+title)
             return b
         }
         let disk=NativeReaderRecoveryStore(root:out.appendingPathComponent("export-owned-recovery"))

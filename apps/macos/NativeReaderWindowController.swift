@@ -134,6 +134,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     })
     session.onChange = { [weak self] in self?.sessionChanged() }
     session.onSelection = { [weak self] selection, context in self?.selectionChanged(selection, context: context) }
+    hostWindow.onRefresh = { [weak self] in
+      guard let self, !self.session.hasRecoveryCopy else { return }
+      self.refresh()
+    }
     hostWindow.onEditorReceipt = { [weak self] in self?.checkEditorReceipt() }
     textView.cachedObject = { [weak self] node, key in
       guard let cache = self?.cache, cache.key == key else { return nil }
@@ -141,7 +145,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     textView.callbacks.selectionChanged = { [weak self] selection in
       guard let self, self.visibleMode == .nativeReflow, let selection else { return }
-      do { try self.session.hold(selection) } catch { self.report(error) }
+      do { try self.session.hold(selection); self.updatePresentation() } catch { self.report(error) }
     }
     // Only NA02's explicit user release enters this callback. Source/network ack never does.
     textView.callbacks.selectionReleased = { [weak self] in self?.session.acknowledge(ticket: $0) }
@@ -163,7 +167,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.diagnostic = message
       self.layoutChanged()
     }
-    originalPageView.onHold = { [weak self] in self?.session.holdOriginalPageSelection($0) }
+    originalPageView.onHold = { [weak self] held in self?.session.holdOriginalPageSelection(held); self?.updatePresentation() }
     originalPageView.onFailure = { [weak self] in self?.report($0) }
     originalPageView.copyText = { [weak self] in self?.copyText($0) ?? false }
     originalPageView.openURI = { [weak self] in self?.openHomepage?($0) }
@@ -350,6 +354,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func setMode(_ mode: Mode) throws {
+    hostWindow.requestMode(mode)
     guard !disposed, !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
     guard self.mode != mode else { return }
     guard !session.hasRecoveryCopy else { throw NativeReaderOperationFailure.unavailable }
@@ -655,8 +660,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
 
+  private func updatePresentation() {
+    hostWindow.updateStatus(state: session.state, failed: session.failure != nil, allowsRefresh: !session.hasRecoveryCopy)
+  }
   private func sessionChanged() {
     guard !disposed, !requestTicket.isCancelled else { return }
+    updatePresentation()
     hostWindow.updateReaderControls(readOnly: session.isReadOnly)
     if let failure = session.failure {
       let message = diagnostic ?? failure
@@ -676,6 +685,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private func report(_ error: Error) {
     diagnostic = String(describing: error)
     hostWindow.notice.stringValue = diagnostic ?? "Reader unavailable"
+    if let pageError = error as? NativeOriginalPageError, case .stale = pageError { hostWindow.showRetainedFailure() }
+    updatePresentation()
   }
 
   private func selectionChanged(_ selection: NativeReaderSelection?, context: NativeReaderRequestContext) {
@@ -854,7 +865,21 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
 @MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate {
   let reader: NativeReaderTextView
-  let notice = NSTextField(wrappingLabelWithString: "Native Reader · reflow / original PDF; source actions require reflow")
+  let notice = NSTextField(wrappingLabelWithString: "원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
+  var onRefresh: (() -> Void)?
+  private var refreshButton: NSButton?
+  private let toolsButton = NSButton(title: "읽기 도구", target: nil, action: nil)
+  private let modeStatus = NSTextField(wrappingLabelWithString: "현재: 본문")
+  private let selectionStatus = NSTextField(wrappingLabelWithString: "문서를 준비하고 있습니다…")
+  private let auxiliary = NSStackView()
+  private let toolsScroll = NSScrollView()
+  private var requestedMode: NativeReaderWindowController.Mode?
+  private var requestWasHeld = false
+  private var latestState = NativeReaderSession.State.idle
+  private var failedState = false
+  private var retainedFailure = false
+  private var searchSelectionTicket: UUID?
+  private var modeButtons = [NSButton]()
   var onClose: (() -> Void)?
   var changeMode: ((NativeReaderWindowController.Mode) -> Void)?
   var onMarkReview: (() -> Void)?
@@ -890,7 +915,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private let openSaved = NSButton(title: "Open Saved", target: nil, action: nil)
   private let cancelStorage = NSButton(title: "Cancel", target: nil, action: nil)
   private let manageAccount = NSButton(title: "Manage Account", target: nil, action: nil)
-  private let accountStatus = NSTextField(labelWithString: "Account")
+  private let accountStatus = NSTextField(wrappingLabelWithString: "계정")
   private let recoveredDraftPicker = NSPopUpButton()
   private let recoveredDraftText = NSTextField(wrappingLabelWithString: "")
   private let recoveredDraftRow = NSStackView()
@@ -920,67 +945,121 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   override func loadWindow() {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false; window.delegate = self; window.title = "Lagrangian · Native Reader"
-    stack.orientation = .vertical; stack.alignment = .width
-    let controls = NSStackView()
-    for (title, action) in [("Copy", #selector(copySelected)), ("Source", #selector(sourceSelected)),
-                             ("Highlight", #selector(highlightSelected)), ("Ask", #selector(askSelected)),
-                             ("Locate Source", #selector(locateSelected)), ("Check Editor Result", #selector(editorReceipt)),
-                             ("Last Edit", #selector(lastEdit)), ("Account", #selector(account))] {
+    window.isReleasedWhenClosed = false; window.delegate = self; window.title = "Lagrangian · 읽기"
+    stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
+    auxiliary.orientation = .vertical; auxiliary.alignment = .leading; auxiliary.spacing = 6
+    func row(_ views: [NSView], in parent: NSStackView = stack) -> NativeReaderControlRow {
+      let row = NativeReaderControlRow(views)
+      parent.addArrangedSubview(row); row.translatesAutoresizingMaskIntoConstraints = false
+      row.widthAnchor.constraint(equalTo: parent.widthAnchor).isActive = true
+      return row
+    }
+    func command(_ title: String, _ action: Selector) -> NSButton {
       let button = NSButton(title: title, target: self, action: action)
-      controls.addArrangedSubview(button)
-      if title != "Copy" { liveButtons.append(button) }
+      button.identifier = NSUserInterfaceItemIdentifier(NSStringFromSelector(action))
+      button.setAccessibilityLabel(title)
+      return button
     }
-    sourceControls.addArrangedSubview(controls)
-    let paging = NSStackView()
-    for (title, action) in [("Reflow", #selector(reflowMode)), ("Original PDF", #selector(pageMode)),
-                            ("Previous", #selector(previousPage)), ("Next", #selector(nextPage)),
-                            ("Zoom +", #selector(zoomIn)), ("Zoom −", #selector(zoomOut)), ("Fit", #selector(fitPage)),
-                            ("Release selection", #selector(releasePageSelection)), ("Copy PDF", #selector(copySelected))] {
-      paging.addArrangedSubview(NSButton(title: title, target: self, action: action))
+    let reflow = command("본문", #selector(reflowMode)), pdf = command("원본 PDF", #selector(pageMode))
+    modeButtons = [reflow, pdf]; reflow.setButtonType(.pushOnPushOff); pdf.setButtonType(.pushOnPushOff); reflow.state = .on
+    toolsButton.target = self; toolsButton.action = #selector(toggleTools); toolsButton.setButtonType(.pushOnPushOff)
+    toolsButton.identifier = NSUserInterfaceItemIdentifier("toggleTools")
+    toolsButton.keyEquivalent = "t"; toolsButton.keyEquivalentModifierMask = [.command, .option]
+    toolsButton.setAccessibilityLabel("읽기 도구 펼치기")
+    let refresh = command("새로고침", #selector(refreshDocument)); refreshButton = refresh
+    _ = row([reflow, pdf, toolsButton, refresh])
+    contents.setAccessibilityLabel("목차"); contents.identifier = NSUserInterfaceItemIdentifier("contents")
+    contents.target = self; contents.action = #selector(outlineSelected)
+    back.title = "돌아가기"; back.target = self; back.action = #selector(returnFromReference)
+    back.identifier = NSUserInterfaceItemIdentifier("returnFromReference")
+    _ = row([NSTextField(labelWithString: "목차"), contents, back,
+             command("이전 페이지", #selector(previousPage)), command("다음 페이지", #selector(nextPage))])
+    findField.placeholderString = "PDF에서 검색"; findField.setAccessibilityLabel("PDF에서 검색")
+    findField.identifier = NSUserInterfaceItemIdentifier("findPage")
+    findField.target = self; findField.action = #selector(findPage)
+    for field in [findField, modeStatus, selectionStatus] {
+      stack.addArrangedSubview(field); field.translatesAutoresizingMaskIntoConstraints = false
+      field.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
-    findField.placeholderString = "Find in PDF"; findField.target = self; findField.action = #selector(findPage)
-    stack.addArrangedSubview(notice); stack.addArrangedSubview(sourceControls); stack.addArrangedSubview(paging)
-    contents.setAccessibilityLabel("Contents"); contents.target = self; contents.action = #selector(outlineSelected)
-    back.target = self; back.action = #selector(returnFromReference)
-    let navigation = NSStackView(views: [NSTextField(labelWithString: "Contents"), contents, back])
-    theme.addItems(withTitles: ["Light", "Dark", "Automatic"]); theme.setAccessibilityLabel("Theme")
+    modeStatus.identifier = NSUserInterfaceItemIdentifier("readerModeStatus")
+    selectionStatus.identifier = NSUserInterfaceItemIdentifier("readerSelectionStatus")
+    _ = row([command("선택 해제", #selector(releasePageSelection)), command("복사", #selector(copySelected))])
+    // Existing native commands stay in one discoverable, scrollable disclosure.
+    toolsScroll.hasVerticalScroller = true; toolsScroll.autohidesScrollers = true
+    toolsScroll.documentView = auxiliary; toolsScroll.isHidden = true
+    stack.addArrangedSubview(toolsScroll); toolsScroll.translatesAutoresizingMaskIntoConstraints = false
+    auxiliary.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      toolsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+      toolsScroll.heightAnchor.constraint(equalToConstant: 200),
+      auxiliary.leadingAnchor.constraint(equalTo: toolsScroll.contentView.leadingAnchor),
+      auxiliary.trailingAnchor.constraint(equalTo: toolsScroll.contentView.trailingAnchor),
+      auxiliary.topAnchor.constraint(equalTo: toolsScroll.contentView.topAnchor),
+      auxiliary.widthAnchor.constraint(equalTo: toolsScroll.contentView.widthAnchor)])
+    _ = row([NSTextField(labelWithString: "원문·대화")], in: auxiliary)
+    sourceControls.orientation = .vertical; sourceControls.alignment = .leading
+    auxiliary.addArrangedSubview(sourceControls); sourceControls.translatesAutoresizingMaskIntoConstraints = false
+    sourceControls.widthAnchor.constraint(equalTo: auxiliary.widthAnchor).isActive = true
+    var sourceButtons = [NSView]()
+    for (title, action) in [("원문 보기", #selector(sourceSelected)), ("원문 강조", #selector(highlightSelected)),
+                            ("질문하기", #selector(askSelected)), ("편집기 위치로", #selector(locateSelected)),
+                            ("편집기 결과 확인", #selector(editorReceipt)), ("최근 편집", #selector(lastEdit)), ("계정 상태", #selector(account))] {
+      let button = command(title, action); sourceButtons.append(button); liveButtons.append(button)
+    }
+    _ = row(sourceButtons, in: sourceControls)
+    theme.addItems(withTitles: ["밝게", "어둡게", "자동"]); theme.setAccessibilityLabel("테마"); theme.identifier = NSUserInterfaceItemIdentifier("theme")
     theme.target = self; theme.action = #selector(appearanceChanged)
-    textSize.addItems(withTitles: ["12", "14", "16", "18", "24", "32"]); textSize.selectItem(withTitle: "14"); textSize.setAccessibilityLabel("Text size")
+    textSize.addItems(withTitles: ["12", "14", "16", "18", "24", "32"]); textSize.selectItem(withTitle: "14")
+    textSize.setAccessibilityLabel("글자 크기"); textSize.identifier = NSUserInterfaceItemIdentifier("textSize")
     textSize.target = self; textSize.action = #selector(appearanceChanged)
-    let preview = NSButton(title: "Preview Display", target: self, action: #selector(previewDisplayExplicitly))
+    applyDisplay.title = "보기 적용"; cancelDisplay.title = "보기 취소"
     applyDisplay.target = self; applyDisplay.action = #selector(applyDisplayExplicitly)
     cancelDisplay.target = self; cancelDisplay.action = #selector(cancelDisplayExplicitly)
     applyDisplay.isEnabled = false; cancelDisplay.isEnabled = false
-    let appearance = NSStackView(views: [NSTextField(labelWithString: "Theme"), theme, NSTextField(labelWithString: "Text size"), textSize, preview, applyDisplay, cancelDisplay])
-    let mark = NSButton(title: "Mark for review", target: self, action: #selector(markSelected))
+    let appearance = row([NSTextField(labelWithString: "테마"), theme, NSTextField(labelWithString: "글자 크기"), textSize,
+      command("보기 미리 보기", #selector(previewDisplayExplicitly)), applyDisplay, cancelDisplay], in: auxiliary)
+    _ = row([command("확대", #selector(zoomIn)), command("축소", #selector(zoomOut)), command("맞춤", #selector(fitPage)), command("PDF 복사", #selector(copySelected))], in: auxiliary)
+    undoReview.title = "검토 표시 취소"; clearReview.title = "검토 표시 지우기"
     undoReview.target = self; undoReview.action = #selector(undoReviewExplicitly)
     clearReview.target = self; clearReview.action = #selector(clearReviewExplicitly)
-    let review = NSStackView(views: [mark, undoReview, clearReview])
+    let review = row([command("검토 표시", #selector(markSelected)), undoReview, clearReview], in: auxiliary)
     undoReview.isEnabled = false; clearReview.isEnabled = false
-    reflowRows = [navigation, appearance, review]
-    for row in reflowRows { stack.addArrangedSubview(row) }
-    savedDocuments.setAccessibilityLabel("Saved documents"); savedDocuments.target = self; savedDocuments.action = #selector(savedDocumentSelected)
-    exportPDF.target = self; exportPDF.action = #selector(exportPDFExplicitly)
-    saveOffline.target = self; saveOffline.action = #selector(saveOfflineExplicitly)
-    refreshSaved.target = self; refreshSaved.action = #selector(refreshSavedExplicitly)
-    openSaved.target = self; openSaved.action = #selector(openSavedExplicitly)
-    cancelStorage.target = self; cancelStorage.action = #selector(cancelStorageExplicitly)
-    stack.addArrangedSubview(NSStackView(views: [saveOffline, savedDocuments, refreshSaved, openSaved, cancelStorage, exportPDF]))
-    manageAccount.target = self; manageAccount.action = #selector(manageAccountExplicitly); manageAccount.isEnabled = false
-    stack.addArrangedSubview(NSStackView(views: [accountStatus, manageAccount]))
+    reflowRows = [appearance, review]
+    savedDocuments.setAccessibilityLabel("저장한 문서"); savedDocuments.identifier = NSUserInterfaceItemIdentifier("savedDocuments")
+    savedDocuments.target = self; savedDocuments.action = #selector(savedDocumentSelected)
+    for (button, title, action) in [(saveOffline,"오프라인 저장",#selector(saveOfflineExplicitly)), (refreshSaved,"저장 목록 새로고침",#selector(refreshSavedExplicitly)),
+      (openSaved,"저장 문서 열기",#selector(openSavedExplicitly)), (cancelStorage,"작업 취소",#selector(cancelStorageExplicitly)), (exportPDF,"PDF 내보내기",#selector(exportPDFExplicitly))] {
+      button.title = title; button.target = self; button.action = action
+      button.identifier = NSUserInterfaceItemIdentifier(NSStringFromSelector(action)); button.setAccessibilityLabel(title)
+    }
+    _ = row([NSTextField(labelWithString: "오프라인 문서"), saveOffline, savedDocuments, refreshSaved, openSaved, cancelStorage, exportPDF], in: auxiliary)
+    manageAccount.title = "계정 관리"; manageAccount.target = self; manageAccount.action = #selector(manageAccountExplicitly); manageAccount.isEnabled = false
+    _ = row([accountStatus, manageAccount], in: auxiliary)
     recoveredDraftRow.orientation = .vertical; recoveredDraftRow.alignment = .leading
-    recoveredDraftPicker.setAccessibilityLabel("Recovered drafts"); recoveredDraftPicker.target = self; recoveredDraftPicker.action = #selector(recoveredDraftSelected)
+    recoveredDraftPicker.setAccessibilityLabel("복원된 초안"); recoveredDraftPicker.identifier = NSUserInterfaceItemIdentifier("recoveredDrafts")
+    recoveredDraftPicker.target = self; recoveredDraftPicker.action = #selector(recoveredDraftSelected)
+    recoveredDraftRow.translatesAutoresizingMaskIntoConstraints = false
+    recoveredDraftText.translatesAutoresizingMaskIntoConstraints = false
     recoveredDraftRow.addArrangedSubview(recoveredDraftPicker); recoveredDraftRow.addArrangedSubview(recoveredDraftText); recoveredDraftRow.isHidden = true
-    stack.addArrangedSubview(recoveredDraftRow)
-    stack.addArrangedSubview(findField); stack.addArrangedSubview(reader)
+    auxiliary.addArrangedSubview(recoveredDraftRow)
+    recoveredDraftRow.widthAnchor.constraint(equalTo: auxiliary.widthAnchor).isActive = true
+    recoveredDraftText.widthAnchor.constraint(equalTo: recoveredDraftRow.widthAnchor).isActive = true
+    notice.setAccessibilityLabel("최근 진단"); notice.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+    _ = row([notice], in: auxiliary)
+    stack.addArrangedSubview(reader)
+    for button in [back, applyDisplay, cancelDisplay, undoReview, clearReview, manageAccount] {
+      if let action = button.action { button.identifier = NSUserInterfaceItemIdentifier(NSStringFromSelector(action)) }
+      button.setAccessibilityLabel(button.title)
+    }
+    modeStatus.setAccessibilityLabel("읽기 모드"); selectionStatus.setAccessibilityLabel("읽기 상태와 다음 동작")
     updateOfflineControls(); updateNavigation()
     stack.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(stack)
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16),
       stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -16),
-      stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 16),
-      stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16),
+      stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 12),
+      stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -12),
+      reader.widthAnchor.constraint(equalTo: stack.widthAnchor),
       reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220)])
     self.window = window
     appearanceObservation = window.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
@@ -1006,15 +1085,66 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     scroll.documentView = view; originalScroll = scroll
     view.isHidden = true; scroll.isHidden = true; stack.addArrangedSubview(scroll)
     scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
   }
   func displayMode(_ mode: NativeReaderWindowController.Mode) {
-    currentMode = mode; reader.isHidden = mode == .originalPages; original?.isHidden = mode != .originalPages
+    currentMode = mode
+    retainedFailure = false
+    if requestedMode == mode { requestedMode = nil; requestWasHeld = false }
+    for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? mode == .nativeReflow : mode == .originalPages) ? .on : .off }
+    refreshStatus()
+    reader.isHidden = mode == .originalPages; original?.isHidden = mode != .originalPages
     // Source/Highlight/Ask cannot dispatch the retained hidden reflow selection.
     originalScroll?.isHidden = mode != .originalPages
     sourceControls.isHidden = mode == .originalPages
     for row in reflowRows { row.isHidden = mode != .nativeReflow }
     recoveredDraftRow.isHidden = recoveredDrafts.isEmpty
     window?.contentView?.layoutSubtreeIfNeeded()
+  }
+  @objc func toggleTools() {
+    let opening = toolsScroll.isHidden
+    if !opening, let window {
+      let focused = window.firstResponder as? NSView
+      let fieldOwner = (window.firstResponder as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSView : nil }
+      if focused?.isDescendant(of: auxiliary) == true || fieldOwner?.isDescendant(of: auxiliary) == true { window.makeFirstResponder(toolsButton) }
+    }
+    toolsScroll.isHidden = !opening; toolsButton.state = opening ? .on : .off
+    toolsButton.setAccessibilityLabel(opening ? "읽기 도구 접기" : "읽기 도구 펼치기")
+    invalidateControlLayout(); window?.contentView?.layoutSubtreeIfNeeded(); window?.recalculateKeyViewLoop()
+  }
+  @objc func refreshDocument() { requestedMode = nil; requestWasHeld = false; onRefresh?() }
+  func requestMode(_ mode: NativeReaderWindowController.Mode) {
+    requestedMode = mode == currentMode ? nil : mode; requestWasHeld = reader.store.selection != nil || original?.selected != nil
+    refreshStatus()
+  }
+  func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true) {
+    latestState = state; failedState = failed; refreshButton?.isEnabled = allowsRefresh; refreshStatus()
+  }
+  func showRetainedFailure() { retainedFailure = true; refreshStatus() }
+  private func refreshStatus() {
+    func name(_ mode: NativeReaderWindowController.Mode) -> String { mode == .nativeReflow ? "본문" : "원본 PDF" }
+    for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? currentMode == .nativeReflow : currentMode == .originalPages) ? .on : .off }
+    modeStatus.stringValue = "현재: " + name(currentMode) + (requestedMode.map { " · 전환 요청: " + name($0) } ?? "")
+    if retainedFailure || failedState {
+      selectionStatus.stringValue = reader.store.document == nil ? "문서를 불러오지 못했습니다. ‘새로고침’을 누르세요." : "이전 읽기 결과를 표시 중입니다. 최신 결과를 보려면 ‘새로고침’을 누르세요."
+    } else if let requestedMode {
+      let next = name(requestedMode)
+      if reader.store.selection != nil { selectionStatus.stringValue = "본문에서 선택한 내용이 있어 전환을 보류합니다. ‘선택 해제’ 후 ‘\(next)’ 버튼을 다시 누르세요." }
+      else if let selection = original?.store.selection {
+        let origin = selection.0 == searchSelectionTicket ? "검색 결과에서 선택한 부분" : "PDF에서 선택한 부분"
+        selectionStatus.stringValue = origin + "이 있어 전환을 보류합니다. ‘선택 해제’ 후 ‘\(next)’ 버튼을 다시 누르세요."
+      } else if requestWasHeld { selectionStatus.stringValue = "선택이 해제되었습니다. ‘\(next)’ 버튼을 다시 눌러 전환하세요." }
+      else { selectionStatus.stringValue = "\(next) 모드를 준비하고 있습니다…" }
+    } else {
+      switch latestState {
+      case .idle, .loading: selectionStatus.stringValue = "문서를 준비하고 있습니다…"
+      case .reading: selectionStatus.stringValue = "문서를 읽고 있습니다."
+      case .offline: selectionStatus.stringValue = "오프라인 읽기 · 원문·대화 작업은 사용할 수 없습니다."
+      case .sleeping: selectionStatus.stringValue = "읽기를 일시 중지했습니다."
+      case .disposed: selectionStatus.stringValue = "읽기 창이 닫혔습니다."
+      }
+    }
   }
   @objc func reflowMode() { changeMode?(.nativeReflow) }
   @objc func pageMode() { changeMode?(.originalPages) }
@@ -1035,6 +1165,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func releasePageSelection() {
     if currentMode == .originalPages { original?.releaseSelection() }
     else if let selected = reader.store.selection { reader.releaseSelection(ticket: selected.ticket) }
+    refreshStatus()
   }
   private func pageAction(_ action: () throws -> Void) {
     guard currentMode == .originalPages else { return }
@@ -1043,8 +1174,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
     let query = findField.stringValue
-    Task { do { if let hit = try await original.search(query).first { guard self.currentMode == .originalPages, !original.isHidden else { return }; try original.jump(to: hit.pageIndex); try await original.select(page: hit.pageIndex, range: hit.rangeUTF16) } }
-      catch { notice.stringValue = String(describing: error) } }
+    Task { do { if let hit = try await original.search(query).first { guard self.currentMode == .originalPages, !original.isHidden else { return }; try original.jump(to: hit.pageIndex); try await original.select(page: hit.pageIndex, range: hit.rangeUTF16)
+        self.searchSelectionTicket = original.store.selection?.0; self.refreshStatus()
+      } }
+      catch { notice.stringValue = String(describing: error); if case NativeOriginalPageError.stale = error { showRetainedFailure() } } }
   }
   @objc func copySelected() { if currentMode == .originalPages { _ = original?.copyDisplay() } else { _ = reader.copyPlainText() } }
   @objc func sourceSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.excerpt) }
@@ -1058,12 +1191,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       item.representedObject = node.id; contents.menu?.addItem(item)
     }
     if let previous, let item = contents.itemArray.first(where: { $0.representedObject as? String == previous }) { contents.select(item) }
-    updateNavigation()
+    contents.toolTip = contents.titleOfSelectedItem
+    invalidateControlLayout(); updateNavigation()
   }
   func updateNavigation() { contents.isEnabled = currentMode == .nativeReflow && !reader.outline.isEmpty; back.isEnabled = reader.canReturnFromReference }
   func updateReaderControls(readOnly: Bool) {
     for button in liveButtons { button.isEnabled = !readOnly && currentMode == .nativeReflow }
-    if readOnly { homepage = nil; manageAccount.isEnabled = false; accountStatus.stringValue = "Offline · account actions unavailable" }
+    if readOnly { homepage = nil; manageAccount.isEnabled = false; accountStatus.stringValue = "오프라인 · 계정 작업을 사용할 수 없습니다" }
     updateNavigation(); updateOfflineControls()
   }
   private func updateOfflineControls() {
@@ -1076,7 +1210,15 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     exportPDF.isEnabled = currentMode == .originalPages && original?.store.accepted != nil && !exportBusy
     if exportBusy { saveOffline.isEnabled = false; openSaved.isEnabled = false; refreshSaved.isEnabled = false }
   }
+  private func invalidateControlLayout() {
+    func invalidate(_ view: NSView) {
+      if view is NativeReaderControlRow { view.invalidateIntrinsicContentSize(); view.needsLayout = true }
+      for child in view.subviews { invalidate(child) }
+    }
+    invalidate(stack)
+  }
   func refreshLocalControls() {
+    invalidateControlLayout()
     updateOfflineControls()
     if let preview = displayPreview, preview.document != reader.store.document {
       // The new snapshot keeps the displayed settings. Adopt that same baseline
@@ -1091,16 +1233,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   func setSavedDocuments(_ entries: [NativeReaderRecoveryStore.Entry]) {
-    savedEntries = entries; savedDocuments.removeAllItems(); savedDocuments.addItems(withTitles: entries.map(\.title)); updateOfflineControls()
+    savedEntries = entries; savedDocuments.removeAllItems(); savedDocuments.addItems(withTitles: entries.map(\.title)); invalidateControlLayout(); updateOfflineControls()
   }
   func presentRecoveredDrafts(_ values: [NativeReaderRecoveredDraft]) {
     recoveredDrafts = values; recoveredDraftPicker.removeAllItems()
-    for (index, _) in values.enumerated() { recoveredDraftPicker.addItem(withTitle: "Saved draft \(index+1)") }
+    for (index, _) in values.enumerated() { recoveredDraftPicker.addItem(withTitle: "복원된 초안 \(index+1)") }
     recoveredDraftRow.isHidden = values.isEmpty; recoveredDraftSelected()
   }
   func presentAccount(_ state: NativeReaderAccountState) {
-    accountStatus.stringValue = state.signedIn ? (state.planEnabled ? "Account connected" : "Plan unavailable") : "Sign in on the configured Homepage."
-    homepage = state.homepage; manageAccount.isEnabled = state.homepage != nil
+    accountStatus.stringValue = state.signedIn ? (state.planEnabled ? "계정 연결됨" : "이용 가능한 플랜이 없습니다") : "설정된 홈페이지에서 로그인하세요."
+    homepage = state.homepage; manageAccount.isEnabled = state.homepage != nil; invalidateControlLayout()
   }
   @objc func outlineSelected() { guard currentMode == .nativeReflow, let id = contents.selectedItem?.representedObject as? String else { return }; _ = reader.navigate(toNodeID: id); updateNavigation() }
   @objc func returnFromReference() { guard currentMode == .nativeReflow else { return }; _ = reader.returnFromReference(); updateNavigation() }
@@ -1134,7 +1276,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   /// Called before a new Reflow preparation too: Original PDF deliberately
   /// ignores color events, so its retained text key is not the current theme.
   func resolveAutomaticAppearance() throws {
-    guard theme.titleOfSelectedItem == "Automatic", let window else { return }
+    guard theme.indexOfSelectedItem == 2, let window else { return }
     var value = reader.textAppearance
     value.theme = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
     guard value != reader.textAppearance else { return }
@@ -1146,9 +1288,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     var value = reader.textAppearance
     // The concrete render key always contains resolved colors, while Automatic
     // inherits only this window's effective appearance (never changes the OS).
-    switch theme.titleOfSelectedItem {
-    case "Dark": window?.appearance = NSAppearance(named: .darkAqua); value.theme = .dark
-    case "Automatic": window?.appearance = nil; value.theme = window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+    switch theme.indexOfSelectedItem {
+    case 1: window?.appearance = NSAppearance(named: .darkAqua); value.theme = .dark
+    case 2: window?.appearance = nil; value.theme = window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
     default: window?.appearance = NSAppearance(named: .aqua); value.theme = .light
     }
     if let title = textSize.titleOfSelectedItem, let size = Double(title) { value.fontSize = CGFloat(size) }
@@ -1201,5 +1343,42 @@ struct NativeReaderFixtureProvider: NativeReaderDocumentProviding {
     let value = try await load()
     guard value.identity == context.target else { throw NativeReaderContractError.wrongTarget }
     return value.rebinding(generation: context.generation)
+  }
+}
+
+
+/// Wrapping layout for repeated native command groups. No DOM/CSS policy or
+/// hidden duplicate commands; actual controls participate in native key loops.
+@MainActor private final class NativeReaderControlRow: NSView {
+  private var lastHeight: CGFloat = 0
+  override var isFlipped: Bool { true }
+  init(_ controls: [NSView]) { super.init(frame: .zero); for view in controls { addSubview(view) } }
+  required init?(coder: NSCoder) { nil }
+  private func arrange(apply: Bool) -> CGFloat {
+    let width = max(1, bounds.width), gap: CGFloat = 6
+    var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+    for view in subviews where !view.isHidden {
+      var size = view.fittingSize
+      if let popup = view as? NSPopUpButton {
+        size.width = min(280, size.width); popup.toolTip = popup.titleOfSelectedItem
+      }
+      size.width = min(width, max(32, size.width)); size.height = max(24, size.height)
+      if let text = view as? NSTextField, text.cell?.wraps == true {
+        size.height = max(size.height, text.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: size.width, height: 10000)).height)
+      }
+      if x > 0 && x + size.width > width { x = 0; y += rowHeight + gap; rowHeight = 0 }
+      if apply { view.frame = NSRect(origin: NSPoint(x: x, y: y), size: size) }
+      x += size.width + gap; rowHeight = max(rowHeight, size.height)
+    }
+    return y + rowHeight
+  }
+  override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: arrange(apply: false)) }
+  override func layout() {
+    super.layout(); let height = arrange(apply: true)
+    if abs(lastHeight-height) > 0.5 { lastHeight = height; invalidateIntrinsicContentSize() }
+  }
+  override func setFrameSize(_ size: NSSize) {
+    let changed = frame.width != size.width; super.setFrameSize(size)
+    if changed { invalidateIntrinsicContentSize(); needsLayout = true }
   }
 }
