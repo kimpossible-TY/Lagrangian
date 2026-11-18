@@ -125,7 +125,7 @@ try {
         [...document.querySelectorAll('[data-note-kind="footnote"]')].every((note) => {
           const path = document.querySelector(`path[data-note="${note.id}"]`);
           if (!path) return false;
-          const h = path.parentElement.getBoundingClientRect(),
+          const h = path.ownerSVGElement.getBoundingClientRect(),
             r = note.getBoundingClientRect();
           return (
             r.top >= h.top &&
