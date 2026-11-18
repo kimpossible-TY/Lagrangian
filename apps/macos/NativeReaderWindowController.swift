@@ -911,14 +911,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       guard let document = store.document, let actions else { throw NativeReaderOperationFailure.unavailable }
       try selection.validate(in: document)
       capsuleFocusReturn = hostWindow.window?.firstResponder
+      rememberCurrentDraft()
       chatView?.dispose(); chatView?.removeFromSuperview()
       let chat = NativeReaderChatView(resolveActions: actions, context: context, selection: selection, authorize: { [weak self] in
         guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
+        try self.session.authorize(context)
+      }, authorizeSend: { [weak self] in
+        guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
         try self.session.authorize(context, selection: selection.ticket)
       })
-      chatView = chat; chatContext = context
-      chat.onDismiss = { [weak self, weak chat] in if let chat { self?.dismissComposer(chat) } }
-      chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
+      bindComposer(chat, context: context)
       if let key = acceptedPaintKey { configureChatMath(chat, key: key) }
       hostWindow.attachChat(chat); dismissedCapsule = .init(context: context, ticket: selection.ticket, originalPDF: false)
       hostWindow.hideCapsule(); hostWindow.window?.makeFirstResponder(chat.composer)
@@ -937,23 +939,41 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard let key = acceptedPaintKey, key.identity == context.target, key.documentGeneration == context.generation else { throw NativeObjectError.stale }
     rememberCurrentDraft()
     chatView?.dispose(); chatView?.removeFromSuperview()
-    if currentDraftIdentity != context.target { currentDrafts.removeAll(); currentDraftIdentity = context.target }
-    let chat = NativeReaderChatView(actions: actions, context: context, authorize: { [weak self] in
-      guard let self else { throw NativeReaderContractError.disposed }; try self.session.authorize(context)
+    let selectedTicket = store.selection?.ticket
+    let chat = NativeReaderChatView(resolveActions: { actions }, context: context, selection: nil, authorize: { [weak self] in
+      guard let self, self.visibleMode == .nativeReflow else { throw NativeReaderOperationFailure.unavailable }
+      try self.session.authorize(context)
+    }, authorizeSend: { [weak self] in
+      guard let self, let selectedTicket else { throw NativeReaderContractError.invalidSelection }
+      try self.session.authorize(context, selection: selectedTicket)
     })
     configureChatMath(chat, key: key)
-    chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
-    let id = conversation.state.conversationID
-    let recovered = currentDrafts[id] ?? (recoveredDraftIdentity == context.target ? recoveredDrafts.first { $0.conversationID == id } : nil)
-    recoveredDrafts.removeAll { $0.conversationID == id } // Initial recovery is consumed, never a live authority.
+    bindComposer(chat, context: context)
+    try chat.adopt(conversation); hostWindow.attachChat(chat)
+    return chat
+  }
+
+  /// One host composition seam for local Ask and accepted-conversation entry.
+  private func bindComposer(_ chat: NativeReaderChatView, context: NativeReaderRequestContext) {
+    if currentDraftIdentity != context.target { currentDrafts.removeAll(); currentDraftIdentity = context.target }
     chatView = chat; chatContext = context
+    chat.onDismiss = { [weak self, weak chat] in if let chat { self?.dismissComposer(chat) } }
+    chat.openHomepage = { [weak self] in self?.openHomepage?($0) }
+    chat.recoverConversation = { [weak self, weak chat] conversation in
+      guard let self, let chat, self.chatView === chat, self.chatContext == context,
+            conversation.state.context == context, !self.disposed else { throw NativeReaderContractError.disposed }
+      try self.session.authorize(context)
+      let id = conversation.state.conversationID
+      let recovered = self.currentDrafts[id] ?? (self.recoveredDraftIdentity == context.target ? self.recoveredDrafts.first { $0.conversationID == id } : nil)
+      if let recovered, recovered.version > conversation.state.version { throw NativeReaderContractError.staleGeneration }
+      self.recoveredDrafts.removeAll { $0.conversationID == id }
+      return recovered
+    }
     chat.persistDraft = { [weak self, weak chat] draft in
       guard let self, let chat, self.chatView === chat, self.chatContext == context,
             self.currentDraftIdentity == context.target, !self.disposed else { return }
       self.currentDrafts[draft.conversationID] = draft
     }
-    chat.present(conversation, recovered: recovered); hostWindow.attachChat(chat)
-    return chat
   }
 
   private func configureChatMath(_ chat: NativeReaderChatView, key: NativeReaderTextRenderKey) {

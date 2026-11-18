@@ -191,6 +191,7 @@ private enum NativeAnswerPreparation {
     let accountButton = NativeDesignButton(title: "Manage on Homepage", target: nil, action: nil)
     let notice = NSTextField(wrappingLabelWithString: "")
     var persistDraft: ((NativeReaderRecoveredDraft) -> Void)?
+    var recoverConversation: ((NativeReaderConversation) throws -> NativeReaderRecoveredDraft?)?
     var openHomepage: ((URL) -> Void)?
     // Compatibility operation: callers must supply immutable cache lookup only.
     var nativeMath: ((String) -> NSAttributedString?)?
@@ -208,6 +209,7 @@ private enum NativeAnswerPreparation {
     }
     private let context: NativeReaderRequestContext
     private let authorize: () throws -> Void
+    private let authorizeSend: () throws -> Void
     private var conversation: NativeReaderConversation?
     private var homepage: URL?
     private var preferredModel: String?
@@ -267,8 +269,9 @@ private enum NativeAnswerPreparation {
         self.init(resolveActions: { actions }, context: context, selection: nil, authorize: authorize)
     }
     init(resolveActions: @escaping () async throws -> NativeReaderActions, context: NativeReaderRequestContext,
-         selection: NativeReaderSelection?, authorize: @escaping () throws -> Void) {
-        self.resolveActions = resolveActions; self.context = context; self.authorize = authorize; self.localSelection = selection; self.initialSelection = selection
+         selection: NativeReaderSelection?, authorize: @escaping () throws -> Void,
+         authorizeSend: (() throws -> Void)? = nil) {
+        self.resolveActions = resolveActions; self.context = context; self.authorize = authorize; self.authorizeSend = authorizeSend ?? authorize; self.localSelection = selection; self.initialSelection = selection
         super.init(frame: .zero)
         chrome.role = .panel; addSubview(chrome)
         dismissButton.target = self; dismissButton.action = #selector(dismissComposerExplicitly)
@@ -312,12 +315,22 @@ private enum NativeAnswerPreparation {
         return false
     }
     func refreshAuthorization() {
-        if initialSelection != nil, !unknownEffect, (try? authorize()) == nil { notice.stringValue = "선택이 변경되어 전송할 수 없습니다. 현재 내용을 다시 선택해 질문하세요. 초안은 유지됩니다." }
+        if initialSelection != nil, !unknownEffect, (try? authorizeSend()) == nil { notice.stringValue = "선택이 변경되어 전송할 수 없습니다. 현재 내용을 다시 선택해 질문하세요. 초안은 유지됩니다." }
         updateControls()
     }
     required init?(coder: NSCoder) { nil }
 
-    func present(_ value: NativeReaderConversation, recovered: NativeReaderRecoveredDraft? = nil) {
+    /// Both host entry paths consume the same existing draft owner, only after
+    /// an accepted conversation has established its identity and context.
+    @discardableResult func adopt(_ value: NativeReaderConversation, preservingLocalDraft: Bool = false) throws -> Bool {
+        let recovered = try recoverConversation?(value)
+        present(value, recovered: recovered, preservingLocalDraft: preservingLocalDraft)
+        persistCurrentDraft()
+        return recovered != nil
+    }
+
+    func present(_ value: NativeReaderConversation, recovered: NativeReaderRecoveredDraft? = nil,
+                 preservingLocalDraft: Bool = false) {
         guard !disposed, value.state.context == context else { return }
         if let old = conversation, old.state.conversationID == value.state.conversationID,
            (value.state.version < old.state.version || value.state.sequence < old.state.sequence) { return }
@@ -325,12 +338,15 @@ private enum NativeAnswerPreparation {
         conversation = value
         if !dirty { composer.string = value.draft }
         if let recovered, recovered.conversationID == value.state.conversationID, recovered.version <= value.state.version {
-            composer.string = recovered.text; dirty = true; pendingMessage = recovered.pendingMessageID
+            if !preservingLocalDraft || !dirty { composer.string = recovered.text }
+            dirty = true; pendingMessage = recovered.pendingMessageID
             pendingQuestion = recovered.pendingMessageID == nil ? nil : (recovered.pendingQuestion ?? recovered.text)
             pendingModel = recovered.pendingMessageID == nil ? nil : (recovered.pendingModel ?? recovered.model)
             unknownEffect = pendingMessage != nil
-            preferredModel = recovered.model
-            if let model = recovered.model { models.selectItem(withTitle: model) }
+            if !preservingLocalDraft || modelEditGeneration == 0 {
+                preferredModel = recovered.model
+                if let model = recovered.model { models.selectItem(withTitle: model) }
+            }
             notice.stringValue = "Recovered draft. Refresh conversation before retrying a pending Send."
         }
         prepareMathIfNeeded(value)
@@ -450,7 +466,7 @@ private enum NativeAnswerPreparation {
         if localSelection != nil { sendLocalExplicitly(); return }
         guard !disposed, operation == nil, !unknownEffect, let record = conversation,
               let model = models.titleOfSelectedItem else { return }
-        do { try authorize() } catch { notice.stringValue = "Reselect a current passage before sending."; return }
+        do { try authorize(); try authorizeSend() } catch { notice.stringValue = "Reselect a current passage before sending."; return }
         draftTask?.cancel()
         guard pendingMessage == nil || (pendingQuestion.map { Array($0.unicodeScalars) == Array(composer.string.unicodeScalars) } == true && pendingModel == model) else {
             notice.stringValue = "Previous Send remains unconfirmed. Explicit retry requires its original question/model."
@@ -486,7 +502,7 @@ private enum NativeAnswerPreparation {
     private func sendLocalExplicitly() {
         guard !disposed, operation == nil, let selection = localSelection,
               !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        do { try authorize() } catch { notice.stringValue = "선택이 변경되었습니다. 현재 내용을 다시 선택하세요."; updateControls(); return }
+        do { try authorizeSend() } catch { notice.stringValue = "선택이 변경되었습니다. 현재 내용을 다시 선택하세요."; updateControls(); return }
         // Seal this click's intent before any account/selection/open await.
         // Native draft edits and model changes require another explicit Send.
         let question = composer.string, generation = editGeneration, modelGeneration = modelEditGeneration
@@ -505,22 +521,27 @@ private enum NativeAnswerPreparation {
             defer { if operationEpoch == epoch { operation = nil; updateControls() } }
             do {
                 let actions = try await owner()
-                try Task.checkCancellation(); try authorize()
+                try Task.checkCancellation(); try authorizeSend()
                 let account = try await actions.account(context: context)
-                try Task.checkCancellation(); try authorize()
+                try Task.checkCancellation(); try authorizeSend()
                 presentAccount(account)
                 guard account.signedIn, account.planEnabled, !account.models.isEmpty else {
                     notice.stringValue = "계정·이용 권한 또는 모델이 없어 전송하지 않았습니다. 기존 홈페이지에서 연결 상태를 확인하세요."; return
                 }
                 guard intentIsCurrent() else { requireNewSend(); return }
                 try await actions.updateSelection(selection, context: context)
-                try Task.checkCancellation(); try authorize()
+                try Task.checkCancellation(); try authorizeSend()
                 guard intentIsCurrent() else { requireNewSend(); return }
                 let state = try await actions.perform(.open(selection), context: context)
-                try Task.checkCancellation(); try authorize()
+                try Task.checkCancellation(); try authorizeSend()
                 guard !disposed, operationEpoch == epoch,
                       let record = await actions.conversation(state.conversationID) else { return }
-                dirty = true; localSelection = nil; present(record)
+                dirty = true; localSelection = nil
+                let restored = try adopt(record, preservingLocalDraft: true)
+                if restored {
+                    notice.stringValue = "이전 대화와 초안을 복원했습니다. 대화를 확인한 뒤 명시적으로 다시 Send를 누르세요."
+                    return
+                }
                 // If open completed after an edit, adopt its conversation while
                 // retaining the current draft; do not continue the old Send.
                 guard intentIsCurrent() else { requireNewSend(); return }
@@ -613,10 +634,11 @@ private enum NativeAnswerPreparation {
     @objc func manageExplicitly() { if !disposed, let homepage { openHomepage?(homepage) } }
     private func updateControls() {
         let retryMatches = pendingMessage == nil || (pendingQuestion.map { Array($0.unicodeScalars) == Array(composer.string.unicodeScalars) } == true && pendingModel == models.titleOfSelectedItem)
-        let current = initialSelection == nil || (try? authorize()) != nil
+        let live = (try? authorize()) != nil
+        let current = live && (try? authorizeSend()) != nil
         sendButton.isEnabled = current && retryMatches && !disposed && operation == nil && !unknownEffect && (localSelection != nil || (conversation != nil && models.numberOfItems > 0)) && !composer.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        cancelButton.isEnabled = !disposed && conversation?.status == "streaming"
-        historyButton.isEnabled = !disposed && operation == nil && conversation != nil
+        cancelButton.isEnabled = live && !disposed && conversation?.status == "streaming"
+        historyButton.isEnabled = live && !disposed && operation == nil && conversation != nil
     }
     func dispose() {
         invalidateMath()

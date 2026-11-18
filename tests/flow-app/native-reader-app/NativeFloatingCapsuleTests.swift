@@ -95,6 +95,7 @@ private actor FakeChatHTTP {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let fixture = URL(fileURLWithPath: CommandLine.arguments[1]), mode = CommandLine.arguments[2], out = URL(fileURLWithPath: CommandLine.arguments[3])
         let document = try NativeReaderDocument.decode(Data(contentsOf: fixture.appendingPathComponent(["long", "r19-occlusion"].contains(mode) ? "long-document.json" : "document.json")))
+        if mode.hasPrefix("chat-") { try await ChatRecoveryScenarios.run(document:document, fixture:fixture, mode:mode, out:out); return }
         let input = Input(document), effects = Effects()
         let attachment = try NativeReaderAttachment(data: JSONSerialization.data(withJSONObject: ["url":"http://127.0.0.1:12345/", "documentID":document.identity.documentID, "service":["pid":1,"startedAt":1]]))
         let network = NativeReaderNetwork(send: { _, _ in await effects.hit(); throw URLError(.unsupportedURL) }, stream: { _ in AsyncThrowingStream { $0.finish() } })

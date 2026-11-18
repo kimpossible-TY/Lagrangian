@@ -13,6 +13,7 @@ import unittest
 R = Path(__file__).resolve().parents[3]
 D = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 O = D / 'test-output/native-cream-na19'
+CHAT_O = D / 'test-output/native-cream-chat-repair'
 NEW = ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']
 H18 = '567841a5d200f15904c9cc824b9d15103a38b992'
 
@@ -28,7 +29,7 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
         if not configured:
             raise unittest.SkipTest('Requires explicit isolated NA19 output and outer shared Swift lock')
         cls.out = Path(configured).resolve()
-        if sys.platform != 'darwin' or not cls.out.is_relative_to(O) or cls.out.exists():
+        if sys.platform != 'darwin' or not any(cls.out.is_relative_to(root) for root in (O, CHAT_O)) or cls.out.exists():
             raise RuntimeError('Use a fresh attempt under NA19 output on macOS')
         if not os.environ.get('LAGRANGIAN_NATIVE_SWIFT_LOCK_HELD'):
             raise RuntimeError('Use the shared outer Swift lock once')
@@ -36,10 +37,11 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
         # Preserve actual source and runner bytes for every attempt, including failures.
         cls.sources = [R / 'apps/macos' / p for group in ['core', 'native', 'app']
                        for p in json.loads((R/'apps/macos/sources.json').read_text())[group] if p != 'main.swift']
-        cls.sources += [R/'apps/macos'/p for p in NEW]
+        cls.sources += [R/'apps/macos'/p for p in NEW if R/'apps/macos'/p not in cls.sources]
         cls.harness = R/'tests/flow-app/native-reader-app/NativeFloatingCapsuleTests.swift'
         inputs = cls.out/'inputs'; inputs.mkdir()
-        for p in [*cls.sources, cls.harness, Path(__file__)]:
+        extra_harness = R/'tests/flow-app/native-reader-app/NativeChatRecoveryTests.swift'
+        for p in [*cls.sources, cls.harness, extra_harness, Path(__file__)]:
             target = inputs/p.relative_to(R); target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(p.read_bytes())
         save(cls.out/'inputs.json', {str(p.relative_to(R)): sha(p) for p in [*cls.sources, cls.harness, Path(__file__)]})
         # Run the untouched existing compiler fixture setup with a bounded compile adapter.
@@ -52,7 +54,7 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
         def adapt(argv, *args, **kwargs):
             actual = list(map(str, argv))
             if actual and Path(actual[0]).name == 'swiftc':
-                actual = [*actual[:actual.index('-o')], *[str(R/'apps/macos'/p) for p in NEW], *actual[actual.index('-o'):]]
+                actual = [*actual[:actual.index('-o')], *[str(R/'apps/macos'/p) for p in NEW if str(R/'apps/macos'/p) not in actual], *actual[actual.index('-o'):]]
                 adaptations.append(dict(originalargv=list(map(str, argv)), actualargv=actual,
                     extra_inputs={str(R/'apps/macos'/p): sha(R/'apps/macos'/p) for p in NEW}))
             return actual_run(actual, *args, **kwargs)
@@ -99,10 +101,21 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
             for record in binding['files']:
                 if sha(Path(record['snapshot'])) != record['SHA256']: raise RuntimeError('Dirty before changed')
             sources = [pinned/p.name if (pinned/p.name).is_file() else p for p in sources]
-        cls.binary = D/'tmp/native-cream-na19'/(cls.out.name+'-Capsule')
+        pinned = os.environ.get('NATIVE_CHAT_SNAPSHOT')
+        if pinned:
+            pinned = Path(pinned).resolve()
+            if pinned != CHAT_O/'baseline': raise RuntimeError('Only task-owned H20 baseline permitted')
+            binding = json.loads((pinned/'binding.json').read_text())
+            if binding['revision'] != '016734db869f8892bf2cd1e330be2fb4edda962f': raise RuntimeError('Wrong baseline')
+            for name, digest in binding['files'].items():
+                if sha(pinned/name) != digest: raise RuntimeError('Baseline drift')
+            sources = [pinned/p.name if p.name in binding['files'] else p for p in sources]
+        cls.binary = D/('tmp/native-cream-chat-repair' if cls.out.is_relative_to(CHAT_O) else 'tmp/native-cream-na19')/(cls.out.name+'-Capsule')
         argv = ['swiftc','-parse-as-library','-swift-version','5','-warnings-as-errors','-target','arm64-apple-macosx13.0',
                 '-module-cache-path',os.environ['SWIFT_MODULECACHE_PATH']]
         if before: argv += ['-D','NA19_BEFORE']
+        extra = R/'tests/flow-app/native-reader-app/NativeChatRecoveryTests.swift'
+        sources += [extra]
         argv += [*map(str,sources),str(cls.harness),'-o',str(cls.binary)]
         cls.execute('compile',argv,{str(p):sha(p) for p in [*sources,cls.harness]})
         (cls.out/'test-binary').write_bytes(cls.binary.read_bytes())
@@ -147,3 +160,9 @@ class NativeFloatingCapsuleTests(unittest.TestCase):
     def test_R19_3_short_selection_does_not_cover_other_body(self): self.scenario('r19-occlusion')
 
     def test_R19_1_model_wait_preserves_explicit_intent(self): self.scenario('r19-model')
+
+    def test_chat_replace_unconfirmed(self): self.scenario('chat-unconfirmed')
+    def test_chat_replace_confirmed(self): self.scenario('chat-confirmed')
+    def test_chat_close_reenter(self): self.scenario('chat-close')
+    def test_chat_selection_controls(self): self.scenario('chat-selection')
+    def test_chat_context_restrictions(self): self.scenario('chat-restrictions')
