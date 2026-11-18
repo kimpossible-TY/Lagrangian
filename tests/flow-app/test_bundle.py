@@ -252,12 +252,44 @@ class DevelopmentBundleIntegrationTests(unittest.TestCase):
 
     def test_bundled_standalone_manager_without_service_operations(self):
         delivery = self.app/'Contents/Resources/native-reader'
-        env = dict(os.environ, HOME=str(self.root/'manager-home'), FLOW_READER_DATA_DIR=str(self.root/'reader-data'))
-        result = subprocess.run([str(delivery/'reader-manager'), '--profiles'], env=env, capture_output=True, text=True)
+        root = self.root/'standalone'; root.mkdir()
+        data = root/'reader-data'; data.mkdir()
+        home = root/'home'; home.mkdir()
+        flow = root/'flow-dev'
+        support = flow/'home/Library/Application Support/Lagrangian'; support.mkdir(parents=True)
+        # The existing manager requires explicit config, even for a read-only query.
+        config = dict(schemaVersion=1, services=[], flowManager=str(package.executable(self.app)),
+                      python=str(delivery/'python/bin/python3.13'), compiler=str(delivery/'compiler/typst'),
+                      engine=str(self.app/'Contents/MacOS/flow-engine'))
+        (data/'config.json').write_text(json.dumps(config, sort_keys=True))
+        settings = dict(schemaVersion=1, selectedID='', profiles=[])
+        (support/'profiles.json').write_text(json.dumps(settings, sort_keys=True))
+        def inventory():
+            return {str(p.relative_to(root)): dict(mode=p.stat().st_mode & 0o777, sha256=package.digest(p))
+                    for p in root.rglob('*') if p.is_file()}
+        before = inventory()
+        env = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
+                   FLOW_DEV_ROOT=str(flow), FLOW_READER_DATA_DIR=str(data))
+        # No network or launch/open operation can escape this actual CLI smoke.
+        policy = '(version 1)(allow default)(deny network*)(deny process-exec (literal "/bin/launchctl") (literal "/usr/bin/open") (literal "/usr/bin/osascript"))'
+        argv = ['/usr/bin/sandbox-exec', '-p', policy, str(delivery/'reader-manager'), '--profiles']
+        started = time.time()
+        result = subprocess.run(argv, env=env, capture_output=True, text=True)
+        after = inventory()
+        if evidence := os.environ.get('FLOW_TEST_DEVELOPMENT_EVIDENCE'):
+            package.write_json(Path(evidence), dict(argv=argv, cwd=str(Path.cwd()),
+                startedAt=started, endedAt=time.time(), exit=result.returncode,
+                stdout=result.stdout, stderr=result.stderr, before=before, after=after,
+                fixtureRoot=str(root), environment={k:env[k] for k in
+                    ('HOME', 'CFFIXED_USER_HOME', 'FLOW_DEV_ROOT', 'FLOW_READER_DATA_DIR')},
+                sandboxPolicy=policy, fixtureConfig=config, GUIExecuted=False))
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
         self.assertEqual(json.loads(result.stdout), dict(schemaVersion=1, profiles=[]))
-        self.assertFalse((self.root/'reader-data').exists())
-        self.assertFalse((self.root/'manager-home/Library/LaunchAgents').exists())
+        self.assertEqual(after, before)
+        self.assertEqual(json.loads((data/'config.json').read_text()), config)
+        self.assertEqual(json.loads((support/'profiles.json').read_text()), settings)
+        self.assertFalse((home/'Library/LaunchAgents').exists())
+        self.assertFalse((flow/'home/Library/LaunchAgents').exists())
 
 
 @unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('FLOW_TEST_ENGINE'), 'Set FLOW_TEST_ENGINE on macOS for integration checks')
