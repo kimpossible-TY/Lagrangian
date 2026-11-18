@@ -232,7 +232,7 @@ it confers no new attachment authority. A different actual document/reader scope
 is independent. Swift consumes opaque bindings and does not reimplement path
 matching. Plain body Read does not retry or confirm editor retirement,
 and keeps accepted Source/Ask authority with zero editor movement permission.
-No journal scan, timer, automatic retry/inference or service/editor/control
+No journal scan, resident cleanup timer, automatic retry/inference or service/editor/control
 termination occurs.
 Private journals/tombstones are retained; automatic pruning and automatic recovery
 following an entire app-process restart are not provided. Tests separately cover
