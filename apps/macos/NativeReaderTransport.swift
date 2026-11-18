@@ -143,15 +143,31 @@ struct NativeReaderManagedEditor {
     }
 }
 
-/// Only the local manager can retire its own issued registration. A shared
-/// lease survives pending resolution and runs cleanup at most once per owner.
+/// Revoking local consent is independent of confirming exact local-file removal.
+/// Coalesce concurrent attempts; a failed bounded command remains explicitly
+/// retryable by a subsequent release. There is no background retry loop.
 actor NativeReaderEditorLease {
-    private var task: Task<Void, Never>?
-    private let cleanup: () async -> Void
-    init(cleanup: @escaping () async -> Void) { self.cleanup = cleanup }
-    func release() async {
-        if task == nil { let cleanup = self.cleanup; task = Task { await cleanup() } }
-        await task?.value
+    enum Retirement { case active, pending, confirmed }
+    private(set) var retirement = Retirement.active
+    private var task: Task<Bool, Never>?
+    private var attempt = 0
+    private let cleanup: () async throws -> Void
+    init(cleanup: @escaping () async throws -> Void) { self.cleanup = cleanup }
+    @discardableResult func release() async -> Bool {
+        if retirement == .confirmed { return true }
+        if task == nil {
+            attempt += 1
+            retirement = .pending
+            let cleanup = self.cleanup
+            task = Task { do { try await cleanup(); return true } catch { return false } }
+        }
+        let current = attempt
+        let confirmed = await task!.value
+        if attempt == current {
+            retirement = confirmed ? .confirmed : .pending
+            task = nil
+        }
+        return confirmed
     }
 }
 
@@ -179,7 +195,16 @@ struct NativeReaderManagedResolver {
             var release = ["--release-native-editor", "--root", root, "--entry", entry, "--token", token]
             if let id = readerID { release += ["--reader-service", id] }
             let runner = attach, releaseArguments = release
-            lease = NativeReaderEditorLease { _ = try? await runner(releaseArguments) }
+            lease = NativeReaderEditorLease {
+                let data = try await runner(releaseArguments)
+                guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      Set(result.keys) == ["released"],
+                      let released = result["released"] as? NSNumber,
+                      CFGetTypeID(released) == CFBooleanGetTypeID() else {
+                    throw NativeReaderOperationFailure.unavailable
+                }
+                // false is also a confirmed absence (already withdrawn).
+            }
         } else { lease = nil }
         do {
         try Task.checkCancellation()

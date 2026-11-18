@@ -58,7 +58,7 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F01], [NA05/06], [Home/project/settings/document windows; existing ProjectService.], [Persistence/recovery and isolated shell/app tests.],
   [F02], [NA04/05/06], [Request → service → accepted document → painted frame.], [Cancellation, nonblocking UI, one open; no readiness from command exit.],
   [F03], [NA01/02/06], [Ordered typed tree, heading/style/link/anchors; real importer.], [NA01 fixture contract tested; broader content, paint/outline/AX remain.],
-  [F04], [NA03/06], [Integrated immutable full-PDF lazy viewport plus semantic reflow.], [Raw vector deltas, general page fidelity and independent GUI remain; review-fix source requires restaging.],
+  [F04], [NA03/06], [Integrated immutable full-PDF lazy viewport plus semantic reflow.], [Raw vector deltas, general page fidelity and independent GUI remain. Historical09c restaging is not the current binding; see the external d7/v4 packet below.],
   [F05], [NA03/06], [MathML+text/number, cell/span/header, vector asset/caption/annotation.], [Fixture paint feasible; general math/CeTZ/decoration/reflow fidelity unverified.],
   [F06], [NA02/04/06], [Grapheme selection fragments and ticket-bound verified excerpt.], [Pointer/keyboard/copy/AX and service ack; no source reconstructed from math.],
   [F07], [NA04/06], [Explicit native request to the existing guarded source-highlight owner.], [Server freshness/lock/receipt, uncertain result, no automatic resend.],
@@ -72,8 +72,16 @@ All rows remain final product gates. “Model” means retained data, not delive
   [F15], [NA02/03/05/06], [Window-local Theme/Text size and Zoom/Fit controls; native AX tree.], [Bounded headless text/object/current-page AX checks; independent GUI/VoiceOver/fidelity pending.],
   [F16], [NA04/06], [Save Offline / saved-document list / Open Saved; explicit Export PDF of the accepted Original PDF.], [Atomic/cancel/read-only limits and pending-draft recovery; independent full app resume remains pending.],
   [F17], [NA04/06], [Existing manager/origin/prefix and external consumers retained.], [Web/mobile/terminal/editor/service lifetime regression.],
-  [F18], [NA05/06], [Canonical source/resource packaging with external engine provenance.], [Fixed09c staged portable delivery exists; changed source needs new app binding; no live install here.],
+  [F18], [NA05/06], [Canonical source/resource packaging with external engine provenance.], [Historical09c delivery is retained. Current frozen d7/v4 delivery is bound separately; later v5 component changes require PM integration and a fresh binding; no live install here.],
 )
+
+Current external artifact locator: `test-output/native-app-corrections-v4/`
+`REPORT.md`, `final-binding.json` and `inspection-manifest.json` under the DevSSD
+native-reader workspace bind source d7cd069f2249a405061bf220cfd7e0184f75c7fe to
+its v4 App. Historical09c and review-fix restaging notes are prior evidence, not
+current artifact status. The external `native-reader-identity-ui-v5/`
+`resume2-handoff.md` describes the unregistered, unpackaged successor component
+and a separate frozen-d7 fixture; it does not replace the d7 App or GUI gates.
 
 == Historical NA01 executed scope and evidence
 
@@ -475,14 +483,23 @@ existing private registration owner supplies that descriptor; a fixture-written
 JSON file alone does not establish this production path. SF1 separates optional
 editor synchronization from valid native selection adoption: editor-only failure
 leaves Source/excerpt/mapping and Ask available, while an actual editor jump is
-unavailable and old pending work is revoked. SF2 retains and releases exactly the
-local token created for that native client, including failed or late attachment;
-it does not terminate the editor/service, delete other tokens or expand quota.
+unavailable and old pending work is revoked. After a manager response, SF2 retains the exact token for that native client.
+Local consent/effect revocation is immediate; registration deletion is a separate
+bounded manager command. In the v5 source component a valid local release result
+confirms absence (including already absent); command/lock/JSON failure leaves the
+lease pending, not cached as successful, and a subsequent explicit release may
+retry. There is no automatic retry loop. Losing the owner can still leave a
+pending registration; this is not a durable recovery guarantee. A pre-response
+timeout/SIGKILL can still lose the token (SF2-R1): crash-safe pre-known issuance
+binding needs a narrow change in the existing EditorAttachments registration
+owner, outside this component's write scope. No service/editor termination,
+other-token deletion or quota expansion is permitted.
 
 Actual chooser/consent/focus interaction and overall F10 acceptance remain
-unverified. The production manager's NFC/NFD document-path matching gap remains
-unresolved; ASCII lease/quota regression and existing Unicode native/editor
-regressions do not establish Unicode manager matching. The host never fabricates
+unverified. The frozen d7 App retains its NFC/NFD manager matching gap. The later v5
+source-only component verifies canonical-equivalent spelling plus actual identity
+and scope, including real Unicode manager/HTTP/headless-editor movement. It is
+not registered or packaged into d7; its tests do not close the App's F10 gate. The host never fabricates
 coordinates or opts into an arbitrary editor. F13 native login/cancel/logout
 remains unimplemented NA16 work: the adapter reads status/models and exposes an
 explicit configured Homepage action, without native credential operations.

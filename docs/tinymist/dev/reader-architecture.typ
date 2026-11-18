@@ -227,8 +227,12 @@ delivery owner's responsibility; headless paint is separate from GUI acceptance.
 See #link("native-reader-app-contract.typ")[wire/local/recovery contracts],
 #link("native-reader-original-pages.typ")[PDF limits] and
 #link("native-reader-chat-math.typ")[answer math]. The final source list includes
-the page view/transport at staged09c5186b. A new source fix requires delivery
-rebinding; no common writer, credential owner or framework is introduced here.
+the page view/transport at historical staged09c5186b. The current frozen
+source/App is d7cd069f2249a405061bf220cfd7e0184f75c7fe, bound by the external
+DevSSD `test-output/native-app-corrections-v4/final-binding.json` and handoff.
+The v5 successor is a source-only component, not registered or packaged into that
+App. PM integration and new delivery binding remain required after its fixed SHA;
+no common writer, credential owner or framework is introduced here.
 
 
 = Native local interaction composition

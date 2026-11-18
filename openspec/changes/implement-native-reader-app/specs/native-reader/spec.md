@@ -233,7 +233,7 @@ process discovery, default opt-in or HTTP registration authority.
 
 #### Scenario: Independent headless and GUI acceptance
 - **WHEN** the native action is exercised against an isolated compiler/production HTTP/actual Neovim fixture
-- **THEN** an independent raw editor RPC oracle verifies file, one-based line and UTF-8 byte column plus unchanged buffers/source bytes
+- **THEN** an independent raw editor RPC oracle verifies file, one-based line and zero-based UTF-8 byte column (range and UTF-8 character-boundary checked by the existing private owner) plus unchanged buffers/source bytes
 - **AND** injected transport faults, fake callbacks and actual effects are identified separately
 - **AND** headless success does not complete real native interaction, visual or OS runtime acceptance
 
@@ -281,6 +281,25 @@ New selection SHALL revoke old pending editor work before optional synchronizati
 
 ### Requirement: Native registration has an exact local lifetime
 The native resolver SHALL retain its manager-issued lease through resolution and retire only its own native token on disconnect/dispose/replacement or failed/cancelled/superseded/late resolution. Existing local owners SHALL preserve other tokens, control/editor/service lifetimes and the32 quota; HTTP SHALL NOT delete arbitrary paths.
+
+#### Scenario: Current source component is not final lifetime acceptance
+- **WHEN** assessing the current component against the lifetime requirement
+- **THEN** the following implementation gate remains, without weakening the SHALL above
+
+Frozen d7 used a
+best-effort once-only response-bound release. The v5 source component distinguishes
+local effect revocation from confirmed absence and retains failed release attempts
+as pending for a subsequent explicit retry. It does not guarantee durable cleanup
+if that owner is lost. SF2-R1 pre-response CommandRunner timeout/SIGKILL remains
+open: the existing registration owner must support crash-safe pre-known issuance
+binding before this requirement can be accepted. Neither a successful retry nor
+33+ normal reconnects proves that boundary. Exact results/limits are in external
+DevSSD `test-output/native-reader-identity-ui-v5/resume2-handoff.md`; PM owns the
+remaining registration-owner permission and final App/GUI validation.
+
+#### Scenario: Failed local cleanup cannot confirm deletion
+- **WHEN** a bounded exact-token release command fails under manager lock contention
+- **THEN** local consent stays revoked, retirement remains pending, and a later explicit release can confirm absence without an automatic retry loop or authority revival
 
 #### Scenario: Reconnect without consuming other registrations
 - **WHEN** the same live editor reconnects and disconnects at least33 times, with concurrent terminal/native registrations

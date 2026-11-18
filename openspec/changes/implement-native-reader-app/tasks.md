@@ -106,9 +106,24 @@ or close official final GUI/VO/OS13/live/packaging acceptance.
 - [ ] 12.5 Correct SF1/SF2, verify the actual queued effect gate and production descriptor provenance with exact own-token/other-token lifetime evidence; keep GUI and NA16 acceptance open.
 
 
+Task12 checkboxes remain open final source/App/live-GUI gates; they do not erase
+the producer's bounded component evidence at external DevSSD
+`test-output/native-app-corrections-v4/REPORT.md` or the independent21/oracle39
+report `corrections-independent-v4/REPORT.md`. Those revision-bound results and
+the known Unicode technical aggregate1 remain historical, not v5 acceptance.
+
 ## 13. v5 Unicode identity and narrow feedback source component
 
 - [x] 13.1 Preserve frozen d7 filesystem counterexamples, implement canonical-equivalent actual identity/scope matching and exact withdrawal-only cleanup, and verify positive/negative filesystem policy.
 - [x] 13.2 Verify actual manager attachment/HTTP/headless editor effect and affected shared/native lease guards; compare offscreen control semantics with frozen d7, then verify loading/empty/error/ready/isolated-busy feedback.
 - [x] 13.3 Validate affected Typst/HTML/generated/OpenSpec and Swift/macOS13 inputs, commit a clean component and report exact Git-blob delivery delta with immutable v4 evidence.
 - [ ] 13.4 PM separately integrates/registers/builds this fixed component and obtains actual GUI/visual acceptance; NA16 and full feature acceptance remain independent.
+
+
+## 14. v5 follow-up registration boundary, external d7 fixture and docs
+
+- [x] 14.1 Preserve the actual post-registration/pre-response ten-second CommandRunner timeout and SIGKILL leak witnesses, with exact cleanup and unrelated token/editor/source preservation; distinguish this known R1 gap from successful normal reconnects.
+- [x] 14.2 Keep failed local release pending, coalesce concurrent attempts and allow an explicit retry after real manager lock contention; do not claim attempted deletion as confirmed or add a retry loop.
+- [ ] 14.3 Obtain the narrow existing EditorAttachments registration-owner change for a pre-known operation/token and atomic issuance; then verify exception/cancel/late/crash/deadline lifetime closure before accepting SF2-R1. No duplicate registration policy or new arbitrary deletion API.
+- [x] 14.4 Create separate external frozen-d7 wrappers with verified owned TMPDIR before product imports; run minimal-env/bad-TMPDIR/sandbox actual compiler/two-loopback-port/cleanup smokes and hand off a distinct cold setup-only root without App launch.
+- [x] 14.5 Align V401–V406 canonical/generated docs and validate PDF/HTML/strict OpenSpec; report the source-only component and exact final Git-blob delta separately from frozen d7 App/GUI and NA16.

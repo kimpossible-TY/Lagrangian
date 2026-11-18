@@ -24,7 +24,7 @@ loopback Host. HTTP cannot register an executable, address, source path or curso
 `services/native_editor_actions.py` coordinates these bounded requests over
 `AcceptedSnapshot`, `SavedSourceNavigation`, `EditorAttachments` and
 `NeovimEditor.jump`. The existing source mapping alone supplies the private saved
-source span, SHA-256, line and UTF-8 byte column. The adapter never estimates
+source span, SHA-256, line and zero-based UTF-8 byte column. The adapter never estimates
 coordinates from native text, PDF, glyph geometry or semantic anchors. Preparation
 captures the exact mapping; dispatch resolves it again and requires equality.
 Final Lua delivery rechecks disk hash, target buffer bytes and modified state.
@@ -159,6 +159,10 @@ Python RPC observes file, line, UTF-8 column and every loaded buffer. This prove
 offscreen AppKit control events; the chooser/alert and real GUI/foreground, visual,
 VoiceOver and OS13 runtime acceptance remain unverified.
 
+Private editor coordinates use a one-based line and zero-based UTF-8 byte column.
+The existing source/Neovim owners check range and character boundaries, including
+continuation-byte rejection; native feedback does not gain source coordinates.
+
 = v4 selection independence and exact local lease cleanup
 
 A valid body selection is checked and adopted independently of optional editor
@@ -170,13 +174,26 @@ invalid/over32 source selections still fail. No error turns a mapping receipt
 into an editor effect or resends an uncertain jump.
 
 The local manager returns an exact issued token and attachment file. The native
-resolver retains a cleanup lease across its state probe; failed/cancelled/late or
-superseded resolution retires that token. Disconnect, disposal and transport
-replacement retire only that native registration through
+resolver retains a cleanup lease across its state probe after receiving the
+response. Failed/cancelled/late/superseded resolution, Disconnect, disposal and
+transport replacement request retirement of only that native registration through
 `--release-native-editor --root ROOT --entry ENTRY --token TOKEN` (optionally
 `--reader-service ID`). It performs no service start/restart, editor/control-file
 termination, arbitrary HTTP file deletion or quota increase. The existing32
 active-attachment bound and other native/terminal tokens remain intact.
+Local consent/effect revocation is separate from confirmed file removal. In the
+v5 source component, a valid manager result confirms absence; a bounded command,
+lock or result-validation failure leaves pending retirement. Concurrent attempts
+coalesce, and a later explicit release can retry; no automatic loop runs and a
+lost lease is not durably recovered. Actual lock-contention and explicit-retry
+witnesses are in `native-reader-identity-ui-v5/resume2-editor1` under DevSSD
+`test-output`. SF2-R1 remains open: an actual ten-second CommandRunner timeout
+and SIGKILL after real registration/HTTP ack but before plan response leave
+active tokens. A pre-known caller operation/token plus atomic registration must
+be implemented by the existing EditorAttachments owner before the lifetime
+requirement is satisfied; its source is readonly in this assignment. Changing
+only the timeout, quota, or manager-side post-return token log cannot close that
+gap. This component is not a new App or overall F10 acceptance.
 
 The local production descriptor export is
 `--native-editor-descriptor --root ROOT --entry ENTRY --token EXISTING_TOKEN`.

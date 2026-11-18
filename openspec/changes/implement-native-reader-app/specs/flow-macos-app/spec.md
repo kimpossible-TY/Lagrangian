@@ -52,6 +52,8 @@ Paged, HTML and native readers SHALL retain accepted content, reading position, 
 - **AND** returning online or visible triggers recovery without duplicate connection loops
 
 
+## ADDED Requirements
+
 ### Requirement: Home feedback describes available native actions
 Loading feedback SHALL explain waiting, the step after completion and safe
 close/reopen if it persists without instructing use of disabled controls.

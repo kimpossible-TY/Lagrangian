@@ -368,15 +368,15 @@ Typed32 fragments/zoom0.5–4 are not widened to match local33+/0.25 display. Sa
 drafts are read-only offline; no history read, restore or layout sends inference.
 Only actual matching visible-mode draw acknowledges paint.
 
-Last Edit and Locate Source use existing Actions/source-history endpoints and
-TextView anchor mappings. Full editor delivery still requires an explicitly
-composed NativeReaderManagedEditor consent descriptor, absent from the current
-FlowApp settings/composition. Native-action locate returns a verified display
-anchor, not an editor dispatch; a separate guarded explicit dispatch/receipt
-contract is missing. Native account UI reads existing status/models and
-permits an explicit configured Homepage action; it does not invent native
-login/logout, credentials or source authority. These gaps are returned to their
-owners rather than hiding missing runtime UI behind model-only claims.
+Historical fixed24666 reachability: Last Edit and mapping-only Locate Source used
+Actions/source-history and TextView anchors; that revision lacked the explicit
+editor descriptor composition and separate dispatch/receipt. This is not the
+current NA15 status: see “NA15 explicit native editor actions” and “v4 NA15 review
+corrections” below for the private descriptor chooser, consented movement-only
+composition and guarded effect receipt. Native-action locate still returns only
+a verified display anchor. F13 remains open NA16 work: status/models and an
+explicit configured Homepage action do not implement native login/cancel/logout,
+credentials or source authority.
 
 Reachability and actual target/action/pixel/storage tests are separate from final
 GUI/AX/official review and new app/resource binding. Delivery/archive producer
@@ -514,9 +514,16 @@ NativeReaderActions separates validated body selection from optional editor sync
 revoking prior pending work first. Source/mapping/Ask remain available after an
 editor-only failure; stale contexts/inputs and invalid selections are not relaxed.
 NativeReaderManagedResolver owns an exact local manager-issued cleanup lease until
-adoption, then transport lifetime owns it. Failed probes and late/cancelled/epoch-
-superseded resolves retire their own token, including before any editor context
-exists. The local manager/EditorAttachments own token retirement and the four-field
+adoption, then transport lifetime owns it. After a response, failed probes and
+late/cancelled/epoch-superseded resolves request retirement of that exact token,
+including before any editor context exists. Revoking local consent/effect is not
+confirmation of registration-file deletion. The v5 lease coalesces concurrent
+attempts, confirms only a successful typed manager result, and leaves failed
+commands pending for a subsequent explicit release, without a retry loop.
+The existing owner is not durable: a lost lease can leave its pending file.
+Pre-response timeout/SIGKILL still leaks (SF2-R1); fixing that crash gap needs
+pre-known token/operation binding and atomic registration in the existing
+EditorAttachments owner, which is readonly in this component assignment. The local manager/EditorAttachments own token retirement and the four-field
 private chooser descriptor export. There is no HTTP deletion/registration API,
 quota increase, source writer or editor/service/control termination. Gated tests
 observe a transmitted jump's committed unknown row while the actual edit_lock is

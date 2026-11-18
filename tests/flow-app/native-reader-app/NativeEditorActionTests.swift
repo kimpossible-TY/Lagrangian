@@ -229,11 +229,47 @@ private actor UITrace {
         print("{\"mode\":\"SF2\",\"reconnects\":34,\"probeFailure\":true,\"lateResolveBoundaries\":3,\"productionDescriptor\":true,\"skips\":0,\"visibleWindows\":0}")
     }
 
+    private static func retirement(_ object: [String: Any], marker: String) async throws {
+        let manager = object["manager"] as! String
+        let arguments = object["releaseArguments"] as! [String]
+        let lease = NativeReaderEditorLease {
+            let data = try await Task.detached { Data(try CommandRunner(timeout: 10).run(manager, arguments).utf8) }.value
+            guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Bool],
+                  Set(result.keys) == ["released"] else { throw NativeReaderOperationFailure.unavailable }
+        }
+        async let first = lease.release()
+        async let concurrent = lease.release()
+        let failed = await (first, concurrent)
+        try require(!failed.0 && !failed.1)
+        try require(await lease.retirement == .pending)
+        try Data().write(to: URL(fileURLWithPath: marker))
+        for _ in 0..<500 {
+            if FileManager.default.fileExists(atPath: marker + ".retry") { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        try require(await lease.release())
+        try require(await lease.retirement == .confirmed)
+        try require(await lease.release())
+        print("{\"mode\":\"lease-retry\",\"pendingAfterLockFailure\":true,\"explicitRetryConfirmed\":true,\"noLoop\":true,\"skips\":0}")
+    }
+
     static func main() async throws {
         let args = CommandLine.arguments
         let config = try Data(contentsOf: URL(fileURLWithPath: args[1]))
         let mode = args[2]
         let object = try JSONSerialization.jsonObject(with: config) as! [String: Any]
+        if mode == "lease-retry" { try await retirement(object, marker: args[3]); return }
+        if mode == "response-timeout" {
+            let start = Date()
+            do {
+                _ = try CommandRunner(timeout: 10).run(object["manager"] as! String, object["attachArguments"] as! [String])
+                throw NativeReaderOperationFailure.rejected(code: "expected-command-timeout")
+            } catch let error as FlowError {
+                try require(error.message.contains("초과"))
+                print("{\"actualCommandRunnerTimeout\":true,\"elapsed\":\(Date().timeIntervalSince(start)),\"skips\":0}")
+            }
+            return
+        }
         if mode == "SF2" { try await leases(object); return }
         if mode.hasPrefix("ui-") { try await offscreen(config, mode: mode, marker: args[3]); return }
         if mode == "descriptor" {

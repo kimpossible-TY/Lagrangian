@@ -212,9 +212,12 @@ Actions runtime tokens upload artifacts and manage caches. These are workflow
 contracts, not evidence that a remote run was executed for this change.
 
 Every successful run also publishes the HTML Reader for that commit. This
-happens on an engine cache hit and on a miss. Reader sources are not engine
-inputs: `scripts/engine-input-hash.py` is unchanged, and an edit under
-`tools/flow-reader/web` still reuses the previous engine bytes while rebuilding the current app
+happens on an engine cache hit and on a miss. The HTML Reader tree
+`tools/flow-reader` is outside the engine hash; this exclusion does not cover
+`tools/reader-common`, the paged frontend or embedded `typst-dom` production
+sources. Those embedded inputs and specified build scripts, including
+`scripts/flow-app.py`, remain engine-hash inputs. The hash owner is unchanged;
+an edit limited to `tools/flow-reader/web` still reuses previous engine bytes while rebuilding the current app
 inside `flow-engine-darwin-arm64`. The job runs
 `python3 scripts/package-reader-bundle.py` before the Cargo steps and, after
 the engine artifact is ready, uploads that directory twice:

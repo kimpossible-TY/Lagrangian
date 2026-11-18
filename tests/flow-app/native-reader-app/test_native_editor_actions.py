@@ -153,6 +153,78 @@ class NativeSwiftEditorTests(CompilerEditorFixture):
         self.assertEqual(set(active),{terminal_path,self.record_path})
         self.assertIsNone(self.editor.poll());self.assert_unchanged(self.before)
 
+    def response_boundary_fixture(self, delay=False):
+        from flow_reader.services.manager import ReaderManager
+        terminal, terminal_path = self.state.editor_attachments.register(str(self.socket),shutil.which('nvim'),self.editor.pid,str(self.control))
+        profile=dict(id='fixture',root=str(self.root),entry=self.entry.name,port=self.server.server_port)
+        settings=self.work/'response-manager.json'
+        settings.write_text(json.dumps(dict(data=str(self.work/'manager-data'),agents=str(self.work/'agents'),profile=profile,pid=self.state.focus.service['pid'])))
+        wrapper=self.work/'response-manager'
+        wrapper.write_text('#!'+sys.executable+'\nimport sys;sys.dont_write_bytecode=True\nimport json,time\nfrom pathlib import Path\nsys.path.insert(0,'+repr(str(REPO/'tools/flow-reader'))+')\nfrom flow_reader.services.manager import ReaderManager,main\nv=json.loads(Path('+repr(str(settings))+').read_text())\nclass Owned(ReaderManager):\n def profiles(self): return [v["profile"]]\n def job_pid(self,p,**kwargs): return v["pid"]\n def request(self,url,path,*args,**kwargs):\n  result=super().request(url,path,*args,**kwargs)\n  if path=="api/editor-attachment" and '+repr(delay)+':\n   Path('+repr(str(self.work/'registered'))+').write_text("acknowledged before response")\n   time.sleep(60)\n  return result\nmain(sys.argv[1:],manager=Owned(data=v["data"],agents=v["agents"]))\n')
+        wrapper.chmod(0o700)
+        text=wrapper.read_text().replace('main(sys.argv[1:],manager=',
+            'with open('+repr(str(self.evidence/'response-manager-commands.jsonl'))+',"a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\nmain(sys.argv[1:],manager=')
+        wrapper.write_text(text)
+        args=['--attach','--root',str(self.root),'--entry',self.entry.name,'--editor-server',str(self.socket),'--nvim',shutil.which('nvim'),'--owner-pid',str(self.editor.pid),'--control-file',str(self.control),'--native-editor-consent']
+        manager=ReaderManager(data=self.work/'manager-data',agents=self.work/'agents');manager.profiles=lambda:[profile]
+        return wrapper,args,manager,terminal_path
+
+    def test_SF2_response_before_plan_timeout_and_sigkill_known_gap(self):
+        wrapper,args,manager,terminal_path=self.response_boundary_fixture(delay=True)
+        retained={str(p):sha(p) for p in [terminal_path,self.record_path,self.control]}
+        before=set(self.state.editor_attachments.directory.glob('*.json'))
+        config=self.work/'timeout.json';config.write_text(json.dumps(dict(manager=str(wrapper),attachArguments=args)))
+        command=[str(self.binary),str(config),'response-timeout',str(self.work/'unused')]
+        start=time.monotonic();result=subprocess.run(command,capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertTrue((self.work/'registered').exists())
+        timed=set(self.state.editor_attachments.directory.glob('*.json'))-before
+        self.assertEqual(len(timed),1,'known R1 leak must be measured, not hidden')
+        for path in timed:self.assertTrue(self.state.editor_attachments.record(path.stem))
+        (self.work/'registered').unlink()
+        child=subprocess.Popen([str(wrapper),*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        try:
+            deadline=time.monotonic()+10
+            while not (self.work/'registered').exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+            self.assertTrue((self.work/'registered').exists());child.kill();stdout,stderr=child.communicate(timeout=5)
+        finally:
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+        self.assertEqual(child.returncode,-9)
+        leaked=set(self.state.editor_attachments.directory.glob('*.json'))-before
+        self.assertEqual(len(leaked),2)
+        self.assertEqual({str(p):sha(p) for p in [terminal_path,self.record_path,self.control]},retained)
+        self.assertIsNone(self.editor.poll());self.assert_unchanged(self.before)
+        for path in leaked:self.assertTrue(manager.native_editor_local(str(self.root),self.entry.name,path.stem)['released'])
+        self.assertEqual(set(self.state.editor_attachments.directory.glob('*.json')),before)
+        self.save('response-gap.json',dict(command=command,exit=result.returncode,stdout=result.stdout,stderr=result.stderr,elapsed=time.monotonic()-start,sigkillExit=child.returncode,leakedActive=2,cleanupExactOwned=2,retained=retained,knownGap=True,issue='R1 remains blocked: existing EditorAttachments.register generates token internally before returning it; pre-known operation binding needs this readonly owner API',fake=['profile inventory/PID observation','post-real-ack delay'],real=['CommandRunner ten-second timeout','actual manager registration','production HTTP acknowledgment','SIGKILL','headless editor','exact local release']))
+
+    def test_SF2_failed_cleanup_lock_is_pending_until_explicit_retry(self):
+        import fcntl
+        wrapper,args,manager,terminal_path=self.response_boundary_fixture()
+        plan=json.loads(subprocess.check_output([str(wrapper),*args]))
+        token=plan['editorAttachment'];retained={str(p):sha(p) for p in [terminal_path,self.record_path,self.control]}
+        release=['--release-native-editor','--root',str(self.root),'--entry',self.entry.name,'--token',token]
+        config=self.work/'retry.json';config.write_text(json.dumps(dict(manager=str(wrapper),releaseArguments=release)))
+        marker=self.work/'retry-marker';lock=(self.work/'manager-data/control.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
+        command=[str(self.binary),str(config),'lease-retry',str(marker)]
+        child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            deadline=time.monotonic()+15
+            while not marker.exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+            self.assertTrue(marker.exists());self.assertTrue(Path(plan['attachmentFile']).is_file())
+            fcntl.flock(lock,fcntl.LOCK_UN);Path(str(marker)+'.retry').write_text('explicit retry')
+            stdout,stderr=child.communicate(timeout=15)
+        finally:
+            lock.close()
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+        self.assertEqual(child.returncode,0,stdout+stderr)
+        self.assertFalse(Path(plan['attachmentFile']).exists())
+        calls=[json.loads(line) for line in (self.evidence/'response-manager-commands.jsonl').read_text().splitlines()]
+        self.assertEqual(sum(call[0]=='--release-native-editor' for call in calls),2,'concurrent failure coalesces; confirmed release never respawns')
+        self.assertEqual({str(p):sha(p) for p in [terminal_path,self.record_path,self.control]},retained)
+        self.assert_unchanged(self.before)
+        self.save('cleanup-retry.json',dict(argv=command,exit=child.returncode,stdout=stdout,stderr=stderr,realLockContention=True,exactAbsent=True,retained=retained))
+
     def test_SF1_editor_owner_exit_preserves_source_and_ask(self):
         self.registration_owner=subprocess.Popen([sys.executable,'-c','import sys;sys.stdin.read()'],stdin=subprocess.PIPE)
         self.addCleanup(lambda:self.registration_owner.poll() is None and self.registration_owner.terminate())
