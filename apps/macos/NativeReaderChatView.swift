@@ -100,7 +100,7 @@ enum NativeReaderAnswerPart: Equatable {
 private let answerMathCopy = NSAttributedString.Key("NativeAnswerOrdinaryCopy")
 
 /// Plain answer copy carries authored TeX delimiters. No document excerpt API.
-final class NativeReaderAnswerTextView: NSTextView {
+final class NativeReaderAnswerTextView: NativeReaderInputTextView {
     var semanticValue = ""
     override func accessibilityValue() -> String? { semanticValue }
     func ordinaryText(in range: NSRange) -> String {
@@ -182,7 +182,7 @@ private enum NativeAnswerPreparation {
 /// Inline AppKit composer. The host anchors this view beside the selected native
 /// block; only the Send button calls send. Restoring/history/model changes cannot infer.
 @MainActor final class NativeReaderChatView: NSView, NSTextViewDelegate {
-    let composer = NSTextView()
+    let composer = NativeReaderInputTextView()
     let answer = NativeReaderAnswerTextView()
     let models = NSPopUpButton()
     let sendButton = NativeDesignButton(title: "Send", target: nil, action: nil)
@@ -639,7 +639,7 @@ private enum NativeAnswerPreparation {
     }
 
     @objc func cancelExplicitly() {
-        guard !disposed, let record = conversation else { return }
+        guard !disposed, let record = conversation, record.status == "streaming" else { return }
         operation?.cancel()
         invalidateMath()
         operationEpoch += 1
@@ -647,7 +647,25 @@ private enum NativeAnswerPreparation {
         operation = Task { [weak self] in
             guard let self else { return }
             defer { if operationEpoch == epoch { operation = nil; updateControls() } }
-            do { try authorize(); _ = try await (try await owner()).perform(.cancel(conversation: record.state.conversationID), context: context) }
+            do {
+                try authorize()
+                let actions = try await owner()
+                try Task.checkCancellation()
+                guard !disposed, operationEpoch == epoch else { throw NativeReaderContractError.disposed }
+                try authorize()
+                let state = try await actions.perform(.cancel(conversation: record.state.conversationID), context: context)
+                try Task.checkCancellation()
+                let latest = await actions.conversation(record.state.conversationID)
+                guard !disposed, operationEpoch == epoch, state.context == context,
+                      state.conversationID == record.state.conversationID,
+                      conversation?.state.conversationID == record.state.conversationID, let accepted = latest,
+                      accepted.state.version >= record.state.version, accepted.state.sequence >= record.state.sequence,
+                      accepted.state.context == context, accepted.state.conversationID == state.conversationID,
+                      accepted.state.version >= state.version, accepted.state.sequence >= state.sequence else { throw NativeReaderContractError.staleGeneration }
+                try authorize()
+                present(accepted) // Presentation only; pending Send reconciliation still requires history.
+                persistCurrentDraft()
+            }
             catch {
                 guard !disposed, operationEpoch == epoch, !Task.isCancelled else { return }
                 notice.stringValue = "Stop acknowledgment unavailable; refresh conversation."

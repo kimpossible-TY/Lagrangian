@@ -98,7 +98,7 @@ final class NativeReaderFindScrollView: NSScrollView {
 
 // NSTextView supplies real TextKit/CoreText shaping, bidi visual navigation,
 // ligature carets, native responder commands and the native AX text API.
-final class NativeReaderBodyTextView: NSTextView {
+final class NativeReaderBodyTextView: NativeReaderInputTextView {
     weak var reader: NativeReaderTextView?
     override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting flag: Bool) {
         guard let reader = reader else {

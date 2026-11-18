@@ -12,8 +12,21 @@ struct SettingsStore: SettingsPersisting {
   var file: URL { directory.appendingPathComponent("profiles.json") }
 
   func load() throws -> Settings {
-    guard fileManager.fileExists(atPath: file.path) else { return Settings() }
-    let settings = try JSONDecoder().decode(Settings.self, from: Data(contentsOf: file))
+    let data: Data
+    if localReplacement {
+      let fd = open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+      if fd < 0, errno == ENOENT { return Settings() }
+      try require(fd >= 0, "Cannot read private settings")
+      let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+      defer { try? handle.close() }
+      var info = stat()
+      try require(fstat(fd, &info) == 0 && info.st_mode & S_IFMT == S_IFREG, "Private settings must be a regular file")
+      data = try handle.readToEnd() ?? Data()
+    } else {
+      guard fileManager.fileExists(atPath: file.path) else { return Settings() }
+      data = try Data(contentsOf: file)
+    }
+    let settings = try JSONDecoder().decode(Settings.self, from: data)
     try settings.validate()
     return settings
   }

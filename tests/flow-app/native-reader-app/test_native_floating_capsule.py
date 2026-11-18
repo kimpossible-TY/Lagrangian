@@ -16,8 +16,9 @@ O = D / 'test-output/native-cream-na19'
 CHAT_O = D / 'test-output/native-cream-chat-repair'
 PACKAGING_O = D / 'test-output/native-cream-packaging-repair'
 FIXTURE_O = D / 'test-output/native-cream-fixture-integration'
-TASK_ROOTS = {O: 'native-cream-na19', CHAT_O: 'native-cream-chat-repair', PACKAGING_O: 'native-cream-packaging-repair', FIXTURE_O: 'native-cream-fixture-integration'}
-NEW = ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']
+REVIEW_O = D / 'test-output/native-cream-review-repair2'
+TASK_ROOTS = {REVIEW_O: 'native-cream-review-repair2', O: 'native-cream-na19', CHAT_O: 'native-cream-chat-repair', PACKAGING_O: 'native-cream-packaging-repair', FIXTURE_O: 'native-cream-fixture-integration'}
+NEW = ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift', 'NativeReaderInputTextView.swift']
 H18 = '567841a5d200f15904c9cc824b9d15103a38b992'
 
 

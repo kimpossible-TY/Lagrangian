@@ -27,6 +27,7 @@
     "NativeFloatingCapsule.swift",
     "NativeReaderSelection.swift",
     "NativeReaderAccessibility.swift",
+    "NativeReaderInputTextView.swift",
     "NativeReaderTextView.swift",
     "NativeReaderObjectRenderer.swift",
     "NativeReaderPagedLayout.swift",

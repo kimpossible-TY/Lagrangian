@@ -612,28 +612,52 @@ final class IsolatedProjectController: ProjectControlling {
 /// Dev-root-only value timeline. The queued work contains values and an owned
 /// path, never an application/session reference or error text/source paths.
 final class NativeStartupTimeline {
+  /// Value-only operations; all descriptor lifetime and I/O stay on the queue.
+  struct IO {
+    var openDirectory: (String) -> Int32
+    var append: (Int32, Data) throws -> Void
+    var closeDirectory: (Int32) -> Void
+    static let live = IO(openDirectory: { Darwin.open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK) }, append: { directory, line in
+      let fd = openat(directory, "startup-timeline.jsonl", O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o600)
+      guard fd >= 0 else { return }; defer { Darwin.close(fd) }
+      var info = stat()
+      guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+            info.st_mode & 0o077 == 0, info.st_size < 1_048_576 else { return }
+      line.withUnsafeBytes { buffer in _ = Darwin.write(fd, buffer.baseAddress, buffer.count) }
+    }, closeDirectory: { _ = Darwin.close($0) })
+  }
+  private final class Sink {
+    let io: IO
+    var directory: Int32 = -1
+    init(_ io: IO) { self.io = io }
+    func close() { if directory >= 0 { io.closeDirectory(directory); directory = -1 } }
+  }
   weak var owner: AnyObject?
-  private let queue = DispatchQueue(label: "lagrangian.dev.startup-timeline")
-  private let directory: Int32
+  private let queue = DispatchQueue(label: "lagrangian.dev.startup-timeline", qos: .utility)
+  private let sink: Sink
+  private let admission = NSLock()
+  private var records = 0
   private let started = ProcessInfo.processInfo.systemUptime
-  init(root: URL) { directory = Darwin.open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW) }
-  deinit { let fd = directory; queue.sync { if fd >= 0 { Darwin.close(fd) } } }
+  init(root: URL, io: IO = .live) {
+    let sink = Sink(io), path = root.path
+    self.sink = sink
+    queue.async { sink.directory = io.openDirectory(path) }
+  }
+  deinit {
+    let sink = self.sink
+    // Diagnostics never flush or wait on the caller's startup/shutdown thread.
+    queue.async { sink.close() }
+  }
   func record(_ event: String, _ values: [String: Any] = [:]) {
+    admission.lock()
+    guard records < 256 else { admission.unlock(); return }
+    records += 1; admission.unlock()
     var row = values
     row["weakOwnerPresent"] = owner != nil
     row["event"] = event; row["elapsed"] = ProcessInfo.processInfo.systemUptime - started
     row["mainThread"] = Thread.isMainThread
-    let directory = self.directory
-    guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) else { return }
-    queue.async {
-      guard directory >= 0 else { return }
-      let fd = openat(directory, "startup-timeline.jsonl", O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
-      guard fd >= 0 else { return }; defer { Darwin.close(fd) }
-      var info = stat()
-      guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
-            info.st_mode & 0o077 == 0 else { return }
-      let line = data + Data([10])
-      line.withUnsafeBytes { buffer in _ = Darwin.write(fd, buffer.baseAddress, buffer.count) }
-    }
+    guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]), data.count <= 16_384 else { return }
+    let sink = self.sink, line = data + Data([10])
+    queue.async { if sink.directory >= 0 { try? sink.io.append(sink.directory, line) } }
   }
 }

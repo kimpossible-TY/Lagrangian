@@ -11,6 +11,28 @@ private actor RecoveryHTTP {
     func factoryCount() -> Int { factoryResolutions }
     var version = 1
     var streaming = false
+    var interrupted = false
+    var cancelWaiting = false
+    var cancelGate: CheckedContinuation<Void, Never>?
+    var gateNextCancel = false
+    func gateCancel() { gateNextCancel = true }
+    func enteredCancel() -> Bool { cancelWaiting }
+    func releaseCancel() { cancelGate?.resume();cancelGate=nil;cancelWaiting=false }
+    var separatePassages = false
+    let secondID = UUID()
+    var activeID: UUID?
+    struct Slot {
+        var version: Int; var messages: [[String: Any]]; var pending: [String: Any]?
+        var streaming: Bool; var interrupted: Bool; var loseNext: Bool
+    }
+    var slots = [UUID: Slot]()
+    func separate(_ value: Bool) { separatePassages = value }
+    func switchTo(_ next: UUID) {
+        if let activeID { slots[activeID] = Slot(version: version, messages: messages, pending: pending, streaming: streaming, interrupted: interrupted, loseNext: loseNext) }
+        let slot = slots[next] ?? Slot(version: 1, messages: [], pending: nil, streaming: false, interrupted: false, loseNext: false)
+        version = slot.version; messages = slot.messages; pending = slot.pending
+        streaming = slot.streaming; interrupted = slot.interrupted; loseNext = slot.loseNext; activeID = next
+    }
     var loseNext = true
     var acceptedLost = false
     var pending: [String: Any]?
@@ -44,6 +66,15 @@ private actor RecoveryHTTP {
         } else if request.url!.path.hasSuffix("chat/auth") {
             object = ["signedIn":true,"planEnabled":true,"models":[["id":"model-M","label":"model-M"],["id":"model-N2","label":"model-N2"]]]
         } else {
+            if separatePassages {
+                var selectedID = activeID ?? id
+                if operation == "open", let selection = fields["selection"] as? [String: Any],
+                   let fragment = (selection["fragments"] as? [[String: Any]])?.first {
+                    selectedID = fragment["blockID"] as? String == document.blocks.first(where: { $0.displayText.utf16.count > 8 })?.id ? id : secondID
+                } else if let text = fields["conversationID"] as? String, let requested = UUID(uuidString: text) { selectedID = requested }
+                if activeID == nil { activeID = id }
+                if selectedID != activeID { switchTo(selectedID) }
+            }
             if operation == "send" {
                 providerMessages.insert(fields["messageID"] as! String)
                 let message: [String: Any] = ["id":fields["messageID"]!,"role":"user","text":fields["question"]!,"status":"complete"]
@@ -51,10 +82,13 @@ private actor RecoveryHTTP {
                 if !messages.contains(where: { $0["id"] as? String == message["id"] as? String }) { messages.append(message) }
                 version += 1
             }
-            if operation == "cancel" { streaming = false; version += 1 }
+            if operation == "cancel" {
+                if gateNextCancel { gateNextCancel=false;cancelWaiting=true;await withCheckedContinuation { cancelGate=$0 } }
+                streaming = false; interrupted = true; version += 1
+            }
             object = fields
-            object["conversations"] = [["conversation_id":id.uuidString.lowercased(),"version":version,"sequence":version,
-                "thread":messages,"draft":"server draft must not replace N2","status":streaming ? "streaming" : "idle","attachment":["state":"attached"]]]
+            object["conversations"] = [["conversation_id":(separatePassages ? (activeID ?? id) : id).uuidString.lowercased(),"version":version,"sequence":version,
+                "thread":messages,"draft":"server draft must not replace N2","status":streaming ? "streaming" : interrupted ? "interrupted" : "idle","attachment":["state":"attached"]]]
         }
         return NativeReaderHTTPResponse(status:200,headers:["content-type":"application/json","x-native-input-id":String(repeating:"a",count:64)],data:try JSONSerialization.data(withJSONObject:object))
     }
@@ -81,13 +115,13 @@ private actor RecoveryHTTP {
     static func save(_ values: [String: Any], _ out: URL, _ name: String) throws {
         try JSONSerialization.data(withJSONObject:values,options:[.prettyPrinted,.sortedKeys]).write(to:out.appendingPathComponent(name+".json"))
     }
-    private static func setup(_ document: NativeReaderDocument, _ fixture: URL, streaming: Bool) async throws -> (NativeReaderWindowController, RecoveryHTTP, NativeReaderActions) {
-        let http = RecoveryHTTP(document); await http.configure(streaming:streaming)
+    private static func setup(_ document: NativeReaderDocument, _ fixture: URL, streaming: Bool, separate: Bool = false, fixtureMode: Bool = false) async throws -> (NativeReaderWindowController, RecoveryHTTP, NativeReaderActions) {
+        let http = RecoveryHTTP(document); await http.configure(streaming:streaming); await http.separate(separate)
         let service = document.identity.serviceID.split(separator:":")
         let attachment = try NativeReaderAttachment(data:JSONSerialization.data(withJSONObject:["url":"http://127.0.0.1:12345/","documentID":document.identity.documentID,"service":["pid":Int64(service[1])!,"startedAt":Int64(service[2])!]]))
         let transport = NativeReaderTransport(attachment:attachment,network:NativeReaderNetwork(send:{r,_ in try await http.send(r)},stream:{_ in AsyncThrowingStream { _ in }}))
         let actions = NativeReaderActions(transport:transport)
-        let host = NativeReaderWindowController(provider:transport,target:{_ in await http.identity()},actions:{await http.factoryResolved();return actions},show:false,avoidActivation:true)
+        let host = NativeReaderWindowController(provider:transport,target:{_ in await http.identity()},actions:{await http.factoryResolved();return actions},show:false,avoidActivation:true,fixtureMode:fixtureMode)
         let profile = Profile(id:"chat-repair",name:"Chat repair",root:fixture.path,entry:"main.typ",fonts:[],packages:"",port:23621,publicURL:"",label:"owned.chat-repair")
         _ = host.open(profile) {_ in }
         try await until { host.session.state == .reading && host.textView.renderKey != nil && host.textView.renderKey == host.textView.requestedRenderKey }
@@ -120,6 +154,82 @@ private actor RecoveryHTTP {
         try click(chat.sendButton)
         try await until { streaming ? chat.cancelButton.isEnabled && chat.historyButton.isEnabled : chat.notice.stringValue.contains("acknowledgment unavailable") }
         return chat
+    }
+    static func review(document: NativeReaderDocument, fixture: URL, mode: String, out: URL) async throws {
+        let streaming = mode.hasPrefix("review-stop")
+        let (host,http,_) = try await setup(document,fixture,streaming:streaming,separate:!streaming,fixtureMode:mode == "review-edit")
+        defer { host.dispose() }
+        if mode == "review-edit" {
+            try await select(host)
+            let chat = try await ask(host)
+            let editor = host.hostWindow.window!.fieldEditor(true, for: host.hostWindow.findField) as! NativeReaderInputTextView
+            var ordinary = 0
+            for input in [editor,chat.composer] {
+                input.standardClipboardOperation = { _ in ordinary += 1 }
+                input.string = "Unicode A\u{030A} 🧪";input.setSelectedRange(NSRange(location:0,length:3))
+                for name in ["cut:","copy:","paste:","pasteAsPlainText:","pasteAsRichText:"] {
+                    let selector = NSSelectorFromString(name)
+                    _ = NSApp.sendAction(selector,to:input,from:nil)
+                    input.doCommand(by:selector)
+                }
+                for key in ["x","c","v"] {
+                    let event = NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:0,windowNumber:host.hostWindow.window!.windowNumber,context:nil,characters:key,charactersIgnoringModifiers:key,isARepeat:false,keyCode:0)!
+                    try check(input.performKeyEquivalent(with:event),"Fixture keyboard command handled")
+                }
+                try check(input.string == "Unicode A\u{030A} 🧪","Rejected edit keeps actual field/composer text")
+            }
+            try check(ordinary == 0,"Search and multiline responder clipboard operation spy0")
+            try check(await http.records().filter { $0["operation"] != "document" }.isEmpty,"Initial Ask/edit HTTP0")
+            let normal = NativeReaderInputTextView();normal.standardClipboardOperation = { _ in ordinary += 1 }
+            for name in ["cut:","copy:","paste:"] { normal.doCommand(by:NSSelectorFromString(name)) }
+            try check(ordinary == 3,"Normal keyboard commands preserve injected operations")
+            try save(["ordinaryFixtureCalls":0,"normalCalls":ordinary,"actualSearchFieldAndComposer":true],out,mode)
+            return
+        }
+        let first = try await start(host,http,streaming:streaming)
+        if streaming {
+            try click(first.dismissButton)
+            let requests = await http.records(), factories = await http.factoryCount()
+            let current = try await ask(host)
+            let quietRequests = await http.records(), quietFactories = await http.factoryCount()
+            try check(quietRequests == requests && quietFactories == factories,"Streaming reentry HTTP/factory0")
+            if mode == "review-stop-late" { await http.gateCancel() }
+            try click(current.cancelButton)
+            if mode == "review-stop-late" {
+                for _ in 0..<1000 { if await http.enteredCancel() { break };try await Task.sleep(nanoseconds:1_000_000) }
+                try check(await http.enteredCancel(),"Injected cancel response gate reached")
+                host.dispose();await http.releaseCancel()
+                try await Task.sleep(nanoseconds:80_000_000)
+                try check(!current.cancelButton.isEnabled && current.presentationConversation?.status == "streaming","Disposed view rejects late accepted Stop presentation")
+                try check(await http.records().filter { $0["operation"] == "cancel" }.count == 1,"Late response still has one explicit request")
+                try save(["requests":await http.records(),"stopEnabled":current.cancelButton.isEnabled,"lateDisposedPresentationRejected":true],out,mode)
+                return
+            }
+            try await until { current.historyButton.isEnabled }
+            try check(current.presentationConversation?.status == "interrupted" && !current.cancelButton.isEnabled,"Stop immediately presents accepted interrupted without Refresh")
+            try check(await http.records().filter { $0["operation"] == "cancel" }.count == 1,"One Stop request")
+            try save(["requests":await http.records(),"status":current.presentationConversation?.status ?? "nil","stopEnabled":current.cancelButton.isEnabled],out,mode)
+        } else {
+            let original = first.recoveryDraft!.pendingMessageID
+            text(first,n2,model:"model-N2")
+            let a = host.store.document!.blocks.first { $0.displayText.utf16.count > 8 }!
+            let b = host.store.document!.blocks.first { $0.id != a.id && $0.displayText.utf16.count > 8 }!
+            try host.textView.select(from:.init(blockID:b.id,utf16:0,affinity:.downstream),to:.init(blockID:b.id,utf16:4,affinity:.upstream))
+            let other = try await ask(host);text(other,"B question")
+            try click(other.sendButton);try await until { other.historyButton.isEnabled }
+            let bID = other.recoveryDraft!.conversationID
+            text(other,"B latest 🧪",model:"model-N2")
+            let before = await http.records(), factories = await http.factoryCount()
+            try host.textView.select(from:.init(blockID:a.id,utf16:0,affinity:.downstream),to:.init(blockID:a.id,utf16:4,affinity:.upstream))
+            let current = try await ask(host)
+            try check(equal(current.composer.string,n2) && current.models.titleOfSelectedItem == "model-N2" && current.recoveryDraft?.pendingMessageID == original && current.historyButton.isEnabled,"A pending/N2/model/history survives distinct B conversation")
+            let quietRequests = await http.records(), quietFactories = await http.factoryCount()
+            try check(quietRequests == before && quietFactories == factories,"A association restore performs HTTP/factory0")
+            try host.textView.select(from:.init(blockID:b.id,utf16:0,affinity:.downstream),to:.init(blockID:b.id,utf16:4,affinity:.upstream))
+            let back = try await ask(host)
+            try check(equal(back.composer.string,"B latest 🧪") && back.recoveryDraft?.conversationID == bID && back.recoveryDraft?.pendingMessageID == nil,"B draft stays separate")
+            try save(["requests":await http.records(),"AOriginalPending":original!.uuidString,"BConversation":bID.uuidString,"restoredWithoutTyping":true],out,mode)
+        }
     }
     private static func userResume(document: NativeReaderDocument, fixture: URL, mode: String, out: URL) async throws {
         let (host,http,_) = try await setup(document,fixture,streaming:false);defer {host.dispose()}

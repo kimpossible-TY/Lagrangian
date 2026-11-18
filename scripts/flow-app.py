@@ -201,6 +201,9 @@ def validate(app, *, allow_development=False):
         if digest(delivery / 'delivery-manifest.json') != manifest['nativeDeliverySHA256']:
             raise ValueError('Native delivery manifest mismatch')
         payload = delivery_module().verify(delivery)
+        delivery_module().bundle_runtime_policy(
+            delivery_module().read(delivery / payload['entrypoints']['runtime'] / 'runtime-manifest.json'),
+            payload['sourceRevision'], '-' if manifest['signing'] == 'ad-hoc' else manifest['signing'], development=identifier != APP_ID)
         if payload['sourceRevision'] != manifest['sourceRevision'] or payload['engineInputSHA256'] != manifest['engineInputSHA256']:
             raise ValueError('Stale native delivery source/engine')
     if digest(app / 'Contents/MacOS/flow-engine') != manifest['engineSHA256']:
@@ -291,6 +294,11 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     identifier = bundle_identifier(getattr(args, 'bundle_id', None))
     if identifier != APP_ID and identity != '-':
         raise ValueError('Development bundles require explicit ad-hoc signing')
+    if payload := getattr(args, 'delivery', None):
+        delivery = delivery_module().verify(payload)
+        delivery_module().bundle_runtime_policy(
+            delivery_module().read(payload / delivery['entrypoints']['runtime'] / 'runtime-manifest.json'),
+            delivery['sourceRevision'], identity, development=identifier != APP_ID)
     mac = app / 'Contents/MacOS'; resources = app / 'Contents/Resources'
     mac.mkdir(parents=True); resources.mkdir()
     engine_input_hash = digest(engine)
@@ -377,7 +385,7 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
         payload = delivery_module().verify(delivery)
         if payload['sourceRevision'] != manifest['sourceRevision'] or payload['sourceFiles'] != source_before or payload['engineInputSHA256'] != engine_input_hash:
             raise ValueError('Native delivery must match current source and engine input')
-        payload = delivery_module().copy_signed(delivery, resources / 'native-reader', identity)
+        payload = delivery_module().copy_signed(delivery, resources / 'native-reader', identity, development=identifier != APP_ID)
         manifest['deployment'] = {}
         for image in (mac / APP_EXECUTABLE, mac / 'flow-engine'):
             inspected = delivery_module().image_info(image, app)

@@ -319,7 +319,7 @@ class RuntimeSigningBoundaryTests(unittest.TestCase):
             m=dict(sourceRevision=CHAT_CORRECTION,signing='ad-hoc',entrypoints=dict(runtime='runtime',node='runtime/signed-node'))
             original=owner.inventory(source)
             with patch.object(owner,'verify',return_value=m),patch.object(owner,'run') as sign:
-                owner.copy_signed(source,root/'candidate','-');sign.assert_not_called()
+                owner.copy_signed(source,root/'candidate','-',development=True);sign.assert_not_called()
             self.assertEqual(owner.inventory(source),original);self.assertEqual(owner.inventory(root/'candidate'),original)
 
     def test_current_source_runtime_keeps_private_certificate_resigning_path(self):

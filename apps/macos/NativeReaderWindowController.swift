@@ -82,6 +82,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private let invalidate: () async -> Void
   private let show: Bool
   private let avoidActivation: Bool
+  private let fixtureMode: Bool
   private var progress: ((NativeReadProgress) -> Void)?
   private var requestTicket = ReadingOperationTicket()
   private var actionTasks = [UUID: Task<Void, Never>]()
@@ -102,17 +103,24 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       panel.beginSheetModal(for: window) { response in continuation.resume(returning: response == .OK ? panel.url : nil) }
     }
   }
+  var stagePDFExport: @Sendable (NativeOriginalPageRecovery, NativeReaderDocument, URL) throws -> NativeReaderRecoveryStore.StagedPDF = {
+    try NativeReaderRecoveryStore.stageOriginalPDF($0, document: $1, to: $2)
+  }
   private var chatContext: NativeReaderRequestContext?
-  // One retained UI association, not a draft store or operation authority.
-  // Draft text/pending fields stay in currentDrafts/recoveredDrafts; all effects
-  // still use Session and Actions. A different context/passage cannot reuse it.
-  private var retainedChatPresentation: (context: NativeReaderRequestContext, selection: NativeReaderSelection,
-      conversation: NativeReaderConversation, models: [String])?
+  // Bounded display associations alongside the existing draft owner. Never
+  // evidence for Send authorization, and never persisted across Reader lifetime.
+  private struct ChatPresentation {
+    let context: NativeReaderRequestContext
+    let selection: NativeReaderSelection
+    let conversation: NativeReaderConversation
+    let models: [String]
+  }
+  private var retainedChatPresentations = [ChatPresentation]()
   private var editorRequest: NativeReaderSourceRequest?
   private var editorBusy = false
   private let revokeEditorConsent: () async -> Void
   private(set) var chatView: NativeReaderChatView?
-  lazy var hostWindow = NativeReaderHostWindow(reader: textView, show: show, avoidActivation: avoidActivation)
+  lazy var hostWindow = NativeReaderHostWindow(reader: textView, show: show, avoidActivation: avoidActivation, fixtureMode: fixtureMode)
 
   init(provider: NativeReaderDocumentProviding, target: @escaping Target,
        assets: @escaping Assets = { document, _ in
@@ -121,13 +129,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
        }, runtime: NativeReaderRuntime? = nil,
        actions: (() async throws -> NativeReaderActions)? = nil,
        originalPages: ((NativeReaderRequestContext) async throws -> NativeOriginalPageDelivery)? = nil,
-       invalidate: @escaping () async -> Void = {}, show: Bool = true, avoidActivation: Bool = false,
+       invalidate: @escaping () async -> Void = {}, show: Bool = true, avoidActivation: Bool = false, fixtureMode: Bool = false,
        offlineStorage: NativeReaderOfflineStorage? = nil) {
     self.provider = provider; self.target = target; self.assets = assets; self.runtime = runtime
     self.actions = actions; self.invalidate = invalidate; self.show = show; self.avoidActivation = avoidActivation
     if let managed = provider as? NativeReaderManagedClient {
       revokeEditorConsent = { await managed.revokeEditorConsent() }
     } else { revokeEditorConsent = {} }
+    self.fixtureMode = fixtureMode
     self.offlineStorage = offlineStorage
     self.pageProvider = originalPages
     if self.pageProvider == nil, let managed = provider as? NativeReaderManagedClient {
@@ -531,10 +540,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     currentDrafts[draft.conversationID] = draft
     if let conversation = chat.presentationConversation, conversation.state.context == context,
        conversation.state.conversationID == draft.conversationID {
-      let previous = retainedChatPresentation
+      let previous = retainedChatPresentations.last { $0.context == context && $0.conversation.state.conversationID == draft.conversationID }
       let selection = chat.presentationSelection ?? (previous?.context == context && previous?.conversation.state.conversationID == draft.conversationID ? previous?.selection : nil)
       if let selection {
-        retainedChatPresentation = (context, selection, conversation, chat.presentationModels)
+        retainedChatPresentations.removeAll { $0.context == context && $0.selection.fragments == selection.fragments }
+        retainedChatPresentations.append(.init(context: context, selection: selection, conversation: conversation, models: chat.presentationModels))
+        if retainedChatPresentations.count > 32 { retainedChatPresentations.removeFirst() }
       }
     }
   }
@@ -612,7 +623,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   private func currentExportSnapshot() throws -> (NativeReaderDocument, NativeOriginalPageRecovery, UUID) {
-    guard !disposed, !requestTicket.isCancelled, visibleMode == .originalPages,
+    guard !fixtureMode, !disposed, !requestTicket.isCancelled, visibleMode == .originalPages,
           let document = store.document, let accepted = originalPageView.store.accepted,
           let delivery = acceptedPageDelivery, accepted.binding.identity == document.identity,
           accepted.binding.requestGeneration == session.context?.generation,
@@ -636,8 +647,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         try Task.checkCancellation()
         let before = try self.currentExportSnapshot()
         guard self.exportEpoch == epoch, self.requestTicket === ticket, before.0 == captured.0, before.2 == captured.2 else { throw NativeOriginalPageError.stale }
+        let stage = self.stagePDFExport
         let job = Task.detached(priority: .userInitiated) {
-          try NativeReaderRecoveryStore.stageOriginalPDF(captured.1, document: captured.0, to: destination)
+          try stage(captured.1, captured.0, destination)
         }
         let staged = try await withTaskCancellationHandler(operation: { try await job.value }, onCancel: { job.cancel() })
         try Task.checkCancellation()
@@ -927,7 +939,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       capsuleFocusReturn = hostWindow.window?.firstResponder
       rememberCurrentDraft()
       chatView?.dispose(); chatView?.removeFromSuperview()
-      let retained = retainedChatPresentation
+      let retained = retainedChatPresentations.last { $0.context == context && $0.selection.fragments == selection.fragments }
       let resumes = retained?.context == context && retained?.selection.fragments == selection.fragments
       let needsOpen = !resumes || retained?.selection.ticket != selection.ticket
       let chat = NativeReaderChatView(resolveActions: actions, context: context, selection: needsOpen ? selection : nil, authorize: { [weak self] in
@@ -977,6 +989,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   /// One host composition seam for local Ask and accepted-conversation entry.
   private func bindComposer(_ chat: NativeReaderChatView, context: NativeReaderRequestContext) {
     if currentDraftIdentity != context.target { currentDrafts.removeAll(); currentDraftIdentity = context.target }
+    chat.composer.blocksSystemClipboard = fixtureMode
+    chat.answer.blocksSystemClipboard = fixtureMode
     chatView = chat; chatContext = context
     chat.refreshAuthorization()
     chat.onDismiss = { [weak self, weak chat] in if let chat { self?.dismissComposer(chat) } }
@@ -1037,7 +1051,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     requestTicket.cancel(); progress = nil; acceptedPaintKey = nil; paintedKey = nil
     selectionTask?.cancel(); selectionTask = nil
     actionTasks.values.forEach { $0.cancel() }; actionTasks.removeAll()
-    retainedChatPresentation = nil
+    retainedChatPresentations.removeAll()
     chatView?.dispose(); session.cancel()
   }
   func dispose() {
@@ -1129,19 +1143,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var originalScroll: NativeReaderPageScrollView?
   private var currentMode: NativeReaderWindowController.Mode = .nativeReflow
   private let sourceControls = NSStackView()
-  private let findField = NSSearchField()
+  let findField = NSSearchField()
+  private let fixtureMode: Bool
   private let show: Bool
   private let avoidActivation: Bool
   private let stack = NSStackView()
-  init(reader: NativeReaderTextView, show: Bool, avoidActivation: Bool) {
+  init(reader: NativeReaderTextView, show: Bool, avoidActivation: Bool, fixtureMode: Bool = false) {
+    self.fixtureMode = fixtureMode
     self.reader = reader; self.show = show; self.avoidActivation = avoidActivation
     super.init(window: nil)
   }
   required init?(coder: NSCoder) { nil }
   func initialize() { if window == nil { loadWindow() } }
   override func loadWindow() {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
+    let window = NativeReaderEditingWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+    window.fixtureMode = fixtureMode
+    reader.bodyTextView.blocksSystemClipboard = fixtureMode; reader.bodyTextView.allowsPrivateCopy = true
     window.isReleasedWhenClosed = false; window.delegate = self; window.title = "Lagrangian · 읽기"
     NativeChrome.install(on: window)
     stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
@@ -1465,7 +1483,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     openSaved.isEnabled = storageAvailable && !storageBusy && !savedEntries.isEmpty
     savedDocuments.isEnabled = !storageBusy && !savedEntries.isEmpty
     cancelStorage.isEnabled = storageBusy || exportBusy
-    exportPDF.isEnabled = currentMode == .originalPages && original?.store.accepted != nil && !exportBusy
+    exportPDF.isEnabled = !fixtureMode && currentMode == .originalPages && original?.store.accepted != nil && !exportBusy
     if exportBusy { saveOffline.isEnabled = false; openSaved.isEnabled = false; refreshSaved.isEnabled = false }
   }
   private func invalidateControlLayout() {
@@ -1559,7 +1577,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func undoReviewExplicitly() { onUndoReview?() }
   @objc func clearReviewExplicitly() { onClearReview?() }
   @objc func savedDocumentSelected() { updateOfflineControls() }
-  @objc func exportPDFExplicitly() { onExportPDF?() }
+  @objc func exportPDFExplicitly() { if !fixtureMode { onExportPDF?() } }
   @objc func saveOfflineExplicitly() { onSaveOffline?() }
   @objc func refreshSavedExplicitly() { onListOffline?() }
   @objc func openSavedExplicitly() { let i = savedDocuments.indexOfSelectedItem; guard savedEntries.indices.contains(i) else { return }; onOpenOffline?(savedEntries[i].identity) }

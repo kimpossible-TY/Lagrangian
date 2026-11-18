@@ -362,6 +362,13 @@ def runtime_signing_policy(manifest, revision, identity):
             'retained runtime requires ad-hoc development; certificate signing requires a current-source runtime')
 
 
+def bundle_runtime_policy(manifest, revision, identity, *, development=False):
+    """Bundle consumer decision; staging alone does not grant production use."""
+    runtime_signing_policy(manifest, revision, identity)
+    require(manifest['source']['sourceSHA'] == revision or (development and identity == '-'),
+            'production bundle requires a current-source runtime; retained runtime is development-only')
+
+
 def integrated_sources(root):
     """Bind historical owners, explicit fixed corrections and current delivery bytes."""
     root = Path(root).resolve(strict=True)
@@ -534,15 +541,15 @@ def publish_verified(candidate, output, verifier):
         os.replace(candidate, output)
 
 
-def copy_signed(source, output, identity):
+def copy_signed(source, output, identity, *, development=False):
     """Re-sign only a private app candidate, then rebind post-sign inventories.
 
     Distribution/proof/source provenance remains unchanged. Runtime policy and
     inventory verification still belong to its shipped producer/verifier.
     """
     original = verify(source)
-    runtime_signing_policy(read(Path(source) / original['entrypoints']['runtime'] / 'runtime-manifest.json'),
-                           original['sourceRevision'], identity)
+    bundle_runtime_policy(read(Path(source) / original['entrypoints']['runtime'] / 'runtime-manifest.json'),
+                          original['sourceRevision'], identity, development=development)
     shutil.copytree(source, output, symlinks=True)
     m = dict(original)
     if m['signing'] != ('ad-hoc' if identity == '-' else identity):

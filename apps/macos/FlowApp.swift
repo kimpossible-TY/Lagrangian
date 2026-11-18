@@ -66,7 +66,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return bytes
               }.value
-            }, runtime: self.nativeRuntime, show: self.showNativeWindow, avoidActivation: self.noActivate,
+            }, runtime: self.nativeRuntime, show: self.showNativeWindow, avoidActivation: self.noActivate, fixtureMode: self.fixtureMode,
                offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         } else {
           guard let resolver = self.managedResolver else {
@@ -82,7 +82,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               for asset in document.assets { assets[asset.id] = try await actions.transport.asset(asset, context: context) }
               return assets
             }, runtime: self.nativeRuntime, actions: { try await client.currentActions() },
-            invalidate: { await client.invalidate() }, show: self.showNativeWindow, avoidActivation: self.noActivate,
+            invalidate: { await client.invalidate() }, show: self.showNativeWindow, avoidActivation: self.noActivate, fixtureMode: self.fixtureMode,
                offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         }
         self.nativeWindow?.copyText = self.copyText
@@ -189,7 +189,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard let profile = active else { return }
     offlineWindow?.dispose()
     let window = NativeReaderWindowController(provider: NativeReaderOfflineProvider(), target: { _ in throw NativeReaderOperationFailure.unavailable },
-      runtime: nativeRuntime, show: showNativeWindow, avoidActivation: noActivate,
+      runtime: nativeRuntime, show: showNativeWindow, avoidActivation: noActivate, fixtureMode: fixtureMode,
       offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
     window.copyText = copyText
     offlineWindow = window
@@ -299,12 +299,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return result
   }
   func buildWindow() {
-    window = NSWindow(
+    window = NativeReaderEditingWindow(
       contentRect: NSRect(x: 0, y: 0, width: 760, height: 900),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.minSize = NSSize(width: 720, height: 860)
     NativeChrome.install(on: window)
     window.title = LagrangianIdentity.appName
+    (window as? NativeReaderEditingWindow)?.fixtureMode = fixtureMode
     window.isReleasedWhenClosed = false
     window.center()
     let content = NSStackView()
