@@ -51,3 +51,16 @@ The native directory is no longer uploaded directly. The stable artifact name ca
 The shared extractor bounds raw/PAX headers before allocation, validates exact members/modes/hashes/bytes, rejects special files/modes, sparse data and unsafe paths/links, and creates links last. Native budgets are 2GiB archive/total, 256MiB entry, 30000 logical members, 64KiB PAX and 16MiB manifest. Extraction uses a private candidate; rehash and input-drift checks precede atomic publication. A prior valid stage survives interruption.
 
 Fetch stores the raw transport separately in its engine-local cache and authenticates the archive before normalizing only external flow-engine to755. Schema2 context binds both raw transport and normalized inventory; same R/H is re-viewed and re-downloaded for each build. Archive failure has no flat/old-app/scratch fallback. Only engine-only cache reuse can read a verified legacy flat engine contract, discarding its app. Every current app/tar is rebuilt. Actual frozen09c has no retained engineBuild and remains an expected producer failure; offline positive R/H/E/profile metadata is synthetic, never actual GitHub provenance. No dependency pins, Swift/UI/backend/receipt policy or live updater services change.
+
+## Review repair: development runtime exception
+
+Production APP_ID build, validation and artifact publication require current-H
+runtime provenance. A retained runtime is an inspection-only exception for an
+explicitly validated development bundle namespace with ad-hoc identity. Generic
+staging does not make a retained payload production-eligible. Before candidate
+copy/compile, and again during signed app validation, the existing delivery owner
+checks the runtime producer against application revision and validated namespace.
+Retained certificate combinations remain refused before copying or signing.
+Current-H production/certificate policy remains available; injected identity tests
+are distinct from real certificate/Keychain acceptance. Original retained payload,
+manifest, signature and producer records remain byte-preserved.

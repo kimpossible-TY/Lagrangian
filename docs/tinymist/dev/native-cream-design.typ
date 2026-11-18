@@ -29,6 +29,26 @@ adds no account, model, conversation, draft or inference effect. A stale selecti
 blocks new Send while the same conversation/context still permits Stop/history;
 Stop requires an accepted streaming conversation; local preparation alone supplies no Stop target.
 
+Within one living Reader context, immediate Ask restoration applies to an already
+created conversation and the exact passage range. The bounded presentation
+associations retain separate known passages, while current/recovered draft owners
+retain text, model and pending identity. A fresh selection ticket never authorizes
+Send through this cache; the existing owner checks it on explicit Send. An initial
+uncreated draft and app restart are outside this immediate restoration guarantee.
+For unknown Send, successful explicit Refresh comes first: confirmed original
+history permits a new explicit question, otherwise only the original question,
+model and UUID may be retried. Failed Refresh retains uncertainty. A successful
+Stop adopts the accepted record immediately after context/epoch checks, without
+changing pending-Send reconciliation.
+
+Fixture standard edit responders refuse system clipboard operations, while the
+existing home/body/PDF Copy remains private. A valid offline PDF remains readable
+but fixture Export refuses its UI, forced callback, chooser and write entry.
+Normal editing and verified export keep their existing owners. Optional startup
+open/write/close work is queued with owned values; callers do not wait during
+initialization or teardown. The observed old open sample is not a confirmed root
+cause, and the new app's first native window remains a PM/Dogfood acceptance gate.
+
 Packaging source `7307be92baf13d289038596d09e15341064d616c` recorded a new
 isolated app and 64 final focused checks, retaining its original failures and
 timeout evidence. The current integration consumes the six-file documentation

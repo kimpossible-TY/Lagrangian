@@ -679,3 +679,22 @@ are unchanged.
 The fixture keeps the existing local offline recovery library under its dev-profile
 root, including saved drafts. Offscreen construction respects the existing
 showNativeWindow input; it does not grant manager, editor or external effects.
+
+## Review repair: known conversation presentation and fixture effects
+
+Within a living Reader context, bounded associations for exact passages let already
+created conversations reuse the existing current/recovered draft adoption path.
+They restore local text/model and original pending identity without owner/HTTP
+resolution and never grant selection or Send authority. First uncreated drafts
+and app restart are outside this immediate presentation guarantee. Unknown Send
+requires successful explicit Refresh first: confirmed original history permits a
+new explicit question, otherwise retry is limited to the original question/model/UUID.
+A failed Refresh retains pending uncertainty. Stop presents its accepted result
+only after lifetime/epoch/context/conversation and monotonic record checks.
+
+Fixture settings/search/composer responders refuse standard system clipboard
+editing, while the existing home/body/PDF Copy operation remains private. Fixture
+offline PDF restoration retains native reading but denies Export at UI, callback,
+chooser and staging entry. Normal AppKit editing and verified PDF export remain
+unchanged. Optional startup diagnostics perform filesystem work only on an owned
+queue, without init/deinit flush waits; first-window acceptance remains separate.

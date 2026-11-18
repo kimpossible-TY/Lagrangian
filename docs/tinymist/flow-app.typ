@@ -401,7 +401,7 @@ Use the information inside the exact app bundle you intend to run. A source chec
 
 1. In Finder, select the app bundle and choose *Show Package Contents*. Read `Contents/Resources/release.json`.
 2. `version` identifies the app release. `sourceRevision` identifies the build checkout commit and `sourceDirty` records whether it included local changes. `engineVersion`, `engineSHA256` and `engineInputSHA256` identify the engine independently. `managementOnly` identifies management-only delivery. Builds with a verified native payload can also record `nativeDeliveryCapabilities`. Older manifests may omit those fields.
-3. Choose *사용·업데이트·복구 안내* in Flow's menu to open that app's `Contents/Resources/UserGuide.pdf`. Use the guide shipped with the app you are checking.
+3. In normal mode, choose *사용·업데이트·복구 안내* in Flow's menu to open that app's `Contents/Resources/UserGuide.pdf`. The local fixture disables this external-opening action; read `Contents/Resources/UserGuide.pdf` from the same supplied app bundle instead. Use the guide shipped with the app you are checking.
 4. For a packaged development candidate, compare the bundle and executable hashes with its supplied inspection record and use its designated isolated profile. A source-only candidate has no packaged executable to inspect. Build metadata identifies the inputs and capabilities. Feature acceptance requires the separate results for that build.
 
 
@@ -411,10 +411,11 @@ Use this repository for the app, engine, preview frontend, branding, packaging, 
 
 Test a replacement engine for compatibility before bundling it, and keep its version and hash alongside the Lagrangian source revision. App work does not require rebuilding or maintaining the language server. The private production repository is `kimpossible-TY/Lagrangian`. Engine and preview implementations are maintained in this tree; Tinymist crate, CLI and protocol identifiers remain unchanged.
 
-= Isolated native Reader inspection
+= Isolated native Reader inspection <managed-native-inspection>
 
-Independent native app inspection uses a Lagrangian-owned temporary project and
-local fake inference provider. The production document, source and conversation
+Managed-service native app inspection uses a Lagrangian-owned temporary project
+and a local fake inference provider. This procedure has an explicit service owner;
+see #doc-ref(<local-native-fixture-inspection>, "local-native-fixture-inspection")[local fixture inspection] for the service-free path. The production document, source and conversation
 APIs retain their existing guards. An explicit dev root isolates data, logs,
 home and service paths; dev-only no-activate avoids forced foreground activation.
 Reader body Copy and verified Source copy use a private named pasteboard in this
@@ -494,15 +495,24 @@ status takes precedence and the existing recovery controls handle retry or cance
    draft and click *Send* again. A stale selection or unavailable permission
    prevents submission. *Save for Codex* belongs to the paged web preview.
 
-Closing the composer and choosing Ask again for the same conversation restores
-its latest local draft and selected model, including the original pending Send
-UUID, question and model when its acknowledgment is unknown. Recovery never
-sends. A newer edit stays visible when history confirms an older message.
+Within the same living Reader context and exact selected range, Ask can reopen
+an already created conversation and restore its latest local draft and selected
+model, including an unconfirmed Send's original UUID, question and model.
+Switching between known passages keeps their drafts separate within the bounded
+presentation cache. A new selection ticket is checked again by the existing
+owner when you explicitly Send. This does not promise immediate recovery of a
+first draft before its conversation exists, or recovery across an app restart.
+Recovery never sends. A newer edit stays visible when history confirms an older
+message.
 Changing or clearing the selection blocks a new Send; Stop and Refresh conversation
 retain the existing conversation/context authorization. Stop response is available
 only when the accepted conversation is streaming; local account/open preparation alone provides no Stop target.
-Explicit history confirmation or an explicit retry of the original message is
-required before an uncertain Send can advance.
+For an unconfirmed Send, first choose *Refresh conversation* successfully.
+If the valid same-conversation history confirms the original user message, you
+may explicitly Send a new question. If it does not confirm that message, retry
+only the original question and model; the app reuses its original message UUID.
+A failed Refresh keeps the uncertainty and pending message in place. Reopening
+the composer or editing its draft is not a retry.
 
 *복사* copies display text in both *본문* and *원본 PDF*, including a full display
 selection longer than the limit for source and chat actions. To copy verified
@@ -516,18 +526,32 @@ Pending retirement of an editor connection on an otherwise live body does
 not block ordinary reading or Ask. A new editor action still needs its own
 current authorization.
 
-= Isolated native fixture inspection
+= Isolated native fixture inspection <local-native-fixture-inspection>
 
+Local fixture inspection uses only local document data and bundled math, without
+a manager, account or inference provider. It is distinct from
+#doc-ref(<managed-native-inspection>, "managed-native-inspection")[managed-service inspection].
 For an explicitly prepared development app, the existing arguments
 `--dev-root ABS --dev-no-activate --native-reader-fixture ABS` select a local
 fixture and bundled mathematical runtime. The fixture must have fixture scope.
 This path does not create a Reader manager or connect an editor, even through a
 direct editor method. External Reader, browser/Homepage opening, file choosers,
 log/settings reveal and external guide opening are disabled and reject their
-callbacks. Home address copy and body copy use the same private named pasteboard.
-Normal nonfixture behavior keeps its existing owners.
+callbacks. This includes Export PDF from an offline Original PDF snapshot: the
+control and forced callbacks refuse destination selection and external writes.
+Local PDF viewing and private Copy remain available. Home address, body and PDF
+Copy use the private named pasteboard. Standard Cut/Copy/Paste in settings,
+search and multiline input are refused at their responder in fixture mode.
+Normal nonfixture editing and verified PDF export keep their existing owners.
+The fixture's guide-opening menu is disabled; its guide is the same app bundle's
+`Contents/Resources/UserGuide.pdf`.
 
 Settings, recovery drafts, logs and startup timeline use the development root.
+Fixture settings refuse a symlink or nonregular profiles file. Optional startup
+diagnostics queue value-only file operations; initialization and shutdown do not
+wait for slow or failed diagnostic I/O. This source repair does not establish
+that the first native window opens successfully; that remains a same-computer
+background-launch check for the new app and fresh fixture.
 Necessary verification children receive a dedicated HOME, CFFIXED_USER_HOME,
 TMPDIR, XDG_CACHE_HOME and FLOW_READER_DATA_DIR before starting. Math retains its
 existing PATH-only environment with file writes and network access denied.

@@ -161,9 +161,15 @@ dispatch. Existing draft and pending-state recovery remains a requirement.
 
 The chat repair at `8e57062ea768320c3fe64f266eb50f40f53d16c1` reuses
 current/recovered draft adoption and persistence for actual host Ask reentry.
-Closing/reopening the same conversation restores its latest Unicode draft/model
-and original unknown Send UUID/question/model without retyping. A newer local
-edit wins; explicit history confirmation cannot overwrite it or replay a Send.
+Within the same living Reader context and exact selected range, reopening an
+already created conversation restores its latest Unicode draft/model and original
+unknown Send UUID/question/model without retyping. Up to32 presentation
+associations distinguish known passages; they do not authorize Send or persist
+across Reader lifetime. The current selection ticket is checked on explicit Send.
+An uncreated initial draft and app restart have no immediate restoration guarantee. A newer local
+edit wins. Successful explicit Refresh must precede unknown-Send resolution:
+matching original history permits a new question, absent confirmation permits only
+the original question/model/UUID retry, and failed Refresh retains uncertainty.
 New Send still requires current selection authority, while Stop/history use the
 existing conversation/context authority. Stop requires an accepted streaming
 conversation; local account/open preparation alone supplies no Stop target. Initial Ask
@@ -246,3 +252,25 @@ bridges dynamic chrome colors only and stops traversal at document/PDF/text view
 The fixture keeps the existing local offline recovery library under its dev-profile
 root, including saved drafts. Offscreen construction respects the existing
 showNativeWindow input; it does not grant manager, editor or external effects.
+
+## NA24 review repair boundaries
+
+Fixture windows share a guarded field editor with their multiline inputs. Standard
+Cut/Copy/Paste is refused at the responder, including keyboard and direct action
+entry; normal AppKit editing is unchanged. Existing private home/body/PDF Copy
+remains separate. Offline Original PDF rendering stays available, while fixture
+Export UI, forced callback, destination selection and staging refuse effects.
+Normal export still validates and publishes exact accepted bytes.
+
+Stop uses existing conversation/context authorization. After its owner await,
+cancellation, lifetime, operation epoch, context and conversation identity are
+rechecked; the latest accepted nonolder record is presented immediately without
+clearing pending Send through a new reconciliation path. Late/disposed results
+cannot update presentation. Fixture settings read a no-follow regular descriptor.
+
+Optional startup diagnostics enqueue only owned path/data and descriptor state.
+Neither init nor deinit performs or waits for filesystem I/O. Existing no-follow,
+regular-owner/private-file checks remain, with bounded records and file growth.
+The old main-thread open sample is evidence of waiting, not a root-cause finding.
+The new app's first window still requires PM-assigned same-computer background
+launch by Dogfood; offscreen checks do not complete GUI/VO/macOS13 gates.
