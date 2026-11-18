@@ -27,6 +27,7 @@ FIXTURE_CORRECTION = '9ebe1fd44ef00ae4bec0565a7c7157586084a7cd'
 REVIEW_CODE = '23513e74eb19b067746f1be5b774b4652e924852'
 REVIEW_INPUT = 'ac9450d35c8725abfe625de79f1ab539ef8660ab'
 REVIEW_DOCS = 'b8764fbaee9346a2f9ce0c6976b43029ccb8ea5e'
+ANCHOR_DELIVERY = '54610a722f355d81bb79acf9dc2e681b7eac4ca9'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
 owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
 
@@ -283,6 +284,20 @@ class FixedSourceBinding(unittest.TestCase):
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
         self.assertEqual(m['ownerCorrections'][-1]['revision'],REVIEW_DOCS)
+        # Guide anchor corrections belong to the existing delivery owner.
+        # Native correction inventory forbids these paths; exact HEAD blobs
+        # still bind both canonical input and generated Markdown.
+        guide_paths = {'docs/tinymist/flow-app.typ', 'docs/tinymist/flow-app.md'}
+        self.assertEqual(set(self.git('diff', '--no-renames', '--name-only', ANCHOR_DELIVERY+'^', ANCHOR_DELIVERY).splitlines()), guide_paths)
+        self.git('merge-base', '--is-ancestor', ANCHOR_DELIVERY, 'HEAD')
+        for name in guide_paths:
+            self.assertIn(name, owner.DELIVERY_SOURCE_PATHS)
+            expected = hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+':'+name)).hexdigest()
+            self.assertEqual(m['files'][name], expected)
+            self.assertEqual(m['files'][name], hashlib.sha256((self.root/name).read_bytes()).hexdigest())
+            self.assertNotEqual(expected, hashlib.sha256(self.git_bytes('show', ANCHOR_DELIVERY+'^:'+name)).hexdigest())
+        self.assertFalse(any(f['path'] in guide_paths for c in m['ownerCorrections'] for f in c['files']))
+
         # Actual mixed commit: delivery bytes stay HEAD-owned and every other
         # path keeps its original and corrected fixed Git-object digest.
         correction=next(c for c in m['ownerCorrections'] if c['revision']==REVIEW_CODE)
