@@ -173,6 +173,7 @@ def source_binding(root):
 DELIVERY_SOURCE_PATHS = (
     '.github/workflows/flow-engine.yml',
     'AGENTS.md',
+    'apps/macos/sources.json',
     'docs/dev-guide.md',
     'docs/tinymist/dev/development.typ',
     'docs/tinymist/dev/native-reader-delivery.typ',
@@ -197,6 +198,163 @@ DELIVERY_SOURCE_PATHS = (
     'tests/flow-app/test_native_source_binding.py',
     'tools/flow-reader/native/runtime/backend-delivery.json',
 )
+
+# NA20 integrates only these fixed reviewed source bytes; future edits still fail closed.
+FIXED_APPLICATION_SOURCES = {'baseRevision': '72bd0b385d8d71ef4ad7f30d5067e9171493bc05',
+ 'revision': '4bd6e0da0d529dafa9993ff8467cac4652bfa2ac',
+ 'files': [{'path': 'apps/macos/CommandRunner.swift',
+            'baseSHA256': '719cbc91ca3bc189cabec569ce4ff2bdf5ff3bdde4f14565c35f2c75886bc911',
+            'sha256': '217a33f7d894c397c28b02e98a52262ed893626cf3eff4f16f750fe9f5411dca'},
+           {'path': 'apps/macos/FlowApp.swift',
+            'baseSHA256': '5e0ac86c3f68cdab67983188b23677218a92aed93e1960951f2d9077b4a6c102',
+            'sha256': 'da4e4fee8b831d87a8859b69226e374e777ef5612658e24850bf20516be3a775'},
+           {'path': 'apps/macos/NativeAppDesign.swift',
+            'baseSHA256': None,
+            'sha256': '3ab00cd1ef9341c43aebc1218863ed83e687fb0d99070cad3d11c6b2c4b41f5d'},
+           {'path': 'apps/macos/NativeBrandMark.swift',
+            'baseSHA256': None,
+            'sha256': 'd1b3931963a73866f0880bc8dd9410929f950816ee93255d305c8513f627ffee'},
+           {'path': 'apps/macos/NativeFloatingCapsule.swift',
+            'baseSHA256': None,
+            'sha256': '55533a0a600a5eb1c39f664f17300556b86fb1ad4ace2e821304f758ecd1cefb'},
+           {'path': 'apps/macos/NativeReaderChatView.swift',
+            'baseSHA256': 'f149260d01d094e7cd1c56abee2aeb169d2ef4c3d64ef5802beec5b36b49d31d',
+            'sha256': 'f986905413cd43fb1c5a46a43272b5bf535b5fd8406971ab9da80c74db448561'},
+           {'path': 'apps/macos/NativeReaderTextView.swift',
+            'baseSHA256': 'e29e2e7a467b93cadabd1be53f3c2948dc88481cded68d9ad7fc0fc411eff8ed',
+            'sha256': '9b9c53929d36f3259ed4f585f316c9e3be37ad052039a35c76045ca3488aa8d3'},
+           {'path': 'apps/macos/NativeReaderTransport.swift',
+            'baseSHA256': '28d2d7273fc1e64ff2b67ec593c9cdfd4cdbfabb1106374283eb7584ab6d9e9c',
+            'sha256': 'e5f047781253c5ca7fdfcf67b690942f31f33523fee41077299df2e0790c69ab'},
+           {'path': 'apps/macos/NativeReaderWindowController.swift',
+            'baseSHA256': '34c1a4c00b444d6d4e1565fdb201e9c890df6cb08c96de1df882e4e765c7e139',
+            'sha256': '11391d5bf7a4f29fa33e7a02f1e58808d128f99a8ce2816e07ec5f9b8cf48e9c'},
+           {'path': 'docs/tinymist/dev/native-cream-design.typ',
+            'baseSHA256': None,
+            'sha256': 'a7e68a2fd8d4fae3fc7d483394506bf22a2e5aad73184f65e6dc7837b41ccb47'},
+           {'path': 'docs/tinymist/dev/native-reader-app-contract.typ',
+            'baseSHA256': 'd40f13f03f14c72454d91d8b158a0f99ff77bd15bf2c0a710b2382e72dd51355',
+            'sha256': 'e3bf11756f353b2d6c8c4cfc8d8290daac1d4180ad7d8f3c6d3e2920bb90287b'},
+           {'path': 'docs/tinymist/dev/native-reader-editor-actions.typ',
+            'baseSHA256': '225b783a04c32b7e51be7164e2cc85c60b1f829748a350ba7c159bf5fb2303a3',
+            'sha256': 'fc433a1b4c4112543990f0d376913eb96a40dc044d248b27eab2740cc6c7e12d'},
+           {'path': 'docs/tinymist/dev/reader-architecture.typ',
+            'baseSHA256': '16b9aafd54bb499935de6ececc4c7d9e6b69aeb793b176c228c5a7982296b5ea',
+            'sha256': '08bfa63635709e67abd20fb7e8aacbfdc549d7da1d9fc43db1fe32cf67fea4ac'},
+           {'path': 'openspec/changes/implement-native-reader-app/design.md',
+            'baseSHA256': '6a40be085bf1f54d002b19e4906e01ddd6d331e2eca4915a979d8019659eed94',
+            'sha256': '151aabcc0d7fe48db9818fc683d3b1338b7b5dc43ce8dcf2b640f000dca7acf8'},
+           {'path': 'openspec/changes/implement-native-reader-app/specs/flow-macos-app/spec.md',
+            'baseSHA256': 'f1eb7c23afcab32395f3c0319bffec77d3404c8a3d034c5426892c0860de2197',
+            'sha256': 'f0b0a74391605c0fe622e5566164d5a0bd7d9b632f08b8e66f56ffa87ad796fe'},
+           {'path': 'openspec/changes/implement-native-reader-app/specs/native-reader/spec.md',
+            'baseSHA256': '3ba36189a925d438e2f25bef5c674a683b1c8de55d81334e02c7445ccfd3cde3',
+            'sha256': '4b72dcbcf84a076ef94dcf60dff66fc91015d094f9259a3cdd8422c821bc8a2e'},
+           {'path': 'openspec/changes/implement-native-reader-app/tasks.md',
+            'baseSHA256': '8b2532af989ce599a57ae06b2f0220750dd2d484130e2c4947ba89b03a74f064',
+            'sha256': '73dddfd8eca306ca7887affbf99f74677e975ade8c2fe35e2b0e7e37c7f2e17a'},
+           {'path': 'openspec/changes/refine-native-cream-design/.openspec.yaml',
+            'baseSHA256': None,
+            'sha256': '277c3c07d7ab9927f15fff0d9c08afbbb9cc808d563ada95016a72a464a761e0'},
+           {'path': 'openspec/changes/refine-native-cream-design/design.md',
+            'baseSHA256': None,
+            'sha256': 'e5214ca0029e9c63129c3633b4ddfd6983da1f202b296096fa17503f35930af3'},
+           {'path': 'openspec/changes/refine-native-cream-design/proposal.md',
+            'baseSHA256': None,
+            'sha256': '2fd739e81e98f4672bd6a908c77bea09b8e3fe4d54d03d587c72a2b45988d0b1'},
+           {'path': 'openspec/changes/refine-native-cream-design/specs/flow-macos-app/spec.md',
+            'baseSHA256': None,
+            'sha256': '53fae5e8b0864b1ab235c0921bfed4883a0fb9898d0363d066c1a2cb94699546'},
+           {'path': 'openspec/changes/refine-native-cream-design/specs/native-reader/spec.md',
+            'baseSHA256': None,
+            'sha256': 'eb09b61a71f080850d4e54c40df43307d83a94a5916a6c33285af546becd6279'},
+           {'path': 'openspec/changes/refine-native-cream-design/tasks.md',
+            'baseSHA256': None,
+            'sha256': '6d927e158abab7083e0338658f7b5917b3806a2849428df317eff4d2ec1d4e83'},
+           {'path': 'tests/flow-app/native-reader-app/NativeCreamDesignTests.swift',
+            'baseSHA256': None,
+            'sha256': '91e3e315541fe2dfbd5c0e6edb634daecc325fc7e5a021ff5127bbe4cf895231'},
+           {'path': 'tests/flow-app/native-reader-app/NativeEditorActionTests.swift',
+            'baseSHA256': '241094b3c76214a28d4352108ae690d3de320b46e379cbe2fd8cf173f567ad09',
+            'sha256': 'b3f0840ca7cbe282f128fd62517c4c929cf07d957eedc54efd1ffa8adcca0723'},
+           {'path': 'tests/flow-app/native-reader-app/NativeFloatingCapsuleTests.swift',
+            'baseSHA256': None,
+            'sha256': '5d6132a90eacdece221fbc85964ee61ec8b08c963d17ff15437e04d3bd440a10'},
+           {'path': 'tests/flow-app/native-reader-app/NativeReaderUIRefinementTests.swift',
+            'baseSHA256': None,
+            'sha256': 'e75599b1d030cfee87e7ee9c569b50fcdc61df3896f5e6cf45fdf03de6a80f41'},
+           {'path': 'tests/flow-app/native-reader-app/OriginalPageTests.swift',
+            'baseSHA256': 'acca0f73f907bf8144e27c292285f2532fe5ce8ff60868a0f26560a6b0ba90c9',
+            'sha256': '665bd614c9efc2e3256f2719e03e8a11e91aeb215315e3fb996adfaa12009388'},
+           {'path': 'tests/flow-app/native-reader-app/test_app_integration.py',
+            'baseSHA256': '479a4e7f487b3b9be3c05ad8fd822970f30ebce97fafb77adc252e9ea9438735',
+            'sha256': 'd6de3c6e030ea42314ce0b22dbc34561ca5c25b0fc2a769483ceb404d396f7c3'},
+           {'path': 'tests/flow-app/native-reader-app/test_native_cream_design.py',
+            'baseSHA256': None,
+            'sha256': 'efe0d5bfc97f91404c9329dc5b3dfd66ecebbc0331146069ecf6e323b1f1f6c3'},
+           {'path': 'tests/flow-app/native-reader-app/test_native_editor_actions.py',
+            'baseSHA256': '2e838a5d31acc2ac26ad63a28e7cd1a78537eaab2c08b8eb6473f9582a773810',
+            'sha256': '91cf77053e1ab595b38db6c529ba80bfe2c9b2c8f0c2b0ef5fbddcb47616f463'},
+           {'path': 'tests/flow-app/native-reader-app/test_native_floating_capsule.py',
+            'baseSHA256': None,
+            'sha256': '200216dc613f048ef3591d30582057ff03d3ca83b89bddadb691d4b2656df24a'},
+           {'path': 'tests/flow-app/native-reader-app/test_native_ui_refinement.py',
+            'baseSHA256': None,
+            'sha256': '09dae6f45000e2e567560a40d6519ef1c74cb103f5847d960d37dc4353b36ead'},
+           {'path': 'tests/flow-app/native-reader-app/test_original_pages.py',
+            'baseSHA256': '876339f49b2b316bf53e8387de75a2d97d4358afadb0114ba5dea03ef29e2140',
+            'sha256': 'f67d975a6f785cd5f8e527b90711ddcaa0810dfb332bf5c1cf34f7869991c927'},
+           {'path': 'tools/flow-reader/flow_reader/services/editor_sync.py',
+            'baseSHA256': '3e3d122cb0bd4fffd6cbe5114134816115ac15442c5ef98ac1f2fad6e7affe7f',
+            'sha256': 'c37814499be02a196347e20edc6a1bf2a77848f624b7e3a29b1b45db8b2062e6'},
+           {'path': 'tools/flow-reader/flow_reader/services/manager.py',
+            'baseSHA256': '7c230bdaed78dbe2ae98d178325f824f22f1b2275c28b61882b444ae1f3c25b6',
+            'sha256': 'e7eed01246d329dcfb0af24d20aad9d36e10113d9f0527ff64d9b49318ac007c'},
+           {'path': 'tools/flow-reader/tests/test_native_editor_dispatch.py',
+            'baseSHA256': 'b66899520e7b9981049dff9e77c65976a6846dc57029c131d521bce9022783fd',
+            'sha256': '28d4b9e57e858fbc687ebabbcd3bb04a77d99c8e414e39917b3556b1c2b9f16c'},
+           {'path': 'tools/flow-reader/tests/test_native_manager_identity.py',
+            'baseSHA256': None,
+            'sha256': 'eea1f8198566b566de4391bac3552de433107a6b56b1c1d1d528f57fddde958a'}]}
+
+# Byte-preserving reuse: the original producer revision and manifest remain intact.
+RETAINED_RUNTIME_MANIFEST = 'aa824a56c4d310a9977cdcc1f7a65dd718b92fcba46605347cad20dd431623fc'
+RETAINED_RUNTIME_SOURCE = {'sourceSHA': 'd7cd069f2249a405061bf220cfd7e0184f75c7fe',
+ 'dirty': '',
+ 'sourceFiles': [{'path': 'scripts/prepare-native-reader-runtime.mjs',
+                  'sha256': '2f7c0220ef0a23c79b3b8d1dd657914e6bf8cb3ff87ba9befcf0994f6c272ee6'},
+                 {'path': 'tools/flow-reader/native/runtime/package.json',
+                  'sha256': 'a56a3b0df96e9310a679aa59f2617f4b9c790903c992474891cb525322e2d3f7'},
+                 {'path': 'tools/flow-reader/native/runtime/package-lock.json',
+                  'sha256': '11e30c2d0c3fd1f1d722042b28b0648f0d37d45850a9e4a3925d9d0c75a6b828'},
+                 {'path': 'tools/flow-reader/native/runtime/THIRD-PARTY-NOTICES.md',
+                  'sha256': '825f737592cda4aa3579d4a9d3abe1cf66da95cd8caa4a3d65f3524530bd1c75'},
+                 {'path': 'tests/flow-app/native-reader-app/test_runtime.py',
+                  'sha256': 'f01bc89317fd17b45594465f12c49d41980b6ad48cdacee4af43e8520a083ed2'},
+                 {'path': 'tests/flow-app/native-reader-app/RuntimeTests.mjs',
+                  'sha256': '6ac7fd74cd18803cb72594abaea115f6052e5a82fae2e331d7e6a3c7b5ff2ef3'},
+                 {'path': 'docs/tinymist/dev/native-reader-runtime.typ',
+                  'sha256': 'a8c09043dc587f5e071d1360a5416397f84cd766a1696c7355a2bd6e9f6c1f26'}],
+ 'baseline': 'cc790bc1778dd7560984eafca93f0d6c052805d4'}
+
+
+def runtime_source_binding(manifest, manifest_sha, revision, repo=None):
+    source = manifest['source']
+    require(not source['dirty'], 'dirty runtime source')
+    if source['sourceSHA'] == revision:
+        return
+    require(manifest_sha == RETAINED_RUNTIME_MANIFEST and source == RETAINED_RUNTIME_SOURCE,
+            'stale runtime sourceRevision: unregistered retained runtime')
+    if repo is not None:
+        run(['git', '-C', repo, 'merge-base', '--is-ancestor', source['sourceSHA'], revision])
+        require(sha(repo / 'tools/flow-reader/native/runtime/node-distribution.json') == manifest['node']['distributionSHA256'],
+                'retained runtime node distribution drift')
+        for item in source['sourceFiles']:
+            require(sha(repo / relative(item['path'])) == item['sha256'], 'retained runtime producer input drift')
+        require(sha(repo / RUNTIME_POLICY / 'node-distribution.json') == manifest['node']['distributionSHA256'],
+                'retained runtime distribution drift')
+        require(sha(repo / 'tools/flow-reader/native/math_layout.mjs') == manifest['helperSHA256'],
+                'retained runtime helper drift')
 
 
 def integrated_sources(root):
@@ -280,6 +438,22 @@ def integrated_sources(root):
         corrected_paths.update(seen_paths)
         approved.append({'revision':rev, 'baseRevision':before, 'files':records})
 
+    fixed = FIXED_APPLICATION_SOURCES
+    fixed_base, fixed_rev = revision(fixed['baseRevision']), revision(fixed['revision'])
+    ancestor(fixed_base, fixed_rev); ancestor(fixed_rev, head)
+    original_provenance = json.loads(git('show', fixed_rev + ':' + str(RUNTIME_POLICY / 'backend-delivery.json')))
+    original_corrections = original_provenance['sourceProvenance']['ownerCorrections']
+    require(corrections[:len(original_corrections)] == original_corrections,
+            'unregistered source changes / owner source drift in historical correction chain')
+    require({f['path'] for f in fixed['files']} == changed(fixed_base, fixed_rev) - set(DELIVERY_SOURCE_PATHS),
+            'fixed application exact path inventory mismatch')
+    for item in fixed['files']:
+        name = relative(item['path'])
+        require(item['baseSHA256'] == blob(fixed_base, name, absent=True)
+                and item['sha256'] == blob(fixed_rev, name), 'fixed application source digest mismatch')
+        revisions[name] = fixed_rev
+        corrected_paths.add(name)
+
     # Current delivery edits are bounded by exact owner paths, never a prefix.
     require(not (changed(baseline, head) - corrected_paths - set(DELIVERY_SOURCE_PATHS)),
             'unregistered source changes require a fixed owner correction inventory')
@@ -291,7 +465,8 @@ def integrated_sources(root):
     return {'coreRevision':core, 'pageRevision':pages, 'guiRevision':gui,
             'publishedReaderRevision':published, 'historicalBaseRevision':base,
             'correctionBaselineRevision':baseline, 'historicalSources':history,
-            'ownerCorrections':approved, 'deliveryOwnedOverrides':list(DELIVERY_SOURCE_PATHS),
+            'ownerCorrections':approved, 'fixedApplicationSources':fixed,
+            'deliveryOwnedOverrides':list(DELIVERY_SOURCE_PATHS),
             'files':records}
 
 
@@ -310,7 +485,7 @@ def verify(root, expected=None, signatures=True):
     require(sha(runtime / 'runtime-manifest.json') == m['runtimeManifestSHA256'] and rm['helperSHA256'] == m['helperSHA256'], 'runtime/helper binding')
     require(sha(root / m['entrypoints']['helper']) == m['helperSHA256'], 'stale helper')
     if m['capabilities'].get('guiPreparationSource'):
-        require(rm['source']['sourceSHA'] == m['sourceRevision'] and not rm['source']['dirty'], 'stale runtime sourceRevision')
+        runtime_source_binding(rm, m['runtimeManifestSHA256'], m['sourceRevision'])
     require(m['distribution'] == read(root / 'backend-delivery.json'), 'backend distribution manifest drift')
     if trust := m['distribution'].get('trustStore'):
         require(m['entrypoints'].get('trustStore') == 'certificates/cacert.pem' and sha(root / 'certificates/cacert.pem') == trust['sha256'], 'missing or modified trust data')
@@ -407,7 +582,11 @@ def stage_candidate(args):
     require(sha(runtime / 'runtime-manifest.json') == expected['runtimeManifestSHA256'], 'runtime input mismatch')
     rm = read(runtime / 'runtime-manifest.json')
     require(rm['helperSHA256'] == expected['helperSHA256'], 'runtime has old helper')
-    require(rm['source']['sourceSHA'] == expected['sourceRevision'] and not rm['source']['dirty'], 'stale runtime sourceRevision')
+    runtime_source_binding(rm, expected['runtimeManifestSHA256'], expected['sourceRevision'], repo)
+    require(sha(runtime / 'node/bin/node') == rm['node']['sha256'], 'runtime node pre-execution hash mismatch')
+    require(sha(runtime / 'verify-runtime.mjs') == sha(repo / 'scripts/prepare-native-reader-runtime.mjs'),
+            'runtime verifier pre-execution hash mismatch')
+    run(['/usr/bin/codesign', '--verify', '--strict', runtime / 'node/bin/node'])
     run([runtime / 'node/bin/node', runtime / 'verify-runtime.mjs', '--verify', runtime, '--node', runtime / 'node/bin/node'])
     reader_bundle.check_manifest(read(args.reader_bundle / 'reader-bundle.json'), expected_head_sha=expected['sourceRevision'])
     reader_bundle.verify_unpacked_tree(args.reader_bundle)

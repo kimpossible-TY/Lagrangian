@@ -22,6 +22,9 @@
     "main.swift"
   ],
   "native": [
+    "NativeAppDesign.swift",
+    "NativeBrandMark.swift",
+    "NativeFloatingCapsule.swift",
     "NativeReaderSelection.swift",
     "NativeReaderAccessibility.swift",
     "NativeReaderTextView.swift",

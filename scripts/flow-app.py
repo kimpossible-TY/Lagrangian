@@ -162,12 +162,29 @@ def configure_signing(args):
     path.chmod(0o600)
     print('Signing identity saved: ' + identities[identity] + ' (' + identity + ')')
 
-def validate(app):
+def bundle_identifier(requested=None):
+    value = APP_ID if requested is None else requested
+    if value != APP_ID and not re.fullmatch(re.escape(APP_ID) + r'\.development\.[a-z0-9]+(?:-[a-z0-9]+)*', value):
+        raise ValueError('Bundle ID must be production or an explicit development identifier')
+    return value
+
+
+def validate(app, *, allow_development=False):
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-    if info.get('CFBundleIdentifier') != APP_ID or info.get('CFBundleExecutable') != APP_EXECUTABLE:
+    identifier = bundle_identifier(info.get('CFBundleIdentifier'))
+    if identifier != APP_ID and not allow_development:
+        raise ValueError('Development bundle requires explicit development verification; production use refused')
+    if info.get('CFBundleIdentifier') != identifier or info.get('CFBundleExecutable') != APP_EXECUTABLE:
         raise ValueError('Not a Lagrangian app bundle')
     run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app], capture_output=True)
     manifest = json.loads((app / 'Contents/Resources/release.json').read_text())
+    if identifier != APP_ID and (manifest.get('bundleIdentifier') != identifier or manifest.get('signing') != 'ad-hoc'):
+        raise ValueError('Development bundle identity/signing binding mismatch')
+    if manifest.get('bundleIdentifier', APP_ID) != identifier:
+        raise ValueError('Bundle identity manifest mismatch')
+    signed = subprocess.run(['/usr/bin/codesign', '-dv', app], capture_output=True, text=True, check=True).stderr
+    if 'Identifier=' + identifier not in signed.splitlines():
+        raise ValueError('Signed bundle identifier mismatch')
     certificate_hash = manifest.get('signingCertificateSHA256')
     if certificate_hash:
         for path in (app, app / 'Contents/MacOS/flow-engine'):
@@ -250,13 +267,16 @@ def build(args):
             manifest = build_bundle(candidate_args, staged, engine, engine_version, engine_build)
             if payload is not None:
                 native_delivery_consumer.current_delivery(SimpleNamespace(**globals()), payload, engine)
-        delivery_module().publish_verified(staged, app, validate)
+        delivery_module().publish_verified(staged, app, lambda candidate: validate(candidate, allow_development=True))
     write_json(app.parent / 'release.json', {**manifest, 'appExecutableSHA256': digest(executable(app)),
                                            'bundleChecksum': bundle_checksum(app)})
     print(app)
 
 def build_bundle(args, app, engine, engine_version, engine_build=None):
     identity = resolve_signing_identity(getattr(args, 'identity', None))
+    identifier = bundle_identifier(getattr(args, 'bundle_id', None))
+    if identifier != APP_ID and identity != '-':
+        raise ValueError('Development bundles require explicit ad-hoc signing')
     mac = app / 'Contents/MacOS'; resources = app / 'Contents/Resources'
     mac.mkdir(parents=True); resources.mkdir()
     engine_input_hash = digest(engine)
@@ -277,7 +297,7 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     version = args.version
     if not __import__('re').fullmatch(r'\d+\.\d+\.\d+', version): raise ValueError('Version must be X.Y.Z')
     info = {
-        'CFBundleIdentifier': APP_ID, 'CFBundleName': APP_NAME, 'CFBundleDisplayName': APP_NAME,
+        'CFBundleIdentifier': identifier, 'CFBundleName': APP_NAME, 'CFBundleDisplayName': APP_NAME,
         'CFBundleExecutable': APP_EXECUTABLE, 'CFBundleIconFile': 'Flow', 'CFBundlePackageType': 'APPL',
         'CFBundleShortVersionString': version, 'CFBundleVersion': version, 'LSMinimumSystemVersion': '13.0',
         'LSUIElement': True, 'NSHighResolutionCapable': True,
@@ -291,13 +311,14 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     guide = ROOT / 'docs/tinymist/flow-app.typ'
     if guide.exists():
         run([engine, 'compile', guide, resources / 'UserGuide.pdf', '--root', ROOT])
-    run(['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', APP_ID + '.engine', mac / 'flow-engine'])
+    run(['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', identifier + '.engine', mac / 'flow-engine'])
     manifest = {'version': version, 'sourceRevision': capture(['git', '-C', ROOT, 'rev-parse', 'HEAD']),
                 'sourceDirty': bool(capture(['git', '-C', ROOT, 'status', '--porcelain'])),
                 'engineSource': 'native' if engine_build is not None else 'external', 'engineVersion': engine_version,
                 'engineInputSHA256': engine_input_hash,
                 'engineSHA256': digest(mac / 'flow-engine'), 'signing': 'ad-hoc' if identity == '-' else identity,
                 'builtAt': dt.datetime.now(dt.timezone.utc).isoformat()}
+    manifest['bundleIdentifier'] = identifier
     manifest['managementOnly'] = not bool(getattr(args, 'delivery', None))
     manifest['appBuild'] = {
         'compilerArgv': list(map(str, compiler_argv)), 'compileElapsedSeconds': compile_elapsed,
@@ -359,8 +380,8 @@ def build_bundle(args, app, engine, engine_version, engine_build=None):
     # Files created by Finder, sync providers, or this build may carry
     # provenance metadata that macOS refuses to sign.
     run(['/usr/bin/xattr', '-cr', app])
-    run(['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', APP_ID, app])
-    validate(app)
+    run(['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', identifier, app])
+    validate(app, allow_development=True)
     return manifest
 
 def cargo_metadata():
@@ -626,6 +647,7 @@ def healthy(app, ids, timeout=30):
     if pending: raise RuntimeError('Preview startup failed; inspect Documents consent and logs: ' + ', '.join(pending))
 
 def replace_app(source, destination, data_dir=None, check_health=True):
+    validate(source)
     if data_dir is None:
         # Validate before touching user data, then let the candidate's native,
         # tested migration owner move legacy directories before recovery files
@@ -1666,7 +1688,7 @@ def restore_hosting(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest='command', required=True)
-    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--management-only', action='store_true', help='Explicit nonshipping management fixture; require-delivery verification rejects it'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
+    b = sub.add_parser('build'); b.add_argument('--engine', type=Path, help='External Flow-compatible engine (FLOW_ENGINE_PATH or installed Lagrangian app by default; legacy Flow app accepted during migration)'); b.add_argument('--output', type=Path, default=ROOT / 'dist/Lagrangian.app'); b.add_argument('--version', default='0.1.0'); b.add_argument('--identity', help='Existing signing identity (FLOW_SIGN_IDENTITY or saved configuration by default)'); b.add_argument('--bundle-id', help='Explicit io.github.kimpossible-ty.lagrangian.development.<name> for an isolated ad-hoc build'); b.add_argument('--delivery', type=Path, help='Verified portable native reader payload for this exact checkout and engine input'); b.add_argument('--management-only', action='store_true', help='Explicit nonshipping management fixture; require-delivery verification rejects it'); b.add_argument('--engine-provenance', type=Path, help='Verified engine-only retained artifact manifest'); b.add_argument('--build-engine', action='store_true', help='Build the native engine with ThinLTO before packaging'); b.add_argument('--jobs', type=int, default=2); b.set_defaults(func=build)
     fetch = sub.add_parser('fetch-engine', help='Download a macOS arm64 engine built by GitHub Actions without compiling Rust')
     fetch.add_argument('--branch', default='main', help='Branch whose latest successful flow-engine run is downloaded')
     fetch.add_argument('--run-id', help='Download this workflow run instead of the latest successful branch run. Pass the same id to scripts/fetch-reader-bundle.py so the engine and the reader come from one run')
@@ -1687,7 +1709,7 @@ def main():
     r = sub.add_parser('rollback'); r.add_argument('--app', type=Path, default=DEFAULT_APP); r.set_defaults(func=rollback)
     m = sub.add_parser('migrate-tail-hosting'); m.add_argument('root', type=Path); m.add_argument('--app', type=Path, default=DEFAULT_APP); m.add_argument('--dry-run', action='store_true', help='Print planned migration changes without modifying files or services'); m.set_defaults(func=migrate)
     restore = sub.add_parser('restore-tail-hosting'); restore.add_argument('--dry-run', action='store_true', help='Print planned restore changes without modifying files or services'); restore.set_defaults(func=restore_hosting)
-    v = sub.add_parser('verify'); v.add_argument('app', type=Path); v.set_defaults(func=lambda a: print(json.dumps(validate(a.app), indent=2)))
+    v = sub.add_parser('verify'); v.add_argument('app', type=Path); v.add_argument('--allow-development', action='store_true', help='Explicitly verify an isolated development bundle; grants no production install permission'); v.set_defaults(func=lambda a: print(json.dumps(validate(a.app, allow_development=a.allow_development), indent=2)))
     args = parser.parse_args()
     try: args.func(args)
     except (ValueError, RuntimeError, OSError, subprocess.CalledProcessError) as e: print(str(e), file=sys.stderr); sys.exit(1)

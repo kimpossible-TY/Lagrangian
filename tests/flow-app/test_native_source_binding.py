@@ -64,6 +64,35 @@ class FixedSourceBinding(unittest.TestCase):
 
     def binding(self):return owner.integrated_sources(self.root)
 
+    def latest_digest(self, binding, name):
+        snapshots = [*binding['ownerCorrections'], binding['fixedApplicationSources']]
+        return next(f['sha256'] for c in reversed(snapshots) for f in c['files'] if f['path'] == name)
+
+    def test_na19_fixed_snapshot_is_exact_and_not_head_delegation(self):
+        binding = self.binding(); fixed = binding['fixedApplicationSources']
+        self.assertEqual(fixed['revision'], '4bd6e0da0d529dafa9993ff8467cac4652bfa2ac')
+        self.assertEqual(fixed['baseRevision'], DOCS_CORRECTION)
+        expected = set(self.git('diff', '--no-renames', '--name-only', DOCS_CORRECTION, fixed['revision']).splitlines()) - set(owner.DELIVERY_SOURCE_PATHS)
+        self.assertEqual({f['path'] for f in fixed['files']}, expected)
+        for item in fixed['files']:
+            self.assertEqual(item['sha256'], hashlib.sha256(self.git_bytes('show', fixed['revision'] + ':' + item['path'])).hexdigest())
+            self.assertEqual(binding['files'][item['path']], item['sha256'])
+        for name in ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']:
+            self.assertEqual(json.loads((self.root/'apps/macos/sources.json').read_text())['native'].count(name), 1)
+        self.assertNotIn('apps/macos/FlowApp.swift', owner.DELIVERY_SOURCE_PATHS)
+
+    def test_retained_runtime_requires_exact_original_manifest_and_source(self):
+        manifest = dict(source=copy.deepcopy(owner.RETAINED_RUNTIME_SOURCE))
+        owner.runtime_source_binding(manifest, owner.RETAINED_RUNTIME_MANIFEST, INPUT)
+        for field in ['hash', 'revision', 'dirty', 'input']:
+            altered = copy.deepcopy(manifest); digest = owner.RETAINED_RUNTIME_MANIFEST
+            if field == 'hash': digest = '0' * 64
+            elif field == 'revision': altered['source']['sourceSHA'] = 'f' * 40
+            elif field == 'dirty': altered['source']['dirty'] = 'M source'
+            else: altered['source']['sourceFiles'][0]['sha256'] = '0' * 64
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                owner.runtime_source_binding(altered, digest, INPUT)
+
     def test_fixed_owner_and_historical_bytes_are_distinct(self):
         m=self.binding();c=m['ownerCorrections'][0]
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
@@ -77,12 +106,12 @@ class FixedSourceBinding(unittest.TestCase):
             self.assertEqual(item['baseSHA256'],hashlib.sha256(self.git_bytes('show',CURRENT_BASE+':'+item['path'])).hexdigest())
             self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',CURRENT_CORRECTION+':'+item['path'])).hexdigest())
             latest=next(f for x in reversed(m['ownerCorrections']) for f in x['files'] if f['path']==item['path'])
-            self.assertEqual(m['files'][item['path']],latest['sha256'])
+            self.assertEqual(m['files'][item['path']],self.latest_digest(m,item['path']))
         historical=json.loads(self.git('show','708ea0fd6ecb143ad4da27e149f16497fac8115a:'+str(POLICY)))['sourceProvenance']['ownerCorrections'][0]
         self.assertEqual([{k:v for k,v in f.items() if k!='overrides'} for f in c['files']],historical['files'])
 
         path='apps/macos/FlowApp.swift';item=next(f for f in c['files'] if f['path']==path)
-        self.assertEqual(m['files'][path],next(f['sha256'] for f in current['files'] if f['path']==path))
+        self.assertEqual(m['files'][path],self.latest_digest(m,path))
         self.assertNotEqual(item['sha256'],item['baseSHA256'])
         self.assertTrue(any(x['sha256']!=item['sha256'] for x in item['overrides']))
         gui=next(x for x in m['historicalSources'] if x['role']=='gui')
@@ -104,12 +133,12 @@ class FixedSourceBinding(unittest.TestCase):
             self.assertEqual(item['baseSHA256'],hashlib.sha256(self.git_bytes('show',DOCS_BASE+':'+item['path'])).hexdigest())
             self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',DOCS_CORRECTION+':'+item['path'])).hexdigest())
             self.assertNotEqual(item['baseSHA256'],item['sha256'])
-            self.assertEqual(m['files'][item['path']],item['sha256'])
+            self.assertEqual(m['files'][item['path']],self.latest_digest(m,item['path']))
         native=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
         self.assertEqual(len(native['files']),28)
         for item in native['files']:
             if item['path'].startswith('apps/macos/'):
-                self.assertEqual(m['files'][item['path']],item['sha256'])
+                self.assertEqual(m['files'][item['path']],self.latest_digest(m,item['path']))
 
     def test_docs_correction_cannot_mix_or_hide_unregistered_bytes(self):
         for kind in ['swap','native-path','later-doc-drift']:

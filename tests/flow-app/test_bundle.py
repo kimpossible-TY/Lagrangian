@@ -124,6 +124,142 @@ class PMReceiptTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.verify()
 
 
+class DevelopmentBundleIdentityTests(unittest.TestCase):
+    def test_default_and_explicit_namespace(self):
+        self.assertEqual(package.bundle_identifier(), package.APP_ID)
+        self.assertEqual(package.bundle_identifier(package.APP_ID), package.APP_ID)
+        identifier = package.APP_ID + '.development.native-cream-na20'
+        self.assertEqual(package.bundle_identifier(identifier), identifier)
+        for value in ['', 'other.app', package.APP_ID + '.development', package.APP_ID + '.development.',
+                      package.APP_ID + '.development.NA20', package.APP_ID + '.development.na20.extra',
+                      package.APP_ID + '.development.na20/escape', package.APP_ID + 'evil.development.na20']:
+            with self.subTest(value=value), self.assertRaises(ValueError): package.bundle_identifier(value)
+
+    def test_plist_and_manifest_identity_must_match_before_execution(self):
+        import plistlib
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp)/'Lagrangian.app'; resources = app/'Contents/Resources'; resources.mkdir(parents=True)
+            identifier = package.APP_ID + '.development.native-cream-na20'
+            (app/'Contents/Info.plist').write_bytes(plistlib.dumps(dict(CFBundleIdentifier=identifier, CFBundleExecutable=package.APP_EXECUTABLE)))
+            manifest = dict(bundleIdentifier=package.APP_ID, signing='ad-hoc')
+            (resources/'release.json').write_text(json.dumps(manifest))
+            with patch.object(package, 'run'), patch.object(package, 'capture') as execute:
+                with self.assertRaisesRegex(ValueError, 'identity/signing'): package.validate(app, allow_development=True)
+                execute.assert_not_called()
+            for signing in ['certificate', None]:
+                manifest.update(bundleIdentifier=identifier, signing=signing)
+                (resources/'release.json').write_text(json.dumps(manifest))
+                with patch.object(package, 'run'), self.assertRaisesRegex(ValueError, 'identity/signing'): package.validate(app, allow_development=True)
+            manifest.update(bundleIdentifier=identifier, signing='ad-hoc')
+            (resources/'release.json').write_text(json.dumps(manifest))
+            with patch.object(package, 'run'), patch.object(package.subprocess, 'run', return_value=argparse.Namespace(stderr='Identifier=unrelated.bundle\n')), patch.object(package, 'capture') as execute:
+                with self.assertRaisesRegex(ValueError, 'Signed bundle identifier'): package.validate(app, allow_development=True)
+                execute.assert_not_called()
+
+
+class ProductionDevelopmentBoundaryTests(unittest.TestCase):
+    """Real validation/call edges, fake bundles and injected mutation callbacks only."""
+    def setUp(self):
+        import plistlib
+        from contextlib import ExitStack
+        self.stack = ExitStack(); self.addCleanup(self.stack.close)
+        self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix='dev-boundary-')))
+        self.app = self.root/'Lagrangian.app'; resources = self.app/'Contents/Resources'; resources.mkdir(parents=True)
+        self.identifier = package.APP_ID + '.development.native-cream-na20'
+        (self.app/'Contents/Info.plist').write_bytes(plistlib.dumps(dict(CFBundleIdentifier=self.identifier, CFBundleExecutable=package.APP_EXECUTABLE)))
+        self.manifest = dict(bundleIdentifier=self.identifier, signing='ad-hoc', version='0.1.0', engineSHA256='0'*64)
+        (resources/'release.json').write_text(json.dumps(self.manifest))
+        self.run = self.stack.enter_context(patch.object(package, 'run'))
+        self.stack.enter_context(patch.object(package, 'capture', return_value='Lagrangian 0.1.0'))
+        self.stack.enter_context(patch.object(package, 'digest', return_value='0'*64))
+        self.stack.enter_context(patch.object(package.subprocess, 'run', return_value=argparse.Namespace(stderr='Identifier='+self.identifier+'\n', returncode=0)))
+
+    def test_production_default_rejects_development_before_binary_execution(self):
+        with self.assertRaisesRegex(ValueError, 'Development bundle'): package.validate(self.app)
+        self.assertFalse(any('--version' in list(map(str,c.args[0])) for c in self.run.call_args_list))
+
+    def test_explicit_development_verification_is_separate(self):
+        self.assertEqual(package.validate(self.app, allow_development=True), self.manifest)
+
+    def test_replacement_rejects_before_migration_lock_or_mutation(self):
+        data = self.root/'must-not-be-created'
+        with patch.object(package, 'DATA', data), patch.object(package, '_replace_app') as mutation:
+            with self.assertRaisesRegex(ValueError, 'Development bundle'):
+                package.replace_app(self.app, self.root/'destination/Lagrangian.app')
+            mutation.assert_not_called()
+        self.assertFalse(data.exists())
+        self.assertFalse(any('--migrate-data' in list(map(str,c.args[0])) for c in self.run.call_args_list))
+
+    def test_explicit_data_replacement_rejects_before_lock_creation(self):
+        data = self.root/'explicit-must-not-exist'
+        with patch.object(package, '_replace_app') as mutation:
+            with self.assertRaisesRegex(ValueError, 'Development bundle'):
+                package.replace_app(self.app, self.root/'destination/Lagrangian.app', data_dir=data)
+            mutation.assert_not_called()
+        self.assertFalse(data.exists())
+
+    def test_migration_rejects_before_registry_or_preflight(self):
+        with patch.object(package, 'check_data_migration_preflight') as mutation:
+            with self.assertRaisesRegex(ValueError, 'Development bundle'):
+                package.migrate(argparse.Namespace(root=self.root/'absent-registry', app=self.app, dry_run=False))
+            mutation.assert_not_called()
+
+    def test_production_identity_contract_remains_default(self):
+        import plistlib
+        info = self.app/'Contents/Info.plist'
+        info.write_bytes(plistlib.dumps(dict(CFBundleIdentifier=package.APP_ID, CFBundleExecutable=package.APP_EXECUTABLE)))
+        self.manifest.pop('bundleIdentifier')
+        (self.app/'Contents/Resources/release.json').write_text(json.dumps(self.manifest))
+        with patch.object(package.subprocess, 'run', return_value=argparse.Namespace(stderr='Identifier='+package.APP_ID+'\n', returncode=0)):
+            self.assertEqual(package.validate(self.app), self.manifest)
+
+
+@unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('FLOW_TEST_DEVELOPMENT_APP') and os.environ.get('FLOW_TEST_ENGINE'), 'Set explicit isolated development app and engine for packaging checks')
+class DevelopmentBundleIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = Path(os.environ['FLOW_TEST_DEVELOPMENT_APP']).resolve(strict=True)
+        cls.engine = Path(os.environ['FLOW_TEST_ENGINE']).resolve(strict=True)
+        cls.temp = tempfile.TemporaryDirectory(prefix='development-package-'); cls.addClassCleanup(cls.temp.cleanup)
+        cls.root = Path(cls.temp.name).resolve()
+
+    def test_signed_current_source_and_retained_inputs(self):
+        manifest = package.validate(self.app, allow_development=True)
+        self.assertEqual(manifest['sourceRevision'], package.capture(['git', '-C', ROOT, 'rev-parse', 'HEAD']))
+        self.assertFalse(manifest['sourceDirty'])
+        self.assertFalse(manifest['managementOnly'])
+        self.assertNotEqual(manifest['bundleIdentifier'], package.APP_ID)
+        self.assertEqual(manifest['signing'], 'ad-hoc')
+        self.assertEqual(manifest['engineInputSHA256'], package.digest(self.engine))
+        self.assertEqual(manifest['appBuild']['target'], 'arm64-apple-macosx13.0')
+        self.assertIn('-swift-version', manifest['appBuild']['compilerArgv'])
+        self.assertIn('-warnings-as-errors', manifest['appBuild']['compilerArgv'])
+        for name, digest in manifest['appBuild']['sourceSHA256'].items(): self.assertEqual(package.digest(ROOT/name), digest)
+        for name in ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']:
+            self.assertEqual(manifest['appBuild']['compilerArgv'].count(str(ROOT/'apps/macos'/name)), 1)
+        self.assertEqual(package.bundle_checksum(self.app), json.loads((self.app.parent/'release.json').read_text())['bundleChecksum'])
+        with self.assertRaisesRegex(ValueError, 'Development bundle'): package.validate(self.app)
+
+    def test_packaged_cli_uses_only_supported_isolated_data(self):
+        isolated = self.root/'cli'
+        argv = [str(package.executable(self.app)), '--dev-root', str(isolated)]
+        result = subprocess.run([*argv, '--check-config'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = subprocess.run([*argv, '--profiles'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), dict(schemaVersion=1, selectedID='', profiles=[]))
+        self.assertFalse((isolated/'home/Library/LaunchAgents').exists())
+
+    def test_bundled_standalone_manager_without_service_operations(self):
+        delivery = self.app/'Contents/Resources/native-reader'
+        env = dict(os.environ, HOME=str(self.root/'manager-home'), FLOW_READER_DATA_DIR=str(self.root/'reader-data'))
+        result = subprocess.run([str(delivery/'reader-manager'), '--profiles'], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertEqual(json.loads(result.stdout), dict(schemaVersion=1, profiles=[]))
+        self.assertFalse((self.root/'reader-data').exists())
+        self.assertFalse((self.root/'manager-home/Library/LaunchAgents').exists())
+
+
 @unittest.skipUnless(sys.platform == 'darwin' and os.environ.get('FLOW_TEST_ENGINE'), 'Set FLOW_TEST_ENGINE on macOS for integration checks')
 class ExternalEngineBundle(unittest.TestCase):
     @classmethod
