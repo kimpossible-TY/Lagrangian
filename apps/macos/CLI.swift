@@ -10,14 +10,20 @@ struct FlowCLI {
   let store: SettingsStore
   let launchAgents: LaunchAgentService
   let engine: EngineLaunch
+  let fixtureMode: Bool
 
   init(environment: AppEnvironment) {
-    store = SettingsStore(directory: environment.support)
+    fixtureMode = environment.fixtureRoot != nil
+    store = SettingsStore(directory: environment.support, localReplacement: environment.fixtureRoot != nil)
     launchAgents = LaunchAgentService(environment: environment)
     engine = EngineLaunch(environment: environment)
   }
 
   func run(_ arguments: [String]) throws {
+    if fixtureMode {
+      try require(["--version", "--profiles", "--check-config", "--launch-plan", "--agent-plist"].contains(arguments.first ?? ""),
+                  "Fixture mode allows safe introspection only")
+    }
     if arguments.first == "--migrate-data" { return }
     if arguments.first == "--version" {
       print(

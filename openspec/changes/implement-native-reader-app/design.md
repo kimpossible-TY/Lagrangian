@@ -646,8 +646,36 @@ publication and echoes the captured issuance scope. Optional-field legacy caller
 retain prior compatibility, not this pre-response race guarantee. Stable withdrawal
 keeps original absolute/NFC request expressions including symlink-sensitive `..`;
 manager scope owns equivalence. No new HTTP authority, journal scan, service restart
-or automatic retry is introduced. Scope query has a 1s ceiling, shortened to
-`min(1, deadline-now-0.2)` for an optional finite-future epoch; failure preserves
-pending and denies a grant. Null scope can correlate original withdrawal only.
+or automatic retry is introduced. The managed Swift CommandRunner sets a 1-second
+execution timeout for scope queries, shortened to `min(1, deadline-now-0.2)`
+when given a finite future epoch. On timeout it requests termination and waits
+for exit, forcing termination if the child is still running after the 0.2-second
+grace window. The direct CLI checks the supplied finite-future deadline on entry.
+Failure preserves pending leases and denies a grant. Null scope can correlate
+original withdrawal only.
 The final state request reserves 2.75s first, cancels/awaits actual task completion,
 then performs exact cleanup. Frozen App/GUI and full acceptance remain PM gates.
+
+## Current fixture and conversation integration
+
+The exact chat repair source `8e57062ea768320c3fe64f266eb50f40f53d16c1` has
+26 offscreen checks, not actual GUI acceptance. Actual host Ask reentry restores
+the latest draft/model and original pending message identity through shared
+adopt/persist; explicit history/retry owns uncertain Send resolution. Selection
+registration remains separate from initial local Ask effects. Stale selection
+blocks a new Send without revoking same-context conversation Stop/history; Stop
+requires an accepted streaming conversation; local preparation alone supplies no
+Stop target.
+
+The existing dev-root/no-activate/native-fixture arguments now select local
+fixture and bundled math only. Dev configuration, child environment, OS-effect
+and private-copy composition remain with their existing native app owners.
+No manager/editor or external invocation authority is supplied in fixture mode.
+Tests with a virtual ordinary home and offscreen injected operations distinguish
+that boundary from full AppKit/LaunchServices IO isolation, actual startup and
+same-app GUI/VoiceOver. Normal nonfixture services and renderer/authority owners
+are unchanged.
+
+The fixture keeps the existing local offline recovery library under its dev-profile
+root, including saved drafts. Offscreen construction respects the existing
+showNativeWindow input; it does not grant manager, editor or external effects.

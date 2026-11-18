@@ -7,6 +7,7 @@ do {
     userHome: FileManager.default.homeDirectoryForCurrentUser,
     executable: Bundle.main.executableURL!)
   let arguments = configuration.arguments
+  try configuration.environment.prepareFixtureDirectories()
   if arguments.first != "--version" {
     try AppDataMigration.migrateDefaults(
       home: configuration.environment.userHome, variables: configuration.variables)
@@ -14,8 +15,10 @@ do {
   if !arguments.isEmpty && arguments.first != "--background" {
     try FlowCLI(environment: configuration.environment).run(arguments)
   } else {
-    let bundled = try configuration.environment.nativeReaderBundle()
-    let defaultRuntime = bundled.map { NativeReaderRuntime(node: $0.node, helper: $0.helper, runtime: $0.runtime) }
+    let bundled = configuration.fixture == nil ? try configuration.environment.nativeReaderBundle() : nil
+    let math = configuration.fixture == nil ? nil : try configuration.environment.nativeMathBundle()
+    let defaultRuntime = math.map { NativeReaderRuntime(node: $0.node, helper: $0.helper, runtime: $0.runtime) }
+      ?? bundled.map { NativeReaderRuntime(node: $0.node, helper: $0.helper, runtime: $0.runtime) }
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let delegate = FlowApp(environment: configuration.environment,

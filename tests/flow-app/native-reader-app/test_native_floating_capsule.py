@@ -15,7 +15,8 @@ D = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 O = D / 'test-output/native-cream-na19'
 CHAT_O = D / 'test-output/native-cream-chat-repair'
 PACKAGING_O = D / 'test-output/native-cream-packaging-repair'
-TASK_ROOTS = {O: 'native-cream-na19', CHAT_O: 'native-cream-chat-repair', PACKAGING_O: 'native-cream-packaging-repair'}
+FIXTURE_O = D / 'test-output/native-cream-fixture-integration'
+TASK_ROOTS = {O: 'native-cream-na19', CHAT_O: 'native-cream-chat-repair', PACKAGING_O: 'native-cream-packaging-repair', FIXTURE_O: 'native-cream-fixture-integration'}
 NEW = ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']
 H18 = '567841a5d200f15904c9cc824b9d15103a38b992'
 

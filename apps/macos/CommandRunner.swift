@@ -13,19 +13,20 @@ final class CommandCancellation {
 struct CommandRunner {
   var execute: (String, [String], Bool) throws -> String
 
-  init(timeout: TimeInterval = 15, cancellation: CommandCancellation? = nil) {
+  init(timeout: TimeInterval = 15, cancellation: CommandCancellation? = nil, environment: [String: String]? = nil) {
     execute = { path, arguments, allowFailure in
-      try Self.executeProcess(path, arguments, allowFailure: allowFailure, timeout: timeout, cancellation: cancellation)
+      try Self.executeProcess(path, arguments, allowFailure: allowFailure, timeout: timeout, cancellation: cancellation, environment: environment)
     }
   }
 
   private static func executeProcess(
-    _ path: String, _ arguments: [String], allowFailure: Bool, timeout: TimeInterval, cancellation: CommandCancellation?
+    _ path: String, _ arguments: [String], allowFailure: Bool, timeout: TimeInterval, cancellation: CommandCancellation?, environment: [String: String]?
   ) throws -> String {
     if cancellation?.isCancelled == true { throw CancellationError() }
     let task = Process()
     task.executableURL = URL(fileURLWithPath: path)
     task.arguments = arguments
+    task.environment = environment
     let pipe = Pipe()
     task.standardOutput = pipe
     task.standardError = pipe

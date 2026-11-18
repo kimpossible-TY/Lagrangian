@@ -6,6 +6,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let startupTimeline: NativeStartupTimeline?
   let isolated: Bool
   let fixture: URL?
+  var fixtureMode: Bool { isolated && fixture != nil }
+  var openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+  var revealExternalFiles: ([URL]) -> Void = { NSWorkspace.shared.activateFileViewerSelecting($0) }
   let noActivate: Bool
   let showNativeWindow: Bool
   let nativeRuntime: NativeReaderRuntime?
@@ -30,7 +33,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   lazy var session = ReadingSessionController(
     launchAgents: isolated ? IsolatedProjectController() : launchAgents,
     onChange: { [weak self] snapshot in self?.render(snapshot) },
-    openBrowser: { NSWorkspace.shared.open($0) },
+    openBrowser: { [weak self] url in
+      guard let self, !self.fixtureMode else { return false }
+      return self.openExternalURL(url)
+    },
     startupTimeline: startupTimeline,
     nativeRead: { [weak self] profile, progress in
       guard let self else { return {} }
@@ -80,7 +86,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         }
         self.nativeWindow?.copyText = self.copyText
-        self.nativeWindow?.openHomepage = { NSWorkspace.shared.open($0) }
+        self.nativeWindow?.openHomepage = { [weak self] url in
+          guard let self, !self.fixtureMode else { return }
+          _ = self.openExternalURL(url)
+        }
       }
       return self.nativeWindow!.open(profile, progress: progress)
   }
@@ -110,12 +119,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       board.clearContents()
       return board.setString(text, forType: .string)
     }
-    store = SettingsStore(directory: environment.support)
+    store = SettingsStore(directory: environment.support, localReplacement: environment.fixtureRoot != nil)
     launchAgents = LaunchAgentService(environment: environment)
     self.projectService = projectService ?? ProjectService(store: store, launchAgents: isolated ? IsolatedProjectController() : launchAgents)
     super.init()
     startupTimeline?.owner = self
-    if let manager = nativeManager {
+    if let manager = nativeManager, !fixtureMode {
       managedResolver = NativeReaderManagedResolver(attach: { arguments in
         guard manager.isFileURL, FileManager.default.isExecutableFile(atPath: manager.path) else {
           throw NativeReaderOperationFailure.unavailable
@@ -128,7 +137,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   /// Explicit profile-local consent. Choosing a descriptor never scans editors or
   /// grants registration through HTTP. Reconnect requires this action again.
   @MainActor @objc func connectEditor() {
-    guard let profile = active else { return }
+    guard !fixtureMode, let profile = active else { return }
     let panel = NSOpenPanel()
     panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
     panel.message = "Choose the private local editor descriptor for this project. Connect permits explicit Locate Source moves only."
@@ -155,6 +164,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   /// consent decision is supplied as an operation; no process/port discovery.
   @MainActor @discardableResult func connectEditor(descriptor: URL, for profile: Profile,
                                                    consent: () -> Bool) async throws -> Bool {
+    guard !fixtureMode else { throw NativeReaderOperationFailure.unavailable }
     let editor = try await Task.detached { try NativeReaderManagedEditor.consentedDescriptor(descriptor) }.value
     guard active == profile else { throw NativeReaderContractError.wrongTarget }
     guard consent() else { return false }
@@ -168,6 +178,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return true
   }
   @MainActor @objc func disconnectEditor() {
+    guard !fixtureMode else { return }
     guard let profile = active else { return }
     consentedEditors.removeValue(forKey: profile.id)
     nativeWindow?.dispose(); nativeWindow = nil
@@ -178,7 +189,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard let profile = active else { return }
     offlineWindow?.dispose()
     let window = NativeReaderWindowController(provider: NativeReaderOfflineProvider(), target: { _ in throw NativeReaderOperationFailure.unavailable },
-      runtime: nativeRuntime, show: true, avoidActivation: noActivate,
+      runtime: nativeRuntime, show: showNativeWindow, avoidActivation: noActivate,
       offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
     window.copyText = copyText
     offlineWindow = window
@@ -441,6 +452,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func enabled(_ action: Selector?) -> Bool {
     guard let action else { return true }
+    if fixtureMode && [#selector(connectEditor), #selector(disconnectEditor), #selector(addProject),
+        #selector(openLogs), #selector(revealSettings), #selector(guide), #selector(about)].contains(action) { return false }
     if isolated && [#selector(toggleLogin), #selector(start), #selector(stop),
                     #selector(restart), #selector(openExternalPreview)].contains(action) { return false }
     if [#selector(addProject), #selector(toggleLogin)].contains(action) {
@@ -529,7 +542,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       })
   }
   @objc func addProject() {
-    guard !mutating else { return }
+    guard !fixtureMode, !mutating else { return }
     let panel = NSOpenPanel()
     panel.title = "Typst 진입 파일 선택"
     panel.allowedContentTypes = [UTType(filenameExtension: "typ")!]
@@ -566,7 +579,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return updated
   }
   func saveProfile(readAfterSaving: Bool, external: Bool = false) {
-    guard !mutating else { return }
+    guard !(fixtureMode && external), !mutating else { return }
     let intent = readingIntent
     do {
       let updated = try editedProfile()
@@ -612,21 +625,21 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   @objc func copyURL() {
     if let p = active {
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(p.url, forType: .string)
+      _ = copyText(p.url)
     }
   }
   @objc func openLogs() {
-    guard let p = active else { return }
+    guard !fixtureMode, let p = active else { return }
     let file = environment.logRoot.appendingPathComponent("\(p.id).err.log")
     if FileManager.default.fileExists(atPath: file.path) {
-      NSWorkspace.shared.open(file)
+      _ = openExternalURL(file)
     } else {
-      NSWorkspace.shared.open(environment.logRoot)
+      _ = openExternalURL(environment.logRoot)
     }
   }
   @objc func revealSettings() {
-    NSWorkspace.shared.activateFileViewerSelecting([
+    guard !fixtureMode else { return }
+    revealExternalFiles([
       environment.support.appendingPathComponent("profiles.json")
     ])
   }
@@ -648,6 +661,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       })
   }
   @objc func about() {
+    guard !fixtureMode else { return }
     NSApp.orderFrontStandardAboutPanel(options: [
       .applicationName: LagrangianIdentity.appName,
       .credits: NSAttributedString(
@@ -657,8 +671,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     ])
   }
   @objc func guide() {
+    guard !fixtureMode else { return }
     if let url = Bundle.main.url(forResource: "UserGuide", withExtension: "pdf") {
-      NSWorkspace.shared.open(url)
+      _ = openExternalURL(url)
     }
   }
   @objc func quit() { NSApp.terminate(nil) }

@@ -1,17 +1,20 @@
 ## Context
 
-NA18 starts at v9 `00c28e9be4edb70c97b5a4a4d10e08c80c6c28ba` in
-`feat/native-cream-20261118`. The PM's current exclusive-writer assignment takes
-precedence over historical selector notes saying the worktree was not created.
-The user's target is the native AppKit macOS application. Plan-93acf163de035059b497
-and the PM's app-plan-native-cream-20261118 retain task and acceptance ownership.
+This change applies the user's cream paper, original rounded marker logo and
+floating selection capsule to the Swift/AppKit macOS app. The SCSS request
+informs reusable components and state tokens. AppKit owns their implementation.
+
+NA18 began at v9 `00c28e9be4edb70c97b5a4a4d10e08c80c6c28ba` and produced the
+[historical component contract](../../../docs/tinymist/dev/native-cream-design.typ).
+NA19 applied it to the home, settings, Reader and conversation chrome.
+NA20 registered the new sources and delivered an isolated development app at
+`016734db869f8892bf2cd1e330be2fb4edda962f`.
 
 ## Goals / Non-Goals
 
-Create usable common native paint and vector components while preserving platform
-activation, content and existing operations. NA18 does not apply them to app
-screens. NA19 owns screen/capsule adoption; NA20 alone owns sources.json and
-packaging. No new runtime, account, service, policy or document renderer.
+Share native paint and vector components while preserving platform activation,
+content rendering and the existing operation owners. The design adds no new
+document renderer, service, account store or web UI runtime.
 
 ## Decisions
 
@@ -40,8 +43,9 @@ base specifies base 11/.9 (busy .62), halo 15/.3 and beam 8/1, round caps/joins;
 halo/beam are hidden except during busy work. Offline/reconnecting use 5/3 dashes
 in pathLength=100 units. Native drawing preserves layer order and normalized
 dash lengths, uses uniform centered fit and no blur/timer. Busy uses a static
-8/92 segment; reduced motion hides halo/beam. High contrast/reduced transparency
-remove the halo and make the base opaque. Error/held use readable error/warning
+8/92 segment. Reduced motion hides the halo and beam and makes the base opaque.
+Offline and reconnecting retain their 5/3 dashes. High contrast and reduced
+transparency remove the halo and make the base opaque. Error/held use readable error/warning
 ink. Status labels remain required at adoption; a decorative mark cannot prove
 readiness or replace textual diagnostics. This intentionally does not copy web
 infinite animations, hold gestures, dragging or update authority.
@@ -54,11 +58,10 @@ refreshStatus/requestMode/sourceControls and NativeReaderChatView composer,
 send/history/account controls (F02–04/F06/F09–16 as mapped by PM). C04:
 NativeReaderTextView selection callbacks/plainSelectedText/openChat provide the
 selection anchor only; renderer remains unchanged. C05: existing conversation,
-permission, offline and explicit-Send owners stay authoritative. C06: narrow
-windows, enlarged labels, hit targets, keyboard and AX require screen adoption
-and later actual input. C07: preference/state matrix and UI7-C1 retained failure
-precedence; NA18 does not modify host status policy. C08: isolated build and exact
-source/app/evidence binding remain NA20 and independent acceptance responsibilities.
+permission, offline and explicit-Send owners stay authoritative. C06 covers narrow
+windows, enlarged labels, hit targets, keyboard and accessibility. C07 covers
+the preference matrix and UI7-C1 failure precedence. C08 binds source and app
+identity to separate evidence for the build and the assigned acceptance checks.
 NativeReaderOriginalPageView retains original PDF font/color/geometry.
 
 ## Verification and risks
@@ -75,21 +78,36 @@ Original failures and exact commands remain in external NA18 evidence.
 
 ## Follow-up and acceptance ownership
 
-NA19 and NA20 require explicit PM resumption of this design session. NA21/22/23
-perform independent source review/regression/docs work. PM binds the unchanged
-source acceptance design (15 cases), design acceptance plan (32 cases total across
-modes) and original 125-case expectations to the appropriate exact revision/app.
-Assignments are not results. No NA18 result passes F04/F13/NA16, actual GUI,
-whole-product acceptance or PM receipt. See canonical Typst for stage details.
+The PM binds every required case to its unchanged expectation, assigned owner,
+source revision and artifact. The independent reports record actual assignment
+and result references separately. Use the following locators in the PM project
+workspace under `native-reader-20261117/` and in the project test-output directory.
 
+| Contract or evidence | Locator and fixed revision | Scope |
+| --- | --- | --- |
+| Original `lagrangian-native-app-actions-acceptance-20261118-v1` | `app-plan-native-actions-acceptance/acceptance-plan.json`, design source `09e78630a6afb51436e45da140c3588c82c295f5` | F01–F18, 125 original cases. See the [migration inventory](../../../docs/tinymist/dev/native-reader-20261117-inventory.typ). |
+| Cream design `lagrangian-native-cream-acceptance-20261118-v1` | `app-plan-native-cream-20261118/acceptance-plan.json`, design source `cb31c504d21a16dd8fc4786537c7917a14970588` | All original cases plus 32 new cream cases. |
+| Cream source `lagrangian-native-cream-source-acceptance-20261118-v1` | `app-plan-native-cream-20261118/source-bound-4bd6e0da/{acceptance-plan.json,contracts.json}`, fixed `4bd6e0da0d529dafa9993ff8467cac4652bfa2ac` | 15 source-only cases. Keep their assignment-time contract hashes and results separate from an app packet. |
+| NA19 round 2 | `test-output/native-cream-na19/round2/{REPORT.md,tests.json,final-binding.json,before-after.json}`, bound to `4bd6e0da0d529dafa9993ff8467cac4652bfa2ac` | Producer recorded 15 focused offscreen tests and a separate one-test ChatMath rerun, each exit 0 with no skips. The records retain the initial ChatMath failure, the expected before failures and interrupted attempts. |
+| NA20 round 4 | `test-output/native-cream-na20/{REPORT.md,final-binding.json}`, fixed `016734db869f8892bf2cd1e330be2fb4edda962f` | The isolated development app includes the three registered Swift sources. Its bound fixture checks recorded three passes with no skips. The fixture supplies no Original PDF, chat, account, editor or live service owner. |
 
-## NA19 implementation and source-only status
+NA16 is the separate F13 work to connect explicit native login, cancel and logout
+to the existing account authority. Listing status or models and linking to
+Homepage do not complete it. F04 raw delta, F13/NA16, the original 125 cases,
+real macOS 13, same-app native interaction/visual/VoiceOver and PM acceptance
+retain their own evidence requirements. NA18 contrast ratios and images are
+component observations listed in the historical record. Same-build visual
+contrast and the narrow-window layout still need separate observations.
 
-The PM explicitly resumed the same S18–20 writer on H18
-`567841a5d200f15904c9cc824b9d15103a38b992`; board ownership is PM-maintained.
-The NA18 canonical Typst records that earlier component stage and remains
-read-only in this task. This section records the newer actual source application.
-No source registry, packaging, new App, installed state or GUI claim is made.
+## NA19 source adoption
+
+NA19 resumed the design writer from H18
+`567841a5d200f15904c9cc824b9d15103a38b992` and applied the shared components.
+This section describes its fixed source. The NA20 record above covers source
+registration and the later isolated development app. The NA20 checklist records only completed source registration and isolated app
+production. Use each bound app packet to identify its actual source and remaining
+independent GUI, original 125-case, NA16 and PM-receipt gates.
+
 
 FlowApp.buildWindow now uses the exact vector and shared light rounded brand
 title, shared semantic buttons and a solid paper root for home/settings. Existing
@@ -103,35 +121,63 @@ NativeFloatingCapsule.swift (NativeChromeControlRow), used by host/chat/capsule.
 No body, answer, object, math or Original PDF painter is traversed by the chrome
 adapter. Theme and rendering authority remain with the existing display owners.
 
-The capsule is an in-window native view, bound to the exact request context
-(document/service/revision/view/generation/request) and selection ticket/mode.
-The TextView change is a read-only method returning current renderer-owned,
-viewport-clipped selection rectangles. PDF geometry comes from its existing store.
-The host observes only its own clip bounds and existing layout notifications.
-It fits the capsule above/below visible selected rectangles inside the viewport;
-when no safe space exists, it allocates a separate layout row rather than
-covering selected content, search hits or primary controls. The capsule scrolls
-its own wrapping controls when enlarged labels need more height.
+The capsule binds the active request context (document, service, revision,
+view, generation and request), selection ticket and current mode. The host
+rechecks the binding before dispatch. `Session.authorize` and
+`Selection.validate` enforce live context and the 32-block action limit.
+The display selection remains intact when that limit rejects source or Ask.
 
-Session.authorize and Selection.validate remain authoritative. Over 32 fragments,
-read-only/offline/restored/pending work and PDF modes project existing restrictions
-into disabled reasons. Ordinary copy retains the full selection and uses the
-existing injected copy callback. Editor consent and source-write restrictions
-come from the existing attachment; the UI does not grant or persist permission.
-Dismissal never acknowledges selection. Old dismissals and acknowledgments cannot
-close a new binding. Explicit selection action entry supports keyboard focus;
-Escape/close returns focus while leaving retained selection intact.
+| Command | Existing owner and behavior | Availability |
+| --- | --- | --- |
+| 복사 | Body display copy uses `NativeReaderTextView.copyPlainText`. Original PDF delegates to `NativeReaderOriginalPageView.copyDisplay`. | Current visible selection, including longer selections or a read-only view. |
+| 원문 보기 | `requestSource(.excerpt)` uses the source action owner and copies a verified excerpt after freshness and document checks. | Live eligible body selection. PDF, offline, restored or otherwise unauthorized contexts disable it. |
+| 원문 강조 | `requestSource(.highlight)` uses the existing source write path. | Live eligible body selection and a source-write attachment with no managed-editor consent ID. While capability is unknown it stays disabled. The source owner still checks write authorization. |
+| 질문하기 | `openChat` opens the local composer through the host. | Live eligible body selection. Sending has its own account, model and selection checks. |
+| 편집기 위치로 | `locateSelected` delegates to the existing guarded editor jump. | Live eligible body selection and a current editor attachment with a managed-editor consent ID. While capability is unknown it stays disabled. The jump still checks the existing attachment and consent. |
+| 닫기 / Escape | The host dismisses only the current binding and restores focus without releasing or acknowledging the selection. | The capsule is open. The explicit 선택 작업 command opens or refocuses it and moves focus to the first enabled action or Close. |
 
-Every Ask entry opens the actual local composer with its exact current selection.
-It does not resolve operations, open/create a remote conversation, read account
-status, save a server draft or start inference. Explicit Send resolves the existing
-actions owner, rechecks current authorization after awaits, reads existing account/
-models, refuses unavailable permission/model, and opens the conversation only then.
-The same explicit Send continues through the established message UUID/unknown-effect
-owner. Existing accepted-conversation, history, pending-Send and math behavior stays
-in that owner. Local draft editing has no remote draft operation because no
-conversation exists before Send. No provider, model catalog, credential or
-conversation database is invented by the new UI.
+The placement input is the clip viewport, current visible selection rectangles
+and the renderer's visible used content bounds, including attachments. The host
+hides the capsule when no selection rectangles are visible. PDF and
+unknown/stale used bounds treat the entire viewport as occupied. Overlay width
+is `min(560, max(120, viewport.width - 16))` pt. The height is capped at 180 pt
+and the internal scroll view accommodates wrapped commands. The host insets the
+viewport by 8 pt. Placement tests a horizontally clamped frame above or below
+the selection's union with an 8 pt gap and 4 pt clearance from the selection
+and occupied bounds. If no frame fits, the host uses a layout dock outside
+the document view, with its width pinned to the containing stack. The dock
+remains until the capsule is hidden.
+The host recomputes placement on its clip and layout updates.
+
+Ask opens a local composer for the selected passage. Opening or editing that
+composer sends no account, catalog, conversation, draft or inference request
+for Ask. Selection registration and capability checks are independent.
+Explicit Send resolves the existing actions owner, checks authorization after
+awaits, reads account and models, and refuses unavailable permissions/models.
+A first Send without a selected model can continue with the first returned
+model. A question or model edit during preparation requires a new explicit Send.
+The established message UUID, authorization and unknown-effect owner governs
+dispatch. Existing draft and pending-state recovery remains a requirement.
+
+The chat repair at `8e57062ea768320c3fe64f266eb50f40f53d16c1` reuses
+current/recovered draft adoption and persistence for actual host Ask reentry.
+Closing/reopening the same conversation restores its latest Unicode draft/model
+and original unknown Send UUID/question/model without retyping. A newer local
+edit wins; explicit history confirmation cannot overwrite it or replay a Send.
+New Send still requires current selection authority, while Stop/history use the
+existing conversation/context authority. Stop requires an accepted streaming
+conversation; local account/open preparation alone supplies no Stop target. Initial Ask
+and editing add no account/model/conversation/draft/inference effects; selection
+registration remains a distinct operation. The recorded 26 offscreen checks,
+including unchanged passive ChatMath, are not same-app GUI/VO acceptance.
+
+The current three-argument fixture integration composes local fixture/bundled math
+without default or explicit manager/editor connections. External targets are
+disabled and guarded, child verification gets dedicated root-bound environment,
+and home/body copy share a private board. Normal nonfixture composition remains
+in its existing owners. Virtual-home/injected-operation and actual Swift math
+checks must be distinguished from GUI launch and full platform IO isolation.
+
 
 UI9-C1: pending recovery loading and failure now outrank generic recovery mode
 restrictions. These flags are direct projections of Session.hasPendingRecovery,
@@ -151,8 +197,9 @@ actual argv, hashes, exits and logs. Untouched regression runners receive only
 isolated output-path and explicit Swift-source adapters, with original runner
 hashes and unchanged assertions recorded. Fake network/counters are identified
 separately from real native controls, compiler/PDFKit and local editor fixtures.
-Actual GUI/VO, real accounts/inference, macOS13 runtime, NA20 delivery, independent
-NA21/22/23, F04/F13/NA16, original125 and PM receipt remain separate gates.
+These are NA19 checks. NA20 delivery and the independent source, native GUI,
+VoiceOver, actual macOS 13, live account/inference and PM results each have their
+own evidence requirements as listed above.
 
 
 ## R19 boundary corrections in the same NA19 writer
@@ -181,9 +228,9 @@ has one chrome owner, NativeChromeControlRow in NativeFloatingCapsule.swift, use
 by host, composer and capsule.
 
 External round2 evidence freezes the current pre-fix dirty NA19 production bytes;
-it is explicitly NOT the H18 commit. Independent actual-native/HTTP oracles fail
+it is explicitly NOT the H18 commit. The offscreen native and injected HTTP oracles failed
 on those bytes for account-wait edits, open-wait edits, model-wait edits, vanished
-unsent draft and body occlusion, then use the same expectations against the fix.
+unsent draft and body occlusion, then passed with the same expectations against the fix.
 The earlier H18 UI9-C1 before evidence remains separate. Raw home settings JSON
 and canonical JSON retain exact schema/types/values while allowing unspecified
 object-key order. No old report/output is overwritten. Parent-interrupted run1
@@ -195,3 +242,7 @@ NativeFloatingCapsule.swift by reader, conversation and capsule controls. This
 moves the original layout implementation to one reusable presentation owner;
 it creates no operation, state, credential or renderer authority. NativeChrome
 bridges dynamic chrome colors only and stops traversal at document/PDF/text views.
+
+The fixture keeps the existing local offline recovery library under its dev-profile
+root, including saved drafts. Offscreen construction respects the existing
+showNativeWindow input; it does not grant manager, editor or external effects.

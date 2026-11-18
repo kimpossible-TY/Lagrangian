@@ -205,7 +205,7 @@ The existing local CLI remains the owner; these are not HTTP endpoints.
  [`--native-editor-expected-scope`],[The new managed caller passes its queried64lowercasehex scope with the native operation. The manager rejects a different actual registered document/reader before reservation or registration, and rechecks issuance freshness before publication. Legacy local callers without this optional field retain their prior contract; response-only comparison is not the new guarantee.],
  [Attach response],[Echoes the exact `nativeEditorOperation`, plus manager-owned `nativeEditorScope`; the resolver checks both before adopting.],
  [Cleanup response],[Exactly one field `released` with JSON boolean type. `{"released":false}` confirms the exact registration is already absent; it is successful confirmation. Extra fields, nonboolean, parse or command failure remain pending.],
- [`--native-editor-scope`],[Read-only root/entry/optional registered reader ID query. Returns exactly `scope` (opaque64hex, or null when no unique valid document) and `requestBinding` (opaque64hex). It neither probes nor starts services or publishes a registration. Optional query deadline is finite future Unix epoch (not the reservation7second limit). The process ceiling is1second, shortened to min(1, deadline-now-0.2); nonpositive budget fails before execution. Command, parse or exact-shape failure rejects a new grant and preserves pending leases. Null scope denies a new grant but its original requestBinding can still retry exact withdrawal.],
+ [`--native-editor-scope`],[Read-only root/entry/optional registered reader ID query. Returns exactly `scope` (opaque64hex, or null when no unique valid document) and `requestBinding` (opaque64hex). It neither probes nor starts services or publishes a registration. Optional query deadline is finite future Unix epoch (not the reservation7second limit). The managed Swift caller's CommandRunner sets a 1-second execution timeout for the query, shortened to min(1, deadline-now-0.2). On timeout it requests termination, gives a 0.2-second grace window before forcing termination if needed, and waits for exit. The direct CLI checks the supplied finite-future deadline on entry. Nonpositive budget fails before execution. Command, parse or exact-shape failure rejects a new grant and preserves pending leases. Null scope denies a new grant but its original requestBinding can still retry exact withdrawal.],
 )
 
 The manager preserves the original absolute request expression (with NFC spelling), including dot components: lexical link/.. reduction can name a different real file. Equivalent spellings are correlated by manager scope, not by removing those components. Existing records with only a reduced spelling cannot reconstruct a discarded original expression; no fallback guesses that authority.
@@ -340,3 +340,12 @@ The frozen d7/v4 App has not received these changes. Integration/source registry
 a new App and independent GUI/VO/actual macOS13/live-provider/125case acceptance
 remain PM gates, along with F04 raw deltas and F13/NA16. No automatic entire-app
 restart recovery or journal pruning is claimed.
+
+= Fixture inspection boundary
+
+With an explicit dev root and native fixture, editor connection is unavailable
+both from controls and direct descriptor/consent methods. No manager is created
+for this path. This development boundary does not change the normal live editor's
+existing explicit consent, source/context validation, receipt or unknown-effect
+owners. Offscreen injected operations establish this refusal; they do not complete
+actual GUI, VoiceOver, platform isolation or independent F10 acceptance.

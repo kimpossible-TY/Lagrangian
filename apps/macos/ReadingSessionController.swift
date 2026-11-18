@@ -581,6 +581,14 @@ struct FlowRuntimeConfiguration {
     if let fixturePath, !fixturePath.hasPrefix("/") {
       throw FlowError(message: "Native fixture path must be absolute")
     }
+    if fixturePath != nil {
+      guard manager == nil, runtimePaths.allSatisfy({ $0 == nil }) else {
+        throw FlowError(message: "Fixture mode uses bundled math only, without a manager or runtime override")
+      }
+      guard remaining.isEmpty || ["--version", "--profiles", "--check-config", "--launch-plan", "--agent-plist"].contains(remaining[0]) else {
+        throw FlowError(message: "Fixture mode allows safe introspection only")
+      }
+    }
     self.nativeManager = manager
     self.noActivate = noActivate
     self.nativeRuntimePaths = runtimeNode == nil ? nil : runtimePaths.compactMap { $0 }
@@ -588,7 +596,8 @@ struct FlowRuntimeConfiguration {
     self.variables = vars
     self.isolated = rootPath != nil
     self.fixture = fixturePath.map { URL(fileURLWithPath: $0) }
-    self.environment = AppEnvironment(variables: vars, userHome: home, executable: executable)
+    self.environment = AppEnvironment(variables: vars, userHome: home, executable: executable,
+      fixtureRoot: fixturePath == nil ? nil : home.deletingLastPathComponent())
   }
 }
 

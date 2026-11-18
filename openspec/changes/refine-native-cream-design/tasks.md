@@ -12,10 +12,15 @@
 - [x] 2.2 Implement selection capsule lifetime, placement, focus and guarded composer behavior with existing freshness/effect policy.
 - [x] 2.3 Preserve UI7-C1 and UI9-C1 loading/failure precedence, permissions, offline and explicit-Send gates; verify affected behavior.
 
-## NA20 — explicit PM follow-up only; not started
+## NA20 — source registration and isolated production recorded
 
-- [ ] 3.1 Register NativeAppDesign.swift and NativeBrandMark.swift plus NA19 sources in sources.json and owning packaging inputs.
-- [ ] 3.2 Assemble and bind isolated development app; retain original/installed applications and services.
+- [x] 3.1 Register NativeAppDesign.swift and NativeBrandMark.swift plus NA19 sources in sources.json and owning packaging inputs.
+- [x] 3.2 Assemble and bind isolated development app; retain original/installed applications and services.
+
+Evidence: NA20 H20 `016734db869f8892bf2cd1e330be2fb4edda962f` and packaging
+repair `7307be92baf13d289038596d09e15341064d616c` bind registered NEW3 and
+isolated build/verify. This checks production/registration only; it grants no
+independent GUI, original125, NA16 or PM-receipt acceptance.
 
 ## Independent acceptance — separate PM assignments
 

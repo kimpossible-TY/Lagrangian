@@ -7,15 +7,37 @@
 
 Lagrangian is a native AppKit macOS research notebook: cream paper, readable
 ink, fine round marker strokes and the user's exact original logo. This is the
-canonical design document for `refine-native-cream-design`. The SCSS request's
+canonical record of the NA18 component contract for `refine-native-cream-design`. The SCSS request's
 reusable component and state-token intent is implemented in Swift/AppKit.
 The target is the native app, with a macOS 13 deployment baseline.
 
-*NA18 is a source-component stage. These components are not yet applied to any
-app screen or registered in packaging.* Source-only offscreen paint does not
-establish application, GUI, accessibility-input or whole-product acceptance.
+*Historical stage.* At NA18 the components had standalone offscreen coverage.
+NA19 subsequently applied them to the app and added the selection capsule.
+NA20 registered the sources and assembled an isolated development app. See
+#link("../../../openspec/changes/refine-native-cream-design/design.md")[the active OpenSpec design]
+(`openspec/changes/refine-native-cream-design/design.md`) for the current source,
+packaging evidence and remaining native acceptance gates.
 
-== Requirements and source mapping
+== Later chat and fixture integration
+
+Fixed chat source `8e57062ea768320c3fe64f266eb50f40f53d16c1` added actual
+offscreen host Ask reentry coverage: latest Unicode draft/model and original
+unknown Send identity recover without retyping. Its 26 checks include the original
+passive ChatMath regression. They are not actual GUI acceptance. Selection
+registration is independent of initial Ask: opening/editing its local composer
+adds no account, model, conversation, draft or inference effect. A stale selection
+blocks new Send while the same conversation/context still permits Stop/history;
+Stop requires an accepted streaming conversation; local preparation alone supplies no Stop target.
+
+Packaging source `7307be92baf13d289038596d09e15341064d616c` recorded a new
+isolated app and 64 final focused checks, retaining its original failures and
+timeout evidence. The current integration consumes the six-file documentation
+input `a689e38c6f984e4b8d11ab767bd5d1959e1003b9` as source bytes in new descendant
+commits, not as an ancestor or merge. It also restricts the existing three-argument
+fixture mode to local content/bundled math and private copy. See the current
+source/app-bound packet for child environments and remaining platform/GUI gates.
+
+== NA18 requirements and source mapping
 
 The PM's `app-plan-native-cream-20261118` owns the C01–08 requirements,
 `source-surface-map.json`, `logo-source.json` and acceptance assignments.
@@ -26,7 +48,7 @@ writer reservations or test results. The separate existing 125-case contract,
 NA16, F04 raw-delta and F13 remain unchanged.
 
 #table(columns: (0.6fr, 2.4fr, 2.6fr), inset: 5pt, align: top,
- table.header([Scope], [Current source owner], [Adoption / preservation contract]),
+ table.header([Scope], [Component or adoption owner], [Adoption / preservation contract]),
  [C01], [`NativeAppDesign.swift`, `NativeBrandMark.swift`],
  [NA18 reusable palette, surfaces, semantic button paint, chrome fonts and exact vector.],
  [C02], [`FlowApp.swift`: `buildWindow`, `showSettings`, `settingsTabs`],
@@ -125,7 +147,7 @@ reference is
 `NativeBrandMark.path` adapts these curves directly into CGPath.
 It is not a redrawn logo, app-icon substitution or raster asset.
 
-The current original CSS uses base width 11, opacity .9; busy base opacity .62;
+The reference CSS uses base width 11, opacity .9; busy base opacity .62;
 halo width 15, opacity .3; beam width 8, opacity 1. All caps and joins are round.
 Layer order is base, halo, beam. Halo and beam are hidden outside busy work.
 Busy beam/halo use normalized 8/92 dash lengths; offline and reconnecting use
@@ -136,7 +158,8 @@ Native rendering is deliberately static: no looping flow, pulse, blur, long-pres
 update gesture or drag behavior. Busy work uses a fixed segment and accent;
 offline/reconnecting retain a dashed base; error and held use readable status
 ink; completed uses accent without a timed pulse. Reduced motion hides halo and
-beam and keeps a solid base. Increased contrast or reduced transparency removes
+beam and makes the static base opaque. Offline and reconnecting retain their
+5/3 dashes. Increased contrast or reduced transparency removes
 the halo and makes the base opaque. A separate existing status label must explain
 work, failure or offline state at adoption; the mark cannot establish readiness.
 The brand view exposes image semantics and a phase value, not a button action.
@@ -145,11 +168,11 @@ Scaling uniformly fits and centers the 240 by 220 viewBox, with letterboxing and
 no crop/stretch. Intrinsic size is 44 by 41pt; give at least 24pt when adopting.
 The final relationship to home/reader titles requires later visual review.
 
-== Validation and stages
+== Historical NA18 validation and handoff
 
-The opt-in `test_native_cream_design.py` compiles only the two new production
-files and `NativeCreamDesignTests.swift`, explicitly listing sources because
-`sources.json` is NA20's owner. Use exactly one outer shared lock:
+At NA18, the opt-in `test_native_cream_design.py` compiled the two production
+files and `NativeCreamDesignTests.swift` from an explicit source list before
+NA20 registered them. The recorded command takes one outer shared lock:
 
 ```sh
 D=/Volumes/devSSD/Developer/lagrangian-native-20261117
@@ -176,13 +199,9 @@ The final binding supplies exact committed source, actual compiler input hashes,
 commands/exits/skips, and the current session's explicit resume reference.
 Earlier failed test attempts remain separately preserved.
 
-NA18 finishes common components, focused offscreen validation, this canonical
-source, the design-only OpenSpec delta and source commit. NA19 has not started:
-it owns actual home/settings/reader/chat application and NativeFloatingCapsule.
-NA20 has not started: it owns source registration, packaging and isolated app
-assembly. NA21/22/23 source review, independent regression and docs audit are
-separate assignments. PM binds unchanged C01–08 acceptance cases to the exact
-source/app and assigns actual native input/visual checks from the first usable
-build. NA24 composes evidence. No component result completes GUI, F04/F13/NA16,
-all 125 existing cases or PM acceptance. No installed app or immutable release
-is replaced by this work.
+NA18 completed the shared components and focused offscreen validation. Its
+contrast measurements describe the component host and preference matrix. Final
+screen fit, focus, VoiceOver and actual macOS 13 behavior require separate
+checks on the bound app. For NA19 screen adoption and NA20 delivery, use
+the active OpenSpec design linked above. The original 125 cases and F04, F13
+and NA16 remain separate acceptance obligations.
