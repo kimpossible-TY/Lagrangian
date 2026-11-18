@@ -3,15 +3,21 @@ No visible windows, user boards, HTTP, auth, provider or installed service effec
 """
 import sys
 sys.dont_write_bytecode = True
-import hashlib,json,os,shutil,subprocess,time,unittest
+import hashlib,json,os,shutil,subprocess,tempfile,time,unittest
 from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlencode
 R=Path(__file__).resolve().parents[3]
 D=Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 O=D/'test-output/native-reader-ui-v7'
-OUT=Path(os.environ['NATIVE_UI_OUTPUT'])
-if not OUT.is_relative_to(O):raise RuntimeError('UI evidence must stay in v7 owned output')
+_temporary_output = None
+if os.environ.get('NATIVE_UI_OUTPUT'):
+ OUT = Path(os.environ['NATIVE_UI_OUTPUT']).resolve()
+else:
+ (O/'tmp').mkdir(parents=True,exist_ok=True)
+ _temporary_output = tempfile.TemporaryDirectory(prefix='ui-import-',dir=O/'tmp')
+ OUT = Path(_temporary_output.name)
+if not OUT.is_relative_to(O.resolve()):raise RuntimeError('UI evidence must stay in v7 owned output')
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def save(p,v):p.write_text(json.dumps(v,ensure_ascii=False,indent=2)+'\n')
 class NativeUIRefinement(unittest.TestCase):
