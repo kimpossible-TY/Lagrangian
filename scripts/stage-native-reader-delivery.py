@@ -426,7 +426,7 @@ def integrated_sources(root):
     corrections = provenance['ownerCorrections']
     require(isinstance(corrections, list) and corrections, 'fixed owner correction inventory missing')
     approved, seen_revisions, corrected_paths = [], set(), set()
-    def apply_correction(correction, previous):
+    def apply_correction(correction, previous, *, split_delivery=False):
         require(isinstance(correction, dict) and set(correction) == {'revision', 'baseRevision', 'files'}, 'owner correction fields')
         rev, before = revision(correction['revision']), revision(correction['baseRevision'])
         require(rev not in seen_revisions and rev != before, 'duplicate/empty owner correction')
@@ -446,7 +446,11 @@ def integrated_sources(root):
                     'owner correction original/corrected digest mismatch: ' + name)
             records.append({**item, 'overrides':originals.get(name, [])})
             revisions[name] = rev
-        require(seen_paths == changed(before, rev), 'owner correction exact path inventory mismatch')
+        # Post-H19 native snapshots exclude only existing delivery-owned paths;
+        # those remain separately checked against exact HEAD blobs below.
+        expected_paths = changed(before, rev)
+        if split_delivery: expected_paths -= set(DELIVERY_SOURCE_PATHS)
+        require(seen_paths == expected_paths, 'owner correction exact path inventory mismatch')
         corrected_paths.update(seen_paths)
         approved.append({'revision':rev, 'baseRevision':before, 'files':records})
         return rev
@@ -473,7 +477,7 @@ def integrated_sources(root):
 
     previous = fixed_rev
     for correction in corrections[len(original_corrections):]:
-        previous = apply_correction(correction, previous)
+        previous = apply_correction(correction, previous, split_delivery=True)
 
     # Current delivery edits are bounded by exact owner paths, never a prefix.
     require(not (changed(baseline, head) - corrected_paths - set(DELIVERY_SOURCE_PATHS)),

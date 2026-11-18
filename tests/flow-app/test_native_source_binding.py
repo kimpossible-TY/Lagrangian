@@ -24,6 +24,9 @@ CHAT_BASE = '016734db869f8892bf2cd1e330be2fb4edda962f'
 CHAT_CORRECTION = '8e57062ea768320c3fe64f266eb50f40f53d16c1'
 RUNNER_CORRECTION = 'bb0123aedde56ec83117c217571a77bc7d6614d6'
 FIXTURE_CORRECTION = '9ebe1fd44ef00ae4bec0565a7c7157586084a7cd'
+REVIEW_CODE = '23513e74eb19b067746f1be5b774b4652e924852'
+REVIEW_INPUT = 'ac9450d35c8725abfe625de79f1ab539ef8660ab'
+REVIEW_DOCS = 'b8764fbaee9346a2f9ce0c6976b43029ccb8ea5e'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
 owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
 
@@ -135,7 +138,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
         current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION])
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION,REVIEW_CODE,REVIEW_INPUT,REVIEW_DOCS])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
@@ -229,7 +232,7 @@ class FixedSourceBinding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'missing/escaping owner source'):self.binding()
 
     def test_exact_paths_and_unique_inventory_are_required(self):
-        for kind in ['missing','duplicate','extra','empty']:
+        for kind in ['missing','duplicate','extra','delivery-path','empty']:
             with self.subTest(kind=kind):
                 self.setUp()
                 def change(m):
@@ -237,6 +240,7 @@ class FixedSourceBinding(unittest.TestCase):
                     if kind=='missing':files.pop()
                     elif kind=='duplicate':files.append(copy.deepcopy(files[0]))
                     elif kind=='extra':files.append({'path':'apps/macos/NativeReaderDocument.swift','baseSHA256':'0'*64,'sha256':'1'*64})
+                    elif kind=='delivery-path':files.append({'path':'scripts/flow-app.py','baseSHA256':'0'*64,'sha256':'1'*64})
                     else:files.clear()
                 self.metadata(change)
                 with self.assertRaises(ValueError):self.binding()
@@ -278,7 +282,16 @@ class FixedSourceBinding(unittest.TestCase):
         p.write_text(p.read_text()+'\n// owned delivery correction\n');self.commit()
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
-        self.assertEqual(m['ownerCorrections'][-1]['revision'],FIXTURE_CORRECTION)
+        self.assertEqual(m['ownerCorrections'][-1]['revision'],REVIEW_DOCS)
+        # Actual mixed commit: delivery bytes stay HEAD-owned and every other
+        # path keeps its original and corrected fixed Git-object digest.
+        correction=next(c for c in m['ownerCorrections'] if c['revision']==REVIEW_CODE)
+        changes=set(self.git('diff','--no-renames','--name-only',correction['baseRevision'],REVIEW_CODE).splitlines())
+        self.assertIn('scripts/flow-app.py',changes)
+        self.assertEqual({f['path'] for f in correction['files']},changes-set(owner.DELIVERY_SOURCE_PATHS))
+        for item in correction['files']:
+            self.assertEqual(item['sha256'],hashlib.sha256(self.git_bytes('show',REVIEW_CODE+':'+item['path'])).hexdigest())
+        self.assertEqual(m['files']['scripts/flow-app.py'],hashlib.sha256((self.root/'scripts/flow-app.py').read_bytes()).hexdigest())
         self.assertEqual(next(c for c in m['ownerCorrections'] if c['revision']==DOCS_CORRECTION)['baseRevision'],DOCS_BASE)
 
     def test_added_file_needs_fixed_inventory_and_explicit_original_absence(self):
