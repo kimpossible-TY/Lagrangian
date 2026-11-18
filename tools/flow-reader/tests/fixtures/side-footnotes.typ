@@ -12,6 +12,7 @@ Two references share a single note in this paragraph: #footnote(<shared-note>) a
   Hilbert space#footnote[A Hilbert space is complete.], and
   dense#footnote[Every element is the limit of a sequence.].
   #html.elem("p")[A nested paragraph#footnote[The nested paragraph has its own note.].]
+  #html.elem("p")[Other callout text and $alpha + beta$ remain readable.]
 ]]
 
 $ a &= b #footnote[The first mathematical footnote retains its full explanation.] \

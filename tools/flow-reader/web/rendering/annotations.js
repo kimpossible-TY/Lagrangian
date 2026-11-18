@@ -452,9 +452,10 @@ export class TextAnnotations {
       group.lines = this.sides.get(host)?.lines;
       group.leftNotes = this.article.classList.contains("reader-paragraph-chat");
       group.width = group.leftNotes ? Math.max(150, fontSize * 11) : Math.max(220, fontSize * 14);
-      group.outset = group.leftNotes
-        ? Math.min(60, Math.max(0, host.getBoundingClientRect().left - 12))
-        : 0;
+      group.outset =
+        group.leftNotes && !host.closest(".flow-callout")
+          ? Math.min(60, Math.max(0, host.getBoundingClientRect().left - 12))
+          : 0;
       for (const record of group.records) {
         const reference =
           record.kind === "footnote"

@@ -144,6 +144,66 @@ try {
           .every((n) => getComputedStyle(n).paddingRight === "0px" && !n.style.minHeight),
       ),
     );
+    check(
+      `${font}px callout footnotes avoid the border and callout content`,
+      await page.evaluate(() => {
+        const callout = document.querySelector("figure > .flow-proposition");
+        const refs = [...callout.querySelectorAll('[role="doc-noteref"][data-reader-note]')];
+        const notes = refs.map((ref) => document.getElementById(ref.dataset.readerNote));
+        const bounds = callout.getBoundingClientRect();
+        const borderRight = bounds.left + parseFloat(getComputedStyle(callout).borderLeftWidth);
+        const ink = [];
+        const walker = document.createTreeWalker(callout, NodeFilter.SHOW_TEXT);
+        for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+          if (
+            !text.data.trim() ||
+            text.parentElement.closest(".flow-note,math,.flow-math-view,svg")
+          )
+            continue;
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          ink.push(...range.getClientRects());
+        }
+        ink.push(
+          ...[...callout.querySelectorAll("mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v")]
+            .filter((node) => !node.closest(".flow-note,mjx-assistive-mml,.flow-math-stage"))
+            .flatMap((node) => [...node.getClientRects()]),
+        );
+        return (
+          notes.length === 4 &&
+          notes.every((note) => {
+            const body = note.querySelector(".flow-note-body").getBoundingClientRect();
+            return (
+              body.left >= borderRight &&
+              ink.every(
+                (rect) =>
+                  rect.width === 0 ||
+                  rect.height === 0 ||
+                  body.right <= rect.left ||
+                  body.left >= rect.right ||
+                  body.bottom <= rect.top ||
+                  body.top >= rect.bottom,
+              )
+            );
+          })
+        );
+      }),
+    );
+    check(
+      `${font}px ordinary footnotes retain their left margin outset`,
+      await page.evaluate((target) => {
+        const note = document.querySelector(`[data-footnote-target="${target}"]`);
+        const path = document.querySelector(`path[data-note="${note.id}"]`);
+        const host = path.ownerSVGElement.previousElementSibling;
+        const hostLeft = host.getBoundingClientRect().left;
+        return (
+          Math.abs(
+            note.getBoundingClientRect().left -
+              (hostLeft - Math.min(60, Math.max(0, hostLeft - 12))),
+          ) < 1
+        );
+      }, target),
+    );
   }
   const link = page.locator(`[role="doc-noteref"] a[href="#${target}"]`).first();
   await link.click();
