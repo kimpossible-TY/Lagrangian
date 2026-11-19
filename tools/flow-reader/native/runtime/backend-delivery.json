@@ -940,6 +940,22 @@
             "sha256": "c3f017458ee7c3065517ee1fde0765c21e92d0760d1d8aabc29a97d9c57d029f"
           }
         ]
+      },
+      {
+        "baseRevision": "16e762cab720b63d6e479cb54c53f1c641a857ef",
+        "revision": "41fc383c3e2c6e1339b1c9e6f7f425ca266e17e9",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderOriginalPageView.swift",
+            "baseSHA256": "60cd023a259742498766913d3b9a6b7f5aa571e5f4a339a3bf25c6ca31f29216",
+            "sha256": "3ba49f6fae9d2a2f43b0e885c7ed5b167ba6261f73f01f9c5db6358b70c8d167"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "c3f017458ee7c3065517ee1fde0765c21e92d0760d1d8aabc29a97d9c57d029f",
+            "sha256": "4daa79c2c5b2d142c0d4ba1e9d1485198830a1ad572c4ac9cc7874820c7a5a45"
+          }
+        ]
       }
     ]
   }
