@@ -208,6 +208,7 @@ import AppKit
         try hold(value)
     }
     private func hold(_ value: NativeOriginalDisplaySelection) throws {
+        guard !disposed, !isHidden else { throw NativeOriginalPageError.stale }
         try store.hold(value, ticket: UUID()); selected = value; onHold?(true)
         if let key = pageKey { reveal(value.pageBounds, key: key) }
         if let pageAX { NSAccessibility.post(element: pageAX, notification: .selectedTextChanged) }
@@ -270,10 +271,11 @@ import AppKit
                 do {
                     let value = try await accepted.access.selection(page: page, rectangle: pdf)
                     try Task.checkCancellation()
-                    guard let self, !self.disposed, self.operation == epoch, self.selectionOperation == selectionEpoch,
+                    guard let self, !self.disposed, !self.isHidden, self.operation == epoch, self.selectionOperation == selectionEpoch,
                           self.store.pageIndex == page, self.store.accepted?.id == accepted.id else { return }
                     try self.hold(value)
-                } catch { if !Task.isCancelled { self?.onFailure?(error) } }
+                } catch NativeOriginalPageError.stale { /* Superseded selection is normal cancellation. */ }
+                catch { if !Task.isCancelled { self?.onFailure?(error) } }
             }
         } catch { onFailure?(error) }
     }

@@ -1118,6 +1118,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var searchSelectionTicket: UUID?
   private var findTask: Task<Void, Never>?
   private var findGeneration = 0
+  private var findFailure: String?
   private var modeButtons = [NSButton]()
   var onClose: (() -> Void)?
   var changeMode: ((NativeReaderWindowController.Mode) -> Void)?
@@ -1420,10 +1421,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func refreshDocument() { requestedMode = nil; requestWasHeld = false; onRefresh?() }
   func requestMode(_ mode: NativeReaderWindowController.Mode) {
+    cancelFind()
     requestedMode = mode == currentMode ? nil : mode; requestWasHeld = reader.store.selection != nil || original?.selected != nil
     refreshStatus()
   }
   func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true, allowsModeSwitch: Bool = true, pendingRecovery: Bool = false) {
+    findFailure = nil
     self.pendingRecovery = pendingRecovery
     cancelRecoveryButton.isHidden = !pendingRecovery
     retryRecoveryButton.isHidden = !pendingRecovery || !failed
@@ -1434,7 +1437,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     brandMark.phase = failed ? .error : (state == .loading ? .busy : (state == .offline ? .offline : .idle))
     refreshStatus()
   }
-  func showRetainedFailure() { retainedFailure = true; refreshStatus() }
+  func showRetainedFailure() { findFailure = nil; retainedFailure = true; refreshStatus() }
   private func refreshStatus() {
     func name(_ mode: NativeReaderWindowController.Mode) -> String { mode == .nativeReflow ? "본문" : "원본 PDF" }
     for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? currentMode == .nativeReflow : currentMode == .originalPages) ? .on : .off }
@@ -1448,6 +1451,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       selectionStatus.stringValue = "저장 문서를 복원 준비 중입니다… 이전 읽기 결과는 유지됩니다. ‘복원 취소’로 중단할 수 있습니다."
     } else if retainedFailure || failedState {
       selectionStatus.stringValue = (reader.store.document == nil ? "문서를 불러오지 못했습니다. " : "이전 읽기 결과를 표시 중입니다. ") + (refreshButton?.isEnabled == true ? "최신 결과를 보려면 ‘새로고침’을 누르세요." : "저장 문서를 다시 열어 복원하세요.")
+    } else if let findFailure {
+      selectionStatus.stringValue = findFailure
     } else if !allowsModeSwitch {
       selectionStatus.stringValue = "오프라인 복원본에서는 모드를 전환할 수 없습니다. 원문·대화 작업은 사용할 수 없습니다."
     } else if let requestedMode {
@@ -1470,17 +1475,20 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func reflowMode() { changeMode?(.nativeReflow) }
   @objc func pageMode() { changeMode?(.originalPages) }
-  @objc func previousPage() { if let original { pageAction { try original.jump(to: max(0, original.store.pageIndex - 1)) } } }
-  @objc func nextPage() { if let original { pageAction { try original.jump(to: original.store.pageIndex + 1) } } }
+  @objc func previousPage() { cancelFind(); if let original { pageAction { try original.jump(to: max(0, original.store.pageIndex - 1)) } } }
+  @objc func nextPage() { cancelFind(); if let original { pageAction { try original.jump(to: original.store.pageIndex + 1) } } }
   @objc func zoomIn() {
+    cancelFind()
     if currentMode == .nativeReflow { beginDisplayPreview(); reader.changeZoom(by: 1.25); onAppearance?() }
     else if let original { pageAction { try original.zoom(original.store.displayedScale * 1.25) } }
   }
   @objc func zoomOut() {
+    cancelFind()
     if currentMode == .nativeReflow { beginDisplayPreview(); reader.changeZoom(by: 1 / 1.25); onAppearance?() }
     else if let original { pageAction { try original.zoom(original.store.displayedScale / 1.25) } }
   }
   @objc func fitPage() {
+    cancelFind()
     if currentMode == .nativeReflow { beginDisplayPreview(); var value = reader.textAppearance; value.zoom = 1; try? reader.setAppearance(value); onAppearance?() }
     else if let original { pageAction { try original.zoom(nil) } }
   }
@@ -1497,7 +1505,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
     original.invalidateFind()
-    let searchGeneration = findGeneration, snapshot = original.store.accepted?.id, selected = original.store.selection?.0
+    let searchGeneration = findGeneration, snapshot = original.store.accepted?.id
     let query = findField.stringValue
     findTask = Task { [weak self] in
       defer { if let self, self.findGeneration == searchGeneration { self.findTask = nil } }
@@ -1505,8 +1513,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         guard let hit = try await original.search(query).first else { return }
         try Task.checkCancellation()
         guard let self, self.findGeneration == searchGeneration, self.currentMode == .originalPages,
-              !original.isHidden, original.store.accepted?.id == snapshot,
-              original.store.selection?.0 == selected else { return }
+              !original.isHidden, original.store.accepted?.id == snapshot else { return }
         // Keep cancellation authority through adoption. Only this Find's own
         // synchronous jump bypasses external-interaction invalidation.
         try original.jump(to: hit.pageIndex, invalidatesFind: false)
@@ -1515,15 +1522,29 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           return !Task.isCancelled && self.findGeneration == searchGeneration && self.currentMode == .originalPages && !original.isHidden
         })
         try Task.checkCancellation()
-        self.searchSelectionTicket = original.store.selection?.0; self.refreshStatus()
+        self.findFailure = nil; self.searchSelectionTicket = original.store.selection?.0; self.refreshStatus()
       } catch {
         guard let self, !Task.isCancelled, self.findGeneration == searchGeneration else { return }
-        if case NativeOriginalPageError.stale = error { return }
-        self.notice.stringValue = String(describing: error)
+        if error is CancellationError { return }
+        let reason: String
+        switch error {
+        case NativeOriginalPageError.stale, NativeOriginalPageError.cancelled:
+          return
+        case NativeOriginalPageError.budget:
+          reason = "검색 이동 실패 (budget): PDF 표시 한도를 넘었습니다. 배율을 줄인 뒤 다시 검색하세요."
+        case NativeOriginalPageError.heldSelection:
+          reason = "검색 이동 실패 (heldSelection): PDF에서 선택한 내용이 있습니다. ‘선택 해제’ 후 다시 검색하세요."
+        default:
+          reason = "검색 실패 (\(error)): 다시 검색하거나 문서를 새로고침하세요."
+        }
+        self.findFailure = reason; self.notice.stringValue = reason; self.refreshStatus()
       }
     }
   }
-  func cancelFind() { findGeneration += 1; findTask?.cancel(); findTask = nil }
+  func cancelFind() {
+    findGeneration += 1; findTask?.cancel(); findTask = nil
+    findFailure = nil; refreshStatus()
+  }
   @objc func copySelected() { if currentMode == .originalPages { _ = original?.copyDisplay() } else { _ = reader.copyPlainText() } }
   @objc func sourceSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.excerpt) }
   @objc func highlightSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.highlight) }
