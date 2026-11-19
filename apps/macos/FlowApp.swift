@@ -295,6 +295,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func button(_ title: String, _ selector: Selector) -> NSButton {
     let result = NativeDesignButton(title: title, target: self, action: selector)
+    if selector == #selector(openPreview) { result.designRole = .primary }
     controls[selector] = result
     return result
   }
@@ -367,16 +368,24 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       views: definitions.map { key, label in
         let field = NSTextField()
         field.setAccessibilityLabel(label)
-        field.widthAnchor.constraint(equalToConstant: 440).isActive = true
+        if key == "root" {
+          field.widthAnchor.constraint(greaterThanOrEqualToConstant: 440).isActive = true
+          field.maximumNumberOfLines = 1
+          field.lineBreakMode = .byTruncatingMiddle
+          field.cell?.usesSingleLineMode = true
+          field.cell?.wraps = false
+        } else { field.widthAnchor.constraint(equalToConstant: 440).isActive = true }
         fields[key] = field
         return [NSTextField(labelWithString: label), field]
       })
     grid.rowSpacing = 10
     grid.columnSpacing = 12
     grid.xPlacement = .leading
+    grid.cell(atColumnIndex: 1, rowIndex: 1).xPlacement = .fill
     let settingsPanel = NSStackView(views: [grid])
     settingsPanel.orientation = .vertical
     settingsPanel.alignment = .leading
+    grid.widthAnchor.constraint(equalTo: settingsPanel.widthAnchor).isActive = true
     let tabs = NSTabView()
     tabs.tabViewType = .topTabsBezelBorder
     let home = NSTabViewItem(identifier: "home")
@@ -387,10 +396,14 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     project.view = settingsPanel
     tabs.addTabViewItem(home)
     tabs.addTabViewItem(project)
-    tabs.widthAnchor.constraint(equalToConstant: 640).isActive = true
     tabs.heightAnchor.constraint(equalToConstant: 290).isActive = true
     settingsTabs = tabs
     content.addArrangedSubview(tabs)
+    tabs.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -56).isActive = true
+    content.addArrangedSubview(
+      NSStackView(views: [
+        button("설정 저장", #selector(save)), button("설정 파일 보기", #selector(revealSettings)),
+      ]))
     let hint = NSTextField(
       wrappingLabelWithString:
         "읽기 시작은 설정을 확인하고 네이티브 문서를 요청합니다. 외부 Reader 열기는 기존 브라우저 프리뷰를 엽니다. 변경한 설정은 먼저 저장됩니다. 글꼴 경로는 프로젝트 기준이며, HTTPS 주소는 Tail Hosting에서 연결하세요."
@@ -399,10 +412,6 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     hint.textColor = .secondaryLabelColor
     hint.widthAnchor.constraint(equalToConstant: 630).isActive = true
     content.addArrangedSubview(hint)
-    content.addArrangedSubview(
-      NSStackView(views: [
-        button("설정 저장", #selector(save)), button("설정 파일 보기", #selector(revealSettings)),
-      ]))
     login.target = self
     login.action = #selector(toggleLogin)
     content.addArrangedSubview(login)

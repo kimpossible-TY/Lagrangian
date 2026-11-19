@@ -175,6 +175,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.session.preparationChanged()
     }
     hostWindow.onShowCapsule = { [weak self] in self?.updateCapsule(reopen: true, focus: true) }
+    hostWindow.onCapsuleLayout = { [weak self] in self?.updateCapsule() }
     hostWindow.onEditorReceipt = { [weak self] in self?.checkEditorReceipt() }
     textView.cachedObject = { [weak self] node, key in
       guard let cache = self?.cache, cache.key == key else { return nil }
@@ -1050,6 +1051,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func cancel() {
+    hostWindow.cancelFind()
     hostWindow.hideCapsule()
     cancelStorage()
     // A closed ticket may be cancelled again by its outer lifecycle owner.
@@ -1082,6 +1084,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   var onCancelRecovery: (() -> Void)?
   var onRetryRecovery: (() -> Void)?
   var onShowCapsule: (() -> Void)?
+  var onCapsuleLayout: (() -> Void)?
   let capsule = NativeFloatingCapsule()
   private var capsuleDocked = false
   private var capsuleConstraints = [NSLayoutConstraint]()
@@ -1094,7 +1097,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private let modeStatus = NSTextField(wrappingLabelWithString: "현재: 본문")
   private let selectionStatus = NSTextField(wrappingLabelWithString: "문서를 준비하고 있습니다…")
   private let auxiliary = NSStackView()
-  private let toolsScroll = NSScrollView()
+  private let toolsScroll = NativeReaderToolsScrollView()
   private var requestedMode: NativeReaderWindowController.Mode?
   private var allowsModeSwitch = true
   private var requestWasHeld = false
@@ -1102,6 +1105,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var failedState = false
   private var retainedFailure = false
   private var searchSelectionTicket: UUID?
+  private var findTask: Task<Void, Never>?
+  private var findGeneration = 0
   private var modeButtons = [NSButton]()
   var onClose: (() -> Void)?
   var changeMode: ((NativeReaderWindowController.Mode) -> Void)?
@@ -1208,8 +1213,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     contents.target = self; contents.action = #selector(outlineSelected)
     back.title = "돌아가기"; back.target = self; back.action = #selector(returnFromReference)
     back.identifier = NSUserInterfaceItemIdentifier("returnFromReference")
-    _ = row([NSTextField(labelWithString: "목차"), contents, back,
-             command("이전 페이지", #selector(previousPage)), command("다음 페이지", #selector(nextPage))])
+    let pageNavigation = NSStackView(views: [command("이전 페이지", #selector(previousPage)), command("다음 페이지", #selector(nextPage))])
+    pageNavigation.identifier = NSUserInterfaceItemIdentifier("pageNavigation")
+    _ = row([NSTextField(labelWithString: "목차"), contents, back, pageNavigation])
     findField.placeholderString = "PDF에서 검색"; findField.setAccessibilityLabel("PDF에서 검색")
     findField.identifier = NSUserInterfaceItemIdentifier("findPage")
     findField.target = self; findField.action = #selector(findPage)
@@ -1221,17 +1227,21 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     selectionStatus.identifier = NSUserInterfaceItemIdentifier("readerSelectionStatus")
     _ = row([command("선택 해제", #selector(releasePageSelection)), command("복사", #selector(copySelected))])
     // Existing native commands stay in one discoverable, scrollable disclosure.
-    toolsScroll.hasVerticalScroller = true; toolsScroll.autohidesScrollers = true
+    toolsScroll.hasVerticalScroller = true; toolsScroll.autohidesScrollers = false
+    toolsScroll.scrollerStyle = .legacy
+    toolsScroll.identifier = NSUserInterfaceItemIdentifier("readerToolsScroll")
     toolsScroll.documentView = auxiliary; toolsScroll.isHidden = true
     stack.addArrangedSubview(toolsScroll); toolsScroll.translatesAutoresizingMaskIntoConstraints = false
-    auxiliary.translatesAutoresizingMaskIntoConstraints = false
+    let preferredToolsHeight = toolsScroll.heightAnchor.constraint(equalToConstant: 200)
+    preferredToolsHeight.priority = .defaultHigh
     NSLayoutConstraint.activate([
       toolsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-      toolsScroll.heightAnchor.constraint(equalToConstant: 200),
-      auxiliary.leadingAnchor.constraint(equalTo: toolsScroll.contentView.leadingAnchor),
-      auxiliary.trailingAnchor.constraint(equalTo: toolsScroll.contentView.trailingAnchor),
-      auxiliary.topAnchor.constraint(equalTo: toolsScroll.contentView.topAnchor),
-      auxiliary.widthAnchor.constraint(equalTo: toolsScroll.contentView.widthAnchor)])
+      preferredToolsHeight,
+      toolsScroll.heightAnchor.constraint(lessThanOrEqualToConstant: 200),
+      toolsScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 64)])
+    // The scroll document owns its origin and measured height. Pinning its top
+    // to the moving clip bounds makes the last rows follow the scroll offset.
+    auxiliary.translatesAutoresizingMaskIntoConstraints = true
     _ = row([NSTextField(labelWithString: "원문·대화")], in: auxiliary)
     sourceControls.orientation = .vertical; sourceControls.alignment = .leading
     auxiliary.addArrangedSubview(sourceControls); sourceControls.translatesAutoresizingMaskIntoConstraints = false
@@ -1305,6 +1315,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   func hideCapsule() {
+    if let focused = window?.firstResponder as? NSView, focused.isDescendant(of: capsule) {
+      window?.makeFirstResponder(currentMode == .originalPages ? original : reader.bodyTextView)
+    }
     capsule.hide()
     if capsuleDocked {
       NSLayoutConstraint.deactivate(capsuleConstraints); capsuleConstraints = []
@@ -1324,12 +1337,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       if capsule.superview !== root { capsule.removeFromSuperview(); root.addSubview(capsule) }
       capsule.translatesAutoresizingMaskIntoConstraints = true; capsule.frame = frame
     } else if !capsuleDocked {
+      guard stack.bounds.width.isFinite, stack.bounds.width > 0 else { return }
+      let dockSize = capsule.preferredSize(width: stack.bounds.width)
       capsule.removeFromSuperview()
       let index = stack.arrangedSubviews.firstIndex(where: { $0 === reader }) ?? stack.arrangedSubviews.count
       stack.insertArrangedSubview(capsule, at: index); capsule.translatesAutoresizingMaskIntoConstraints = false
-      capsuleConstraints = [capsule.widthAnchor.constraint(equalTo: stack.widthAnchor), capsule.heightAnchor.constraint(equalToConstant: size.height)]
+      capsuleConstraints = [capsule.widthAnchor.constraint(equalTo: stack.widthAnchor), capsule.heightAnchor.constraint(equalToConstant: dockSize.height)]
       NSLayoutConstraint.activate(capsuleConstraints); capsuleDocked = true
-    } else { capsuleConstraints.last?.constant = size.height }
+    } else {
+      guard stack.bounds.width.isFinite, stack.bounds.width > 0 else { return }
+      capsuleConstraints.last?.constant = capsule.preferredSize(width: stack.bounds.width).height
+    }
     capsule.layoutSubtreeIfNeeded()
   }
   @objc func showSelectionActions() { onShowCapsule?() }
@@ -1350,7 +1368,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   func installOriginal(_ view: NativeReaderOriginalPageView) {
     guard original == nil else { return }; original = view
     let scroll = NativeReaderPageScrollView()
-    scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.autohidesScrollers = true
+    scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.autohidesScrollers = false
+    scroll.scrollerStyle = .legacy
+    scroll.setAccessibilityLabel("원본 PDF · 맞춤 또는 가로 스크롤로 페이지 탐색")
     scroll.documentView = view; originalScroll = scroll
     scroll.contentView.postsBoundsChangedNotifications = true
     view.isHidden = true; scroll.isHidden = true; stack.addArrangedSubview(scroll)
@@ -1359,6 +1379,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
   }
   func displayMode(_ mode: NativeReaderWindowController.Mode) {
+    cancelFind()
     hideCapsule()
     currentMode = mode
     retainedFailure = false
@@ -1451,6 +1472,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     else if let original { pageAction { try original.zoom(nil) } }
   }
   @objc func releasePageSelection() {
+    cancelFind()
     if currentMode == .originalPages { original?.releaseSelection() }
     else if let selected = reader.store.selection { reader.releaseSelection(ticket: selected.ticket) }
     refreshStatus()
@@ -1461,12 +1483,29 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
+    cancelFind()
+    let generation = findGeneration, snapshot = original.store.accepted?.id, selected = original.store.selection?.0
     let query = findField.stringValue
-    Task { do { if let hit = try await original.search(query).first { guard self.currentMode == .originalPages, !original.isHidden else { return }; try original.jump(to: hit.pageIndex); try await original.select(page: hit.pageIndex, range: hit.rangeUTF16)
+    findTask = Task { [weak self] in
+      do {
+        guard let hit = try await original.search(query).first else { return }
+        try Task.checkCancellation()
+        guard let self, self.findGeneration == generation, self.currentMode == .originalPages,
+              !original.isHidden, original.store.accepted?.id == snapshot,
+              original.store.selection?.0 == selected else { return }
+        try original.jump(to: hit.pageIndex)
+        try await original.select(page: hit.pageIndex, range: hit.rangeUTF16)
+        try Task.checkCancellation()
+        guard self.findGeneration == generation else { return }
         self.searchSelectionTicket = original.store.selection?.0; self.refreshStatus()
-      } }
-      catch { notice.stringValue = String(describing: error); if case NativeOriginalPageError.stale = error { showRetainedFailure() } } }
+      } catch {
+        guard let self, !Task.isCancelled, self.findGeneration == generation else { return }
+        self.notice.stringValue = String(describing: error)
+        if case NativeOriginalPageError.stale = error { self.showRetainedFailure() }
+      }
+    }
   }
+  func cancelFind() { findGeneration += 1; findTask?.cancel(); findTask = nil }
   @objc func copySelected() { if currentMode == .originalPages { _ = original?.copyDisplay() } else { _ = reader.copyPlainText() } }
   @objc func sourceSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.excerpt) }
   @objc func highlightSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.highlight) }
@@ -1504,6 +1543,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       for child in view.subviews { invalidate(child) }
     }
     invalidate(stack)
+    toolsScroll.needsLayout = true
   }
   func refreshLocalControls() {
     invalidateControlLayout()
@@ -1605,7 +1645,21 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func editorReceipt() { guard currentMode == .nativeReflow else { return }; onEditorReceipt?() }
   @objc func account() { onAccount?() }
   @objc func manageAccountExplicitly() { if let homepage { onManageAccount?(homepage) } }
-  func windowWillClose(_ notification: Notification) { onClose?() }
+  func windowDidResize(_ notification: Notification) { onCapsuleLayout?() }
+  func windowWillClose(_ notification: Notification) { cancelFind(); hideCapsule(); onClose?() }
+}
+
+/// Size the tools from their wrapping rows without binding the document origin
+/// to the clip view's changing bounds. Scrolling can then reveal every last row.
+@MainActor private final class NativeReaderToolsScrollView: NSScrollView {
+  override func layout() {
+    super.layout()
+    guard let document = documentView as? NSStackView else { return }
+    document.setFrameSize(NSSize(width: contentSize.width, height: document.fittingSize.height))
+    document.layoutSubtreeIfNeeded()
+    document.setFrameSize(NSSize(width: contentSize.width, height: document.fittingSize.height))
+    document.setFrameOrigin(.zero)
+  }
 }
 
 /// The scroll viewport supplies width; the document view supplies page size.
