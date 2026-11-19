@@ -881,7 +881,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   private func returnCapsuleFocus() -> NSView {
-    if let view = capsuleFocusReturn as? NSView, view.window === hostWindow.window, !view.isHiddenOrHasHiddenAncestor {
+    if let view = capsuleFocusReturn as? NSView, !view.isDescendant(of: hostWindow.capsule),
+       view.window === hostWindow.window, !view.isHiddenOrHasHiddenAncestor {
       return view
     }
     return visibleMode == .nativeReflow ? textView.bodyTextView : originalPageView
@@ -954,7 +955,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       try session.authorize(context, selection: selection.ticket)
       guard let document = store.document, let actions else { throw NativeReaderOperationFailure.unavailable }
       try selection.validate(in: document)
-      capsuleFocusReturn = hostWindow.window?.firstResponder
+      if let focused = hostWindow.window?.firstResponder as? NSView, !focused.isDescendant(of: hostWindow.capsule) {
+        capsuleFocusReturn = focused
+      }
       rememberCurrentDraft()
       chatView?.dispose(); chatView?.removeFromSuperview()
       let retained = retainedChatPresentations.last { $0.context == context && $0.selection.fragments == selection.fragments }
@@ -975,13 +978,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       }
       if let key = acceptedPaintKey { configureChatMath(chat, key: key) }
       hostWindow.attachChat(chat); dismissedCapsule = .init(context: context, ticket: selection.ticket, originalPDF: false)
-      hostWindow.hideCapsule(); hostWindow.window?.makeFirstResponder(chat.composer)
+      hostWindow.window?.makeFirstResponder(chat.composer); hostWindow.hideCapsule(restoringFocus: false)
     } catch { report(error) }
   }
   private func dismissComposer(_ chat: NativeReaderChatView) {
     guard chatView === chat else { return }
-    rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); chatView = nil; chatContext = nil
-    hostWindow.window?.makeFirstResponder(returnCapsuleFocus())
+    rememberCurrentDraft(); hostWindow.window?.makeFirstResponder(returnCapsuleFocus())
+    chat.dispose(); chat.removeFromSuperview(); chatView = nil; chatContext = nil
   }
 
   /// Compose an existing owner's accepted conversation; no Send/account action is implicit.
@@ -1323,8 +1326,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       Task { @MainActor in self?.automaticAppearanceChanged() }
     }
   }
-  func hideCapsule() {
-    if let focused = window?.firstResponder as? NSView, focused.isDescendant(of: capsule) {
+  func hideCapsule(restoringFocus: Bool = true) {
+    if restoringFocus, let focused = window?.firstResponder as? NSView, focused.isDescendant(of: capsule) {
       window?.makeFirstResponder(capsuleFocusTarget?() ?? (currentMode == .originalPages ? original : reader.bodyTextView))
     }
     capsule.hide()
@@ -1493,28 +1496,28 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
-    original.invalidateInteraction()
-    cancelFind()
+    original.invalidateFind()
     let searchGeneration = findGeneration, snapshot = original.store.accepted?.id, selected = original.store.selection?.0
     let query = findField.stringValue
     findTask = Task { [weak self] in
-      var generation = searchGeneration
+      defer { if let self, self.findGeneration == searchGeneration { self.findTask = nil } }
       do {
         guard let hit = try await original.search(query).first else { return }
         try Task.checkCancellation()
-        guard let self, self.findGeneration == generation, self.currentMode == .originalPages,
+        guard let self, self.findGeneration == searchGeneration, self.currentMode == .originalPages,
               !original.isHidden, original.store.accepted?.id == snapshot,
               original.store.selection?.0 == selected else { return }
-        // Find is complete. Navigation/selection now use the same interaction
-        // owner as mouse and AX without cancelling this task's own adoption.
-        self.findTask = nil
-        try original.jump(to: hit.pageIndex)
-        generation = self.findGeneration
-        try await original.select(page: hit.pageIndex, range: hit.rangeUTF16)
+        // Keep cancellation authority through adoption. Only this Find's own
+        // synchronous jump bypasses external-interaction invalidation.
+        try original.jump(to: hit.pageIndex, invalidatesFind: false)
+        try await original.select(page: hit.pageIndex, range: hit.rangeUTF16, isValid: { [weak self] in
+          guard let self else { return false }
+          return !Task.isCancelled && self.findGeneration == searchGeneration && self.currentMode == .originalPages && !original.isHidden
+        })
         try Task.checkCancellation()
         self.searchSelectionTicket = original.store.selection?.0; self.refreshStatus()
       } catch {
-        guard let self, !Task.isCancelled, self.findGeneration == generation else { return }
+        guard let self, !Task.isCancelled, self.findGeneration == searchGeneration else { return }
         if case NativeOriginalPageError.stale = error { return }
         self.notice.stringValue = String(describing: error)
       }

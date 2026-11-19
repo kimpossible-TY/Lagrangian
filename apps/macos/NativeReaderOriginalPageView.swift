@@ -10,6 +10,10 @@ import AppKit
     // Selection intent and navigation supersede pending Find before any await.
     func invalidateInteraction() {
         selectionOperation += 1
+        invalidateFind()
+    }
+    func invalidateFind() {
+        findOperation += 1
         onInteraction?()
     }
     var onFailure: ((Error) -> Void)?
@@ -19,6 +23,7 @@ import AppKit
     private var task: Task<Void, Never>?
     private var operation = 0
     private var selectionOperation = 0
+    private var findOperation = 0
     private var selectionTask: Task<Void, Never>?
     fileprivate struct PageKey: Equatable {
         let snapshot: UUID; let page: Int; let generation: Int; let operation: Int
@@ -56,6 +61,7 @@ import AppKit
         selectionTask = Task { [weak self] in
             guard let self, !Task.isCancelled, current(key) else { return }
             do { try await select(page: key.page, range: range.location..<NSMaxRange(range)) }
+            catch NativeOriginalPageError.stale { /* Superseded selection is normal cancellation. */ }
             catch { if !Task.isCancelled, current(key) { onFailure?(error) } }
         }
     }
@@ -122,8 +128,8 @@ import AppKit
         } catch { onFailure?(error) }
     }
     func installed() { selected = nil; ready = false; render() }
-    func render() {
-        invalidateInteraction()
+    func render(invalidatesFind: Bool = true) {
+        if invalidatesFind { invalidateFind() }
         task?.cancel(); selectionTask?.cancel(); selectionOperation += 1
         operation += 1; let epoch = operation
         ready = false; pageAX = nil; pageText = nil; focusedLink = nil; textFailure = nil
@@ -163,12 +169,13 @@ import AppKit
         let w = ceil(size.width * scale), h = ceil(size.height * scale)
         guard w > 0, h > 0, w <= 8192, h <= 8192, w * h <= 4 * 1024 * 1024 else { throw NativeOriginalPageError.budget }
     }
-    func jump(to page: Int) throws {
-        invalidateInteraction()
+    func jump(to page: Int, invalidatesFind: Bool = true) throws {
+        if invalidatesFind { invalidateInteraction() }
         guard let accepted = store.accepted, accepted.binding.pages.indices.contains(page) else { throw NativeOriginalPageError.geometry }
         let scale = store.fitsWidth ? min(8, max(0.1, store.viewportWidth / accepted.binding.pages[page].displaySize.width)) : store.scale
+        try checkRaster(page: page, scale: scale); try store.jump(to: page)
         pendingOffset = nil; pendingReveal = nil
-        try checkRaster(page: page, scale: scale); try store.jump(to: page); ready = false; render()
+        ready = false; render(invalidatesFind: false)
     }
     func zoom(_ value: Double?) throws {
         invalidateInteraction()
@@ -179,7 +186,7 @@ import AppKit
     }
     func resizeViewport(_ newSize: NSSize) {
         guard !disposed, newSize.width >= 32, newSize.width <= 8192, newSize.width != store.viewportWidth else { return }
-        invalidateInteraction()
+        invalidateFind()
         guard store.selection == nil else { return }
         do {
             try store.resize(width: newSize.width)
@@ -190,14 +197,14 @@ import AppKit
         super.setFrameSize(newSize)
         if enclosingScrollView == nil { resizeViewport(newSize) }
     }
-    func select(page: Int, range: Range<Int>) async throws {
+    func select(page: Int, range: Range<Int>, isValid: () -> Bool = { true }) async throws {
         guard !disposed, let accepted = store.accepted, page == store.pageIndex else { throw NativeOriginalPageError.stale }
         let epoch = operation
         selectionOperation += 1; let selectionEpoch = selectionOperation
         let value = try await accepted.access.selection(page: page, rangeUTF16: range)
         try Task.checkCancellation()
-        guard !disposed, operation == epoch, selectionOperation == selectionEpoch, store.pageIndex == page,
-              store.accepted?.id == accepted.id else { throw NativeOriginalPageError.stale }
+        guard !disposed, !isHidden, operation == epoch, selectionOperation == selectionEpoch, store.pageIndex == page,
+              store.accepted?.id == accepted.id, isValid() else { throw NativeOriginalPageError.stale }
         try hold(value)
     }
     private func hold(_ value: NativeOriginalDisplaySelection) throws {
@@ -215,10 +222,10 @@ import AppKit
     func copyDisplay() -> Bool { guard !disposed, ready, let selected, selected.snapshotID == store.accepted?.id, selected.pageIndex == store.pageIndex else { return false }; return copyText(selected.displayText) }
     func search(_ query: String) async throws -> [NativeOriginalDisplaySelection] {
         guard !disposed, !isHidden, let accepted = store.accepted else { throw NativeOriginalPageError.stale }
-        let epoch = operation, selectionEpoch = selectionOperation
+        let epoch = operation, findEpoch = findOperation
         let result = try await accepted.access.search(query)
         try Task.checkCancellation()
-        guard !disposed, !isHidden, selectionOperation == selectionEpoch, operation == epoch, store.accepted?.id == accepted.id else { throw NativeOriginalPageError.stale }
+        guard !disposed, !isHidden, findOperation == findEpoch, operation == epoch, store.accepted?.id == accepted.id else { throw NativeOriginalPageError.stale }
         return result
     }
     func activate(_ link: NativeOriginalPDFAccess.Link) throws {
