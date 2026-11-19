@@ -168,12 +168,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.capsule.onAction = { [weak self] in self?.capsuleAction($0, $1) }
     hostWindow.capsule.onDismiss = { [weak self] binding in
       guard let self, self.hostWindow.capsule.binding == binding else { return }
-      self.dismissedCapsule = binding; self.hostWindow.hideCapsule(); self.returnCapsuleFocus()
+      self.dismissedCapsule = binding; self.hostWindow.hideCapsule()
     }
     hostWindow.onRetryRecovery = { [weak self] in
       guard let self, self.session.hasPendingRecovery, self.session.failure != nil else { return }
       self.session.preparationChanged()
     }
+    hostWindow.capsuleFocusTarget = { [weak self] in self?.returnCapsuleFocus() }
     hostWindow.onShowCapsule = { [weak self] in self?.updateCapsule(reopen: true, focus: true) }
     hostWindow.onCapsuleLayout = { [weak self] in self?.updateCapsule() }
     hostWindow.onEditorReceipt = { [weak self] in self?.checkEditorReceipt() }
@@ -205,6 +206,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.diagnostic = message
       self.layoutChanged()
     }
+    originalPageView.onInteraction = { [weak self] in self?.hostWindow.cancelFind() }
     originalPageView.onHold = { [weak self] held in self?.session.holdOriginalPageSelection(held); self?.updatePresentation() }
     originalPageView.onFailure = { [weak self] in self?.report($0) }
     originalPageView.copyText = { [weak self] in self?.copyText($0) ?? false }
@@ -878,11 +880,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
 
-  private func returnCapsuleFocus() {
-    guard let window = hostWindow.window else { return }
-    if let view = capsuleFocusReturn as? NSView, view.window === window, !view.isHiddenOrHasHiddenAncestor {
-      window.makeFirstResponder(view)
-    } else { window.makeFirstResponder(visibleMode == .nativeReflow ? textView.bodyTextView : originalPageView) }
+  private func returnCapsuleFocus() -> NSView {
+    if let view = capsuleFocusReturn as? NSView, view.window === hostWindow.window, !view.isHiddenOrHasHiddenAncestor {
+      return view
+    }
+    return visibleMode == .nativeReflow ? textView.bodyTextView : originalPageView
   }
   private func updateCapsule(reopen: Bool = false, focus: Bool = false) {
     guard !disposed, !requestTicket.isCancelled, let context = session.context,
@@ -922,7 +924,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     let summary = unavailable[.ask] ?? "선택한 내용 · 질문하기는 작성기만 엽니다. 명시 전송 전에는 요청하지 않습니다."
     hostWindow.capsule.present(binding, unavailable: unavailable, summary: summary)
     hostWindow.placeCapsule(viewport: viewport, avoiding: rects)
-    if focus { capsuleFocusReturn = hostWindow.window?.firstResponder; hostWindow.capsule.focusFirstAction() }
+    if focus {
+      if let focused = hostWindow.window?.firstResponder as? NSView, !focused.isDescendant(of: hostWindow.capsule) {
+        capsuleFocusReturn = focused
+      }
+      hostWindow.capsule.focusFirstAction()
+    }
   }
   private func capsuleAction(_ binding: NativeFloatingCapsule.Binding, _ action: NativeFloatingCapsule.Action) {
     guard hostWindow.capsule.binding == binding, session.context == binding.context,
@@ -974,7 +981,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private func dismissComposer(_ chat: NativeReaderChatView) {
     guard chatView === chat else { return }
     rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); chatView = nil; chatContext = nil
-    returnCapsuleFocus()
+    hostWindow.window?.makeFirstResponder(returnCapsuleFocus())
   }
 
   /// Compose an existing owner's accepted conversation; no Send/account action is implicit.
@@ -1084,6 +1091,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   var onCancelRecovery: (() -> Void)?
   var onRetryRecovery: (() -> Void)?
   var onShowCapsule: (() -> Void)?
+  var capsuleFocusTarget: (() -> NSView?)?
   var onCapsuleLayout: (() -> Void)?
   let capsule = NativeFloatingCapsule()
   private var capsuleDocked = false
@@ -1306,7 +1314,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 12),
       stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -12),
       reader.widthAnchor.constraint(equalTo: stack.widthAnchor),
-      reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220)])
+      // NativeReaderTextView reserves 42pt below its inner clip for visible status.
+      reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220 + 42)])
     NativeChrome.apply(to: window.contentView!)
     toolsScroll.drawsBackground = false
     self.window = window
@@ -1316,7 +1325,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   func hideCapsule() {
     if let focused = window?.firstResponder as? NSView, focused.isDescendant(of: capsule) {
-      window?.makeFirstResponder(currentMode == .originalPages ? original : reader.bodyTextView)
+      window?.makeFirstResponder(capsuleFocusTarget?() ?? (currentMode == .originalPages ? original : reader.bodyTextView))
     }
     capsule.hide()
     if capsuleDocked {
@@ -1374,7 +1383,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     scroll.documentView = view; originalScroll = scroll
     scroll.contentView.postsBoundsChangedNotifications = true
     view.isHidden = true; scroll.isHidden = true; stack.addArrangedSubview(scroll)
-    scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+    // The always-visible legacy horizontal scroller sits outside the reading clip.
+    scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 220 + NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)).isActive = true
     scroll.translatesAutoresizingMaskIntoConstraints = false
     scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
   }
@@ -1483,25 +1493,30 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
+    original.invalidateInteraction()
     cancelFind()
-    let generation = findGeneration, snapshot = original.store.accepted?.id, selected = original.store.selection?.0
+    let searchGeneration = findGeneration, snapshot = original.store.accepted?.id, selected = original.store.selection?.0
     let query = findField.stringValue
     findTask = Task { [weak self] in
+      var generation = searchGeneration
       do {
         guard let hit = try await original.search(query).first else { return }
         try Task.checkCancellation()
         guard let self, self.findGeneration == generation, self.currentMode == .originalPages,
               !original.isHidden, original.store.accepted?.id == snapshot,
               original.store.selection?.0 == selected else { return }
+        // Find is complete. Navigation/selection now use the same interaction
+        // owner as mouse and AX without cancelling this task's own adoption.
+        self.findTask = nil
         try original.jump(to: hit.pageIndex)
+        generation = self.findGeneration
         try await original.select(page: hit.pageIndex, range: hit.rangeUTF16)
         try Task.checkCancellation()
-        guard self.findGeneration == generation else { return }
         self.searchSelectionTicket = original.store.selection?.0; self.refreshStatus()
       } catch {
         guard let self, !Task.isCancelled, self.findGeneration == generation else { return }
+        if case NativeOriginalPageError.stale = error { return }
         self.notice.stringValue = String(describing: error)
-        if case NativeOriginalPageError.stale = error { self.showRetainedFailure() }
       }
     }
   }

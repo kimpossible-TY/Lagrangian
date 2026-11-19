@@ -578,7 +578,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     guard let port = Int(value("port")) else { throw FlowError(message: "포트를 숫자로 입력하세요.") }
     updated.name = value("name")
-    updated.root = value("root")
+    updated.root = fields["root"]!.stringValue
     updated.entry = value("entry")
     updated.fonts = value("fonts").split(separator: ";").map {
       $0.trimmingCharacters(in: .whitespaces)
