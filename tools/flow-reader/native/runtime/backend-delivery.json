@@ -903,6 +903,27 @@
             "sha256": "79f827f8292c43ceee436045d250a50cfa3b48f6d4c77b473006f4cedde6523e"
           }
         ]
+      },
+      {
+        "baseRevision": "792091e491bd55e401509f7dd4e25b9c79d3a4b5",
+        "revision": "e345dbfa4de3b72787b3ec6510d2e531442a6fdb",
+        "files": [
+          {
+            "path": "apps/macos/FlowApp.swift",
+            "baseSHA256": "1810d7b1d22b61c4d31429ed3152c3e62e1d048522c837a442a53619d7b76e07",
+            "sha256": "05dac2aed4e7871f0ea2004b3ef5c71ee6885924d1e547b1189dca7f2b2bd9e7"
+          },
+          {
+            "path": "apps/macos/NativeReaderOriginalPageView.swift",
+            "baseSHA256": "0bbcae41c04aef9f4e12c4d16807df6efd96ee900c8dccc37a1e3478f631ef9d",
+            "sha256": "5b4db4b8bf08f72dd0bfd70635e37e21da252e0a71163caa980fe9eee0362e9d"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "79f827f8292c43ceee436045d250a50cfa3b48f6d4c77b473006f4cedde6523e",
+            "sha256": "e3d42e19a91af5b520ff1033435713d0f4ce45e22a33892f0436670693aa3ba3"
+          }
+        ]
       }
     ]
   }
