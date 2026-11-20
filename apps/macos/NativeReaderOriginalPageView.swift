@@ -172,6 +172,7 @@ import AppKit
     func jump(to page: Int, invalidatesFind: Bool = true) throws {
         if invalidatesFind { invalidateInteraction() }
         guard let accepted = store.accepted, accepted.binding.pages.indices.contains(page) else { throw NativeOriginalPageError.geometry }
+        guard store.selection == nil else { throw NativeOriginalPageError.heldSelection }
         let scale = store.fitsWidth ? min(8, max(0.1, store.viewportWidth / accepted.binding.pages[page].displaySize.width)) : store.scale
         try checkRaster(page: page, scale: scale); try store.jump(to: page)
         pendingOffset = nil; pendingReveal = nil
@@ -180,9 +181,11 @@ import AppKit
     func zoom(_ value: Double?) throws {
         invalidateInteraction()
         guard let accepted = store.accepted else { throw NativeOriginalPageError.stale }
+        guard store.selection == nil else { throw NativeOriginalPageError.heldSelection }
         let scale = value ?? min(8, max(0.1, store.viewportWidth / accepted.binding.pages[store.pageIndex].displaySize.width))
+        try checkRaster(page: store.pageIndex, scale: scale); try store.setScale(value)
         pendingOffset = nil; pendingReveal = nil
-        try checkRaster(page: store.pageIndex, scale: scale); try store.setScale(value); ready = false; render()
+        ready = false; render()
     }
     func resizeViewport(_ newSize: NSSize) {
         guard !disposed, newSize.width >= 32, newSize.width <= 8192, newSize.width != store.viewportWidth else { return }
@@ -245,7 +248,7 @@ import AppKit
         }
     }
     override func mouseDown(with event: NSEvent) {
-        guard ready, !disposed, let accepted = store.accepted else { return }
+        guard ready, !disposed, !isHidden, let accepted = store.accepted else { return }
         invalidateInteraction()
         selectionTask?.cancel()
         window?.makeFirstResponder(self)
@@ -253,7 +256,7 @@ import AppKit
     }
     override func mouseUp(with event: NSEvent) {
         let drag = dragStart; dragStart = nil
-        guard ready, !disposed, let drag, let accepted = store.accepted, drag.snapshot == accepted.id,
+        guard ready, !disposed, !isHidden, let drag, let accepted = store.accepted, drag.snapshot == accepted.id,
               drag.page == store.pageIndex, drag.operation == operation else { return }
         let start = drag.point
         let end = convert(event.locationInWindow, from: nil)
@@ -275,7 +278,12 @@ import AppKit
                           self.store.pageIndex == page, self.store.accepted?.id == accepted.id else { return }
                     try self.hold(value)
                 } catch NativeOriginalPageError.stale { /* Superseded selection is normal cancellation. */ }
-                catch { if !Task.isCancelled { self?.onFailure?(error) } }
+                catch {
+                    guard let self, !Task.isCancelled, !self.disposed, !self.isHidden, self.operation == epoch,
+                          self.selectionOperation == selectionEpoch, self.store.pageIndex == page,
+                          self.store.accepted?.id == accepted.id else { return }
+                    self.onFailure?(error)
+                }
             }
         } catch { onFailure?(error) }
     }
