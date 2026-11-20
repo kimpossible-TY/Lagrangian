@@ -205,8 +205,16 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let activity = NSProgressIndicator()
   var controls: [Selector: NSButton] = [:]
   var fields: [String: NSTextField] = [:]
-  let login = NSButton(checkboxWithTitle: "로그인 시 Lagrangian 앱 열기", target: nil, action: nil)
+  let login: NSButton = NativeCheckboxButton(checkboxTitle: "로그인 시 Lagrangian 앱 열기")
+  private var appearanceObservation: NSKeyValueObservation?
+  private var accessibilityObservation: NSObjectProtocol?
   var active: Profile? { settings.profiles.first { $0.id == settings.selectedID } }
+  deinit {
+    appearanceObservation?.invalidate()
+    if let accessibilityObservation {
+      NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObservation)
+    }
+  }
   func applicationDidFinishLaunching(_ note: Notification) {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     statusItem.button?.image = NSImage(
@@ -420,6 +428,24 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     footer.textColor = .secondaryLabelColor
     content.addArrangedSubview(footer)
     NativeChrome.apply(to: window.contentView!)
+    (login as? NativeCheckboxButton)?.onAppearanceChange = { [weak self] in
+      self?.refreshLoginTitle()
+    }
+    appearanceObservation?.invalidate()
+    appearanceObservation = window.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+      if Thread.isMainThread { self?.refreshLoginTitle() }
+      else { DispatchQueue.main.async { self?.refreshLoginTitle() } }
+    }
+    if accessibilityObservation == nil {
+      accessibilityObservation = NSWorkspace.shared.notificationCenter.addObserver(
+        forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.refreshLoginTitle()
+      }
+    }
+    refreshLoginTitle()
   }
   func populate() {
     picker.removeAllItems()
@@ -478,9 +504,22 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     if [#selector(copyURL), #selector(openLogs), #selector(openOffline)].contains(action) { return active != nil }
     return true
   }
+  func refreshLoginTitle() {
+    let appearance = login.window != nil ? login.effectiveAppearance : (window?.effectiveAppearance ?? login.effectiveAppearance)
+    let palette = NativeAppDesign.palette(.current(appearance: appearance))
+    let foreground = login.isEnabled ? palette.ink : palette.secondaryInk
+    let title = login.title.isEmpty ? "로그인 시 Lagrangian 앱 열기" : login.title
+    let font = login.font ?? NativeAppDesign.Typography.font(.control)
+    login.attributedTitle = NSAttributedString(
+      string: title,
+      attributes: [.foregroundColor: foreground, .font: font]
+    )
+    login.needsDisplay = true
+  }
   func updateControls() {
     picker.isEnabled = !mutating
     login.isEnabled = enabled(#selector(toggleLogin))
+    refreshLoginTitle()
     for field in fields.values { field.isEnabled = active != nil && !mutating }
     for (action, control) in controls { control.isEnabled = enabled(action) }
     if mutating {
@@ -687,4 +726,37 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
   }
   @objc func quit() { NSApp.terminate(nil) }
+}
+
+private final class NativeCheckboxButton: NSButton {
+  var onAppearanceChange: (() -> Void)?
+  override class var cellClass: AnyClass? {
+    get { NativeCheckboxCell.self }
+    set {}
+  }
+  convenience init(checkboxTitle: String) {
+    self.init(frame: .zero)
+    setButtonType(.switch)
+    title = checkboxTitle
+  }
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    setButtonType(.switch)
+  }
+  required init?(coder: NSCoder) { nil }
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    onAppearanceChange?()
+  }
+}
+
+private final class NativeCheckboxCell: NSButtonCell {
+  override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+    let text = NSMutableAttributedString(attributedString: title)
+    if let explicit = (controlView as? NSButton)?.attributedTitle, explicit.length > 0,
+       let color = explicit.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor {
+      text.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.length))
+    }
+    return super.drawTitle(text, withFrame: frame, in: controlView)
+  }
 }

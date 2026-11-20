@@ -75,14 +75,17 @@ enum NativeAppDesign {
     static func buttonPaint(_ preferences: Preferences, role: ButtonRole,
                             enabled: Bool, hovered: Bool, pressed: Bool) -> ButtonPaint {
         let p = palette(preferences)
+        let dark = preferences.theme == .dark
         let fill: NSColor
-        if !enabled { fill = p.panel }
+        if !enabled { fill = p.paper }
         else if pressed { fill = p.pressed }
         else if hovered { fill = p.hover }
         else { fill = role == .primary ? p.accent : p.panel }
+        let disabledEdge = color(dark ? (preferences.increasedContrast ? 0xA59D90 : 0x5C574E)
+                                      : (preferences.increasedContrast ? 0x71695E : 0xB8B0A2))
         return ButtonPaint(fill: fill,
                            ink: !enabled ? p.disabledInk : (role == .primary && !pressed && !hovered ? p.onAccent : p.ink),
-                           edge: p.boundary,
+                           edge: !enabled ? disabledEdge : p.boundary,
                            lineWidth: preferences.increasedContrast ? Shape.strongStroke : Shape.stroke)
     }
 }
