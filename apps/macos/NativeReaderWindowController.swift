@@ -560,7 +560,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   func openOfflineLibrary(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void = { _ in }) {
     _ = open(profile, refresh: false, progress: progress)
-    hostWindow.setNotice("Choose a saved document to read offline.")
+    hostWindow.setNotice("오프라인으로 읽을 저장 문서를 선택하세요.")
     hostWindow.present(); refreshSavedExplicitly()
   }
   private func addReview() {
@@ -652,12 +652,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       let entries = try await storage.list(); try Task.checkCancellation()
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
       self.hostWindow.setSavedDocuments(entries)
-      self.hostWindow.setNotice(entries.isEmpty ? "No saved documents in this project." : "Choose a saved document to open.")
+      self.hostWindow.setNotice(entries.isEmpty ? "이 프로젝트에 저장된 문서가 없습니다." : "열 저장 문서를 선택하세요.")
     }
   }
   private func openSavedExplicitly(_ identity: NativeDocumentIdentity) {
     guard let storage = offlineStorage else { return }
-    guard !session.hasSelection else { hostWindow.setNotice("Release the selection before opening a saved document."); return }
+    guard !session.hasSelection else { hostWindow.setNotice("저장 문서를 열기 전에 선택을 해제하세요."); return }
     hostWindow.cancelFind()
     let epoch = storageEpoch + 1, ticket = requestTicket
     storageOperation(opening: true) { [weak self] in
@@ -1133,7 +1133,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.window?.close() }
 }
 
-@MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate {
+@MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
   let reader: NativeReaderTextView
   let notice = NSTextField(wrappingLabelWithString: "원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
   var onRefresh: (() -> Void)?
@@ -1221,6 +1221,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var originalScroll: NativeReaderPageScrollView?
   private var currentMode: NativeReaderWindowController.Mode = .nativeReflow
   private let sourceControls = NSStackView()
+  private var pageNavigation: NativeChromeControlRow?
   let findField = NSSearchField()
   private let fixtureMode: Bool
   private let show: Bool
@@ -1278,10 +1279,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     back.identifier = NSUserInterfaceItemIdentifier("returnFromReference")
     let pageNavigation = NativeChromeControlRow([command("이전 페이지", #selector(previousPage)), command("다음 페이지", #selector(nextPage))])
     pageNavigation.identifier = NSUserInterfaceItemIdentifier("pageNavigation")
+    pageNavigation.isHidden = true
+    self.pageNavigation = pageNavigation
     _ = row([NSTextField(labelWithString: "목차"), contents, back, pageNavigation])
-    findField.placeholderString = "PDF에서 검색"; findField.setAccessibilityLabel("PDF에서 검색")
+    findField.placeholderAttributedString = NSAttributedString(
+      string: "PDF에서 검색",
+      attributes: [.foregroundColor: NativeChrome.color(\.secondaryInk), .font: NativeAppDesign.Typography.font(.control)])
+    findField.setAccessibilityLabel("PDF에서 검색")
     findField.identifier = NSUserInterfaceItemIdentifier("findPage")
     findField.target = self; findField.action = #selector(findPage)
+    findField.isHidden = true
     for field in [findField, modeStatus, selectionStatus] {
       stack.addArrangedSubview(field); field.translatesAutoresizingMaskIntoConstraints = false
       field.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -1375,6 +1382,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       reader.widthAnchor.constraint(equalTo: stack.widthAnchor),
       // NativeReaderTextView reserves 42pt below its inner clip for visible status.
       reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220 + 42)])
+    // Keep initial Reflow chrome synchronized with the default "밝게" theme picker.
+    window.appearance = NSAppearance(named: .aqua)
     NativeChrome.apply(to: window.contentView!)
     toolsScroll.drawsBackground = false
     self.window = window
@@ -1461,6 +1470,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     sourceControls.isHidden = mode == .originalPages
     for row in reflowRows { row.isHidden = mode != .nativeReflow }
     recoveredDraftRow.isHidden = recoveredDrafts.isEmpty
+    findField.isHidden = mode != .originalPages
+    pageNavigation?.isHidden = mode != .originalPages
+    invalidateControlLayout()
     window?.contentView?.layoutSubtreeIfNeeded()
   }
   func prepareForOpen() {
@@ -1736,6 +1748,27 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   func cancelFind() {
     findGeneration += 1; findTask?.cancel(); findTask = nil
     findFailure = nil; actionFailure = nil; refreshStatus()
+  }
+  @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+    guard menuItem.action == #selector(NSResponder.performTextFinderAction(_:)) else {
+      return menuItem.action.map { responds(to: $0) } ?? false
+    }
+    guard let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return false }
+    switch currentMode {
+    case .nativeReflow:
+      return reader.canPerformFind(tag: action.rawValue)
+    case .originalPages:
+      return action == .showFindInterface && !findField.isHidden
+    }
+  }
+  override func performTextFinderAction(_ sender: Any?) {
+    guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag ?? (sender as? NSControl)?.tag,
+          let action = NSTextFinder.Action(rawValue: tag) else { return }
+    if currentMode == .nativeReflow {
+      _ = reader.performFindAction(action)
+    } else if currentMode == .originalPages && action == .showFindInterface {
+      window?.makeFirstResponder(findField)
+    }
   }
   @objc func copySelected() { if currentMode == .originalPages { _ = original?.copyDisplay() } else { _ = reader.copyPlainText() } }
   @objc func sourceSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.excerpt) }

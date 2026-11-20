@@ -126,6 +126,12 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     override func cancelOperation(_ sender: Any?) {
         if reader?.hideFindBar() != true { super.cancelOperation(sender) }
     }
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(NSResponder.performTextFinderAction(_:)) {
+            return reader?.canPerformFind(tag: item.tag) ?? false
+        }
+        return super.validateUserInterfaceItem(item)
+    }
     override func performTextFinderAction(_ sender: Any?) {
         guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag ?? (sender as? NSControl)?.tag,
               let action = NSTextFinder.Action(rawValue: tag) else { return }
@@ -134,8 +140,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     // Calls the inherited NSTextView/NSTextFinder implementation, never the
     // legacy global FindPanel action. Search/matching remains AppKit-owned.
     fileprivate func performNativeFindAction(_ action: NSTextFinder.Action) {
-        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: "", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "")
         item.tag = action.rawValue
+        if window != nil && action == .showFindInterface {
+            window?.makeFirstResponder(self)
+        }
         super.performTextFinderAction(item)
     }
     override func copy(_ sender: Any?) { _ = reader?.copyPlainText() }
@@ -372,19 +381,24 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     override func cancelOperation(_ sender: Any?) {
         if !hideFindBar() { super.cancelOperation(sender) }
     }
+    func canPerformFind(tag: Int? = nil) -> Bool {
+        guard !isDisposed, !isCancelled, renderKey != nil else { return false }
+        guard let tag else { return true }
+        guard let action = NSTextFinder.Action(rawValue: tag) else { return false }
+        return [.showFindInterface, .hideFindInterface, .nextMatch, .previousMatch].contains(action)
+    }
     @discardableResult func handleFindKeyEquivalent(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
         let character = event.charactersIgnoringModifiers?.lowercased()
-        if modifiers == .command && character == "f" { return performFindAction(.showFindInterface) }
-        if character == "g", modifiers == .command || modifiers == [.command, .shift] {
+        if modifiers == .command && (character == "f" || event.keyCode == 3) { return performFindAction(.showFindInterface) }
+        if (character == "g" || event.keyCode == 5), modifiers == .command || modifiers == [.command, .shift] {
             return performFindAction(modifiers.contains(.shift) ? .previousMatch : .nextMatch)
         }
         if event.keyCode == 53 && modifiers.isEmpty { return hideFindBar() }
         return false
     }
     @discardableResult func performFindAction(_ action: NSTextFinder.Action) -> Bool {
-        guard !isDisposed, !isCancelled, renderKey != nil,
-              [.showFindInterface, .hideFindInterface, .nextMatch, .previousMatch].contains(action) else { return false }
+        guard canPerformFind(tag: action.rawValue) else { return false }
         bodyTextView.performNativeFindAction(action)
         return true
     }

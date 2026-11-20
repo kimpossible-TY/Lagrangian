@@ -284,7 +284,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       item.target = self
       menu.addItem(item)
     }
-    statusItem.menu = menu
+    statusItem?.menu = menu
     let main = NSMenu()
     let app = NSMenuItem()
     app.submenu = menu.copy() as? NSMenu
@@ -297,6 +297,25 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     ] {
       edit.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
     }
+    edit.addItem(NSMenuItem.separator())
+    let findItem = NSMenuItem(title: "Find", action: nil, keyEquivalent: "")
+    let findMenu = NSMenu(title: "Find")
+    for (title, key, modifiers, action) in [
+      ("Find…", "f", NSEvent.ModifierFlags.command, NSTextFinder.Action.showFindInterface),
+      ("Find Next", "g", NSEvent.ModifierFlags.command, NSTextFinder.Action.nextMatch),
+      ("Find Previous", "g", NSEvent.ModifierFlags([.command, .shift]), NSTextFinder.Action.previousMatch),
+    ] {
+      let item = NSMenuItem(
+        title: title,
+        action: #selector(NSResponder.performTextFinderAction(_:)),
+        keyEquivalent: key)
+      item.keyEquivalentModifierMask = modifiers
+      item.tag = action.rawValue
+      item.target = nil
+      findMenu.addItem(item)
+    }
+    findItem.submenu = findMenu
+    edit.addItem(findItem)
     editItem.submenu = edit
     main.addItem(editItem)
     NSApp.mainMenu = main
