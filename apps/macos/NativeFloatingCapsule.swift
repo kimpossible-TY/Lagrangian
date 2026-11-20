@@ -34,10 +34,12 @@ enum NativeChrome {
     private(set) var binding: Binding?
     var onAction: ((Binding, Action) -> Void)?
     var onDismiss: ((Binding) -> Void)?
+    var onReleaseSelection: ((Binding) -> Void)?
     private let surface = NativeDesignSurface()
     private let scroll = NSScrollView()
     private let content = CapsuleContent()
     let reason = NSTextField(wrappingLabelWithString: "")
+    let releaseSelectionButton = NativeDesignButton(title: "선택 해제", target: nil, action: nil)
     let closeButton = NativeDesignButton(title: "닫기", target: nil, action: nil)
     private(set) var buttons = [Action: NativeDesignButton]()
     private var row: NativeChromeControlRow!
@@ -51,10 +53,14 @@ enum NativeChrome {
             button.identifier = NSUserInterfaceItemIdentifier("capsule." + action.rawValue)
             button.setAccessibilityLabel(title); buttons[action] = button
         }
+        releaseSelectionButton.target = self; releaseSelectionButton.action = #selector(releaseSelectionExplicitly)
+        releaseSelectionButton.identifier = NSUserInterfaceItemIdentifier("capsule.releaseSelection")
+        releaseSelectionButton.setAccessibilityLabel("선택 해제")
+        releaseSelectionButton.isHidden = true
         closeButton.target = self; closeButton.action = #selector(dismissExplicitly)
         closeButton.identifier = NSUserInterfaceItemIdentifier("capsule.dismiss")
         closeButton.keyEquivalent = "\u{1b}"; closeButton.keyEquivalentModifierMask = []
-        row = NativeChromeControlRow(Action.allCases.compactMap { buttons[$0] } + [closeButton])
+        row = NativeChromeControlRow(Action.allCases.compactMap { buttons[$0] } + [releaseSelectionButton, closeButton])
         content.addSubview(reason); content.addSubview(row)
         reason.font = NativeAppDesign.Typography.font(.caption); reason.textColor = NativeChrome.color(\.secondaryInk)
         setAccessibilityElement(false); setAccessibilityLabel("선택한 내용의 작업")
@@ -69,6 +75,10 @@ enum NativeChrome {
             button.toolTip = unavailable[action]
             button.setAccessibilityHelp(unavailable[action] ?? "현재 선택에 적용합니다")
         }
+        releaseSelectionButton.isHidden = !binding.originalPDF
+        releaseSelectionButton.isEnabled = binding.originalPDF
+        releaseSelectionButton.setAccessibilityHelp(binding.originalPDF ? "PDF 선택을 해제합니다" : nil)
+        row.invalidateIntrinsicContentSize(); row.needsLayout = true
         isHidden = false; needsLayout = true
     }
     func hide() { binding = nil; isHidden = true }
@@ -92,6 +102,10 @@ enum NativeChrome {
         guard let binding, !isHidden, sender.isEnabled,
               let action = buttons.first(where: { $0.value === sender })?.key else { return }
         onAction?(binding, action)
+    }
+    @objc func releaseSelectionExplicitly() {
+        guard let binding, !isHidden, binding.originalPDF else { return }
+        onReleaseSelection?(binding)
     }
     @objc func dismissExplicitly() { guard let binding else { return }; onDismiss?(binding) }
     override func cancelOperation(_ sender: Any?) { dismissExplicitly() }
@@ -118,17 +132,42 @@ private final class CapsuleContent: NSView { override var isFlipped: Bool { true
   override var isFlipped: Bool { true }
   init(_ controls: [NSView]) { super.init(frame: .zero); for view in controls { addSubview(view) } }
   required init?(coder: NSCoder) { nil }
-  private func arrange(apply: Bool) -> CGFloat {
-    let width = max(1, bounds.width), gap: CGFloat = 6
+  private func singleRowWidth() -> CGFloat {
+    let gap: CGFloat = 6
+    var total: CGFloat = 0
+    var count = 0
+    for view in subviews where !view.isHidden {
+      let width: CGFloat
+      if let nested = view as? NativeChromeControlRow {
+        width = nested.singleRowWidth()
+      } else {
+        var size = view.fittingSize
+        if view is NSPopUpButton { size.width = min(280, size.width) }
+        width = max(32, size.width)
+      }
+      total += (count > 0 ? gap : 0) + width
+      count += 1
+    }
+    return max(32, total)
+  }
+  private func arrange(forWidth availableWidth: CGFloat, apply: Bool) -> CGFloat {
+    let width = max(1, availableWidth), gap: CGFloat = 6
     var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
     for view in subviews where !view.isHidden {
-      var size = view.fittingSize
-      if let popup = view as? NSPopUpButton {
-        size.width = min(280, size.width); popup.toolTip = popup.titleOfSelectedItem
-      }
-      size.width = min(width, max(32, size.width)); size.height = max(24, size.height)
-      if let text = view as? NSTextField, text.cell?.wraps == true {
-        size.height = max(size.height, text.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: size.width, height: 10000)).height)
+      var size: NSSize
+      if let nested = view as? NativeChromeControlRow {
+        let preferredWidth = nested.singleRowWidth()
+        let nestedWidth = min(width, max(32, preferredWidth))
+        size = NSSize(width: nestedWidth, height: max(24, nested.arrange(forWidth: nestedWidth, apply: false)))
+      } else {
+        size = view.fittingSize
+        if let popup = view as? NSPopUpButton {
+          size.width = min(280, size.width); popup.toolTip = popup.titleOfSelectedItem
+        }
+        size.width = min(width, max(32, size.width)); size.height = max(24, size.height)
+        if let text = view as? NSTextField, text.cell?.wraps == true {
+          size.height = max(size.height, text.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: size.width, height: 10000)).height)
+        }
       }
       if x > 0 && x + size.width > width { x = 0; y += rowHeight + gap; rowHeight = 0 }
       if apply { view.frame = NSRect(origin: NSPoint(x: x, y: y), size: size) }
@@ -136,9 +175,12 @@ private final class CapsuleContent: NSView { override var isFlipped: Bool { true
     }
     return y + rowHeight
   }
-  override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: arrange(apply: false)) }
+  override var intrinsicContentSize: NSSize {
+    let width = bounds.width > 0 ? bounds.width : singleRowWidth()
+    return NSSize(width: NSView.noIntrinsicMetric, height: arrange(forWidth: width, apply: false))
+  }
   override func layout() {
-    super.layout(); let height = arrange(apply: true)
+    super.layout(); let height = arrange(forWidth: bounds.width, apply: true)
     if abs(lastHeight-height) > 0.5 { lastHeight = height; invalidateIntrinsicContentSize() }
   }
   override func setFrameSize(_ size: NSSize) {

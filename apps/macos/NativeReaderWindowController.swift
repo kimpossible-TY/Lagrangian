@@ -162,16 +162,22 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     hostWindow.onCancelRecovery = { [weak self] in
       guard let self, self.session.hasPendingRecovery else { return }
+      self.hostWindow.cancelFind()
       if self.storageIsOpening { self.cancelStorage() } else { self.session.cancel() }
-      self.hostWindow.notice.stringValue = "복원을 취소했습니다. 저장 목록에서 문서를 다시 열 수 있습니다."
+      self.hostWindow.setNotice("복원을 취소했습니다. 저장 목록에서 문서를 다시 열 수 있습니다.")
     }
     hostWindow.capsule.onAction = { [weak self] in self?.capsuleAction($0, $1) }
     hostWindow.capsule.onDismiss = { [weak self] binding in
       guard let self, self.hostWindow.capsule.binding == binding else { return }
       self.dismissedCapsule = binding; self.hostWindow.hideCapsule()
     }
+    hostWindow.capsule.onReleaseSelection = { [weak self] binding in
+      guard let self, self.hostWindow.capsule.binding == binding, binding.originalPDF else { return }
+      self.hostWindow.releasePageSelection()
+    }
     hostWindow.onRetryRecovery = { [weak self] in
       guard let self, self.session.hasPendingRecovery, self.session.failure != nil else { return }
+      self.hostWindow.cancelFind()
       self.session.preparationChanged()
     }
     hostWindow.capsuleFocusTarget = { [weak self] in self?.returnCapsuleFocus() }
@@ -515,7 +521,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           self.layoutChanged(); self.applyPendingPresentation()
         }
         self.storageIsOpening = false; self.hostWindow.storageBusy = false
-        self.hostWindow.notice.stringValue = "Offline copy · source and chat actions are unavailable."
+        self.hostWindow.setNotice("Offline copy · source and chat actions are unavailable.")
       } catch { self.report(error) }
     })
   }
@@ -529,17 +535,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   func openOfflineLibrary(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void = { _ in }) {
     _ = open(profile, refresh: false, progress: progress)
-    hostWindow.notice.stringValue = "Choose a saved document to read offline."
+    hostWindow.setNotice("Choose a saved document to read offline.")
     hostWindow.present(); refreshSavedExplicitly()
   }
   private func addReview() {
     guard visibleMode == .nativeReflow, let document = store.document, let selection = store.selection else {
-      hostWindow.notice.stringValue = "Select text to mark for review."; return
+      hostWindow.setNotice("Select text to mark for review."); return
     }
     let location = NativeReaderRestoration(blockID: selection.fragments.first?.blockID, offset: 0, zoom: 1,
       selectionTicket: selection.ticket, fragments: selection.fragments.map { .init(blockID: $0.blockID, start: $0.rangeUTF16.lowerBound, end: $0.rangeUTF16.upperBound, exact: $0.exact) })
     do { try localReview.add(.init(id: UUID(), identity: document.identity, selection: location), document: document) }
-    catch { hostWindow.notice.stringValue = "Review mark unavailable. Select at most 32 blocks; your selection is retained." }
+    catch { hostWindow.setNotice("Review mark unavailable. Select at most 32 blocks; your selection is retained.") }
   }
   private func rememberCurrentDraft() {
     guard let chat = chatView, let draft = chat.recoveryDraft, let context = chatContext else { return }
@@ -587,7 +593,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       do { try await operation() }
       catch {
         if self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled, !self.disposed {
-          self.hostWindow.notice.stringValue = "Offline operation failed; the previous saved copy is unchanged."
+          self.hostWindow.setNotice("Offline operation failed; the previous saved copy is unchanged.")
         }
       }
     }
@@ -605,13 +611,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard let storage = offlineStorage else { return }
     let snapshot: NativeReaderRecoverySnapshot
     do { snapshot = try recoverySnapshot(drafts: storedDrafts()) }
-    catch NativeReaderTextFailure.staleGeometry { hostWindow.notice.stringValue = "Document layout is updating. Try saving when it is ready."; return }
-    catch { hostWindow.notice.stringValue = "Cannot save this reading state. Select at most 32 blocks and use 50%–400% zoom; the previous copy is unchanged."; return }
+    catch NativeReaderTextFailure.staleGeometry { hostWindow.setNotice("Document layout is updating. Try saving when it is ready."); return }
+    catch { hostWindow.setNotice("Cannot save this reading state. Select at most 32 blocks and use 50%–400% zoom; the previous copy is unchanged."); return }
     let epoch = storageEpoch + 1, ticket = requestTicket
     storageOperation { [weak self] in
       try await storage.save(snapshot); try Task.checkCancellation()
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
-      self.hostWindow.notice.stringValue = "Saved for offline reading."
+      self.hostWindow.setNotice("Saved for offline reading.")
     }
   }
   private func refreshSavedExplicitly() {
@@ -621,19 +627,20 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       let entries = try await storage.list(); try Task.checkCancellation()
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
       self.hostWindow.setSavedDocuments(entries)
-      self.hostWindow.notice.stringValue = entries.isEmpty ? "No saved documents in this project." : "Choose a saved document to open."
+      self.hostWindow.setNotice(entries.isEmpty ? "No saved documents in this project." : "Choose a saved document to open.")
     }
   }
   private func openSavedExplicitly(_ identity: NativeDocumentIdentity) {
     guard let storage = offlineStorage else { return }
-    guard !session.hasSelection else { hostWindow.notice.stringValue = "Release the selection before opening a saved document."; return }
+    guard !session.hasSelection else { hostWindow.setNotice("Release the selection before opening a saved document."); return }
+    hostWindow.cancelFind()
     let epoch = storageEpoch + 1, ticket = requestTicket
     storageOperation(opening: true) { [weak self] in
       let snapshot = try await storage.load(identity); try Task.checkCancellation()
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
       try await self.restoreRecovery(snapshot)
       guard self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled else { return }
-      if !self.session.hasPendingRecovery { self.hostWindow.notice.stringValue = "Offline copy · source and chat actions are unavailable." }
+      if !self.session.hasPendingRecovery { self.hostWindow.setNotice("Offline copy · source and chat actions are unavailable.") }
     }
   }
   private func currentExportSnapshot() throws -> (NativeReaderDocument, NativeOriginalPageRecovery, UUID) {
@@ -649,7 +656,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   private func exportPDFExplicitly() {
     guard exportTask == nil, let window = hostWindow.window, let captured = try? currentExportSnapshot() else {
-      hostWindow.notice.stringValue = "Open a verified Original PDF before exporting."; return
+      hostWindow.setNotice("Open a verified Original PDF before exporting."); return
     }
     exportEpoch += 1; let epoch = exportEpoch, ticket = requestTicket
     hostWindow.exportBusy = true
@@ -670,9 +677,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         let current = try self.currentExportSnapshot()
         guard self.exportEpoch == epoch, self.requestTicket === ticket, current.0 == captured.0, current.2 == captured.2 else { throw NativeOriginalPageError.stale }
         try staged.commit()
-        self.hostWindow.notice.stringValue = "Original PDF exported."
+        self.hostWindow.setNotice("Original PDF exported.")
       } catch {
-        if self.exportEpoch == epoch, !Task.isCancelled, !self.disposed { self.hostWindow.notice.stringValue = "PDF export failed; the previous file is unchanged." }
+        if self.exportEpoch == epoch, !Task.isCancelled, !self.disposed { self.hostWindow.setNotice("PDF export failed; the previous file is unchanged.") }
       }
     }
   }
@@ -685,7 +692,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         try self.session.authorize(context)
         let owner = try await actions(), anchor = try await owner.lastChange(context: context)
         try Task.checkCancellation(); try self.session.authorize(context)
-        guard let anchor, self.textView.navigate(toAnchor: anchor) else { self.hostWindow.notice.stringValue = "No saved edit location is available for this document."; return }
+        guard let anchor, self.textView.navigate(toAnchor: anchor) else { self.hostWindow.setNotice("No saved edit location is available for this document."); return }
       } catch { if !Task.isCancelled { self.report(error) } }
     }
   }
@@ -745,7 +752,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.updateReaderControls(readOnly: session.isReadOnly)
     if let failure = session.failure {
       let message = diagnostic ?? failure
-      hostWindow.notice.stringValue = message
+      hostWindow.setNotice(message)
       progress?(.failed(message)); return
     }
     if visibleMode == .originalPages, session.state == .reading || session.state == .offline,
@@ -759,15 +766,24 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   private func report(_ error: Error) {
-    diagnostic = String(describing: error)
-    hostWindow.notice.stringValue = diagnostic ?? "Reader unavailable"
-    if let pageError = error as? NativeOriginalPageError, case .stale = pageError { hostWindow.showRetainedFailure() }
+    if let pageError = error as? NativeOriginalPageError {
+      let message = NativeReaderHostWindow.message(for: pageError, inOriginalPDF: visibleMode == .originalPages)
+      diagnostic = message
+      hostWindow.showActionNotice(message)
+      if case .stale = pageError { hostWindow.showRetainedFailure() }
+      updatePresentation()
+      return
+    }
+    let message = NativeReaderHostWindow.message(for: error, inOriginalPDF: visibleMode == .originalPages)
+    diagnostic = error is NativeObjectError ? String(describing: error) : message
+    hostWindow.setNotice(message)
     updatePresentation()
   }
 
   private func selectionChanged(_ selection: NativeReaderSelection?, context: NativeReaderRequestContext) {
     guard visibleMode == .nativeReflow else { return }
     updateCapsule()
+    hostWindow.refreshSelectionActionsAvailability()
     actionTasks.values.forEach { $0.cancel() }
     let previous = selectionTask
     previous?.cancel()
@@ -796,7 +812,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard actionTasks.count < 8 else { report(NativeReaderOperationFailure.unavailable); return }
     if request.action == .locate {
       guard !editorBusy else { return }
-      editorBusy = true; hostWindow.notice.stringValue = "Checking the selected source and connected editor…"
+      editorBusy = true; hostWindow.setNotice("Checking the selected source and connected editor…")
     }
     let id = UUID()
     actionTasks[id] = Task {
@@ -811,14 +827,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         if request.action == .locate {
           if let pending = await owner.pendingEditorReceiptID(), pending != request.receiptID {
             try Task.checkCancellation(); try session.authorize(request.context, selection: request.selection.ticket)
-            hostWindow.notice.stringValue = "Editor effect is unknown. Check Editor Result before requesting another move."
+            hostWindow.setNotice("Editor effect is unknown. Check Editor Result before requesting another move.")
             return // Preserve the original receipt, including after a second click.
           }
           editorRequest = request
           let receipt = try await owner.jump(request)
           try Task.checkCancellation()
           try session.authorize(request.context, selection: request.selection.ticket)
-          hostWindow.notice.stringValue = receipt.feedback
+          hostWindow.setNotice(receipt.feedback)
           return
         }
         let result = try await owner.perform(request)
@@ -834,8 +850,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
             case NativeReaderOperationFailure.unavailable: status = .unavailable
             default: status = .stale
             }
-            hostWindow.notice.stringValue = NativeReaderEditorReceipt(context: request.context,
-                selectionTicket: request.selection.ticket, receiptID: request.receiptID, status: status).feedback
+            hostWindow.setNotice(NativeReaderEditorReceipt(context: request.context,
+                selectionTicket: request.selection.ticket, receiptID: request.receiptID, status: status).feedback)
           } else { report(error) }
         }
       }
@@ -844,7 +860,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private func checkEditorReceipt() {
     guard !disposed, !editorBusy, visibleMode == .nativeReflow, let request = editorRequest, let actions,
           actionTasks.count < 8 else { return }
-    editorBusy = true; hostWindow.notice.stringValue = "Checking editor result…"
+    editorBusy = true; hostWindow.setNotice("Checking editor result…")
     let id = UUID()
     actionTasks[id] = Task {
       defer { actionTasks.removeValue(forKey: id); editorBusy = false }
@@ -853,8 +869,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         let owner = try await actions()
         let receipt = try await owner.jump(request, query: true)
         try Task.checkCancellation(); try session.authorize(request.context, selection: request.selection.ticket)
-        hostWindow.notice.stringValue = receipt.feedback
-      } catch { if !Task.isCancelled { hostWindow.notice.stringValue = "Editor result unavailable for this selection. No move was retried." } }
+        hostWindow.setNotice(receipt.feedback)
+      } catch { if !Task.isCancelled { hostWindow.setNotice("Editor result unavailable for this selection. No move was retried.") } }
     }
   }
   private func chat(_ command: NativeReaderChatCommand, context: NativeReaderRequestContext) {
@@ -1105,6 +1121,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private let cancelRecoveryButton = NativeDesignButton(title: "복원 취소", target: nil, action: nil)
   private let brandMark = NativeBrandMarkView()
   private var refreshButton: NSButton?
+  private var selectionActionsButton: NSButton?
   private let toolsButton = NativeDesignButton(title: "읽기 도구", target: nil, action: nil)
   private let modeStatus = NSTextField(wrappingLabelWithString: "현재: 본문")
   private let selectionStatus = NSTextField(wrappingLabelWithString: "문서를 준비하고 있습니다…")
@@ -1121,6 +1138,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var findTask: Task<Void, Never>?
   private var findGeneration = 0
   private var findFailure: String?
+  private var actionFailure: String?
   private var modeButtons = [NSButton]()
   var onClose: (() -> Void)?
   var changeMode: ((NativeReaderWindowController.Mode) -> Void)?
@@ -1214,9 +1232,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     toolsButton.keyEquivalent = "t"; toolsButton.keyEquivalentModifierMask = [.command, .option]
     toolsButton.setAccessibilityLabel("읽기 도구 펼치기")
     let refresh = command("새로고침", #selector(refreshDocument)); refreshButton = refresh
+    let selectionActions = command("선택 작업", #selector(showSelectionActions))
+    selectionActions.isEnabled = false; selectionActionsButton = selectionActions
     brandMark.widthAnchor.constraint(equalToConstant: 28).isActive = true
     brandMark.heightAnchor.constraint(equalToConstant: 26).isActive = true
-    _ = row([brandMark, reflow, pdf, toolsButton, refresh, command("선택 작업", #selector(showSelectionActions))])
+    _ = row([brandMark, reflow, pdf, toolsButton, refresh, selectionActions])
     retryRecoveryButton.target = self; retryRecoveryButton.action = #selector(retryRecovery)
     cancelRecoveryButton.target = self; cancelRecoveryButton.action = #selector(cancelRecovery)
     retryRecoveryButton.identifier = NSUserInterfaceItemIdentifier("retryRecovery")
@@ -1227,7 +1247,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     contents.target = self; contents.action = #selector(outlineSelected)
     back.title = "돌아가기"; back.target = self; back.action = #selector(returnFromReference)
     back.identifier = NSUserInterfaceItemIdentifier("returnFromReference")
-    let pageNavigation = NSStackView(views: [command("이전 페이지", #selector(previousPage)), command("다음 페이지", #selector(nextPage))])
+    let pageNavigation = NativeChromeControlRow([command("이전 페이지", #selector(previousPage)), command("다음 페이지", #selector(nextPage))])
     pageNavigation.identifier = NSUserInterfaceItemIdentifier("pageNavigation")
     _ = row([NSTextField(labelWithString: "목차"), contents, back, pageNavigation])
     findField.placeholderString = "PDF에서 검색"; findField.setAccessibilityLabel("PDF에서 검색")
@@ -1305,14 +1325,18 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     recoveredDraftRow.widthAnchor.constraint(equalTo: auxiliary.widthAnchor).isActive = true
     recoveredDraftText.widthAnchor.constraint(equalTo: recoveredDraftRow.widthAnchor).isActive = true
     notice.setAccessibilityLabel("최근 진단"); notice.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-    _ = row([notice], in: auxiliary)
+    notice.lineBreakMode = .byWordWrapping; notice.maximumNumberOfLines = 0
+    notice.translatesAutoresizingMaskIntoConstraints = false
+    notice.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    auxiliary.addArrangedSubview(notice)
+    notice.widthAnchor.constraint(equalTo: auxiliary.widthAnchor).isActive = true
     stack.addArrangedSubview(reader)
     for button in [back, applyDisplay, cancelDisplay, undoReview, clearReview, manageAccount] {
       if let action = button.action { button.identifier = NSUserInterfaceItemIdentifier(NSStringFromSelector(action)) }
       button.setAccessibilityLabel(button.title)
     }
     modeStatus.setAccessibilityLabel("읽기 모드"); selectionStatus.setAccessibilityLabel("읽기 상태와 다음 동작")
-    updateOfflineControls(); updateNavigation()
+    updateOfflineControls(); updateNavigation(); refreshSelectionActionsAvailability()
     stack.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(stack)
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16),
@@ -1341,7 +1365,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   func placeCapsule(viewport: NSRect, avoiding rects: [NSRect]) {
     guard let root = window?.contentView else { return }
-    let size = capsule.preferredSize(width: min(560, max(120, viewport.width - 16)))
+    let size = capsule.preferredSize(width: min(620, max(120, viewport.width - 16)))
     // Only renderer-verified empty space may host an overlay. PDF page content
     // and unavailable/stale geometry are conservatively occupied in full.
     let occupied: [NSRect]
@@ -1430,7 +1454,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   func updateStatus(state: NativeReaderSession.State, failed: Bool, allowsRefresh: Bool = true, allowsModeSwitch: Bool = true, pendingRecovery: Bool = false) {
     let changed = state != latestState || failed != failedState || allowsRefresh != self.allowsRefresh ||
       allowsModeSwitch != self.allowsModeSwitch || pendingRecovery != self.pendingRecovery
-    if changed { findFailure = nil }
+    if changed { findFailure = nil; actionFailure = nil }
     self.pendingRecovery = pendingRecovery
     cancelRecoveryButton.isHidden = !pendingRecovery
     retryRecoveryButton.isHidden = !pendingRecovery || !failed
@@ -1441,23 +1465,89 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     brandMark.phase = failed ? .error : (state == .loading ? .busy : (state == .offline ? .offline : .idle))
     refreshStatus()
   }
-  func showRetainedFailure() { findFailure = nil; retainedFailure = true; refreshStatus() }
+  func showRetainedFailure() { findFailure = nil; actionFailure = nil; retainedFailure = true; refreshStatus() }
+  private var hasActiveSelectionInCurrentMode: Bool {
+    guard latestState != .disposed else { return false }
+    if currentMode == .originalPages {
+      return original?.selected != nil && original?.store.selection != nil &&
+        original?.selected?.snapshotID == original?.store.accepted?.id
+    }
+    return reader.store.document != nil && reader.store.selection != nil
+  }
+  func refreshSelectionActionsAvailability() {
+    selectionActionsButton?.isEnabled = hasActiveSelectionInCurrentMode
+  }
+  func setNotice(_ message: String) {
+    notice.stringValue = message
+    let targetWidth = toolsScroll.contentSize.width > 1 ? toolsScroll.contentSize.width
+      : (stack.bounds.width > 1 ? stack.bounds.width : max(120, (window?.contentView?.bounds.width ?? 980) - 32))
+    notice.preferredMaxLayoutWidth = targetWidth
+    notice.invalidateIntrinsicContentSize()
+    invalidateControlLayout(in: auxiliary)
+    if !toolsScroll.isHidden { toolsScroll.layoutSubtreeIfNeeded() }
+  }
+  func showActionNotice(_ message: String) {
+    actionFailure = message
+    setNotice(message)
+    refreshStatus()
+  }
+  static func message(for error: Error, inOriginalPDF: Bool = true) -> String {
+    if let pageError = error as? NativeOriginalPageError {
+      switch pageError {
+      case .heldSelection:
+        return inOriginalPDF
+          ? "PDF에서 선택한 내용이 있습니다. ‘선택 해제’ 후 다시 시도하세요."
+          : "선택한 내용이 있습니다. ‘선택 해제’ 후 다시 시도하세요."
+      case .budget:
+        return "PDF 표시 한도를 넘었습니다. ‘읽기 도구’에서 배율을 줄인 뒤 다시 시도하세요."
+      case .stale, .cancelled:
+        return "페이지 상태가 변경되었습니다. 다시 시도하세요."
+      case .binding, .geometry, .invalidPDF, .encrypted:
+        return "원본 PDF 페이지를 표시할 수 없습니다. ‘새로고침’하거나 저장 문서를 다시 여세요."
+      case .unsupported:
+        return "원본 PDF에서는 이 작업을 사용할 수 없습니다."
+      }
+    }
+    switch error {
+    case NativeReaderOperationFailure.unavailable:
+      return "현재 상태에서는 이 작업을 사용할 수 없습니다."
+    case NativeReaderOperationFailure.unknownEffect:
+      return "편집기 작업 결과를 확인하지 못했습니다. ‘편집기 결과 확인’을 누르세요."
+    case NativeReaderContractError.disposed:
+      return "읽기 창이 닫혔습니다."
+    case NativeReaderContractError.invalidSelection:
+      return "선택한 내용을 다시 지정한 뒤 시도하세요."
+    case NativeReaderContractError.wrongTarget, NativeReaderContractError.staleGeneration:
+      return "문서 상태가 변경되었습니다. ‘새로고침’ 후 다시 시도하세요."
+    case NativeReaderTextFailure.staleGeometry:
+      return "문서 레이아웃을 준비 중입니다. 잠시 후 다시 시도하세요."
+    case is NativeReaderTextFailure:
+      return "본문 작업을 완료할 수 없습니다. 다시 시도하세요."
+    case is NativeObjectError:
+      return "문서 개체를 표시할 수 없습니다. 다시 시도하세요."
+    default:
+      return "작업을 완료할 수 없습니다. 다시 시도하세요."
+    }
+  }
   private func refreshStatus() {
     func name(_ mode: NativeReaderWindowController.Mode) -> String { mode == .nativeReflow ? "본문" : "원본 PDF" }
     for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? currentMode == .nativeReflow : currentMode == .originalPages) ? .on : .off }
     for button in modeButtons { (button as? NativeDesignButton)?.designRole = button.state == .on ? .primary : .standard }
+    refreshSelectionActionsAvailability()
     modeStatus.stringValue = "현재: " + name(currentMode) + (requestedMode.map { " · 전환 요청: " + name($0) } ?? "")
-    let findSuffix = findFailure.map { " " + $0 } ?? ""
+    let detailSuffix = [findFailure, actionFailure].compactMap { $0 }.map { " " + $0 }.joined()
     if latestState == .disposed {
       selectionStatus.stringValue = "읽기 창이 닫혀 모드를 전환할 수 없습니다."
     } else if pendingRecovery && (retainedFailure || failedState) {
-      selectionStatus.stringValue = "복원하지 못했습니다. " + (reader.store.document == nil ? "" : "이전 읽기 결과를 표시 중입니다. ") + "‘복원 재시도’ 또는 ‘복원 취소’ 후 저장 문서를 다시 여세요. 원문·대화는 사용할 수 없습니다." + findSuffix
+      selectionStatus.stringValue = "복원하지 못했습니다. " + (reader.store.document == nil ? "" : "이전 읽기 결과를 표시 중입니다. ") + "‘복원 재시도’ 또는 ‘복원 취소’ 후 저장 문서를 다시 여세요. 원문·대화는 사용할 수 없습니다." + detailSuffix
     } else if pendingRecovery && latestState == .loading {
-      selectionStatus.stringValue = "저장 문서를 복원 준비 중입니다… 이전 읽기 결과는 유지됩니다. ‘복원 취소’로 중단할 수 있습니다." + findSuffix
+      selectionStatus.stringValue = "저장 문서를 복원 준비 중입니다… 이전 읽기 결과는 유지됩니다. ‘복원 취소’로 중단할 수 있습니다." + detailSuffix
     } else if retainedFailure || failedState {
-      selectionStatus.stringValue = (reader.store.document == nil ? "문서를 불러오지 못했습니다. " : "이전 읽기 결과를 표시 중입니다. ") + (refreshButton?.isEnabled == true ? "최신 결과를 보려면 ‘새로고침’을 누르세요." : "저장 문서를 다시 열어 복원하세요.") + findSuffix
+      selectionStatus.stringValue = (reader.store.document == nil ? "문서를 불러오지 못했습니다. " : "이전 읽기 결과를 표시 중입니다. ") + (refreshButton?.isEnabled == true ? "최신 결과를 보려면 ‘새로고침’을 누르세요." : "저장 문서를 다시 열어 복원하세요.") + detailSuffix
     } else if let findFailure {
       selectionStatus.stringValue = findFailure
+    } else if let actionFailure, requestedMode == nil {
+      selectionStatus.stringValue = actionFailure
     } else if !allowsModeSwitch {
       selectionStatus.stringValue = "오프라인 복원본에서는 모드를 전환할 수 없습니다. 원문·대화 작업은 사용할 수 없습니다."
     } else if let requestedMode {
@@ -1505,7 +1595,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   private func pageAction(_ action: () throws -> Void) {
     guard currentMode == .originalPages else { return }
-    do { try action() } catch { notice.stringValue = String(describing: error) }
+    let hadActionFailure = actionFailure != nil
+    actionFailure = nil
+    do {
+      try action()
+      if hadActionFailure { refreshStatus() }
+    } catch {
+      showActionNotice(Self.message(for: error, inOriginalPDF: true))
+    }
   }
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
@@ -1555,13 +1652,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
             ? "검색 실패 (\(error)): 다시 검색하거나 문서를 새로고침하세요."
             : "검색 실패 (\(error)): 다시 검색하거나 저장 문서를 다시 열어 복원하세요."
         }
-        self.findFailure = reason; self.notice.stringValue = reason; self.refreshStatus()
+        self.findFailure = reason; self.setNotice(reason); self.refreshStatus()
       }
     }
   }
   func cancelFind() {
     findGeneration += 1; findTask?.cancel(); findTask = nil
-    findFailure = nil; refreshStatus()
+    findFailure = nil; actionFailure = nil; refreshStatus()
   }
   @objc func copySelected() { if currentMode == .originalPages { _ = original?.copyDisplay() } else { _ = reader.copyPlainText() } }
   @objc func sourceSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.excerpt) }
@@ -1594,12 +1691,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     exportPDF.isEnabled = !fixtureMode && currentMode == .originalPages && original?.store.accepted != nil && !exportBusy
     if exportBusy { saveOffline.isEnabled = false; openSaved.isEnabled = false; refreshSaved.isEnabled = false }
   }
-  private func invalidateControlLayout() {
+  private func invalidateControlLayout(in root: NSView? = nil) {
     func invalidate(_ view: NSView) {
-      if view is NativeChromeControlRow { view.invalidateIntrinsicContentSize(); view.needsLayout = true }
+      if view is NativeChromeControlRow || view === notice { view.invalidateIntrinsicContentSize(); view.needsLayout = true }
       for child in view.subviews { invalidate(child) }
     }
-    invalidate(stack)
+    invalidate(root ?? stack)
+    auxiliary.needsLayout = true
     toolsScroll.needsLayout = true
   }
   func refreshLocalControls() {
@@ -1650,13 +1748,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     window?.appearance = preview.windowAppearance
     if let anchor = preview.anchor { pendingDisplayViewport = (preview.document, anchor, preview.appearance) }
     do { try reader.setAppearance(preview.appearance); onAppearance?(); refreshLocalControls() }
-    catch { notice.stringValue = "Display settings unavailable." }
+    catch { setNotice("Display settings unavailable.") }
   }
   private func automaticAppearanceChanged() {
     guard currentMode == .nativeReflow else { return }
     let prior = reader.textAppearance
     do { try resolveAutomaticAppearance(); if prior != reader.textAppearance { onAppearance?() } }
-    catch { notice.stringValue = "Display settings unavailable." }
+    catch { setNotice("Display settings unavailable.") }
   }
   /// Called before a new Reflow preparation too: Original PDF deliberately
   /// ignores color events, so its retained text key is not the current theme.
@@ -1680,7 +1778,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     if let title = textSize.titleOfSelectedItem, let size = Double(title) { value.fontSize = CGFloat(size) }
     do { try reader.setAppearance(value); onAppearance?(); refreshLocalControls() }
-    catch { notice.stringValue = "Display settings unavailable." }
+    catch { setNotice("Display settings unavailable.") }
   }
   @objc func markSelected() { guard currentMode == .nativeReflow else { return }; onMarkReview?() }
   @objc func undoReviewExplicitly() { onUndoReview?() }
@@ -1712,9 +1810,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   override func layout() {
     super.layout()
     guard let document = documentView as? NSStackView else { return }
-    document.setFrameSize(NSSize(width: contentSize.width, height: document.fittingSize.height))
+    let width = max(1, contentSize.width)
+    for subview in document.arrangedSubviews {
+      if let field = subview as? NSTextField, field.cell?.wraps == true {
+        field.preferredMaxLayoutWidth = width
+        field.invalidateIntrinsicContentSize()
+      }
+    }
+    document.setFrameSize(NSSize(width: width, height: document.fittingSize.height))
     document.layoutSubtreeIfNeeded()
-    document.setFrameSize(NSSize(width: contentSize.width, height: document.fittingSize.height))
+    document.setFrameSize(NSSize(width: width, height: document.fittingSize.height))
     document.setFrameOrigin(.zero)
   }
 }
