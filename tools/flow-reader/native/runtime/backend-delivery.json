@@ -956,6 +956,22 @@
             "sha256": "4daa79c2c5b2d142c0d4ba1e9d1485198830a1ad572c4ac9cc7874820c7a5a45"
           }
         ]
+      },
+      {
+        "baseRevision": "a56c56d498cb60f5caa6250a05c794881f504b22",
+        "revision": "ff6e024099ea14f79f9ca56d9ce8ea2067d67b54",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderOriginalPageView.swift",
+            "baseSHA256": "3ba49f6fae9d2a2f43b0e885c7ed5b167ba6261f73f01f9c5db6358b70c8d167",
+            "sha256": "ebd37b7f98865c618d923331205d136af36b0dcffa98447ffff046e748d493ec"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "4daa79c2c5b2d142c0d4ba1e9d1485198830a1ad572c4ac9cc7874820c7a5a45",
+            "sha256": "2ec397193a4595f6d3a4f0a7cfbaf9af665b92b554d03b8767eb3d64629b323d"
+          }
+        ]
       }
     ]
   }
