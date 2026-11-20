@@ -1036,6 +1036,17 @@
             "sha256": "9b535480e50f381968047d15d9fceb6f4065ba12c70e7d51ac6886f80ffc8a54"
           }
         ]
+      },
+      {
+        "baseRevision": "05331b523f96dbd8486681dd652a995bfbc3f5ee",
+        "revision": "6aa2ffd55ed75ec6abbd49abba33ad020baa05f2",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "9b535480e50f381968047d15d9fceb6f4065ba12c70e7d51ac6886f80ffc8a54",
+            "sha256": "aa932283be8d2f7caf9b142b1dbb8db9e551e8b7870b63deaef4745bdb34378d"
+          }
+        ]
       }
     ]
   }
