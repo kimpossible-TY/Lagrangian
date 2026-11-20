@@ -1017,7 +1017,23 @@
           {
             "path": "apps/macos/NativeReaderWindowController.swift",
             "baseSHA256": "f1e6ddcdac5c08e1b9e099110e5ae74497b3c7d1274ae01b31c980ccfbb60321",
-            "sha256": "7ed049901c9858618210013dbbb9034375a88c3bae10fa9835b08c3d185a35f6"
+            "sha256": "7ed049901c9858618210013dbbb9034375a88c3d185a35f6"
+          }
+        ]
+      },
+      {
+        "baseRevision": "b05caafa8997e7d26affe75771621c994f18d7fe",
+        "revision": "96a1d1e584748726c7a699a2fd599dcb402592ae",
+        "files": [
+          {
+            "path": "apps/macos/FlowApp.swift",
+            "baseSHA256": "9d57811871689c8adf084e40f1b3c2e49ab9e36fb3ebe999ee72cfb838fe9946",
+            "sha256": "ad145ae052b604efaba6b57e514c069bedc6f67b7923e8c43973b00251a60def"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "7ed049901c9858618210013dbbb9034375a88c3d185a35f6",
+            "sha256": "9b535480e50f381968047d15d9fceb6f4065ba12c70e7d51ac6886f80ffc8a54"
           }
         ]
       }
