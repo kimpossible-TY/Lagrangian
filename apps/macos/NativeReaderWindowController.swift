@@ -276,11 +276,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       progress(.failed("Create a new view for another profile")); return {}
     }
     let reopening = self.profile != nil
+    if reopening { cancel() } else { cancelStorage() }
     requestTicket.cancel()
     originalPageView.releaseSelection()
     if let selection = store.selection { textView.releaseSelection(ticket: selection.ticket) }
-    if reopening { cancel() } else { cancelStorage() }
-    originalPageView.cancel()
+    if !reopening { originalPageView.cancel() }
     textView.cancel()
     reflowTask?.cancel(); reflowTask = nil
     selectionTask?.cancel(); selectionTask = nil
@@ -311,7 +311,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.closeView()
     }
     hostWindow.storageAvailable = offlineStorage != nil
-    if refresh { session.refresh() }
+    if refresh {
+      if session.state == .sleeping { session.event(.wake) }
+      session.event(.network(true))
+    }
     return { [weak self] in
       ticket.cancel()
       Task { @MainActor in
@@ -1484,6 +1487,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     cancelDisplay.isEnabled = false
     cancelRecoveryButton.isHidden = true
     retryRecoveryButton.isHidden = true
+    homepage = nil
+    manageAccount.isEnabled = false
+    accountStatus.stringValue = "계정"
     window?.title = "Lagrangian · 읽기"
     presentRecoveredDrafts([])
     displayMode(.nativeReflow)
@@ -1656,7 +1662,21 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       try action()
       if hadActionFailure { refreshStatus() }
     } catch {
-      showActionNotice(Self.message(for: error, inOriginalPDF: true))
+      let message: String
+      if !allowsRefresh {
+        switch error {
+        case NativeOriginalPageError.heldSelection, NativeOriginalPageError.budget,
+             NativeOriginalPageError.stale, NativeOriginalPageError.cancelled,
+             NativeOriginalPageError.unsupported, NativeReaderOperationFailure.unavailable,
+             NativeReaderContractError.disposed, NativeReaderContractError.invalidSelection:
+          message = Self.message(for: error, inOriginalPDF: true)
+        default:
+          message = "원본 PDF 페이지를 표시할 수 없습니다. 오프라인 복사본을 다시 여세요."
+        }
+      } else {
+        message = Self.message(for: error, inOriginalPDF: true)
+      }
+      showActionNotice(message)
     }
   }
   @objc func findPage() {
