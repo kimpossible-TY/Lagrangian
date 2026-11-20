@@ -1004,6 +1004,22 @@
             "sha256": "f1e6ddcdac5c08e1b9e099110e5ae74497b3c7d1274ae01b31c980ccfbb60321"
           }
         ]
+      },
+      {
+        "baseRevision": "ae5be9535e3ce47a2804d03d715a7793eb568231",
+        "revision": "a525249fc96d90289d4436536cda0d1868d4bbb0",
+        "files": [
+          {
+            "path": "apps/macos/FlowApp.swift",
+            "baseSHA256": "ece7a24eb6236f67515c81cf409a91c45fcde08cdfe3e01a02d80ba3f9f1ab63",
+            "sha256": "9d57811871689c8adf084e40f1b3c2e49ab9e36fb3ebe999ee72cfb838fe9946"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "f1e6ddcdac5c08e1b9e099110e5ae74497b3c7d1274ae01b31c980ccfbb60321",
+            "sha256": "7ed049901c9858618210013dbbb9034375a88c3bae10fa9835b08c3d185a35f6"
+          }
+        ]
       }
     ]
   }
