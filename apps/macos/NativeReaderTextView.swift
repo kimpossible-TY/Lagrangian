@@ -382,7 +382,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         if !hideFindBar() { super.cancelOperation(sender) }
     }
     func canPerformFind(tag: Int? = nil) -> Bool {
-        guard !isDisposed, !isCancelled, renderKey != nil else { return false }
+        guard !isDisposed, !isCancelled, !isHiddenOrHasHiddenAncestor, renderKey != nil else { return false }
         guard let tag else { return true }
         guard let action = NSTextFinder.Action(rawValue: tag) else { return false }
         return [.showFindInterface, .hideFindInterface, .nextMatch, .previousMatch].contains(action)
@@ -390,8 +390,9 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     @discardableResult func handleFindKeyEquivalent(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
         let character = event.charactersIgnoringModifiers?.lowercased()
-        if modifiers == .command && (character == "f" || event.keyCode == 3) { return performFindAction(.showFindInterface) }
-        if (character == "g" || event.keyCode == 5), modifiers == .command || modifiers == [.command, .shift] {
+        let isAscii = character?.first?.isASCII == true
+        if modifiers == .command && (character == "f" || (!isAscii && event.keyCode == 3)) { return performFindAction(.showFindInterface) }
+        if (character == "g" || (!isAscii && event.keyCode == 5)), modifiers == .command || modifiers == [.command, .shift] {
             return performFindAction(modifiers.contains(.shift) ? .previousMatch : .nextMatch)
         }
         if event.keyCode == 53 && modifiers.isEmpty { return hideFindBar() }

@@ -1,5 +1,11 @@
 import AppKit
 
+@MainActor protocol NativeReaderFindActionHost: AnyObject {
+  var isReaderFindHostHidden: Bool { get }
+  func validateMenuItem(_ menuItem: NSMenuItem) -> Bool
+  func performTextFinderAction(_ sender: Any?)
+}
+
 /// Standard editing keeps AppKit semantics normally. Fixture inputs reject
 /// system clipboard operations at the responder, including direct commands.
 class NativeReaderInputTextView: NSTextView {
@@ -27,8 +33,29 @@ class NativeReaderInputTextView: NSTextView {
     }
     return super.performKeyEquivalent(with: event)
   }
+  override func performTextFinderAction(_ sender: Any?) {
+    if !(self is NativeReaderBodyTextView),
+       let controller = window?.windowController as? NativeReaderFindActionHost {
+      controller.performTextFinderAction(sender)
+      return
+    }
+    super.performTextFinderAction(sender)
+  }
   override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
     if let action = item.action, blocked(action) { return false }
+    if !(self is NativeReaderBodyTextView),
+       item.action == #selector(NSResponder.performTextFinderAction(_:)),
+       let controller = window?.windowController as? NativeReaderFindActionHost {
+      let menuItem: NSMenuItem
+      if let existing = item as? NSMenuItem {
+        menuItem = existing
+      } else {
+        let temp = NSMenuItem(title: "", action: item.action, keyEquivalent: "")
+        temp.tag = item.tag
+        menuItem = temp
+      }
+      return controller.validateMenuItem(menuItem)
+    }
     return super.validateUserInterfaceItem(item)
   }
 }
@@ -36,14 +63,31 @@ class NativeReaderInputTextView: NSTextView {
 /// One field editor policy covers settings, search and TextKit find fields.
 final class NativeReaderEditingWindow: NSWindow {
   var fixtureMode = false
-  private var fixtureEditor: NativeReaderInputTextView?
+  private var fieldEditorStorage: NativeReaderInputTextView?
   override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
-    guard fixtureMode else { return super.fieldEditor(createFlag, for: object) }
-    if createFlag, fixtureEditor == nil {
+    if createFlag, fieldEditorStorage == nil {
       let editor = NativeReaderInputTextView(); editor.isFieldEditor = true
-      editor.blocksSystemClipboard = true; editor.isRichText = false
-      fixtureEditor = editor
+      editor.isRichText = false
+      fieldEditorStorage = editor
     }
-    return fixtureEditor
+    fieldEditorStorage?.blocksSystemClipboard = fixtureMode
+    return fieldEditorStorage
+  }
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    if event.modifierFlags.intersection([.command, .shift, .control, .option]) == .command {
+      let character = event.charactersIgnoringModifiers?.lowercased()
+      let isAscii = character?.first?.isASCII == true
+      if (character == "f" || (!isAscii && event.keyCode == 3)),
+         let controller = windowController as? NativeReaderFindActionHost,
+         controller.isReaderFindHostHidden {
+        let item = NSMenuItem(title: "", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "f")
+        item.tag = NSTextFinder.Action.showFindInterface.rawValue
+        if controller.validateMenuItem(item) {
+          controller.performTextFinderAction(item)
+          return true
+        }
+      }
+    }
+    return super.performKeyEquivalent(with: event)
   }
 }

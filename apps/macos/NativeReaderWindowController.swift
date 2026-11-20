@@ -546,7 +546,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           self.layoutChanged(); self.applyPendingPresentation()
         }
         self.storageIsOpening = false; self.hostWindow.storageBusy = false
-        self.hostWindow.setNotice("Offline copy · source and chat actions are unavailable.")
+        self.hostWindow.setNotice("오프라인 복사본 · 원문 및 대화 작업은 사용할 수 없습니다.")
       } catch { self.report(error) }
     })
   }
@@ -618,7 +618,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       do { try await operation() }
       catch {
         if self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled, !self.disposed {
-          self.hostWindow.setNotice("Offline operation failed; the previous saved copy is unchanged.")
+          self.hostWindow.setNotice("오프라인 작업에 실패했습니다. 이전에 저장된 복사본은 그대로 유지됩니다.")
         }
       }
     }
@@ -636,13 +636,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard let storage = offlineStorage else { return }
     let snapshot: NativeReaderRecoverySnapshot
     do { snapshot = try recoverySnapshot(drafts: storedDrafts()) }
-    catch NativeReaderTextFailure.staleGeometry { hostWindow.setNotice("Document layout is updating. Try saving when it is ready."); return }
-    catch { hostWindow.setNotice("Cannot save this reading state. Select at most 32 blocks and use 50%–400% zoom; the previous copy is unchanged."); return }
+    catch NativeReaderTextFailure.staleGeometry { hostWindow.setNotice("문서 레이아웃을 업데이트하는 중입니다. 준비되면 다시 저장하세요."); return }
+    catch { hostWindow.setNotice("현재 읽기 상태를 저장할 수 없습니다. 최대 32개 블록 이하 선택과 50%–400% 배율에서만 저장할 수 있으며 이전 복사본은 그대로 유지됩니다."); return }
     let epoch = storageEpoch + 1, ticket = requestTicket
     storageOperation { [weak self] in
       try await storage.save(snapshot); try Task.checkCancellation()
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
-      self.hostWindow.setNotice("Saved for offline reading.")
+      self.hostWindow.setNotice("오프라인 읽기용으로 저장했습니다.")
     }
   }
   private func refreshSavedExplicitly() {
@@ -665,7 +665,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
       try await self.restoreRecovery(snapshot)
       guard self.storageEpoch == epoch, self.requestTicket === ticket, !Task.isCancelled else { return }
-      if !self.session.hasPendingRecovery { self.hostWindow.setNotice("Offline copy · source and chat actions are unavailable.") }
+      if !self.session.hasPendingRecovery { self.hostWindow.setNotice("오프라인 복사본 · 원문 및 대화 작업은 사용할 수 없습니다.") }
     }
   }
   private func currentExportSnapshot() throws -> (NativeReaderDocument, NativeOriginalPageRecovery, UUID) {
@@ -1282,6 +1282,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     pageNavigation.isHidden = true
     self.pageNavigation = pageNavigation
     _ = row([NSTextField(labelWithString: "목차"), contents, back, pageNavigation])
+    findField.bezelStyle = .squareBezel
+    findField.drawsBackground = true
     findField.placeholderAttributedString = NSAttributedString(
       string: "PDF에서 검색",
       attributes: [.foregroundColor: NativeChrome.color(\.secondaryInk), .font: NativeAppDesign.Typography.font(.control)])
@@ -1464,6 +1466,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     if requestedMode == mode { requestedMode = nil; requestWasHeld = false }
     for (index, button) in modeButtons.enumerated() { button.state = (index == 0 ? mode == .nativeReflow : mode == .originalPages) ? .on : .off }
     refreshStatus()
+    if mode != .nativeReflow { _ = reader.hideFindBar() }
     reader.isHidden = mode == .originalPages; original?.isHidden = mode != .originalPages
     // Source/Highlight/Ask cannot dispatch the retained hidden reflow selection.
     originalScroll?.isHidden = mode != .originalPages
@@ -1472,6 +1475,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     recoveredDraftRow.isHidden = recoveredDrafts.isEmpty
     findField.isHidden = mode != .originalPages
     pageNavigation?.isHidden = mode != .originalPages
+    if let responderView = window?.firstResponder as? NSView {
+      let fieldOwner = (responderView as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSView : nil }
+      let inHiddenReader = reader.isHidden && responderView.isDescendant(of: reader)
+      let inHiddenOriginal = (original?.isHidden == true && original.map { responderView.isDescendant(of: $0) } == true) ||
+        (originalScroll?.isHidden == true && originalScroll.map { responderView.isDescendant(of: $0) } == true)
+      let inHiddenFindField = findField.isHidden && (responderView.isDescendant(of: findField) || fieldOwner?.isDescendant(of: findField) == true)
+      if responderView.isHiddenOrHasHiddenAncestor || fieldOwner?.isHiddenOrHasHiddenAncestor == true ||
+          inHiddenReader || inHiddenOriginal || inHiddenFindField {
+        window?.makeFirstResponder(nil)
+      }
+    }
     invalidateControlLayout()
     window?.contentView?.layoutSubtreeIfNeeded()
   }
@@ -1858,13 +1872,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     window?.appearance = preview.windowAppearance
     if let anchor = preview.anchor { pendingDisplayViewport = (preview.document, anchor, preview.appearance) }
     do { try reader.setAppearance(preview.appearance); onAppearance?(); refreshLocalControls() }
-    catch { setNotice("Display settings unavailable.") }
+    catch { setNotice("화면 표시 설정을 적용할 수 없습니다.") }
   }
   private func automaticAppearanceChanged() {
     guard currentMode == .nativeReflow else { return }
     let prior = reader.textAppearance
     do { try resolveAutomaticAppearance(); if prior != reader.textAppearance { onAppearance?() } }
-    catch { setNotice("Display settings unavailable.") }
+    catch { setNotice("화면 표시 설정을 적용할 수 없습니다.") }
   }
   /// Called before a new Reflow preparation too: Original PDF deliberately
   /// ignores color events, so its retained text key is not the current theme.
@@ -1888,7 +1902,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     if let title = textSize.titleOfSelectedItem, let size = Double(title) { value.fontSize = CGFloat(size) }
     do { try reader.setAppearance(value); onAppearance?(); refreshLocalControls() }
-    catch { setNotice("Display settings unavailable.") }
+    catch { setNotice("화면 표시 설정을 적용할 수 없습니다.") }
   }
   @objc func markSelected() { guard currentMode == .nativeReflow else { return }; onMarkReview?() }
   @objc func undoReviewExplicitly() { onUndoReview?() }
@@ -1912,6 +1926,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func manageAccountExplicitly() { if let homepage { onManageAccount?(homepage) } }
   func windowDidResize(_ notification: Notification) { onCapsuleLayout?() }
   func windowWillClose(_ notification: Notification) { cancelFind(); hideCapsule(); onClose?() }
+}
+
+extension NativeReaderHostWindow: NativeReaderFindActionHost {
+  var isReaderFindHostHidden: Bool { reader.isHidden }
 }
 
 /// Size the tools from their wrapping rows without binding the document origin
