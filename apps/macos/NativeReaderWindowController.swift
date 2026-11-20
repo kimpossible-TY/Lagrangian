@@ -279,8 +279,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     cancelStorage()
     requestTicket.cancel(); let ticket = ReadingOperationTicket(); requestTicket = ticket
     acceptedPaintKey = nil; paintedKey = nil; diagnostic = nil
+    acceptedPageDelivery = nil
+    mode = .nativeReflow; visibleMode = .nativeReflow
+    dismissedCapsule = nil; capsuleCapabilities = nil
+    recoveredDrafts.removeAll(); recoveredDraftIdentity = nil
+    currentDrafts.removeAll(); currentDraftIdentity = nil
+    chatView?.dispose(); chatView?.removeFromSuperview(); chatView = nil; chatContext = nil
     hostWindow.initialize()
     hostWindow.installOriginal(originalPageView)
+    hostWindow.prepareForOpen()
+    try? hostWindow.resolveAutomaticAppearance()
     hostWindow.changeMode = { [weak self] in
       do { try self?.setMode($0) } catch { self?.report(error) }
     }
@@ -1072,9 +1080,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !disposed else { return }
     originalPageView.releaseSelection()
     cancel()
+    mode = .nativeReflow
+    visibleMode = .nativeReflow
+    acceptedPageDelivery = nil
     let revoke = revokeEditorConsent; Task { await revoke() }
     if let selection = store.selection { textView.releaseSelection(ticket: selection.ticket) }
     textView.cancel()
+    hostWindow.prepareForOpen()
   }
 
   func cancel() {
@@ -1434,6 +1446,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     recoveredDraftRow.isHidden = recoveredDrafts.isEmpty
     window?.contentView?.layoutSubtreeIfNeeded()
   }
+  func prepareForOpen() {
+    cancelFind()
+    hideCapsule()
+    requestedMode = nil
+    requestWasHeld = false
+    searchSelectionTicket = nil
+    findFailure = nil
+    actionFailure = nil
+    retainedFailure = false
+    pendingRecovery = false
+    cancelRecoveryButton.isHidden = true
+    retryRecoveryButton.isHidden = true
+    window?.title = "Lagrangian · 읽기"
+    presentRecoveredDrafts([])
+    displayMode(.nativeReflow)
+    setNotice("원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
+  }
   @objc func toggleTools() {
     let opening = toolsScroll.isHidden
     if !opening, let window {
@@ -1639,18 +1668,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           return
         case NativeOriginalPageError.budget:
           if jumping {
-            reason = "검색 이동 실패 (budget): PDF 표시 한도를 넘었습니다. ‘읽기 도구’에서 배율을 줄인 뒤 다시 검색하세요."
+            reason = "검색 이동 실패: PDF 표시 한도를 넘었습니다. ‘읽기 도구’에서 배율을 줄인 뒤 다시 검색하세요."
           } else if query.utf16.count > 256 {
-            reason = "검색 실패 (budget): 검색어가 256자(UTF-16) 한도를 넘었습니다. 더 짧고 구체적인 검색어를 입력해 다시 검색하세요."
+            reason = "검색 실패: 검색어가 256자(UTF-16) 한도를 넘었습니다. 더 짧고 구체적인 검색어를 입력해 다시 검색하세요."
           } else {
-            reason = "검색 실패 (budget): 검색 결과 수나 문서 검색량 한도를 넘었습니다. 더 구체적인 검색어로 좁혀 다시 검색하세요."
+            reason = "검색 실패: 검색 결과 수나 문서 검색량 한도를 넘었습니다. 더 구체적인 검색어로 좁혀 다시 검색하세요."
           }
         case NativeOriginalPageError.heldSelection:
-          reason = "검색 이동 실패 (heldSelection): PDF에서 선택한 내용이 있습니다. ‘선택 해제’ 후 다시 검색하세요."
+          reason = "검색 이동 실패: PDF에서 선택한 내용이 있습니다. ‘선택 해제’ 후 다시 검색하세요."
         default:
-          reason = self.refreshButton?.isEnabled == true
-            ? "검색 실패 (\(error)): 다시 검색하거나 문서를 새로고침하세요."
-            : "검색 실패 (\(error)): 다시 검색하거나 저장 문서를 다시 열어 복원하세요."
+          reason = Self.message(for: error, inOriginalPDF: true)
         }
         self.findFailure = reason; self.setNotice(reason); self.refreshStatus()
       }

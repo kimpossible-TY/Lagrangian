@@ -429,12 +429,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     content.addArrangedSubview(footer)
     NativeChrome.apply(to: window.contentView!)
     (login as? NativeCheckboxButton)?.onAppearanceChange = { [weak self] in
-      self?.refreshLoginTitle()
+      self?.refreshAppearanceColors()
     }
     appearanceObservation?.invalidate()
     appearanceObservation = window.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-      if Thread.isMainThread { self?.refreshLoginTitle() }
-      else { DispatchQueue.main.async { self?.refreshLoginTitle() } }
+      if Thread.isMainThread { self?.refreshAppearanceColors() }
+      else { DispatchQueue.main.async { self?.refreshAppearanceColors() } }
     }
     if accessibilityObservation == nil {
       accessibilityObservation = NSWorkspace.shared.notificationCenter.addObserver(
@@ -442,10 +442,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         object: nil,
         queue: .main
       ) { [weak self] _ in
-        self?.refreshLoginTitle()
+        self?.refreshAppearanceColors()
       }
     }
-    refreshLoginTitle()
+    refreshAppearanceColors()
   }
   func populate() {
     picker.removeAllItems()
@@ -478,7 +478,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     status.stringValue = snapshot.message
     detail.stringValue = snapshot.detail
     detail.toolTip = snapshot.detail
-    status.textColor = snapshot.phase == .failed ? .systemRed : .labelColor
+    refreshStatusColor()
     if snapshot.isBusy { activity.startAnimation(nil) } else { activity.stopAnimation(nil) }
     controls[#selector(openPreview)]?.title = snapshot.phase == .failed ? "다시 읽기" : "읽기 시작"
     updateControls()
@@ -503,6 +503,15 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     if action == #selector(stop) { return active != nil && !mutating }
     if [#selector(copyURL), #selector(openLogs), #selector(openOffline)].contains(action) { return active != nil }
     return true
+  }
+  func refreshStatusColor() {
+    let appearance = status.window != nil ? status.effectiveAppearance : (window?.effectiveAppearance ?? status.effectiveAppearance)
+    let palette = NativeAppDesign.palette(.current(appearance: appearance))
+    status.textColor = snapshot?.phase == .failed ? palette.error : palette.ink
+  }
+  func refreshAppearanceColors() {
+    refreshLoginTitle()
+    refreshStatusColor()
   }
   func refreshLoginTitle() {
     let appearance = login.window != nil ? login.effectiveAppearance : (window?.effectiveAppearance ?? login.effectiveAppearance)
