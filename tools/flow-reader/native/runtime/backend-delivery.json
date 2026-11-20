@@ -988,6 +988,22 @@
             "sha256": "d327ff2ef46648b8a06da4dc82f5735e070af70b2d7c6b3a377a503ae6979330"
           }
         ]
+      },
+      {
+        "baseRevision": "9e4c5cea35aeaaa483a093bfb06d993f31ec3b41",
+        "revision": "bf7da60ff451801c4116fd43238214f410685b02",
+        "files": [
+          {
+            "path": "apps/macos/NativeFloatingCapsule.swift",
+            "baseSHA256": "55533a0a600a5eb1c39f664f17300556b86fb1ad4ace2e821304f758ecd1cefb",
+            "sha256": "5f4b266e57d05147b0ba77ff490dca4fc115056f17efd2953c1f074f1fba1a0a"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "2ec397193a4595f6d3a4f0a7cfbaf9af665b92b554d03b8767eb3d64629b323d",
+            "sha256": "f1e6ddcdac5c08e1b9e099110e5ae74497b3c7d1274ae01b31c980ccfbb60321"
+          }
+        ]
       }
     ]
   }
