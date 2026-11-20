@@ -51,7 +51,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   /// tests; service inventory and window visibility remain explicit inputs.
   @MainActor func readNative(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
       if let read = self.nativeReadOverride { return read(profile, progress) }
-      if self.nativeProfile != profile {
+      if self.nativeProfile != profile || self.nativeWindow?.session.hasRecoveryCopy == true {
         self.nativeWindow?.dispose(); self.nativeWindow = nil; self.nativeProfile = profile
       }
       if self.nativeWindow == nil {

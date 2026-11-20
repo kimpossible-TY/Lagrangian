@@ -275,9 +275,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard self.profile == nil || self.profile == profile else {
       progress(.failed("Create a new view for another profile")); return {}
     }
+    let reopening = self.profile != nil
+    requestTicket.cancel()
+    originalPageView.releaseSelection()
+    if let selection = store.selection { textView.releaseSelection(ticket: selection.ticket) }
+    if reopening { cancel() } else { cancelStorage() }
+    originalPageView.cancel()
+    textView.cancel()
+    reflowTask?.cancel(); reflowTask = nil
+    selectionTask?.cancel(); selectionTask = nil
+    actionTasks.values.forEach { $0.cancel() }; actionTasks.removeAll()
+    pendingPresentation = nil
+    preparingKey = nil
+    localReview.clear()
+    retainedChatPresentations.removeAll()
+    retainedChatConversations.removeAll()
     self.profile = profile; self.progress = progress
-    cancelStorage()
-    requestTicket.cancel(); let ticket = ReadingOperationTicket(); requestTicket = ticket
+    let ticket = ReadingOperationTicket(); requestTicket = ticket
     acceptedPaintKey = nil; paintedKey = nil; diagnostic = nil
     acceptedPageDelivery = nil
     mode = .nativeReflow; visibleMode = .nativeReflow
@@ -1449,6 +1463,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   func prepareForOpen() {
     cancelFind()
     hideCapsule()
+    findField.stringValue = ""
     requestedMode = nil
     requestWasHeld = false
     searchSelectionTicket = nil
@@ -1456,6 +1471,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     actionFailure = nil
     retainedFailure = false
     pendingRecovery = false
+    latestState = .idle
+    failedState = false
+    allowsRefresh = true
+    allowsModeSwitch = true
+    refreshButton?.isEnabled = true
+    for button in modeButtons { button.isEnabled = true }
+    brandMark.phase = .idle
+    displayPreview = nil
+    pendingDisplayViewport = nil
+    applyDisplay.isEnabled = false
+    cancelDisplay.isEnabled = false
     cancelRecoveryButton.isHidden = true
     retryRecoveryButton.isHidden = true
     window?.title = "Lagrangian · 읽기"
@@ -1676,8 +1702,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           }
         case NativeOriginalPageError.heldSelection:
           reason = "검색 이동 실패: PDF에서 선택한 내용이 있습니다. ‘선택 해제’ 후 다시 검색하세요."
+        case NativeOriginalPageError.unsupported:
+          reason = "검색 실패: 이 페이지의 텍스트 위치를 선택할 수 없습니다. 다른 검색어로 다시 검색하세요."
         default:
-          reason = Self.message(for: error, inOriginalPDF: true)
+          reason = self.allowsRefresh
+            ? Self.message(for: error, inOriginalPDF: true)
+            : "검색 실패: 원본 PDF 검색에 실패했습니다. 오프라인 복사본을 다시 열거나 검색어를 바꿔 보세요."
         }
         self.findFailure = reason; self.setNotice(reason); self.refreshStatus()
       }
