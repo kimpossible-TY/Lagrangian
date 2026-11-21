@@ -299,6 +299,32 @@ private actor UIPathCalls {
       }
       try click(root, "toggleDisplayPopover")
       try check(!host.hostWindow.isDisplayPopoverOpen && (aaButton as? NativeDesignButton)?.designRole == .standard, "Aa button resets highlight on close")
+      try check(popView.superview?.superview == nil && !popView.bounds.isEmpty && !popView.isHiddenOrHasHiddenAncestor, "closed Aa popover detaches host while retaining non-empty unhidden surface")
+
+      // Regression: Dark -> close -> Light -> reopen keeps exact fittingSize, symmetric insets, zero clipping, and >= 1pt border
+      window.setFrame(NSRect(x: 0, y: 0, width: 980, height: 752), display: false); root.layoutSubtreeIfNeeded()
+      try click(root, "toggleDisplayPopover")
+      try click(popView, "selectDarkTheme")
+      try await until { host.textView.renderKey == host.textView.requestedRenderKey && host.textView.textAppearance.theme == .dark }
+      try click(root, "toggleDisplayPopover")
+      try check(!host.hostWindow.isDisplayPopoverOpen && popView.superview?.superview == nil, "Aa popover closes cleanly from Dark mode")
+      host.hostWindow.selectLightTheme()
+      try await until { host.textView.renderKey == host.textView.requestedRenderKey && host.textView.textAppearance.theme == .light }
+      try click(root, "toggleDisplayPopover")
+      root.layoutSubtreeIfNeeded()
+      try check(host.hostWindow.isDisplayPopoverOpen && popView.superview != nil && popView.superview?.superview === root, "reopened Light Aa popover attaches host to window contentView")
+      let expectedPopSize = popView.fittingSize
+      try check(abs(popView.bounds.width - expectedPopSize.width) <= 1.0 && abs(popView.bounds.height - expectedPopSize.height) <= 1.0, "reopened Aa popover bounds match fittingSize (\(popView.bounds.size) vs \(expectedPopSize))")
+      try check((popView.layer?.borderWidth ?? 0) >= 1.0, "reopened Aa popover surface maintains >= 1pt border")
+      for required in ["themeLight", "themeDark", "themeAutomatic", "decreaseFontSize", "fontSizeLabel", "increaseFontSize", "saveOfflineExplicitly", "exportPDFExplicitly"] {
+        let child = view(popView, id: required)!
+        let rect = child.convert(child.bounds, to: popView)
+        try check(popView.bounds.contains(rect), "reopened Aa popover contains \(required) without clipping: \(rect) in \(popView.bounds)")
+        try check(rect.minX >= 12.0 && popView.bounds.maxX - rect.maxX >= 12.0, "reopened Aa popover horizontal padding >= 12pt for \(required): \(rect)")
+        try check(rect.minY >= 10.0 && popView.bounds.maxY - rect.maxY >= 10.0, "reopened Aa popover vertical padding >= 10pt for \(required): \(rect)")
+      }
+      try click(root, "toggleDisplayPopover")
+      try check(!host.hostWindow.isDisplayPopoverOpen && popView.superview?.superview == nil, "Aa popover closes cleanly after Light reopen check")
 
       try check(host.hostWindow.contents.toolTip == host.hostWindow.contents.titleOfSelectedItem,"long Korean contents retains full text in native popup")
       let paragraph=host.store.document!.blocks.first{$0.kind == .paragraph}!

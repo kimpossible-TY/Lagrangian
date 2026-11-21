@@ -1185,6 +1185,91 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.window?.close() }
 }
 
+private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
+  private func textLineHeight() -> CGFloat {
+    let activeFont = font ?? NativeAppDesign.Typography.font(.control)
+    return ceil(activeFont.ascender - activeFont.descender + activeFont.leading)
+  }
+
+  private func iconSide(for bounds: NSRect) -> CGFloat {
+    min(18, max(12, bounds.height - 8))
+  }
+
+  override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
+    let side = iconSide(for: rect)
+    let x = rect.minX + 9
+    let y = rect.minY + floor((rect.height - side) / 2)
+    return NSRect(x: x, y: y, width: side, height: side)
+  }
+
+  override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
+    let side = iconSide(for: rect)
+    let x = rect.maxX - 9 - side
+    let y = rect.minY + floor((rect.height - side) / 2)
+    return NSRect(x: x, y: y, width: side, height: side)
+  }
+
+  override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+    let leftEdge = searchButtonRect(forBounds: rect).maxX + 5
+    let rightEdge = cancelButtonRect(forBounds: rect).minX - 5
+    let width = max(0, rightEdge - leftEdge)
+    let lineHeight = min(rect.height, textLineHeight())
+    let y = rect.minY + floor((rect.height - lineHeight) / 2)
+    return NSRect(x: leftEdge, y: y, width: width, height: lineHeight)
+  }
+
+  override func drawingRect(forBounds rect: NSRect) -> NSRect {
+    searchTextRect(forBounds: rect)
+  }
+
+  override func titleRect(forBounds rect: NSRect) -> NSRect {
+    searchTextRect(forBounds: rect)
+  }
+
+  override func setUpFieldEditorAttributes(_ textObj: NSText) -> NSText {
+    let configured = super.setUpFieldEditorAttributes(textObj)
+    if let textView = configured as? NSTextView {
+      textView.drawsBackground = false
+      textView.backgroundColor = .clear
+      textView.textColor = NativeChrome.color(\.ink)
+      textView.insertionPointColor = NativeChrome.color(\.ink)
+    }
+    return configured
+  }
+
+  override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+    guard cellFrame.width > 0, cellFrame.height > 0 else { return }
+    let searchField = controlView as? NativeDesignSearchField
+    let prefs = searchField?.preferences ?? .current(appearance: controlView.effectiveAppearance)
+    let palette = NativeAppDesign.palette(prefs)
+    let isFocused: Bool = {
+      guard let window = controlView.window, let responder = window.firstResponder else { return false }
+      if responder === controlView { return true }
+      if let textView = responder as? NSTextView, textView.isFieldEditor,
+         (textView.delegate as? NSView) === controlView {
+        return true
+      }
+      return false
+    }()
+    let lineWidth = isFocused
+      ? NativeAppDesign.Shape.strongStroke
+      : (prefs.increasedContrast ? NativeAppDesign.Shape.strongStroke : NativeAppDesign.Shape.stroke)
+    let strokeColor = isFocused ? palette.accent : palette.boundary
+    let radius = min(cellFrame.height / 2, NativeAppDesign.Shape.floatingRadius)
+    let path = NSBezierPath(
+      roundedRect: cellFrame.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
+      xRadius: radius,
+      yRadius: radius
+    )
+    palette.panel.setFill()
+    path.fill()
+    strokeColor.setStroke()
+    path.lineWidth = lineWidth
+    path.stroke()
+    drawInterior(withFrame: cellFrame, in: controlView)
+  }
+}
+
 @MainActor private final class NativeDesignSearchField: NSSearchField {
   var preferencesOverride: NativeAppDesign.Preferences? { didSet { needsDisplay = true } }
   private var observation: NativeDesignObservation?
@@ -1193,26 +1278,32 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   override init(frame: NSRect) {
     super.init(frame: frame)
+    configureCell()
     observation = NativeDesignObservation(view: self)
   }
   required init?(coder: NSCoder) {
     super.init(coder: coder)
+    configureCell()
     observation = NativeDesignObservation(view: self)
+  }
+  private func configureCell() {
+    let customCell = NativeDesignSearchFieldCell(textCell: stringValue)
+    customCell.bezelStyle = .roundedBezel
+    customCell.isBezeled = false
+    customCell.isBordered = false
+    customCell.drawsBackground = false
+    customCell.isEditable = true
+    customCell.isSelectable = true
+    customCell.isScrollable = true
+    customCell.usesSingleLineMode = true
+    customCell.sendsWholeSearchString = true
+    customCell.sendsSearchStringImmediately = false
+    customCell.sendsActionOnEndEditing = false
+    cell = customCell
   }
   override func viewDidChangeEffectiveAppearance() {
     super.viewDidChangeEffectiveAppearance()
     needsDisplay = true
-  }
-  override func draw(_ dirtyRect: NSRect) {
-    super.draw(dirtyRect)
-    guard bounds.width > 0, bounds.height > 0 else { return }
-    let prefs = preferences
-    let width = prefs.increasedContrast ? NativeAppDesign.Shape.strongStroke : NativeAppDesign.Shape.stroke
-    let radius = min(bounds.height / 2, NativeAppDesign.Shape.floatingRadius)
-    let path = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
-    path.lineWidth = width
-    NativeAppDesign.palette(prefs).boundary.setStroke()
-    path.stroke()
   }
 }
 
@@ -1232,7 +1323,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 }
 
-@MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation, NSPopoverDelegate {
+@MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
   let reader: NativeReaderTextView
   let notice = NSTextField(wrappingLabelWithString: "원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
   var onRefresh: (() -> Void)?
@@ -1262,9 +1353,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   let moreMenu = NSMenu(title: "더보기")
   private(set) var isMoreMenuOpen = false
   private(set) var isDisplayPopoverOpen = false
-  private let displayPopover = NSPopover()
-  private let displayPopoverController = NSViewController()
+  private let displayPopoverHost = NSView()
   private let displayPopoverSurface = NativeDesignSurface()
+  private var displayPopoverConstraints = [NSLayoutConstraint]()
+  private var displayPopoverMouseMonitor: Any?
   private var themeButtons = [NativeDesignButton]()
   private let decreaseFontButton = NativeDesignButton(title: "−", target: nil, action: nil)
   private let increaseFontButton = NativeDesignButton(title: "+", target: nil, action: nil)
@@ -1486,12 +1578,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     moreButton = more
 
     findField.bezelStyle = .roundedBezel
-    findField.isBezeled = true
-    findField.isBordered = true
-    findField.drawsBackground = true
-    findField.backgroundColor = NativeChrome.color(\.panel)
+    findField.isBezeled = false
+    findField.isBordered = false
+    findField.drawsBackground = false
+    findField.textColor = NativeChrome.color(\.ink)
     findField.font = NativeAppDesign.Typography.font(.control)
-    findField.focusRingType = .exterior
+    findField.focusRingType = .none
     findField.sendsWholeSearchString = true
     findField.sendsSearchStringImmediately = false
     findField.cell?.sendsActionOnEndEditing = false
@@ -1650,6 +1742,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     window.appearance = NSAppearance(named: .aqua)
     NativeChrome.apply(to: window.contentView!)
     self.window = window
+    updateDisplayPopoverAppearance()
     appearanceObservation = window.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
       Task { @MainActor in self?.automaticAppearanceChanged() }
     }
@@ -1659,11 +1752,34 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   private func buildDisplayPopover() {
+    displayPopoverHost.wantsLayer = true
+    displayPopoverHost.layer?.masksToBounds = false
+    displayPopoverHost.translatesAutoresizingMaskIntoConstraints = false
+    let popoverShadow = NSShadow()
+    popoverShadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+    popoverShadow.shadowOffset = NSSize(width: 0, height: -4)
+    popoverShadow.shadowBlurRadius = 12
+    displayPopoverHost.shadow = popoverShadow
+
     displayPopoverSurface.role = .floating
     displayPopoverSurface.identifier = NSUserInterfaceItemIdentifier("displayPopoverSurface")
+    displayPopoverSurface.translatesAutoresizingMaskIntoConstraints = false
+    displayPopoverSurface.wantsLayer = true
+    displayPopoverSurface.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+    displayPopoverSurface.setContentHuggingPriority(.defaultHigh, for: .vertical)
+    displayPopoverHost.addSubview(displayPopoverSurface)
+    NSLayoutConstraint.activate([
+      displayPopoverSurface.leadingAnchor.constraint(equalTo: displayPopoverHost.leadingAnchor),
+      displayPopoverSurface.trailingAnchor.constraint(equalTo: displayPopoverHost.trailingAnchor),
+      displayPopoverSurface.topAnchor.constraint(equalTo: displayPopoverHost.topAnchor),
+      displayPopoverSurface.bottomAnchor.constraint(equalTo: displayPopoverHost.bottomAnchor)
+    ])
+
     let container = NSStackView()
     container.orientation = .vertical; container.alignment = .leading; container.spacing = 10
     container.translatesAutoresizingMaskIntoConstraints = false
+    container.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+    container.setContentHuggingPriority(.defaultHigh, for: .vertical)
     displayPopoverSurface.addSubview(container)
     NSLayoutConstraint.activate([
       container.leadingAnchor.constraint(equalTo: displayPopoverSurface.leadingAnchor, constant: 14),
@@ -1744,19 +1860,32 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       item.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
     }
 
-    displayPopoverController.view = displayPopoverSurface
-    displayPopover.contentViewController = displayPopoverController
-    displayPopover.behavior = .transient
-    displayPopover.animates = false
-    displayPopover.delegate = self
+    updateDisplayPopoverAppearance()
     layoutDisplayPopoverSurface()
+  }
+  private func updateDisplayPopoverAppearance() {
+    let prefsOverride = window.map { NativeAppDesign.Preferences.current(appearance: $0.effectiveAppearance) }
+    let prefs = prefsOverride ?? displayPopoverSurface.preferences
+    displayPopoverSurface.preferencesOverride = prefsOverride
+    displayPopoverSurface.wantsLayer = true
+    if let layer = displayPopoverSurface.layer {
+      layer.cornerRadius = NativeAppDesign.Shape.floatingRadius
+      layer.masksToBounds = true
+      layer.borderWidth = max(1.0, prefs.increasedContrast ? NativeAppDesign.Shape.strongStroke : NativeAppDesign.Shape.stroke)
+      layer.borderColor = NativeAppDesign.palette(prefs).boundary.cgColor
+    }
+    displayPopoverHost.layer?.masksToBounds = false
+    displayPopoverSurface.needsDisplay = true
   }
   private func layoutDisplayPopoverSurface() {
     displayPopoverSurface.layoutSubtreeIfNeeded()
     let popSize = displayPopoverSurface.fittingSize
-    displayPopoverSurface.frame = NSRect(origin: .zero, size: popSize)
-    displayPopoverSurface.layoutSubtreeIfNeeded()
-    displayPopover.contentSize = popSize
+    displayPopoverHost.frame = NSRect(origin: .zero, size: popSize)
+    displayPopoverHost.layoutSubtreeIfNeeded()
+    if displayPopoverSurface.bounds.size != popSize {
+      displayPopoverSurface.frame = NSRect(origin: .zero, size: popSize)
+      displayPopoverSurface.layoutSubtreeIfNeeded()
+    }
   }
   private func updateOverlayTopConstraint() {
     overlayTopConstraint?.isActive = false
@@ -2017,31 +2146,80 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       closeDisplayPopover()
     } else {
       updateAppearanceControls()
+      updateDisplayPopoverAppearance()
       isDisplayPopoverOpen = true
       aaButton.designRole = .primary
       aaButton.state = .on
-      displayPopover.appearance = window?.effectiveAppearance
-      displayPopoverSurface.preferencesOverride = window.map { NativeAppDesign.Preferences.current(appearance: $0.effectiveAppearance) }
-      layoutDisplayPopoverSurface()
-      if window?.isVisible == true {
-        displayPopover.show(relativeTo: aaButton.bounds, of: aaButton, preferredEdge: .minY)
+      if let contentView = window?.contentView {
+        NSLayoutConstraint.deactivate(displayPopoverConstraints)
+        displayPopoverConstraints.removeAll()
+        if displayPopoverHost.superview != nil {
+          displayPopoverHost.removeFromSuperview()
+        }
+        displayPopoverHost.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(displayPopoverHost, positioned: .above, relativeTo: nil)
+        let constraints = [
+          displayPopoverHost.topAnchor.constraint(equalTo: toolbarView.bottomAnchor, constant: 6),
+          displayPopoverHost.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor, constant: -8),
+          displayPopoverHost.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 8),
+          displayPopoverHost.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8)
+        ]
+        NSLayoutConstraint.activate(constraints)
+        displayPopoverConstraints = constraints
+        updateDisplayPopoverAppearance()
+        contentView.layoutSubtreeIfNeeded()
+        displayPopoverSurface.layoutSubtreeIfNeeded()
+      } else {
+        layoutDisplayPopoverSurface()
       }
+      installDisplayPopoverMonitor()
+    }
+  }
+
+  private func installDisplayPopoverMonitor() {
+    removeDisplayPopoverMonitor()
+    displayPopoverMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+      let eventWindowNumber = event.windowNumber
+      let location = event.locationInWindow
+      MainActor.assumeIsolated {
+        guard let self, self.isDisplayPopoverOpen else { return }
+        guard let targetWindow = self.window, eventWindowNumber == targetWindow.windowNumber else {
+          self.closeDisplayPopover()
+          return
+        }
+        let inPopover = self.displayPopoverHost.superview != nil &&
+          self.displayPopoverHost.bounds.contains(self.displayPopoverHost.convert(location, from: nil))
+        let inAAButton = self.aaButton.map { button in
+          !button.isHiddenOrHasHiddenAncestor && button.bounds.contains(button.convert(location, from: nil))
+        } ?? false
+        if !inPopover && !inAAButton {
+          self.closeDisplayPopover()
+        }
+      }
+      return event
+    }
+  }
+
+  private func removeDisplayPopoverMonitor() {
+    if let monitor = displayPopoverMouseMonitor {
+      NSEvent.removeMonitor(monitor)
+      displayPopoverMouseMonitor = nil
     }
   }
 
   private func closeDisplayPopover() {
-    if displayPopover.isShown { displayPopover.performClose(nil) }
+    removeDisplayPopoverMonitor()
+    NSLayoutConstraint.deactivate(displayPopoverConstraints)
+    displayPopoverConstraints.removeAll()
+    if displayPopoverHost.superview != nil {
+      displayPopoverHost.removeFromSuperview()
+    }
     if isDisplayPopoverOpen {
       isDisplayPopoverOpen = false
       aaButton?.designRole = .standard
       aaButton?.state = .off
     }
-  }
-
-  func popoverDidClose(_ notification: Notification) {
-    isDisplayPopoverOpen = false
-    aaButton?.designRole = .standard
-    aaButton?.state = .off
+    layoutDisplayPopoverSurface()
   }
 
   @objc func toggleTools() {
@@ -2569,10 +2747,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     increaseFontButton.isEnabled = currentSize < 32
     aaButton?.designRole = isDisplayPopoverOpen ? .primary : .standard
     aaButton?.state = isDisplayPopoverOpen ? .on : .off
-    if let window {
-      displayPopover.appearance = window.effectiveAppearance
-      displayPopoverSurface.preferencesOverride = NativeAppDesign.Preferences.current(appearance: window.effectiveAppearance)
-    }
+    updateDisplayPopoverAppearance()
   }
   func setSavedDocuments(_ entries: [NativeReaderRecoveryStore.Entry]) {
     savedEntries = entries; savedDocuments.removeAllItems(); savedDocuments.addItems(withTitles: entries.map(\.title)); invalidateControlLayout(); updateOfflineControls()
@@ -2617,12 +2792,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       capsule, statusBanner, noticeBanner, noticeDismissButton, findField, original, originalScroll
     ]
     for view in views { view?.needsDisplay = true }
-    findField.backgroundColor = NativeChrome.color(\.panel)
+    findField.textColor = NativeChrome.color(\.ink)
     findField.placeholderAttributedString = NSAttributedString(
       string: "PDF에서 검색",
       attributes: [.foregroundColor: NativeChrome.color(\.secondaryInk), .font: NativeAppDesign.Typography.font(.control)])
     offlineBadgeLabel.textColor = NativeChrome.color(\.ink)
     pageCounterLabel.textColor = NativeChrome.color(\.ink)
+    updateDisplayPopoverAppearance()
   }
   private func automaticAppearanceChanged() {
     refreshChromeForAppearance()
@@ -2740,6 +2916,12 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     updateToolbarLayout()
     onCapsuleLayout?()
+  }
+  deinit {
+    if let monitor = displayPopoverMouseMonitor {
+      NSEvent.removeMonitor(monitor)
+      displayPopoverMouseMonitor = nil
+    }
   }
   func windowWillClose(_ notification: Notification) { closeDisplayPopover(); cancelFind(); hideCapsule(); onClose?() }
 }

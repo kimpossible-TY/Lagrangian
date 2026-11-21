@@ -607,7 +607,21 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             try check(badge != nil && !badge!.isHiddenOrHasHiddenAncestor && badgeText == "오프라인 PDF", "offline PDF toolbar shows exact '오프라인 PDF' badge")
             let nav = rAll.first { $0.identifier?.rawValue == "pageNavigation" }!
             try check(!nav.isHiddenOrHasHiddenAncestor && rAll.first(where: { $0.identifier?.rawValue == "pageCounter" }).flatMap { ($0 as? NSTextField)?.stringValue } == "256 / 256", "offline PDF toolbar shows centered 256 / 256 counter")
-            try check(restored.hostWindow.findField.bezelStyle == .roundedBezel && !restored.hostWindow.findField.isHiddenOrHasHiddenAncestor, "offline PDF toolbar shows rounded search field")
+            let searchField = restored.hostWindow.findField
+            try check(searchField.bezelStyle == .roundedBezel && !searchField.isHiddenOrHasHiddenAncestor, "offline PDF toolbar shows rounded search field")
+            try check(!searchField.isBordered && !searchField.isBezeled && !searchField.drawsBackground, "offline PDF search field suppresses system rectangular bezel")
+            let searchCell = searchField.cell as? NSSearchFieldCell
+            try check(searchCell != nil, "offline PDF search field uses NSSearchFieldCell")
+            let fieldBounds = searchField.bounds
+            let textRect = searchCell!.searchTextRect(forBounds: fieldBounds)
+            let searchIconRect = searchCell!.searchButtonRect(forBounds: fieldBounds)
+            let cancelIconRect = searchCell!.cancelButtonRect(forBounds: fieldBounds)
+            let topGap = textRect.minY - fieldBounds.minY
+            let botGap = fieldBounds.maxY - textRect.maxY
+            try check(abs(topGap - botGap) <= 2.5, "offline PDF search text rect vertically centered (topGap=\(topGap), botGap=\(botGap))")
+            try check(!searchIconRect.isEmpty && !cancelIconRect.isEmpty, "offline PDF search and cancel icon rects are non-empty")
+            try check(abs(searchIconRect.midY - fieldBounds.midY) <= 1.5 && abs(cancelIconRect.midY - fieldBounds.midY) <= 1.5, "offline PDF search and cancel icon rects vertically centered")
+            try check(!searchIconRect.intersects(textRect) && !cancelIconRect.intersects(textRect) && !searchIconRect.intersects(cancelIconRect), "offline PDF search icon, text, and cancel rects do not overlap")
             restored.hostWindow.findField.stringValue = "FarNeedle255"
             _ = NSApp.sendAction(restored.hostWindow.findField.action!, to: restored.hostWindow.findField.target, from: restored.hostWindow.findField)
             try await until { restored.session.hasSelection && !restored.hostWindow.capsule.isHidden }
