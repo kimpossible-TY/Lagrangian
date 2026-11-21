@@ -381,6 +381,9 @@ restart_login_agent() {
   return 1
 }
 install_run() (
+# The parent clears errexit only while it captures this status. Turn it back
+# on so a failed command still runs the ERR trap instead of continuing.
+set -Eeuo pipefail
 local id="$1" cache claim_rc=0
 # Preflight outside the ERR trap. A failing command substitution under set -E
 # runs failed() twice; reuse this path for fetch-engine --dest.
@@ -408,7 +411,6 @@ notify "새 빌드 $id 발견, 설치 시작"
 stage detect running
 stage detect done
 CUR=download
-trap 'failed "$?" "$LINENO"' ERR
 sha=$(gh run view "$id" -R "$REPO" --json headSha -q .headSha)
 WT=$(mktemp -d /tmp/lagrangian-run-XXXXXX)
 git -C "$SRC" fetch -q origin
@@ -505,8 +507,13 @@ watch_iteration() {
     # 76 is a claim error. Any other non-zero status is fatal: failed() already
     # ran inside the install subshell, and that status must still stop the updater.
     # install_run's own preflight is the cache check before begin_attempt.
+    # `cmd || rc=$?` would suppress the subshell ERR trap and could continue
+    # after a failed install, including writing last-installed-run.
     rc=0
-    install_run "$success" || rc=$?
+    set +e
+    install_run "$success"
+    rc=$?
+    set -e
     if [[ "$rc" == 76 ]]; then
       if [[ "${LAST_CLAIM_ERROR:-}" != "$success" ]]; then
         echo "$(date) run $success claim failed (permissions or invalid id); no claim was recorded"
@@ -521,8 +528,9 @@ watch_iteration() {
     if [[ "$rc" != 0 ]]; then
       return "$rc"
     fi
-    # 60s whenever install_run returns, including an immediate claim hold
-    # (exit 75). Catch-up of a still-newer successful run waits out this delay.
+    # 60s when install_run returns 0, including an immediate claim hold
+    # (exit 75) and a cache preflight miss. Catch-up of a still-newer
+    # successful run waits out this delay.
     # A successful gh run watch above leaves NEXT_DELAY at 0.
     NEXT_DELAY=60
   fi

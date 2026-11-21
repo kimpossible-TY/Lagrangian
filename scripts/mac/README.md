@@ -3,10 +3,14 @@
 The launchd job runs the updater continuously. It checks for `flow-engine.yml`
 runs on `main` every 60 seconds while idle, watches a newer in-progress run
 with `gh run watch`, and rechecks before installing the newest successful run.
-GitHub or watch errors are logged and retried. Installation failures still exit
-so launchd can restart the process. A failed or interrupted run is not
-automatically retried. The last-installed-run marker stays unchanged until a
-later run fully succeeds.
+GitHub or watch errors are logged and retried. After a claim is taken, an
+installation failure makes `watch_iteration` return that failure status, and
+the updater's `set -e` ends the process so launchd KeepAlive can restart it.
+The last-installed-run marker stays unchanged, and that run is not retried
+automatically.
+
+A missing engine cache and a claim exit 76 do not end the process.
+`watch_iteration` returns to the loop and waits 60 seconds.
 
 The claim for a run is
 `$HOME/Library/Application Support/Lagrangian/update-attempts/<run>/state.json`.
@@ -21,6 +25,9 @@ rm -r "$HOME/Library/Application Support/Lagrangian/update-attempts/<run>"
 That removal leaves the last-installed-run marker unchanged. GitHub “Re-run”
 reuses the same run database id, so an existing claim still holds; delete that
 claim directory to retry the same run. Claims are not pruned automatically.
+An operator may delete the oldest completed claim directories (phase
+`complete`, state `done`) to reclaim space, and must leave a failed or held
+claim in place unless the intent is a manual retry.
 
 The engine cache must be a real directory. The fetch destination cannot be a
 symlink. The default is `/Volumes/devSSD/Developer/.cache/lagrangian-engines`.
@@ -31,12 +38,13 @@ When that volume is missing, the updater skips the claim and retries later.
 The login-agent restart cap is about 50 seconds worst case, and a failure logs
 a dated RECOVERY command (`launchctl enable gui/<uid>/<label> && launchctl bootstrap gui/<uid> '<plist>'`).
 
-After `install_run` returns — a successful install, an already-claimed hold, or
-any other return from the install attempt — `watch_iteration` sets the next
-delay to 60 seconds. That keeps an immediate return (for example claim exit 75)
-from looping hot. Catch-up of a still-newer successful run waits those 60
-seconds. After a successful `gh run watch`, the next delay is still 0 so
-selection can refresh immediately.
+When `install_run` returns 0 — a successful install, an already-claimed hold
+(exit 75), or a cache preflight miss — `watch_iteration` sets the next delay
+to 60 seconds. Claim exit 76 uses that same 60 second wait, so both paths
+stay on the idle interval. Catch-up of a still-newer successful run waits
+those 60 seconds. After a successful `gh run watch`, the next delay is still 0
+so selection can refresh immediately. Any other install status returns from
+`watch_iteration` and ends the process.
 
 The installer still uses the checkout at `~/Developer/lagrangian` and requires
 its existing GitHub authentication and the installed reader refresh script.
