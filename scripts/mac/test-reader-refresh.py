@@ -14,9 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class Handler(http.server.BaseHTTPRequestHandler):
     paths = []
+    status_code = 200
+    events_path = None
     def do_GET(self):
         self.paths.append(self.path)
-        self.send_response(200); self.end_headers()
+        if self.events_path is not None:
+            with Path(self.events_path).open('a') as f:
+                f.write('verify ' + self.path + '\n')
+        self.send_response(self.status_code); self.end_headers()
     def log_message(self, *args): pass
 
 class ReaderTests(unittest.TestCase):
@@ -28,10 +33,12 @@ class ReaderTests(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close); self.addCleanup(self.server.shutdown)
         Handler.paths = []
+        Handler.status_code = 200
         self.port = self.server.server_port
         self.env = dict(os.environ, HOME=str(self.home), READER_SRC=str(self.home / 'source'))
         (self.home / 'source/tools/flow-reader').mkdir(parents=True)
         self.events = self.home / 'events'
+        Handler.events_path = self.events
         self.launcher = self.data / 'bin/flow-reader'
         self.launcher.write_text('''#!/usr/bin/python3
 import json, os, sys
@@ -51,34 +58,112 @@ else: sys.exit(1)
         self.installer.write_text('''import os, sys
 from pathlib import Path
 with (Path.home()/'events').open('a') as f: f.write('install '+' '.join(sys.argv[1:])+'\\n')
+if '--prune-only' in sys.argv:
+ sys.exit(0)
 if os.environ.get('FAIL_INSTALL') and sys.argv[sys.argv.index('--profile')+1]=='two':
  config=Path.home()/'Library/Application Support/Lagrangian/reader/config.json'
  config.write_text(config.read_text().replace('\"services\"', '\"changed\": true, \"services\"'))
  sys.exit(1)
 ''')
-    def refresh(self, shared=True, fail=False):
+    def refresh(self, shared=True, fail=False, extra_env=None):
         self.config.write_text(json.dumps({'services':self.services, **({'shared':{'port':self.port}} if shared else {})}))
-        env=dict(self.env, FAIL_INSTALL='1' if fail else '')
+        env=dict(self.env, FAIL_INSTALL='1' if fail else '', **(extra_env or {}))
         return subprocess.run(['bash',str(ROOT/'scripts/mac/refresh-reader-engine.sh')],env=env,capture_output=True,text=True)
     def test_shared_transaction_and_empty_urls(self):
         result=self.refresh(); self.assertEqual(result.returncode,0,result.stderr)
         events=self.events.read_text().splitlines()
         controls=[e for e in events if e.startswith('--control')]
         self.assertEqual(controls,['--control stop-shared one-reader','--control start one-reader'])
-        installs=[e for e in events if e.startswith('install ')]
+        installs=[e for e in events if e.startswith('install ') and '--prune-only' not in e]
+        prunes=[e for e in events if e.startswith('install --prune-only')]
         self.assertEqual(len(installs),2)
+        self.assertEqual(len(prunes),1)
         self.assertIn('--profile one --port 1111', installs[0]); self.assertIn('--profile two --port 2222', installs[1])
-        self.assertTrue(all('--start' not in e and '--public-url' not in e for e in installs))
+        self.assertTrue(all('--no-prune' in e and '--start' not in e and '--public-url' not in e for e in installs))
+        self.assertIn('--data ' + str(self.data), prunes[0])
         self.assertLess(events.index(controls[0]),events.index(installs[0])); self.assertLess(events.index(installs[1]),events.index(controls[1]))
+        verifies=[i for i, e in enumerate(events) if e.startswith('verify ')]
+        self.assertEqual(len(verifies), 2)
+        self.assertLess(events.index(controls[1]), verifies[0])
+        self.assertLess(verifies[-1], events.index(prunes[0]))
         self.assertEqual(Handler.paths,['/d/one-reader/','/d/two-reader/'])
     def test_failure_restores_files_and_starts_all_legacy_jobs(self):
+        releases = self.data / 'releases'
+        for name in ('r-old', 'r-active'):
+            (releases / name).mkdir(parents=True)
+            (releases / name / 'release.json').write_text(json.dumps({'revision': name}))
         original=self.launcher.read_bytes()
         result=self.refresh(shared=False,fail=True); self.assertNotEqual(result.returncode,0)
         self.assertEqual(self.launcher.read_bytes(),original)
         self.assertEqual(json.loads(self.config.read_text())['services'],self.services)
-        controls=[e for e in self.events.read_text().splitlines() if e.startswith('--control')]
+        events=self.events.read_text().splitlines()
+        controls=[e for e in events if e.startswith('--control')]
         self.assertEqual(controls[:2],['--control stop one-reader','--control stop two-reader'])
         self.assertEqual(controls[-2:],['--control start one-reader','--control start two-reader'])
+        self.assertFalse(any('--prune-only' in e for e in events))
+        self.assertTrue((releases / 'r-old').is_dir())
+        self.assertTrue((releases / 'r-active').is_dir())
+
+    def test_verify_failure_restores_files_and_deletes_no_releases(self):
+        releases = self.data / 'releases'
+        for name in ('r-ancient', 'r-old', 'r-new'):
+            (releases / name).mkdir(parents=True)
+            (releases / name / 'release.json').write_text(json.dumps({'revision': name}))
+        self.installer.write_text('''import json, shutil, sys
+from pathlib import Path
+with (Path.home()/'events').open('a') as f: f.write('install '+' '.join(sys.argv[1:])+'\\n')
+data = Path.home() / 'Library/Application Support/Lagrangian/reader'
+if '--prune-only' in sys.argv:
+ shutil.rmtree(data / 'releases/r-ancient')
+ sys.exit(0)
+config = data / 'config.json'
+payload = json.loads(config.read_text())
+payload['mutatedDuringInstall'] = True
+config.write_text(json.dumps(payload))
+''')
+        Handler.status_code = 500
+        original_launcher = self.launcher.read_bytes()
+        result = self.refresh(shared=True, fail=False,
+                              extra_env={'READER_VERIFY_ATTEMPTS': '2', 'READER_VERIFY_INTERVAL': '0'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.launcher.read_bytes(), original_launcher)
+        restored_config = json.loads(self.config.read_text())
+        self.assertNotIn('mutatedDuringInstall', restored_config)
+        self.assertEqual(restored_config['services'], self.services)
+        events = self.events.read_text().splitlines()
+        installs = [e for e in events if e.startswith('install ') and '--prune-only' not in e]
+        self.assertEqual(len(installs), 2)
+        self.assertTrue(all('--no-prune' in e for e in installs))
+        self.assertFalse(any('--prune-only' in e for e in events))
+        for name in ('r-ancient', 'r-old', 'r-new'):
+            self.assertTrue((releases / name).is_dir(), name)
+
+    def test_refresh_prunes_obsolete_releases_once_after_verify(self):
+        releases = self.data / 'releases'
+        for name in ('r-ancient', 'r-prev', 'r-active'):
+            (releases / name).mkdir(parents=True)
+            (releases / name / 'release.json').write_text(json.dumps({'revision': name}))
+        self.installer.write_text('''import shutil, sys
+from pathlib import Path
+with (Path.home()/'events').open('a') as f: f.write('install '+' '.join(sys.argv[1:])+'\\n')
+data = Path.home() / 'Library/Application Support/Lagrangian/reader'
+if '--prune-only' in sys.argv:
+ assert (data / 'releases/r-ancient').is_dir()
+ shutil.rmtree(data / 'releases/r-ancient')
+ sys.exit(0)
+assert '--no-prune' in sys.argv
+assert (data / 'releases/r-ancient').is_dir()
+''')
+        result = self.refresh(shared=True, fail=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self.events.read_text().splitlines()
+        prunes = [e for e in events if e.startswith('install --prune-only')]
+        self.assertEqual(len(prunes), 1)
+        verifies = [i for i, e in enumerate(events) if e.startswith('verify ')]
+        self.assertLess(verifies[-1], events.index(prunes[0]))
+        self.assertFalse((releases / 'r-ancient').exists())
+        self.assertTrue((releases / 'r-prev').is_dir())
+        self.assertTrue((releases / 'r-active').is_dir())
 
     def test_updater_shared_verification_and_marker(self):
         app=self.home/'Applications/Lagrangian.app'; mac=app/'Contents/MacOS'; resources=app/'Contents/Resources'

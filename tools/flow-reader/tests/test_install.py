@@ -2,9 +2,11 @@
 
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -215,6 +217,447 @@ finally:
             self.assertEqual(Path(arguments[0]).resolve(), (release / "manage.py").resolve())
             self.assertEqual(arguments[1], '--attach')
             subprocess.run([sys.executable, *arguments[:2], '--help'], capture_output=True, check=True)
+
+
+def _write_managed_release(releases, name, *, with_manifest=True):
+    directory = releases / name
+    directory.mkdir(parents=True, exist_ok=True)
+    if with_manifest:
+        (directory / "release.json").write_text(json.dumps({"revision": name}))
+    return directory
+
+
+def _write_launcher(data_dir, release_id):
+    launcher = data_dir / "bin/flow-reader"
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    manage = data_dir / "releases" / release_id / "tools/flow-reader/manage.py"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        + installer.LAUNCHER_MARKER
+        + f"export FLOW_READER_DATA_DIR={shlex.quote(str(data_dir.resolve()))}\n"
+        + f"exec {shlex.quote(sys.executable)} {shlex.quote(str(manage))} \"$@\"\n"
+    )
+    launcher.chmod(0o755)
+    return launcher
+
+
+def _write_browser_compiler(directory, payload):
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "compiler.js").write_text("export default () => {};\n")
+    (directory / "compiler_bg.wasm").write_bytes(payload)
+    files = {
+        name: hashlib.sha256((directory / name).read_bytes()).hexdigest()
+        for name in ("compiler.js", "compiler_bg.wasm")
+    }
+    manifest = {
+        "schemaVersion": 1,
+        "files": files,
+        "engine": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+    }
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    return directory
+
+
+@unittest.skipUnless(sys.platform == "darwin", "Reader installation targets macOS")
+class ReaderReleaseRetentionTests(unittest.TestCase):
+    def _create_install_fixture(self, work, profile_ids=("one",)):
+        source = work / "source"
+        shutil.copytree(ROOT, source / "tools/flow-reader",
+                        ignore=shutil.ignore_patterns("__pycache__"), symlinks=True)
+        shutil.copytree(ROOT.parent / "reader-common", source / "tools/reader-common",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        marker = source / "tools/flow-reader/source.txt"
+        marker.write_text("release-1")
+        subprocess.run(["git", "init", "-q", str(source)], check=True)
+        subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=Reader test", "-c",
+                        "user.email=reader-test@example.invalid", "commit", "-qm", "r1"], check=True)
+        project = work / "project"
+        project.mkdir()
+        (project / "main.typ").write_text("Fixture")
+        (project / "packages").mkdir()
+        parents = [
+            {
+                "id": pid,
+                "name": f"Fixture {pid}",
+                "root": str(project),
+                "entry": "main.typ",
+                "fonts": [],
+                "packages": str(project / "packages"),
+                "port": 25100 + idx,
+                "publicURL": "",
+                "label": f"com.example.reader-retention-{pid}",
+            }
+            for idx, pid in enumerate(profile_ids)
+        ]
+        flow = work / "flow-fixture"
+        change_file = work / "configured Flow data" / "changes" / "fixture.json"
+        flow.write_text(
+            f"#!{sys.executable}\nimport json, sys\n"
+            + f"profiles = {repr({'profiles': parents})}\n"
+            + f"plan = {repr({'environment': {'TINYMIST_PREVIEW_CHANGE_FILE': str(change_file)}})}\n"
+            + "print(json.dumps(plan if sys.argv[1] == '--launch-plan' else profiles))\n"
+        )
+        flow.chmod(0o755)
+        engine = work / "source-history-engine"
+        engine.write_text(f"#!{sys.executable}\nprint('--root ROOT --change-file PATH')\n")
+        engine.chmod(0o755)
+        return source, marker, flow, engine
+
+    def _commit_marker(self, source, marker, text):
+        marker.write_text(text)
+        subprocess.run(["git", "-C", str(source), "add", str(marker.relative_to(source))], check=True)
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=Reader test", "-c",
+                        "user.email=reader-test@example.invalid", "commit", "-qm", text], check=True)
+
+    def _make_args(self, data, flow, engine, *, profile="one", port=25201, browser_compiler=None,
+                   no_browser_compiler=False, start=False, no_prune=False):
+        return argparse.Namespace(
+            data=data,
+            profile=profile,
+            port=port,
+            public_url="",
+            development=True,
+            flow_manager=flow,
+            python=Path(sys.executable),
+            compiler=Path(sys.executable),
+            engine=engine,
+            browser_compiler=browser_compiler,
+            no_browser_compiler=no_browser_compiler,
+            start=start,
+            no_prune=no_prune,
+        )
+
+    def test_prune_keeps_active_and_one_rollback_without_and_with_browser_compiler(self):
+        with tempfile.TemporaryDirectory(prefix="reader retention ") as temporary:
+            work = Path(temporary)
+            source, marker, flow, engine = self._create_install_fixture(work)
+            data = work / "installed"
+            releases = data / "releases"
+            with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"), \
+                 patch.object(installer, "running_process_commands", return_value=[]):
+                # Without browserCompiler: R1 -> R2 -> R3 keeps R3 + R2, prunes R1.
+                r1 = installer.install(self._make_args(data, flow, engine))["release"]
+                self.assertTrue((releases / r1).is_dir())
+                self._commit_marker(source, marker, "release-2")
+                r2 = installer.install(self._make_args(data, flow, engine))["release"]
+                self.assertTrue((releases / r1).is_dir())
+                self.assertTrue((releases / r2).is_dir())
+                self.assertEqual(json.loads((data / installer.PREVIOUS_RELEASE_FILE).read_text())["release"], r1)
+
+                self._commit_marker(source, marker, "release-3")
+                r3 = installer.install(self._make_args(data, flow, engine))["release"]
+                self.assertFalse((releases / r1).exists())
+                self.assertTrue((releases / r2).is_dir())
+                self.assertTrue((releases / r3).is_dir())
+
+                # With browserCompiler: W1 -> W2 -> W3 keeps W3 + W2, prunes W1 and R2.
+                w1_src = _write_browser_compiler(work / "wasm1", b"\x00asm\x01\x00\x00\x01")
+                w2_src = _write_browser_compiler(work / "wasm2", b"\x00asm\x01\x00\x00\x02")
+                w3_src = _write_browser_compiler(work / "wasm3", b"\x00asm\x01\x00\x00\x03")
+                w1 = installer.install(self._make_args(data, flow, engine, browser_compiler=w1_src))["release"]
+                self.assertFalse((releases / r2).exists())
+                self.assertTrue((releases / r3).is_dir())
+                self.assertTrue((releases / w1).is_dir())
+                w2 = installer.install(self._make_args(data, flow, engine, browser_compiler=w2_src))["release"]
+                self.assertFalse((releases / r3).exists())
+                self.assertTrue((releases / w1).is_dir())
+                self.assertTrue((releases / w2).is_dir())
+                w3 = installer.install(self._make_args(data, flow, engine, browser_compiler=w3_src))["release"]
+                self.assertFalse((releases / w1).exists())
+                self.assertTrue((releases / w2).is_dir())
+                self.assertTrue((releases / w3).is_dir())
+
+                # Even if previous-release.json is absent, config.previous.json still protects w2.
+                (data / installer.PREVIOUS_RELEASE_FILE).unlink()
+                _write_managed_release(releases, "r-extra-stale")
+                outcome = installer.prune_releases(data, process_commands=lambda: [])
+                self.assertEqual(outcome["pruned"], ["r-extra-stale"])
+                self.assertTrue((releases / w2).is_dir())
+                self.assertTrue((releases / w3).is_dir())
+
+    def test_two_service_same_release_install_without_no_prune_preserves_rollback(self):
+        with tempfile.TemporaryDirectory(prefix="reader two-service ") as temporary:
+            work = Path(temporary)
+            source, marker, flow, engine = self._create_install_fixture(work, profile_ids=("one", "two"))
+            data = work / "installed"
+            releases = data / "releases"
+            with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"), \
+                 patch.object(installer, "running_process_commands", return_value=[]):
+                # Install R1 for both services (no browserCompiler).
+                r1 = installer.install(self._make_args(data, flow, engine, profile="one", port=25201))["release"]
+                installer.install(self._make_args(data, flow, engine, profile="two", port=25202))
+                _write_managed_release(releases, "r-ancient")
+
+                # Upgrade to R2 across 2 services WITHOUT --no-prune (simulating unmodified refresh-reader-engine.sh).
+                self._commit_marker(source, marker, "release-2")
+                r2_first = installer.install(self._make_args(data, flow, engine, profile="one", port=25201))["release"]
+                self.assertFalse((releases / "r-ancient").exists())
+                self.assertTrue((releases / r1).is_dir())
+                self.assertTrue((releases / r2_first).is_dir())
+
+                r2_second = installer.install(self._make_args(data, flow, engine, profile="two", port=25202))["release"]
+                self.assertEqual(r2_first, r2_second)
+                self.assertTrue((releases / r1).is_dir(), "Second same-release install must preserve R_old")
+                self.assertTrue((releases / r2_second).is_dir())
+                self.assertEqual(json.loads((data / installer.PREVIOUS_RELEASE_FILE).read_text())["release"], r1)
+
+                # Subsequent upgrade to R3 prunes R1 while keeping R2 and R3.
+                self._commit_marker(source, marker, "release-3")
+                r3 = installer.install(self._make_args(data, flow, engine, profile="one", port=25201))["release"]
+                self.assertFalse((releases / r1).exists())
+                self.assertTrue((releases / r2_second).is_dir())
+                self.assertTrue((releases / r3).is_dir())
+
+                # Also verify seeding previous-release.json from config.previous.json on same-release re-install
+                # when previous-release.json does not yet exist.
+                w1_src = _write_browser_compiler(work / "wasm-seed", b"\x00asm\x01\x00\x00\x09")
+                w1 = installer.install(self._make_args(data, flow, engine, profile="one", port=25201,
+                                                       browser_compiler=w1_src))["release"]
+                (data / installer.PREVIOUS_RELEASE_FILE).unlink()
+                # Simulate config.previous.json pointing at r3 while active is w1.
+                prev_cfg = json.loads((data / "config.previous.json").read_text())
+                prev_cfg["browserCompiler"] = str(releases / r3 / "tools/flow-reader/compiler-assets")
+                (data / "config.previous.json").write_text(json.dumps(prev_cfg))
+                installer.install(self._make_args(data, flow, engine, profile="two", port=25202))
+                self.assertTrue((releases / r3).is_dir())
+                self.assertTrue((releases / w1).is_dir())
+                self.assertEqual(json.loads((data / installer.PREVIOUS_RELEASE_FILE).read_text())["release"], r3)
+
+    def test_historical_config_backup_does_not_pin_stale_release(self):
+        with tempfile.TemporaryDirectory(prefix="reader historical ") as temporary:
+            data = Path(temporary) / "reader"
+            releases = data / "releases"
+            _write_managed_release(releases, "r-active")
+            _write_managed_release(releases, "r-prev")
+            _write_managed_release(releases, "r-pre-refresh")
+            _write_launcher(data, "r-active")
+            (data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+            (data / installer.PREVIOUS_RELEASE_FILE).write_text(json.dumps({"schemaVersion": 1, "release": "r-prev"}))
+            (data / "config.pre-engine-refresh.json").write_text(json.dumps({
+                "schemaVersion": 1,
+                "services": [],
+                "browserCompiler": str(releases / "r-pre-refresh/tools/flow-reader/compiler-assets"),
+            }))
+            result = installer.prune_releases(data, process_commands=lambda: [])
+            self.assertEqual(result["pruned"], ["r-pre-refresh"])
+            self.assertFalse((releases / "r-pre-refresh").exists())
+            self.assertTrue((releases / "r-active").is_dir())
+            self.assertTrue((releases / "r-prev").is_dir())
+
+    def test_install_failure_never_deletes_releases(self):
+        with tempfile.TemporaryDirectory(prefix="reader fail-safe ") as temporary:
+            work = Path(temporary)
+            source, marker, flow, engine = self._create_install_fixture(work)
+            data = work / "installed"
+            releases = data / "releases"
+            with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"), \
+                 patch.object(installer, "running_process_commands", return_value=[]):
+                r1 = installer.install(self._make_args(data, flow, engine))["release"]
+                obsolete = _write_managed_release(releases, "r-obsolete")
+
+                # 1. Dirty commit failure.
+                marker.write_text("dirty")
+                with self.assertRaisesRegex(ValueError, "clean commit"):
+                    installer.install(self._make_args(data, flow, engine))
+                self.assertTrue(obsolete.is_dir())
+                marker.write_text("release-1")
+
+                # 2. Immutable release mismatch failure.
+                installed_marker = releases / r1 / "tools/flow-reader/source.txt"
+                installed_marker.write_text("tampered")
+                with self.assertRaisesRegex(ValueError, "immutable release"):
+                    installer.install(self._make_args(data, flow, engine))
+                self.assertTrue(obsolete.is_dir())
+                installed_marker.write_text("release-1")
+
+                # 3. --launch-plan failure after swap.
+                real_run = installer.run
+                def fail_launch_plan(arguments, *a, **kw):
+                    if "--launch-plan" in arguments:
+                        raise ValueError("launch-plan failed")
+                    return real_run(arguments, *a, **kw)
+                with patch.object(installer, "run", side_effect=fail_launch_plan):
+                    with self.assertRaisesRegex(ValueError, "launch-plan failed"):
+                        installer.install(self._make_args(data, flow, engine))
+                self.assertTrue(obsolete.is_dir())
+
+                # 4. --start failure after --launch-plan.
+                def fail_start(arguments, *a, **kw):
+                    if "--control" in arguments:
+                        raise ValueError("start failed")
+                    return real_run(arguments, *a, **kw)
+                with patch.object(installer, "run", side_effect=fail_start):
+                    with self.assertRaisesRegex(ValueError, "start failed"):
+                        installer.install(self._make_args(data, flow, engine, start=True))
+                self.assertTrue(obsolete.is_dir())
+
+    def test_running_process_protects_release_and_ps_failure_aborts_safely(self):
+        with tempfile.TemporaryDirectory(prefix="reader live spaces ") as temporary:
+            data = Path(temporary) / "Application Support" / "reader"
+            releases = data / "releases"
+            for name in ("r-active", "r-prev", "r-live-canonical", "r-live-raw", "r-stale"):
+                _write_managed_release(releases, name)
+            _write_launcher(data, "r-active")
+            (data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+            (data / installer.PREVIOUS_RELEASE_FILE).write_text(json.dumps({"schemaVersion": 1, "release": "r-prev"}))
+
+            # If ps inspection fails, abort safely without deleting anything.
+            stderr = io.StringIO()
+            with patch.object(sys, "stderr", stderr):
+                aborted = installer.prune_releases(
+                    data,
+                    process_commands=lambda: (_ for _ in ()).throw(RuntimeError("ps unavailable")),
+                )
+            self.assertIn("skipped", aborted)
+            self.assertEqual(aborted["pruned"], [])
+            self.assertIn("ps unavailable", stderr.getvalue())
+            self.assertTrue((releases / "r-stale").is_dir())
+
+            # Running process command lines (with spaces in path) protect referenced releases.
+            commands = [
+                f"/usr/bin/python3 {releases.resolve()}/r-live-canonical/tools/flow-reader/serve.py --managed",
+                f"/usr/bin/python3 {releases}/r-live-raw/tools/flow-reader/manage.py --serve one-reader",
+            ]
+            pruned = installer.prune_releases(data, process_commands=lambda: commands)
+            self.assertEqual(pruned["pruned"], ["r-stale"])
+            self.assertFalse((releases / "r-stale").exists())
+            for kept in ("r-active", "r-prev", "r-live-canonical", "r-live-raw"):
+                self.assertTrue((releases / kept).is_dir(), kept)
+
+    def test_exclusions_symlinks_out_of_boundary_unmanaged_hidden_and_malformed_metadata(self):
+        with tempfile.TemporaryDirectory(prefix="reader guards ") as temporary:
+            root = Path(temporary)
+            # 1. Symlink releases/ skips pruning safely and never touches target.
+            external_releases = root / "external-releases"
+            _write_managed_release(external_releases, "r-active")
+            _write_managed_release(external_releases, "r-stale")
+            symlink_data = root / "symlink-data"
+            symlink_data.mkdir()
+            (symlink_data / "releases").symlink_to(external_releases)
+            _write_launcher(symlink_data, "r-active")
+            (symlink_data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+            skipped = installer.prune_releases(symlink_data, process_commands=lambda: [])
+            self.assertIn("skipped", skipped)
+            self.assertTrue((external_releases / "r-stale").is_dir())
+
+            # 2. Child exclusions: symlink child, unmanaged dir, regular file, hidden staging dir, out-of-boundary path.
+            data = root / "reader"
+            releases = data / "releases"
+            _write_managed_release(releases, "r-active")
+            _write_managed_release(releases, "r-stale")
+            outside_target = _write_managed_release(root / "outside", "r-outside")
+            (releases / "r-link").symlink_to(outside_target)
+            _write_managed_release(releases, "unmanaged-dir", with_manifest=False)
+            _write_managed_release(releases, ".install-staging", with_manifest=True)
+            (releases / "stray-file.txt").write_text("keep")
+            _write_launcher(data, "r-active")
+            (data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+
+            # Out-of-boundary resolution guard verified directly even if entry is not a symlink.
+            escaped_candidate = _write_managed_release(releases, "r-escape-test")
+            real_resolve = Path.resolve
+            def fake_resolve(path_self, *a, **kw):
+                if path_self.name == "r-escape-test":
+                    return outside_target.resolve()
+                return real_resolve(path_self, *a, **kw)
+            with patch.object(Path, "resolve", fake_resolve):
+                result = installer.prune_releases(data, process_commands=lambda: [])
+            self.assertEqual(result["pruned"], ["r-stale"])
+            self.assertFalse((releases / "r-stale").exists())
+            self.assertTrue((releases / "r-link").is_symlink())
+            self.assertTrue(outside_target.is_dir())
+            self.assertTrue(escaped_candidate.is_dir())
+            self.assertTrue((releases / "unmanaged-dir").is_dir())
+            self.assertTrue((releases / ".install-staging").is_dir())
+            self.assertTrue((releases / "stray-file.txt").is_file())
+
+            # 3. Malformed / missing active or rollback metadata aborts pruning safely.
+            _write_managed_release(releases, "r-stale-2")
+            malformed_cases = [
+                ("config.json", "{not-json"),
+                ("config.json", None),
+                ("bin/flow-reader", "#!/bin/sh\necho unmanaged\n"),
+                ("bin/flow-reader", "#!/bin/sh\n" + installer.LAUNCHER_MARKER + "exec '/unclosed\n"),
+                ("bin/flow-reader", None),
+                ("config.previous.json", "{bad-json"),
+                (installer.PREVIOUS_RELEASE_FILE, json.dumps({"release": "../escape"})),
+            ]
+            saved_config = (data / "config.json").read_bytes()
+            saved_launcher = (data / "bin/flow-reader").read_bytes()
+            for rel_path, content in malformed_cases:
+                target = data / rel_path
+                if content is None:
+                    target.unlink()
+                else:
+                    target.write_text(content)
+                stderr = io.StringIO()
+                with patch.object(sys, "stderr", stderr):
+                    outcome = installer.prune_releases(data, process_commands=lambda: [])
+                self.assertIn("skipped", outcome, rel_path)
+                self.assertEqual(outcome["pruned"], [], rel_path)
+                self.assertTrue((releases / "r-stale-2").is_dir(), rel_path)
+                self.assertIn("Warning: skipping Reader release pruning", stderr.getvalue())
+                # Restore clean files before next case.
+                (data / "config.json").write_bytes(saved_config)
+                (data / "bin/flow-reader").write_bytes(saved_launcher)
+                (data / "config.previous.json").unlink(missing_ok=True)
+                (data / installer.PREVIOUS_RELEASE_FILE).unlink(missing_ok=True)
+
+    def test_nonfatal_oserror_during_prune_warns_and_does_not_fail_install(self):
+        with tempfile.TemporaryDirectory(prefix="reader oserror ") as temporary:
+            work = Path(temporary)
+            source, _, flow, engine = self._create_install_fixture(work)
+            data = work / "installed"
+            releases = data / "releases"
+            err_dir = _write_managed_release(releases, "r-err-1")
+            ok_dir = _write_managed_release(releases, "r-ok-2")
+            real_rmtree = shutil.rmtree
+            def flaky_rmtree(path, *a, **kw):
+                if Path(path).name == "r-err-1":
+                    raise PermissionError("busy directory")
+                return real_rmtree(path, *a, **kw)
+            stderr = io.StringIO()
+            with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"), \
+                 patch.object(installer, "running_process_commands", return_value=[]), \
+                 patch.object(installer.shutil, "rmtree", side_effect=flaky_rmtree), \
+                 patch.object(sys, "stderr", stderr):
+                result = installer.install(self._make_args(data, flow, engine))
+            self.assertIn("release", result)
+            self.assertTrue((releases / result["release"]).is_dir())
+            self.assertTrue(err_dir.is_dir())
+            self.assertFalse(ok_dir.exists())
+            self.assertIn("r-err-1", stderr.getvalue())
+            self.assertIn("busy directory", stderr.getvalue())
+
+    def test_no_prune_defers_and_prune_only_cli_prunes_cleanly(self):
+        with tempfile.TemporaryDirectory(prefix="reader cli-prune ") as temporary:
+            work = Path(temporary)
+            source, _, flow, engine = self._create_install_fixture(work)
+            data = work / "installed"
+            releases = data / "releases"
+            stale = _write_managed_release(releases, "r-deferred-stale")
+            with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"), \
+                 patch.object(installer, "running_process_commands", return_value=[]):
+                installed = installer.install(self._make_args(data, flow, engine, no_prune=True))
+                self.assertTrue(stale.is_dir(), "--no-prune must defer pruning")
+
+                stdout = io.StringIO()
+                with patch.object(sys, "stdout", stdout):
+                    installer.main(["--prune-only", "--data", str(data)])
+                summary = json.loads(stdout.getvalue())
+                self.assertEqual(summary["pruned"], ["r-deferred-stale"])
+                self.assertIn(installed["release"], summary["kept"])
+                self.assertFalse(stale.exists())
+
+            # CLI validation preserves required --profile/--port and rejects conflicting flags.
+            with patch.object(sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit) as missing:
+                    installer.main([])
+                self.assertEqual(missing.exception.code, 2)
+                with self.assertRaises(SystemExit) as conflict:
+                    installer.main(["--prune-only", "--profile", "one"])
+                self.assertEqual(conflict.exception.code, 2)
 
 
 if __name__ == "__main__":

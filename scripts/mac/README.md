@@ -47,12 +47,30 @@ Run the isolated regression from the repository root:
 bash scripts/mac/test-auto-update-engine.sh
 ```
 
+## Release retention
+
+Installed app and Reader releases stay on the internal SSD under
+`$HOME/Library/Application Support/Lagrangian/` (never symlink `reader/releases/`
+to `/Volumes/devSSD`). Automatic pruning keeps the active release, one immediate
+rollback release, and any release still referenced by a running process, removing
+older managed release directories only after installation and verification
+succeed.
+
+During a Reader refresh, `refresh-reader-engine.sh` passes `--no-prune` to
+`tools/flow-reader/install.py` for each service and runs
+`tools/flow-reader/install.py --prune-only --data "$DATA"` once after all
+Readers start and pass HTTP verification. Even before the installed
+`refresh-reader-engine.sh` is updated, `install.py` preserves the prior rollback
+release (`previous-release.json`) across consecutive same-release installs.
+
 ## Apply after merge
 
 These are operator steps for the Mac, **after the PR merges**. Do not run them
 while an installation is in progress. Check the updater log and pipeline status
 first. Use a checkout containing the merged files; check the example plist's
-absolute paths for the target account before copying it.
+absolute paths for the target account before copying it. Copying
+`scripts/mac/refresh-reader-engine.sh` into `$support/` activates deferred
+post-verify pruning for multi-service refreshes.
 
 ```sh
 support="$HOME/Library/Application Support/Lagrangian"

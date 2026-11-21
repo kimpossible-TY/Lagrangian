@@ -34,19 +34,21 @@ def control(action, items, best_effort=False):
         raise errors[0]
 def verify(items):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    attempts = max(1, int(os.environ.get('READER_VERIFY_ATTEMPTS', '20')))
+    interval = max(0.0, float(os.environ.get('READER_VERIFY_INTERVAL', '3')))
     for profile in items:
         path = '/d/' + urllib.parse.quote(profile['id'], safe='') + '/' if profile.get('shared') else '/'
         url = 'http://127.0.0.1:%s%s' % (profile['port'], path)
-        for attempt in range(20):
+        for attempt in range(attempts):
             try:
                 with opener.open(url, timeout=3) as response:
                     if response.status == 200:
                         break
             except Exception:
                 pass
-            if attempt == 19:
+            if attempt == attempts - 1:
                 raise RuntimeError('Reader not answering: ' + profile['id'])
-            time.sleep(3)
+            time.sleep(interval)
 
 original = profiles()
 services = json.loads(config.read_text())['services']
@@ -59,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix='reader-refresh-') as temporary:
         control('stop', original)
         for service in services:
             args = [sys.executable, 'tools/flow-reader/install.py', '--profile', service['parentID'],
-                    '--port', str(service['port']), '--engine', engine]
+                    '--port', str(service['port']), '--engine', engine, '--no-prune']
             if service.get('publicURL'):
                 args += ['--public-url', service['publicURL']]
             if service.get('development'):
@@ -81,5 +83,11 @@ with tempfile.TemporaryDirectory(prefix='reader-refresh-') as temporary:
         except Exception as error:
             print('Could not restart previous Readers: %s' % error, file=sys.stderr)
         raise
+prune = subprocess.run(
+    [sys.executable, 'tools/flow-reader/install.py', '--prune-only', '--data', str(data)],
+    check=False,
+)
+if prune.returncode != 0:
+    print('Warning: Reader release pruning exited with status %s' % prune.returncode, file=sys.stderr)
 print('All Readers refreshed and verified')
 PY

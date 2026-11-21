@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -20,6 +21,9 @@ sys.dont_write_bytecode = True
 
 from flow_reader.services.manager import DEFAULT_DATA, ReaderManager, atomic_write, run
 from flow_reader.server.compiler_assets import CompilerAssets
+
+LAUNCHER_MARKER = "# Flow Reader managed launcher\n"
+PREVIOUS_RELEASE_FILE = "previous-release.json"
 
 
 def reader_revision(source):
@@ -74,6 +78,244 @@ def _verify_reader_bundle(source):
     return _reader_bundle_module(source).verify_unpacked_tree(Path(source))
 
 
+def _is_valid_release_name(name):
+    return (
+        isinstance(name, str)
+        and bool(name)
+        and name not in {".", ".."}
+        and not name.startswith(".")
+        and "/" not in name
+        and "\\" not in name
+        and "\x00" not in name
+    )
+
+
+def _release_id_for_path(path_value, releases_resolved):
+    """Return the direct release directory name under ``releases_resolved``, or None."""
+    if not isinstance(path_value, (str, Path)):
+        return None
+    text = str(path_value)
+    if not text or "\x00" in text:
+        return None
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        return None
+    try:
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if resolved == releases_resolved or not resolved.is_relative_to(releases_resolved):
+        return None
+    parts = resolved.relative_to(releases_resolved).parts
+    if not parts or not _is_valid_release_name(parts[0]):
+        return None
+    return parts[0]
+
+
+def _launcher_release_id(launcher_path, releases_resolved):
+    """Extract the managed release ID from ``bin/flow-reader`` or raise ValueError."""
+    launcher_path = Path(launcher_path)
+    if launcher_path.is_symlink() or not launcher_path.is_file():
+        raise ValueError("Active Reader launcher is missing or invalid")
+    try:
+        text = launcher_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Active Reader launcher is unreadable: {error}") from error
+    if LAUNCHER_MARKER not in text:
+        raise ValueError("Active Reader launcher is not a managed Flow Reader launcher")
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            tokens = shlex.split(line)
+        except ValueError as error:
+            raise ValueError(f"Active Reader launcher is malformed: {error}") from error
+        if len(tokens) >= 3 and tokens[0] == "exec":
+            for token in tokens[2:]:
+                release_id = _release_id_for_path(token, releases_resolved)
+                if release_id is not None:
+                    return release_id
+            raise ValueError("Active Reader launcher does not reference a managed release")
+    raise ValueError("Active Reader launcher is missing an exec release target")
+
+
+def _read_config_file(path, *, required):
+    """Read and minimally validate a Reader config JSON file."""
+    path = Path(path)
+    if not path.exists() and not path.is_symlink():
+        if required:
+            raise ValueError(f"Missing Reader configuration: {path.name}")
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"Invalid Reader configuration path: {path.name}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Malformed Reader configuration {path.name}: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError(f"Reader configuration {path.name} must be a JSON object")
+    if required:
+        if payload.get("schemaVersion") != 1 or not isinstance(payload.get("services"), list):
+            raise ValueError(f"Unsupported Reader configuration in {path.name}")
+    browser = payload.get("browserCompiler")
+    if browser is not None and not isinstance(browser, str):
+        raise ValueError(f"Invalid browserCompiler path in {path.name}")
+    return payload
+
+
+def _read_previous_release_record(path):
+    """Read optional ``previous-release.json`` rollback release ID."""
+    path = Path(path)
+    if not path.exists() and not path.is_symlink():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"Invalid previous release record: {path.name}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Malformed {path.name}: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path.name} must be a JSON object")
+    release_id = payload.get("release")
+    if release_id is None:
+        return None
+    if not _is_valid_release_name(release_id):
+        raise ValueError(f"Invalid release ID in {path.name}")
+    return release_id
+
+
+def running_process_commands():
+    """Return full command lines for running processes, or raise RuntimeError."""
+    try:
+        result = subprocess.run(
+            ["ps", "-axww", "-o", "command="],
+            text=True, capture_output=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(f"Could not inspect running processes: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"Could not inspect running processes: {detail}")
+    return result.stdout.splitlines()
+
+
+def _running_release_ids(releases_dir, releases_resolved, process_commands):
+    """Extract release IDs referenced by currently running process command lines."""
+    lines = process_commands()
+    if lines is None:
+        raise RuntimeError("Process inspection returned no command list")
+    prefixes = []
+    for base in (str(releases_resolved), str(Path(releases_dir))):
+        prefix = base.rstrip("/") + "/"
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+    referenced = set()
+    for line in lines:
+        if not isinstance(line, str):
+            continue
+        for prefix in prefixes:
+            start = 0
+            while True:
+                index = line.find(prefix, start)
+                if index < 0:
+                    break
+                after = line[index + len(prefix):]
+                match = re.match(r"([^/\s'\"\\]+)", after)
+                if match and _is_valid_release_name(match.group(1)):
+                    referenced.add(match.group(1))
+                start = index + len(prefix)
+    return referenced
+
+
+def _is_prunable_release(entry, releases_resolved):
+    """Return True only for a real managed release directory strictly inside ``releases_resolved``."""
+    if not _is_valid_release_name(entry.name):
+        return False
+    if entry.is_symlink():
+        return False
+    if not entry.is_dir():
+        return False
+    try:
+        resolved = entry.resolve()
+    except (OSError, RuntimeError):
+        return False
+    if resolved == releases_resolved or resolved.parent != releases_resolved or not resolved.is_relative_to(releases_resolved):
+        return False
+    manifest = resolved / "release.json"
+    if manifest.is_symlink() or not manifest.is_file():
+        return False
+    return True
+
+
+def prune_releases(data=DEFAULT_DATA, *, current_release=None, process_commands=None):
+    """Remove obsolete managed Reader releases while preserving active, rollback, and live ones.
+
+    Aborts safely without deleting anything if critical active metadata or process inspection
+    fails. Individual deletion ``OSError``s warn to stderr and continue best-effort.
+    """
+    raw_data = Path(data or DEFAULT_DATA).expanduser()
+    raw_releases = raw_data / "releases"
+    manager = ReaderManager(data)
+    releases = manager.data / "releases"
+    if raw_releases.is_symlink() or releases.is_symlink() or not releases.is_dir():
+        return {"pruned": [], "kept": [], "skipped": "releases directory is missing, non-directory, or symlink"}
+
+    def _warn_skip(reason):
+        print(f"Warning: skipping Reader release pruning: {reason}", file=sys.stderr)
+        return {"pruned": [], "kept": [], "skipped": reason}
+
+    try:
+        with manager.locked(timeout=5):
+            if raw_releases.is_symlink() or releases.is_symlink() or not releases.is_dir():
+                return {"pruned": [], "kept": [], "skipped": "releases directory is missing, non-directory, or symlink"}
+            releases_resolved = releases.resolve()
+            active_config = _read_config_file(manager.data / "config.json", required=True)
+            active_launcher_release = _launcher_release_id(manager.launcher, releases_resolved)
+            previous_config = _read_config_file(manager.data / "config.previous.json", required=False)
+            previous_record_release = _read_previous_release_record(manager.data / PREVIOUS_RELEASE_FILE)
+            inspect_processes = running_process_commands if process_commands is None else process_commands
+            running_releases = _running_release_ids(raw_releases, releases_resolved, inspect_processes)
+
+            protected = {active_launcher_release}
+            if current_release and _is_valid_release_name(current_release):
+                protected.add(current_release)
+            if active_config.get("browserCompiler"):
+                browser_release = _release_id_for_path(active_config["browserCompiler"], releases_resolved)
+                if browser_release:
+                    protected.add(browser_release)
+            if previous_config and previous_config.get("browserCompiler"):
+                prev_browser_release = _release_id_for_path(previous_config["browserCompiler"], releases_resolved)
+                if prev_browser_release:
+                    protected.add(prev_browser_release)
+            if previous_record_release:
+                protected.add(previous_record_release)
+            protected.update(running_releases)
+
+            entries = sorted(releases.iterdir(), key=lambda item: item.name)
+            pruned = []
+            kept = []
+            errors = []
+            for entry in entries:
+                if not _is_prunable_release(entry, releases_resolved):
+                    continue
+                if entry.name in protected:
+                    kept.append(entry.name)
+                    continue
+                try:
+                    shutil.rmtree(entry)
+                    pruned.append(entry.name)
+                except OSError as error:
+                    print(f"Warning: could not prune obsolete Reader release {entry.name}: {error}", file=sys.stderr)
+                    errors.append({"release": entry.name, "error": str(error)})
+            result = {"pruned": pruned, "kept": kept}
+            if errors:
+                result["errors"] = errors
+            return result
+    except (ValueError, RuntimeError, OSError, BlockingIOError) as error:
+        return _warn_skip(str(error))
+
+
 def install(args):
     source = Path(__file__).resolve().parents[2]
     revision = reader_revision(source)
@@ -84,6 +326,7 @@ def install(args):
         config = json.loads(config_path.read_text()) if config_path.exists() else {"schemaVersion": 1, "services": []}
         if config.get("schemaVersion") != 1:
             raise ValueError("Unsupported existing reader configuration")
+        existing_browser_compiler = config.get("browserCompiler")
         if config_path.exists():
             for profile in manager.profiles():
                 if manager.job_pid(profile):
@@ -154,13 +397,42 @@ def install(args):
                 staging.replace(release)
         if browser_assets:
             config["browserCompiler"] = str(release / "tools/flow-reader/compiler-assets")
-        marker = "# Flow Reader managed launcher\n"
-        if manager.launcher.exists() and marker not in manager.launcher.read_text():
+        if manager.launcher.exists() and LAUNCHER_MARKER not in manager.launcher.read_text():
             raise ValueError("The installer will not replace an unrelated launcher")
-        launcher = ("#!/bin/sh\n" + marker
+        launcher = ("#!/bin/sh\n" + LAUNCHER_MARKER
                     + f"export FLOW_READER_DATA_DIR={shlex.quote(str(manager.data))}\n"
                     + "exec " + shlex.quote(str(args.python)) + " "
                     + shlex.quote(str(release / "tools/flow-reader/manage.py")) + ' "$@"\n')
+        releases_resolved = releases.resolve()
+        pre_swap_release = None
+        if manager.launcher.exists():
+            try:
+                pre_swap_release = _launcher_release_id(manager.launcher, releases_resolved)
+            except ValueError:
+                pre_swap_release = None
+        if pre_swap_release is None and existing_browser_compiler:
+            pre_swap_release = _release_id_for_path(existing_browser_compiler, releases_resolved)
+        previous_record_path = manager.data / PREVIOUS_RELEASE_FILE
+        if pre_swap_release and pre_swap_release != release_id:
+            atomic_write(
+                previous_record_path,
+                json.dumps({"schemaVersion": 1, "release": pre_swap_release}, indent=2).encode(),
+            )
+        elif pre_swap_release == release_id and not previous_record_path.exists():
+            try:
+                prev_cfg = _read_config_file(manager.data / "config.previous.json", required=False)
+            except ValueError:
+                prev_cfg = None
+            prev_cfg_release = (
+                _release_id_for_path(prev_cfg.get("browserCompiler"), releases_resolved)
+                if prev_cfg and prev_cfg.get("browserCompiler")
+                else None
+            )
+            if prev_cfg_release and prev_cfg_release != release_id:
+                atomic_write(
+                    previous_record_path,
+                    json.dumps({"schemaVersion": 1, "release": prev_cfg_release}, indent=2).encode(),
+                )
         if config_path.exists():
             atomic_write(manager.data / "config.previous.json", config_path.read_bytes())
         atomic_write(config_path, json.dumps(config, ensure_ascii=False, indent=2).encode())
@@ -168,14 +440,16 @@ def install(args):
     run([manager.launcher, "--launch-plan", identifier])
     if args.start:
         run([manager.launcher, "--control", "start", identifier])
+    if not getattr(args, "no_prune", False):
+        prune_releases(args.data, current_release=release_id)
     return {"revision": revision, "release": release_id, "manager": str(manager.launcher), "id": identifier,
             "publicURL": args.public_url, "port": args.port, "started": args.start}
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", required=True, help="Existing Flow parent profile ID")
-    parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--profile", help="Existing Flow parent profile ID")
+    parser.add_argument("--port", type=int)
     parser.add_argument("--public-url", default="")
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
     parser.add_argument("--flow-manager", type=Path, default=Path.home() / "Applications/Lagrangian.app/Contents/MacOS/Lagrangian")
@@ -191,7 +465,19 @@ def main():
     parser.add_argument("--semantic-canvases", action=argparse.BooleanOptionalAction, default=None,
                         help="Enable native figure labels; omission preserves the installed setting")
     parser.add_argument("--start", action="store_true")
-    args = parser.parse_args()
+    pruning = parser.add_mutually_exclusive_group()
+    pruning.add_argument("--no-prune", action="store_true",
+                         help="Defer pruning of obsolete managed releases after installation")
+    pruning.add_argument("--prune-only", action="store_true",
+                         help="Prune obsolete managed releases under --data without installing")
+    args = parser.parse_args(argv)
+    if args.prune_only:
+        if args.profile is not None or args.port is not None or args.start:
+            parser.error("--prune-only cannot be combined with --profile, --port, or --start")
+        print(json.dumps(prune_releases(args.data), indent=2))
+        return
+    if not args.profile or args.port is None:
+        parser.error("the following arguments are required: --profile, --port")
     print(json.dumps(install(args), indent=2))
 
 
