@@ -94,6 +94,15 @@ final class NativeReaderFindScrollView: NSScrollView {
     override var isFindBarVisible: Bool {
         didSet { if oldValue != isFindBarVisible { reader?.findBarVisibilityChanged() } }
     }
+    override func tile() {
+        super.tile()
+        guard isFindBarVisible, findBarPosition == .aboveHorizontalRuler,
+              let bar = findBarView, bar.frame.maxY > 0 else { return }
+        let barHeight = bar.frame.maxY
+        contentView.automaticallyAdjustsContentInsets = false
+        contentView.contentInsets = NSEdgeInsets()
+        contentView.frame = NSRect(x: 0, y: barHeight, width: bounds.width, height: max(32, bounds.height - barHeight))
+    }
 }
 
 // NSTextView supplies real TextKit/CoreText shaping, bidi visual navigation,
@@ -333,7 +342,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         self.callbacks = callbacks
         super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         scrollView.reader = self
-        scrollView.findBarPosition = .aboveContent
+        scrollView.findBarPosition = .aboveHorizontalRuler
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
@@ -414,6 +423,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     fileprivate func findBarVisibilityChanged() {
         guard !isDisposed, !isCancelled, store.document != nil else { return }
         let anchor = viewportAnchor()
+        scrollView.tile()
         layoutFrames()
         reflow(restoring: anchor)
     }

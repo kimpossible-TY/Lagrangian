@@ -1133,6 +1133,36 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.window?.close() }
 }
 
+@MainActor private final class NativeDesignSearchField: NSSearchField {
+  var preferencesOverride: NativeAppDesign.Preferences? { didSet { needsDisplay = true } }
+  private var observation: NativeDesignObservation?
+  var preferences: NativeAppDesign.Preferences {
+    preferencesOverride ?? .current(appearance: effectiveAppearance)
+  }
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    observation = NativeDesignObservation(view: self)
+  }
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    observation = NativeDesignObservation(view: self)
+  }
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    needsDisplay = true
+  }
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    guard bounds.width > 0, bounds.height > 0 else { return }
+    let prefs = preferences
+    let width = prefs.increasedContrast ? NativeAppDesign.Shape.strongStroke : NativeAppDesign.Shape.stroke
+    let path = NSBezierPath(rect: bounds.insetBy(dx: width / 2, dy: width / 2))
+    path.lineWidth = width
+    NativeAppDesign.palette(prefs).boundary.setStroke()
+    path.stroke()
+  }
+}
+
 @MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
   let reader: NativeReaderTextView
   let notice = NSTextField(wrappingLabelWithString: "원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
@@ -1222,7 +1252,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var currentMode: NativeReaderWindowController.Mode = .nativeReflow
   private let sourceControls = NSStackView()
   private var pageNavigation: NativeChromeControlRow?
-  let findField = NSSearchField()
+  let findField: NSSearchField = NativeDesignSearchField()
+  var findFieldPreferencesOverride: NativeAppDesign.Preferences? {
+    get { (findField as? NativeDesignSearchField)?.preferencesOverride }
+    set { (findField as? NativeDesignSearchField)?.preferencesOverride = newValue }
+  }
   private let fixtureMode: Bool
   private let show: Bool
   private let avoidActivation: Bool
@@ -1283,7 +1317,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     self.pageNavigation = pageNavigation
     _ = row([NSTextField(labelWithString: "목차"), contents, back, pageNavigation])
     findField.bezelStyle = .squareBezel
+    findField.isBezeled = true
+    findField.isBordered = true
     findField.drawsBackground = true
+    findField.backgroundColor = NativeChrome.color(\.panel)
+    findField.focusRingType = .exterior
+    findField.sendsWholeSearchString = true
+    findField.sendsSearchStringImmediately = false
+    findField.cell?.sendsActionOnEndEditing = false
     findField.placeholderAttributedString = NSAttributedString(
       string: "PDF에서 검색",
       attributes: [.foregroundColor: NativeChrome.color(\.secondaryInk), .font: NativeAppDesign.Typography.font(.control)])
@@ -1658,7 +1699,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func reflowMode() { changeMode?(.nativeReflow) }
   @objc func pageMode() { changeMode?(.originalPages) }
   @objc func previousPage() { cancelFind(); if let original { pageAction { try original.jump(to: max(0, original.store.pageIndex - 1)) } } }
-  @objc func nextPage() { cancelFind(); if let original { pageAction { try original.jump(to: original.store.pageIndex + 1) } } }
+  @objc func nextPage() {
+    cancelFind()
+    if let original {
+      let lastIndex = max(0, (original.store.accepted?.binding.pages.count ?? 1) - 1)
+      pageAction { try original.jump(to: min(lastIndex, original.store.pageIndex + 1)) }
+    }
+  }
   @objc func zoomIn() {
     cancelFind()
     if currentMode == .nativeReflow { beginDisplayPreview(); reader.changeZoom(by: 1.25); onAppearance?() }
@@ -1707,6 +1754,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   @objc func findPage() {
     guard currentMode == .originalPages, let original else { return }
+    cancelFind()
     original.invalidateFind()
     let query = findField.stringValue
     guard !query.isEmpty else { return }
@@ -1715,10 +1763,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       defer { if let self, self.findGeneration == searchGeneration { self.findTask = nil } }
       var jumping = false
       do {
-        guard let hit = try await original.search(query).first else { return }
+        let hits = try await original.search(query)
         try Task.checkCancellation()
         guard let self, self.findGeneration == searchGeneration, self.currentMode == .originalPages,
               !original.isHidden, original.store.accepted?.id == snapshot else { return }
+        guard let hit = hits.first else {
+          self.findFailure = nil
+          self.setNotice("검색 결과 없음: ‘\(query)’을(를) 찾을 수 없습니다.")
+          self.refreshStatus()
+          return
+        }
         // Keep cancellation authority through adoption. Only this Find's own
         // synchronous jump bypasses external-interaction invalidation.
         jumping = true

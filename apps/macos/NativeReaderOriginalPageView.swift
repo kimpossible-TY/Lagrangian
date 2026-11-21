@@ -310,7 +310,10 @@ import AppKit
             case "-": try zoom(store.displayedScale / 1.25)
             case "\u{1b}": releaseSelection()
             default:
-                if event.keyCode == 124 || event.keyCode == 125 { try jump(to: store.pageIndex + 1) }
+                if event.keyCode == 124 || event.keyCode == 125 {
+                    let lastIndex = max(0, (store.accepted?.binding.pages.count ?? 1) - 1)
+                    try jump(to: min(lastIndex, store.pageIndex + 1))
+                }
                 else if event.keyCode == 123 || event.keyCode == 126 { try jump(to: max(0, store.pageIndex - 1)) }
                 else { super.keyDown(with: event) }
             }
