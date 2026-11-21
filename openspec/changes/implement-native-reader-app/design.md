@@ -704,3 +704,19 @@ offline PDF restoration retains native reading but denies Export at UI, callback
 chooser and staging entry. Normal AppKit editing and verified PDF export remain
 unchanged. Optional startup diagnostics perform filesystem work only on an owned
 queue, without init/deinit flush waits; first-window acceptance remains separate.
+
+## Minimal redesign preservation and file-split notes
+
+- **Preserved design tokens and brand assets (read-only)**:
+  - `apps/macos/NativeAppDesign.swift` canonical tokens: Cream Light (`#F7F2E8` / `#FFFCF5` / `#292722` / `#514A83`) and Warm Dark (`#24231F` / `#302E29` / `#F7F2E8` / `#C6BEFF`).
+  - `apps/macos/NativeBrandMark.swift` original vector mark remains unchanged.
+  - `apps/macos/sources.json` remains unchanged.
+- **Preserved public signatures and service/session owners**:
+  - `NativeChrome.install(on:)` and `NativeChrome.apply(to:)` public signatures remain unchanged.
+  - `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, and `NativeReaderActions` ownership and contracts remain unchanged.
+- **Preserved interaction, accessibility, and layout invariants**:
+  - Keyboard shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`) remain intact.
+  - VoiceOver/AX semantics and WCAG 2.1 SC 1.4.11 (3:1 or higher non-text contrast) remain enforced.
+  - PDF body and highlight/auxiliary docking remain non-overlapping.
+- **File-split note**:
+  - Settings sheet presentation is separated in `FlowApp.swift`, and Home header is kept minimal with no subtitle.

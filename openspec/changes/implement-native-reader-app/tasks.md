@@ -171,3 +171,10 @@ The missing parallel-planning skill and bounded source-only scope remain explici
 External evidence: DevSSD `test-output/native-reader-scope-v8/REPORT.md`.
 The parallel-planning attachment is now supplied/read; the historical v7 missing
 locator remains historical. This executor follows the existing single-writer plan.
+
+## 18. Minimal redesign implementation and verification checklist
+
+- [ ] 18.1 Home & Settings split: remove Home header subtitle (부제 없음) and separate Settings sheet into `FlowApp.swift` while keeping `apps/macos/NativeAppDesign.swift`, `apps/macos/NativeBrandMark.swift`, and `apps/macos/sources.json` unchanged.
+- [ ] 18.2 Reader single-row toolbar & Aa popover: implement 1-row Reader toolbar, immediate `Aa` appearance/font/zoom reflection, and compact selection / `오프라인 PDF` search-hit capsule (exact `오프라인 PDF` label, fits within 640px width).
+- [ ] 18.3 Preserved contracts & accessibility: verify `NativeChrome.install(on:)` / `NativeChrome.apply(to:)`, `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, `NativeReaderActions`, shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`), VoiceOver/AX, WCAG 2.1 SC 1.4.11 (3:1+), and non-overlapping PDF body/highlight docking.
+- [ ] 18.4 Shared test integration & independent review: integrate shared test suite and complete independent audit/review checklist before merge.
