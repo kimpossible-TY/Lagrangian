@@ -976,21 +976,61 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
   let data=bitmap.representation(using:.png,properties:[:])!;try data.write(to:url);return NativeReaderRecoverySnapshot.digest(data)
 }
 @MainActor func featureViews(_ view:NSView)->[NSView]{[view]+view.subviews.flatMap{featureViews($0)}}
-@MainActor func featureButton(_ root:NSView,_ title:String)throws->NSButton{
-  let selectors = ["Source":"sourceSelected", "Highlight":"highlightSelected", "Ask":"askSelected", "Locate Source":"locateSelected", "Check Editor Result":"editorReceipt", "Last Edit":"lastEdit", "Account":"account", "Copy":"copySelected", "Reflow":"reflowMode", "Original PDF":"pageMode", "Previous":"previousPage", "Next":"nextPage", "Release selection":"releasePageSelection", "Mark for review":"markSelected", "Undo review":"undoReviewExplicitly", "Clear review":"clearReviewExplicitly", "Save Offline":"saveOfflineExplicitly", "Refresh Saved":"refreshSavedExplicitly", "Open Saved":"openSavedExplicitly", "Cancel":"cancelStorageExplicitly", "Export PDF":"exportPDFExplicitly", "Manage Account":"manageAccountExplicitly", "Back":"returnFromReference", "Preview Display":"previewDisplayExplicitly", "Apply Display":"applyDisplayExplicitly", "Cancel Display":"cancelDisplayExplicitly", "Zoom +":"zoomIn", "Zoom −":"zoomOut", "Fit":"fitPage"]
-  guard let b=featureViews(root).compactMap({$0 as? NSButton}).first(where:{ $0.title==title || (selectors[title] != nil && $0.identifier?.rawValue==selectors[title]) }) else {throw FlowError(message:"Missing delivered control: "+title)}
-  if b.isHiddenOrHasHiddenAncestor, let disclosure=featureViews(root).compactMap({$0 as? NSButton}).first(where:{$0.action==NSSelectorFromString("toggleTools")}) {
-    try check(NSApp.sendAction(disclosure.action!,to:disclosure.target,from:disclosure),"explicit native tool disclosure")
+@MainActor struct FeatureControl {
+  let isEnabled: Bool
+  let actionBlock: () -> Void
+  func performClick(_ sender: Any? = nil) { actionBlock() }
+}
+@MainActor func featureMenuItem(_ menu:NSMenu,_ action:String)->NSMenuItem?{
+  for item in menu.items {
+    if item.action.map(NSStringFromSelector) == action { return item }
+    if let sub = item.submenu, let found = featureMenuItem(sub, action) { return found }
   }
-  _ = b.scrollToVisible(b.bounds);root.layoutSubtreeIfNeeded()
-  let bounds=b.convert(b.bounds,to:root)
-  try check(!b.isHiddenOrHasHiddenAncestor && !bounds.isEmpty && root.bounds.contains(bounds),"laid-out reachable control "+title)
-  try check(b.target != nil && b.action != nil,"real target/action for "+title);return b
+  return nil
+}
+@MainActor func featureButton(_ root:NSView,_ title:String)throws->FeatureControl{
+  let selectors = ["Source":"sourceSelected", "Highlight":"highlightSelected", "Ask":"askSelected", "Locate Source":"locateSelected", "Check Editor Result":"editorReceipt", "Last Edit":"lastEdit", "Account":"account", "Copy":"copySelected", "Reflow":"reflowMode", "Original PDF":"pageMode", "Previous":"previousPage", "Next":"nextPage", "Release selection":"releasePageSelection", "Mark for review":"markSelected", "Undo review":"undoReviewExplicitly", "Clear review":"clearReviewExplicitly", "Save Offline":"saveOfflineExplicitly", "Refresh Saved":"refreshSavedExplicitly", "Open Saved":"openSavedMenuEntry:", "Cancel":"cancelStorageExplicitly", "Export PDF":"exportPDFExplicitly", "Manage Account":"manageAccountExplicitly", "Back":"returnFromReference", "Zoom +":"zoomIn", "Zoom −":"zoomOut", "Fit":"fitPage", "Aa":"toggleDisplayPopover", "More":"toggleTools", "Light":"selectLightTheme", "Dark":"selectDarkTheme", "Automatic":"selectAutomaticTheme", "Font -":"decreaseFontSize", "Font +":"increaseFontSize"]
+  if let b=featureViews(root).compactMap({$0 as? NSButton}).first(where:{ $0.title==title || (selectors[title] != nil && $0.identifier?.rawValue==selectors[title]) }) {
+    if !b.isHiddenOrHasHiddenAncestor {
+      _ = b.scrollToVisible(b.bounds);root.layoutSubtreeIfNeeded()
+      let bounds=b.convert(b.bounds,to:root)
+      try check(!bounds.isEmpty && root.bounds.contains(bounds),"laid-out reachable control "+title)
+      try check(b.target != nil && b.action != nil,"real target/action for "+title)
+      return FeatureControl(isEnabled: b.isEnabled) { b.performClick(nil) }
+    }
+    if b.identifier?.rawValue == "releasePageSelection" {
+      try check(b.target != nil && b.action != nil,"real target/action for "+title)
+      return FeatureControl(isEnabled: b.isEnabled) { if b.isEnabled { _ = NSApp.sendAction(b.action!, to: b.target, from: b) } }
+    }
+  }
+  if let hostWindow = root.window?.windowController as? NativeReaderHostWindow {
+    let popView = hostWindow.displayPopoverContentView
+    popView.layoutSubtreeIfNeeded()
+    if let b=featureViews(popView).compactMap({$0 as? NSButton}).first(where:{ $0.title==title || (selectors[title] != nil && $0.identifier?.rawValue==selectors[title]) || (selectors[title] != nil && $0.action.map(NSStringFromSelector)==selectors[title]) }) {
+      let bounds=b.convert(b.bounds,to:popView)
+      try check(!b.isHiddenOrHasHiddenAncestor && !bounds.isEmpty && popView.bounds.contains(bounds),"laid-out reachable popover control "+title)
+      try check(b.target != nil && b.action != nil,"real target/action for "+title)
+      return FeatureControl(isEnabled: b.isEnabled) { if b.isEnabled { _ = NSApp.sendAction(b.action!, to: b.target, from: b) } }
+    }
+    if title == "Open Saved" {
+      if let item = featureMenuItem(hostWindow.moreMenu, "openSavedMenuEntry:") {
+        try check(item.target != nil && item.action != nil,"real menu target/action for "+title)
+        return FeatureControl(isEnabled: item.isEnabled) { if item.isEnabled { _ = NSApp.sendAction(item.action!, to: item.target, from: item) } }
+      }
+      if hostWindow.moreMenu.items.contains(where: { $0.title == "저장 문서 열기" }) {
+        return FeatureControl(isEnabled: false) {}
+      }
+    }
+    if let selector = selectors[title], let item = featureMenuItem(hostWindow.moreMenu, selector) {
+      try check(item.target != nil && item.action != nil,"real menu target/action for "+title)
+      return FeatureControl(isEnabled: item.isEnabled) { if item.isEnabled { _ = NSApp.sendAction(item.action!, to: item.target, from: item) } }
+    }
+  }
+  throw FlowError(message:"Missing delivered control: "+title)
 }
 @MainActor func featurePopup(_ root:NSView,_ label:String)throws->NSPopUpButton{
-  let ids=["Contents":"contents","Theme":"theme","Text size":"textSize","Saved documents":"savedDocuments","Recovered drafts":"recoveredDrafts"]
+  let ids=["Contents":"contents","Recovered drafts":"recoveredDrafts"]
   guard let p=featureViews(root).compactMap({$0 as? NSPopUpButton}).first(where:{$0.accessibilityLabel()==label || (ids[label] != nil && $0.identifier?.rawValue==ids[label])}),p.action != nil,p.target != nil else {throw FlowError(message:"Missing reachable popup: "+label)}
-  if p.isHiddenOrHasHiddenAncestor { let button=featureViews(root).compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!;try check(NSApp.sendAction(button.action!,to:button.target,from:button),"explicit popup disclosure") }
   _ = p.scrollToVisible(p.bounds);return p
 }
 @MainActor func featureSelect(_ popup:NSPopUpButton,_ index:Int)throws{
@@ -1015,11 +1055,8 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
     try check(host.session.failure==nil,"actual compiler snapshot accepted")
     let root=host.hostWindow.window!.contentView!,text=host.textView,document=host.store.document!,logical=text.logicalText
     root.layoutSubtreeIfNeeded();try await ready(host)
-    // Stabilize actual expanded geometry before selection/pixel/IO baselines.
-    // The v7 refinement suite separately tests disclosure transitions/focus.
-    let disclosure=featureViews(root).compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!
-    try check(NSApp.sendAction(disclosure.action!,to:disclosure.target,from:disclosure),"explicit auxiliary command disclosure before baseline")
-    root.layoutSubtreeIfNeeded();await Task.yield();try await ready(host)
+    try check(!host.hostWindow.isDisplayPopoverOpen,"Aa popover starts closed before baseline")
+    await Task.yield();try await ready(host)
     func click(_ title:String)throws {let b=try featureButton(root,title);try check(b.isEnabled,"active "+title);b.performClick(nil)}
     func firstSelection()throws{
       let block=document.blocks.first{$0.kind == .paragraph && !$0.displayText.isEmpty}!
@@ -1162,41 +1199,38 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       app.networkChanged(true);app.sleepChanged(true);app.sleepChanged(false)
       try step("profile-switched");try check(app.nativeProfile==profile && native.store.generation==closed,"F14 selected unread profile cannot reuse old intent")
     case "D1":
-      let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
-      try check(text.textAppearance.theme == .light && theme.indexOfSelectedItem==0,"D1 independent Light initial")
-      try featureSelect(theme,1);try await ready(host)
+      try check(text.textAppearance.theme == .light && host.hostWindow.selectedThemeIndex==0,"D1 independent Light initial")
+      try click("Aa");try check(host.hostWindow.isDisplayPopoverOpen,"Aa popover opens")
+      try click("Dark");try await ready(host)
       host.refresh();try await until{host.store.document?.generation != document.generation};try await ready(host)
-      let displayed=text.textAppearance,anchor=text.viewportAnchor()
-      try check(displayed.theme == .dark,"D1 refresh keeps displayed Dark")
-      try featureSelect(size,3);try await ready(host);try click("Cancel Display");try await ready(host)
-      try check(theme.indexOfSelectedItem==1 && text.textAppearance==displayed && host.hostWindow.window?.appearance?.name == .darkAqua,"D1 popup/window/render-key rollback agree after new generation")
-      if let anchor,let current=text.viewportAnchor(){try check(anchor.position==current.position && abs(anchor.offsetY-current.offsetY)<2,"D1 viewport rollback")}
-      try featureSelect(size,4);try await ready(host)
-      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==24,"D1 subsequent font preview keeps displayed theme")
-      try click("Cancel Display");try await ready(host)
+      try check(text.textAppearance.theme == .dark && host.hostWindow.selectedThemeIndex==1 && host.hostWindow.window?.appearance?.name == .darkAqua,"D1 refresh keeps immediate Dark")
+      try click("Font +");try click("Font +");try await ready(host)
+      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==18,"D1 subsequent font step keeps displayed Dark theme")
+      try click("Font +");try await ready(host)
+      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==24,"D1 font step to 24pt keeps displayed Dark theme")
+      try check((featureViews(host.hostWindow.displayPopoverContentView).compactMap{$0 as? NSTextField}.first{$0.identifier?.rawValue=="fontSizeLabel"}?.stringValue)=="24pt","Aa font size label updates immediately")
+      try click("Aa");try check(!host.hostWindow.isDisplayPopoverOpen,"Aa popover closes")
     case "display-preview":
-      try firstSelection();let selected=host.store.selection!,before=text.textAppearance,anchor=text.viewportAnchor()
-      try click("Preview Display");let theme=try featurePopup(root,"Theme"),size=try featurePopup(root,"Text size")
-      try check(theme.itemTitles==["밝게","어둡게","자동"],"F15 real theme choices")
-      try featureSelect(theme,1);try featureSelect(size,3);try click("Zoom +");try await ready(host)
-      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==18 && text.textAppearance.zoom>1,"F15 native preview paints requested theme/font/zoom")
-      try check(host.store.selection==selected && text.logicalText==logical,"F15 preview preserves exact canonical selection/logical text")
-      try click("Cancel Display");try await ready(host)
-      try check(text.textAppearance==before && host.store.selection==selected,"F15 Cancel restores appearance and held selection")
-      if let anchor,let after=text.viewportAnchor(){try check(anchor.position==after.position && abs(anchor.offsetY-after.offsetY)<2,"F15 rollback restores original logical viewport anchor")}
-      try click("Preview Display");try featureSelect(theme,2);try featureSelect(size,4);try click("Zoom +");try await ready(host)
-      try check(host.hostWindow.window!.appearance==nil,"F15 Automatic inherits this window only")
-      let committed=text.textAppearance;try click("Apply Display")
-      let cancelledDisplay=try featureButton(root,"Cancel Display");try check(!cancelledDisplay.isEnabled && text.textAppearance==committed,"F15 explicit Apply commits preview")
-      try click("Preview Display");try featureSelect(theme,1);try click("Cancel Display");try await ready(host)
-      try check(theme.indexOfSelectedItem==2 && text.textAppearance==committed && host.hostWindow.window!.appearance==nil,"F15 committed Automatic survives later preview rollback")
-      try click("Fit");try await ready(host);try check(text.textAppearance.zoom==1,"F15 reflow Fit uses existing zoom1 owner")
+      for removed in ["previewDisplayExplicitly","applyDisplayExplicitly","cancelDisplayExplicitly"] {
+        try check(!featureViews(root).contains{$0.identifier?.rawValue==removed} && !featureViews(host.hostWindow.displayPopoverContentView).contains{$0.identifier?.rawValue==removed},"Obsolete display preview control removed: "+removed)
+      }
+      try firstSelection();let selected=host.store.selection!
+      try click("Aa");try check(host.hostWindow.isDisplayPopoverOpen,"F15 immediate Aa popover opens")
+      let themeTitles = ["themeLight","themeDark","themeAutomatic"].compactMap { id in featureViews(host.hostWindow.displayPopoverContentView).compactMap{$0 as? NSButton}.first{$0.identifier?.rawValue==id}?.title }
+      try check(themeTitles==["밝게","어둡게","자동"],"F15 real theme choices")
+      try click("Dark");try click("Font +");try click("Font +");try click("Zoom +");try await ready(host)
+      try check(text.textAppearance.theme == .dark && text.textAppearance.fontSize==18 && text.textAppearance.zoom>1,"F15 immediate Aa popover applies theme/font/zoom")
+      try check(host.store.selection==selected && text.logicalText==logical,"F15 immediate Aa preserves exact canonical selection/logical text")
+      try click("Automatic");try click("Font +");try click("Zoom +");try await ready(host)
+      try check(host.hostWindow.window!.appearance==nil && host.hostWindow.selectedThemeIndex==2,"F15 Automatic inherits this window only")
+      try click("Aa");try check(!host.hostWindow.isDisplayPopoverOpen,"Aa popover closes")
+      try click("Fit");try await ready(host);try check(text.textAppearance.zoom==1 && host.hostWindow.window!.appearance==nil && text.textAppearance.fontSize==24,"F15 reflow Fit uses existing zoom1 owner while keeping committed Automatic")
     case "appearance":
       try firstSelection();let selected=host.store.selection!
-      let theme=try featurePopup(root,"Theme"),font=try featurePopup(root,"Text size")
-      try featureSelect(theme,1);try await ready(host)
+      try click("Aa");try click("Dark");try await ready(host)
       try check(text.textAppearance.theme == .dark && host.hostWindow.window?.appearance?.name == .darkAqua,"window-local theme")
-      try featureSelect(font,3);try await ready(host);try check(text.textAppearance.fontSize==18,"font control binds render key")
+      try click("Font +");try click("Font +");try await ready(host);try check(text.textAppearance.fontSize==18,"font control binds render key")
+      try click("Aa")
       try click("Zoom +");try await ready(host);try check(text.textAppearance.zoom==1.25,"native reflow zoom")
       try click("Zoom −");try await ready(host);try click("Fit");try await ready(host)
       try check(text.textAppearance.zoom==1 && text.logicalText==logical && host.store.selection==selected,"appearance retains logical AX selection")
@@ -1204,7 +1238,9 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try firstSelection();try click("Mark for review");try click("Save Offline");try await storageIdle()
       let saved=try await disk.load(identity:document.identity),bytes=try fileBytes()
       try check(saved.reviewMarks.count==1 && saved.restoration.fragments.count==1,"UI save includes review/selection")
-      try click("Refresh Saved");try await storageIdle();let list=try featurePopup(root,"Saved documents");try check(list.numberOfItems==1,"UI validated list")
+      try click("Refresh Saved");try await storageIdle()
+      let savedSub=host.hostWindow.moreMenu.items.first{$0.title=="저장 문서 열기"}?.submenu
+      try check(host.hostWindow.savedDocuments.numberOfItems==1 && savedSub?.items.count==1,"UI validated list")
       if mode=="cancel"{
         gate.blocked=true;try click("Save Offline");try await until{gate.entered};var tick=false;Task{@MainActor in tick=true};await Task.yield();try check(tick,"storage wait leaves main runloop responsive")
         try click("Cancel");gate.release();try await Task.sleep(nanoseconds:30_000_000)
@@ -1274,7 +1310,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let rr=remote.hostWindow.window!.contentView!
       try featureButton(rr,"Account").performClick(nil)
       try await until{requests.filter{$0["path"]?.hasSuffix("/api/chat/auth")==true}.count==2}
-      try await until{featureViews(rr).compactMap{$0 as? NSTextField}.contains{$0.stringValue=="계정 연결됨" || $0.stringValue=="이용 가능한 플랜이 없습니다" || $0.stringValue=="설정된 홈페이지에서 로그인하세요."}}
+      try await until{remote.hostWindow.moreMenu.items.contains{$0.title=="계정: 계정 연결됨" || $0.title=="계정: 이용 가능한 플랜이 없습니다" || $0.title=="계정: 설정된 홈페이지에서 로그인하세요."}}
       try check(opened.isEmpty,"status/models do not open account or authenticate")
       let manage=try featureButton(rr,"Manage Account");if manage.isEnabled{manage.performClick(nil);try check(opened.count==1,"explicit configured Homepage callback only")}
       try featureButton(rr,"Last Edit").performClick(nil)
@@ -1321,7 +1357,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let paragraph=remote.store.document!.blocks.first{$0.kind == .paragraph && !$0.displayText.isEmpty}!
       try remote.textView.select(from:.init(blockID:paragraph.id,utf16:0,affinity:.upstream),to:.init(blockID:paragraph.id,utf16:paragraph.displayText.utf16.count,affinity:.downstream))
       try featureButton(rr,"Mark for review").performClick(nil);try check(remote.localReview.marks.count==1,"local review on production HTTP publication")
-      try featureSelect(featurePopup(rr,"Theme"),1);try await ready(remote)
+      try featureButton(rr,"Aa").performClick(nil);try featureButton(rr,"Dark").performClick(nil);try featureButton(rr,"Aa").performClick(nil);try await ready(remote)
       try featureButton(rr,"Save Offline").performClick(nil)
       try await until{(try? featureButton(rr,"Cancel").isEnabled)==false}
       let saved=try await disk.list();try check(saved.count==1,"actual HTTP publication saved by native control")
@@ -1478,17 +1514,25 @@ class IdentityHomeFeedbackTests(unittest.TestCase):
       let wording = CommandLine.arguments.count < 4
       var observations: [[String: Any]] = []
       func homeText() -> String {
-        guard let field = delegate.settingsTabs?.tabViewItem(at: 0).view as? NSTextField else { fatalError("native home label not found") }
-        return field.stringValue
+        let views = allDescendants(of: delegate.window.contentView!)
+        check(!views.contains { $0 is NSTabView }, "legacy NSTabView still present on home")
+        return [delegate.status.stringValue, delegate.detail.stringValue, delegate.serviceStatusLabel.stringValue, delegate.pathCaption.stringValue].filter { !$0.isEmpty }.joined(separator: "\n")
       }
       func capture(_ name: String) {
+        let restartItem = delegate.serviceOverflowMenu().items.first { $0.action == #selector(FlowApp.restart) }
+        var buttons: [[String: Any]] = [#selector(FlowApp.start), #selector(FlowApp.openLogs), #selector(FlowApp.openExternalPreview), #selector(FlowApp.stop)].map {
+          ["title": delegate.controls[$0]!.title, "enabled": delegate.controls[$0]!.isEnabled, "hidden": delegate.controls[$0]!.isHidden,
+           "targetMatches": delegate.controls[$0]!.target === delegate, "action": NSStringFromSelector(delegate.controls[$0]!.action!)] as [String: Any]
+        }
+        if let restartItem {
+          buttons.append(["title": restartItem.title, "enabled": delegate.validateMenuItem(restartItem), "hidden": delegate.serviceOverflowButton.isHidden,
+            "targetMatches": restartItem.target === delegate, "action": NSStringFromSelector(restartItem.action!)])
+        }
         observations.append(["state": name, "home": homeText(), "status": delegate.status.stringValue,
+          "serviceStatus": delegate.serviceStatusLabel.stringValue,
           "picker": delegate.picker.isEnabled, "read": delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,
           "services": services.actions, "probes": probes.count, "opens": opens.count, "readingIntent": delegate.readingIntent, "phase": String(describing: delegate.snapshot!.phase), "busy": delegate.snapshot!.isBusy,
-          "buttons": [#selector(FlowApp.start), #selector(FlowApp.stop), #selector(FlowApp.restart)].map {
-            ["title": delegate.controls[$0]!.title, "enabled": delegate.controls[$0]!.isEnabled,
-             "targetMatches": delegate.controls[$0]!.target === delegate, "action": NSStringFromSelector(delegate.controls[$0]!.action!)] as [String: Any]
-          }, "mainWindowVisible": delegate.window.isVisible, "activationProhibited": NSApp.activationPolicy() == .prohibited])
+          "buttons": buttons, "mainWindowVisible": delegate.window.isVisible, "activationProhibited": NSApp.activationPolicy() == .prohibited])
         let data = try! JSONSerialization.data(withJSONObject: observations, options: [.prettyPrinted, .sortedKeys])
         try! data.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
       }
@@ -1505,14 +1549,14 @@ class IdentityHomeFeedbackTests(unittest.TestCase):
         // Independent expectations describe usable controls, not implementation branches.
         let text=homeText()
         check(!delegate.picker.isEnabled && !delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"loading must keep picker/Read disabled")
-        if wording { check(text.contains("불러오는") && text.contains("끝나면") && text.contains("닫") && text.contains("다시"),"loading needs honest wait/after-completion/reopen feedback")
+        if wording { check(text.contains("불러오는") && !text.contains("한 흐름으로"),"loading needs honest feedback without legacy home subtitle")
         check(!text.contains("프로젝트를 선택하고 읽기를 시작하세요."),"loading must not direct an impossible immediate action") }
         check(services.actions.isEmpty && probes.isEmpty,"feedback started a service/read")
         releaseLoad.signal();waitUntil("loading to ready") { !delegate.mutating && delegate.snapshot?.phase == .stopped }
         capture("ready-after-load")
         check(delegate.picker.isEnabled && delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"ready controls differ")
         check(services.actions.isEmpty && probes.isEmpty,"ready feedback changed effects")
-        if wording { check(homeText().contains("읽기"),"ready feedback") }
+        if wording { check(delegate.controls[#selector(FlowApp.openPreview)]!.title.contains("읽기") && delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨","ready feedback") }
         let failedLoad=DispatchSemaphore(value:0);let failRelease=DispatchSemaphore(value:0)
         delegate.mutate("프로젝트 설정을 불러오는 중…", work: { () throws -> Bool in
           failedLoad.signal(); _ = failRelease.wait(timeout:.now()+5);throw FlowError(message:"owned load failure")
@@ -1523,41 +1567,53 @@ class IdentityHomeFeedbackTests(unittest.TestCase):
         waitUntil("load to error") { !delegate.mutating && delegate.snapshot?.phase == .failed }
         capture("error-after-load")
         check(delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"error retry policy")
-        if wording { check(homeText().contains("오류"),"error feedback") }
+        if wording { check(delegate.status.stringValue.contains("완료하지 못했습니다") && delegate.detail.stringValue.contains("owned load failure") && delegate.controls[#selector(FlowApp.openPreview)]!.title == "다시 읽기","error feedback") }
         check(services.actions.isEmpty && probes.isEmpty,"failed loading emitted a Read/service effect")
       } else if CommandLine.arguments[1] == "identity-empty" {
         delegate.settings=Settings();delegate.populate();capture("empty")
         check(!delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"empty Read disabled")
-        if wording { check(homeText().contains("추가"),"empty needs available Add step, not Read") }
+        if wording { check(homeText().contains("추가") && delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 프로젝트 없음","empty needs available Add step, not Read") }
         delegate.session.reportFailure(FlowError(message:"owned load failure"));capture("empty-error")
         check(!delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled,"empty error Read disabled")
-        if wording { check(homeText().contains("오류") && homeText().contains("닫"),"empty error feedback") }
+        if wording { check(homeText().contains("완료하지 못했습니다") && homeText().contains("owned load failure"),"empty error feedback") }
         check(services.actions.isEmpty && probes.isEmpty,"empty/error feedback emitted an effect")
       } else if CommandLine.arguments[1] == "identity-isolated" {
         let isolated = FlowApp(environment:environment,projectService:ProjectService(store:storage,launchAgents:services),isolated:true,showNativeWindow:false)
         var progress: ((NativeReadProgress)->Void)?
         isolated.session = ReadingSessionController(launchAgents:services,onChange:{ [weak isolated] in isolated?.render($0) },openBrowser:{ _ in fatalError("isolated opened browser") },nativeRead:{ _,callback in progress=callback;return {} },probe:{ _,_ in fatalError("native used legacy probe") })
         isolated.settings=Settings(selectedID:profile.id,profiles:[profile]);isolated.buildWindow();isolated.populate()
-        defer { isolated.session.dispose();isolated.window.close() }
+        defer { isolated.session.dispose();isolated.settingsWindow?.close();isolated.window.close() }
         let read = isolated.controls[#selector(FlowApp.openPreview)]!
         check(NSApp.sendAction(read.action!,to:read.target,from:read),"isolated Read target/action")
         waitUntil("isolated native preparation") { progress != nil }
-        let text=(isolated.settingsTabs?.tabViewItem(at:0).view as! NSTextField).stringValue
+        let text=[isolated.status.stringValue, isolated.detail.stringValue].filter { !$0.isEmpty }.joined(separator: "\n")
         let row:[String:Any] = ["state":"isolated-busy","home":text,"read":read.isEnabled,"stop":isolated.controls[#selector(FlowApp.stop)]!.isEnabled,"picker":isolated.picker.isEnabled,"services":services.actions,"readingIntent":isolated.readingIntent,"busy":isolated.snapshot!.isBusy,"mainWindowVisible":isolated.window.isVisible]
         try JSONSerialization.data(withJSONObject:[row],options:[.prettyPrinted,.sortedKeys]).write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
         check(!read.isEnabled && !isolated.controls[#selector(FlowApp.stop)]!.isEnabled && isolated.picker.isEnabled && isolated.snapshot!.isBusy,"isolated busy guard changed")
-        if wording { check(text.contains("준비") && !text.contains("서비스 중지"),"isolated busy cannot instruct disabled Stop") }
+        if wording { check(text.contains("요청하는 중") && !text.contains("중지"),"isolated busy cannot instruct disabled Stop") }
         check(services.actions.isEmpty,"native isolated service effect")
         progress?(.accepted);progress?(.windowInitialized);progress?(.painted)
         waitUntil("isolated paint stage") { isolated.snapshot?.phase == .painted }
       } else {
         capture("ready")
+        let startControl = delegate.controls[#selector(FlowApp.start)]!
+        let logsControl = delegate.controls[#selector(FlowApp.openLogs)]!
+        let extControl = delegate.controls[#selector(FlowApp.openExternalPreview)]!
+        let stopControl = delegate.controls[#selector(FlowApp.stop)]!
+        check(delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨" && !startControl.isHidden && !logsControl.isHidden && extControl.isHidden && stopControl.isHidden && delegate.serviceOverflowButton.isHidden, "stopped service card layout mismatch")
         var commandCount=0
-        for (selector,title) in [(#selector(FlowApp.start),"서비스 시작"),(#selector(FlowApp.stop),"서비스 중지"),(#selector(FlowApp.restart),"서비스 재시작")] {
-          let control=delegate.controls[selector]!
-          if wording { check(control.title==title,"service labels must distinguish reading from service control") }
-          check(control.target === delegate && control.action==selector && control.isEnabled,"service target/action/enabled changed")
-          check(NSApp.sendAction(selector,to:control.target,from:control),"native target/action rejected")
+        for (selector,title) in [(#selector(FlowApp.start),"시작"),(#selector(FlowApp.stop),"중지"),(#selector(FlowApp.restart),"재시작")] {
+          if selector == #selector(FlowApp.restart) {
+            let item = delegate.serviceOverflowMenu().items.first { $0.action == selector }!
+            if wording { check(item.title == title, "overflow restart label mismatch") }
+            check(item.target === delegate && item.action == selector && delegate.validateMenuItem(item), "service overflow target/action/enabled changed")
+            check(NSApp.sendAction(selector, to: item.target, from: item), "service overflow target/action rejected")
+          } else {
+            let control=delegate.controls[selector]!
+            if wording { check(control.title==title,"service labels must distinguish reading from service control") }
+            check(control.target === delegate && control.action==selector && control.isEnabled,"service target/action/enabled changed")
+            check(NSApp.sendAction(selector,to:control.target,from:control),"native target/action rejected")
+          }
           capture(title+"-requested")
           commandCount += 1
           waitUntil("service effect") { services.actions.count==commandCount }
@@ -1568,6 +1624,11 @@ class IdentityHomeFeedbackTests(unittest.TestCase):
             probes.last?(.ready)
           }
           waitUntil("service ready/stopped") { delegate.snapshot?.isBusy == false && delegate.snapshot?.phase == (selector == #selector(FlowApp.stop) ? .stopped : .ready) }
+          if selector == #selector(FlowApp.stop) {
+            check(delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨" && !startControl.isHidden && !logsControl.isHidden && extControl.isHidden && stopControl.isHidden && delegate.serviceOverflowButton.isHidden, "stopped service card state mismatch")
+          } else {
+            check(delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 실행 중" && startControl.isHidden && logsControl.isHidden && !extControl.isHidden && !stopControl.isHidden && !delegate.serviceOverflowButton.isHidden, "running service card state mismatch")
+          }
           capture(title+"-settled")
         }
         check(services.actions==["start","stop","restart"] && probes.count==2 && opens.isEmpty && delegate.readingIntent==3,"existing service effects/readiness/intent")
@@ -1576,7 +1637,7 @@ class IdentityHomeFeedbackTests(unittest.TestCase):
         waitUntil("explicit Read probe") { probes.count==3 }
         capture("reading-busy")
         check(!read.isEnabled && delegate.controls[#selector(FlowApp.stop)]!.isEnabled && delegate.picker.isEnabled,"Read enabled policy changed")
-        if wording { check(homeText().contains("준비") && !homeText().contains("프로젝트를 선택하고 읽기를 시작하세요."),"busy reading feedback must wait") }
+        if wording { check(!delegate.status.isHiddenOrHasHiddenAncestor && homeText().contains("확인") && !homeText().contains("프로젝트를 선택하고 읽기를 시작하세요."),"busy reading feedback must wait") }
         probes.last?(.ready);waitUntil("explicit Read completes") { opens.count==1 }
         capture("read-ready")
         check(services.actions==["start","stop","restart","start"] && delegate.readingIntent==4,"explicit Read retains existing idempotent start and intent")

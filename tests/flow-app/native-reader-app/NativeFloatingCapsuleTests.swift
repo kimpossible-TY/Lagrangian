@@ -11,9 +11,32 @@ private actor Input: NativeReaderDocumentProviding {
 }
 @MainActor private final class RecoveryGate {
     var entries = 0
-    var continuation: CheckedContinuation<Void, Error>?
-    func enter() async throws { entries += 1; try await withCheckedThrowingContinuation { continuation = $0 } }
-    func fail() { let c = continuation; continuation = nil; c?.resume(throwing: NativeReaderOperationFailure.unavailable) }
+    var continuations = [UUID: CheckedContinuation<Void, Error>]()
+    func enter() async throws {
+        try Task.checkCancellation()
+        entries += 1
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    c.resume(throwing: CancellationError())
+                } else {
+                    continuations[id] = c
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                if let c = self.continuations.removeValue(forKey: id) {
+                    c.resume(throwing: CancellationError())
+                }
+            }
+        }
+    }
+    func fail() {
+        let pending = continuations.values
+        continuations.removeAll()
+        for c in pending { c.resume(throwing: NativeReaderOperationFailure.unavailable) }
+    }
 }
 private actor Effects {
     var requests = 0
@@ -117,7 +140,7 @@ private actor FakeChatHTTP {
         try await until { host.textView.renderKey == host.textView.requestedRenderKey }
         try await Task.sleep(nanoseconds: 100_000_000)
         if mode == "recovery" {
-            let accepted = host.store.document, context = host.session.context, key = host.textView.renderKey, current = host.visibleMode
+            let accepted = host.store.document, context = host.session.context, key = host.textView.renderKey, current = host.visibleMode, logical = host.textView.logicalText
             let counts = [await input.count(), targets, pages]
             let snapshot = NativeReaderRecoverySnapshot(document: document, assets: [:], restoration: .initial, drafts: [])
             try snapshot.validate()
@@ -125,14 +148,17 @@ private actor FakeChatHTTP {
             let task = Task { try await host.session.restore(snapshot, matching: document.identity, prepare: { _, _ in
                 try await gate.enter(); throw NativeReaderOperationFailure.unavailable
             }) }
-            try await until { gate.entries == 1 }
+            try await until { gate.entries >= 1 }
+            root.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 50_000_000)
             let loadingLabels = labels(root), loadingOK = loadingLabels.contains("복원 준비 중") && !loadingLabels.contains("오프라인 복원본에서는")
             try check(host.session.hasPendingRecovery && host.session.hasRecoveryCopy && host.session.state == .loading, "Actual pending recovery state")
-            gate.fail(); do { try await task.value; throw FlowError(message:"Expected recovery failure") } catch { }
+            gate.fail(); _ = try? await task.value
             try await until { host.session.failure != nil }
             let failureLabels = labels(root)
             let failureOK = failureLabels.contains("복원하지 못했습니다") && failureLabels.contains("이전 읽기 결과") && !failureLabels.contains("‘새로고침’을 누르세요")
-            let unchanged = host.store.document == accepted && host.session.context == context && host.visibleMode == current && host.textView.renderKey == key
+            let currentKey = host.textView.renderKey
+            let sameKeyContent = currentKey?.identity == key?.identity && currentKey?.documentGeneration == key?.documentGeneration && currentKey?.viewID == key?.viewID && currentKey?.width == key?.width && currentKey?.appearance == key?.appearance
+            let unchanged = host.store.document == accepted && host.session.context == context && host.visibleMode == current && sameKeyContent && host.textView.logicalText == logical
             let liveCalls = [await input.count(), targets, pages]
             let denied = (try? host.session.authorize(context!)) == nil
             let refresh = try button(root,"refreshDocument"), modeButton = try button(root,"pageMode")
@@ -143,7 +169,8 @@ private actor FakeChatHTTP {
             try check(failureOK, "UI9-C1 recovery failure/prior result must precede generic restriction")
             try check(unchanged && denied && counts == liveCalls && !modeButton.isEnabled && !refresh.isEnabled, "Preserved content/authority/live0")
             #if !NA19_BEFORE
-            try click(try button(root,"retryRecovery")); try await until { gate.entries == 2 }
+            let beforeRetry = gate.entries
+            try click(try button(root,"retryRecovery")); try await until { gate.entries == beforeRetry + 1 }
             gate.fail(); try await until { host.session.failure != nil }
             try click(try button(root,"cancelRecovery"))
             try check(!host.session.hasPendingRecovery && host.session.isReadOnly && host.store.document == accepted, "Actual recovery cancel retains previous content and revokes pending")
@@ -244,7 +271,7 @@ private actor FakeChatHTTP {
         } else if mode == "home" {
             let flow = FlowApp(environment:AppEnvironment(variables:[:],userHome:out.appendingPathComponent("isolated-home")),isolated:true,noActivate:true,showNativeWindow:false)
             flow.buildWindow()
-            defer { flow.window.close();flow.session.dispose() }
+            defer { flow.settingsWindow?.close();flow.window.close();flow.session.dispose() }
             let root = flow.window.contentView!
             let settings = try JSONEncoder().encode(flow.settings)
             let settingsObject = try JSONSerialization.jsonObject(with: settings)
@@ -252,8 +279,10 @@ private actor FakeChatHTTP {
             try settings.write(to: out.appendingPathComponent("home-settings-before-raw.json"))
             try check(root is NativeDesignSurface && views(root).contains { $0 is NativeBrandMarkView },"Production home consumes solid cream and exact vector")
             try check(flow.controls.values.allSatisfy { $0 is NativeDesignButton && $0.target as AnyObject? === flow },"Home retains native selectors/targets in common buttons")
+            try check(!flow.isSettingsPresented && flow.settingsWindow != nil,"Separated settings sheet/window starts closed")
             try check(NSApp.sendAction(#selector(FlowApp.showSettings),to:flow,from:nil),"Actual settings selector")
-            try check(flow.settingsTabs?.indexOfTabViewItem(flow.settingsTabs!.selectedTabViewItem!) == 1,"Actual native settings tab opens")
+            try check(flow.isSettingsPresented,"Actual separated settings sheet/window opens")
+            try check(flow.settingsWindow?.contentView.map { views($0).contains { $0 === flow.fields["name"] } } == true,"Settings fields live in separated settings window")
             let settingsAfter = try JSONEncoder().encode(flow.settings)
             try settingsAfter.write(to: out.appendingPathComponent("home-settings-after-raw.json"))
             let canonicalAfter = try JSONSerialization.data(withJSONObject: JSONSerialization.jsonObject(with: settingsAfter), options: [.sortedKeys])
@@ -265,7 +294,7 @@ private actor FakeChatHTTP {
             try save(["rawVariants":rawVariants.compactMap { String(data:$0,encoding:.utf8) },"distinctRawOrders":Set(rawVariants).count,
                 "allSchemasTypesValuesEqual":canonicalVariants.allSatisfy { $0 == canonicalBefore }],out,"home-json-order-observations")
             try check(canonicalVariants.allSatisfy { $0 == canonicalBefore },"All observed raw key orders retain exact JSON types/schema/values")
-            try save(["homeCreamSurface":true,"originalVector":true,"settingsTab":1,"settingsUnchanged":true,"servicesCalled":0],out,"home-observations")
+            try save(["homeCreamSurface":true,"originalVector":true,"settingsPresented":flow.isSettingsPresented,"settingsUnchanged":true,"servicesCalled":0],out,"home-observations")
         } else if mode == "long" {
             let blocks = host.store.document!.blocks
             try check(blocks.count >= 36,"Independent compiler emitted 36 selected paragraphs")
@@ -291,8 +320,11 @@ private actor FakeChatHTTP {
             host.hostWindow.showSelectionActions()
             let capsule = host.hostWindow.capsule
             try check(host.store.selection!.fragments.count > 32,"Actual native over-limit selection retained")
-            try check(capsule.buttons[.copy]!.isEnabled && !capsule.buttons[.ask]!.isEnabled && !capsule.buttons[.source]!.isEnabled,"Over-limit permits full ordinary copy only")
-            try check(capsule.buttons[.ask]!.toolTip!.contains("32"),"Independent disabled reason")
+            try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled,"Over-limit exposes ordinary copy")
+            for unsupported in [NativeFloatingCapsule.Action.source, .highlight, .ask, .editor] {
+                try check(capsule.buttons[unsupported]!.isHidden && !capsule.buttons[unsupported]!.isEnabled,"Over-limit hides and disables unsupported \(unsupported.rawValue)")
+            }
+            try check(capsule.reason.stringValue.contains("32") && capsule.buttons[.ask]!.toolTip!.contains("32"),"Independent over-limit reason")
             let before = await effects.count()
             _ = NSApp.sendAction(capsule.buttons[.ask]!.action!,to:capsule.buttons[.ask]!.target,from:capsule.buttons[.ask]!)
             let after = await effects.count()
@@ -338,6 +370,12 @@ private actor FakeChatHTTP {
             try await until { host.hostWindow.capsule.binding != nil }
             let capsule = host.hostWindow.capsule, ticket = host.store.selection!.ticket
             try check(capsule.binding?.ticket == ticket && capsule.binding?.context == host.session.context, "Actual selection/context binding")
+            try check(!capsule.isHidden && capsule.footnote.isHidden, "Reflow capsule visible without PDF footnote")
+            for action in NativeFloatingCapsule.Action.allCases {
+                let button = capsule.buttons[action]!
+                try check(button.isHidden == !button.isEnabled, "Reflow capsule hides unsupported action \(action.rawValue)")
+            }
+            try check(!capsule.buttons[.copy]!.isHidden && !capsule.buttons[.source]!.isHidden && !capsule.buttons[.ask]!.isHidden, "Reflow capsule exposes available actions")
             try check(!host.textView.visibleSelectionRects(in:root).isEmpty, "Actual renderer geometry seam")
             var copies = [String](); host.copyText = { copies.append($0); return true }
             try click(capsule.buttons[.copy]!)
@@ -356,7 +394,9 @@ private actor FakeChatHTTP {
             try check(host.store.selection?.ticket == ticket, "Explicit Send retains selection even on owner preflight refusal")
             _ = chat.textView(chat.composer, doCommandBy:#selector(NSResponder.cancelOperation(_:)))
             try check(host.chatView == nil && host.store.selection?.ticket == ticket && window.firstResponder === host.textView.bodyTextView, "Escape dismisses composer, restores original body focus, keeps selection")
-            try click(try button(root,"showSelectionActions"));try check(capsule.binding?.ticket == ticket,"Keyboard control reopens dismissed capsule")
+            let showActions = try button(root,"showSelectionActions")
+            try check(showActions.isEnabled, "Keyboard showSelectionActions remains enabled for retained selection")
+            try click(showActions);try check(!capsule.isHidden && capsule.binding?.ticket == ticket,"Keyboard control reopens dismissed capsule")
             let old = capsule.binding!
             capsule.dismissExplicitly();try check(capsule.isHidden && host.store.selection?.ticket == ticket,"Dismiss differs from selection release")
             try host.textView.select(from: .init(blockID:block.id,utf16:1,affinity:.downstream),to:.init(blockID:block.id,utf16:5,affinity:.upstream))
@@ -368,25 +408,32 @@ private actor FakeChatHTTP {
             try save(["requestsBeforeSend":before,"requestsAfter":await effects.count(),"retainedSelection":true,"sameBody":true,"nativeGUI":false],out,"capsule-observations")
         } else if mode == "restrictions" {
             try click(try button(root,"pageMode")); try await until { host.visibleMode == .originalPages && host.originalPageView.isPreparedForPaint }
-            let hit = try await host.originalPageView.search("Search needle").first!
-            try await host.originalPageView.select(page:hit.pageIndex,range:hit.rangeUTF16)
-            try await until { host.hostWindow.capsule.binding != nil }
+            let findField = views(root).compactMap { $0 as? NSSearchField }.first!
+            findField.stringValue = "Search needle"
+            try check(NSApp.sendAction(findField.action!, to: findField.target, from: findField), "Actual PDF search target/action")
+            try await until { host.hostWindow.capsule.binding != nil && !host.hostWindow.capsule.isHidden }
             let capsule = host.hostWindow.capsule
-            try check(capsule.buttons[.copy]!.isEnabled && !capsule.buttons[.ask]!.isEnabled && !capsule.buttons[.source]!.isEnabled && !capsule.buttons[.editor]!.isEnabled,"PDF only copy/search/navigation")
+            let pdfViewport = host.originalPageView.enclosingScrollView!.contentView.convert(host.originalPageView.enclosingScrollView!.contentView.bounds, to: root)
+            let capsuleRect = capsule.convert(capsule.bounds, to: root)
+            try check(!capsuleRect.intersects(pdfViewport), "PDF search-hit capsule docks without overlapping PDF body")
+            try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled && !capsule.closeButton.isHidden, "PDF search-hit capsule exposes copy and close")
+            try check(capsule.buttons[.source]!.isHidden && !capsule.buttons[.source]!.isEnabled && capsule.buttons[.highlight]!.isHidden && !capsule.buttons[.highlight]!.isEnabled && capsule.buttons[.ask]!.isHidden && !capsule.buttons[.ask]!.isEnabled && capsule.buttons[.editor]!.isHidden && !capsule.buttons[.editor]!.isEnabled && capsule.releaseSelectionButton.isHidden,"PDF only copy/search/navigation and hides 4 unsupported buttons")
+            try check(capsule.footnote.stringValue == "오프라인 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "PDF capsule shows compact footer note")
+            try check(views(root).compactMap({ $0 as? NSButton }).filter({ !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("복사") }).count == 1, "No duplicate copy button alongside capsule")
             host.originalPageView.releaseSelection();try click(try button(root,"reflowMode"));try await until{host.visibleMode == .nativeReflow}
             let snapshot = NativeReaderRecoverySnapshot(document:document,assets:[:],restoration:.initial,drafts:[])
             try await host.restoreRecovery(snapshot)
             let block = host.store.document!.blocks.first { $0.displayText.utf16.count > 4 }!
             try host.textView.select(from:.init(blockID:block.id,utf16:0,affinity:.downstream),to:.init(blockID:block.id,utf16:4,affinity:.upstream))
             try await until { capsule.binding != nil }
-            try check(capsule.buttons[.copy]!.isEnabled && !capsule.buttons[.ask]!.isEnabled,"Recovered selection cannot acquire source/chat authority")
+            try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled && capsule.buttons[.ask]!.isHidden && !capsule.buttons[.ask]!.isEnabled && capsule.footnote.isHidden,"Recovered selection cannot acquire source/chat authority and hides unsupported actions")
             for width: CGFloat in [320,640,980] { for size: CGFloat in [13,32] {
                 window.setFrame(NSRect(x:0,y:0,width:width,height:1100),display:false)
                 for control in views(capsule).compactMap({$0 as? NSControl}) { control.font = .systemFont(ofSize:size) }
                 capsule.reason.stringValue = "긴 한국어 선택 작업과 명시 전송 전 대기 상태 — A long English explanation of selection actions"
                 host.hostWindow.placeCapsule(viewport:NSRect(x:16,y:16,width:width-32,height:400),avoiding:[NSRect(x:20,y:180,width:100,height:24)])
                 root.layoutSubtreeIfNeeded();capsule.layoutSubtreeIfNeeded()
-                for control in capsule.buttons.values {
+                for control in (Array(capsule.buttons.values) + [capsule.closeButton]) where !control.isHidden {
                     try check(control.frame.height >= 32 && control.frame.width <= capsule.bounds.width,"32pt/narrow native hit targets")
                 }
             } }

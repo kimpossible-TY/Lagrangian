@@ -29,17 +29,19 @@ private struct ReviewDocument: NativeReaderDocumentProviding {
       let env=AppEnvironment(variables:[:],userHome:home,executable:out.appendingPathComponent("synthetic.app/Contents/MacOS/Lagrangian"),fixtureRoot:root)
       try env.prepareFixtureDirectories()
       let flow=FlowApp(environment:env,isolated:true,fixture:base.appendingPathComponent("document.json"),noActivate:true,showNativeWindow:false)
-      defer { flow.session.dispose();flow.window?.close() }
+      defer { flow.session.dispose();flow.settingsWindow?.close();flow.window?.close() }
       flow.settings=Settings(selectedID:"test",profiles:[Profile(id:"test",name:"Fixture",root:base.path,entry:"main.typ",fonts:[],packages:"",port:23620,publicURL:"",label:"owned.fixture")])
       flow.buildWindow();flow.populate()
-      let editor=flow.window.fieldEditor(true,for:flow.fields["name"]!) as! NativeReaderInputTextView
+      try check(NSApp.sendAction(#selector(FlowApp.showSettings),to:flow,from:nil) && flow.isSettingsPresented,"Separated settings sheet/window opens")
+      let settingsWindow=flow.settingsWindow!
+      let editor=settingsWindow.fieldEditor(true,for:flow.fields["name"]!) as! NativeReaderInputTextView
       var calls=0;editor.standardClipboardOperation={_ in calls += 1}
       editor.string="Private edit";editor.setSelectedRange(NSRange(location:0,length:7))
       for name in ["cut:","copy:","paste:"] {
         let action=NSSelectorFromString(name),menu=NSMenuItem(title:name,action:action,keyEquivalent:"")
         _=NSApp.sendAction(action,to:editor,from:menu)
         editor.doCommand(by:action)
-        let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:0,windowNumber:flow.window.windowNumber,context:nil,characters:name == "cut:" ? "x" : name == "copy:" ? "c" : "v",charactersIgnoringModifiers:name == "cut:" ? "x" : name == "copy:" ? "c" : "v",isARepeat:false,keyCode:0)!
+        let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:0,windowNumber:settingsWindow.windowNumber,context:nil,characters:name == "cut:" ? "x" : name == "copy:" ? "c" : "v",charactersIgnoringModifiers:name == "cut:" ? "x" : name == "copy:" ? "c" : "v",isARepeat:false,keyCode:0)!
         try check(editor.performKeyEquivalent(with:event),"Keyboard edit consumed")
       }
       try check(calls==0 && editor.string=="Private edit","Settings target/menu/key/responder rejects ordinary clipboard")
@@ -88,7 +90,7 @@ private struct ReviewDocument: NativeReaderDocumentProviding {
       var panels=0
       fixture.choosePDFDestination={_ in panels += 1;return out.appendingPathComponent("must-not-export.pdf")}
       fixture.stagePDFExport={_,_,_ in ReviewEffects.exportWrites += 1;throw NativeReaderOperationFailure.unavailable}
-      let export=try button(fixture.hostWindow.window!.contentView!,"exportPDFExplicitly")
+      let export=try button(fixture.hostWindow.displayPopoverContentView,"exportPDFExplicitly")
       try check(!export.isEnabled,"Fixture valid restored PDF export disabled")
       _=NSApp.sendAction(export.action!,to:export.target,from:export);fixture.hostWindow.onExportPDF?()
       await Task.yield()
@@ -97,7 +99,7 @@ private struct ReviewDocument: NativeReaderDocumentProviding {
       // Normal owner retains verified export publication to a task-owned file.
       let destination=out.appendingPathComponent("normal-export.pdf")
       live.choosePDFDestination={_ in destination}
-      let normal=try button(live.hostWindow.window!.contentView!,"exportPDFExplicitly")
+      let normal=try button(live.hostWindow.displayPopoverContentView,"exportPDFExplicitly")
       try check(normal.isEnabled,"Normal export remains enabled")
       _=NSApp.sendAction(normal.action!,to:normal.target,from:normal)
       try await until {live.hostWindow.notice.stringValue=="Original PDF exported."}

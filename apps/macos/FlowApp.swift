@@ -1016,12 +1016,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard !fixtureMode, !mutating, active != nil else { return }
     let panel = NSOpenPanel()
     panel.title = "프로젝트 폴더 선택"
-    panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
-    if let currentRoot = fields["root"]?.stringValue, !currentRoot.isEmpty {
-      panel.directoryURL = URL(fileURLWithPath: currentRoot)
-    }
     guard panel.runModal() == .OK, let url = panel.url else { return }
     fields["root"]?.stringValue = url.path
   }
