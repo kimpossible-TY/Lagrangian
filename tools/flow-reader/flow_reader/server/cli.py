@@ -182,7 +182,7 @@ class ReaderRuntime:
         self.workers.clear()
 
 
-def main(argv=None):
+def main(argv=None, *, manager_factory=None):
     parser = argument_parser()
     args = parser.parse_args(argv)
     if not args.managed and any(getattr(args, field) is None for field in
@@ -195,7 +195,7 @@ def main(argv=None):
         return run_document(args)
     runtime = None
     try:
-        runtime = ReaderRuntime(args, ReaderManager(data=args.data))
+        runtime = ReaderRuntime(args, (manager_factory or ReaderManager)(data=args.data))
         print(json.dumps(runtime.start()), flush=True)
         runtime.stopped.wait()
     except KeyboardInterrupt:

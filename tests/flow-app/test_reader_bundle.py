@@ -123,6 +123,17 @@ class PackageTests(Fixture):
         self.assertNotEqual(changed['bundleChecksum'], original)
         self.assertEqual(changed['headSha'], new_sha)
 
+    def test_explicit_worktree_mode_delivers_current_backend_and_resource_bytes(self):
+        original = self.package()['bundleChecksum']
+        write(self.root / 'tools/flow-reader/manage.py', 'print("current backend")\n')
+        write(self.root / 'tools/flow-reader/web/app.js', 'export const current = true\n')
+        current = bundle.package_reader_bundle(self.root, self.sha, self.output, worktree=True)
+        self.assertNotEqual(current['bundleChecksum'], original)
+        staged = Path(self.directory.name) / 'current'
+        bundle.materialize(current, self.output / 'reader-bundle.tar', staged)
+        self.assertEqual((staged / 'tools/flow-reader/manage.py').read_bytes(), (self.root / 'tools/flow-reader/manage.py').read_bytes())
+        self.assertEqual((staged / 'tools/flow-reader/web/app.js').read_bytes(), (self.root / 'tools/flow-reader/web/app.js').read_bytes())
+
     def test_rejects_a_head_sha_that_is_not_head_and_an_escaping_symlink(self):
         with self.assertRaisesRegex(ValueError, 'does not match headSha'):
             self.package(sha='ab' * 20)

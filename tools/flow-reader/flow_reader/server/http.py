@@ -3,7 +3,7 @@ import gzip
 from http.server import BaseHTTPRequestHandler
 import json
 import time
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, unquote
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
@@ -28,6 +28,13 @@ def handler_for(state, *, public_url=None, homepage_url=None):
     vendor_routes = {"/vendor/mathjax-4.1.3/" + name: vendor / name for name in vendor_files}
     vendor_routes["/vendor/mathjax-4.1.3/manifest.json"] = vendor / "manifest.json"
     offline_worker = worker_script(assets, vendor_routes)
+    from flow_reader.server.native_reader import NativeReaderService
+    native = NativeReaderService(state)
+    import select
+    import socket
+    from flow_reader.server.native_pages import NativePageService
+    pages = NativePageService(state, native)
+    native_posts = {"/api/native-action", "/api/native-chat", "/api/native-editor"}
     compiler_pool = getattr(state, "compiler_pool", None)
     compiler_assets = getattr(state, "compiler_assets", None)
     compiler_actions = {"/api/compiler/" + action for action in
@@ -46,7 +53,9 @@ def handler_for(state, *, public_url=None, homepage_url=None):
             if not self.allowed_host():
                 return self.respond(b"Unrecognized reader host", "text/plain", 421)
             path = urlsplit(self.path).path
-            if path not in compiler_actions | chat_actions | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
+            if path in native_posts and not self.native_guard():
+                return
+            if path not in compiler_actions | chat_actions | native_posts | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
                             "/api/highlight", "/api/source", "/api/source-text", "/api/cursor", "/api/focus", "/api/editor-attachment"}:
                 return self.respond(b"Not found", "text/plain", 404)
             origin = self.headers.get("Origin")
@@ -65,7 +74,17 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                 request = json.loads(self.rfile.read(length))
                 if not isinstance(request, dict):
                     raise ValueError("Expected a JSON object")
-                if path in chat_actions:
+                if path in native_posts:
+                    if path == "/api/native-editor":
+                        if (self.client_address[0] != "127.0.0.1" or self.headers.get("Host") not in
+                                {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}):
+                            return self.respond(b'{"error":"Invalid editor scope"}', "application/json", 403)
+                        result = native.editor(request, self.native_connected)
+                    elif path == "/api/native-chat" and request.get("operation") == "events":
+                        return self.native_events(request)
+                    else:
+                        result = native.action(request) if path == "/api/native-action" else native.chat(request)
+                elif path in chat_actions:
                     chat = state.paragraph_chat
                     action = path.rsplit("/", 1)[-1]
                     if action == "auth":
@@ -120,7 +139,7 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                                 raise ValueError("Invalid compiler lease")
                             result = compiler_pool.submit(worker, job, lease, request.get("result"))
                 elif path == "/api/editor-attachment":
-                    result = {"connected": state.editor_attachments.resolve(request.get("token")) is not None}
+                    result = {"connected": state.editor_attachments.record(request.get("token")) is not None}
                 elif path == "/api/focus":
                     try:
                         result = state.save_focus(request.get("revision"), request.get("fragments"),
@@ -154,8 +173,69 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 409)
             except ChatProviderError as error:
                 self.respond(json.dumps({"error": str(error)}).encode(), "application/json", 503)
+            except OSError:
+                if path not in native_posts:
+                    raise
+                self.respond(b'{"error":"Native service unavailable"}', "application/json", 503)
             except (ValueError, TypeError):
                 self.respond(b'{"error": "Invalid reader request"}', "application/json", 400)
+
+        def native_guard(self):
+            url = urlsplit(self.path)
+            origins = {"http://" + self.headers.get("Host", "")}
+            if public_url and self.headers.get("Host") == public.netloc:
+                origins = {public_url.rstrip("/")}
+            if (url.scheme or url.netloc or url.fragment or unquote(url.path) != url.path
+                    or (self.command == "POST" and (url.query or len(self.headers.get_all("Content-Length", [])) != 1
+                                                    or self.headers.get("Transfer-Encoding")))
+                    or len(self.path) > 4096 or len(self.headers.get_all("Origin", [])) != 1
+                    or self.headers.get("Origin") not in origins
+                    or any(k.lower() == "forwarded" or k.lower().startswith("x-forwarded-") for k in self.headers)):
+                self.respond(b'{"error":"Invalid native scope"}', "application/json", 403)
+                return False
+            self.connection.settimeout(5)
+            return True
+
+        def native_connected(self):
+            try:
+                readable, _, _ = select.select([self.connection], [], [], 0)
+                return not readable or self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) != b""
+            except BlockingIOError:
+                return True
+            except OSError:
+                return False
+
+        def native_events(self, request):
+            result = native.chat(request)  # Validate before stream headers.
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            last, total = None, 0
+            deadline = time.monotonic() + 25
+            self.connection.settimeout(5)  # Bound a stalled subscriber, not the shared job.
+            try:
+                while time.monotonic() < deadline:
+                    encoded = json.dumps(result, ensure_ascii=False)
+                    if encoded != last:
+                        payload = ("data: " + encoded + "\n\n").encode()
+                        total += len(payload)
+                        if total > 16 * 1024 * 1024:
+                            break
+                        self.wfile.write(payload)
+                        self.wfile.flush()
+                        last = encoded
+                    if not any(r["status"] == "streaming" for r in result["conversations"]):
+                        break
+                    time.sleep(.15)
+                    result = native.chat(request)
+            except RevisionChanged:
+                self.wfile.write(b'event: stale\ndata: {}\n\n')
+            except (OSError, ValueError, TypeError):
+                pass  # End this subscription; never write a second HTTP response.
+            finally:
+                self.close_connection = True
 
         def chat_events(self, chat, request):
             result = chat.list(request)  # Validate before sending stream headers.
@@ -189,6 +269,30 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                 return self.respond(b"Unrecognized reader host", "text/plain", 421)
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
+            if path in {"/api/native-document", "/api/native-pages"} or path.startswith(("/api/native-assets/", "/api/native-pages/")):
+                if url.path != path:
+                    return self.respond(b"Not found", "text/plain", 404)
+                if not self.native_guard():
+                    return
+                try:
+                    if path == "/api/native-pages":
+                        return self.respond(pages.manifest(url.query, self.native_connected), "application/json")
+                    if path.startswith("/api/native-pages/"):
+                        return self.respond(pages.resource(url.query, path.removeprefix("/api/native-pages/")), "application/pdf")
+                    if path.startswith("/api/native-assets/"):
+                        asset = native.asset(url.query, path.removeprefix("/api/native-assets/"))
+                        if asset is None:
+                            return self.respond(b"Unknown native asset", "text/plain", 404)
+                        return self.respond(asset[0], asset[1])
+                    data, binding = native.document(url.query)
+                    self.native_input_binding = binding
+                    return self.respond(data, "application/json")
+                except RevisionChanged:
+                    return self.respond(b'{"error":"Native snapshot changed"}', "application/json", 409)
+                except (ValueError, TypeError, KeyError, UnicodeError):
+                    return self.respond(b'{"error":"Invalid native document request"}', "application/json", 400)
+                except OSError:
+                    return self.respond(b'{"error":"Native snapshot unavailable"}', "application/json", 503)
             if path == "/api/compiler/status":
                 result = compiler_pool.status() if compiler_pool else {"workers": [], "history": []}
                 return self.respond(json.dumps(result).encode(), "application/json")
@@ -273,6 +377,8 @@ def handler_for(state, *, public_url=None, homepage_url=None):
             self.send_header("Cache-Control", cache)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
+            if getattr(self, "native_input_binding", None):
+                self.send_header("X-Native-Input-ID", self.native_input_binding)
             if compressed:
                 self.send_header("Content-Encoding", "gzip")
                 self.send_header("Vary", "Accept-Encoding")

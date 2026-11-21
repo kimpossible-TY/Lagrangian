@@ -150,7 +150,13 @@ Keep public crate APIs and revision/handler ordering stable. A completion belong
 
 `apps/macos/sources.json` is the single explicit source list shared by packaging and tests. Profile validation, environment paths, settings storage, command execution, LaunchAgents, engine launch, CLI and AppKit each have a dedicated source. `ProjectService` owns project creation defaults, profile selection/persistence and validate-before-stop updates/recovery; its injected collaborators let tests verify failures without running the user's services. UI callbacks gather inputs and adopt successfully saved settings returned by the service; failed creation/selection preserves prior UI settings. `LaunchAgentService` produces the executable arguments once for both plist generation and ownership checks.
 
-`ReadingSessionController.swift` owns asynchronous service requests, serialized settings mutations, readiness deadlines, cancellation, stale-result guards and power-aware status polling. `PreviewReadiness.swift` verifies document availability through the existing loopback WebSocket protocol; HTTP success or command acceptance alone does not establish readiness. `NativeReadingEnvironment.swift` adapts AppKit sleep/wake notifications, network path changes, power-source changes, Low Power Mode and thermal state to that policy, and disposes its observers with the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Browser rendering and reading-state recovery remain with the concrete readers.
+`ReadingSessionController.swift` owns asynchronous service requests, serialized settings mutations, readiness deadlines, cancellation, stale-result guards and power-aware status polling. `PreviewReadiness.swift` verifies document availability through the existing loopback WebSocket protocol; HTTP success or command acceptance alone does not establish readiness. `NativeReadingEnvironment.swift` adapts AppKit sleep/wake notifications, network path changes, power-source changes, Low Power Mode and thermal state to that policy, and disposes its observers with the app. FlowApp routes those events through the
+ReadingSessionController explicit native Read ticket to NativeReaderWindowController
+and NativeReaderSession; the native owner retains accepted content and controls
+its own interruption/retry/backoff. Closed/cancelled/offline copies and unread
+profiles do not recover through live transport. The original main/delegate lifetime structure is preserved; its offscreen
+startup completes. A dev-root-only value timeline records the storage worker and
+main completion without changing generation/disposal guards or retaining the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Body rendering and reading-state recovery remain with the concrete readers described below.
 
 = Validation
 
@@ -186,3 +192,181 @@ OfflineReader also owns waiting-shell update notification and explicit activatio
 The Service Worker activates only on that request, and the page reloads after
 controller change. Compiler diagnostics require the current declared evidence
 contract before dispatch; ordinary execution retains legacy compatibility.
+
+= Native original PDF pages
+
+`server/native_pages.py` owns immutable full-PDF publications over AcceptedSnapshot
+and Project.execute, including stable HTML/PDF dependency bindings and scoped
+manifest/resources. The existing HTTP owner retains Host/Origin/prefix guards.
+`NativeReaderOriginalPageTransport.swift` validates that service publication;
+`NativeReaderOriginalPageView.swift` owns viewport paint, display selection,
+search and explicit safe URI/GoTo callbacks. The private PDFKit worker/cache and
+safety scan remain in `NativeReaderPagedLayout.swift`. WindowController composes
+both native modes through Session.PreparedAdoption and the canonical semantic
+store. Session holds replacements for local page selection independently of
+semantic/source selection. RecoveryStore alone owns typed, hashed atomic disk
+storage, with an optional bounded accepted-PDF/viewport supplement. PDF text and
+coordinates never supply source authority. Full reset is implemented; engine raw
+diff-v1 native consumption is unverified. Packaging/source registry remains the
+delivery owner's responsibility; headless paint is separate from GUI acceptance.
+
+
+= Native reflow and original-page ownership
+
+#table(columns:(1.5fr,3fr),inset:4pt,align:top,
+ table.header([Existing owner],[Responsibility]),
+ [`NativeReaderTextView` / `NativeReaderSelection`],[Native body, logical↔presentation mapping, grapheme selection, ordinary copy, geometry and semantic AX.],
+ [`NativeReaderSession`],[Newest candidate, request/selection hold, retry and read-only typed recovery through one atomic adopter.],
+ [`NativeReaderTransport` / `NativeReaderActions`],[Accepted input binding, scoped HTTP/assets, source receipts, exact conversation history and cancellation.],
+ [`NativeReaderObjectRenderer` / `NativeReaderPagedLayout`],[Math/object preparation and native pixels; serial PDFKit access, page geometry and bounded lazy caches.],
+ [`NativeReaderChatView`],[Native composer, completed-answer TeX preparation, attachment/token copy boundaries and pending-Send UI.],
+ [`NativeReaderOriginalPageView`],[One current PDF page's viewport, display selection, AX ranges/links and deferred Find/GoTo reveal.],
+ [`NativeReaderWindowController`],[Compose those owners and explicit validated offline assets, separate visible modes, acknowledge matching actual paint.],
+ [`document/native_document.py`],[Import only existing accepted SectionBundle publication; preserve source/auth/chat/security owners.],
+)
+See #link("native-reader-app-contract.typ")[wire/local/recovery contracts],
+#link("native-reader-original-pages.typ")[PDF limits] and
+#link("native-reader-chat-math.typ")[answer math]. The final source list includes
+the page view/transport at historical staged09c5186b. The current frozen
+source/App is d7cd069f2249a405061bf220cfd7e0184f75c7fe, bound by the external
+DevSSD `test-output/native-app-corrections-v4/final-binding.json` and handoff.
+The v5 successor is a source-only component, not registered or packaged into that
+App. PM integration and new delivery binding remain required after its fixed SHA;
+no common writer, credential owner or framework is introduced here.
+
+
+= Native local interaction composition
+
+FlowApp composes NativeReaderWindowController with profile/target-namespaced
+RecoveryStore operations from AppEnvironment. Its separate explicit offline
+library action never starts a live service or resolves an attachment. HostWindow
+owns native controls and delegates policy to TextView (outline/reference return,
+appearance, normalized viewport), NativeReaderLocalReview (bounded mark history)
+and RecoveryStore (typed list/load/save, hashes, privacy and atomic budgets).
+TextView paints local review lines through its current-key range geometry;
+logical text, source mappings and accessibility offsets are unchanged. The
+controller serializes local storage actions, cancels obsolete operations and
+binds restore/paint to the exact view request. ChatView exposes only its existing
+typed draft/pending state for explicit saved recovery, with no new token/auth DB.
+Native source/history and account actions still use NativeReaderActions and
+existing endpoint/consent owners. See the canonical native contract and
+verification guide for reachable controls and conditional editor/auth gaps.
+
+
+Session candidate completion owns publication-correlated recovery attachments;
+WindowController consumes that completion once and composes existing LocalReview,
+viewport and typed draft owners. ChatView persistDraft/recoveryDraft supplies the
+current conversation state; initial saved drafts are not a repeated override.
+HostWindow owns only native event routing, window-local display preview controls
+and explicit Export PDF chooser composition. RecoveryStore owns validated original
+bytes staging, no-follow directory descriptors and guarded atomic output. PDFKit
+inspection stays native; OriginalPageView keeps link key traversal and current
+page/operation freshness, while its geometry/print colors remain independent of
+reflow font/theme. No new auth/editor APIs, conversation DB or model/tool limits
+are created here.
+
+
+= Native explicit editor effects
+
+`NativeReaderActions.perform(.locate)` still resolves correspondence only;
+`jump(_:query:)` and `NativeReaderEditorReceipt` separately own native effect
+requests and bounded feedback. FlowApp composes an explicitly chosen private
+editor descriptor and fresh consent through the local manager into the real
+managed client. The new `/api/native-editor` adapter coordinates selection leases,
+ten-second preparations and durable no-replay effect receipts over existing
+AcceptedSnapshot, SavedSourceNavigation, EditorAttachments and NeovimEditor.
+The unchanged terminal/Lua owner performs the final saved-source cursor move.
+Source coordinates and registration details remain private to those owners;
+no source writer or HTTP registration authority is added. Native service restart
+requires new editor consent. See #link("native-reader-editor-actions.typ")[NA15
+contracts, bounds, headless evidence and pending delivery/GUI acceptance].
+
+The NA15 receipt coordinator also persists the pre-effect private registration
+fingerprint and treats replaced control/registration lifetimes and legacy rows
+without that proof as unknown without replay. Native sync requires a locally
+registered boolean nativeJumpOnly marker; HTTP consent alone cannot promote a
+terminal attachment. FlowApp shares descriptor/consent adoption and native Read
+composition with prohibited-activation, hidden-window AppKit control fixtures;
+those exercise production callbacks without claiming real GUI acceptance.
+
+
+Native editor selection adoption remains independent of optional editor sync.
+NativeReaderActions revokes prior pending work before accepting a new body
+selection; missing editor ownership/control/registration affects editor Locate
+only. NativeReaderManagedResolver retains a local cleanup lease through probes
+and epoch/cancellation checks, then transport owns it. ReaderManager and
+EditorAttachments retire exactly that native token and export a live existing
+registration's four-field private chooser descriptor; HTTP never owns arbitrary
+registration/deletion or path discovery. Shared terminal tokens/controls and the32
+quota remain with the original owner. See native-reader-editor-actions.typ.
+
+
+= v5 managed identity and home feedback component
+
+ReaderManager alone resolves canonical-equivalent existing Unicode root/entry
+spellings with both actual filesystem identities and scope/type validation. It
+returns the original registered profile and retains ambiguity and explicit
+service selection. The separate withdrawal-only local path retires an exact
+private native token after a missing source without granting new attachment,
+descriptor, source or account authority. EditorAttachments still owns private
+record/native-only removal; document_identity and accepted/source/Lua owners
+remain unchanged. No source spelling migration or parallel identity store exists.
+
+FlowApp derives home feedback from existing mutation/snapshot/active state.
+Loading explains waiting, the later usable step and safe close/reopen if it
+persists; empty/error/busy feedback avoids disabled actions. Service labels name
+service start/stop/restart separately from Read. Existing enabled/selector/action,
+service readiness probes and Read intent behavior remain unchanged. Offscreen
+actual AppKit controls are compared against frozen d7 semantics, with fake
+service operations and prohibited activation. These are source-component checks;
+v4 App, delivery/sourcepin, real GUI and NA16 are separate unchanged boundaries.
+
+
+= Native local issuance and retained cleanup
+
+`services/editor_sync.py` owns private durable native-operation intents, exact
+native-token retirement and atomic complete registration publication;
+`services/manager.py` serializes them with its existing lock and validates managed
+document/service identity. These are local-only operations, not HTTP authority.
+`NativeReaderManagedResolver` and its shared retained-lease actor preserve exact
+caller-known pending operations across failed resolve and later explicit clients;
+`NativeReaderManagedClient` and FlowApp compose that owner. `CommandRunner` owns
+bounded cancellation/exit of its manager subprocess. No directory scan, source
+writer, new daemon or credential owner is added. The ten-second resolve budget
+includes pending retry, prepare/ack, final state and cleanup with late-adoption
+rejection. Exact-process restart recovery is a separate unsupported automation:
+private journals support explicit known-operation recovery, not automatic nonce
+rediscovery after the entire app dies. Historical299 response-only cleanup gaps
+and current source-only evidence are distinct in external
+`native-reader-identity-ui-v5/resume5-handoff.md`. Frozen d7 App/GUI and final
+registration/build/PM acceptance remain separate.
+
+
+= v6 operation lifetime boundaries (source component)
+
+NativeReaderTransport owns one absolute-deadline URLSession data request and
+reserves2.75seconds before the final request, then cancels and awaits its actual
+task termination before exact cleanup.
+ReaderManager owns the read-only opaque registered document/reader scope query;
+the resolver uses it to gate pending editor grants across equivalent spellings.
+Each lease still holds its stable original request for withdrawal. EditorAttachments'
+operation owner separates that request from the actual issuance document and
+verifies private journal/registration digest and inode without re-resolving aliases.
+These responsibilities add no Source, account, terminal or HTTP deletion power.
+Plain body/Source/Ask remain independent of pending editor retirement. See
+#link("native-reader-editor-actions.typ")[the exact local interoperability and compatibility limits].
+The external `test-output/native-reader-lifetime-v6/REPORT.md` binds this source
+component, not the frozen d7/v4 App or a new GUI result. PM integration, registry
+and delivery remain separate; legacy without-operation cleanup, automatic whole
+app restart recovery and journal pruning are not upgraded by these changes.
+
+
+= v8 pre-issuance scope correction (source component)
+
+The manager CLI, not Swift, owns expected-scope validation before durable intent
+and editor registration. The resolver supplies its queried scope with the opaque
+operation and retains that lease before invocation; response loss cannot create
+a differently scoped issuance. Original request expressions retain symlink-sensitive
+dot components. Actual document equivalence remains in the read-only manager
+query. Frozen d7 App and v7 UI evidence are separate; this source component is not
+registered, packaged or GUI-accepted by these tests.

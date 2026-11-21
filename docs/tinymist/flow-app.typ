@@ -6,6 +6,14 @@
   ]
 ]
 
+#let doc-ref(target-label, target-fragment, body) = {
+  if sys.inputs.at("x-target", default: "pdf") == "md" {
+    link("#" + target-fragment, body)
+  } else {
+    link(target-label, body)
+  }
+}
+
 = Lagrangian user guide
 
 #set heading(numbering: "1.")
@@ -14,21 +22,21 @@ Read and review live Typst documents on your Mac, phone, or tablet. This guide c
 
 = Open your first preview
 
-Use Flow to manage a document's live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see *First installation* below.
+Use Flow to manage a document's live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see #doc-ref(<first-installation>, "first-installation")[First installation] below. For version identification and guide matching, see #doc-ref(<identifying-installed-versions-and-guides>, "identifying-installed-versions-and-guides")[Identifying installed versions and guides] below.
 
-+ Open `~/Applications/Lagrangian.app`. The Flow menu appears in the menu bar.
++ Open `~/Applications/Lagrangian.app` (received via Finder or installed package). The Flow menu appears in the menu bar.
 + Click *Add Project* (프로젝트 추가…) and select the document's `.typ` entry file. The #link("examples/reading-demo.typ")[reading demo] is a small document for trying selection, highlights, references, and themes.
 + Check *Project folder* (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
 + Add any required font or package folders, then click *Save settings* (설정 저장).
-+ Click *Start reading* (읽기 시작). Flow saves changed settings, starts the preview if needed, and opens your browser once the engine has a document available. Save a source edit in your editor to see the preview update.
++ Click *Read* (읽기 시작). In an installed app supporting native reading, Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate *External Reader* action when you explicitly want the web reader.
 
-*Result:* Flow runs a preview for this project and opens it in your browser. The same window shows settings validation, the start request, the running engine and document readiness. The browser reports its own rendering progress. If preparation fails, the explanation stays in the window; correct the cause and choose *Read again* (다시 읽기). *Logs* (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
+*Result in an installed native app:* Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; check the guide and metadata bundled with the app as described in #doc-ref(<identifying-installed-versions-and-guides>, "identifying-installed-versions-and-guides")[Identifying installed versions and guides]. If preparation fails, the explanation stays in the window; correct the cause and choose *Read again* (다시 읽기). *Logs* (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
 
 == Project controls and settings
 
 Choose a project from the picker to open or control its preview. *Stop* (중지) disables its service until you use Start again; *Restart* (재시작) restarts it. Closing the project window or quitting the menu bar app leaves started previews running.
 
-*Start reading* also works for an already running project. It waits for an available document before opening the configured address. *Start* starts the service without opening a browser. Switching projects or choosing *Stop* cancels a pending browser opening. Service and settings operations run in the background so the window remains responsive.
+*Read* also works for an already running project and waits for its available document before native preparation. *External Reader* is the explicit web action; the existing phone/tablet web URL remains available. Service start/stop/restart controls manage the service separately from Read. Switching projects or stopping cancels the current pending Read. Service and settings operations run in the background so the window remains responsive.
 
 Font paths are relative to the project root and separated by semicolons. For example, `fonts;../shared-fonts` selects two folders. The local package folder is optional; use it when your document depends on local packages. Saving changed settings restarts a running preview.
 
@@ -92,15 +100,15 @@ edit, and an older result cannot dismiss a newer selection.
 
 = Select and copy text
 
-Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device's Copy action for ordinary copying. The web toolbar near the bottom of the screen offers Copy, Highlight, Save for Codex, and Red strike.
+Select text to copy a passage or use the reading actions. On a touch device, long-press text and adjust the native selection handles; use the device's Copy action for ordinary copying. In the paged web preview, the toolbar near the bottom offers Copy, Highlight, Save for Codex, and Red strike. HTML and terminal readers instead use Ask to open a composer; only explicit Send starts inference. Native Reader selection, source copying, and conversation actions follow the dedicated native component flow described in #doc-ref(<native-reading-controls-and-source-component>, "native-reading-controls-and-source-component")[Native reading controls and source component] below.
 
-If a selection starts or ends inside a formula, it expands to the complete expression after the selection settles. Formula numbering, attached labels and nearby prose stay outside that expression. *Copy* (복사) writes complete formulas as Typst source including `$...$`, keeps surrounding prose as displayed, and separates copied blocks with one newline. If a formula has no verified source, Copy uses the displayed text and reports that the Typst source could not be confirmed.
+If a selection starts or ends inside a formula, it expands to the complete expression after the selection settles. Formula numbering, attached labels and nearby prose stay outside that expression. *Copy* (복사) writes complete formulas as Typst source including `$...$`, keeps surrounding prose as displayed, and separates copied blocks with one newline. If a formula has no verified source, Copy uses the displayed text and reports that the Typst source could not be confirmed. (In the native Reader, ordinary body or Original PDF copy copies displayed text, while verified Typst source copying is a separate permission and pathway.)
 
 #image("images/mobile-selection.png", width: 65mm, alt: "Reading demo with a selected sentence and the Highlight, Save for Codex, and Red strike actions")
 
 *Result:* The selection stays on the rendered revision while you use it. Preview updates wait during an active text selection on desktop and touch devices; dismiss the selection to apply pending edits. On a touch device, wait for the formula selection handles to settle before copying so the whole expression is included.
 
-Dragging or long-pressing does not save a Codex source location. Use *Save for Codex* to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
+In the paged web preview, dragging or long-pressing does not save a Codex source location. Use *Save for Codex* to save the exact selected text, or dismiss the selection and briefly tap a passage to save a source location. Scrolling alone does not update the saved context.
 
 = Highlight in source
 
@@ -112,11 +120,11 @@ Use a highlight when you want a passage marked in the Typst document itself, inc
 
 *Result:* This edits the original `.typ` source. The normal source watcher recompiles it, and the highlight appears in exports. To remove a source highlight, edit the source in your editor; the browser's mark-undo action applies to red strikes.
 
-*Conditions:* Flow must map the full selection to a supported source range, and the candidate document must compile before it is saved. Plain literal text can use the built-in `highlight` function. Complete equations require the source module's callable `highlighted` helper; see *Document setup* below. Whole inline references can be included with supported text or equation selections. Partial equations or references, reused content, other code or markup, selections spanning source files, and changed source snapshots cannot be edited automatically. If the action is rejected, the selection stays available so you can use Save for Codex instead.
+*Conditions:* Flow must map the full selection to a supported source range, and the candidate document must compile before it is saved. Plain literal text can use the built-in `highlight` function. Complete equations require the source module's callable `highlighted` helper; see *Document setup* below. Whole inline references can be included with supported text or equation selections. Partial equations or references, reused content, other code or markup, selections spanning source files, and changed source snapshots cannot be edited automatically. If the action is rejected, the selection stays available so you can use Save for Codex in the paged web preview instead; in HTML or terminal, use Ask and then explicitly Send only when ready.
 
-= Save text for Codex
+= Save text for Codex (paged web preview)
 
-Use this to preserve a passage and its location before asking Codex to explain, review, or edit it.
+Use this paged-preview action to preserve a passage and its location before asking Codex to explain, review, or edit it.
 
 + Select the text you want to discuss.
 + Choose *Save for Codex* (Codex 저장) and wait for confirmation that the selected text was saved.
@@ -201,7 +209,7 @@ The small status ring shows activity while the browser prepares the renderer, co
 - *Long wait or compilation error:* open Logs in Flow and check the document in your editor. A responding HTTP server does not prove successful compilation.
 - *Mobile URL does not connect:* confirm that the Mac is awake, the preview is started, the device has tailnet access, and the route points to the current local port. Check the HTTPS address saved in Flow.
 - *Theme colors do not change:* confirm the document's theme input contract below.
-- *Highlight is rejected or a saved selection is stale:* wait for rendering and select again. Unsupported source ranges can be saved for Codex instead.
+- *Highlight is rejected or a saved selection is stale:* wait for rendering and select again. In a paged web preview, unsupported source ranges can be saved with Save for Codex instead. In HTML/terminal, Ask opens the composer and only explicit Send submits it.
 - *macOS requests document access:* complete the native consent prompt on the Mac. Preview activity itself is not proof that a permission prompt is open.
 
 = Document setup
@@ -259,31 +267,54 @@ The Git fallback considers staged, unstaged, and nonignored new source files use
 
 Flow manages engine execution, project profiles and preview lifecycle. Tail Hosting owns Tailscale HTTPS routes and remote access policy. Changing a local port requires updating its Tail Hosting route. Original Typst source files stay in their project folders.
 
-= First installation
+= First installation <first-installation>
 
-On a fresh Mac, use macOS 13 or newer with Git, the Swift compiler, Python 3, Node.js, Yarn, and the workspace Rust toolchain from `rust-toolchain.toml`. Build the maintained preview frontend and engine before installing:
-
-```sh
-git clone https://github.com/kimpossible-TY/Lagrangian.git
-cd Lagrangian
-yarn install --immutable
-node scripts/build.mjs build:preview
-python3 scripts/flow-app.py build --build-engine --jobs 2
-python3 scripts/flow-app.py install dist/Lagrangian.app
-```
-
-Open the installed app and follow *Open your first preview*. If macOS requests access to the document's folder, complete that prompt on the Mac.
-
-If you already have a compatible `flow-engine` from a Flow bundle, package it without rebuilding Rust or the frontend:
+On macOS 13 or newer, native app packaging uses Git, the Swift compiler,
+Python 3 and a verified prebuilt engine. Fetch a single successful run while
+checked out at its exact head H. Engine build source E can be older on a cache
+hit; current app, reader and delivery must all bind H.
 
 ```sh
-python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine
-python3 scripts/flow-app.py install dist/Lagrangian.app
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+FLOW_SIGN_IDENTITY=<existing-certificate-sha1> python3 scripts/flow-app.py build --engine "$engine"
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
 
-External engine selection uses `--engine`, then `FLOW_ENGINE_PATH`, then the engine in the current `Lagrangian.app` or former `tinymist-flow.app` installation. A fresh machine without such an engine needs the native build above. The build checks required preview CLI support and copies the engine into the new app. AppKit and Foundation are the app runtime dependencies; packaging uses the Swift compiler and Python 3. The installed engine stays independent of build output.
+The existing build call automatically consumes the engine-local same-run
+context, reauthenticates the exact R/H archive and reader, verifies current source
+and payload, and compiles fresh Swift/resources. An older cached app is never
+relabelled as current. Missing payload or identity, tamper and stale/mixed bindings
+fail before installation and preserve a valid previous stage. This source change
+does not replace the installed updater or prove actual deployment.
 
-The native engine build uses the `flow-release` profile with ThinLTO. Its target, profile, Rust flags and any LTO override are recorded in `engineBuild` alongside the engine version and hashes. Use a native ARM Python environment on Apple Silicon. The build copies its result into the staged app and preserves an existing output bundle if packaging fails.
+The artifact name stays `flow-engine-darwin-arm64`; its transport is a bounded,
+source/checksum/run-bound tar plus JSON envelope, preserving executable modes,
+internal relative links and hidden signed payload. A damaged or missing archive
+is rejected without flat, installed-app or scratch fallback. Raw archive digest
+and the fetched external engine's authenticated chmod are separate bindings.
+The same-run cache is reauthenticated before build. Old engine source E may be
+reused; current app and tar are produced anew for H on both cache paths.
+
+For a standalone or installed engine, select its path explicitly and supply a
+current verified delivery matching the clean checkout and engine input:
+
+```sh
+python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine \
+  --delivery /absolute/path/to/current-verified-delivery --identity <existing-certificate-sha1>
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
+```
+
+See #link("dev/native-reader-delivery.typ")[portable input preparation and signing].
+An installed engine binary alone supplies neither the same-run context nor the
+current portable payload; a bare `build` does not supply those missing inputs.
+An explicit ad-hoc `--identity -` is available for isolated checks; it does not
+establish certificate continuity. `--management-only` is a nonshipping fixture
+whose app fails require-delivery verification. There is no implicit dependency
+acquisition, installed-app payload fallback or ad-hoc identity fallback.
+Native engine compilation remains a separate pipeline operation under the
+#link("dev/development.typ")[remote Rust build policy]. Packaging does not compile Rust.
 
 Managed previews compile the light and dark variants when viewers connect to them. Source updates are retained while a variant has no viewers; reconnecting requests its current document. Multiple viewers of the same palette share one compilation. The host classifies interactive CPU work and cache maintenance separately for macOS scheduling.
 
@@ -291,14 +322,22 @@ The app keeps the upstream engine protocol and VS Code configuration names. For 
 
 = Signing and macOS consent
 
-The app bundle ID is `io.github.kimpossible-ty.lagrangian`. Configure a persistent code-signing identity or set `FLOW_SIGN_IDENTITY`. Without either, the build is signed ad hoc. Because macOS treats the renamed app as a new identity, it may request Documents access again; approve that request in macOS when prompted. The app name and icon identify the request, but do not replace OS consent. Administrator authentication must be completed by the user when macOS requires it.
+The app bundle ID is `io.github.kimpossible-ty.lagrangian`. Builds choose `--identity`, then `FLOW_SIGN_IDENTITY`, then a saved signing identity. Without a selected identity, or when the selected certificate is unavailable, native delivery fails closed instead of signing ad hoc. Isolated checks can explicitly select `--identity -`; this does not establish certificate continuity. Because macOS treats the renamed app as a new identity, it may request Documents access again; approve that request in macOS when prompted. The app name and icon identify the request, but do not replace OS consent. Administrator authentication must be completed by the user when macOS requires it.
 
 For repeated personal builds, create one code-signing certificate using Keychain Access's Certificate Assistant or use an existing Apple signing identity. Retain the certificate and its private key in Keychain, then save its identity once:
 
 ```sh
 python3 scripts/flow-app.py configure-signing --identity "Lagrangian Local Signing"
-python3 scripts/flow-app.py build --version 0.1.9
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+python3 scripts/flow-app.py build --engine "$engine" --version 0.1.9
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
+
+This versioned build uses the saved identity and verified same-run context from
+a clean checkout at H, as in First installation. A standalone engine instead
+requires the explicit current verified `--delivery` shown there.
 
 The first signing probe may ask for Keychain access. Complete authentication locally and select Always Allow for `/usr/bin/codesign` to reuse this key. Configuration is saved only after the probe succeeds; cancelling leaves the previous configuration intact.
 
@@ -313,11 +352,15 @@ When moving from `tinymist-flow.app`, install `Lagrangian.app` alongside it. The
 The former bundle remains available at `~/Applications/tinymist-flow.app` until you remove it yourself. After the first Lagrangian installation, subsequent updates use the recovery-aware replacement flow below:
 
 ```sh
-python3 scripts/flow-app.py build
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+python3 scripts/flow-app.py build --engine "$engine" --identity <existing-certificate-sha1>
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 python3 scripts/flow-app.py install dist/Lagrangian.app
 ```
 
-This reuses the installed engine and its preview features. For engine or preview changes, rebuild the frontend with `node scripts/build.mjs build:preview` and pass `--build-engine --jobs 2` to the build. For a confirmed release, use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit with an explicit `--version`.
+Use one run R whose head H matches the clean checkout. Build reauthenticates that run's engine-local context, portable payload and reader before compiling current Swift/resources. A standalone or installed engine instead needs an explicit `--engine` path and matching current verified `--delivery`, as shown in First installation. Engine and preview changes follow the separate #link("dev/development.typ")[remote Rust build policy]; packaging then uses a compatible verified prebuilt engine and current delivery. For a confirmed release, use a short feature branch, run the relevant tests, merge into `main`, and build from a clean commit with an explicit `--version`.
 
 The installer checks the bundle signature, engine hash and version before replacing anything, waits for managed profiles to stop, backs up the prior Lagrangian app, restarts those profiles, and checks HTTP startup. If startup fails, it restores the previous Lagrangian bundle. Verify document rendering after installation; HTTP alone does not establish document health.
 
@@ -352,8 +395,183 @@ python3 scripts/flow-app.py restore-tail-hosting
 
 The restore command reinstates the old registry, launcher, preview and reader LaunchAgents, reader configuration, and `tinymist-flow.app` background manager from the migration backup. Unrelated hosted services are preserved. The adapter does not create or change Tailscale Serve routes.
 
+= Identifying installed versions and guides <identifying-installed-versions-and-guides>
+
+Use the information inside the exact app bundle you intend to run. A source checkout identifies its Git revision. A packaged app also has a bundle and executable identity.
+
+1. In Finder, select the app bundle and choose *Show Package Contents*. Read `Contents/Resources/release.json`.
+2. `version` identifies the app release. `sourceRevision` identifies the build checkout commit and `sourceDirty` records whether it included local changes. `engineVersion`, `engineSHA256` and `engineInputSHA256` identify the engine independently. `managementOnly` identifies management-only delivery. Builds with a verified native payload can also record `nativeDeliveryCapabilities`. Older manifests may omit those fields.
+3. In normal mode, choose *사용·업데이트·복구 안내* in Flow's menu to open that app's `Contents/Resources/UserGuide.pdf`. The local fixture disables this external-opening action; read `Contents/Resources/UserGuide.pdf` from the same supplied app bundle instead. Use the guide shipped with the app you are checking.
+4. For a packaged development candidate, compare the bundle and executable hashes with its supplied inspection record and use its designated isolated profile. A source-only candidate has no packaged executable to inspect. Build metadata identifies the inputs and capabilities. Feature acceptance requires the separate results for that build.
+
+
 = Maintaining the Flow app
 
 Use this repository for the app, engine, preview frontend, branding, packaging, tests, and documentation. Keep app work in `apps/macos`, branding in `assets/branding`, and behavior contracts in OpenSpec. Package a compatible external engine or build the maintained engine sources. Both paths supply mobile selection, assistant focus, device themes, change restoration, selected text actions, and preview activity status. Small local fixes can stay lightweight. Preserve upstream copyright, Apache License 2.0, and applicable third-party notices.
 
 Test a replacement engine for compatibility before bundling it, and keep its version and hash alongside the Lagrangian source revision. App work does not require rebuilding or maintaining the language server. The private production repository is `kimpossible-TY/Lagrangian`. Engine and preview implementations are maintained in this tree; Tinymist crate, CLI and protocol identifiers remain unchanged.
+
+= Isolated native Reader inspection <managed-native-inspection>
+
+Managed-service native app inspection uses a Lagrangian-owned temporary project
+and a local fake inference provider. This procedure has an explicit service owner;
+see #doc-ref(<local-native-fixture-inspection>, "isolated-native-fixture-inspection")[local fixture inspection] for the service-free path. The production document, source and conversation
+APIs retain their existing guards. An explicit dev root isolates data, logs,
+home and service paths; dev-only no-activate avoids forced foreground activation.
+Reader body Copy and verified Source copy use a private named pasteboard in this
+isolated composition, while ordinary app use retains the system clipboard.
+
+See #link("dev/native-reader-app-verification.typ")[the isolated inspection procedure]
+for setup, bounded foreground serve, exact app arguments, clipboard inspection
+and owned cleanup. Preparing that fixture does not launch the app, install or
+restart a service, verify original PDF delivery, or establish GUI/VoiceOver and
+complete native application acceptance. Use only the approved final staged app
+for the later independent inspection.
+
+The historical 09c staged candidate integrated core, page and published inputs.
+Its partial GUI results belong to that build. For a new packaged inspection,
+match the candidate's build metadata and isolated profile as described in
+#doc-ref(<identifying-installed-versions-and-guides>, "identifying-installed-versions-and-guides")[Identifying installed versions and guides].
+For the historical frozen NA13 inspection use
+`tests/flow-app/native-reader-app/test_page_delivery_bundle.py gui-fixture` and
+`test-output/delivery-production/NA13/final-app-v1/inspection-commands.json`.
+Its `gui-inspection-001` is setup-only/running=false; follow the recorded
+serve/status/appCommand/stop commands without rerunning setup there. A new
+inspection requires a new root and exact pinned compiler/package inputs.
+NA14 source requires its own final integration, GUI/AX and review evidence;
+prior GUI evidence cannot be relabelled for its new executable bytes.
+
+
+= Historical source component: home feedback
+
+The v5 source component separates *Service start* (서비스 시작), *Service stop*
+(서비스 중지) and *Service restart* (서비스 재시작) from *Start reading* (읽기 시작).
+While settings load, home explains waiting and the next step after completion;
+if that state persists, close and reopen the app safely. Empty, error and document
+preparation states show the corresponding next step instead of directing a
+currently disabled Read action. This changes feedback, not service permissions,
+readiness checks, saved settings, automatic initialization or Read behavior.
+
+The v5 source observation was made before that component had a separately bound
+build. Its feedback changes do not establish the cause of the original GUI
+loading issue. Match a packaged app to its own guide and results.
+
+
+== Native reading controls and source component <native-reading-controls-and-source-component>
+
+Use this section for a build with the cream native Reader controls. The earlier
+v7 source component introduced the reading tools disclosure. The cream candidate
+adds a selection capsule and a local question composer. The frozen v4/d7 app
+has its own guide and evidence.
+
+*본문* switches to the native body and *원본 PDF* opens the original pages.
+*목차* navigates the body, and *PDF에서 검색* searches the original pages.
+*읽기 도구* (Command–Option–T) opens source, display, offline and account tools.
+Closing the drawer returns focus to its button when a child control had focus.
+
+“현재” shows the accepted visible mode. “전환 요청” shows the requested mode.
+If an active body or PDF selection holds the view, choose *선택 해제*, then choose
+the new mode again. Selecting a PDF search result creates a display selection.
+Typing a search query alone does not hold the view. *새로고침* is disabled for a
+restored offline copy. When restoration is in progress or fails, the recovery
+status takes precedence and the existing recovery controls handle retry or cancel.
+
+=== Select, copy, and ask
+
+1. Select text in *본문*. The active selection holds background replacement.
+   Use *선택 작업* to open or refocus the capsule. The Reader can place it beside the
+   selection or dock it on a separate row when the text fills that area.
+   *닫기* or Escape closes the capsule and leaves the selection in place.
+2. Choose *질문하기* in the capsule or under *원문·대화* in *읽기 도구*. For a live
+   selection of at most 32 blocks, this opens the local question composer.
+   Opening or editing a new question there does not fetch its account, models
+   or conversation, save a server draft or start inference. Selection-related
+   eligibility checks may run independently.
+3. Enter the question and click *Send* when ready to submit. For a new composer,
+   the first *Send* checks the current selection, account, permissions and
+   available models before opening the conversation. If no model was selected,
+   it may use the first available model and continue the same explicit *Send*.
+   If you change the question or model during preparation, review the current
+   draft and click *Send* again. A stale selection or unavailable permission
+   prevents submission. *Save for Codex* belongs to the paged web preview.
+
+Within the same living Reader context and exact selected range, Ask can reopen
+an already created conversation and restore its latest local draft and selected
+model, including an unconfirmed Send's original UUID, question and model.
+Switching between known passages keeps their drafts separate within the bounded
+presentation cache. Known ranges in the same paragraph reuse that conversation's
+latest accepted snapshot, draft and pending identity. A new selection ticket is checked again by the existing
+owner when you explicitly Send. This does not promise immediate recovery of a
+first draft before its conversation exists, or recovery across an app restart.
+Recovery never sends. A newer edit stays visible when history confirms an older
+message.
+Changing or clearing the selection blocks a new Send; Stop and Refresh conversation
+retain the existing conversation/context authorization. Stop response is available
+only when the accepted conversation is streaming; local account/open preparation alone provides no Stop target.
+While a Stop is in flight, its button and repeated callbacks cannot start another
+Stop or discard the first completion.
+For an unconfirmed Send, first choose *Refresh conversation* successfully.
+If the valid same-conversation history confirms the original user message, you
+may explicitly Send a new question. If it does not confirm that message, retry
+only the original question and model; the app reuses its original message UUID.
+A failed Refresh keeps the uncertainty and pending message in place. Reopening
+the composer or editing its draft is not a retry. If Refresh did not confirm the
+pending message and you close and reopen the composer, refresh that conversation
+again before retrying. Refresh is available for an open conversation when no other
+conversation action is running; it retains conversation/context authorization
+when the selection changes.
+
+*복사* copies display text in both *본문* and *원본 PDF*, including a full display
+selection longer than the limit for source and chat actions. To copy verified
+Typst source, use *원문 보기* on a live eligible body selection. The app checks the
+current document and source before copying. *원문 강조* also requires source write
+permission. *편집기 위치로* requires a current, explicitly connected editor.
+
+In *원본 PDF* or a restored or offline read-only copy, you can read and copy
+display text. Live source, editor and question actions are unavailable there.
+Pending retirement of an editor connection on an otherwise live body does
+not block ordinary reading or Ask. A new editor action still needs its own
+current authorization.
+
+= Isolated native fixture inspection <local-native-fixture-inspection>
+
+Local fixture inspection uses only local document data and bundled math, without
+a manager, account or inference provider. It is distinct from
+#doc-ref(<managed-native-inspection>, "isolated-native-reader-inspection")[managed-service inspection].
+For an explicitly prepared development app, the existing arguments
+`--dev-root ABS --dev-no-activate --native-reader-fixture ABS` select a local
+fixture and bundled mathematical runtime. The fixture must have fixture scope.
+This path does not create a Reader manager or connect an editor, even through a
+direct editor method. External Reader, browser/Homepage opening, file choosers,
+log/settings reveal and external guide opening are disabled and reject their
+callbacks. This includes Export PDF from an offline Original PDF snapshot: the
+control and forced callbacks refuse destination selection and external writes.
+Local PDF viewing and private Copy remain available. Home address, body and PDF
+Copy use the private named pasteboard. Standard Cut/Copy/Paste in settings,
+search and multiline input are refused at their responder in fixture mode.
+Normal nonfixture editing and verified PDF export keep their existing owners.
+The fixture's guide-opening menu is disabled; its guide is the same app bundle's
+`Contents/Resources/UserGuide.pdf`.
+
+Settings, recovery drafts, logs and startup timeline use the development root.
+Fixture settings refuse a symlink or nonregular profiles file. Optional startup
+diagnostics queue value-only file operations; initialization and shutdown do not
+wait for slow or failed diagnostic I/O. This source repair does not establish
+that the first native window opens successfully; that remains a same-computer
+background-launch check for the new app and fresh fixture.
+Necessary verification children receive a dedicated HOME, CFFIXED_USER_HOME,
+TMPDIR, XDG_CACHE_HOME and FLOW_READER_DATA_DIR before starting. Math retains its
+existing PATH-only environment with file writes and network access denied.
+Fixture CLI access is limited to version, profiles, config validation and
+nonexecuting launch-plan/agent-plist introspection; it cannot serve or control a
+service. No global environment or OS appearance setting is changed.
+
+The offscreen checks use a virtual ordinary home and injected external operations;
+they do not certify a GUI launch or complete AppKit/LaunchServices-managed file
+isolation. Platform caches, actual native input, VoiceOver and macOS 13 execution
+remain separate acceptance gates. Use the exact source/app and fixture binding
+from the current integration handoff; an old fixture/app is not current evidence.
+
+The fixture keeps the existing local offline recovery library under its dev-profile
+root, including saved drafts. Offscreen construction respects the existing
+showNativeWindow input; it does not grant manager, editor or external effects.

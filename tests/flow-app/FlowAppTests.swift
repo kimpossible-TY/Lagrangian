@@ -103,6 +103,20 @@ struct FlowAppTests {
     waitUntil("initial stopped status") { delegate.snapshot?.phase == .stopped }
 
     switch CommandLine.arguments[1] {
+    case "timeline-owner":
+      let timeline = NativeStartupTimeline(root: root)
+      var owner: NSObject? = NSObject()
+      timeline.owner = owner
+      owner = nil
+      check(timeline.owner == nil, "timeline retained its weak owner")
+      timeline.record("released-owner")
+    case "duplicate-names":
+      delegate.settings.profiles[1].name = profile.name
+      delegate.populate()
+      check(delegate.picker.numberOfItems == 2, "duplicate labels dropped a valid profile")
+      delegate.picker.selectItem(at: 1)
+      check(NSApp.sendAction(delegate.picker.action!, to: delegate.picker.target, from: delegate.picker), "profile target/action")
+      waitUntil("same-name profile selected by exact index") { !delegate.mutating && delegate.active?.id == other.id }
     case "read":
       delegate.controls[#selector(FlowApp.openPreview)]!.performClick(nil)
       waitUntil("read requested a document") { probes.count == 1 }
@@ -170,7 +184,7 @@ struct FlowAppTests {
       var powerEvents: [Bool] = []
       let monitor = NativeReadingEnvironment(
         onSleep: { sleepEvents.append($0) },
-        onNetwork: {}, onPower: { powerEvents.append($0) })
+        onNetwork: { _ in }, onPower: { powerEvents.append($0) })
       monitor.start()
       NSWorkspace.shared.notificationCenter.post(
         name: NSWorkspace.willSleepNotification, object: nil)

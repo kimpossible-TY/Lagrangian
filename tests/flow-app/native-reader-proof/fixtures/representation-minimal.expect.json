@@ -1,0 +1,52 @@
+{
+  "oracleOrigin": "Manually authored by NR10 executor from controlled source and PM supplied Unicode constants; never generated from importer or CoreText output.",
+  "reviewStatus": "P0-fix oracle extension manually authored from supplied math constants; independent re-review pending. Prior CodeTester 145 comparisons complete applies only to original oracle hash 22d5f519084c7ee600ed7aa649a6984228df288caf60af5ff68716d5f213ebed.",
+  "sourceCRLFCount": 37,
+  "sourceTabCount": 1,
+  "sourceCorrespondence": "unavailable: Typst evaluation and normalization are not an invertible source map; repeated paragraph is ambiguous",
+  "canonicalPolicy": "Compiler-normalized text; preserve scalar spelling, no NFC/NFD conversion; Typst source tab and CRLF prose whitespace become one display space. Separate blocks copy with LF.",
+  "roles": ["heading", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "heading", "paragraph", "paragraph", "table", "figure"],
+  "texts": [
+    "Start",
+    "First emphasis and jump.",
+    "한글",
+    "한글",
+    "é",
+    "😀",
+    "👩‍👩‍👧‍👦",
+    "office ffi",
+    "abc אבג 123",
+    "Tab end.",
+    "CRLF left right.",
+    "Repeated paragraph carries enough ordinary words to wrap at narrow widths and preserve logical reading order across every font size in the matrix. Selection must retain these words exactly after reflow.",
+    "Finish",
+    "Repeated paragraph carries enough ordinary words to wrap at narrow widths and preserve logical reading order across every font size in the matrix. Selection must retain these words exactly after reflow.",
+    "Inline [math] done.",
+    "[table]",
+    "[figure]"
+  ],
+  "anchors": {"start": 0, "finish": 12},
+  "link": {"block": 1, "target": "#finish", "text": "jump"},
+  "emphasis": {"block": 1, "text": "emphasis", "rangeUTF16": [6,14]},
+  "crossBlockCopy": {"startBlock": 0, "startUTF16": 2, "endBlock": 2, "endUTF16": 1, "text": "art\nFirst emphasis and jump.\n한", "direction": "forward", "reverseText": "art\nFirst emphasis and jump.\n한"},
+  "unsupported": ["math", "table", "figure"],
+  "math": {"block":14, "objectIndex":0, "idSuffix":":14:object:0", "inlineRangeUTF16":[7,13], "fixtureSource":"$x + 1$", "normalizedText":"𝑥+1", "scalars":[119909,43,49], "origin":"PM/independent CodeTester supplied U+1D465 U+002B U+0031; manually fixed here, not derived from exporter; placeholder content preservation only, not native math fidelity"},
+  "tableCells": ["Name", "Value", "A", "B"],
+  "figureCaption": "Controlled figure.",
+  "unicode": [
+    {"text":"한글", "scalars":[54620,44544], "cpToUTF16":[0,1,2], "cpToUTF8":[0,3,6], "graphemeCP":[0,1,2], "graphemeUTF16":[0,1,2], "graphemeUTF8":[0,3,6]},
+    {"text":"한글", "scalars":[4370,4449,4523,4352,4467,4527], "cpToUTF16":[0,1,2,3,4,5,6], "cpToUTF8":[0,3,6,9,12,15,18], "graphemeCP":[0,3,6], "graphemeUTF16":[0,3,6], "graphemeUTF8":[0,9,18]},
+    {"text":"é", "scalars":[101,769], "cpToUTF16":[0,1,2], "cpToUTF8":[0,1,3], "graphemeCP":[0,2], "graphemeUTF16":[0,2], "graphemeUTF8":[0,3]},
+    {"text":"😀", "scalars":[128512], "cpToUTF16":[0,2], "cpToUTF8":[0,4], "graphemeCP":[0,1], "graphemeUTF16":[0,2], "graphemeUTF8":[0,4]},
+    {"text":"👩‍👩‍👧‍👦", "scalars":[128105,8205,128105,8205,128103,8205,128102], "cpToUTF16":[0,2,3,5,6,8,9,11], "cpToUTF8":[0,4,7,11,14,18,21,25], "graphemeCP":[0,7], "graphemeUTF16":[0,11], "graphemeUTF8":[0,25]},
+    {"text":"office ffi", "scalars":[111,102,102,105,99,101,32,102,102,105], "cpToUTF16":[0,1,2,3,4,5,6,7,8,9,10], "cpToUTF8":[0,1,2,3,4,5,6,7,8,9,10], "graphemeCP":[0,1,2,3,4,5,6,7,8,9,10], "graphemeUTF16":[0,1,2,3,4,5,6,7,8,9,10], "graphemeUTF8":[0,1,2,3,4,5,6,7,8,9,10]},
+    {"text":"abc אבג 123", "scalars":[97,98,99,32,1488,1489,1490,32,49,50,51], "cpToUTF16":[0,1,2,3,4,5,6,7,8,9,10,11], "cpToUTF8":[0,1,2,3,4,6,8,10,11,12,13,14], "graphemeCP":[0,1,2,3,4,5,6,7,8,9,10,11], "graphemeUTF16":[0,1,2,3,4,5,6,7,8,9,10,11], "graphemeUTF8":[0,1,2,3,4,6,8,10,11,12,13,14]}
+  ],
+  "whitespace": [
+    {"source":"Tab\tend.", "display":"Tab end.", "scalars":[84,97,98,9,101,110,100,46], "cpToUTF16":[0,1,2,3,4,5,6,7,8], "cpToUTF8":[0,1,2,3,4,5,6,7,8], "graphemeCP":[0,1,2,3,4,5,6,7,8], "graphemeUTF16":[0,1,2,3,4,5,6,7,8], "graphemeUTF8":[0,1,2,3,4,5,6,7,8], "loss":"tab becomes space during Typst evaluation; no exact global source map"},
+    {"source":"CRLF left\r\nright.", "display":"CRLF left right.", "scalars":[67,82,76,70,32,108,101,102,116,13,10,114,105,103,104,116,46], "cpToUTF16":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17], "cpToUTF8":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17], "graphemeCP":[0,1,2,3,4,5,6,7,8,9,11,12,13,14,15,16,17], "graphemeUTF16":[0,1,2,3,4,5,6,7,8,9,11,12,13,14,15,16,17], "graphemeUTF8":[0,1,2,3,4,5,6,7,8,9,11,12,13,14,15,16,17], "loss":"two source bytes/scalars CRLF become one display space; source/display offsets are distinct"}
+  ],
+  "caretEquivalence": "For a line and x, accept only legal (UTF16 endpoint, primary/secondary affinity) pairs whose CTLine caret has exactly the same x within 0.01pt (numerical tolerance). Affinity is the primary/secondary branch; a hit yields an equivalence class, not source correspondence. Every scalar/grapheme interior is excluded even when a ligature spans it; no nearest arbitrary endpoint relaxation.",
+  "advancePolicy": "CoreText wrapping may include trailing whitespace past the column width. Non-trailing advance must fit width; retain and report full advance separately from ink and column bounds. Legal hit bounds use the actual full line advance, not the ink box.",
+  "coordinateSystem": "CoreText logical points, document-local first-line baseline origin (0,0), x right, y up; line baselines descend by fontSize*1.6. No backing pixel claims."
+}

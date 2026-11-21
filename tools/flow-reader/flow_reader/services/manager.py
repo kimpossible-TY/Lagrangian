@@ -2,8 +2,11 @@
 """Run Reader services from existing Flow project profiles, independently of PDF."""
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 import fcntl
 import json
+import hashlib
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -11,12 +14,14 @@ import re
 import subprocess
 import sys
 import time
+import stat
+import unicodedata
 from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from flow_reader.resources import READER_ROOT as HERE
 from flow_reader.compiler.project import document_identity
-from flow_reader.services.editor_sync import EditorAttachments
+from flow_reader.services.editor_sync import EditorAttachments, NativeEditorOperation
 DEFAULT_DATA = Path.home() / "Library/Application Support/Lagrangian/reader"
 LABEL_PREFIX = "io.github.kimpossible-ty.lagrangian.reader."
 LEGACY_LABEL_PREFIX = "io.github.kimpossible-ty.tinymist-flow.reader."
@@ -48,11 +53,23 @@ def atomic_write(path, content, mode=0o600):
         temporary.unlink(missing_ok=True)
 
 
+@dataclass(frozen=True)
+class ReaderExecutables:
+    """Concrete local operations supplied by a verified host, never config or HTTP."""
+    python: str
+    compiler: str
+    flow_manager: str
+    engine: str
+    manager: str
+
+
 class ReaderManager:
-    def __init__(self, data=None, agents=None):
+    def __init__(self, data=None, agents=None, *, executables=None):
         self.data = Path(data or os.environ.get("FLOW_READER_DATA_DIR", DEFAULT_DATA)).resolve()
         self.agents = Path(agents or Path.home() / "Library/LaunchAgents")
-        self.launcher = self.data / "bin/flow-reader"
+        self.executables = executables
+        self.installed_launcher = self.data / "bin/flow-reader"
+        self.launcher = Path(executables.manager) if executables is not None else self.installed_launcher
 
     @contextmanager
     def locked(self, *, timeout=0):
@@ -73,6 +90,20 @@ class ReaderManager:
         config = json.loads((self.data / "config.json").read_text())
         if config.get("schemaVersion") != 1 or not isinstance(config.get("services"), list):
             raise ValueError("Unsupported reader configuration")
+        if self.executables is not None:
+            # Keep schema/path declarations valid without consulting unused external
+            # executables. Only these concrete operations can be substituted.
+            for key in ("flowManager", "python", "compiler"):
+                if not isinstance(config.get(key), str) or not Path(config[key]).is_absolute():
+                    raise ValueError(f"Missing executable: {key}")
+            if config.get("engine") and (not isinstance(config["engine"], str)
+                                         or not Path(config["engine"]).is_absolute()):
+                raise ValueError("Missing executable: engine")
+            config = {**config, "flowManager": self.executables.flow_manager,
+                      "python": self.executables.python, "compiler": self.executables.compiler,
+                      "engine": self.executables.engine}
+            if not self.launcher.is_absolute() or not os.access(self.launcher, os.X_OK):
+                raise ValueError("Missing executable: reader manager")
         for key in ("flowManager", "python", "compiler"):
             path = Path(config.get(key, ""))
             if not path.is_absolute() or not os.access(path, os.X_OK):
@@ -194,11 +225,16 @@ class ReaderManager:
     def profile(self, identifier):
         return next((profile for profile in self.profiles() if profile["id"] == identifier), None)
 
+    def server_arguments(self, arguments):
+        config = self.config()
+        prefix = ([str(self.launcher), "--backend"] if self.executables is not None
+                  else [config["python"], str(HERE / "serve.py")])
+        return [*prefix, *arguments]
+
     def arguments(self, profile):
         if profile.get("shared"):
             self.document_arguments(profile)
-            config = self.config()
-            return [config["python"], str(HERE / "serve.py"), "--managed", "--data", str(self.data)]
+            return self.server_arguments(["--managed", "--data", str(self.data)])
         return self.document_arguments(profile)
 
     def document_arguments(self, profile):
@@ -210,11 +246,11 @@ class ReaderManager:
             raise ValueError("The Flow entrypoint must exist inside its project root")
         if not Path(profile["packages"]).is_dir():
             raise ValueError("The Flow package directory does not exist")
-        arguments = [config["python"], str(HERE / "serve.py"), "--root", str(root),
+        arguments = self.server_arguments(["--root", str(root),
                      "--entry", profile["entry"], "--package-path", profile["packages"],
                      "--compiler", config["compiler"], "--output", str(self.data / "documents" / profile["id"]),
                      "--focus-file", profile["focusFile"],
-                     "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"]
+                     "--original-url", profile["originalURL"], "--port", str(profile["port"]), "--watch"])
         if config.get("homepageURL"):
             from flow_reader.services.homepage import reader_url
             homepage = reader_url(config["homepageURL"])
@@ -247,19 +283,60 @@ class ReaderManager:
             arguments.append("--semantic-canvases")
         return arguments
 
-    def match_document(self, root, entry, identifier=None):
-        root = Path(root).resolve()
-        entry = (root / entry).resolve()
-        entry.relative_to(root)
-        matches = [profile for profile in self.profiles()
-                   if Path(profile["root"]).resolve() == root
-                   and (Path(profile["root"]) / profile["entry"]).resolve() == entry
-                   and (identifier is None or profile["id"] == identifier)]
+    @staticmethod
+    def _document_paths(root, entry, *, withdrawal=False):
+        """Resolved spelling plus real scope/type, not an inode-only alias grant."""
+        root = Path(root).resolve(strict=not withdrawal)
+        entry = (root / entry).resolve(strict=not withdrawal)
+        canonical = lambda path: Path(unicodedata.normalize("NFC", str(path)))
+        canonical(entry).relative_to(canonical(root))
+        root_info = root.stat() if root.exists() else None
+        entry_info = entry.stat() if entry.exists() else None
+        if ((root_info and not stat.S_ISDIR(root_info.st_mode))
+                or (entry_info and not stat.S_ISREG(entry_info.st_mode))):
+            raise ValueError("Managed document requires a directory and regular entry")
+        if not withdrawal and (root_info is None or entry_info is None):
+            raise ValueError("Managed document is missing")
+        if root_info is not None and entry_info is not None:
+            # Unicode spelling of the absolute entry may differ from root.
+            # Verify the real directory at the canonical prefix boundary too.
+            boundary = Path(*entry.parts[:len(root.parts)]).stat()
+            if (boundary.st_dev, boundary.st_ino) != (root_info.st_dev, root_info.st_ino):
+                raise ValueError("Entry is outside its actual project directory")
+        return root, entry, root_info, entry_info
+
+    def _match_document(self, root, entry, identifier=None, *, withdrawal=False):
+        try:
+            supplied = self._document_paths(root, entry, withdrawal=withdrawal)
+        except (OSError, ValueError, RuntimeError) as error:
+            raise ValueError("No managed HTML Reader matches this project and entry") from error
+        matches = []
+        for profile in self.profiles():
+            if identifier is not None and profile["id"] != identifier:
+                continue
+            try:
+                registered = self._document_paths(profile["root"], profile["entry"], withdrawal=withdrawal)
+            except (OSError, ValueError, RuntimeError):
+                continue
+            if any(unicodedata.normalize("NFC", str(a)) != unicodedata.normalize("NFC", str(b))
+                   for a, b in zip(supplied[:2], registered[:2])):
+                continue
+            # Missing-path spelling may select only a withdrawal, never attach,
+            # descriptor publication or source authority. Existing paths must
+            # still identify exactly the same actual directory and file.
+            if any(a is not None and b is not None and
+                   (a.st_dev, a.st_ino) != (b.st_dev, b.st_ino)
+                   for a, b in zip(supplied[2:], registered[2:])):
+                continue
+            matches.append(profile)
         if not matches:
             raise ValueError("No managed HTML Reader matches this project and entry; configure its HTML profile first")
         if len(matches) != 1:
             raise ValueError("Multiple HTML Readers match this document; select --reader-service ID")
         return matches[0]
+
+    def match_document(self, root, entry, identifier=None):
+        return self._match_document(root, entry, identifier)
 
     @staticmethod
     def request(url, path, payload=None, *, timeout=2):
@@ -268,19 +345,98 @@ class ReaderManager:
         with build_opener(NoReaderRedirect).open(request, timeout=timeout) as response:
             return json.loads(response.read(1024 * 1024))
 
+    @staticmethod
+    def operation_request(root, entry, identifier=None):
+        # Stable lexical caller binding, not a new attach/source authority.
+        # Do NOT consult current symlinks during operation withdrawal.
+        # Prefix relative roots without reducing dot components: link/.. has
+        # filesystem semantics which abspath/normpath would silently change.
+        original_root = os.fspath(root)
+        if not os.path.isabs(original_root): original_root = os.path.join(os.getcwd(), original_root)
+        canonical = lambda p: unicodedata.normalize("NFC", p)
+        return canonical(original_root), canonical(os.path.join(original_root, entry)), identifier
+
+    @staticmethod
+    def native_scope_identity(profile):
+        return hashlib.sha256(json.dumps([profile["id"], document_identity(profile["root"], profile["entry"])],
+                                         separators=(",", ":")).encode()).hexdigest()
+
+    def native_scope(self, root, entry, identifier=None):
+        request = self.operation_request(root, entry, identifier)
+        request_binding = hashlib.sha256(json.dumps(request, separators=(",", ":")).encode()).hexdigest()
+        try: profile = self.match_document(root, entry, identifier)
+        except ValueError: return {"scope": None, "requestBinding": request_binding}
+        return {"scope": self.native_scope_identity(profile), "requestBinding": request_binding}
+
+    def native_operation(self, root, entry, operation, identifier=None):
+        # Binding may survive missing/retargeted aliases. Actual document binding
+        # is captured separately ONLY after normal registered-path validation.
+        return NativeEditorOperation(self.data, operation, *self.operation_request(root, entry, identifier))
+
+    def release_native_operation(self, root, entry, operation, identifier=None, deadline=None):
+        owner = self.native_operation(root, entry, operation, identifier)
+        if deadline is not None and (type(deadline) not in {int, float} or not math.isfinite(deadline)):
+            raise ValueError("Invalid native cleanup deadline")
+        budget = 2 if deadline is None else min(2, deadline - time.time() - .2)
+        if budget <= 0: raise ValueError("Native cleanup deadline expired")
+        with self.locked(timeout=budget):
+            return {"released": owner.cancel()}
+
     def attach(self, root, entry, *, identifier=None, editor_server=None, nvim="nvim",
-               owner_pid=None, control_file=None):
+               owner_pid=None, control_file=None, native_editor_consent=False,
+               native_editor_operation=None, native_editor_deadline=None, native_editor_expected_scope=None):
         """Reuse the normal HTML lifecycle/plan; never start a presentation-owned compiler."""
-        profile = self.match_document(root, entry, identifier)
+        if native_editor_consent:
+            # Only the explicit local native composition opts in. HTTP has no
+            # registration route, executable/address input or default-editor grant.
+            if not editor_server or not Path(nvim).is_absolute() or not control_file:
+                raise ValueError("Explicit native editor configuration is required")
+            EditorAttachments.private(Path(control_file))
+        if native_editor_expected_scope is not None:
+            if (native_editor_operation is None or not isinstance(native_editor_expected_scope, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", native_editor_expected_scope)):
+                raise ValueError("Invalid expected native editor scope")
+        profile = dict(self.match_document(root, entry, identifier))
+        issuance_scope = self.native_scope_identity(profile) if native_editor_operation is not None else None
+        if native_editor_expected_scope is not None and issuance_scope != native_editor_expected_scope:
+            raise ValueError("Managed native editor scope changed before issuance")
+        operation = None
+        if native_editor_operation is not None:
+            if not native_editor_consent:
+                raise ValueError("Native operation requires explicit movement consent")
+            operation = self.native_operation(root, entry, native_editor_operation, identifier)
+            expected_document = document_identity(profile["root"], profile["entry"])
+            with self.locked(timeout=1):
+                actual_root, actual_entry, _, _ = self._document_paths(profile["root"], profile["entry"])
+                if self.native_scope_identity(profile) != issuance_scope:
+                    raise ValueError("Managed native editor scope changed before reservation")
+                operation.reserve(profile["id"], expected_document, native_editor_deadline,
+                    document_root=unicodedata.normalize("NFC", str(actual_root)),
+                    document_entry=unicodedata.normalize("NFC", str(actual_entry)))
+        elif native_editor_deadline is not None:
+            raise ValueError("Native deadline requires an operation")
+        def remaining():
+            if operation is None: return 2
+            return max(.001, min(2, operation.current()["deadline"] - time.time()))
+        def file_identity():
+            _, _, root_info, file_info = self._document_paths(profile["root"], profile["entry"])
+            return (root_info.st_dev, root_info.st_ino, file_info.st_dev, file_info.st_ino,
+                    file_info.st_size, file_info.st_mtime_ns, file_info.st_ctime_ns)
+        original_file = file_identity() if operation else None
+        def current_profile():
+            current = self.match_document(root, entry, identifier)
+            if current != profile or file_identity() != original_file or self.native_scope_identity(current) != issuance_scope:
+                raise ValueError("Managed document/profile changed during native preparation")
+            return current
         if self.job_pid(profile) is None:
             self.control("start", profile)
         url = self.document_url(profile)
         expected_document = document_identity(profile["root"], profile["entry"])
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + (max(0, native_editor_deadline - time.time()) if operation else 15)
         while True:
             pid = self.job_pid(profile)
             try:
-                state = self.request(url, "api/state")
+                state = self.request(url, "api/state", timeout=remaining()) if operation else self.request(url, "api/state")
                 break
             except (OSError, ValueError):
                 if time.monotonic() >= deadline:
@@ -298,15 +454,84 @@ class ReaderManager:
                 raise ValueError("The installed HTML Reader needs an upgrade for shared editor attachments; no separate Reader was started")
             attachments = EditorAttachments(self.data / "documents" / profile["id"], expected_document, service)
             with self.locked(timeout=2):
-                token, path = attachments.register(editor_server, nvim, owner_pid, control_file)
+                if operation:
+                    operation.current(); current_profile()
+                token, path = attachments.register(editor_server, nvim, owner_pid, control_file,
+                                                   jump_only=native_editor_consent, operation=operation)
             try:
-                if self.request(url, "api/editor-attachment", {"token": token}).get("connected") is not True:
+                acknowledgment = (self.request(url, "api/editor-attachment", {"token": token}, timeout=remaining()) if operation
+                                  else self.request(url, "api/editor-attachment", {"token": token}))
+                if acknowledgment.get("connected") is not True:
                     raise ValueError("The HTML Reader rejected the editor attachment")
+                if operation:
+                    latest = self.request(url, "api/state", timeout=remaining())
+                    if latest.get("service") != service or latest.get("documentID") != expected_document:
+                        raise ValueError("Managed service incarnation changed during native preparation")
+                    with self.locked(timeout=min(1, remaining())):
+                        current_profile()
+                        if self.job_pid(profile) != pid:
+                            raise ValueError("Managed service changed during native preparation")
+                        operation.issued()
             except BaseException:
-                path.unlink(missing_ok=True)
+                if operation:
+                    with self.locked(timeout=1): operation.cancel()
+                else: path.unlink(missing_ok=True)
                 raise
             plan.update(editorAttachment=token, attachmentFile=str(path))
+            if native_editor_consent:
+                plan["nativeEditorActions"] = 1
+            if operation:
+                plan["nativeEditorOperation"] = operation.identifier
+                plan["nativeEditorScope"] = issuance_scope
         return plan
+
+    def native_editor_local(self, root, entry, token, *, identifier=None, descriptor=False):
+        # These local-only operations neither probe/start a service nor accept an
+        # arbitrary filesystem path. The token is the exact manager-issued lease.
+        profile = self._match_document(root, entry, identifier, withdrawal=not descriptor)
+        output = self.data / "documents" / profile["id"]
+        with self.locked(timeout=2):
+            if not descriptor and not (Path(profile["root"]) / profile["entry"]).is_file():
+                # Source may have been renamed/deleted since this exact lease
+                # was issued. Read only its bounded private local record, then
+                # delegate retirement to the attachment owner. This documentID
+                # is not an attachment/descriptor/source authorization proof.
+                if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+                    raise ValueError("Invalid native attachment token")
+                directory = output / "editor-attachments"
+                if not directory.exists():
+                    return {"released": False}
+                EditorAttachments.private(directory, directory=True)
+                path = directory / (token + ".json")
+                if not path.exists():
+                    return {"released": False}
+                EditorAttachments.private(path)
+                if path.stat().st_size > 16384:
+                    raise ValueError("Native registration exceeds its bound")
+                document = json.loads(path.read_text()).get("documentID")
+                if not isinstance(document, str) or not re.fullmatch(r"[0-9a-f]{24}", document):
+                    raise ValueError("Invalid retired document identity")
+            else:
+                document = document_identity(profile["root"], profile["entry"])
+            attachments = EditorAttachments(output, document, {})
+            if not descriptor:
+                return {"released": attachments.release_native(token)}
+            # record() needs the original service identity only as data; it still
+            # validates private storage, live owner, executable and control file.
+            value = attachments.descriptor(token)
+            directory = self.data / "native-editor-descriptors"
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            EditorAttachments.private(directory, directory=True)
+            path = directory / (token + ".json")
+            if path.exists():
+                EditorAttachments.private(path)
+                if json.loads(path.read_text()) != value:
+                    raise ValueError("Preserve an existing different editor descriptor")
+            else:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as stream:
+                    json.dump(value, stream)
+            return {"descriptorFile": str(path)}
 
     def agent(self, profile):
         return {"Label": profile["label"], "ProgramArguments": ([str(self.launcher), "--serve-all"] if profile.get("shared")
@@ -333,10 +558,13 @@ class ReaderManager:
         if (not isinstance(arguments, list) or len(arguments) != len(expected)
                 or arguments[1:] != expected[1:] or not isinstance(arguments[0], str)):
             return False
-        if arguments[0] == expected[0]:
+        # Preserve recognition of this same manager's installed launcher during
+        # explicit host substitution; unrelated executables/documents still reject.
+        launchers = [self.launcher, self.installed_launcher] if self.executables is not None else [self.launcher]
+        if arguments[0] in [str(path) for path in launchers]:
             return True
         try:
-            return Path(arguments[0]).resolve() == Path(expected[0]).resolve()
+            return any(Path(arguments[0]).resolve() == path.resolve() for path in launchers)
         except (OSError, RuntimeError):
             return False
 
@@ -391,13 +619,45 @@ class ReaderManager:
                     time.sleep(.3)
 
 
-def main(argv=None):
+def main(argv=None, *, manager=None):
     arguments = sys.argv[1:] if argv is None else argv
-    manager = ReaderManager()
+    manager = manager if manager is not None else ReaderManager()
     if arguments == ["--serve-all"]:
-        config = manager.config()
-        command = [config["python"], str(HERE / "serve.py"), "--managed", "--data", str(manager.data)]
+        command = manager.server_arguments(["--managed", "--data", str(manager.data)])
         os.execv(command[0], command)
+        return
+    if arguments[:1] == ["--native-editor-scope"]:
+        import argparse
+        parser = argparse.ArgumentParser(description="Read exact native document/registered reader scope; no service effects")
+        parser.add_argument("--root", required=True); parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service"); parser.add_argument("--native-editor-deadline", type=float)
+        options = parser.parse_args(arguments[1:])
+        if options.native_editor_deadline is not None and (not math.isfinite(options.native_editor_deadline) or options.native_editor_deadline <= time.time()):
+            raise ValueError("Native scope query deadline expired")
+        print(json.dumps(manager.native_scope(options.root, options.entry, options.reader_service)))
+        return
+    if arguments[:1] == ["--release-native-editor-operation"]:
+        import argparse
+        parser = argparse.ArgumentParser(description="Withdraw exact local native operation")
+        parser.add_argument("--root", required=True)
+        parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service")
+        parser.add_argument("--native-editor-operation", required=True)
+        parser.add_argument("--native-editor-deadline", type=float)
+        options = parser.parse_args(arguments[1:])
+        print(json.dumps(manager.release_native_operation(options.root, options.entry,
+            options.native_editor_operation, options.reader_service, options.native_editor_deadline)))
+        return
+    if arguments[:1] in (["--release-native-editor"], ["--native-editor-descriptor"]):
+        import argparse
+        parser = argparse.ArgumentParser(description="Own local editor registration lifetime")
+        parser.add_argument("--root", required=True)
+        parser.add_argument("--entry", default="main.typ")
+        parser.add_argument("--reader-service")
+        parser.add_argument("--token", required=True)
+        options = parser.parse_args(arguments[1:])
+        print(json.dumps(manager.native_editor_local(options.root, options.entry, options.token,
+            identifier=options.reader_service, descriptor=arguments[0] == "--native-editor-descriptor")))
         return
     if arguments[:1] == ["--attach"]:
         import argparse
@@ -409,10 +669,18 @@ def main(argv=None):
         parser.add_argument("--nvim", default="nvim")
         parser.add_argument("--owner-pid", type=int)
         parser.add_argument("--control-file")
+        parser.add_argument("--native-editor-consent", action="store_true")
+        parser.add_argument("--native-editor-operation")
+        parser.add_argument("--native-editor-expected-scope")
+        parser.add_argument("--native-editor-deadline", type=float)
         options = parser.parse_args(arguments[1:])
         print(json.dumps(manager.attach(options.root, options.entry, identifier=options.reader_service,
                                        editor_server=options.editor_server, nvim=options.nvim,
-                                       owner_pid=options.owner_pid, control_file=options.control_file)))
+                                       owner_pid=options.owner_pid, control_file=options.control_file,
+                                       native_editor_consent=options.native_editor_consent,
+                                       native_editor_operation=options.native_editor_operation,
+                                       native_editor_deadline=options.native_editor_deadline,
+                                       native_editor_expected_scope=options.native_editor_expected_scope)))
         return
     if arguments == ["--profiles"]:
         print(json.dumps({"schemaVersion": 1, "profiles": manager.profiles()}))
@@ -454,10 +722,10 @@ def main(argv=None):
         raise ValueError("Unknown reader command")
 
 
-def cli():
+def cli(argv=None, *, manager=None):
     """Preserve the supported command's concise error and exit-code contract."""
     try:
-        main()
+        main(argv, manager=manager)
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)

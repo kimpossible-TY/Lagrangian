@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "version": "v22.23.5",
+  "platform": "darwin",
+  "arch": "arm64",
+  "archive": {
+    "url": "https://nodejs.org/dist/v22.23.5/node-v22.23.5-darwin-arm64.tar.gz",
+    "sha256": "e7131995759b61a0170b646010d2ad35a5d37b4cb0d471f3e8317eac6f742f3d"
+  },
+  "executableSHA256": "ff9365ccf73e95b7ac69867418124973addde63043650c0db96bd6a722c53cd8",
+  "checksums": {
+    "url": "https://nodejs.org/dist/v22.23.5/SHASUMS256.txt",
+    "sha256": "658770bd465343e4bf441d22e89e7d944244b37041695f3f2a85b53d1a84b53f"
+  },
+  "signature": {
+    "url": "https://nodejs.org/dist/v22.23.5/SHASUMS256.txt.sig",
+    "sha256": "4d73b8d2bfb07f874a8fc426abbb317cf83e8dee8d9e14ad9837aa700b0700c7"
+  },
+  "key": {
+    "url": "https://raw.githubusercontent.com/nodejs/release-keys/HEAD/keys/5BE8A3F6C8A5C01D106C0AD820B1A390B168D356.asc",
+    "sha256": "5115095e2f8010c75da052ecb1cfb3af630e084f0f8daa93a863557b01b0f90a"
+  },
+  "signerFingerprint": "5BE8A3F6C8A5C01D106C0AD820B1A390B168D356",
+  "license": {
+    "url": "https://raw.githubusercontent.com/nodejs/node/v22.23.5/LICENSE",
+    "sha256": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+  },
+  "support": {
+    "line": "22",
+    "end": "2027-04-30",
+    "schedule": {
+      "url": "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json",
+      "sha256": "50fe35a4df02398f741fdffbc666aceca323fcdb7f46d05af93145bf610d0049"
+    },
+    "building": {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.23.5/BUILDING.md",
+      "sha256": "947d7b5e88529d7d7fed6c7872f12c7f38d2acf4b98427c1fbe7f968b2e989b0"
+    }
+  },
+  "maximumMinOS": "13.0",
+  "observedMinOS": "11.0",
+  "macOS13Execution": "unverified"
+}

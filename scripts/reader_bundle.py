@@ -132,7 +132,7 @@ def _file_entry(path, mode, blob):
     return entry
 
 
-def collect_entries(root):
+def collect_entries(root, worktree=False):
     """Read the tracked bundle files from HEAD, not from a dirty worktree."""
     listed = _git(root, ['ls-files', '-s', '-z', '--', *BUNDLE_TREES, VERIFIER_PATH], text=False)
     records = []
@@ -150,6 +150,9 @@ def collect_entries(root):
         raise ValueError('Reader bundle has too many files')
     blobs = _read_blobs(root, [oid for _, oid, _ in records])
     entries = [_file_entry(path, mode, blobs[oid]) for mode, oid, path in records]
+    if worktree:
+        entries = [_file_entry(item['path'], item['mode'],
+            os.fsencode(os.readlink(Path(root) / item['path'])) if item['mode'] == '120000' else (Path(root) / item['path']).read_bytes()) for item in entries]
     entries.sort(key=lambda item: item['path'])
     paths = [entry['path'] for entry in entries]
     if len(paths) != len(set(paths)):
@@ -301,45 +304,156 @@ def _member_mode(member):
     return '100755' if member.mode & 0o111 else '100644'
 
 
-def extract_archive(archive_path, dest, manifest):
-    """Extract ``manifest`` after its tar bytes and members have been checked."""
-    archive_path = Path(archive_path)
-    size = archive_path.stat().st_size
-    if size > MAX_ARCHIVE_BYTES:
-        raise ValueError('Reader bundle archive is larger than 200MB')
-    actual = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-    if actual != manifest['archiveSHA256']:
-        raise ValueError(
-            'archiveSHA256 mismatch: expected ' + manifest['archiveSHA256'] + ', got ' + actual
-        )
-    expected = {item['path']: item for item in manifest['files']}
-    dest = Path(dest)
+def archive_path(name):
+    """Canonical relative member path shared by reader and native transport."""
+    if (not isinstance(name, str) or not name or name.startswith('/') or '\\' in name
+            or any(ord(c) < 32 or ord(c) == 127 for c in name)
+            or any(p in ('', '.', '..') for p in name.split('/'))):
+        raise ValueError('Unsafe archive path: ' + repr(name))
+    return name
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for data in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(data)
+    return digest.hexdigest()
+
+
+def _bounded_tar_headers(path, max_entries, max_entry_bytes):
+    """Bound even PAX metadata before tarfile can allocate its declared size."""
+    with Path(path).open('rb') as stream:
+        count = 0
+        while True:
+            header = stream.read(512)
+            if len(header) != 512:
+                raise ValueError('Truncated tar header')
+            if header == b'\0' * 512:
+                if stream.read(512) != b'\0' * 512:
+                    raise ValueError('Missing tar end marker')
+                if any(any(data) for data in iter(lambda: stream.read(1024 * 1024), b'')):
+                    raise ValueError('Trailing nonzero tar data')
+                return
+            count += 1
+            if count > max_entries * 2:
+                raise ValueError('Too many archive headers')
+            try:
+                info = tarfile.TarInfo.frombuf(header, 'utf-8', 'surrogateescape')
+            except tarfile.HeaderError as error:
+                raise ValueError('Invalid tar header') from error
+            if info.type not in (tarfile.REGTYPE, tarfile.AREGTYPE, tarfile.DIRTYPE,
+                                 tarfile.SYMTYPE, tarfile.XHDTYPE):
+                raise ValueError('Unsupported archive entry type')
+            limit = min(max_entry_bytes, 65536) if info.type == tarfile.XHDTYPE else max_entry_bytes
+            if info.size < 0 or info.size > limit:
+                raise ValueError('Archive entry exceeds budget')
+            stream.seek((info.size + 511) // 512 * 512, 1)
+
+
+def extract_verified_tar(archive, dest, records, archive_sha256, *, max_archive_bytes,
+                         max_entry_bytes, max_total_bytes, max_entries):
+    """One bounded archive owner; callers own schemas and atomic publication.
+
+    No extractall/chown, special modes, links-as-parents or pre-existing output.
+    Reader records and native transport records share this exact extraction path.
+    """
+    archive, dest = Path(archive), Path(dest).absolute()
+    if archive.is_symlink() or not archive.is_file() or archive.stat().st_size > max_archive_bytes:
+        raise ValueError('Invalid archive path or archive budget')
+    if file_digest(archive) != archive_sha256:
+        raise ValueError('archiveSHA256 mismatch')
+    if not records or len(records) > max_entries:
+        raise ValueError('Archive inventory count exceeds budget')
+    expected = {}
+    for record in records:
+        name = archive_path(record['path'])
+        mode = record['mode']
+        if name in expected or type(mode) is not int or not 0 <= mode <= 0o777:
+            raise ValueError('Duplicate path or special archive mode')
+        if record['kind'] not in ('file', 'directory', 'symlink'):
+            raise ValueError('Unknown archive inventory kind')
+        if record['kind'] == 'symlink':
+            link_stays_inside(name, record['link'])
+        expected[name] = record
+    for name in expected:
+        parents = Path(name).parents
+        if any(str(p) in expected and expected[str(p)]['kind'] != 'directory' for p in parents):
+            raise ValueError('Archive link/file used as parent')
+    _bounded_tar_headers(archive, max_entries, max_entry_bytes)
+    if dest.resolve() != dest or dest.is_symlink() or (dest.exists() and any(dest.iterdir())):
+        raise ValueError('Archive extraction requires a canonical empty owned output')
     dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive_path, 'r') as tar:
-        members = tar.getmembers()
-        names = [member.name for member in members]
-        if set(names) != set(expected) or len(names) != len(expected):
-            raise ValueError('Reader bundle archive members do not match the manifest')
-        total = 0
-        for member in members:
-            entry = expected[member.name]
-            if member.issym():
-                if entry['mode'] != '120000' or member.linkname != entry['target']:
-                    raise ValueError('Archive symlink does not match the manifest: ' + member.name)
-                link_stays_inside(member.name, member.linkname)
-            else:
-                mode = _member_mode(member)
-                if mode != entry['mode']:
-                    raise ValueError('Archive file mode does not match the manifest: ' + member.name)
+    with tarfile.open(archive, 'r:') as tar:
+        members, seen, total = [], set(), 0
+        for member in tar:
+            name = archive_path(member.name.rstrip('/') if member.isdir() else member.name)
+            if name not in expected or name in seen or len(seen) >= max_entries:
+                raise ValueError('Archive members differ from inventory or duplicate')
+            seen.add(name); record = expected[name]
+            kind = 'directory' if member.isdir() else 'symlink' if member.issym() else 'file' if member.isreg() else None
+            if (kind != record['kind'] or member.sparse is not None
+                    or set(member.pax_headers) - {'path', 'linkpath'}
+                    or member.mode != record['mode']):
+                raise ValueError('Archive type/mode/header mismatch: ' + name)
+            if member.size < 0 or member.size > max_entry_bytes or (kind != 'file' and member.size):
+                raise ValueError('Archive entry exceeds budget')
+            if kind == 'file':
                 total += member.size
-                if total > MAX_ARCHIVE_BYTES:
-                    raise ValueError('Reader bundle archive is larger than 200MB')
-        try:
-            tar.extractall(dest, filter='data')
-        except (tarfile.TarError, OSError, ValueError) as error:
-            raise ValueError('Reader bundle archive is not safe to unpack: ' + str(error)) from error
+                if total > max_total_bytes or ('bytes' in record and member.size != record['bytes']):
+                    raise ValueError('Archive total/entry byte budget or size mismatch')
+            if kind == 'symlink' and member.linkname != record['link']:
+                raise ValueError('Archive symlink mismatch')
+            members.append((member, name, record))
+        if seen != set(expected):
+            raise ValueError('Archive inventory members missing')
+        # All files/directories precede symlink creation, including forward links.
+        for member, name, record in members:
+            path = dest / name
+            if record['kind'] == 'directory':
+                path.mkdir(parents=True, exist_ok=True)
+            elif record['kind'] == 'file':
+                path.parent.mkdir(parents=True, exist_ok=True)
+                digest, count = hashlib.sha256(), 0
+                with tar.extractfile(member) as source, path.open('xb') as output:
+                    for data in iter(lambda: source.read(1024 * 1024), b''):
+                        count += len(data); digest.update(data); output.write(data)
+                if count != member.size or digest.hexdigest() != record['sha256']:
+                    raise ValueError('Archive file digest/size mismatch: ' + name)
+                path.chmod(record['mode'])
+        for member, name, record in members:
+            if record['kind'] == 'symlink':
+                path = dest / name; path.parent.mkdir(parents=True, exist_ok=True)
+                path.symlink_to(record['link'])
+        for member, name, record in members:
+            if record['kind'] == 'symlink':
+                try:
+                    resolved = (dest / name).resolve(strict=True)
+                except (OSError, RuntimeError) as error:
+                    raise ValueError('Missing/cyclic archive symlink') from error
+                if not resolved.is_relative_to(dest):
+                    raise ValueError('Archive symlink escapes output')
+        for member, name, record in reversed(members):
+            if record['kind'] == 'directory':
+                (dest / name).chmod(record['mode'])
+    if file_digest(archive) != archive_sha256:
+        raise ValueError('Archive changed after hash/extraction')
     return dest
 
+
+def extract_archive(archive_path, dest, manifest):
+    """Reader schema adapter over the shared bounded tar owner."""
+    records = []
+    for item in manifest['files']:
+        record = {'path':item['path'], 'sha256':item['sha256'],
+                  'kind':'symlink' if item['mode'] == '120000' else 'file',
+                  'mode':0o777 if item['mode'] == '120000' else 0o755 if item['mode'] == '100755' else 0o644}
+        if item['mode'] == '120000':
+            record['link'] = item['target']
+        records.append(record)
+    return extract_verified_tar(archive_path, dest, records, manifest['archiveSHA256'],
+        max_archive_bytes=MAX_ARCHIVE_BYTES, max_entry_bytes=MAX_ARCHIVE_BYTES,
+        max_total_bytes=MAX_ARCHIVE_BYTES, max_entries=MAX_FILES)
 
 def _walk_files(root):
     found = set()
@@ -448,7 +562,7 @@ def load_manifest(path):
     return check_manifest(manifest)
 
 
-def package_reader_bundle(root, head_sha, output):
+def package_reader_bundle(root, head_sha, output, worktree=False):
     """Write the artifact directory for ``head_sha`` and self-check it."""
     root = Path(root)
     output = Path(output)
@@ -456,7 +570,7 @@ def package_reader_bundle(root, head_sha, output):
     actual = _git(root, ['rev-parse', 'HEAD']).strip()
     if actual != head_sha:
         raise ValueError('HEAD ' + actual + ' does not match headSha ' + head_sha)
-    entries = collect_entries(root)
+    entries = collect_entries(root, worktree=worktree)
     files = manifest_files(entries)
     if output.exists():
         shutil.rmtree(output)
@@ -662,10 +776,11 @@ def main_package(argv=None):
     parser = argparse.ArgumentParser(description='Package the HTML Reader bundle for the flow-engine workflow.')
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--head-sha', required=True)
+    parser.add_argument('--worktree', action='store_true', help='Bind current tracked checkout bytes, including local modifications')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        package_reader_bundle(args.root.resolve(), args.head_sha, args.output)
+        package_reader_bundle(args.root.resolve(), args.head_sha, args.output, worktree=args.worktree)
     except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as error:
         print(detect_failure_message(error), file=sys.stderr)
         return 1

@@ -1,6 +1,7 @@
 {
   "core": [
     "AppEnvironment.swift",
+    "NativeReaderBundleEnvironment.swift",
     "AppDataMigration.swift",
     "Profiles.swift",
     "SettingsStore.swift",
@@ -9,12 +10,33 @@
     "EngineLaunch.swift",
     "ProjectService.swift",
     "PreviewReadiness.swift",
+    "NativeReaderDocument.swift",
+    "NativeReaderOperations.swift",
     "ReadingSessionController.swift",
     "CLI.swift"
   ],
   "app": [
+    "NativeReaderWindowController.swift",
     "NativeReadingEnvironment.swift",
     "FlowApp.swift",
     "main.swift"
+  ],
+  "native": [
+    "NativeAppDesign.swift",
+    "NativeBrandMark.swift",
+    "NativeFloatingCapsule.swift",
+    "NativeReaderSelection.swift",
+    "NativeReaderAccessibility.swift",
+    "NativeReaderInputTextView.swift",
+    "NativeReaderTextView.swift",
+    "NativeReaderObjectRenderer.swift",
+    "NativeReaderPagedLayout.swift",
+    "NativeReaderRecoveryStore.swift",
+    "NativeReaderTransport.swift",
+    "NativeReaderSession.swift",
+    "NativeReaderActions.swift",
+    "NativeReaderChatView.swift",
+    "NativeReaderOriginalPageView.swift",
+    "NativeReaderOriginalPageTransport.swift"
   ]
 }

@@ -78,7 +78,8 @@ sessions do not depend on a running paged preview.
 macOS, the Swift compiler, and Python 3 are required for the app. AppKit and Foundation provide the runtime.
 
 ```sh
-python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine
+python3 scripts/flow-app.py build --engine /absolute/path/to/flow-engine \
+  --delivery /absolute/path/to/current-verified-delivery --identity <existing-certificate-sha1>
 python3 -m unittest discover -s tests/flow-app -v
 python3 scripts/flow-app.py verify dist/Lagrangian.app
 ```
@@ -99,6 +100,15 @@ node scripts/build.mjs build:preview
 cargo fmt --check --all
 yarn workspace typst-preview-frontend test run
 ```
+
+A standalone engine requires explicit current verified `--delivery`; see
+#link("native-reader-delivery.typ")[portable preparation]. The old updater sequence
+needs no new flag: fetch writes an engine-local run context, and build reauthenticates
+that exact run/artifact and reader before consuming its current payload. Missing
+payload, stale source, unavailable signing identity or tamper fails before install.
+There is no global last-run state or installed/scratch dependency fallback.
+Explicit `--management-only` is a nonshipping fixture and fails require-delivery.
+Ad-hoc signing requires an explicit `--identity -` or explicit environment setting.
 
 The native engine build uses the locked `flow-release` profile with ThinLTO.
 `python3 scripts/flow-app.py build --build-engine --jobs 2` compiles Rust and
@@ -173,42 +183,42 @@ scripts embed, other crate and vendor inputs, and the runner OS and
 architecture. It looks through the newest successful runs on `main`, and on
 the current ref when that ref is not `main`, for a retained artifact with that
 hash. The hash is a separate artifact named `flow-engine-input-<hash>`. The
-artifact `fetch-engine` downloads stays `flow-engine-darwin-arm64`. Its files
-stay the unsigned `flow-engine`, `flow-engine.sha256`, `release.json`
-(including `engineBuild`), and `Lagrangian.app`.
+artifact `fetch-engine` downloads stays `flow-engine-darwin-arm64`. It transports `native-delivery-artifact.tar` and
+`native-delivery-artifact.json`. The checksum/source/run-bound tar contains
+`flow-engine`, `flow-engine.sha256`, `release.json` (including retained
+`engineBuild`), and `Lagrangian.app` with exact file/directory modes, internal
+relative links and hidden signature files. GitHub v4 zip permission loss applies
+only to the two envelope files. Fetch verifies raw tar bytes before bounded
+extraction and separately records its authenticated external-engine chmod.
 
-On a hit, the job downloads that engine artifact and uploads it again without
-running Cargo, Yarn, or the Swift packaging. The engine SHA-256 matches the
-earlier build. `release.json` still records the commit that produced those
-bytes, which can be older than the run `fetch-engine` selects. On a miss, the
-job checks out full git history so the engine version can embed `git describe`,
-installs the toolchain from `rust-toolchain.toml`, and caches Cargo through
-`actions-rust-lang/setup-rust-toolchain` (Swatinem/rust-cache) under the shared
-key `flow-release-aarch64-apple-darwin`, together with the toolchain and
-`Cargo.lock`. After `yarn install --frozen-lockfile`, the job runs
-`node scripts/stage-tinymist-assets.mjs` with no arguments. That prepares the
-gitignored preview page and copies the committed localization catalog without
-compiling Rust. The job then runs
-`python3 scripts/flow-app.py build --build-engine --jobs 2` with
-`RUSTFLAGS=-Dwarnings`. That is the only Rust compilation in the job, and it
-uses the locked `flow-release` profile with ThinLTO. The runner must be
-`arm64`. Staging checks `tinymist --version` and `preview --help` for
-`--follow-system-theme`, then uploads `flow-engine-darwin-arm64` for 30 days.
-The dispatch accepts a `jobs` input; the default is 2. A later run for the
-same ref cancels the older in-progress run. The job token is `actions: read`.
-`actions/upload-artifact@v4` and the Cargo cache use the Actions runtime token.
-Listing and downloading a previous run's artifact uses that `actions: read`
-permission. A matching artifact older than the 30-day retention,
-or outside the newest 30 successful runs on each searched branch, is a miss
-and builds again. A hit republishes the previous `Lagrangian.app` as well, so Swift,
-branding, and the bundled user-guide PDF stay with the engine build that
-produced them.
+On a hit, the job reuses only the engine executable, checksum and build
+provenance; it does not run Cargo. Both cache paths prepare and verify the
+current portable runtime, backend and reader, then build current Swift,
+branding and the user-guide PDF. The artifact name and extracted engine/app layout stay stable;
+its app and application release binding name the current source HEAD.
+Engine build provenance may name an older source E independently of current
+application/run head H. The old cached app is discarded.
+
+On a miss, the job checks out full history, installs the locked toolchain and
+caches Cargo under `flow-release-aarch64-apple-darwin`. After frontend asset
+preparation it runs `python3 scripts/flow-app.py build-engine-input --jobs 2`.
+That is the Rust build; the common portable-delivery and fresh-app steps follow
+on both hit and miss. The runner is arm64, the profile is locked `flow-release`
+with ThinLTO, and warnings are errors. The dispatch jobs default is 2.
+Artifacts are retained for 30 days; reuse searches the newest 30 successful
+runs on main and the current ref. A later run on that ref cancels an older
+in-progress run. The actions:read permission covers retained artifact lookup;
+Actions runtime tokens upload artifacts and manage caches. These are workflow
+contracts, not evidence that a remote run was executed for this change.
 
 Every successful run also publishes the HTML Reader for that commit. This
-happens on an engine cache hit and on a miss. Reader sources are not engine
-inputs: `scripts/engine-input-hash.py` is unchanged, and an edit under
-`tools/flow-reader/web` still republishes the previous
-`flow-engine-darwin-arm64` bytes. The job runs
+happens on an engine cache hit and on a miss. The HTML Reader tree
+`tools/flow-reader` is outside the engine hash; this exclusion does not cover
+`tools/reader-common`, the paged frontend or embedded `typst-dom` production
+sources. Those embedded inputs and specified build scripts, including
+`scripts/flow-app.py`, remain engine-hash inputs. The hash owner is unchanged;
+an edit limited to `tools/flow-reader/web` still reuses previous engine bytes while rebuilding the current app
+inside `flow-engine-darwin-arm64`. The job runs
 `python3 scripts/package-reader-bundle.py` before the Cargo steps and, after
 the engine artifact is ready, uploads that directory twice:
 `reader-bundle-<headSha>` and `flow-reader-bundle`. The directory contains
@@ -231,8 +241,8 @@ On the Mac, download one successful run and use that engine with that run's
 reader. Pass the same `--run-id` to `fetch-engine` and
 `scripts/fetch-reader-bundle.py`. Calling `--branch` on each command separately
 can observe two different runs if another success lands between them. A cache
-hit still republishes an engine whose `release.json` commit may be older than
-the reader's `headSha`; both artifacts still belong to the run you named.
+hit can retain older engine-build provenance E; the artifact application
+release and reader headSha still name the selected run head H.
 `fetch-engine` only downloads, verifies, and prints the engine path. The reader
 helper only verifies and prints a staging path. The Mac launchd updater
 (outside this repository) does this: it fetches the engine and reader bundle
@@ -261,8 +271,12 @@ packaging uses the printed `flow-engine` so the installed app keeps the Mac
 signing identity.
 
 ```sh
-engine=$(python3 scripts/flow-app.py fetch-engine --branch main)
-python3 scripts/flow-app.py build --engine "$engine"
+run=123456789
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$run")
+reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$run")
+# Checkout HEAD must equal this run head; select an existing signing identity.
+FLOW_SIGN_IDENTITY=<existing-certificate-sha1> python3 scripts/flow-app.py build --engine "$engine"
+python3 scripts/verify-native-reader-app.py dist/Lagrangian.app --require-delivery
 ```
 
 The reader helper shells out to `gh`, checks that run's head SHA against the

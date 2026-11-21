@@ -1,0 +1,253 @@
+{
+  "oracleScope": "Author-written semantic/geometric oracle independent of renderer; external oracle review and GUI remain separate.",
+  "widths": [
+    320,
+    640,
+    960
+  ],
+  "fonts": [
+    14,
+    20,
+    28
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "modes": [
+    "reflow",
+    "paged"
+  ],
+  "mathHierarchy": [
+    "mfrac",
+    "msqrt",
+    "munderover"
+  ],
+  "unicode": [
+    "한글",
+    "é",
+    "😀",
+    "👩‍👩‍👧‍👦"
+  ],
+  "cellTexts": [
+    "Name",
+    "Value",
+    "단위😀",
+    "Mass",
+    "10",
+    "kg",
+    "20",
+    "g",
+    "Merged"
+  ],
+  "rowSpans": [
+    1,
+    1,
+    1,
+    2,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "columnSpans": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    3
+  ],
+  "headers": [
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "equationNumber": "(1)",
+  "figureCaption": "Figure 1: Blue rectangle link",
+  "vector": {
+    "viewport": [
+      100,
+      80
+    ],
+    "blueRect": [
+      16,
+      22,
+      24,
+      12
+    ],
+    "blueArea": 288,
+    "redCircleCenter": [
+      70,
+      50
+    ],
+    "redCircleRadius": 5
+  },
+  "indivisibleMathML": "<math><mrow><mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></math>",
+  "indivisibleMath20": {
+    "minimumAscent": 10,
+    "minimumDescent": 4,
+    "minimumWidth": 8,
+    "maximumWidth": 30,
+    "axisEm": 0.25,
+    "ruleThicknessEm": 0.06,
+    "numeratorGlyph": "1D44E",
+    "denominatorGlyph": "1D44F"
+  },
+  "richAssets": [
+    {
+      "name": "internal-use",
+      "svg": "<defs><path id=\"tile\" d=\"M0 0H20V10H0Z\"/></defs><use xlink:href=\"#tile\" x=\"10\" y=\"10\" fill=\"#2060c0\"/>",
+      "blueArea": 200
+    },
+    {
+      "name": "arc",
+      "svg": "<path d=\"M20 10A10 10 0 1 1 19.999 10Z\" fill=\"#2060c0\"/>",
+      "blueMinimum": 300,
+      "blueMaximum": 345
+    },
+    {
+      "name": "clip",
+      "svg": "<defs><clipPath id=\"clip\"><rect x=\"10\" y=\"10\" width=\"20\" height=\"10\"/></clipPath></defs><rect width=\"100\" height=\"80\" fill=\"#2060c0\" clip-path=\"url(#clip)\"/>",
+      "blueArea": 200
+    },
+    {
+      "name": "linear-gradient",
+      "svg": "<defs><linearGradient id=\"grad\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></linearGradient></defs><rect width=\"100\" height=\"80\" fill=\"url(#grad)\"/>",
+      "left": "red",
+      "right": "blue"
+    },
+    {
+      "name": "radial-gradient",
+      "svg": "<defs><radialGradient id=\"grad\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></radialGradient></defs><rect width=\"100\" height=\"80\" fill=\"url(#grad)\"/>",
+      "center": "red",
+      "edge": "blue"
+    },
+    {
+      "name": "group-opacity",
+      "svg": "<g opacity=\"0.5\" fill=\"#ff0000\"><rect x=\"10\" y=\"10\" width=\"20\" height=\"10\"/><rect x=\"20\" y=\"10\" width=\"20\" height=\"10\"/></g>",
+      "pink": [
+        255,
+        128,
+        128
+      ],
+      "unionArea": 300
+    },
+    {
+      "name": "symbol-glyph",
+      "svg": "<defs><symbol id=\"letter\" viewBox=\"0 0 10 10\"><path d=\"M0 0H2V8H8V10H0Z\"/></symbol></defs><use xlink:href=\"#letter\" x=\"10\" y=\"10\" width=\"10\" height=\"10\" fill=\"#2060c0\"/>",
+      "blueArea": 32
+    },
+    {
+      "name": "internal-href",
+      "svg": "<defs><path id=\"tile\" d=\"M0 0H20V10H0Z\"/></defs><use href=\"#tile\" x=\"40\" y=\"10\" fill=\"#2060c0\"/>",
+      "blueArea": 200
+    },
+    {
+      "name": "gradient-inherit",
+      "svg": "<defs><linearGradient id=\"source\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></linearGradient><linearGradient id=\"grad\" href=\"#source\"/></defs><rect width=\"100\" height=\"80\" fill=\"url(#grad)\"/>",
+      "left": "red",
+      "right": "blue"
+    },
+    {
+      "name": "viewport-units",
+      "svg": "<rect x=\"100\" y=\"100\" width=\"200\" height=\"100\" fill=\"#2060c0\"/>",
+      "viewBox": [
+        0,
+        0,
+        1000,
+        800
+      ],
+      "blueArea": 200
+    }
+  ],
+  "rasterOracle": {
+    "width": 24,
+    "height": 12,
+    "quadrants": [
+      "red",
+      "green",
+      "blue",
+      "yellow"
+    ],
+    "quadrantArea": 72
+  },
+  "labeledCetz": {
+    "glyphUses": 7,
+    "minimumBlackInk": 80,
+    "maximumBlackInk": 1000,
+    "minimumBlueInk": 1000,
+    "maximumBlueInk": 1800,
+    "label": "Label x²"
+  },
+  "rasterWebPBase64": "UklGRjgAAABXRUJQVlA4TCsAAAAvF8ACAB8gEEjaH3qN+RcQFPk/2vwHXySAMNtokpOc5L3PIKL/sU19geoFAA==",
+  "originalPagesV3": {
+    "pageCount": 2,
+    "mediaBox": [
+      0,
+      0,
+      320,
+      360
+    ],
+    "texts": [
+      "Original One\nPage One office ffi.\n한글 é 😀 👩‍👩‍👧‍👦.\n𝑎 + 𝑏\n𝑐 + 𝑑 + √𝑥 = 𝑦",
+      "Original Two\nPage Two search needle.\nLabel 𝑥2"
+    ],
+    "queries": [
+      "office",
+      "ffi",
+      "한글",
+      "é",
+      "😀",
+      "👩‍👩‍👧‍👦",
+      "needle"
+    ],
+    "blueRectangleArea": 1152,
+    "thirdPageText": "Original Three\nPage Three replacement.",
+    "scope": "Author-written source text/order/point-size/color-area oracle; PDFKit text extraction spacing recorded, no glyph-cluster or verified source mapping assertion."
+  },
+  "rawImageLayouts": [
+    {
+      "mime": "image/png",
+      "widthPt": 18,
+      "heightPt": 9,
+      "placement": "block"
+    },
+    {
+      "mime": "image/jpeg",
+      "widthPt": 18,
+      "heightPt": 9,
+      "placement": "inline"
+    },
+    {
+      "mime": "image/png",
+      "widthPt": 48,
+      "heightPt": 18,
+      "placement": "block"
+    },
+    {
+      "mime": "image/jpeg",
+      "widthPt": 32,
+      "heightPt": 9,
+      "placement": "inline"
+    },
+    {
+      "mime": "image/png",
+      "widthPt": 18,
+      "heightPt": 15,
+      "placement": "inline"
+    }
+  ],
+  "hiddenSymbolSVG": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 40\"><defs><symbol id=\"s\" viewBox=\"0 0 20 20\" overflow=\"hidden\"><rect x=\"-10\" y=\"0\" width=\"40\" height=\"20\" fill=\"#2060c0\"/></symbol></defs><use href=\"#s\" x=\"30\" y=\"10\" width=\"20\" height=\"20\"/></svg>",
+  "hiddenSymbolBluePixels": 400
+}

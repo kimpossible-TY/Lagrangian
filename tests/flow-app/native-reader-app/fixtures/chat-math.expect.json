@@ -1,0 +1,194 @@
+{
+  "oracle": "Author-specified mathematical hierarchy, Unicode scalars and broad em bounds; no captured implementation output. Mathematical italic glyph scalars follow Unicode Mathematical Alphanumeric Symbols; semantic scalars remain authored.",
+  "cases": [
+    {
+      "id": "fraction",
+      "tex": "\\frac{1}{2}",
+      "display": false,
+      "semantic": "fraction(1, 2)",
+      "nodes": [
+        "mfrac"
+      ],
+      "glyphs": [
+        "31",
+        "32"
+      ],
+      "widthEm": [
+        0.5,
+        1.5
+      ],
+      "heightEm": [
+        0.9,
+        2.2
+      ]
+    },
+    {
+      "id": "root",
+      "tex": "\\sqrt{x}",
+      "display": false,
+      "semantic": "square root(x)",
+      "nodes": [
+        "msqrt"
+      ],
+      "glyphs": [
+        "1D465"
+      ],
+      "widthEm": [
+        0.8,
+        2.0
+      ],
+      "heightEm": [
+        0.7,
+        1.8
+      ]
+    },
+    {
+      "id": "script",
+      "tex": "a_1^2",
+      "display": false,
+      "semantic": "subscript and superscript(a, 1, 2)",
+      "nodes": [
+        "msubsup"
+      ],
+      "glyphs": [
+        "1D44E",
+        "31",
+        "32"
+      ],
+      "widthEm": [
+        0.6,
+        1.8
+      ],
+      "heightEm": [
+        0.9,
+        2.0
+      ]
+    },
+    {
+      "id": "ams",
+      "tex": "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}",
+      "display": true,
+      "semantic": "matrix",
+      "nodes": [
+        "mtable",
+        "mtr",
+        "mtd"
+      ],
+      "glyphs": [
+        "31",
+        "32",
+        "33",
+        "34"
+      ],
+      "widthEm": [
+        2.0,
+        5.0
+      ],
+      "heightEm": [
+        1.8,
+        4.0
+      ]
+    },
+    {
+      "id": "unicode",
+      "tex": "Ж+α",
+      "display": false,
+      "semantic": "Ж + α",
+      "nodes": [
+        "mi",
+        "mo"
+      ],
+      "glyphs": [
+        "416",
+        "1D6FC"
+      ],
+      "widthEm": [
+        1.5,
+        4.0
+      ],
+      "heightEm": [
+        0.5,
+        1.5
+      ]
+    },
+    {
+      "id": "display",
+      "tex": "\\sum_{i=1}^{n}i",
+      "display": true,
+      "semantic": "under and over",
+      "nodes": [
+        "munderover"
+      ],
+      "glyphs": [
+        "2211",
+        "1D456",
+        "31",
+        "1D45B"
+      ],
+      "widthEm": [
+        1.0,
+        4.0
+      ],
+      "heightEm": [
+        2.0,
+        4.5
+      ]
+    }
+  ],
+  "policy": [
+    {
+      "markdown": "Inline $x$ and \\(y\\); display $$z$$ and \\[w\\].",
+      "math": [
+        "x",
+        "y",
+        "z",
+        "w"
+      ],
+      "display": [
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "markdown": "Escaped \\$x\\$; `code $x$`; ```\n$y$\n```",
+      "math": [],
+      "display": []
+    },
+    {
+      "markdown": "Unclosed $$\nx+1",
+      "math": [],
+      "display": []
+    },
+    {
+      "markdown": "Unclosed \\(x",
+      "math": [],
+      "display": []
+    },
+    {
+      "markdown": "Unclosed `code $x$",
+      "math": [],
+      "display": []
+    },
+    {
+      "markdown": "Unclosed $x\n$y$",
+      "math": [],
+      "display": []
+    },
+    {
+      "markdown": "Literal \\\\$x$",
+      "math": [
+        "x"
+      ],
+      "display": [
+        false
+      ]
+    }
+  ],
+  "fraction": {
+    "numerator": "31",
+    "denominator": "32",
+    "ruleEm": 0.06
+  }
+}

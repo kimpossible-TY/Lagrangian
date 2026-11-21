@@ -5,7 +5,7 @@ import Network
 /// Adapts laptop events to reading-session policy without owning a preview service.
 final class NativeReadingEnvironment {
   private let onSleep: (Bool) -> Void
-  private let onNetwork: () -> Void
+  private let onNetwork: (Bool) -> Void
   private let onPower: (Bool) -> Void
   private let network = NWPathMonitor()
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
@@ -14,7 +14,7 @@ final class NativeReadingEnvironment {
 
   init(
     onSleep: @escaping (Bool) -> Void,
-    onNetwork: @escaping () -> Void,
+    onNetwork: @escaping (Bool) -> Void,
     onPower: @escaping (Bool) -> Void
   ) {
     self.onSleep = onSleep
@@ -43,10 +43,10 @@ final class NativeReadingEnvironment {
         Unmanaged<NativeReadingEnvironment>.fromOpaque(context).takeUnretainedValue().updatePower()
       }, Unmanaged.passUnretained(self).toOpaque())?.takeRetainedValue()
     if let powerSource { CFRunLoopAddSource(CFRunLoopGetMain(), powerSource, .commonModes) }
-    network.pathUpdateHandler = { [weak self] _ in
+    network.pathUpdateHandler = { [weak self] path in
       DispatchQueue.main.async {
         guard let self, self.active else { return }
-        self.onNetwork()
+        self.onNetwork(path.status == .satisfied)
       }
     }
     network.start(queue: DispatchQueue(label: "lagrangian.network", qos: .utility))

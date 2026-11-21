@@ -2,8 +2,9 @@
 """Republish a retained flow-engine artifact when engine inputs match.
 
 fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
-requires flow-engine, flow-engine.sha256, and release.json beside each
-other. This script never renames that artifact or writes into it. The input
+authenticates its native-delivery tar envelope before extracting the sibling
+engine files and current app. Reuse copies only the three engine contract files,
+including from retained legacy flat artifacts. It never writes into the input. The input
 hash is recorded in a separate artifact, flow-engine-input-<hash>, so a later
 run can find a match without downloading the engine.
 """
@@ -14,12 +15,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 import flow_engine_runs
+import native_delivery_artifact
 
 ENGINE_ARTIFACT = 'flow-engine-darwin-arm64'
 MARKER_PREFIX = 'flow-engine-input-'
@@ -66,10 +69,10 @@ def locate_payload(download: Path) -> Path:
     candidates = []
     for checksum in download.rglob('flow-engine.sha256'):
         parent = checksum.parent
-        if (parent / 'flow-engine').is_file() and (parent / 'release.json').is_file() and (parent / 'Lagrangian.app').is_dir():
+        if (parent / 'flow-engine').is_file() and (parent / 'release.json').is_file():
             candidates.append(parent)
     if len(candidates) != 1:
-        raise ValueError('The downloaded artifact must contain one flow-engine, flow-engine.sha256, release.json, and Lagrangian.app')
+        raise ValueError('The downloaded artifact must contain one flow-engine, flow-engine.sha256, release.json')
     return candidates[0]
 
 
@@ -132,17 +135,20 @@ def summarize(text):
                 handle.write('\n')
 
 
-def download_payload(repo, run_id, dest: Path):
-    if dest.exists():
-        shutil.rmtree(dest)
+def download_payload(repo, run_id, dest: Path, *, head=None):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    _gh(['run', 'download', str(run_id), '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', str(dest)])
-    payload = locate_payload(dest)
-    # gh run download extracts artifact contents into --dir. The upload path
-    # has to be that same directory so the republished layout stays flat.
-    if payload.resolve() != dest.resolve():
-        raise ValueError('Downloaded artifact layout is nested; refusing to rearrange it')
-    return verify_payload(payload)
+    with tempfile.TemporaryDirectory(prefix='.engine-download-', dir=dest.parent) as tmp:
+        download = Path(tmp) / 'artifact'
+        _gh(['run', 'download', str(run_id), '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', str(download)])
+        with native_delivery_artifact.reuse_payload(download, repository=repo, run_id=run_id, head=head) as payload:
+            digest = verify_payload(payload)
+            candidate = Path(tmp) / 'engine-only'; candidate.mkdir()
+            for name in ('flow-engine', 'flow-engine.sha256', 'release.json'):
+                shutil.copy2(payload / name, candidate / name)
+        (candidate / 'flow-engine').chmod(0o755)
+        verify_payload(candidate)
+        native_delivery_artifact.owner().publish_verified(candidate, dest, verify_payload)
+        return digest
 
 
 def main(argv=None):
@@ -175,13 +181,13 @@ def main(argv=None):
         return
     run_id = str(match['databaseId'])
     dest = Path(os.environ.get('ENGINE_ARTIFACT_DIR', 'dist/flow-engine-darwin-arm64'))
-    engine_sha = download_payload(repo, run_id, dest)
+    engine_sha = download_payload(repo, run_id, dest, head=flow_engine_runs.parse_sha(match.get('headSha')))
     set_output('hit', 'true')
     set_output('source_run', run_id)
     set_output('source_url', match.get('url') or '')
     summarize(
-        'Engine input cache: hit. Republishing run '
-        + run_id + ' unchanged. Engine SHA-256 `' + engine_sha + '`.\n'
+        'Engine input cache: hit. Reusing engine only from run '
+        + run_id + '. Current application is built separately. Engine SHA-256 `' + engine_sha + '`.\n'
     )
     print('engine-artifact-cache: hit run ' + run_id + ' sha256 ' + engine_sha, file=sys.stderr)
 

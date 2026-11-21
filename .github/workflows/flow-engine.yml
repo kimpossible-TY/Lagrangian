@@ -5,9 +5,10 @@ name: Flow engine
 # dispatch. This is the only GitHub Actions workflow in the repo.
 #
 # fetch-engine downloads the artifact named flow-engine-darwin-arm64 and
-# requires sibling files flow-engine, flow-engine.sha256, and release.json
-# (plus Lagrangian.app from this job). Do not rename that artifact or add
-# files inside it. The engine-input hash lives in a separate artifact named
+# authenticates native-delivery-artifact.json and native-delivery-artifact.tar.
+# The tar preserves flow-engine, flow-engine.sha256, release.json and this job's
+# signed Lagrangian.app, including modes, symlinks and hidden payload files.
+# Keep that artifact name. The engine-input hash lives in a separate artifact named
 # flow-engine-input-<hash>.
 #
 # Every successful run also uploads the HTML Reader for this commit, on an
@@ -62,9 +63,10 @@ jobs:
           test "$(uname -m)" = arm64
 
       - name: Package the reader bundle
-        # Runs on an engine cache hit and on a miss. Reader sources are not
-        # engine inputs, so a web-only change still publishes a new bundle.
-        run: python3 scripts/package-reader-bundle.py --head-sha "${{ github.sha }}" --output dist/reader-bundle
+        # Runs on a hit and miss. tools/flow-reader is outside the engine hash;
+        # embedded reader-common/paged/DOM and specified build inputs remain included.
+        # A web-only change still publishes a new bundle.
+        run: python3 scripts/package-reader-bundle.py --head-sha "${{ github.sha }}" --worktree --output dist/reader-bundle
 
       - name: Hash engine inputs
         id: engine_inputs
@@ -83,6 +85,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ENGINE_INPUT_HASH: ${{ steps.engine_inputs.outputs.hash }}
+          ENGINE_ARTIFACT_DIR: dist/engine-input
           # main is the Mac updater's branch. The current ref is included so a
           # second dispatch of this branch can reuse the artifact it just built.
           # Duplicate names are ignored by the script.
@@ -126,21 +129,39 @@ jobs:
           cache-all-crates: true
           cache-save-if: "true"
 
-      - name: Build the native engine and app
+      - name: Build the native engine input
         if: steps.engine_cache.outputs.hit != 'true'
         run: |
           case "$FLOW_ENGINE_JOBS" in
             ''|*[!0-9]*|0) echo "jobs must be a positive integer" >&2; exit 1 ;;
           esac
-          python3 scripts/flow-app.py build --build-engine --jobs "$FLOW_ENGINE_JOBS"
+          python3 scripts/flow-app.py build-engine-input --jobs "$FLOW_ENGINE_JOBS" --output dist/engine-input
+
+      - name: Prepare portable native dependencies
+        run: |
+          python3 scripts/stage-native-reader-delivery.py acquire --backend . --output dist/native-dependencies
+          dist/native-dependencies/portable-node/node-v22.23.5-darwin-arm64/bin/node scripts/prepare-native-reader-runtime.mjs \
+            --runtime-source dist/native-dependencies/runtime-source \
+            --helper tools/flow-reader/native/math_layout.mjs \
+            --node "$PWD/dist/native-dependencies/portable-node/node-v22.23.5-darwin-arm64/bin/node" \
+            --output dist/native-runtime --identity -
+
+      - name: Stage current backend and runtime on hit and miss
+        run: |
+          python3 scripts/stage-native-reader-delivery.py unpack-reader --bundle dist/reader-bundle --output dist/current-reader
+          python3 scripts/stage-native-reader-delivery.py binding --backend . --engine dist/engine-input/flow-engine --runtime-source dist/native-runtime --helper tools/flow-reader/native/math_layout.mjs --reader-bundle dist/current-reader --output dist/delivery-input.json
+          python3 scripts/stage-native-reader-delivery.py stage --manifest dist/delivery-input.json --backend . --engine dist/engine-input/flow-engine --runtime-source dist/native-runtime --helper tools/flow-reader/native/math_layout.mjs --reader-bundle dist/current-reader --python-archive dist/native-dependencies/python/python-3.13.11-macos11.pkg --compiler dist/native-dependencies/compiler/typst-aarch64-apple-darwin/typst --typst-packages dist/native-dependencies/compiler/packages --certifi-wheel dist/native-dependencies/python/certifi-2026.10.23-py3-none-any.whl --output dist/native-delivery --identity -
+
+      - name: Build current native app on hit and miss
+        run: python3 scripts/flow-app.py build --engine dist/engine-input/flow-engine --engine-provenance dist/engine-input/release.json --delivery dist/native-delivery --identity -
 
       - name: Stage the engine artifact
-        if: steps.engine_cache.outputs.hit != 'true'
         run: |
           python3 scripts/flow-app.py stage-engine-artifact \
             --app dist/Lagrangian.app \
+            --engine dist/engine-input/flow-engine \
             --output dist/flow-engine-darwin-arm64
-          du -sh dist/flow-engine-darwin-arm64 dist/flow-engine-darwin-arm64/flow-engine dist/flow-engine-darwin-arm64/Lagrangian.app
+          du -sh dist/flow-engine-darwin-arm64 dist/flow-engine-darwin-arm64/native-delivery-artifact.tar
 
       - name: Record the published engine
         env:
@@ -159,7 +180,7 @@ jobs:
             if [ "$ENGINE_CACHE_HIT" = true ]; then
               echo "- Reused run: \`$ENGINE_SOURCE_RUN\`"
             fi
-            echo "- SHA-256: \`$(awk '{print $1}' dist/flow-engine-darwin-arm64/flow-engine.sha256)\`"
+            echo "- SHA-256: \`$(awk '{print $1}' dist/engine-input/flow-engine.sha256)\`"
             echo "- Reader bundle: \`reader-bundle-${{ github.sha }}\` and \`flow-reader-bundle\`"
             echo "- Reader headSha: \`$(python3 -c 'import json; print(json.load(open("dist/reader-bundle/reader-bundle.json"))["headSha"])')\`"
             echo "- Reader bundleChecksum: \`$(python3 -c 'import json; print(json.load(open("dist/reader-bundle/reader-bundle.json"))["bundleChecksum"])')\`"
@@ -170,10 +191,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flow-engine-darwin-arm64
-          path: dist/flow-engine-darwin-arm64
+          path: |
+            dist/flow-engine-darwin-arm64/native-delivery-artifact.json
+            dist/flow-engine-darwin-arm64/native-delivery-artifact.tar
           retention-days: 30
           if-no-files-found: error
-          compression-level: 6
+          compression-level: 0
 
       - name: Upload engine input hash
         uses: actions/upload-artifact@v4
