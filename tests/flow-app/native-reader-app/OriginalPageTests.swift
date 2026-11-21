@@ -622,6 +622,30 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             try check(!searchIconRect.isEmpty && !cancelIconRect.isEmpty, "offline PDF search and cancel icon rects are non-empty")
             try check(abs(searchIconRect.midY - fieldBounds.midY) <= 1.5 && abs(cancelIconRect.midY - fieldBounds.midY) <= 1.5, "offline PDF search and cancel icon rects vertically centered")
             try check(!searchIconRect.intersects(textRect) && !cancelIconRect.intersects(textRect) && !searchIconRect.intersects(cancelIconRect), "offline PDF search icon, text, and cancel rects do not overlap")
+            let drawFromFull = searchCell!.drawingRect(forBounds: fieldBounds)
+            let drawFromText = searchCell!.drawingRect(forBounds: textRect)
+            let titleFromText = searchCell!.titleRect(forBounds: textRect)
+            try check(abs(drawFromFull.minX - textRect.minX) <= 1.0 && abs(drawFromFull.width - textRect.width) <= 1.0, "drawingRect(forBounds: full) matches searchTextRect (draw=\(drawFromFull), text=\(textRect))")
+            try check(abs(drawFromText.minX - textRect.minX) <= 1.0 && abs(drawFromText.width - textRect.width) <= 1.0, "drawingRect(forBounds: textRect) is idempotent (draw=\(drawFromText), text=\(textRect))")
+            try check(abs(titleFromText.minX - textRect.minX) <= 1.0 && abs(titleFromText.width - textRect.width) <= 1.0, "titleRect(forBounds: textRect) is idempotent (title=\(titleFromText), text=\(textRect))")
+            let narrowBounds = NSRect(x: 0, y: 0, width: 96, height: 30)
+            let narrowText = searchCell!.searchTextRect(forBounds: narrowBounds)
+            let narrowDrawFromText = searchCell!.drawingRect(forBounds: narrowText)
+            let narrowTitleFromText = searchCell!.titleRect(forBounds: narrowText)
+            try check(narrowText.width >= 24.0, "narrow 96pt searchTextRect stays usable (\(narrowText))")
+            try check(abs(narrowDrawFromText.width - narrowText.width) <= 1.0 && abs(narrowTitleFromText.width - narrowText.width) <= 1.0, "narrow 96pt drawingRect/titleRect are idempotent (draw=\(narrowDrawFromText), title=\(narrowTitleFromText), text=\(narrowText))")
+            _ = rWin.makeFirstResponder(searchField)
+            let editor = searchField.currentEditor()
+            try check(editor != nil, "offline PDF search field activates field editor on makeFirstResponder")
+            let editorHostView: NSView = (editor?.superview != nil && editor!.superview !== searchField) ? editor!.superview! : editor!
+            let editorHostRectInField = editorHostView.convert(editorHostView.bounds, to: searchField)
+            let editorRectInField = editor!.convert(editor!.bounds, to: searchField)
+            try check(editorHostRectInField.minX >= searchIconRect.maxX - 1.0 && editorHostRectInField.maxX <= cancelIconRect.minX + 1.0 && editorHostRectInField.width >= textRect.width - 8.0 && editorHostRectInField.width >= 80.0, "offline PDF field editor host frame avoids double inset (host=\(editorHostRectInField), textRect=\(textRect), search=\(searchIconRect), cancel=\(cancelIconRect))")
+            try check(editorRectInField.minX >= searchIconRect.maxX - 1.0 && editorRectInField.maxX <= cancelIconRect.minX + 1.0 && editorRectInField.width >= textRect.width - 8.0 && editorRectInField.width >= 80.0, "offline PDF field editor frame avoids double inset (editor=\(editorRectInField), textRect=\(textRect), search=\(searchIconRect), cancel=\(cancelIconRect))")
+            let edTop = editorRectInField.minY
+            let edBot = fieldBounds.height - editorRectInField.maxY
+            try check(abs(edTop - edBot) <= 3.0, "offline PDF field editor vertically centered (edTop=\(edTop), edBot=\(edBot), editor=\(editorRectInField))")
+            rWin.makeFirstResponder(nil)
             restored.hostWindow.findField.stringValue = "FarNeedle255"
             _ = NSApp.sendAction(restored.hostWindow.findField.action!, to: restored.hostWindow.findField.target, from: restored.hostWindow.findField)
             try await until { restored.session.hasSelection && !restored.hostWindow.capsule.isHidden }

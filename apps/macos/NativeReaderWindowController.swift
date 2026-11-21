@@ -1218,21 +1218,110 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     return NSRect(x: leftEdge, y: y, width: width, height: lineHeight)
   }
 
+  private func centeredLineRect(in rect: NSRect) -> NSRect {
+    let lineHeight = min(rect.height, textLineHeight())
+    let y = rect.minY + floor((rect.height - lineHeight) / 2)
+    return NSRect(x: rect.minX, y: y, width: rect.width, height: lineHeight)
+  }
+
+  private func isFullCellBounds(_ rect: NSRect) -> Bool {
+    if let cv = controlView {
+      return abs(rect.minX - cv.bounds.minX) <= 1.0
+        && abs(rect.width - cv.bounds.width) <= 1.0
+        && abs(rect.height - cv.bounds.height) <= 1.0
+    }
+    return rect.minX <= 1.0 && rect.height > textLineHeight() + 2.0
+  }
+
   override func drawingRect(forBounds rect: NSRect) -> NSRect {
-    searchTextRect(forBounds: rect)
+    isFullCellBounds(rect) ? searchTextRect(forBounds: rect) : centeredLineRect(in: rect)
   }
 
   override func titleRect(forBounds rect: NSRect) -> NSRect {
-    searchTextRect(forBounds: rect)
+    isFullCellBounds(rect) ? searchTextRect(forBounds: rect) : centeredLineRect(in: rect)
+  }
+
+  private func positionFieldEditor(_ textObj: NSText, in controlView: NSView, cellFrame: NSRect) {
+    let targetFrame = isFullCellBounds(cellFrame) ? searchTextRect(forBounds: cellFrame) : centeredLineRect(in: cellFrame)
+    let textRect = NSRect(
+      x: targetFrame.minX,
+      y: targetFrame.minY,
+      width: max(0, targetFrame.width),
+      height: max(1, targetFrame.height)
+    )
+    guard textRect.width > 0 else { return }
+    if let clipView = textObj.superview as? NSClipView, clipView.superview === controlView {
+      let sameSize = abs(clipView.frame.width - textRect.width) <= 0.5 && abs(clipView.frame.height - textRect.height) <= 0.5
+      let preservedX = sameSize ? clipView.bounds.origin.x : 0
+      clipView.frame = textRect
+      clipView.setBoundsOrigin(NSPoint(x: preservedX, y: 0))
+      if let textView = textObj as? NSTextView {
+        textView.minSize = textRect.size
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: textRect.height)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = false
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: textRect.height)
+      }
+      let editorWidth = max(textRect.width, textObj.frame.width)
+      textObj.frame = NSRect(origin: .zero, size: NSSize(width: sameSize ? editorWidth : textRect.width, height: textRect.height))
+      if let textView = textObj as? NSTextView {
+        let range = textView.selectedRange()
+        if range.location != NSNotFound {
+          textView.scrollRangeToVisible(range)
+        }
+      }
+    } else if textObj.superview === controlView {
+      textObj.frame = textRect
+    }
+  }
+
+  override func edit(
+    withFrame rect: NSRect,
+    in controlView: NSView,
+    editor textObj: NSText,
+    delegate: Any?,
+    event: NSEvent?
+  ) {
+    super.edit(withFrame: rect, in: controlView, editor: textObj, delegate: delegate, event: event)
+    positionFieldEditor(textObj, in: controlView, cellFrame: rect)
+  }
+
+  override func select(
+    withFrame rect: NSRect,
+    in controlView: NSView,
+    editor textObj: NSText,
+    delegate: Any?,
+    start selStart: Int,
+    length selLength: Int
+  ) {
+    super.select(
+      withFrame: rect,
+      in: controlView,
+      editor: textObj,
+      delegate: delegate,
+      start: selStart,
+      length: selLength
+    )
+    positionFieldEditor(textObj, in: controlView, cellFrame: rect)
   }
 
   override func setUpFieldEditorAttributes(_ textObj: NSText) -> NSText {
     let configured = super.setUpFieldEditorAttributes(textObj)
+    let inkColor: NSColor = {
+      if let searchField = controlView as? NativeDesignSearchField {
+        return NativeAppDesign.palette(searchField.preferences).ink
+      }
+      if let controlView {
+        return NativeAppDesign.palette(.current(appearance: controlView.effectiveAppearance)).ink
+      }
+      return NativeChrome.color(\.ink)
+    }()
     if let textView = configured as? NSTextView {
       textView.drawsBackground = false
       textView.backgroundColor = .clear
-      textView.textColor = NativeChrome.color(\.ink)
-      textView.insertionPointColor = NativeChrome.color(\.ink)
+      textView.textColor = inkColor
+      textView.insertionPointColor = inkColor
     }
     return configured
   }
@@ -1356,7 +1445,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   private let displayPopoverHost = NSView()
   private let displayPopoverSurface = NativeDesignSurface()
   private var displayPopoverConstraints = [NSLayoutConstraint]()
-  private var displayPopoverMouseMonitor: Any?
+  nonisolated(unsafe) private var displayPopoverMouseMonitor: Any?
   private var themeButtons = [NativeDesignButton]()
   private let decreaseFontButton = NativeDesignButton(title: "−", target: nil, action: nil)
   private let increaseFontButton = NativeDesignButton(title: "+", target: nil, action: nil)
@@ -1577,16 +1666,9 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     more.keyEquivalent = "t"; more.keyEquivalentModifierMask = [.command, .option]
     moreButton = more
 
-    findField.bezelStyle = .roundedBezel
-    findField.isBezeled = false
-    findField.isBordered = false
-    findField.drawsBackground = false
     findField.textColor = NativeChrome.color(\.ink)
     findField.font = NativeAppDesign.Typography.font(.control)
     findField.focusRingType = .none
-    findField.sendsWholeSearchString = true
-    findField.sendsSearchStringImmediately = false
-    findField.cell?.sendsActionOnEndEditing = false
     if let cell = findField.cell as? NSSearchFieldCell {
       cell.cancelButtonCell?.target = self
       cell.cancelButtonCell?.action = #selector(clearFindField)
@@ -2166,7 +2248,6 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
         ]
         NSLayoutConstraint.activate(constraints)
         displayPopoverConstraints = constraints
-        updateDisplayPopoverAppearance()
         contentView.layoutSubtreeIfNeeded()
         displayPopoverSurface.layoutSubtreeIfNeeded()
       } else {
@@ -2200,7 +2281,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
   }
 
-  private func removeDisplayPopoverMonitor() {
+  nonisolated private func removeDisplayPopoverMonitor() {
     if let monitor = displayPopoverMouseMonitor {
       NSEvent.removeMonitor(monitor)
       displayPopoverMouseMonitor = nil
@@ -2209,6 +2290,18 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
 
   private func closeDisplayPopover() {
     removeDisplayPopoverMonitor()
+    let restoreFocusToAA: Bool = {
+      guard let responderView = window?.firstResponder as? NSView else { return false }
+      if responderView === displayPopoverHost || responderView.isDescendant(of: displayPopoverHost) {
+        return true
+      }
+      if let textView = responderView as? NSTextView,
+         let delegateView = textView.delegate as? NSView,
+         delegateView.isDescendant(of: displayPopoverHost) {
+        return true
+      }
+      return false
+    }()
     NSLayoutConstraint.deactivate(displayPopoverConstraints)
     displayPopoverConstraints.removeAll()
     if displayPopoverHost.superview != nil {
@@ -2220,6 +2313,9 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       aaButton?.state = .off
     }
     layoutDisplayPopoverSurface()
+    if restoreFocusToAA, let aaButton, !aaButton.isHiddenOrHasHiddenAncestor {
+      window?.makeFirstResponder(aaButton)
+    }
   }
 
   @objc func toggleTools() {
@@ -2918,10 +3014,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     onCapsuleLayout?()
   }
   deinit {
-    if let monitor = displayPopoverMouseMonitor {
-      NSEvent.removeMonitor(monitor)
-      displayPopoverMouseMonitor = nil
-    }
+    removeDisplayPopoverMonitor()
   }
   func windowWillClose(_ notification: Notification) { closeDisplayPopover(); cancelFind(); hideCapsule(); onClose?() }
 }
