@@ -114,42 +114,37 @@ failed() {
   notify "빌드 $id 설치 실패 (로그 확인)"
   exit "$code"
 }
-# Exit 0 when one lsof txt block lists both this file's inode and its path.
-# verify_services exports this function and calls it after the login PID and
-# command-line checks. A missing inode or a different path is not a match.
-login_process_maps_binary() {
-  local pid="$1" binary="$2" mapped inode line in_block=0 has_i=0 has_n=0
-  [[ -n "$pid" && -n "$binary" ]] || return 1
-  mapped=$(lsof -a -p "$pid" -d txt -FnDi) || return 1
-  inode=$(stat -f %i "$binary") || return 1
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == "ftxt" ]]; then
-      if (( in_block == 1 && has_i == 1 && has_n == 1 )); then
-        return 0
-      fi
-      in_block=1
-      has_i=0
-      has_n=0
-      continue
-    fi
-    if (( in_block == 1 )); then
-      # [ = ] is literal. [[ == ]] would treat a path metacharacter as a pattern.
-      if [ "$line" = "i${inode}" ]; then
-        has_i=1
-      fi
-      if [ "$line" = "n${binary}" ]; then
-        has_n=1
-      fi
-    fi
-  done <<< "$mapped"
-  if (( in_block == 1 && has_i == 1 && has_n == 1 )); then
-    return 0
-  fi
-  return 1
+# One lsof txt block must list both this file's inode and its path.
+# A missing inode, a different path, inode and path in different ftxt blocks,
+# or an lsof failure or timeout is not a match. Inode is Path.stat().st_ino.
+# verify_services uses this for the login pid and each preview pid.
+# process_maps_binary is a thin wrapper so tests can call the same helper.
+PROCESS_MAPS_PY=$(cat <<'PY'
+def process_maps_binary(pid, binary):
+    # Keep the caller's path spelling. Path() would collapse '//' and miss lsof.
+    text=str(binary)
+    if not str(pid) or not text: return False
+    try: inode='i'+str(Path(text).stat().st_ino)
+    except OSError: return False
+    try:
+        mapped=subprocess.check_output(['lsof','-a','-p',str(pid),'-d','txt','-FnDi'],text=True,timeout=15)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+    name='n'+text
+    return any(inode in block.splitlines() and name in block.splitlines() for block in mapped.split('ftxt\n')[1:])
+PY
+)
+process_maps_binary() {
+  python3 - "$1" "$2" <<PY
+${PROCESS_MAPS_PY}
+import subprocess, sys
+from pathlib import Path
+sys.exit(0 if process_maps_binary(sys.argv[1], sys.argv[2]) else 1)
+PY
 }
 verify_services() {
-  export -f login_process_maps_binary
-  python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" "$LOGIN_LABEL" <<'PY'
+  local script
+  script=$(cat <<'PY'
 import hashlib,json,os,re,subprocess,sys,urllib.parse,urllib.request
 from pathlib import Path
 mode,app,sha,snapshot,label=sys.argv[1:]
@@ -188,21 +183,14 @@ require(match is not None,'Background login job has no PID; inspect launchd/AMFI
 login_pid=match.group(1)
 command=run('ps','-ww','-p',login_pid,'-o','command=')
 require(command==str(native)+' --background','Unexpected background login process')
-# Always map the login pid onto the installed binary. The shell function is the
-# only inode+path check (one ftxt block must contain both).
-try:
-    mapped_rc=subprocess.call(['/bin/bash','-c','login_process_maps_binary "$1" "$2"','login-map',login_pid,str(native)],timeout=15)
-except subprocess.TimeoutExpired:
-    mapped_rc=1
-require(mapped_rc==0,'Background login process does not map the installed app binary')
+# Always map the login pid onto the installed binary. The same helper checks
+# each preview: one ftxt block must contain both the inode and the path.
+require(process_maps_binary(login_pid, native),'Background login process does not map the installed app binary')
 expected=json.loads(Path(snapshot).read_text())
 for profile in expected['previews']:
     state=data(native,'--status',profile['id'])
     require(state['running'] and state.get('managedByApp'),'Preview is not running: '+profile['id'])
-    mapped=run('lsof','-a','-p',str(state['pid']),'-d','txt','-FnDi')
-    inode=str(engine.stat().st_ino)
-    require(any(('i'+inode) in block.splitlines() and ('n'+str(engine)) in block.splitlines()
-                for block in mapped.split('ftxt\n')[1:]),
+    require(process_maps_binary(state['pid'], engine),
             'Preview does not map the installed engine: '+profile['id'])
     http(profile['port'])
 if mode=='complete':
@@ -234,6 +222,11 @@ if mode=='complete':
         path='/d/'+urllib.parse.quote(profile['id'],safe='')+'/' if profile.get('shared') else '/'
         http(profile['port'],path)
 print('Verified '+('app, engine and Reader' if mode=='complete' else 'app and engine'))
+PY
+)
+  python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" "$LOGIN_LABEL" <<PY
+${PROCESS_MAPS_PY}
+${script}
 PY
 }
 # Read the login job pid into LOGIN_AGENT_PID (empty when print fails or has no pid).
