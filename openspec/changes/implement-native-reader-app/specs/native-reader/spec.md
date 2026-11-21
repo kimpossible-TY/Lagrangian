@@ -407,3 +407,12 @@ expression and use actual registered scope for document equivalence.
 - **WHEN** `link/../main.typ` resolves to B while `main.typ` resolves to A
 - **THEN** their request bindings SHALL remain distinct and B pending cleanup SHALL NOT block independent A
 - **AND** original alias disappearance or retarget SHALL NOT prevent exact own withdrawal
+
+### Requirement: Minimal unified reflow toolbar and immediate appearance popover
+The native reflow reader SHALL present a single-row unified toolbar containing `목차 ▾`, `본문 | 원본 PDF`, `🔍`, `Aa`, and `•••` without a subtitle, reserving 85–90% of the viewport for the document body. The `Aa` control SHALL open an opaque popover that applies theme (`밝게 | 어둡게 | 자동`), font size (`− 16pt +`), `오프라인 저장`, and `PDF 내보내기` immediately without the three `보기 미리 보기/적용/취소` buttons. When no text is selected, the top `선택 해제`/`복사` row SHALL remain hidden; when a valid selection exists, a compact capsule SHALL surface available actions. At narrow widths (640px), secondary toolbar items SHALL collapse into `•••`.
+
+#### Scenario: Unified toolbar, immediate Aa popover, selection capsule, and narrow width
+- **WHEN** the reflow reader renders at standard or 640px narrow width, opens `Aa`, or transitions between empty and valid text selection
+- **THEN** the single-row toolbar omits any subtitle, keeps 85–90% document area, and collapses secondary items into `•••` at 640px
+- **AND** `Aa` renders an opaque popover with immediate theme/font-size/`오프라인 저장`/`PDF 내보내기` controls and no `보기 미리 보기/적용/취소` buttons
+- **AND** the top `선택 해제`/`복사` row stays hidden until a valid selection shows the compact action capsule
