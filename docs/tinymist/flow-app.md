@@ -27,7 +27,7 @@ Reading and offline actions stay in this row; project settings are not edited on
 One line below the project card reports the service and keeps its actions in the same row.
 
 - Stopped: a status dot, **프리뷰 서비스 · 중지됨**, the address `127.0.0.1:<port>`, and **Start** (시작) and **Logs** (로그).
-- Running: a status dot, **프리뷰 서비스 · 실행 중**, the address `127.0.0.1:<port>` as a clickable link, and **External Reader** (외부 Reader), **Stop** (중지), and **•••** (**재시작**, **로그 열기**).
+- Running: a status dot, **프리뷰 서비스 · 실행 중**, the address `127.0.0.1:<port>` as a clickable link, and **External Reader** (외부 Reader), **Stop** (중지), and **•••** (**재시작**, **주소 복사**, **로그 보기**).
 
 The dot follows the service state; reader-side activity is described in **Understand preview status** below.
 
@@ -63,7 +63,7 @@ Use Flow to manage a document’s live preview while editing its Typst source in
 
 ### Project controls and settings
 
-The project card’s picker selects which project the home window controls. **Stop** (중지) disables its service until you use Start again; **Restart** (다시 시작) restarts it. Closing the home window or quitting the menu bar app leaves started previews running.
+The project card’s picker selects which project the home window controls. **Stop** (중지) disables its service until you use Start again; **Restart** (재시작) restarts it. Closing the home window or quitting the menu bar app leaves started previews running.
 
 **Read** (읽기 시작) also works for an already running project and waits for its available document before native preparation. **External Reader** (외부 Reader) is the explicit web action; the existing phone/tablet web URL remains available. Service start/stop/restart controls manage the service separately from Read. Switching projects or stopping cancels the current pending Read. Service and settings operations run in the background so the window remains responsive.
 
@@ -437,7 +437,7 @@ In **원본 PDF** or a restored or offline read-only copy, you can read and copy
 
 **원본 PDF** opens the original pages with one toolbar row, including a restored offline copy.
 
-- Left: the brand mark (`NativeBrandMark`), **목차 ▾**, and the **오프라인 PDF** badge.
+- Left: the brand mark (`NativeBrandMark`), **목차 ▾**, and either the **본문 | 원본 PDF** switcher (live/online) or the **오프라인 PDF** badge (offline restored copy).
 - Center: grouped page navigation: `<`, the current page and the total page count (`current / total`), and `>`.
 - Right: the search field and the **•••** overflow menu.
 
