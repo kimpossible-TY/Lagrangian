@@ -381,8 +381,9 @@ def extract_verified_tar(archive, dest, records, archive_sha256, *, max_archive_
         if any(str(p) in expected and expected[str(p)]['kind'] != 'directory' for p in parents):
             raise ValueError('Archive link/file used as parent')
     _bounded_tar_headers(archive, max_entries, max_entry_bytes)
-    # Callers resolve symlinked parents first (macOS /var -> /private/var).
-    # This still rejects a dest whose final component is a symlink or otherwise non-canonical.
+    # Parent components are canonicalized here (macOS /var -> /private/var).
+    # The final component stays unchanged, so a symlink dest is still non-canonical.
+    dest = dest.parent.resolve() / dest.name
     if dest.resolve() != dest or dest.is_symlink() or (dest.exists() and any(dest.iterdir())):
         raise ValueError('Archive extraction requires a canonical empty owned output')
     dest.mkdir(parents=True, exist_ok=True)
@@ -548,10 +549,8 @@ def materialize(manifest, archive_path, dest):
     """Extract a checked manifest into ``dest`` and verify the tree."""
     manifest = check_manifest(manifest)
     dest = Path(dest)
-    # Parent components may have been reached through a symlink (macOS /var -> /private/var).
-    # Resolve those before extraction. The final component stays unchanged, so a symlink
-    # dest is still rejected as non-canonical.
-    dest = dest.parent.resolve() / dest.name
+    # extract_verified_tar canonicalizes parents. Reject a symlink dest before rmtree
+    # so the failure stays this error; resolving the whole dest would follow the link.
     if dest.is_symlink():
         raise ValueError('Archive extraction requires a canonical empty owned output')
     if dest.exists():
