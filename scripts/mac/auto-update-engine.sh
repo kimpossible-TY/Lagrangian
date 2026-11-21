@@ -175,6 +175,63 @@ if mode=='complete':
 print('Verified '+('app, engine and Reader' if mode=='complete' else 'app and engine'))
 PY
 }
+# launchctl print has a pid when the login agent is actually running.
+login_agent_has_pid() {
+  local target="$1" out
+  if ! out=$(launchctl print "$target" 2>/dev/null); then
+    return 1
+  fi
+  grep -Eq '^[[:space:]]*pid = [0-9]+$' <<<"$out"
+}
+# Wait up to `seconds` seconds, checking once a second. Not a spawn retry.
+# The last action is a pid check, so a late spawn is not treated as failure.
+poll_login_agent_pid() {
+  local target="$1" seconds="$2" waited=0
+  while (( waited < seconds )); do
+    sleep 1
+    waited=$((waited + 1))
+    if login_agent_has_pid "$target"; then
+      return 0
+    fi
+  done
+  return 1
+}
+# kickstart -k can lose a newly signed login agent to a Launch Constraint
+# Violation. Cap: wait, one kickstart without -k, then one bootout/enable/bootstrap.
+# verify_services still checks the PID and command line afterward.
+restart_login_agent() {
+  local uid target plist
+  uid=$(id -u)
+  target="gui/${uid}/io.github.kimpossible-ty.tinymist-flow.login"
+  plist="${HOME}/Library/LaunchAgents/io.github.kimpossible-ty.tinymist-flow.login.plist"
+
+  launchctl kickstart -k "$target" || echo "$(date) login-agent kickstart -k returned non-zero; waiting for spawn"
+  sleep 3
+  if login_agent_has_pid "$target"; then
+    return 0
+  fi
+  echo "$(date) login-agent has no pid after kickstart -k; polling up to 10s"
+  if poll_login_agent_pid "$target" 10; then
+    return 0
+  fi
+
+  echo "$(date) login-agent still has no pid; kickstart without -k"
+  launchctl kickstart "$target" || echo "$(date) login-agent kickstart without -k returned non-zero"
+  if poll_login_agent_pid "$target" 5; then
+    return 0
+  fi
+
+  echo "$(date) login-agent still has no pid; bootout/enable/bootstrap"
+  launchctl bootout "$target" || echo "$(date) login-agent bootout returned non-zero (not loaded or already unloaded); continuing"
+  launchctl enable "$target" || echo "$(date) login-agent enable returned non-zero"
+  launchctl bootstrap "gui/${uid}" "$plist" || echo "$(date) login-agent bootstrap returned non-zero"
+  if poll_login_agent_pid "$target" 5; then
+    return 0
+  fi
+
+  echo "$(date) login-agent spawn failed after kickstart -k, a second kickstart, and bootout/enable/bootstrap (inspect launchd/AMFI logs)" >&2
+  return 1
+}
 install_run() (
 local id="$1"
 # This conditional wraps only the claim helper, not install_run: ERR/errexit
@@ -211,8 +268,7 @@ python3 scripts/flow-app.py verify "$APP" >/dev/null
 # Package replacement is durable but does NOT mean activation succeeded.
 record_attempt package verified "App files verified; activation and Reader readiness still pending"
 stage package done; CUR=restart; stage restart running
-launchctl kickstart -k "gui/$(id -u)/io.github.kimpossible-ty.tinymist-flow.login"
-sleep 3
+restart_login_agent
 verify_services engine
 echo "$(date) restarted background app"
 stage restart done; CUR=reader; stage reader running
