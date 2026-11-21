@@ -114,7 +114,42 @@ failed() {
   notify "빌드 $id 설치 실패 (로그 확인)"
   exit "$code"
 }
-verify_services() { python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" "$LOGIN_LABEL" <<'PY'
+# Exit 0 when one lsof txt block lists both this file's inode and its path.
+# verify_services exports this function and calls it after the login PID and
+# command-line checks. A missing inode or a different path is not a match.
+login_process_maps_binary() {
+  local pid="$1" binary="$2" mapped inode line in_block=0 has_i=0 has_n=0
+  [[ -n "$pid" && -n "$binary" ]] || return 1
+  mapped=$(lsof -a -p "$pid" -d txt -FnDi) || return 1
+  inode=$(stat -f %i "$binary") || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == "ftxt" ]]; then
+      if (( in_block == 1 && has_i == 1 && has_n == 1 )); then
+        return 0
+      fi
+      in_block=1
+      has_i=0
+      has_n=0
+      continue
+    fi
+    if (( in_block == 1 )); then
+      # [ = ] is literal. [[ == ]] would treat a path metacharacter as a pattern.
+      if [ "$line" = "i${inode}" ]; then
+        has_i=1
+      fi
+      if [ "$line" = "n${binary}" ]; then
+        has_n=1
+      fi
+    fi
+  done <<< "$mapped"
+  if (( in_block == 1 && has_i == 1 && has_n == 1 )); then
+    return 0
+  fi
+  return 1
+}
+verify_services() {
+  export -f login_process_maps_binary
+  python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" "$LOGIN_LABEL" <<'PY'
 import hashlib,json,os,re,subprocess,sys,urllib.parse,urllib.request
 from pathlib import Path
 mode,app,sha,snapshot,label=sys.argv[1:]
@@ -153,15 +188,13 @@ require(match is not None,'Background login job has no PID; inspect launchd/AMFI
 login_pid=match.group(1)
 command=run('ps','-ww','-p',login_pid,'-o','command=')
 require(command==str(native)+' --background','Unexpected background login process')
-# A launchd job dictionary (any line besides the pid) is a real listing: the
-# process must map the installed binary. A pid-only print still has to match
-# the command line above.
-if any(ln.strip() and not re.match(r'^\s*pid = [0-9]+$', ln) for ln in login.splitlines()):
-    mapped=run('lsof','-a','-p',login_pid,'-d','txt','-FnDi')
-    inode=str(native.stat().st_ino)
-    require(any(('i'+inode) in block.splitlines() and ('n'+str(native)) in block.splitlines()
-                for block in mapped.split('ftxt\n')[1:]),
-            'Background login process does not map the installed app binary')
+# Always map the login pid onto the installed binary. The shell function is the
+# only inode+path check (one ftxt block must contain both).
+try:
+    mapped_rc=subprocess.call(['/bin/bash','-c','login_process_maps_binary "$1" "$2"','login-map',login_pid,str(native)],timeout=15)
+except subprocess.TimeoutExpired:
+    mapped_rc=1
+require(mapped_rc==0,'Background login process does not map the installed app binary')
 expected=json.loads(Path(snapshot).read_text())
 for profile in expected['previews']:
     state=data(native,'--status',profile['id'])
@@ -203,39 +236,29 @@ if mode=='complete':
 print('Verified '+('app, engine and Reader' if mode=='complete' else 'app and engine'))
 PY
 }
-# Read the login job into LOGIN_AGENT_PID and LOGIN_AGENT_LISTING.
-# A listing is any print that has a line besides "pid = N" (real launchctl print
-# is a job dictionary). A pid-only line is not previous-process evidence.
+# Read the login job pid into LOGIN_AGENT_PID (empty when print fails or has no pid).
 # Output goes to a file: a failing print inside $(...) would inherit the install
 # ERR trap (set -E) and record a false failure.
 read_login_agent_pid() {
   local target="$1" rc=0 line out
   LOGIN_AGENT_PID=""
-  LOGIN_AGENT_LISTING=0
   out=$(mktemp "${TMPDIR:-/tmp}/login-agent-print.XXXXXX")
   launchctl print "$target" >"$out" 2>/dev/null || rc=$?
   if (( rc == 0 )); then
     while IFS= read -r line || [[ -n "$line" ]]; do
       if [[ "$line" =~ ^[[:space:]]*pid\ =\ ([0-9]+)$ ]]; then
         LOGIN_AGENT_PID="${BASH_REMATCH[1]}"
-      elif [[ -n "${line//[[:space:]]/}" ]]; then
-        LOGIN_AGENT_LISTING=1
       fi
     done <"$out"
   fi
   rm -f "$out"
 }
-# A listed pid counts only when it differs from the pre-kickstart pid.
-# An empty old pid means the listing had no process to replace. A pid-only
-# print is accepted only when there was no listing to replace.
+# Success when the job has a pid and it is not the pre-kickstart pid.
+# An empty old pid means there was no process to replace.
 login_agent_is_replacement() {
   local target="$1" old_pid="$2"
   read_login_agent_pid "$target"
   [[ -n "$LOGIN_AGENT_PID" ]] || return 1
-  if (( LOGIN_AGENT_LISTING == 0 )); then
-    [[ -z "$old_pid" ]]
-    return
-  fi
   [[ -z "$old_pid" || "$LOGIN_AGENT_PID" != "$old_pid" ]]
 }
 # Wait up to `seconds` seconds, checking once a second. Not a spawn retry.
@@ -273,7 +296,7 @@ wait_login_agent_unloaded() {
 login_restart_failed() {
   local uid="$1" plist="$2"
   echo "$(date) login-agent spawn failed after kickstart -k, a second kickstart, and bootout/enable/bootstrap (inspect launchd/AMFI logs)" >&2
-  echo "$(date) RECOVERY: launchctl bootstrap gui/${uid} '${plist}'" >&2
+  echo "$(date) RECOVERY: launchctl enable gui/${uid}/${LOGIN_LABEL} && launchctl bootstrap gui/${uid} '${plist}'" >&2
   return 1
 }
 # bootout, wait until unloaded, enable, bootstrap. One full-cycle retry.
@@ -310,21 +333,18 @@ bootstrap_login_agent() {
   return 1
 }
 # kickstart -k can lose a newly signed login agent to a Launch Constraint
-# Violation. The previous pid must not satisfy the check. Cap: poll, one
-# kickstart without -k, then bootout/enable/bootstrap (one cycle retry).
-# After a successful bootstrap, poll and allow one kickstart without -k.
-# verify_services still checks the PID, command line, and binary inode.
+# Violation. The previous pid must not satisfy the check. Worst case is about
+# 50s: initial sleep 3, poll 10, poll 5, an unload wait of up to 10s on each
+# of two bootstrap cycles, poll 5 after bootstrap, then one kickstart without
+# -k and poll 5. verify_services still checks the PID, command line, and
+# binary inode.
 restart_login_agent() {
   local uid target plist old_pid
   uid=$(id -u)
   target="gui/${uid}/${LOGIN_LABEL}"
   plist="$LOGIN_PLIST"
   read_login_agent_pid "$target"
-  if (( LOGIN_AGENT_LISTING == 1 )); then
-    old_pid="$LOGIN_AGENT_PID"
-  else
-    old_pid=""
-  fi
+  old_pid="$LOGIN_AGENT_PID"
 
   launchctl kickstart -k "$target" || echo "$(date) login-agent kickstart -k returned non-zero; waiting for spawn"
   sleep 3
@@ -377,10 +397,9 @@ if [[ "$claim_rc" == 75 ]]; then
   return 0
 fi
 if [[ "$claim_rc" != 0 ]]; then
+  # The parent dedupes the notification. This subshell cannot remember LAST_*.
   echo "$(date) run $id claim failed with exit $claim_rc (permissions or invalid id); no claim was recorded"
-  stage detect failed "claim failed with exit $claim_rc" || true
-  notify "빌드 $id 클레임 실패" || true
-  return 0
+  return 76
 fi
 CUR=detect
 trap 'failed "$?" "$LINENO"' ERR
@@ -441,7 +460,7 @@ notify "빌드 $id 설치 완료"
 # One iteration returns immediately after a successful watch so selection is
 # refreshed before installation. Errors and idle iterations use the normal delay.
 watch_iteration() {
-  local running success installed
+  local running success installed rc id
   NEXT_DELAY=60
   if ! running=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s in_progress -L 1 --json databaseId -q '.[] | .databaseId'); then
     echo "$(date) could not look up in-progress runs; retrying"
@@ -483,12 +502,25 @@ watch_iteration() {
       fi
       return
     fi
-    if ! engine_cache_root >/dev/null; then
-      echo "$(date) engine cache is unavailable; skipping the claim for run $success and retrying later"
+    # 76 is a claim error. Any other non-zero status is fatal: failed() already
+    # ran inside the install subshell, and that status must still stop the updater.
+    # install_run's own preflight is the cache check before begin_attempt.
+    rc=0
+    install_run "$success" || rc=$?
+    if [[ "$rc" == 76 ]]; then
+      if [[ "${LAST_CLAIM_ERROR:-}" != "$success" ]]; then
+        echo "$(date) run $success claim failed (permissions or invalid id); no claim was recorded"
+        id="$success"
+        stage detect failed "claim failed (permissions or invalid id); no claim was recorded" || true
+        notify "빌드 $success 클레임 실패" || true
+        LAST_CLAIM_ERROR="$success"
+      fi
       NEXT_DELAY=60
-      return
+      return 0
     fi
-    install_run "$success"
+    if [[ "$rc" != 0 ]]; then
+      return "$rc"
+    fi
     # 60s whenever install_run returns, including an immediate claim hold
     # (exit 75). Catch-up of a still-newer successful run waits out this delay.
     # A successful gh run watch above leaves NEXT_DELAY at 0.
