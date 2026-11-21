@@ -119,7 +119,9 @@ printf 'auto-update watch regression passed\n'
 
 # Real install_run through watch_iteration. The gh stub fails `gh run view`,
 # which is the first command after a successful claim. A subshell keeps the
-# updater's set -e exit from aborting this script.
+# updater's set -e exit from aborting this script. HOME, SRC, APP, and
+# LOGIN_PLIST are redirected under TEST_DIR first so a fail-open regression
+# cannot reach live services.
 eval "$saved_install_run"
 printf '100\n' > "$STATE"
 RUNNING=''; SUCCESS=201; WATCH_RESULT=0; LIST_ERROR=0
@@ -129,6 +131,24 @@ ENGINE_CACHE_CONFIGURED="$TEST_DIR/engine-cache"
 notify() { :; }
 launchctl() { printf '%s\n' "$*" >> "$TEST_DIR/s1-launch.log"; return 1; }
 git() { printf '%s\n' "$*" >> "$TEST_DIR/s1-git.log"; return 1; }
+saved_home="$HOME"
+saved_src="$SRC"
+saved_app="$APP"
+saved_login_plist="$LOGIN_PLIST"
+HOME="$TEST_DIR/home"
+mkdir -p \
+  "$HOME/Library/Application Support/Lagrangian" \
+  "$HOME/Library/LaunchAgents" \
+  "$HOME/Applications" \
+  "$HOME/Developer/lagrangian"
+SRC="$HOME/Developer/lagrangian"
+APP="$HOME/Applications/Lagrangian.app"
+LOGIN_PLIST="$HOME/Library/LaunchAgents/${LOGIN_LABEL}.plist"
+cat > "$HOME/Library/Application Support/Lagrangian/refresh-reader-engine.sh" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+chmod +x "$HOME/Library/Application Support/Lagrangian/refresh-reader-engine.sh"
 rc=0
 set +e
 (watch_iteration)
@@ -150,6 +170,10 @@ fi
 unset -f launchctl git
 eval "$saved_notify"
 install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
+HOME="$saved_home"
+SRC="$saved_src"
+APP="$saved_app"
+LOGIN_PLIST="$saved_login_plist"
 printf 'auto-update install failure leaves the marker unchanged\n'
 
 rc=0
@@ -160,7 +184,7 @@ rc=0
 begin_attempt 9001 || rc=$?
 [[ "$rc" == 75 ]]
 rc=0
-begin_attempt 'not-a-run' || rc=$?
+begin_attempt 'not-a-run' 2>/dev/null || rc=$?
 [[ "$rc" != 0 && "$rc" != 75 ]]
 [[ ! -e "$ATTEMPTS/not-a-run" ]]
 
@@ -444,7 +468,7 @@ inode_file="$TEST_DIR/login-bin"
 printf 'binary\n' > "$inode_file"
 # Python spawns lsof, so a shell function would not be visible. The stub is an
 # executable on PATH and reads the case from the environment.
-expected_inode=$(stat -f %i "$inode_file")
+expected_inode=$(python3 -c 'import os,sys;print(os.stat(sys.argv[1]).st_ino)' "$inode_file")
 stubbin="$TEST_DIR/bin"
 mkdir -p "$stubbin"
 cat > "$stubbin/lsof" <<'EOF'
@@ -475,6 +499,11 @@ fi
 LSOF_MODE=split
 if process_maps_binary 42 "$inode_file"; then
   echo 'inode and path in different blocks mapped as a match' >&2
+  exit 1
+fi
+LSOF_MODE=fail
+if process_maps_binary 42 "$inode_file"; then
+  echo 'lsof failure mapped as the installed binary' >&2
   exit 1
 fi
 PATH="$saved_path"
