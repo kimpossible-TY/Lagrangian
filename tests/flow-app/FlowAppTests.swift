@@ -274,6 +274,7 @@ struct FlowAppTests {
       check(!startBtn.isHidden && !logsBtn.isHidden && extBtn.isHidden && stopBtn.isHidden && delegate.serviceOverflowButton.isHidden, "stop did not restore stopped card state")
     case "separated-settings-sheet":
       check(!delegate.isSettingsPresented, "settings sheet should start closed")
+      check(delegate.enabled(#selector(FlowApp.showSettings)), "showSettings should be enabled with active project")
       let saveButton = delegate.controls[#selector(FlowApp.save)]!
       let revealButton = delegate.controls[#selector(FlowApp.revealSettings)]!
       let closeButton = delegate.controls[#selector(FlowApp.closeSettings)]!
@@ -291,11 +292,41 @@ struct FlowAppTests {
       check(delegate.isSettingsPresented, "showSettings did not open settings sheet")
       check(!delegate.window.isVisible && NSApp.activationPolicy() == .prohibited, "showSettings violated offscreen policy")
 
+      let homePhaseBeforeSettingsError = delegate.snapshot?.phase
       delegate.fields["port"]!.stringValue = "bad-port"
       saveButton.performClick(nil)
       check(delegate.isSettingsPresented, "invalid save should keep settings sheet open")
       check(!delegate.settingsStatus.isHidden && delegate.settingsStatus.stringValue.contains("포트"), "settings sheet inline error missing")
+      check(delegate.snapshot?.phase == homePhaseBeforeSettingsError && delegate.snapshot?.phase != .failed,
+            "settings sheet validation error polluted Home snapshot.phase")
 
+      delegate.fields["port"]!.stringValue = String(profile.port)
+      delegate.fields["entry"]!.stringValue = "missing-entry.typ"
+      saveButton.performClick(nil)
+      waitUntil("async settings validation failure") { !delegate.mutating && !delegate.settingsStatus.isHidden }
+      check(delegate.isSettingsPresented, "async save error should keep settings sheet open")
+      check(delegate.settingsStatus.stringValue.contains("진입 파일"), "async settings error missing")
+      waitUntil("home snapshot restored without failure") { delegate.snapshot?.phase == .stopped }
+      check(delegate.snapshot?.phase != .failed, "async settings mutation error polluted Home snapshot.phase")
+
+      delegate.fields["name"]!.stringValue = "Cancelled unsaved name"
+      closeButton.performClick(nil)
+      check(!delegate.isSettingsPresented, "close button should dismiss settings sheet after error")
+      check(delegate.fields["name"]!.stringValue == profile.name, "cancelled name edit was not discarded")
+      check(delegate.fields["entry"]!.stringValue == profile.entry, "cancelled entry edit was not discarded")
+      check(delegate.settingsStatus.isHidden && delegate.settingsStatus.stringValue.isEmpty, "settingsStatus not cleared on cancel")
+
+      delegate.openPreview()
+      waitUntil("openPreview after cancelled settings") { probes.count == 1 }
+      check(delegate.active?.name == profile.name, "cancelled settings edit leaked into openPreview")
+      probes[0](.ready)
+      waitUntil("openPreview ready after cancelled settings") { opens.count == 1 }
+      delegate.stop()
+      waitUntil("stopped after cancelled settings check") { delegate.snapshot?.phase == .stopped }
+      probes.removeAll()
+      opens.removeAll()
+
+      delegate.showSettings()
       delegate.fields["port"]!.stringValue = String(profile.port)
       delegate.fields["name"]!.stringValue = "Sheet updated"
       saveButton.performClick(nil)
@@ -304,10 +335,32 @@ struct FlowAppTests {
       check(saved.profiles[0].name == "Sheet updated", "sheet save did not persist")
       check(!delegate.isSettingsPresented, "successful save should close settings sheet")
 
+      let longDir = root.appendingPathComponent(String(repeating: "very-long-segment-", count: 7))
+      try FileManager.default.createDirectory(at: longDir, withIntermediateDirectories: true)
+      try Data("Hello".utf8).write(to: longDir.appendingPathComponent("main.typ"))
+      delegate.settings.profiles[0].root = longDir.path
+      delegate.populate()
       delegate.showSettings()
       check(delegate.isSettingsPresented, "reopening settings sheet failed")
+      delegate.settingsStatus.stringValue = "1줄 오류 메시지: 경로 확인 필요\n2줄 오류 메시지: 프로젝트 설정을 다시 확인하세요\n3줄 오류 메시지: 포트와 진입 파일을 확인하세요"
+      delegate.settingsStatus.isHidden = false
+      sheetRoot.layoutSubtreeIfNeeded()
+      check(delegate.settingsWindow!.frame.width <= 580, "settings sheet width blew up: \(delegate.settingsWindow!.frame.width)")
+      check(sheetRoot.bounds.width <= 580, "settings sheet content width blew up: \(sheetRoot.bounds.width)")
+      let statusFrame = delegate.settingsStatus.convert(delegate.settingsStatus.bounds, to: sheetRoot)
+      for button in [revealButton, closeButton, saveButton] {
+        let frame = button.convert(button.bounds, to: sheetRoot)
+        check(sheetRoot.bounds.contains(frame), "settings button clipped: \(button.identifier?.rawValue ?? button.title)")
+        check(!frame.intersects(statusFrame), "settings button overlapped 3-line status")
+      }
       closeButton.performClick(nil)
       check(!delegate.isSettingsPresented, "close button did not dismiss settings sheet")
+
+      delegate.settings = Settings(selectedID: "", profiles: [])
+      delegate.populate()
+      check(!delegate.enabled(#selector(FlowApp.showSettings)), "showSettings must be disabled when active == nil")
+      delegate.showSettings()
+      check(!delegate.isSettingsPresented, "showSettings must not open when active == nil")
     case "render":
       delegate.session.reportFailure(
         FlowError(

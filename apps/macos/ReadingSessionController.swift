@@ -234,7 +234,7 @@ final class ReadingSessionController {
 
   /// Settings, project and login mutations use the same worker as service control.
   func performMutation<T>(
-    message: String, work: @escaping () throws -> T,
+    message: String, reportFailureToSession: Bool = true, work: @escaping () throws -> T,
     completion: @escaping (Result<T, Error>) -> Void
   ) {
     guard !disposed, !storageMutationRunning else {
@@ -255,9 +255,12 @@ final class ReadingSessionController {
         guard self.isCurrent(current) else { return }
         self.commandRunning = false
         self.storageMutationRunning = false
-        if case .failure(let error) = result { self.fail(error.localizedDescription) }
+        if case .failure(let error) = result, reportFailureToSession { self.fail(error.localizedDescription) }
         completion(result)
-        if case .success = result, self.isCurrent(current), !self.sleeping { self.refresh() }
+        if self.isCurrent(current), !self.sleeping {
+          if case .success = result { self.refresh() }
+          else if !reportFailureToSession { self.refresh() }
+        }
       }
     }
   }
@@ -509,6 +512,7 @@ struct FlowRuntimeConfiguration {
   let isolated: Bool
   let fixture: URL?
   let noActivate: Bool
+  let devIsolatedServicePreview: Bool
   let nativeRuntimePaths: [String]?
   let nativeManager: String?
 
@@ -527,6 +531,8 @@ struct FlowRuntimeConfiguration {
     }
     let noActivate = remaining.contains("--dev-no-activate")
     remaining.removeAll { $0 == "--dev-no-activate" }
+    let devIsolatedServicePreview = remaining.contains("--dev-isolated-service-preview")
+    remaining.removeAll { $0 == "--dev-isolated-service-preview" }
     let manager = try option("--native-reader-manager")
     if let manager, !manager.hasPrefix("/") { throw FlowError(message: "Manager must be an explicit absolute executable") }
     let runtimeNode = try option("--native-reader-node")
@@ -572,7 +578,7 @@ struct FlowRuntimeConfiguration {
         throw FlowError(message: "LaunchAgent operations are disabled with a dev root")
       }
     }
-    guard (!noActivate && runtimeNode == nil && manager == nil) || rootPath != nil else {
+    guard (!noActivate && !devIsolatedServicePreview && runtimeNode == nil && manager == nil) || rootPath != nil else {
       throw FlowError(message: "Dev presentation/runtime options require an explicit dev root")
     }
     guard fixturePath == nil || rootPath != nil else {
@@ -582,6 +588,9 @@ struct FlowRuntimeConfiguration {
       throw FlowError(message: "Native fixture path must be absolute")
     }
     if fixturePath != nil {
+      guard !devIsolatedServicePreview else {
+        throw FlowError(message: "Fixture mode cannot be combined with isolated service preview")
+      }
       guard manager == nil, runtimePaths.allSatisfy({ $0 == nil }) else {
         throw FlowError(message: "Fixture mode uses bundled math only, without a manager or runtime override")
       }
@@ -591,6 +600,7 @@ struct FlowRuntimeConfiguration {
     }
     self.nativeManager = manager
     self.noActivate = noActivate
+    self.devIsolatedServicePreview = devIsolatedServicePreview
     self.nativeRuntimePaths = runtimeNode == nil ? nil : runtimePaths.compactMap { $0 }
     self.arguments = remaining
     self.variables = vars
@@ -606,6 +616,35 @@ final class IsolatedProjectController: ProjectControlling {
   func jobPID(_ label: String) -> Int? { nil }
   func control(_ action: String, _ profile: Profile) throws {
     throw FlowError(message: "격리 모드에서는 LaunchAgent 제어를 사용할 수 없습니다.")
+  }
+}
+
+/// In-memory service simulator for isolated dogfood previews; never touches launchd.
+final class SimulatedIsolatedProjectController: ProjectControlling {
+  private let lock = NSLock()
+  private var pids: [String: Int] = [:]
+
+  func jobPID(_ label: String) -> Int? {
+    lock.lock()
+    defer { lock.unlock() }
+    return pids[label]
+  }
+
+  func control(_ action: String, _ profile: Profile) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    switch action {
+    case "start":
+      if pids[profile.label] == nil {
+        pids[profile.label] = 90001
+      }
+    case "stop":
+      pids[profile.label] = nil
+    case "restart":
+      pids[profile.label] = (pids[profile.label] ?? 90000) + 1
+    default:
+      throw FlowError(message: "지원하지 않는 서비스 동작입니다: \(action)")
+    }
   }
 }
 

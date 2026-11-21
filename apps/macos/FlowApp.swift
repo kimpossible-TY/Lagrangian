@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let startupTimeline: NativeStartupTimeline?
   let isolated: Bool
+  let devIsolatedServicePreview: Bool
   let fixture: URL?
   var fixtureMode: Bool { isolated && fixture != nil }
   var openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
@@ -28,10 +29,11 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   let environment: AppEnvironment
   let store: SettingsStore
   let launchAgents: LaunchAgentService
+  private let serviceController: ProjectControlling
   let projectService: ProjectService
   var settings = Settings()
   lazy var session = ReadingSessionController(
-    launchAgents: isolated ? IsolatedProjectController() : launchAgents,
+    launchAgents: serviceController,
     onChange: { [weak self] snapshot in self?.render(snapshot) },
     openBrowser: { [weak self] url in
       guard let self, !self.fixtureMode else { return false }
@@ -45,7 +47,14 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     nativeEvent: { [weak self] event in
       guard let self, self.nativeProfile == self.active, let window = self.nativeWindow else { return false }
       return MainActor.assumeIsolated { window.environmentChanged(event) }
-    }
+    },
+    probe: devIsolatedServicePreview
+      ? { [serviceController] profile, completion in
+        let ready = serviceController.jobPID(profile.label) != nil
+        completion(ready ? .ready : .waiting("엔진이 아직 실행되지 않았습니다."))
+        return {}
+      }
+      : PreviewReadinessProbe.start
   )
   /// The same production composition is called by Read and isolated offscreen
   /// tests; service inventory and window visibility remain explicit inputs.
@@ -104,7 +113,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   var readingIntent = 0
 
   init(environment: AppEnvironment, projectService: ProjectService? = nil,
-       isolated: Bool = false, fixture: URL? = nil,
+       isolated: Bool = false, devIsolatedServicePreview: Bool? = nil, fixture: URL? = nil,
        noActivate: Bool = false, startupTimeline: NativeStartupTimeline? = nil, nativeRuntime: NativeReaderRuntime? = nil, nativeManager: URL? = nil, showNativeWindow: Bool = true) {
     self.startupTimeline = startupTimeline
     self.noActivate = noActivate
@@ -112,6 +121,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     self.nativeRuntime = nativeRuntime
     self.isolated = isolated
     self.fixture = fixture
+    let previewService = isolated && fixture == nil && (devIsolatedServicePreview ?? CommandLine.arguments.contains("--dev-isolated-service-preview"))
+    self.devIsolatedServicePreview = previewService
     self.environment = environment
     let privateBoard = isolated ? NSPasteboard(name: Self.isolatedCopyBoard(home: environment.userHome)) : nil
     copyText = { text in
@@ -120,8 +131,16 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       return board.setString(text, forType: .string)
     }
     store = SettingsStore(directory: environment.support, localReplacement: environment.fixtureRoot != nil)
-    launchAgents = LaunchAgentService(environment: environment)
-    self.projectService = projectService ?? ProjectService(store: store, launchAgents: isolated ? IsolatedProjectController() : launchAgents)
+    let realAgents = LaunchAgentService(environment: environment)
+    launchAgents = realAgents
+    let effectiveAgents: ProjectControlling
+    if isolated {
+      effectiveAgents = previewService ? SimulatedIsolatedProjectController() as ProjectControlling : IsolatedProjectController()
+    } else {
+      effectiveAgents = realAgents
+    }
+    self.serviceController = effectiveAgents
+    self.projectService = projectService ?? ProjectService(store: store, launchAgents: effectiveAgents)
     super.init()
     startupTimeline?.owner = self
     if let manager = nativeManager, !fixtureMode {
@@ -135,6 +154,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   var settingsWindow: NSWindow?
   private(set) var isSettingsPresented = false
+  private var settingsSaved = false
   /// Explicit profile-local consent. Choosing a descriptor never scans editors or
   /// grants registration through HTTP. Reconnect requires this action again.
   @MainActor @objc func connectEditor() {
@@ -196,31 +216,54 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     offlineWindow = window
     window.openOfflineLibrary(profile)
   }
-  @objc func showSettings() {
-    showWindow()
-    refreshSettingsHeader()
-    if snapshot?.phase != .failed {
-      settingsStatus.stringValue = ""
-      settingsStatus.isHidden = true
+  private func syncFieldsFromActive() {
+    if let p = active {
+      for (key, value) in [
+        "name": p.name, "root": p.root, "entry": p.entry, "fonts": p.fonts.joined(separator: "; "),
+        "packages": p.packages, "port": String(p.port), "publicURL": p.publicURL,
+      ] { fields[key]?.stringValue = value }
+    } else {
+      for field in fields.values { field.stringValue = "" }
     }
+    refreshSettingsHeader()
+  }
+  private func discardUnsavedSettingsEdits() {
+    syncFieldsFromActive()
+    settingsStatus.stringValue = ""
+    settingsStatus.isHidden = true
+    refreshStatusColor()
+  }
+  @objc func showSettings() {
+    guard active != nil, window?.attachedSheet == nil else { return }
+    showWindow()
+    settingsSaved = false
+    discardUnsavedSettingsEdits()
     guard let sheet = settingsWindow else { return }
     isSettingsPresented = true
-    if NSApp.activationPolicy() != .prohibited && window?.isVisible == true {
-      if window.attachedSheet == nil {
-        window.beginSheet(sheet) { [weak self] _ in
-          self?.isSettingsPresented = false
+    if NSApp.activationPolicy() != .prohibited, let window, window.isVisible, window.attachedSheet == nil {
+      window.beginSheet(sheet) { [weak self] _ in
+        guard let self else { return }
+        self.isSettingsPresented = false
+        if !self.settingsSaved {
+          self.discardUnsavedSettingsEdits()
         }
+        self.settingsSaved = false
       }
     }
     sheet.makeFirstResponder(fields["name"])
   }
   @objc func closeSettings() {
+    let wasPresented = isSettingsPresented
     isSettingsPresented = false
     guard let sheet = settingsWindow else { return }
     if let window, window.attachedSheet === sheet {
       window.endSheet(sheet)
     } else {
       sheet.orderOut(nil)
+      if wasPresented && !settingsSaved {
+        discardUnsavedSettingsEdits()
+      }
+      settingsSaved = false
     }
   }
   var statusItem: NSStatusItem!
@@ -684,9 +727,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   private func buildSettingsWindow() {
     let sheet = NativeReaderEditingWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 580, height: 430),
+      contentRect: NSRect(x: 0, y: 0, width: 580, height: 480),
       styleMask: [.titled, .closable], backing: .buffered, defer: false)
-    sheet.minSize = NSSize(width: 500, height: 390)
+    sheet.minSize = NSSize(width: 500, height: 440)
     NativeChrome.install(on: sheet)
     sheet.title = "프로젝트 설정"
     sheet.identifier = NSUserInterfaceItemIdentifier("settings.window")
@@ -711,11 +754,18 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let heading = NSTextField(labelWithString: "프로젝트 설정")
     heading.font = NativeAppDesign.Typography.font(.heading)
     settingsProjectLabel.font = NativeAppDesign.Typography.font(.caption)
+    settingsProjectLabel.lineBreakMode = .byTruncatingMiddle
+    settingsProjectLabel.maximumNumberOfLines = 1
+    settingsProjectLabel.usesSingleLineMode = true
+    settingsProjectLabel.cell?.truncatesLastVisibleLine = true
+    settingsProjectLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     let headerStack = NSStackView(views: [heading, settingsProjectLabel])
     headerStack.orientation = .vertical
     headerStack.alignment = .leading
     headerStack.spacing = 4
     container.addArrangedSubview(headerStack)
+    headerStack.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
+    settingsProjectLabel.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
 
     let definitions = [
       ("name", "프로젝트 이름"), ("root", "프로젝트 폴더"), ("entry", "진입 파일"), ("fonts", "글꼴 폴더 ( ; 구분)"),
@@ -765,11 +815,13 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     grid.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
 
     settingsHintLabel.font = NativeAppDesign.Typography.font(.caption)
+    settingsHintLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     container.addArrangedSubview(settingsHintLabel)
     settingsHintLabel.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
 
     settingsStatus.font = NativeAppDesign.Typography.font(.caption)
     settingsStatus.maximumNumberOfLines = 3
+    settingsStatus.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     settingsStatus.identifier = NSUserInterfaceItemIdentifier("settings.status")
     settingsStatus.setAccessibilityLabel("설정 저장 상태")
     settingsStatus.isHidden = true
@@ -821,8 +873,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard let p = active else {
       pathCaption.stringValue = "프로젝트를 추가해 시작하세요"
       pathCaption.toolTip = nil
-      for field in fields.values { field.stringValue = "" }
-      refreshSettingsHeader()
+      syncFieldsFromActive()
       updateControls()
       renderServiceCard()
       return
@@ -830,11 +881,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let fullPath = p.path(p.entry)
     pathCaption.stringValue = fullPath
     pathCaption.toolTip = fullPath
-    for (key, value) in [
-      "name": p.name, "root": p.root, "entry": p.entry, "fonts": p.fonts.joined(separator: "; "),
-      "packages": p.packages, "port": String(p.port), "publicURL": p.publicURL,
-    ] { fields[key]?.stringValue = value }
-    refreshSettingsHeader()
+    syncFieldsFromActive()
     updateControls()
     renderServiceCard()
   }
@@ -879,13 +926,6 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     feedbackStack.isHidden = !showFeedback
     let showDetail = !snapshot.detail.isEmpty && (snapshot.phase == .failed || snapshot.detail != active?.url)
     detail.isHidden = !showDetail
-    if snapshot.phase == .failed {
-      settingsStatus.stringValue = snapshot.detail.isEmpty ? snapshot.message : snapshot.detail
-      settingsStatus.isHidden = false
-    } else if !mutating {
-      settingsStatus.stringValue = ""
-      settingsStatus.isHidden = true
-    }
     refreshStatusColor()
     if snapshot.isBusy { activity.startAnimation(nil) } else { activity.stopAnimation(nil) }
     let readTitle = snapshot.phase == .failed ? "다시 읽기" : "읽기 시작"
@@ -901,7 +941,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     guard let action else { return true }
     if fixtureMode && [#selector(connectEditor), #selector(disconnectEditor), #selector(addProject),
         #selector(openLogs), #selector(revealSettings), #selector(browseRoot), #selector(guide), #selector(about)].contains(action) { return false }
-    if isolated && [#selector(toggleLogin), #selector(start), #selector(stop),
+    if isolated && action == #selector(toggleLogin) { return false }
+    if isolated && !devIsolatedServicePreview && [#selector(start), #selector(stop),
                     #selector(restart), #selector(openExternalPreview)].contains(action) { return false }
     if [#selector(addProject), #selector(toggleLogin)].contains(action) {
       return !mutating && snapshot?.isBusy != true
@@ -913,7 +954,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     if action == #selector(browseRoot) { return active != nil && !mutating }
     if action == #selector(stop) { return active != nil && !mutating }
-    if [#selector(copyURL), #selector(openLogs), #selector(openOffline)].contains(action) { return active != nil }
+    if [#selector(copyURL), #selector(openLogs), #selector(openOffline), #selector(showSettings)].contains(action) { return active != nil }
     return true
   }
   func refreshStatusColor() {
@@ -926,7 +967,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     serviceAddressLabel.textColor = palette.secondaryInk
     settingsProjectLabel.textColor = palette.secondaryInk
     settingsHintLabel.textColor = palette.secondaryInk
-    settingsStatus.textColor = snapshot?.phase == .failed ? palette.error : palette.secondaryInk
+    settingsStatus.textColor = (!settingsStatus.isHidden && !settingsStatus.stringValue.isEmpty) ? palette.error : palette.secondaryInk
     for selector in [#selector(addProject), #selector(showSettings)] {
       if let btn = controls[selector] {
         btn.contentTintColor = btn.isEnabled ? palette.ink : palette.disabledInk
@@ -960,7 +1001,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     for (action, control) in controls { control.isEnabled = enabled(action) }
     projectOverflowButton.isEnabled = !mutating
     serviceOverflowButton.isEnabled = active != nil && !mutating
-    serviceAddressLink.isEnabled = !fixtureMode && !isolated && active != nil
+    serviceAddressLink.isEnabled = !fixtureMode && (!isolated || devIsolatedServicePreview) && active != nil
     settingsFooterButton.isEnabled = enabled(#selector(showSettings))
     refreshStatusColor()
   }
@@ -1003,13 +1044,15 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return menu
   }
   @objc func showProjectMenu(_ sender: NSButton) {
-    projectOverflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+    let y: CGFloat = sender.isFlipped ? sender.bounds.height + 4 : -4
+    projectOverflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: sender)
   }
   @objc func showServiceMenu(_ sender: NSButton) {
-    serviceOverflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+    let y: CGFloat = sender.isFlipped ? sender.bounds.height + 4 : -4
+    serviceOverflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: sender)
   }
   @objc func openAddressLink() {
-    guard !fixtureMode, !isolated, let p = active, let url = URL(string: p.url) else { return }
+    guard !fixtureMode, (!isolated || devIsolatedServicePreview), let p = active, let url = URL(string: p.url) else { return }
     _ = openExternalURL(url)
   }
   @objc func browseRoot() {
@@ -1023,13 +1066,14 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled(menuItem.action) }
   func mutate<T>(
-    _ message: String, work: @escaping () throws -> T, success: @escaping (T) -> Void
+    _ message: String, reportFailureToSession: Bool = true, onFailure: ((Error) -> Void)? = nil,
+    work: @escaping () throws -> T, success: @escaping (T) -> Void
   ) {
     guard !mutating else { return }
     mutating = true
     updateControls()
     let timeline = startupTimeline
-    session.performMutation(message: message, work: work) { [weak self] result in
+    session.performMutation(message: message, reportFailureToSession: reportFailureToSession, work: work) { [weak self] result in
       timeline?.record("completion-owner", ["weakOwnerPresent": self != nil])
       guard let self else { return }
       self.mutating = false
@@ -1042,7 +1086,11 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
           self.picker.selectItem(at: index)
         }
         self.session.select(self.active)
-        self.session.reportFailure(error)
+        if reportFailureToSession {
+          self.session.reportFailure(error)
+        } else {
+          onFailure?(error)
+        }
       }
       self.updateControls()
       let selectedHash = SHA256.hash(data: Data(self.settings.selectedID.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -1110,6 +1158,11 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     updated.publicURL = value("publicURL")
     return updated
   }
+  private func showSettingsError(_ error: Error) {
+    settingsStatus.stringValue = error.localizedDescription
+    settingsStatus.isHidden = false
+    refreshStatusColor()
+  }
   func saveProfile(readAfterSaving: Bool, external: Bool = false) {
     guard !(fixtureMode && external), !mutating else { return }
     let intent = readingIntent
@@ -1117,13 +1170,23 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       let updated = try editedProfile()
       if updated == active {
         if readAfterSaving { external ? session.readExternally() : session.read() }
-        else { closeSettings() }
+        else {
+          settingsStatus.stringValue = ""
+          settingsStatus.isHidden = true
+          refreshStatusColor()
+          settingsSaved = true
+          closeSettings()
+        }
         return
       }
       let previous = settings
       let service = projectService
       mutate(
         "설정을 확인하고 저장하는 중…",
+        reportFailureToSession: readAfterSaving,
+        onFailure: readAfterSaving ? nil : { [weak self] error in
+          self?.showSettingsError(error)
+        },
         work: {
           try service.updateProfile(updated, in: previous)
         },
@@ -1131,16 +1194,28 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
           guard let self else { return }
           self.settings = next
           self.populate()
-          if !readAfterSaving { self.closeSettings() }
+          if !readAfterSaving {
+            self.settingsStatus.stringValue = ""
+            self.settingsStatus.isHidden = true
+            self.refreshStatusColor()
+            self.settingsSaved = true
+            self.closeSettings()
+          }
           if readAfterSaving && self.readingIntent == intent {
             external ? self.session.readExternally() : self.session.read()
           }
         })
-    } catch { session.reportFailure(error) }
+    } catch {
+      if readAfterSaving {
+        session.reportFailure(error)
+      } else {
+        showSettingsError(error)
+      }
+    }
   }
   @objc func save() { saveProfile(readAfterSaving: false) }
   func perform(_ action: String) {
-    guard !mutating, !isolated else { return }
+    guard !mutating, (!isolated || devIsolatedServicePreview) else { return }
     readingIntent += 1
     session.control(action)
   }

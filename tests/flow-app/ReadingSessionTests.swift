@@ -169,6 +169,36 @@ enum ReadingSessionTests {
         throw FlowError(message: "symlink escape accepted")
       } catch let error as FlowError { try require(error.message != "symlink escape accepted", error.message) }
 
+      let previewConfig = try FlowRuntimeConfiguration(
+        arguments: ["--dev-root", dev.path, "--dev-isolated-service-preview"],
+        variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
+      try require(previewConfig.isolated && previewConfig.devIsolatedServicePreview && previewConfig.arguments.isEmpty,
+                  "dev-isolated-service-preview not parsed")
+      do {
+        _ = try FlowRuntimeConfiguration(
+          arguments: ["--dev-isolated-service-preview"],
+          variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
+        throw FlowError(message: "isolated service preview accepted without dev root")
+      } catch let error as FlowError {
+        try require(error.message == "Dev presentation/runtime options require an explicit dev root", error.message)
+      }
+      do {
+        _ = try FlowRuntimeConfiguration(
+          arguments: ["--dev-root", dev.path, "--dev-isolated-service-preview", "--native-reader-fixture", "/tmp/fixture"],
+          variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
+        throw FlowError(message: "isolated service preview accepted with fixture")
+      } catch let error as FlowError {
+        try require(error.message != "isolated service preview accepted with fixture", error.message)
+      }
+      let simulator = SimulatedIsolatedProjectController()
+      try require(simulator.jobPID(fixture.profile.label) == nil, "simulator must start stopped")
+      try simulator.control("start", fixture.profile)
+      try require(simulator.jobPID(fixture.profile.label) == 90001, "simulator start PID mismatch")
+      try simulator.control("restart", fixture.profile)
+      try require(simulator.jobPID(fixture.profile.label) == 90002, "simulator restart did not increment PID")
+      try simulator.control("stop", fixture.profile)
+      try require(simulator.jobPID(fixture.profile.label) == nil, "simulator stop did not clear PID")
+
     case "read-once":
       try fixture.begin()
       controller.read()
@@ -535,6 +565,32 @@ enum ReadingSessionTests {
     try require(app.nativeWindow == nil && !app.window.isVisible, "unavailable read activated a window")
     try require(!app.enabled(#selector(FlowApp.toggleLogin)), "isolated login mutation enabled")
     try require(!app.enabled(#selector(FlowApp.start)), "isolated launchd control enabled")
+
+    let previewApp = FlowApp(environment: environment, isolated: true, devIsolatedServicePreview: true)
+    var externalOpens: [URL] = []
+    previewApp.openExternalURL = { url in externalOpens.append(url); return true }
+    previewApp.settings = Settings(selectedID: profile.id, profiles: [profile])
+    previewApp.buildWindow()
+    previewApp.populate()
+    defer { previewApp.session.dispose(); previewApp.window.close() }
+    try spin { previewApp.snapshot?.phase == .stopped }
+    try require(previewApp.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨", "preview app did not start stopped")
+    try require(!previewApp.enabled(#selector(FlowApp.toggleLogin)), "preview app must keep login disabled")
+    try require(previewApp.enabled(#selector(FlowApp.start)), "preview app must enable start")
+    try require(previewApp.enabled(#selector(FlowApp.stop)), "preview app must enable stop")
+    try require(previewApp.enabled(#selector(FlowApp.restart)), "preview app must enable restart")
+    try require(previewApp.enabled(#selector(FlowApp.openExternalPreview)), "preview app must enable external preview")
+    previewApp.start()
+    try spin { previewApp.snapshot?.phase == .ready && previewApp.snapshot?.pid == 90001 }
+    try require(previewApp.serviceStatusLabel.stringValue == "프리뷰 서비스 · 실행 중", "preview app did not toggle to running")
+    previewApp.restart()
+    try spin { previewApp.snapshot?.phase == .ready && previewApp.snapshot?.pid == 90002 }
+    previewApp.stop()
+    try spin { previewApp.snapshot?.phase == .stopped && previewApp.snapshot?.pid == nil }
+    try require(previewApp.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨", "preview app did not toggle back to stopped")
+    previewApp.openExternalPreview()
+    try spin { externalOpens.count == 1 && previewApp.snapshot?.phase == .ready }
+    try require(!previewApp.window.isVisible, "preview app activated a window")
     return
   }
   throw FlowError(message: "Unknown native test; integrated object host tests live in test_app_integration.py")
