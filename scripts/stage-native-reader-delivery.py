@@ -535,6 +535,7 @@ def replace_verified(candidate, output):
 
 def publish_verified(candidate, output, verifier):
     """Exchange a verified candidate without a remove/rename interruption gap."""
+    output = Path(output).absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
     require(output.parent.resolve() == output.parent and not output.is_symlink(), 'output path/symlink')
     if output.exists():
