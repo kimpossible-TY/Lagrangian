@@ -77,6 +77,15 @@ class ReadingUI(unittest.TestCase):
     def test_sleep_during_settings_save_cancels_pending_read(self):
         self.scenario('sleep-save')
 
+    def test_minimal_home_layout_has_no_subtitle_or_legacy_clutter(self):
+        self.scenario('minimal-home-layout')
+
+    def test_preview_service_card_adapts_between_stopped_and_running(self):
+        self.scenario('service-card-states')
+
+    def test_separated_project_settings_sheet_opens_saves_and_closes(self):
+        self.scenario('separated-settings-sheet')
+
 
 @unittest.skipUnless(sys.platform == 'darwin', 'AppKit tests require macOS')
 class NativeShell(unittest.TestCase):

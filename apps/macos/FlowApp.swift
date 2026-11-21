@@ -133,7 +133,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       }, network: .urlSession())
     }
   }
-  var settingsTabs: NSTabView?
+  var settingsWindow: NSWindow?
+  private(set) var isSettingsPresented = false
   /// Explicit profile-local consent. Choosing a descriptor never scans editors or
   /// grants registration through HTTP. Reconnect requires this action again.
   @MainActor @objc func connectEditor() {
@@ -195,17 +196,54 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     offlineWindow = window
     window.openOfflineLibrary(profile)
   }
-  @objc func showSettings() { showWindow(); settingsTabs?.selectTabViewItem(at: 1) }
+  @objc func showSettings() {
+    showWindow()
+    refreshSettingsHeader()
+    if snapshot?.phase != .failed {
+      settingsStatus.stringValue = ""
+      settingsStatus.isHidden = true
+    }
+    guard let sheet = settingsWindow else { return }
+    isSettingsPresented = true
+    if NSApp.activationPolicy() != .prohibited && window?.isVisible == true {
+      if window.attachedSheet == nil {
+        window.beginSheet(sheet) { [weak self] _ in
+          self?.isSettingsPresented = false
+        }
+      }
+    }
+    sheet.makeFirstResponder(fields["name"])
+  }
+  @objc func closeSettings() {
+    isSettingsPresented = false
+    guard let sheet = settingsWindow else { return }
+    if let window, window.attachedSheet === sheet {
+      window.endSheet(sheet)
+    } else {
+      sheet.orderOut(nil)
+    }
+  }
   var statusItem: NSStatusItem!
   var window: NSWindow!
   let picker = NSPopUpButton()
+  let pathCaption = NSTextField(labelWithString: "")
   let status = NSTextField(labelWithString: "프로젝트를 선택하세요")
   let detail = NSTextField(wrappingLabelWithString: "")
-  let homeSummary = NSTextField(wrappingLabelWithString: "")
   let activity = NSProgressIndicator()
+  private let feedbackStack = NSStackView()
+  private let serviceStatusDot = ServiceStatusDotView()
+  let serviceStatusLabel = NSTextField(labelWithString: "프리뷰 서비스 · 중지됨")
+  let serviceAddressLabel = NSTextField(labelWithString: "")
+  let serviceAddressLink = NativeLinkButton(title: "", target: nil, action: nil)
+  let projectOverflowButton = NativeDesignButton(title: "•••", target: nil, action: nil)
+  let serviceOverflowButton = NativeDesignButton(title: "•••", target: nil, action: nil)
+  let settingsFooterButton = NativeLinkButton(title: "프로젝트 설정…", target: nil, action: nil)
+  private let settingsProjectLabel = NSTextField(labelWithString: "")
+  private let settingsHintLabel = NSTextField(wrappingLabelWithString: "글꼴 경로는 프로젝트 기준이며, HTTPS 주소는 선택 사항입니다.")
+  let settingsStatus = NSTextField(wrappingLabelWithString: "")
   var controls: [Selector: NSButton] = [:]
   var fields: [String: NSTextField] = [:]
-  let login: NSButton = NativeCheckboxButton(checkboxTitle: "로그인 시 Lagrangian 앱 열기")
+  let login: NSButton = NativeCheckboxButton(checkboxTitle: "로그인 시 앱 열기")
   private var appearanceObservation: NSKeyValueObservation?
   private var accessibilityObservation: NSObjectProtocol?
   var active: Profile? { settings.profiles.first { $0.id == settings.selectedID } }
@@ -322,130 +360,307 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func button(_ title: String, _ selector: Selector) -> NSButton {
     let result = NativeDesignButton(title: title, target: self, action: selector)
-    if selector == #selector(openPreview) { result.designRole = .primary }
+    if selector == #selector(openPreview) || selector == #selector(save) { result.designRole = .primary }
     controls[selector] = result
     return result
   }
+  private func iconButton(symbol: String, label: String, identifier: String, selector: Selector) -> NativeDesignButton {
+    let result = NativeDesignButton(title: "", target: self, action: selector)
+    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+    image?.isTemplate = true
+    result.image = image
+    result.imagePosition = .imageOnly
+    result.imageScaling = .scaleProportionallyDown
+    result.toolTip = label
+    result.identifier = NSUserInterfaceItemIdentifier(identifier)
+    result.setAccessibilityLabel(label)
+    result.widthAnchor.constraint(equalToConstant: 36).isActive = true
+    result.heightAnchor.constraint(equalToConstant: 32).isActive = true
+    controls[selector] = result
+    return result
+  }
+  private func configureOverflowButton(_ button: NativeDesignButton, label: String, identifier: String, selector: Selector) {
+    button.title = "•••"
+    button.target = self
+    button.action = selector
+    button.identifier = NSUserInterfaceItemIdentifier(identifier)
+    button.setAccessibilityLabel(label)
+    button.toolTip = label
+    button.setContentHuggingPriority(.required, for: .horizontal)
+    button.setContentCompressionResistancePriority(.required, for: .horizontal)
+  }
   func buildWindow() {
     window = NativeReaderEditingWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 760, height: 900),
+      contentRect: NSRect(x: 0, y: 0, width: 660, height: 460),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    window.minSize = NSSize(width: 720, height: 860)
+    window.minSize = NSSize(width: 560, height: 390)
     NativeChrome.install(on: window)
     window.title = LagrangianIdentity.appName
     (window as? NativeReaderEditingWindow)?.fixtureMode = fixtureMode
     window.isReleasedWhenClosed = false
     window.center()
-    let content = NSStackView()
-    content.orientation = .vertical
-    content.alignment = .leading
-    content.spacing = 14
-    content.edgeInsets = NSEdgeInsets(top: 24, left: 28, bottom: 24, right: 28)
-    content.translatesAutoresizingMaskIntoConstraints = false
-    window.contentView!.addSubview(content)
+
+    let root = NSStackView()
+    root.orientation = .vertical
+    root.alignment = .leading
+    root.spacing = NativeAppDesign.Spacing.section
+    root.edgeInsets = NSEdgeInsets(top: 24, left: 28, bottom: 20, right: 28)
+    root.translatesAutoresizingMaskIntoConstraints = false
+    window.contentView!.addSubview(root)
     NSLayoutConstraint.activate([
-      content.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor),
-      content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
-      content.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
+      root.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor),
+      root.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
+      root.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
+      root.bottomAnchor.constraint(lessThanOrEqualTo: window.contentView!.bottomAnchor),
     ])
+
+    // 1. Minimal header: centered NativeBrandMark + title, top-right + and ⚙ only.
+    let headerBar = NSView()
+    headerBar.translatesAutoresizingMaskIntoConstraints = false
     let icon = NativeBrandMarkView()
-    icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 59).isActive = true
+    icon.identifier = NSUserInterfaceItemIdentifier("home.brandMark")
+    icon.widthAnchor.constraint(equalToConstant: 44).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 41).isActive = true
     let title = NSTextField(labelWithString: LagrangianIdentity.appName)
     title.font = NativeAppDesign.Typography.font(.brandTitle)
-    let sub = NSTextField(labelWithString: "문서에서 프리뷰까지, 한 흐름으로.")
-    sub.textColor = .secondaryLabelColor
-    let heading = NSStackView(views: [title, sub])
-    heading.orientation = .vertical
-    heading.alignment = .leading
-    content.addArrangedSubview(NSStackView(views: [icon, heading]))
+    title.identifier = NSUserInterfaceItemIdentifier("home.brandTitle")
+    let brandGroup = NSStackView(views: [icon, title])
+    brandGroup.orientation = .horizontal
+    brandGroup.alignment = .centerY
+    brandGroup.spacing = 10
+    brandGroup.translatesAutoresizingMaskIntoConstraints = false
+    let addButton = iconButton(symbol: "plus", label: "프로젝트 추가", identifier: "home.addProject", selector: #selector(addProject))
+    let gearButton = iconButton(symbol: "gearshape", label: "프로젝트 설정", identifier: "home.openSettings", selector: #selector(showSettings))
+    let headerActions = NSStackView(views: [addButton, gearButton])
+    headerActions.orientation = .horizontal
+    headerActions.alignment = .centerY
+    headerActions.spacing = NativeAppDesign.Spacing.small
+    headerActions.translatesAutoresizingMaskIntoConstraints = false
+    headerBar.addSubview(brandGroup)
+    headerBar.addSubview(headerActions)
+    root.addArrangedSubview(headerBar)
+    NSLayoutConstraint.activate([
+      headerBar.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56),
+      headerBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+      brandGroup.centerXAnchor.constraint(equalTo: headerBar.centerXAnchor),
+      brandGroup.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
+      brandGroup.topAnchor.constraint(greaterThanOrEqualTo: headerBar.topAnchor),
+      brandGroup.bottomAnchor.constraint(lessThanOrEqualTo: headerBar.bottomAnchor),
+      brandGroup.leadingAnchor.constraint(greaterThanOrEqualTo: headerBar.leadingAnchor),
+      headerActions.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor),
+      headerActions.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
+      headerActions.leadingAnchor.constraint(greaterThanOrEqualTo: brandGroup.trailingAnchor, constant: 12),
+    ])
+
+    // 2. Center project card.
+    let projectCard = NativeDesignSurface()
+    projectCard.role = .panel
+    projectCard.identifier = NSUserInterfaceItemIdentifier("home.projectCard")
+    projectCard.translatesAutoresizingMaskIntoConstraints = false
+    let projectContent = NSStackView()
+    projectContent.orientation = .vertical
+    projectContent.alignment = .leading
+    projectContent.spacing = NativeAppDesign.Spacing.control
+    projectContent.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+    projectContent.translatesAutoresizingMaskIntoConstraints = false
+    projectCard.addSubview(projectContent)
+    NSLayoutConstraint.activate([
+      projectContent.leadingAnchor.constraint(equalTo: projectCard.leadingAnchor),
+      projectContent.trailingAnchor.constraint(equalTo: projectCard.trailingAnchor),
+      projectContent.topAnchor.constraint(equalTo: projectCard.topAnchor),
+      projectContent.bottomAnchor.constraint(equalTo: projectCard.bottomAnchor),
+    ])
+
     picker.target = self
     picker.action = #selector(selectProfile)
-    picker.widthAnchor.constraint(equalToConstant: 400).isActive = true
-    content.addArrangedSubview(
-      NSStackView(views: [picker, button("프로젝트 추가…", #selector(addProject))]))
-    status.font = .systemFont(ofSize: 14, weight: .medium)
+    picker.identifier = NSUserInterfaceItemIdentifier("home.projectPicker")
+    picker.setAccessibilityLabel("프로젝트 선택")
+    picker.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    picker.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    picker.heightAnchor.constraint(greaterThanOrEqualToConstant: NativeAppDesign.Shape.minimumControlHeight).isActive = true
+
+    pathCaption.font = NativeAppDesign.Typography.font(.caption)
+    pathCaption.lineBreakMode = .byTruncatingHead
+    pathCaption.maximumNumberOfLines = 1
+    pathCaption.cell?.usesSingleLineMode = true
+    pathCaption.cell?.wraps = false
+    pathCaption.cell?.truncatesLastVisibleLine = true
+    pathCaption.identifier = NSUserInterfaceItemIdentifier("home.projectPath")
+    pathCaption.setAccessibilityLabel("프로젝트 진입 파일 경로")
+    pathCaption.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    let selectorBlock = NSStackView(views: [picker, pathCaption])
+    selectorBlock.orientation = .vertical
+    selectorBlock.alignment = .leading
+    selectorBlock.spacing = 6
+    projectContent.addArrangedSubview(selectorBlock)
+    selectorBlock.widthAnchor.constraint(equalTo: projectContent.widthAnchor, constant: -40).isActive = true
+    picker.widthAnchor.constraint(equalTo: selectorBlock.widthAnchor).isActive = true
+    pathCaption.widthAnchor.constraint(equalTo: selectorBlock.widthAnchor).isActive = true
+
+    status.font = NativeAppDesign.Typography.font(.control)
+    status.identifier = NSUserInterfaceItemIdentifier("home.status")
     status.setAccessibilityLabel("읽기 상태")
+    status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     activity.style = .spinning
     activity.controlSize = .small
     activity.isDisplayedWhenStopped = false
-    content.addArrangedSubview(NSStackView(views: [activity, status]))
-    detail.textColor = .secondaryLabelColor
-    detail.font = .systemFont(ofSize: 12)
-    detail.widthAnchor.constraint(equalToConstant: 630).isActive = true
+    let statusRow = NSStackView(views: [activity, status])
+    statusRow.orientation = .horizontal
+    statusRow.alignment = .centerY
+    statusRow.spacing = NativeAppDesign.Spacing.small
+
+    detail.font = NativeAppDesign.Typography.font(.caption)
     detail.maximumNumberOfLines = 4
+    detail.identifier = NSUserInterfaceItemIdentifier("home.detail")
     detail.setAccessibilityLabel("읽기 상태 설명")
-    content.addArrangedSubview(detail)
-    content.addArrangedSubview(
-      NSStackView(views: [
-        button("읽기 시작", #selector(openPreview)), button("외부 Reader", #selector(openExternalPreview)),
-        button("주소 복사", #selector(copyURL)), button("오프라인 문서", #selector(openOffline)),
-      ]))
-    content.addArrangedSubview(
-      NSStackView(views: [
-        button("서비스 시작", #selector(start)), button("서비스 중지", #selector(stop)),
-        button("서비스 재시작", #selector(restart)), button("로그", #selector(openLogs)),
-      ]))
-    controls[#selector(openPreview)]?.keyEquivalent = "\r"
-    let definitions = [
-      ("name", "프로젝트 이름"), ("root", "프로젝트 폴더"), ("entry", "진입 파일"), ("fonts", "글꼴 폴더 ( ; 구분)"),
-      ("packages", "로컬 패키지 폴더"), ("port", "로컬 포트"), ("publicURL", "HTTPS 주소 (선택)"),
-    ]
-    let grid = NSGridView(
-      views: definitions.map { key, label in
-        let field = NSTextField()
-        field.setAccessibilityLabel(label)
-        if key == "root" {
-          field.widthAnchor.constraint(greaterThanOrEqualToConstant: 440).isActive = true
-          field.maximumNumberOfLines = 1
-          field.lineBreakMode = .byTruncatingMiddle
-          field.cell?.usesSingleLineMode = true
-          field.cell?.wraps = false
-        } else { field.widthAnchor.constraint(equalToConstant: 440).isActive = true }
-        fields[key] = field
-        return [NSTextField(labelWithString: label), field]
-      })
-    grid.rowSpacing = 10
-    grid.columnSpacing = 12
-    grid.xPlacement = .leading
-    grid.cell(atColumnIndex: 1, rowIndex: 1).xPlacement = .fill
-    let settingsPanel = NSStackView(views: [grid])
-    settingsPanel.orientation = .vertical
-    settingsPanel.alignment = .leading
-    grid.widthAnchor.constraint(equalTo: settingsPanel.widthAnchor).isActive = true
-    let tabs = NSTabView()
-    tabs.tabViewType = .topTabsBezelBorder
-    let home = NSTabViewItem(identifier: "home")
-    home.label = "홈"
-    home.view = homeSummary
-    let project = NSTabViewItem(identifier: "settings")
-    project.label = "프로젝트 설정"
-    project.view = settingsPanel
-    tabs.addTabViewItem(home)
-    tabs.addTabViewItem(project)
-    tabs.heightAnchor.constraint(equalToConstant: 290).isActive = true
-    settingsTabs = tabs
-    content.addArrangedSubview(tabs)
-    tabs.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -56).isActive = true
-    content.addArrangedSubview(
-      NSStackView(views: [
-        button("설정 저장", #selector(save)), button("설정 파일 보기", #selector(revealSettings)),
-      ]))
-    let hint = NSTextField(
-      wrappingLabelWithString:
-        "읽기 시작은 설정을 확인하고 네이티브 문서를 요청합니다. 외부 Reader 열기는 기존 브라우저 프리뷰를 엽니다. 변경한 설정은 먼저 저장됩니다. 글꼴 경로는 프로젝트 기준이며, HTTPS 주소는 Tail Hosting에서 연결하세요."
-    )
-    hint.font = .systemFont(ofSize: 11)
-    hint.textColor = .secondaryLabelColor
-    hint.widthAnchor.constraint(equalToConstant: 630).isActive = true
-    content.addArrangedSubview(hint)
+    detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    feedbackStack.orientation = .vertical
+    feedbackStack.alignment = .leading
+    feedbackStack.spacing = 4
+    feedbackStack.addArrangedSubview(statusRow)
+    feedbackStack.addArrangedSubview(detail)
+    feedbackStack.isHidden = true
+    projectContent.addArrangedSubview(feedbackStack)
+    feedbackStack.widthAnchor.constraint(equalTo: projectContent.widthAnchor, constant: -40).isActive = true
+    detail.widthAnchor.constraint(equalTo: feedbackStack.widthAnchor).isActive = true
+
+    let readButton = button("읽기 시작", #selector(openPreview))
+    readButton.keyEquivalent = "\r"
+    readButton.identifier = NSUserInterfaceItemIdentifier("home.read")
+    readButton.setAccessibilityLabel("읽기 시작")
+    let offlineButton = button("오프라인 문서", #selector(openOffline))
+    offlineButton.identifier = NSUserInterfaceItemIdentifier("home.offline")
+    offlineButton.setAccessibilityLabel("오프라인 문서")
+    configureOverflowButton(projectOverflowButton, label: "프로젝트 추가 작업", identifier: "home.projectOverflow", selector: #selector(showProjectMenu(_:)))
+    let projectActions = NSStackView(views: [readButton, offlineButton, projectOverflowButton])
+    projectActions.orientation = .horizontal
+    projectActions.alignment = .centerY
+    projectActions.spacing = NativeAppDesign.Spacing.small
+    projectContent.addArrangedSubview(projectActions)
+
+    root.addArrangedSubview(projectCard)
+    projectCard.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
+
+    // 3. Bottom status-linked single-line preview service card.
+    let serviceCard = NativeDesignSurface()
+    serviceCard.role = .panel
+    serviceCard.identifier = NSUserInterfaceItemIdentifier("home.serviceCard")
+    serviceCard.translatesAutoresizingMaskIntoConstraints = false
+    let serviceRow = NSStackView()
+    serviceRow.orientation = .horizontal
+    serviceRow.alignment = .centerY
+    serviceRow.spacing = NativeAppDesign.Spacing.control
+    serviceRow.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+    serviceRow.translatesAutoresizingMaskIntoConstraints = false
+    serviceCard.addSubview(serviceRow)
+    NSLayoutConstraint.activate([
+      serviceRow.leadingAnchor.constraint(equalTo: serviceCard.leadingAnchor),
+      serviceRow.trailingAnchor.constraint(equalTo: serviceCard.trailingAnchor),
+      serviceRow.topAnchor.constraint(equalTo: serviceCard.topAnchor),
+      serviceRow.bottomAnchor.constraint(equalTo: serviceCard.bottomAnchor),
+    ])
+
+    serviceStatusDot.translatesAutoresizingMaskIntoConstraints = false
+    serviceStatusDot.widthAnchor.constraint(equalToConstant: 10).isActive = true
+    serviceStatusDot.heightAnchor.constraint(equalToConstant: 10).isActive = true
+    serviceStatusLabel.font = NativeAppDesign.Typography.font(.control)
+    serviceStatusLabel.identifier = NSUserInterfaceItemIdentifier("home.serviceStatus")
+    serviceStatusLabel.setAccessibilityLabel("프리뷰 서비스 상태")
+    let serviceStatusRow = NSStackView(views: [serviceStatusDot, serviceStatusLabel])
+    serviceStatusRow.orientation = .horizontal
+    serviceStatusRow.alignment = .centerY
+    serviceStatusRow.spacing = NativeAppDesign.Spacing.small
+
+    serviceAddressLabel.font = NativeAppDesign.Typography.font(.caption)
+    serviceAddressLabel.lineBreakMode = .byTruncatingMiddle
+    serviceAddressLabel.maximumNumberOfLines = 1
+    serviceAddressLabel.cell?.usesSingleLineMode = true
+    serviceAddressLabel.identifier = NSUserInterfaceItemIdentifier("home.serviceAddress")
+    serviceAddressLabel.setAccessibilityLabel("프리뷰 서비스 주소")
+    serviceAddressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    serviceAddressLink.linkFont = NativeAppDesign.Typography.font(.caption)
+    serviceAddressLink.underlineAlways = true
+    serviceAddressLink.target = self
+    serviceAddressLink.action = #selector(openAddressLink)
+    serviceAddressLink.identifier = NSUserInterfaceItemIdentifier("home.serviceAddressLink")
+    serviceAddressLink.setAccessibilityLabel("프리뷰 주소 열기")
+    serviceAddressLink.setAccessibilityRole(.link)
+    serviceAddressLink.isHidden = true
+    serviceAddressLink.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    let serviceInfoColumn = NSStackView(views: [serviceStatusRow, serviceAddressLabel, serviceAddressLink])
+    serviceInfoColumn.orientation = .vertical
+    serviceInfoColumn.alignment = .leading
+    serviceInfoColumn.spacing = 4
+    serviceInfoColumn.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    let serviceSpacer = NSView()
+    serviceSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    serviceSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    let startButton = button("시작", #selector(start))
+    startButton.identifier = NSUserInterfaceItemIdentifier("home.serviceStart")
+    startButton.setAccessibilityLabel("서비스 시작")
+    let logsButton = button("로그", #selector(openLogs))
+    logsButton.identifier = NSUserInterfaceItemIdentifier("home.serviceLogs")
+    logsButton.setAccessibilityLabel("서비스 로그 보기")
+    let externalButton = button("외부 Reader", #selector(openExternalPreview))
+    externalButton.identifier = NSUserInterfaceItemIdentifier("home.serviceExternalReader")
+    externalButton.setAccessibilityLabel("외부 Reader")
+    let stopButton = button("중지", #selector(stop))
+    stopButton.identifier = NSUserInterfaceItemIdentifier("home.serviceStop")
+    stopButton.setAccessibilityLabel("서비스 중지")
+    configureOverflowButton(serviceOverflowButton, label: "프리뷰 서비스 추가 작업", identifier: "home.serviceOverflow", selector: #selector(showServiceMenu(_:)))
+    for item in [startButton, logsButton, externalButton, stopButton] {
+      item.setContentHuggingPriority(.required, for: .horizontal)
+      item.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+    externalButton.isHidden = true
+    stopButton.isHidden = true
+    serviceOverflowButton.isHidden = true
+
+    let serviceActions = NSStackView(views: [startButton, logsButton, externalButton, stopButton, serviceOverflowButton])
+    serviceActions.orientation = .horizontal
+    serviceActions.alignment = .centerY
+    serviceActions.spacing = NativeAppDesign.Spacing.small
+    serviceActions.setContentHuggingPriority(.required, for: .horizontal)
+    serviceActions.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+    serviceRow.addArrangedSubview(serviceInfoColumn)
+    serviceRow.addArrangedSubview(serviceSpacer)
+    serviceRow.addArrangedSubview(serviceActions)
+    root.addArrangedSubview(serviceCard)
+    serviceCard.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
+
+    // 4. Bottom-most bar: login checkbox (left) + project settings link (right).
     login.target = self
     login.action = #selector(toggleLogin)
-    content.addArrangedSubview(login)
-    let footer = NSTextField(labelWithString: "프리뷰는 시작 후 로그인 시에도 실행됩니다. 중지하면 자동 실행도 해제됩니다.")
-    footer.font = .systemFont(ofSize: 11)
-    footer.textColor = .secondaryLabelColor
-    content.addArrangedSubview(footer)
+    login.identifier = NSUserInterfaceItemIdentifier("home.loginLaunch")
+    login.setAccessibilityLabel("로그인 시 앱 열기")
+
+    let footerSpacer = NSView()
+    footerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    footerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    settingsFooterButton.linkFont = NativeAppDesign.Typography.font(.control)
+    settingsFooterButton.underlineAlways = false
+    settingsFooterButton.target = self
+    settingsFooterButton.action = #selector(showSettings)
+    settingsFooterButton.identifier = NSUserInterfaceItemIdentifier("home.openSettingsFooter")
+    settingsFooterButton.setAccessibilityLabel("프로젝트 설정")
+
+    let footerBar = NSStackView(views: [login, footerSpacer, settingsFooterButton])
+    footerBar.orientation = .horizontal
+    footerBar.alignment = .centerY
+    footerBar.spacing = NativeAppDesign.Spacing.control
+    root.addArrangedSubview(footerBar)
+    footerBar.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
+
+    buildSettingsWindow()
+
     NativeChrome.apply(to: window.contentView!)
     (login as? NativeCheckboxButton)?.onAppearanceChange = { [weak self] in
       self?.refreshAppearanceColors()
@@ -465,6 +680,129 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       }
     }
     refreshAppearanceColors()
+    renderServiceCard()
+  }
+  private func buildSettingsWindow() {
+    let sheet = NativeReaderEditingWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 580, height: 430),
+      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    sheet.minSize = NSSize(width: 500, height: 390)
+    NativeChrome.install(on: sheet)
+    sheet.title = "프로젝트 설정"
+    sheet.identifier = NSUserInterfaceItemIdentifier("settings.window")
+    sheet.fixtureMode = fixtureMode
+    sheet.isReleasedWhenClosed = false
+    settingsWindow = sheet
+
+    let container = NSStackView()
+    container.orientation = .vertical
+    container.alignment = .leading
+    container.spacing = 14
+    container.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 20, right: 24)
+    container.translatesAutoresizingMaskIntoConstraints = false
+    sheet.contentView!.addSubview(container)
+    NSLayoutConstraint.activate([
+      container.leadingAnchor.constraint(equalTo: sheet.contentView!.leadingAnchor),
+      container.trailingAnchor.constraint(equalTo: sheet.contentView!.trailingAnchor),
+      container.topAnchor.constraint(equalTo: sheet.contentView!.topAnchor),
+      container.bottomAnchor.constraint(lessThanOrEqualTo: sheet.contentView!.bottomAnchor),
+    ])
+
+    let heading = NSTextField(labelWithString: "프로젝트 설정")
+    heading.font = NativeAppDesign.Typography.font(.heading)
+    settingsProjectLabel.font = NativeAppDesign.Typography.font(.caption)
+    let headerStack = NSStackView(views: [heading, settingsProjectLabel])
+    headerStack.orientation = .vertical
+    headerStack.alignment = .leading
+    headerStack.spacing = 4
+    container.addArrangedSubview(headerStack)
+
+    let definitions = [
+      ("name", "프로젝트 이름"), ("root", "프로젝트 폴더"), ("entry", "진입 파일"), ("fonts", "글꼴 폴더 ( ; 구분)"),
+      ("packages", "로컬 패키지 폴더"), ("port", "로컬 포트"), ("publicURL", "HTTPS 주소 (선택)"),
+    ]
+    let browseButton = button("찾아보기…", #selector(browseRoot))
+    browseButton.identifier = NSUserInterfaceItemIdentifier("settings.browseRoot")
+    browseButton.setAccessibilityLabel("프로젝트 폴더 찾아보기")
+    browseButton.setContentHuggingPriority(.required, for: .horizontal)
+    browseButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+    let grid = NSGridView(
+      views: definitions.map { key, label in
+        let field = NSTextField()
+        field.setAccessibilityLabel(label)
+        field.identifier = NSUserInterfaceItemIdentifier("settings.field.\(key)")
+        field.font = NativeAppDesign.Typography.font(.control)
+        field.maximumNumberOfLines = 1
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        if key == "root" || key == "packages" {
+          field.lineBreakMode = .byTruncatingMiddle
+        }
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        fields[key] = field
+        let titleLabel = NSTextField(labelWithString: label)
+        titleLabel.font = NativeAppDesign.Typography.font(.control)
+        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        if key == "root" {
+          let row = NSStackView(views: [field, browseButton])
+          row.orientation = .horizontal
+          row.alignment = .centerY
+          row.spacing = NativeAppDesign.Spacing.small
+          field.widthAnchor.constraint(greaterThanOrEqualToConstant: 240).isActive = true
+          return [titleLabel, row]
+        }
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 330).isActive = true
+        return [titleLabel, field]
+      })
+    grid.rowSpacing = 10
+    grid.columnSpacing = 12
+    grid.xPlacement = .leading
+    for row in 0..<grid.numberOfRows {
+      grid.cell(atColumnIndex: 1, rowIndex: row).xPlacement = .fill
+    }
+    container.addArrangedSubview(grid)
+    grid.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
+
+    settingsHintLabel.font = NativeAppDesign.Typography.font(.caption)
+    container.addArrangedSubview(settingsHintLabel)
+    settingsHintLabel.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
+
+    settingsStatus.font = NativeAppDesign.Typography.font(.caption)
+    settingsStatus.maximumNumberOfLines = 3
+    settingsStatus.identifier = NSUserInterfaceItemIdentifier("settings.status")
+    settingsStatus.setAccessibilityLabel("설정 저장 상태")
+    settingsStatus.isHidden = true
+    container.addArrangedSubview(settingsStatus)
+    settingsStatus.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
+
+    let revealButton = button("설정 파일 보기", #selector(revealSettings))
+    revealButton.identifier = NSUserInterfaceItemIdentifier("settings.revealFile")
+    revealButton.setAccessibilityLabel("설정 파일 보기")
+    let actionSpacer = NSView()
+    actionSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    actionSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    let closeButton = button("닫기", #selector(closeSettings))
+    closeButton.keyEquivalent = "\u{1b}"
+    closeButton.identifier = NSUserInterfaceItemIdentifier("settings.close")
+    closeButton.setAccessibilityLabel("닫기")
+    let saveButton = button("설정 저장", #selector(save))
+    saveButton.keyEquivalent = "\r"
+    saveButton.identifier = NSUserInterfaceItemIdentifier("settings.save")
+    saveButton.setAccessibilityLabel("설정 저장")
+
+    let buttonsRow = NSStackView(views: [revealButton, actionSpacer, closeButton, saveButton])
+    buttonsRow.orientation = .horizontal
+    buttonsRow.alignment = .centerY
+    buttonsRow.spacing = NativeAppDesign.Spacing.small
+    container.addArrangedSubview(buttonsRow)
+    buttonsRow.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -48).isActive = true
+
+    NativeChrome.apply(to: sheet.contentView!)
+    refreshSettingsHeader()
+  }
+  private func refreshSettingsHeader() {
+    settingsProjectLabel.stringValue = active.map { "\($0.name) · \($0.path($0.entry))" } ?? "프로젝트를 추가해 시작하세요"
   }
   func populate() {
     picker.removeAllItems()
@@ -481,15 +819,55 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     session.select(active)
     guard let p = active else {
+      pathCaption.stringValue = "프로젝트를 추가해 시작하세요"
+      pathCaption.toolTip = nil
       for field in fields.values { field.stringValue = "" }
+      refreshSettingsHeader()
       updateControls()
+      renderServiceCard()
       return
     }
+    let fullPath = p.path(p.entry)
+    pathCaption.stringValue = fullPath
+    pathCaption.toolTip = fullPath
     for (key, value) in [
       "name": p.name, "root": p.root, "entry": p.entry, "fonts": p.fonts.joined(separator: "; "),
       "packages": p.packages, "port": String(p.port), "publicURL": p.publicURL,
     ] { fields[key]?.stringValue = value }
+    refreshSettingsHeader()
     updateControls()
+    renderServiceCard()
+  }
+  private var isServiceRunning: Bool {
+    guard active != nil, let snapshot else { return false }
+    return snapshot.pid != nil || snapshot.phase == .running || snapshot.phase == .ready
+  }
+  private func displayAddress(for profile: Profile) -> String {
+    profile.publicURL.isEmpty ? "127.0.0.1:\(profile.port)" : profile.publicURL
+  }
+  private func renderServiceCard() {
+    let running = isServiceRunning
+    serviceStatusDot.running = running
+    if let p = active {
+      let addr = displayAddress(for: p)
+      serviceStatusLabel.stringValue = running ? "프리뷰 서비스 · 실행 중" : "프리뷰 서비스 · 중지됨"
+      serviceAddressLabel.stringValue = addr
+      serviceAddressLink.title = addr
+      serviceAddressLink.toolTip = p.url
+      serviceAddressLink.refreshAppearance()
+    } else {
+      serviceStatusLabel.stringValue = "프리뷰 서비스 · 프로젝트 없음"
+      serviceAddressLabel.stringValue = "프로젝트를 추가해 시작하세요"
+      serviceAddressLink.title = ""
+      serviceAddressLink.toolTip = nil
+    }
+    serviceAddressLabel.isHidden = running
+    serviceAddressLink.isHidden = !running
+    controls[#selector(start)]?.isHidden = running
+    controls[#selector(openLogs)]?.isHidden = running
+    controls[#selector(openExternalPreview)]?.isHidden = !running
+    controls[#selector(stop)]?.isHidden = !running
+    serviceOverflowButton.isHidden = !running
   }
   func render(_ snapshot: ReadingSessionSnapshot) {
     let previousMessage = self.snapshot?.message
@@ -497,9 +875,23 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     status.stringValue = snapshot.message
     detail.stringValue = snapshot.detail
     detail.toolTip = snapshot.detail
+    let showFeedback = mutating || snapshot.isBusy || snapshot.phase == .failed || snapshot.phase == .painted || snapshot.phase == .sleeping || snapshot.phase == .idle || active == nil
+    feedbackStack.isHidden = !showFeedback
+    let showDetail = !snapshot.detail.isEmpty && (snapshot.phase == .failed || snapshot.detail != active?.url)
+    detail.isHidden = !showDetail
+    if snapshot.phase == .failed {
+      settingsStatus.stringValue = snapshot.detail.isEmpty ? snapshot.message : snapshot.detail
+      settingsStatus.isHidden = false
+    } else if !mutating {
+      settingsStatus.stringValue = ""
+      settingsStatus.isHidden = true
+    }
     refreshStatusColor()
     if snapshot.isBusy { activity.startAnimation(nil) } else { activity.stopAnimation(nil) }
-    controls[#selector(openPreview)]?.title = snapshot.phase == .failed ? "다시 읽기" : "읽기 시작"
+    let readTitle = snapshot.phase == .failed ? "다시 읽기" : "읽기 시작"
+    controls[#selector(openPreview)]?.title = readTitle
+    controls[#selector(openPreview)]?.setAccessibilityLabel(readTitle)
+    renderServiceCard()
     updateControls()
     if previousMessage != snapshot.message {
       NSAccessibility.post(element: status, notification: .valueChanged)
@@ -508,7 +900,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   func enabled(_ action: Selector?) -> Bool {
     guard let action else { return true }
     if fixtureMode && [#selector(connectEditor), #selector(disconnectEditor), #selector(addProject),
-        #selector(openLogs), #selector(revealSettings), #selector(guide), #selector(about)].contains(action) { return false }
+        #selector(openLogs), #selector(revealSettings), #selector(browseRoot), #selector(guide), #selector(about)].contains(action) { return false }
     if isolated && [#selector(toggleLogin), #selector(start), #selector(stop),
                     #selector(restart), #selector(openExternalPreview)].contains(action) { return false }
     if [#selector(addProject), #selector(toggleLogin)].contains(action) {
@@ -519,6 +911,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     {
       return active != nil && !mutating && snapshot?.isBusy != true
     }
+    if action == #selector(browseRoot) { return active != nil && !mutating }
     if action == #selector(stop) { return active != nil && !mutating }
     if [#selector(copyURL), #selector(openLogs), #selector(openOffline)].contains(action) { return active != nil }
     return true
@@ -527,16 +920,31 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let appearance = status.window != nil ? status.effectiveAppearance : (window?.effectiveAppearance ?? status.effectiveAppearance)
     let palette = NativeAppDesign.palette(.current(appearance: appearance))
     status.textColor = snapshot?.phase == .failed ? palette.error : palette.ink
+    detail.textColor = snapshot?.phase == .failed ? palette.error : palette.secondaryInk
+    pathCaption.textColor = palette.secondaryInk
+    serviceStatusLabel.textColor = palette.ink
+    serviceAddressLabel.textColor = palette.secondaryInk
+    settingsProjectLabel.textColor = palette.secondaryInk
+    settingsHintLabel.textColor = palette.secondaryInk
+    settingsStatus.textColor = snapshot?.phase == .failed ? palette.error : palette.secondaryInk
+    for selector in [#selector(addProject), #selector(showSettings)] {
+      if let btn = controls[selector] {
+        btn.contentTintColor = btn.isEnabled ? palette.ink : palette.disabledInk
+      }
+    }
   }
   func refreshAppearanceColors() {
     refreshLoginTitle()
     refreshStatusColor()
+    serviceAddressLink.refreshAppearance()
+    settingsFooterButton.refreshAppearance()
+    serviceStatusDot.needsDisplay = true
   }
   func refreshLoginTitle() {
     let appearance = login.window != nil ? login.effectiveAppearance : (window?.effectiveAppearance ?? login.effectiveAppearance)
     let palette = NativeAppDesign.palette(.current(appearance: appearance))
     let foreground = login.isEnabled ? palette.ink : palette.secondaryInk
-    let title = login.title.isEmpty ? "로그인 시 Lagrangian 앱 열기" : login.title
+    let title = login.title.isEmpty ? "로그인 시 앱 열기" : login.title
     let font = login.font ?? NativeAppDesign.Typography.font(.control)
     login.attributedTitle = NSAttributedString(
       string: title,
@@ -550,21 +958,72 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     refreshLoginTitle()
     for field in fields.values { field.isEnabled = active != nil && !mutating }
     for (action, control) in controls { control.isEnabled = enabled(action) }
-    if mutating {
-      homeSummary.stringValue = settings.profiles.isEmpty
-        ? "프로젝트 설정을 불러오는 중입니다. 준비가 끝나면 프로젝트를 선택하고 읽기를 시작할 수 있습니다. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
-        : "프로젝트 설정을 확인하고 저장하는 중입니다. 작업이 끝날 때까지 기다려 주세요. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
-    } else if snapshot?.phase == .failed {
-      homeSummary.stringValue = active == nil
-        ? "설정을 확인하는 중 오류가 발생했습니다. 위의 오류 내용을 확인하세요. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
-        : "위의 오류와 프로젝트 설정을 확인한 뒤 다시 읽기를 시작할 수 있습니다. 이 상태가 계속되면 앱을 닫았다가 다시 여세요."
-    } else if snapshot?.isBusy == true {
-      homeSummary.stringValue = "문서를 준비하고 있습니다. 준비가 끝날 때까지 기다려 주세요."
-    } else if active == nil {
-      homeSummary.stringValue = "프로젝트를 추가하면 읽기를 시작할 수 있습니다. 프로젝트 추가에서 문서를 선택하세요."
-    } else {
-      homeSummary.stringValue = "프로젝트를 선택하고 읽기를 시작하세요. 문서 창은 앱 안에서 열립니다. 외부 Reader는 기존 프리뷰를 엽니다. 서비스 제어는 읽기 시작과 별도입니다."
+    projectOverflowButton.isEnabled = !mutating
+    serviceOverflowButton.isEnabled = active != nil && !mutating
+    serviceAddressLink.isEnabled = !fixtureMode && !isolated && active != nil
+    settingsFooterButton.isEnabled = enabled(#selector(showSettings))
+    refreshStatusColor()
+  }
+  func projectOverflowMenu() -> NSMenu {
+    let menu = NSMenu(title: "프로젝트 작업")
+    menu.autoenablesItems = true
+    for (title, action) in [
+      ("주소 복사", #selector(copyURL)),
+      ("설정 파일 보기", #selector(revealSettings)),
+      ("프로젝트 추가…", #selector(addProject)),
+    ] {
+      let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
     }
+    menu.addItem(NSMenuItem.separator())
+    for (title, action) in [
+      ("Connect Editor…", #selector(connectEditor)),
+      ("Disconnect Editor", #selector(disconnectEditor)),
+      ("사용·업데이트·복구 안내", #selector(guide)),
+    ] {
+      let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    return menu
+  }
+  func serviceOverflowMenu() -> NSMenu {
+    let menu = NSMenu(title: "프리뷰 서비스 작업")
+    menu.autoenablesItems = true
+    for (title, action) in [
+      ("재시작", #selector(restart)),
+      ("주소 복사", #selector(copyURL)),
+      ("로그 보기", #selector(openLogs)),
+    ] {
+      let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    return menu
+  }
+  @objc func showProjectMenu(_ sender: NSButton) {
+    projectOverflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+  }
+  @objc func showServiceMenu(_ sender: NSButton) {
+    serviceOverflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+  }
+  @objc func openAddressLink() {
+    guard !fixtureMode, !isolated, let p = active, let url = URL(string: p.url) else { return }
+    _ = openExternalURL(url)
+  }
+  @objc func browseRoot() {
+    guard !fixtureMode, !mutating, active != nil else { return }
+    let panel = NSOpenPanel()
+    panel.title = "프로젝트 폴더 선택"
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    if let currentRoot = fields["root"]?.stringValue, !currentRoot.isEmpty {
+      panel.directoryURL = URL(fileURLWithPath: currentRoot)
+    }
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    fields["root"]?.stringValue = url.path
   }
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled(menuItem.action) }
   func mutate<T>(
@@ -662,6 +1121,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       let updated = try editedProfile()
       if updated == active {
         if readAfterSaving { external ? session.readExternally() : session.read() }
+        else { closeSettings() }
         return
       }
       let previous = settings
@@ -675,6 +1135,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
           guard let self else { return }
           self.settings = next
           self.populate()
+          if !readAfterSaving { self.closeSettings() }
           if readAfterSaving && self.readingIntent == intent {
             external ? self.session.readExternally() : self.session.read()
           }
@@ -786,5 +1247,109 @@ private final class NativeCheckboxCell: NSButtonCell {
       text.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.length))
     }
     return super.drawTitle(text, withFrame: frame, in: controlView)
+  }
+}
+
+private final class ServiceStatusDotView: NSView {
+  var running = false { didSet { needsDisplay = true } }
+  override var intrinsicContentSize: NSSize { NSSize(width: 10, height: 10) }
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    needsDisplay = true
+  }
+  override func draw(_ dirtyRect: NSRect) {
+    let preferences = NativeAppDesign.Preferences.current(appearance: effectiveAppearance)
+    let palette = NativeAppDesign.palette(preferences)
+    let dark = preferences.theme == .dark
+    let color: NSColor = running
+      ? NativeAppDesign.color(dark ? 0x5BD28B : 0x217A4B)
+      : NativeAppDesign.color(dark ? 0xA59D90 : 0x6E6960)
+    let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
+    color.setFill()
+    circle.fill()
+    if preferences.increasedContrast {
+      palette.boundary.setStroke()
+      circle.lineWidth = 1
+      circle.stroke()
+    }
+  }
+}
+
+final class NativeLinkButton: NSButton {
+  var linkFont: NSFont = NativeAppDesign.Typography.font(.control) { didSet { refreshAppearance() } }
+  var underlineAlways = false { didSet { refreshAppearance() } }
+  private var isHovered = false
+  private var hoverArea: NSTrackingArea?
+  private var observation: NativeDesignObservation?
+
+  convenience init(title: String, target: AnyObject?, action: Selector?) {
+    self.init(frame: .zero)
+    self.title = title
+    self.target = target
+    self.action = action
+  }
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    configure()
+  }
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    configure()
+  }
+  private func configure() {
+    setButtonType(.momentaryChange)
+    isBordered = false
+    focusRingType = .exterior
+    observation = NativeDesignObservation(view: self)
+  }
+  override var title: String {
+    didSet { refreshAppearance() }
+  }
+  override var isEnabled: Bool {
+    didSet {
+      if !isEnabled { isHovered = false }
+      refreshAppearance()
+    }
+  }
+  override var intrinsicContentSize: NSSize {
+    let size = super.intrinsicContentSize
+    return NSSize(width: size.width + 4, height: max(24, size.height + 4))
+  }
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let hoverArea { removeTrackingArea(hoverArea) }
+    let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+    addTrackingArea(area)
+    hoverArea = area
+  }
+  override func mouseEntered(with event: NSEvent) {
+    isHovered = isEnabled
+    refreshAppearance()
+  }
+  override func mouseExited(with event: NSEvent) {
+    isHovered = false
+    refreshAppearance()
+  }
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    refreshAppearance()
+  }
+  override var focusRingMaskBounds: NSRect { bounds }
+  override func drawFocusRingMask() {
+    NSBezierPath(roundedRect: bounds, xRadius: NativeAppDesign.Shape.controlRadius, yRadius: NativeAppDesign.Shape.controlRadius).fill()
+  }
+  func refreshAppearance() {
+    let appearance = window != nil ? effectiveAppearance : NSApp.effectiveAppearance
+    let palette = NativeAppDesign.palette(.current(appearance: appearance))
+    let color = isEnabled ? palette.accent : palette.disabledInk
+    var attributes: [NSAttributedString.Key: Any] = [
+      .foregroundColor: color,
+      .font: linkFont,
+    ]
+    if underlineAlways || isHovered {
+      attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+    }
+    attributedTitle = NSAttributedString(string: title, attributes: attributes)
+    needsDisplay = true
   }
 }
