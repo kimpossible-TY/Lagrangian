@@ -552,6 +552,8 @@ def materialize(manifest, archive_path, dest):
     # Resolve those before extraction. The final component stays unchanged, so a symlink
     # dest is still rejected as non-canonical.
     dest = dest.parent.resolve() / dest.name
+    if dest.is_symlink():
+        raise ValueError('Archive extraction requires a canonical empty owned output')
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)

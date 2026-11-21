@@ -195,8 +195,9 @@ class PackageTests(Fixture):
     def test_symlink_parent_extracts_and_final_symlink_dest_is_rejected(self):
         """A symlinked parent simulates macOS /var -> /private/var.
 
-        Packaging and extract resolve that parent. A dest that is itself a
-        symlink to an empty directory is still a non-canonical output.
+        Packaging and materialize resolve that parent. A dest that is itself a
+        symlink, and an extract dest reached through a symlinked parent, stay
+        non-canonical outputs.
         """
         base = Path(self.directory.name).resolve()
         real_parent = base / 'real-parent'
@@ -225,8 +226,13 @@ class PackageTests(Fixture):
         dest_link.symlink_to(empty, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, 'canonical empty owned output'):
             bundle.extract_archive(output / 'reader-bundle.tar', dest_link, manifest)
+        with self.assertRaisesRegex(ValueError, 'canonical empty owned output'):
+            bundle.materialize(manifest, output / 'reader-bundle.tar', dest_link)
         self.assertEqual(list(empty.iterdir()), [])
         self.assertTrue(dest_link.is_symlink())
+        with self.assertRaisesRegex(ValueError, 'canonical empty owned output'):
+            bundle.extract_archive(output / 'reader-bundle.tar', linked_parent / 'direct', manifest)
+        self.assertFalse((real_parent / 'direct').exists())
 
     def test_git_checkout_still_requires_a_clean_commit(self):
         with tempfile.TemporaryDirectory() as temporary:

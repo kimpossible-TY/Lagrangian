@@ -153,7 +153,13 @@ def binding(root, *, repository=None, run_id=None, head=None, engine_normalized=
 
 def unpack(download, dest, *, repository=None, run_id=None, head=None):
     """Never fall back to a flat payload when archive input is absent or invalid."""
-    download, dest = Path(download).absolute(), Path(dest).absolute()
+    # Ancestor symlinks (macOS /var -> /private/var, and /tmp) are canonicalized.
+    # The final component stays unresolved: a symlink wrapper still fails
+    # wrapper.resolve() != wrapper, and a symlink dest still fails extraction.
+    download = Path(download).absolute()
+    download = download.parent.resolve() / download.name
+    dest = Path(dest).absolute()
+    dest = dest.parent.resolve() / dest.name
     entries = []
     for p in download.rglob('*'):
         if len(entries) >= 64: raise ValueError('Transport wrapper entry budget')
