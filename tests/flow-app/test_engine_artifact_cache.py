@@ -279,6 +279,48 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
+    def test_main_absolutizes_relative_engine_artifact_dir(self):
+        import io
+        import os
+        import tempfile
+        from contextlib import redirect_stderr
+        from unittest.mock import patch
+        digest = 'a' * 64
+        match = {'databaseId': 9, 'headSha': 'b' * 40, 'url': 'https://example.test/9'}
+        received = []
+
+        def download_payload(repo, run_id, dest, *, head=None):
+            received.append(dest)
+            return digest
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            previous = os.getcwd()
+            os.chdir(root)
+            try:
+                env = {
+                    'GITHUB_REPOSITORY': 'fixture/repo',
+                    'ENGINE_INPUT_HASH': digest,
+                    'ENGINE_REUSE_BRANCHES': 'main',
+                    'ENGINE_ARTIFACT_DIR': 'dist/engine-input',
+                }
+                with patch.dict(os.environ, env), \
+                        patch.object(reuse, 'list_successful_runs', return_value=[match]), \
+                        patch.object(reuse, 'select_source_run', return_value=match), \
+                        patch.object(reuse, 'download_payload', side_effect=download_payload), \
+                        patch.object(reuse, 'set_output'), \
+                        patch.object(reuse, 'summarize'), \
+                        redirect_stderr(io.StringIO()):
+                    reuse.main()
+                self.assertEqual(len(received), 1)
+                dest = received[0]
+                expected = (root / 'dist/engine-input').absolute()
+                self.assertTrue(dest.is_absolute())
+                self.assertEqual(dest, expected)
+                self.assertEqual(dest, Path('dist/engine-input').absolute())
+            finally:
+                os.chdir(previous)
+
     def test_publish_verified_accepts_relative_output_and_rejects_symlink(self):
         import os
         import tempfile
