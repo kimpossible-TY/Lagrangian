@@ -196,6 +196,7 @@ DELIVERY_SOURCE_PATHS = (
     'tests/flow-app/test_native_delivery_artifact.py',
     'tests/flow-app/test_native_delivery_consumer.py',
     'tests/flow-app/test_native_source_binding.py',
+    'tests/flow-app/test_reader_bundle.py',
     'tools/flow-reader/native/runtime/backend-delivery.json',
 )
 

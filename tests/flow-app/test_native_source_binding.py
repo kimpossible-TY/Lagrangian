@@ -300,6 +300,7 @@ class FixedSourceBinding(unittest.TestCase):
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
         self.assertEqual(m['ownerCorrections'][-1]['revision'],FOOTNOTE_MERGE)
+        self.assertIn('tests/flow-app/test_reader_bundle.py', owner.DELIVERY_SOURCE_PATHS)
         # Guide anchor corrections belong to the existing delivery owner.
         # Native correction inventory forbids these paths; exact HEAD blobs
         # still bind both canonical input and generated Markdown.
