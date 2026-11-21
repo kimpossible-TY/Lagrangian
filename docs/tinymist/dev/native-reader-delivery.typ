@@ -359,3 +359,12 @@ The footnote-merge owner correction registers the four main paths from
 `tools/flow-reader/tests/fixtures/side-footnotes.typ`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
 The current delivery-owned allowlist is 27 exact paths.
+
+The scripts/mac owner correction registers the four scripts/mac paths from
+`87ebbae84e676233acbacedf6402e5f046222773` →
+`1b39b413931406cce21e0c3b51b5188da72ac0d5`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`, and
+`scripts/mac/test-reader-refresh.py`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.

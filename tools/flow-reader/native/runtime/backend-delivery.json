@@ -1377,6 +1377,32 @@
             "sha256": "d366678ade948b2fc45563c1ead849408a264f4507d877e25e969ea40829767e"
           }
         ]
+      },
+      {
+        "baseRevision": "87ebbae84e676233acbacedf6402e5f046222773",
+        "revision": "1b39b413931406cce21e0c3b51b5188da72ac0d5",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "0eff7940207ccccd0368ddf8d7f00fbb5b484024f00c151350ba325085ea8061",
+            "sha256": "dee839d5a52b2736326080da8f5aa319588c1d127e89ed6105ffeff46aebf56d"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "7736716b4039736bcd5d35905db4f9bc36bb423a5c4ddc6189799804daecd81d",
+            "sha256": "ac1a5e368420e98302f7ce6947808f4469a6a9e79f1e2ac16e74a37b0796d6d7"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "c7cdda92050f613a2725f59c628499d3a72ec93bedef29ee5bb71e82099eec24",
+            "sha256": "848da342f363ee8368a6c9009029f80c0d7a6ee3b46194753450714a0453a268"
+          },
+          {
+            "path": "scripts/mac/test-reader-refresh.py",
+            "baseSHA256": "ce280e07ec65dbcb52d4b95fb7689f896158eff9a3fc36b3e7067d8f01ad17f7",
+            "sha256": "3158a727132eae28cb4169f837c3b19f3b4a6904e9bf635bb9dc91bd1fd0d603"
+          }
+        ]
       }
     ]
   }
