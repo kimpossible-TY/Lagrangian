@@ -1089,6 +1089,27 @@
             "sha256": "c6bcc3c2ee7f6b9872142e6cdd143c59b44614c90b0b02b1223f4da3ed5c82f8"
           }
         ]
+      },
+      {
+        "baseRevision": "ae23970a5f9b5e87c20d77c7f7b7b9e3fd0599f0",
+        "revision": "fdd6f613f5451ecb2ac38660001c16833ee0c5ad",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderOriginalPageView.swift",
+            "baseSHA256": "ebd37b7f98865c618d923331205d136af36b0dcffa98447ffff046e748d493ec",
+            "sha256": "d9184d4022fa0663ac55b6038917b4434c83145bc1daa7438c5e79e87c18fdf5"
+          },
+          {
+            "path": "apps/macos/NativeReaderTextView.swift",
+            "baseSHA256": "744ca1b609627cc4f314b9d5a16955b3fb8275a593bd38c3ce895d9db53e6728",
+            "sha256": "ea484334665e9c0737e390cadf29590b5126f72941af9a8c819f4a25e40c1e3b"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "c6bcc3c2ee7f6b9872142e6cdd143c59b44614c90b0b02b1223f4da3ed5c82f8",
+            "sha256": "02f304cb9fd812301a11e54c059af5c50529fa6fc5211dccdbd9d46c87015979"
+          }
+        ]
       }
     ]
   }

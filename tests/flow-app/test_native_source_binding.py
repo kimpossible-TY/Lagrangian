@@ -42,6 +42,7 @@ REPAIR3_C11_SWIFT = '96a1d1e584748726c7a699a2fd599dcb402592ae'
 REPAIR3_C12_SWIFT = '6aa2ffd55ed75ec6abbd49abba33ad020baa05f2'
 REPAIR3_C13_SWIFT = '1d23647c6c4410e29088bec367e6929039642995'
 REPAIR3_C14_SWIFT = 'fc4306f0fe0fced54cd5c70d84b791bc1e2251f6'
+REPAIR3_C15_SWIFT = 'fdd6f613f5451ecb2ac38660001c16833ee0c5ad'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
 owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
 
@@ -153,7 +154,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
         current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION,REVIEW_CODE,REVIEW_INPUT,REVIEW_DOCS,REPAIR3_CODE,REPAIR3_DOCS,REPAIR3_SWIFT,REPAIR3_REWORK_SWIFT,REPAIR3_C6_SWIFT,REPAIR3_C7_SWIFT,REPAIR3_C8_SWIFT,REPAIR3_C9A_SWIFT,REPAIR3_C9B_SWIFT,REPAIR3_C10_SWIFT,REPAIR3_C11_SWIFT,REPAIR3_C12_SWIFT,REPAIR3_C13_SWIFT,REPAIR3_C14_SWIFT])
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION,REVIEW_CODE,REVIEW_INPUT,REVIEW_DOCS,REPAIR3_CODE,REPAIR3_DOCS,REPAIR3_SWIFT,REPAIR3_REWORK_SWIFT,REPAIR3_C6_SWIFT,REPAIR3_C7_SWIFT,REPAIR3_C8_SWIFT,REPAIR3_C9A_SWIFT,REPAIR3_C9B_SWIFT,REPAIR3_C10_SWIFT,REPAIR3_C11_SWIFT,REPAIR3_C12_SWIFT,REPAIR3_C13_SWIFT,REPAIR3_C14_SWIFT,REPAIR3_C15_SWIFT])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
@@ -297,7 +298,7 @@ class FixedSourceBinding(unittest.TestCase):
         p.write_text(p.read_text()+'\n// owned delivery correction\n');self.commit()
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
-        self.assertEqual(m['ownerCorrections'][-1]['revision'],REPAIR3_C14_SWIFT)
+        self.assertEqual(m['ownerCorrections'][-1]['revision'],REPAIR3_C15_SWIFT)
         # Guide anchor corrections belong to the existing delivery owner.
         # Native correction inventory forbids these paths; exact HEAD blobs
         # still bind both canonical input and generated Markdown.
