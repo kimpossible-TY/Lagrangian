@@ -4,27 +4,72 @@
 
 Read and review live Typst documents on your Mac, phone, or tablet. This guide covers everyday reading actions, document setup, installation, and recovery.
 
+## Home window
+
+The home window keeps one always-visible row for each job: add or configure the project, start reading, and control the preview service.
+
+### Top bar and hero
+
+The top bar carries two icon buttons on the right: **+** (프로젝트 추가) adds a project, and **⚙** (프로젝트 설정) opens the project settings sheet. The center hero shows only the brand mark (`NativeBrandMark`) and the title **Lagrangian**; it carries no supporting text.
+
+### Project card
+
+The center card selects the project and starts reading.
+
+- Project picker: choose which project this window controls.
+- Shortcut path: the entry file’s location is shortened to `.../<dir>/<entry.typ>`.
+- Action row: the primary button **Read** (읽기 시작), the secondary button **Offline document** (오프라인 문서), and the **•••** overflow menu (새 프로젝트 추가…, PDF 내보내기, 오프라인 저장, 문서 폴더 열기 등).
+
+Reading and offline actions stay in this row; project settings are not edited on the home window.
+
+### Preview service card
+
+One line below the project card reports the service and keeps its actions in the same row.
+
+- Stopped: a status dot, **프리뷰 서비스 · 중지됨**, the address `127.0.0.1:<port>`, and **Start** (시작) and **Logs** (로그).
+- Running: a status dot, **프리뷰 서비스 · 실행 중**, the address `127.0.0.1:<port>` as a clickable link, and **External Reader** (외부 Reader), **Stop** (중지), and **•••** (다시 시작, 로그 보기, 주소 복사 등).
+
+The dot follows the service state; reader-side activity is described in **Understand preview status** below.
+
+### Bottom bar
+
+The bottom bar keeps two persistent items: the **로그인 시 앱 열기** checkbox on the left and the **프로젝트 설정…** link on the right. The link opens the same settings sheet as **⚙**.
+
+### Project settings sheet
+
+Settings are not edited on the home window. **⚙** or **프로젝트 설정…** opens a separate sheet with:
+
+- **Name** (이름)
+- **Root folder** (루트 폴더) and **Entry file** (진입 파일), each with **Browse** (경로 찾아보기)
+- **Host** (호스트) and **Port** (포트)
+- **Output file name** (출력 파일명)
+- **Start automatically** (자동 시작)
+
+**Save settings** (설정 저장) is available inside this sheet only.
+
 ## Open your first preview
 
 Use Flow to manage a document’s live preview while editing its Typst source in your usual editor. You need an installed Flow app and a `.typ` entry file. For installation, see [First installation](#first-installation) below. For version identification and guide matching, see [Identifying installed versions and guides](#identifying-installed-versions-and-guides) below.
 
 1. Open `~/Applications/Lagrangian.app` (received via Finder or installed package). The Flow menu appears in the menu bar.
-2. Click **Add Project** (프로젝트 추가…) and select the document’s `.typ` entry file. The [reading demo](examples/reading-demo.typ) is a small document for trying selection, highlights, references, and themes.
-3. Check **Project folder** (프로젝트 폴더). Set it to the workspace root if the entry file uses sibling files or folders outside its own directory.
-4. Add any required font or package folders, then click **Save settings** (설정 저장).
-5. Click **Read** (읽기 시작). In an installed app supporting native reading, Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate **External Reader** action when you explicitly want the web reader.
+2. In the home window, click **+** (프로젝트 추가) in the top bar and select the document’s `.typ` entry file. The [reading demo](examples/reading-demo.typ) is a small document for trying selection, highlights, references, and themes.
+3. Set **Root folder** (루트 폴더) to the workspace root if the entry file uses sibling files or folders outside its own directory. Use **Browse** (경로 찾아보기) to choose a path.
+4. Adjust **Host** (호스트) and **Port** (포트) if the defaults are not suitable, add any required font or package folders, then click **Save settings** (설정 저장) inside the settings sheet.
+5. Click **Read** (읽기 시작) in the project card. In an installed app supporting native reading, Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate **External Reader** action when you explicitly want the web reader.
 
 **Result in an installed native app:** Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; check the guide and metadata bundled with the app as described in [Identifying installed versions and guides](#identifying-installed-versions-and-guides). If preparation fails, the explanation stays in the window; correct the cause and choose **Read again** (다시 읽기). **Logs** (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
 
 ### Project controls and settings
 
-Choose a project from the picker to open or control its preview. **Stop** (중지) disables its service until you use Start again; **Restart** (재시작) restarts it. Closing the project window or quitting the menu bar app leaves started previews running.
+The project card’s picker selects which project the home window controls. **Stop** (중지) disables its service until you use Start again; **Restart** (다시 시작) restarts it. Closing the home window or quitting the menu bar app leaves started previews running.
 
-**Read** also works for an already running project and waits for its available document before native preparation. **External Reader** is the explicit web action; the existing phone/tablet web URL remains available. Service start/stop/restart controls manage the service separately from Read. Switching projects or stopping cancels the current pending Read. Service and settings operations run in the background so the window remains responsive.
+**Read** (읽기 시작) also works for an already running project and waits for its available document before native preparation. **External Reader** (외부 Reader) is the explicit web action; the existing phone/tablet web URL remains available. Service start/stop/restart controls manage the service separately from Read. Switching projects or stopping cancels the current pending Read. Service and settings operations run in the background so the window remains responsive.
+
+Project settings are edited only in the settings sheet described in **Home window** above: **Name** (이름), **Root folder** (루트 폴더), **Entry file** (진입 파일), **Host** (호스트) and **Port** (포트), **Output file name** (출력 파일명), and **Start automatically** (자동 시작). **Save settings** (설정 저장) is not offered on the home window itself.
 
 Font paths are relative to the project root and separated by semicolons. For example, `fonts;../shared-fonts` selects two folders. The local package folder is optional; use it when your document depends on local packages. Saving changed settings restarts a running preview.
 
-The login checkbox opens the menu bar app after login. Started preview services also resume after login independently of that checkbox. Sleeping or logging out can interrupt availability.
+The **로그인 시 앱 열기** checkbox at the bottom of the home window opens the menu bar app after login. Started preview services also resume after login independently of that checkbox. Sleeping or logging out can interrupt availability.
 
 ### Resume after an interruption
 
@@ -347,24 +392,37 @@ See [the isolated inspection procedure](dev/native-reader-app-verification.typ) 
 
 The historical 09c staged candidate integrated core, page and published inputs. Its partial GUI results belong to that build. For a new packaged inspection, match the candidate’s build metadata and isolated profile as described in [Identifying installed versions and guides](#identifying-installed-versions-and-guides). For the historical frozen NA13 inspection use `tests/flow-app/native-reader-app/test_page_delivery_bundle.py gui-fixture` and `test-output/delivery-production/NA13/final-app-v1/inspection-commands.json`. Its `gui-inspection-001` is setup-only/running=false; follow the recorded serve/status/appCommand/stop commands without rerunning setup there. A new inspection requires a new root and exact pinned compiler/package inputs. NA14 source requires its own final integration, GUI/AX and review evidence; prior GUI evidence cannot be relabelled for its new executable bytes.
 
-## Historical source component: home feedback
+## Native Reader window
 
-The v5 source component separates **Service start** (서비스 시작), **Service stop** (서비스 중지) and **Service restart** (서비스 재시작) from **Start reading** (읽기 시작). While settings load, home explains waiting and the next step after completion; if that state persists, close and reopen the app safely. Empty, error and document preparation states show the corresponding next step instead of directing a currently disabled Read action. This changes feedback, not service permissions, readiness checks, saved settings, automatic initialization or Read behavior.
+The native Reader uses one toolbar row per mode. Navigation stays on the left, the mode or page controls in the center, and search and overflow on the right.
 
-The v5 source observation was made before that component had a separately bound build. Its feedback changes do not establish the cause of the original GUI loading issue. Match a packaged app to its own guide and results.
+### Body toolbar
+
+**본문** shows the reflowed native body and **원본 PDF** opens the original pages. The single body row carries:
+
+- Left: the brand and sidebar toggle, and the **목차 ▾** dropdown.
+- Center: the **본문 | 원본 PDF** segmented control.
+- Right: search (**⌘F**), **Aa** (view settings), and the **•••** overflow menu (새로고침, 외부 Reader 열기, 오프라인 저장, PDF 내보내기 등).
+
+**목차** navigates the body. If an active body or PDF selection holds the view, dismiss the selection before choosing the other mode. Selecting a PDF search result creates a display selection. Typing a search query alone does not hold the view. **새로고침** is disabled for a restored offline copy. When restoration is in progress or fails, the recovery status takes precedence and the existing recovery controls handle retry or cancel.
+
+### View settings
+
+**Aa** opens a popover that applies each change to the body immediately; there is no separate preview, apply or cancel step. Escape closes the popover and keeps the current values.
+
+- Theme (테마): **밝게 | 어둡게 | 자동**.
+- Text size (글자 크기): **−**, the current size in points, and **+**.
+
+The bottom of the popover also offers **오프라인 저장** and **PDF 내보내기**.
 
 ### Native reading controls and source component
 
-Use this section for a build with the cream native Reader controls. The earlier v7 source component introduced the reading tools disclosure. The cream candidate adds a selection capsule and a local question composer. The frozen v4/d7 app has its own guide and evidence.
-
-**본문** switches to the native body and **원본 PDF** opens the original pages. **목차** navigates the body, and **PDF에서 검색** searches the original pages. **읽기 도구** (Command–Option–T) opens source, display, offline and account tools. Closing the drawer returns focus to its button when a child control had focus.
-
-“현재” shows the accepted visible mode. “전환 요청” shows the requested mode. If an active body or PDF selection holds the view, choose **선택 해제**, then choose the new mode again. Selecting a PDF search result creates a display selection. Typing a search query alone does not hold the view. **새로고침** is disabled for a restored offline copy. When restoration is in progress or fails, the recovery status takes precedence and the existing recovery controls handle retry or cancel.
+A valid text selection in **본문** shows a compact capsule beside the selection with **Copy** (복사), **Ask** (질문하기) and **View source** (원문 보기). The capsule is absent while nothing is selected, and Escape closes it while leaving the selection in place. The selection holds background replacement.
 
 #### Select, copy, and ask
 
-1. Select text in **본문**. The active selection holds background replacement. Use **선택 작업** to open or refocus the capsule. The Reader can place it beside the selection or dock it on a separate row when the text fills that area. **닫기** or Escape closes the capsule and leaves the selection in place.
-2. Choose **질문하기** in the capsule or under **원문·대화** in **읽기 도구**. For a live selection of at most 32 blocks, this opens the local question composer. Opening or editing a new question there does not fetch its account, models or conversation, save a server draft or start inference. Selection-related eligibility checks may run independently.
+1. Select text in **본문**. The active selection holds background replacement and shows the capsule. The Reader can place the capsule beside the selection or dock it on a separate row when the text fills that area. Escape closes the capsule and leaves the selection in place.
+2. Choose **질문하기** in the capsule. For a live selection of at most 32 blocks, this opens the local question composer. Opening or editing a new question there does not fetch its account, models or conversation, save a server draft or start inference. Selection-related eligibility checks may run independently.
 3. Enter the question and click **Send** when ready to submit. For a new composer, the first **Send** checks the current selection, account, permissions and available models before opening the conversation. If no model was selected, it may use the first available model and continue the same explicit **Send**. If you change the question or model during preparation, review the current draft and click **Send** again. A stale selection or unavailable permission prevents submission. **Save for Codex** belongs to the paged web preview.
 
 Within the same living Reader context and exact selected range, Ask can reopen an already created conversation and restore its latest local draft and selected model, including an unconfirmed Send’s original UUID, question and model. Switching between known passages keeps their drafts separate within the bounded presentation cache. Known ranges in the same paragraph reuse that conversation’s latest accepted snapshot, draft and pending identity. A new selection ticket is checked again by the existing owner when you explicitly Send. This does not promise immediate recovery of a first draft before its conversation exists, or recovery across an app restart. Recovery never sends. A newer edit stays visible when history confirms an older message. Changing or clearing the selection blocks a new Send; Stop and Refresh conversation retain the existing conversation/context authorization. Stop response is available only when the accepted conversation is streaming; local account/open preparation alone provides no Stop target. While a Stop is in flight, its button and repeated callbacks cannot start another Stop or discard the first completion. For an unconfirmed Send, first choose **Refresh conversation** successfully. If the valid same-conversation history confirms the original user message, you may explicitly Send a new question. If it does not confirm that message, retry only the original question and model; the app reuses its original message UUID. A failed Refresh keeps the uncertainty and pending message in place. Reopening the composer or editing its draft is not a retry. If Refresh did not confirm the pending message and you close and reopen the composer, refresh that conversation again before retrying. Refresh is available for an open conversation when no other conversation action is running; it retains conversation/context authorization when the selection changes.
@@ -372,6 +430,29 @@ Within the same living Reader context and exact selected range, Ask can reopen a
 **복사** copies display text in both **본문** and **원본 PDF**, including a full display selection longer than the limit for source and chat actions. To copy verified Typst source, use **원문 보기** on a live eligible body selection. The app checks the current document and source before copying. **원문 강조** also requires source write permission. **편집기 위치로** requires a current, explicitly connected editor.
 
 In **원본 PDF** or a restored or offline read-only copy, you can read and copy display text. Live source, editor and question actions are unavailable there. Pending retirement of an editor connection on an otherwise live body does not block ordinary reading or Ask. A new editor action still needs its own current authorization.
+
+### Offline PDF
+
+**원본 PDF** opens the original pages with one toolbar row, including a restored offline copy.
+
+- Left: the sidebar toggle, **목차 ▾**, and the **오프라인 PDF** badge.
+- Center: grouped page navigation: `<`, the current page and the total page count (`current / total`), and `>`.
+- Right: the search field and the **•••** overflow menu.
+
+A search hit or a selection in the offline copy shows a compact capsule with **Copy** (복사) and **Close** (닫기), above the caption **오프라인 PDF · 복사·검색만 지원**.
+
+### Reader shortcuts
+
+- **⌥⌘T**: **목차**
+- **⌘F**: search in **본문**, or focus the original-PDF search field
+- **Esc**: close the popover, the capsule, or search
+- Arrow keys: move between pages and navigate the body
+
+## Historical source component: home feedback
+
+The v5 source component separates **Service start** (서비스 시작), **Service stop** (서비스 중지) and **Service restart** (서비스 재시작) from **Start reading** (읽기 시작). While settings load, home explains waiting and the next step after completion; if that state persists, close and reopen the app safely. Empty, error and document preparation states show the corresponding next step instead of directing a currently disabled Read action. This changes feedback, not service permissions, readiness checks, saved settings, automatic initialization or Read behavior.
+
+The v5 source observation was made before that component had a separately bound build. Its feedback changes do not establish the cause of the original GUI loading issue. Match a packaged app to its own guide and results. The current home layout is described in **Home window** above.
 
 ## Isolated native fixture inspection
 
