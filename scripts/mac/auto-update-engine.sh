@@ -8,6 +8,30 @@ STATE="$HOME/Library/Application Support/Lagrangian/last-installed-run"
 STATUS="$HOME/Library/Application Support/Lagrangian/pipeline-status.json"
 APP="$HOME/Applications/Lagrangian.app"
 ATTEMPTS="$HOME/Library/Application Support/Lagrangian/update-attempts"
+
+# Canonical engine cache on the Developer SSD. The default
+# ~/Library/Caches/Lagrangian/engines path is a symlink, and fetch-engine
+# rejects non-canonical destinations. Do not fall back to that path.
+ENGINE_CACHE_CONFIGURED="/Volumes/devSSD/Developer/.cache/lagrangian-engines"
+
+engine_cache_root() {
+  local configured="$ENGINE_CACHE_CONFIGURED"
+  if [[ ! -e "$configured" ]]; then
+    echo "$(date) engine cache is unavailable: $configured is missing (is the SSD mounted?)" >&2
+    return 1
+  fi
+  local resolved
+  if ! resolved=$(realpath "$configured"); then
+    echo "$(date) engine cache is unavailable: could not resolve $configured (is the SSD mounted?)" >&2
+    return 1
+  fi
+  if [[ -L "$resolved" || ! -d "$resolved" ]]; then
+    echo "$(date) engine cache is unavailable: $resolved is not a real directory (is the SSD mounted?)" >&2
+    return 1
+  fi
+  printf '%s\n' "$resolved"
+}
+
 stage() { python3 - "$STATUS" "$1" "$2" "${id:-}" "${3:-}" <<'PY'
 import json,sys,time,os
 p,st,state,run,msg=sys.argv[1:6]
@@ -175,7 +199,8 @@ cleanup_wt() { git -C "$SRC" worktree remove --force "$WT" 2>/dev/null || rm -rf
 trap cleanup_wt EXIT
 cd "$WT"
 stage download running
-engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$id")
+cache=$(engine_cache_root)
+engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$id" --dest "$cache/$id")
 reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$id")
 echo "$(date) run $id sha $sha reader bundle $reader"
 stage download done; CUR=package; stage package running
