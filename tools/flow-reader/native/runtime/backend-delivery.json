@@ -1314,6 +1314,32 @@
             "sha256": "4a54cacf7cfc23cc57c58d39a96e07df8ed407b20dbfd7ae2fe11cf913ddecc0"
           }
         ]
+      },
+      {
+        "baseRevision": "783468145010a0bda443202bfb1a325aee1847fc",
+        "revision": "d055dba8948e684ba579ae7d5afb07386d482e72",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderInputTextView.swift",
+            "baseSHA256": "0f2cd9bba8919f0a540191121b2366a1a3e29bf03ca3d9144e3e26b438896560",
+            "sha256": "df59dc785a7d2321fa7cfe9e2e772a6cc2fc601a771c490af52844076a36142b"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "ec74ad134a453dd4f3cf7f0cfb1b7d6ca9f43d80b5f8ea0fe0c7368b2834d411",
+            "sha256": "9e7c3af3dc58611c36ce3c25c8bda78d434ac5f2aa2d399e721f712b03e4a561"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/NativeFloatingCapsuleTests.swift",
+            "baseSHA256": "63498e76ec982491be71bcd3cb8f6c67896af467471dcebeb00b2bcb890cd582",
+            "sha256": "602dc4c9c443091f8e8eb333f3e5d6842c31b07d24648d690ee1a124672244c2"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/OriginalPageTests.swift",
+            "baseSHA256": "1f200d661c73a18e35469b68d1797f183a866b4ce0805e834718cb3058f49b6f",
+            "sha256": "0d6b847fc52ca55217555aab33080206155d2a5c5ec5f7168353e5eaac4f30f3"
+          }
+        ]
       }
     ]
   }
