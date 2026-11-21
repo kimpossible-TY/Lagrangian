@@ -638,14 +638,14 @@ def default_staging(head_sha, home=None, platform=None):
 
 def assert_not_installed_reader(dest, home=None):
     """Refuse to unpack into the installed app, its data, or the legacy app data."""
-    # Resolve home first so a symlinked parent (macOS /var -> /private/var) still matches dest.
+    # Resolve home and each installed root so a symlinked parent still matches dest.
     home = (Path.home() if home is None else Path(home)).resolve()
     resolved = Path(dest).expanduser().resolve()
-    roots = (
-        home / 'Library/Application Support/Lagrangian',
-        home / 'Library/Application Support/tinymist-flow',
-        home / 'Applications',
-    )
+    roots = tuple((home / p).resolve() for p in (
+        'Library/Application Support/Lagrangian',
+        'Library/Application Support/tinymist-flow',
+        'Applications',
+    ))
     for root in roots:
         if resolved == root or root in resolved.parents:
             raise ValueError('Refusing to unpack a reader bundle into installed application data: ' + str(resolved))

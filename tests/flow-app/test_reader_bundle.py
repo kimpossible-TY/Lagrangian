@@ -391,6 +391,23 @@ class FetchTests(Fixture):
             with self.assertRaisesRegex(ValueError, 'does not install the reader'):
                 bundle.fetch_reader_bundle(repo='kimpossible-TY/Lagrangian', run_id='42', dest=dest)
 
+    def test_dest_under_symlinked_installed_root_is_refused(self):
+        base = Path(self.directory.name).resolve()
+        home = base / 'home'
+        cases = (
+            ('Library/Application Support/Lagrangian', base / 'real-lagrangian'),
+            ('Applications', base / 'real-applications'),
+        )
+        for relative, real in cases:
+            real.mkdir()
+            link = home / relative
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(real, target_is_directory=True)
+            with self.subTest(relative=relative):
+                with self.assertRaisesRegex(ValueError, 'installed application data'):
+                    bundle.assert_not_installed_reader(link / 'reader' / 'staging', home=home)
+                self.assertFalse((real / 'reader').exists())
+
     def test_dest_refuses_unrelated_contents_and_replaces_a_prior_bundle(self):
         home = Path(self.directory.name) / 'home'
         unrelated = Path(self.directory.name) / 'unrelated'
