@@ -169,35 +169,9 @@ enum ReadingSessionTests {
         throw FlowError(message: "symlink escape accepted")
       } catch let error as FlowError { try require(error.message != "symlink escape accepted", error.message) }
 
-      let previewConfig = try FlowRuntimeConfiguration(
-        arguments: ["--dev-root", dev.path, "--dev-isolated-service-preview"],
-        variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
-      try require(previewConfig.isolated && previewConfig.devIsolatedServicePreview && previewConfig.arguments.isEmpty,
-                  "dev-isolated-service-preview not parsed")
-      do {
-        _ = try FlowRuntimeConfiguration(
-          arguments: ["--dev-isolated-service-preview"],
-          variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
-        throw FlowError(message: "isolated service preview accepted without dev root")
-      } catch let error as FlowError {
-        try require(error.message == "Dev presentation/runtime options require an explicit dev root", error.message)
-      }
-      do {
-        _ = try FlowRuntimeConfiguration(
-          arguments: ["--dev-root", dev.path, "--dev-isolated-service-preview", "--native-reader-fixture", "/tmp/fixture"],
-          variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
-        throw FlowError(message: "isolated service preview accepted with fixture")
-      } catch let error as FlowError {
-        try require(error.message != "isolated service preview accepted with fixture", error.message)
-      }
-      let simulator = SimulatedIsolatedProjectController()
-      try require(simulator.jobPID(fixture.profile.label) == nil, "simulator must start stopped")
-      try simulator.control("start", fixture.profile)
-      try require(simulator.jobPID(fixture.profile.label) == 90001, "simulator start PID mismatch")
-      try simulator.control("restart", fixture.profile)
-      try require(simulator.jobPID(fixture.profile.label) == 90002, "simulator restart did not increment PID")
-      try simulator.control("stop", fixture.profile)
-      try require(simulator.jobPID(fixture.profile.label) == nil, "simulator stop did not clear PID")
+      #if NATIVE_SHELL_TESTS
+      try verifyDevIsolatedServicePreview(root: root)
+      #endif
 
     case "read-once":
       try fixture.begin()
@@ -553,6 +527,7 @@ enum ReadingSessionTests {
     return
   }
   if name == "native-unavailable" {
+    try verifyDevIsolatedServicePreview(root: root)
     let environment = AppEnvironment(variables: [:], userHome: root, executable: root.appendingPathComponent("flow"))
     let app = FlowApp(environment: environment, isolated: true)
     app.settings = Settings(selectedID: profile.id, profiles: [profile])
@@ -594,5 +569,49 @@ enum ReadingSessionTests {
     return
   }
   throw FlowError(message: "Unknown native test; integrated object host tests live in test_app_integration.py")
+}
+
+private func verifyDevIsolatedServicePreview(root: URL) throws {
+  let dev = root.appendingPathComponent("isolated")
+  let live = root.appendingPathComponent("live")
+  let extracted = FlowApp.extractDevIsolatedServicePreview(from: ["--dev-root", dev.path, "--dev-isolated-service-preview"])
+  try require(extracted.enabled && extracted.remaining == ["--dev-root", dev.path], "dev-isolated-service-preview not extracted")
+  let previewConfig = try FlowRuntimeConfiguration(
+    arguments: extracted.remaining, variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
+  try FlowApp.validateDevIsolatedServicePreview(extracted.enabled, configuration: previewConfig)
+  try require(previewConfig.isolated && previewConfig.arguments.isEmpty, "dev-isolated-service-preview not parsed")
+
+  let noRoot = FlowApp.extractDevIsolatedServicePreview(from: ["--dev-isolated-service-preview"])
+  let noRootConfig = try FlowRuntimeConfiguration(
+    arguments: noRoot.remaining, variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
+  do {
+    try FlowApp.validateDevIsolatedServicePreview(noRoot.enabled, configuration: noRootConfig)
+    throw FlowError(message: "isolated service preview accepted without dev root")
+  } catch let error as FlowError {
+    try require(error.message == "Dev presentation/runtime options require an explicit dev root", error.message)
+  }
+
+  let withFixture = FlowApp.extractDevIsolatedServicePreview(
+    from: ["--dev-root", dev.path, "--dev-isolated-service-preview", "--native-reader-fixture", "/tmp/fixture"])
+  let withFixtureConfig = try FlowRuntimeConfiguration(
+    arguments: withFixture.remaining, variables: [:], userHome: live, executable: root.appendingPathComponent("flow"))
+  do {
+    try FlowApp.validateDevIsolatedServicePreview(withFixture.enabled, configuration: withFixtureConfig)
+    throw FlowError(message: "isolated service preview accepted with fixture")
+  } catch let error as FlowError {
+    try require(error.message == "Fixture mode cannot be combined with isolated service preview", error.message)
+  }
+
+  let simProfile = Profile(
+    id: "sim", name: "Sim", root: root.path, entry: "main.typ", fonts: [],
+    packages: "", port: 24650, publicURL: "", label: "com.example.sim")
+  let simulator = SimulatedIsolatedProjectController()
+  try require(simulator.jobPID(simProfile.label) == nil, "simulator must start stopped")
+  try simulator.control("start", simProfile)
+  try require(simulator.jobPID(simProfile.label) == 90001, "simulator start PID mismatch")
+  try simulator.control("restart", simProfile)
+  try require(simulator.jobPID(simProfile.label) == 90002, "simulator restart did not increment PID")
+  try simulator.control("stop", simProfile)
+  try require(simulator.jobPID(simProfile.label) == nil, "simulator stop did not clear PID")
 }
 #endif

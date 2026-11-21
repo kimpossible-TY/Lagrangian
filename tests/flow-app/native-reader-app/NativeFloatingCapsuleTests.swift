@@ -269,8 +269,12 @@ private actor FakeChatHTTP {
             try check(host.store.selection!.fragments.count == 1 && !selected.isEmpty,"Actual filled viewport with only first short phrase selected")
             try check(!frame.intersects(usedInRoot) && !frame.intersects(majorFrame) && !selected.contains { frame.intersects($0) },"R19-3 capsule must avoid all actual used body and primary controls, or dock separately")
         } else if mode == "home" {
-            let flow = FlowApp(environment:AppEnvironment(variables:[:],userHome:out.appendingPathComponent("isolated-home")),isolated:true,noActivate:true,showNativeWindow:false)
+            let env = AppEnvironment(variables:[:],userHome:out.appendingPathComponent("isolated-home"))
+            try SettingsStore(directory: env.support).save(Settings(selectedID: profile.id, profiles: [profile]))
+            let flow = FlowApp(environment:env,isolated:true,noActivate:true,showNativeWindow:false)
+            flow.settings = try SettingsStore(directory: env.support).load()
             flow.buildWindow()
+            flow.populate()
             defer { flow.settingsWindow?.close();flow.window.close();flow.session.dispose() }
             let root = flow.window.contentView!
             let settings = try JSONEncoder().encode(flow.settings)

@@ -1,11 +1,13 @@
 import AppKit
 
 do {
+  let preview = FlowApp.extractDevIsolatedServicePreview(from: Array(CommandLine.arguments.dropFirst()))
   let configuration = try FlowRuntimeConfiguration(
-    arguments: Array(CommandLine.arguments.dropFirst()),
+    arguments: preview.remaining,
     variables: ProcessInfo.processInfo.environment,
     userHome: FileManager.default.homeDirectoryForCurrentUser,
     executable: Bundle.main.executableURL!)
+  try FlowApp.validateDevIsolatedServicePreview(preview.enabled, configuration: configuration)
   let arguments = configuration.arguments
   try configuration.environment.prepareFixtureDirectories()
   if arguments.first != "--version" {
@@ -22,7 +24,9 @@ do {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let delegate = FlowApp(environment: configuration.environment,
-                           isolated: configuration.isolated, fixture: configuration.fixture,
+                           isolated: configuration.isolated,
+                           devIsolatedServicePreview: preview.enabled,
+                           fixture: configuration.fixture,
                            noActivate: configuration.noActivate,
                            startupTimeline: configuration.isolated ? NativeStartupTimeline(root: configuration.environment.userHome.deletingLastPathComponent()) : nil,
                            nativeRuntime: configuration.nativeRuntimePaths.map {

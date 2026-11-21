@@ -599,6 +599,7 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
         do {
             func rViews(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap { rViews($0) } }
             let rWin = restored.hostWindow.window!, rRoot = rWin.contentView!
+            try check(rWin.appearance == nil, "offline PDF inherits OS appearance without forced light override")
             rWin.setFrame(NSRect(x: 0, y: 0, width: 980, height: 752), display: false); rRoot.layoutSubtreeIfNeeded()
             let rAll = rViews(rRoot)
             let badge = rAll.first { $0.identifier?.rawValue == "offlinePDFBadge" }
@@ -616,9 +617,17 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             try check(!rCapsule.buttons[.copy]!.isHidden && !rCapsule.closeButton.isHidden && rCapsule.footnote.stringValue == "오프라인 PDF · 복사·검색만 지원" && !rCapsule.footnote.isHidden, "offline PDF capsule shows copy, close, and compact footer")
             try check(rCapsule.buttons[.source]!.isHidden && rCapsule.buttons[.highlight]!.isHidden && rCapsule.buttons[.ask]!.isHidden && rCapsule.buttons[.editor]!.isHidden && rCapsule.releaseSelectionButton.isHidden, "offline PDF capsule hides unsupported buttons")
             try check(rViews(rRoot).compactMap({ $0 as? NSButton }).filter({ !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("복사") }).count == 1, "no duplicate copy button in offline PDF mode")
+            rCapsule.dismissExplicitly()
+            try check(rCapsule.isHidden && !restored.session.hasSelection, "dismissing offline PDF search capsule releases search selection")
+            restored.hostWindow.clearFindField()
+            restored.hostWindow.findField.stringValue = "FarNeedle255"
+            _ = NSApp.sendAction(restored.hostWindow.findField.action!, to: restored.hostWindow.findField.target, from: restored.hostWindow.findField)
+            try await until { restored.session.hasSelection && !restored.hostWindow.capsule.isHidden }
+            try check(restored.hostWindow.notice.isHidden, "re-search after capsule dismiss and clear succeeds without heldSelection error")
             restored.hostWindow.releasePageSelection()
             try check(restored.hostWindow.findField.stringValue == "FarNeedle255", "search query preserved after release")
             rWin.setFrame(NSRect(x: 0, y: 0, width: 640, height: 752), display: false); rRoot.layoutSubtreeIfNeeded()
+            try check(rWin.frame.width <= 640.5, "640pt offline PDF settles at width <= 640.5")
             try check(!nav.isHiddenOrHasHiddenAncestor && abs(nav.convert(NSPoint(x: nav.bounds.midX, y: 0), to: rRoot).x - rRoot.bounds.midX) <= 12, "640pt offline PDF keeps pageNavigation centered")
             try check(restored.hostWindow.contents.isHiddenOrHasHiddenAncestor && restored.hostWindow.findField.isHiddenOrHasHiddenAncestor, "640pt offline PDF collapses secondary items into overflow")
             let moreBtn = rAll.compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "toggleTools" }!

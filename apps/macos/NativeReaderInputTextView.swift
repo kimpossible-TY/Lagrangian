@@ -90,4 +90,16 @@ final class NativeReaderEditingWindow: NSWindow {
     }
     return super.performKeyEquivalent(with: event)
   }
+  override func keyDown(with event: NSEvent) {
+    if event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty {
+      let responderView = firstResponder as? NSView
+      let isFieldEditor = (responderView as? NSTextView)?.isFieldEditor == true
+      let isNonBodyInput = responderView is NativeReaderInputTextView && !(responderView is NativeReaderBodyTextView)
+      if !isFieldEditor && !isNonBodyInput, let controller = windowController {
+        controller.cancelOperation(nil)
+        return
+      }
+    }
+    super.keyDown(with: event)
+  }
 }
