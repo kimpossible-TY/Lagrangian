@@ -39,6 +39,7 @@ enum NativeChrome {
     private let scroll = NSScrollView()
     private let content = CapsuleContent()
     let reason = NSTextField(wrappingLabelWithString: "")
+    let footnote = NSTextField(labelWithString: "")
     let releaseSelectionButton = NativeDesignButton(title: "선택 해제", target: nil, action: nil)
     let closeButton = NativeDesignButton(title: "닫기", target: nil, action: nil)
     private(set) var buttons = [Action: NativeDesignButton]()
@@ -59,43 +60,78 @@ enum NativeChrome {
         releaseSelectionButton.isHidden = true
         closeButton.target = self; closeButton.action = #selector(dismissExplicitly)
         closeButton.identifier = NSUserInterfaceItemIdentifier("capsule.dismiss")
+        closeButton.setAccessibilityLabel("닫기")
         closeButton.keyEquivalent = "\u{1b}"; closeButton.keyEquivalentModifierMask = []
         row = NativeChromeControlRow(Action.allCases.compactMap { buttons[$0] } + [releaseSelectionButton, closeButton])
-        content.addSubview(reason); content.addSubview(row)
+        content.addSubview(reason); content.addSubview(row); content.addSubview(footnote)
         reason.font = NativeAppDesign.Typography.font(.caption); reason.textColor = NativeChrome.color(\.secondaryInk)
+        footnote.font = NativeAppDesign.Typography.font(.caption); footnote.textColor = NativeChrome.color(\.secondaryInk)
+        footnote.lineBreakMode = .byTruncatingTail
+        footnote.identifier = NSUserInterfaceItemIdentifier("capsule.footnote")
+        footnote.isHidden = true
         setAccessibilityElement(false); setAccessibilityLabel("선택한 내용의 작업")
         isHidden = true
     }
     required init?(coder: NSCoder) { nil }
     func present(_ binding: Binding, unavailable: [Action: String], summary: String) {
         self.binding = binding; reason.stringValue = summary
+        reason.isHidden = summary.isEmpty
         for action in Action.allCases {
             let button = buttons[action]!
-            button.isEnabled = unavailable[action] == nil
-            button.toolTip = unavailable[action]
-            button.setAccessibilityHelp(unavailable[action] ?? "현재 선택에 적용합니다")
+            let blocked = unavailable[action]
+            button.isEnabled = blocked == nil
+            button.isHidden = blocked != nil
+            button.toolTip = blocked
+            button.setAccessibilityHelp(blocked ?? "현재 선택에 적용합니다")
         }
-        releaseSelectionButton.isHidden = !binding.originalPDF
-        releaseSelectionButton.isEnabled = binding.originalPDF
-        releaseSelectionButton.setAccessibilityHelp(binding.originalPDF ? "PDF 선택을 해제합니다" : nil)
+        releaseSelectionButton.isHidden = true
+        releaseSelectionButton.isEnabled = false
+        if binding.originalPDF {
+            footnote.stringValue = "오프라인 PDF · 복사·검색만 지원"
+            footnote.isHidden = false
+        } else {
+            footnote.stringValue = ""
+            footnote.isHidden = true
+        }
         row.invalidateIntrinsicContentSize(); row.needsLayout = true
         isHidden = false; needsLayout = true
     }
     func hide() { binding = nil; isHidden = true }
-    func preferredSize(width: CGFloat) -> NSSize {
-        let width = max(120, width), inner = max(64, width - 24)
+    func preferredSize(width maxWidth: CGFloat) -> NSSize {
+        let maxWidth = max(120, maxWidth), probeWidth = max(64, maxWidth - 24)
+        let rowWidth = row.preferredSingleRowWidth
+        let reasonWidth = reason.isHidden || reason.stringValue.isEmpty ? 0 : ceil(reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: probeWidth, height: 10000)).width ?? 0)
+        let footWidth = footnote.isHidden || footnote.stringValue.isEmpty ? 0 : ceil(footnote.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: probeWidth, height: 10000)).width ?? 0)
+        let width = min(maxWidth, max(120, max(rowWidth, max(reasonWidth, footWidth)) + 24))
+        let inner = max(64, width - 24)
         row.frame.size.width = inner
-        let explanation = reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 10000)).height ?? 20
-        return NSSize(width: width, height: min(180, explanation + row.intrinsicContentSize.height + 28))
+        let explanation = reason.isHidden || reason.stringValue.isEmpty ? 0 : (reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 10000)).height ?? 20)
+        let footer = footnote.isHidden || footnote.stringValue.isEmpty ? 0 : (footnote.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 10000)).height ?? 16)
+        let contentHeight = (explanation > 0 ? explanation + 8 : 0) + row.intrinsicContentSize.height + (footer > 0 ? footer + 6 : 0) + 20
+        return NSSize(width: width, height: min(180, contentHeight))
     }
     override func layout() {
         super.layout(); surface.frame = bounds; scroll.frame = bounds.insetBy(dx: 10, dy: 8)
         let width = max(64, scroll.contentSize.width)
-        let height = reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 10000)).height ?? 20
-        reason.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        row.frame = NSRect(x: 0, y: height + 8, width: width, height: row.intrinsicContentSize.height)
+        var y: CGFloat = 0
+        if !reason.isHidden && !reason.stringValue.isEmpty {
+            let height = reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 10000)).height ?? 20
+            reason.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            y = height + 8
+        } else {
+            reason.frame = .zero
+        }
+        row.frame = NSRect(x: 0, y: y, width: width, height: row.intrinsicContentSize.height)
         row.layoutSubtreeIfNeeded()
-        content.frame = NSRect(x: 0, y: 0, width: width, height: row.frame.maxY + 4)
+        y = row.frame.maxY
+        if !footnote.isHidden && !footnote.stringValue.isEmpty {
+            let fh = footnote.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 10000)).height ?? 16
+            footnote.frame = NSRect(x: 0, y: y + 6, width: width, height: fh)
+            y = footnote.frame.maxY
+        } else {
+            footnote.frame = .zero
+        }
+        content.frame = NSRect(x: 0, y: 0, width: width, height: y + 4)
     }
     func focusFirstAction() { window?.makeFirstResponder(Action.allCases.compactMap { buttons[$0] }.first { $0.isEnabled } ?? closeButton) }
     @objc private func activate(_ sender: NSButton) {
@@ -132,6 +168,7 @@ private final class CapsuleContent: NSView { override var isFlipped: Bool { true
   override var isFlipped: Bool { true }
   init(_ controls: [NSView]) { super.init(frame: .zero); for view in controls { addSubview(view) } }
   required init?(coder: NSCoder) { nil }
+  var preferredSingleRowWidth: CGFloat { singleRowWidth() }
   private func singleRowWidth() -> CGFloat {
     let gap: CGFloat = 6
     var total: CGFloat = 0

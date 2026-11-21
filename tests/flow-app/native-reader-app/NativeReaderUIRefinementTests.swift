@@ -29,12 +29,41 @@ private actor UIPathCalls {
     throw FlowError(message:"UI condition timeout")
   }
   @MainActor static func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap { views($0) } }
+  @MainActor static func view(_ root: NSView, id: String) -> NSView? {
+    views(root).first { $0.identifier?.rawValue == id }
+  }
   @MainActor static func button(_ root: NSView, _ action: String) throws -> NSButton {
     guard let b=views(root).compactMap({$0 as? NSButton}).first(where:{$0.action.map(NSStringFromSelector)==action}) else { throw FlowError(message:"Missing native action "+action) };return b
   }
   @MainActor static func click(_ root: NSView,_ action:String) throws {
     let b=try button(root,action);try check(b.isEnabled,"Expected enabled "+action)
     try check(NSApp.sendAction(b.action!,to:b.target,from:b),"Native target/action "+action)
+  }
+  @MainActor static func menuItem(_ menu: NSMenu, action: String) -> NSMenuItem? {
+    for item in menu.items {
+      if item.action.map(NSStringFromSelector) == action { return item }
+      if let sub = item.submenu, let found = menuItem(sub, action: action) { return found }
+    }
+    return nil
+  }
+  @MainActor static func menuItems(_ menu: NSMenu) -> [NSMenuItem] {
+    menu.items.flatMap { item in [item] + (item.submenu.map { menuItems($0) } ?? []) }
+  }
+  @MainActor static func triggerMenu(_ menu: NSMenu, action: String) throws {
+    guard let item = menuItem(menu, action: action) else { throw FlowError(message: "Missing menu action " + action) }
+    try check(item.isEnabled, "Expected enabled menu item " + action)
+    try check(NSApp.sendAction(item.action!, to: item.target, from: item), "Menu target/action " + action)
+  }
+  @MainActor static func verifyHorizontalRow(_ controls: [NSView], in root: NSView, _ label: String) throws {
+    var rects = [NSRect]()
+    for control in controls where !control.isHiddenOrHasHiddenAncestor {
+      let rect = control.convert(control.bounds, to: root)
+      try check(rect.minX >= -0.5 && rect.maxX <= root.bounds.width + 0.5, "\(label) horizontal bounds: \(control.identifier?.rawValue ?? "") \(rect)")
+      for existing in rects {
+        try check(!existing.insetBy(dx: 0.5, dy: 0.5).intersects(rect), "\(label) non-overlapping controls: \(existing) vs \(rect)")
+      }
+      rects.append(rect)
+    }
   }
   @MainActor static func labels(_ root: NSView) -> String { views(root).compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator:"\n") }
   @MainActor static func save(_ value:[String:Any],_ url:URL)throws{try JSONSerialization.data(withJSONObject:value,options:[.prettyPrinted,.sortedKeys]).write(to:url)}
@@ -96,6 +125,15 @@ private actor UIPathCalls {
       try check(priorCalls==afterCalls && priorProvider==afterProvider,"rejected mode has zero target/provider/PDF preparation effects")
       try check(text.contains(original ? "현재: 원본 PDF":"현재: 본문") && text.contains("오프라인") && text.contains("전환할 수 없습니다") && !text.contains("준비"),"recovered mode rejection explains current offline copy, never pending preparation")
       try check(!enabled && !(try button(root,"refreshDocument")).isEnabled,"mode and refresh controls agree with unsupported recovery actions")
+      if original {
+        let badge = view(root, id: "offlinePDFBadge")
+        try check(badge != nil && !badge!.isHiddenOrHasHiddenAncestor && labels(badge!) == "오프라인 PDF", "offline original PDF shows exact '오프라인 PDF' badge")
+        let nav = view(root, id: "pageNavigation")
+        try check(nav != nil && !nav!.isHiddenOrHasHiddenAncestor && labels(nav!).contains("1 / 2"), "offline PDF toolbar shows centered pageNavigation counter")
+        let search = view(root, id: "findPage") as? NSSearchField
+        try check(search != nil && !search!.isHiddenOrHasHiddenAncestor && search!.bezelStyle == .roundedBezel, "offline PDF toolbar shows rounded search field")
+        try check(!(try button(root, "toggleTools")).isHiddenOrHasHiddenAncestor, "offline PDF toolbar shows overflow trigger")
+      }
       let frozenCalls=await paths.counts(),frozenProvider=await input.count()
       host.dispose()
       _=NSApp.sendAction(control.action!,to:control.target,from:control)
@@ -122,8 +160,23 @@ private actor UIPathCalls {
       try check(await input.count()==offlineCalls && host.store.document==saved && host.session.isReadOnly,"forced target/action cannot escape recovered authority")
     } else if mode=="layout" {
       let value=frames(host);try save(value,out.appendingPathComponent("frames.json"))
-      try check((value["header"] as! CGFloat)<=200,"S1 compact primary header must leave at least524pt content at980x752")
-      try check(host.textView.frame.height>=500,"S1 body content area")
+      try check((value["header"] as! CGFloat)<=72,"S1 minimal single-row toolbar leaves >= 85% body height at 980x752")
+      try check(host.textView.frame.height >= root.bounds.height * 0.85,"S1 body content area occupies at least 85% of window content height")
+      try check(host.textView.frame.height >= window.frame.height * 0.85,"S1 body content area occupies at least 85% of 980x752 window height")
+      let contentsPopup = host.hostWindow.contents
+      let reflowBtn = try button(root,"reflowMode"), pdfBtn = try button(root,"pageMode")
+      let findBtn = try button(root,"triggerFind"), aaBtn = try button(root,"toggleDisplayPopover"), moreBtn = try button(root,"toggleTools")
+      let toolbarItems: [NSView] = [contentsPopup, reflowBtn, pdfBtn, findBtn, aaBtn, moreBtn]
+      for item in toolbarItems { try check(!item.isHiddenOrHasHiddenAncestor, "Reflow single-row toolbar item visible") }
+      let midY = reflowBtn.convert(NSPoint(x: 0, y: reflowBtn.bounds.midY), to: root).y
+      for item in toolbarItems {
+        let itemY = item.convert(NSPoint(x: 0, y: item.bounds.midY), to: root).y
+        try check(abs(itemY - midY) <= 4, "All reflow toolbar controls sit on a single row")
+      }
+      try verifyHorizontalRow(toolbarItems, in: root, "Reflow 980pt toolbar")
+      try check((try button(root,"releasePageSelection")).isHiddenOrHasHiddenAncestor, "Top releaseSelection row hidden without selection")
+      let visibleChromeLabels = views(root).compactMap { $0 as? NSTextField }.filter { !$0.isHiddenOrHasHiddenAncestor }
+      try check(visibleChromeLabels.isEmpty, "No subtitle or extra status label visible in minimal reader chrome")
       let x=try button(root,"pageMode").convert(NSPoint.zero,to:root).x
       try host.textView.select(from:.init(blockID:doc.blocks[0].id,utf16:0,affinity:.upstream),to:.init(blockID:doc.blocks[0].id,utf16:min(2,doc.blocks[0].displayText.utf16.count),affinity:.downstream))
       try click(root,"pageMode");root.layoutSubtreeIfNeeded()
@@ -141,7 +194,16 @@ private actor UIPathCalls {
       try check(!hits.isEmpty && !host.session.hasSelection,"search results alone do not hold selection")
       let field=views(root).compactMap{$0 as? NSSearchField}.first!;field.stringValue="Search needle"
       try check(NSApp.sendAction(field.action!,to:field.target,from:field),"actual search target/action")
-      try await until{host.session.hasSelection};try click(root,"reflowMode")
+      try await until{host.session.hasSelection && !host.hostWindow.capsule.isHidden}
+      let capsule = host.hostWindow.capsule
+      let pdfViewport = host.originalPageView.enclosingScrollView!.contentView.convert(host.originalPageView.enclosingScrollView!.contentView.bounds, to: root)
+      let capsuleRect = capsule.convert(capsule.bounds, to: root)
+      try check(!capsuleRect.intersects(pdfViewport), "PDF search-hit capsule docks without overlapping PDF body/highlights")
+      try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled && !capsule.closeButton.isHidden, "PDF search-hit capsule shows copy and close")
+      try check(capsule.buttons[.source]!.isHidden && capsule.buttons[.highlight]!.isHidden && capsule.buttons[.ask]!.isHidden && capsule.buttons[.editor]!.isHidden && capsule.releaseSelectionButton.isHidden, "PDF search-hit capsule hides 4 unsupported buttons and duplicate release button")
+      try check(capsule.footnote.stringValue == "오프라인 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "PDF search-hit capsule shows compact footer note")
+      try check(views(root).compactMap({ $0 as? NSButton }).filter({ !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("복사") }).count == 1, "No duplicate copy button alongside capsule")
+      try click(root,"reflowMode")
       try check(labels(root).contains("検索")==false && labels(root).contains("검색 결과에서 선택"),"S2 real search-selected ticket explanation")
       try save(["labels":labels(root),"pdfHeld":host.originalPageView.selected != nil,"query":field.stringValue],out.appendingPathComponent("held-search.json"))
       try click(root,"releasePageSelection");try check(!host.session.hasSelection,"actual display selection release")
@@ -157,7 +219,9 @@ private actor UIPathCalls {
       try save(["labels":labels(root),"rawDiagnostic":host.hostWindow.notice.stringValue,"priorDocumentPreserved":host.store.document==accepted],out.appendingPathComponent("stale.json"))
     } else {
       let trigger=try button(root,"toggleTools")
-      try check(trigger.title.contains("도구"),"discoverable Korean native disclosure")
+      try check(trigger.title == "•••","discoverable overflow trigger")
+      let aaButton = try button(root,"toggleDisplayPopover")
+      try check(aaButton.title == "Aa" && !host.hostWindow.isDisplayPopoverOpen, "Aa trigger initially closed")
       var commands=0;host.hostWindow.onAccount={commands+=1}
       var marks=0,undo=0,clear=0,saves=0,lists=0,appearance=0
       host.hostWindow.onMarkReview={marks+=1};host.hostWindow.onUndoReview={undo+=1};host.hostWindow.onClearReview={clear+=1}
@@ -165,58 +229,103 @@ private actor UIPathCalls {
       let originalAppearance=host.hostWindow.onAppearance
       host.hostWindow.onAppearance={appearance+=1;originalAppearance?()}
       host.hostWindow.storageAvailable=true
-      for width in [980.0,640.0] { for size in [13.0,32.0] { for dark in [false,true] {
-        host.hostWindow.theme.selectItem(at:dark ? 1:0)
-        for control in views(root).compactMap({$0 as? NSControl}) { control.font = .systemFont(ofSize:size) }
-        host.hostWindow.textSize.selectItem(withTitle:size == 32 ? "32" : "14")
-        try check(NSApp.sendAction(host.hostWindow.textSize.action!,to:host.hostWindow.textSize.target,from:host.hostWindow.textSize),"actual reading font selection")
+
+      // Verify Aa popover: opaque NativeDesignSurface(.floating), no preview/apply/cancel, immediate theme & font stepper
+      try click(root, "toggleDisplayPopover")
+      try check(host.hostWindow.isDisplayPopoverOpen && (aaButton as? NativeDesignButton)?.designRole == .primary, "Aa button highlights when popover opens")
+      let popView = host.hostWindow.displayPopoverContentView
+      try check((popView as? NativeDesignSurface)?.role == .floating, "Aa popover uses opaque NativeDesignSurface(.floating)")
+      for removed in ["previewDisplayExplicitly", "applyDisplayExplicitly", "cancelDisplayExplicitly"] {
+        try check(!views(root).contains { $0.identifier?.rawValue == removed } && !views(popView).contains { $0.identifier?.rawValue == removed }, "Removed obsolete button " + removed)
+      }
+      for required in ["themeLight", "themeDark", "themeAutomatic", "decreaseFontSize", "fontSizeLabel", "increaseFontSize", "saveOfflineExplicitly", "exportPDFExplicitly"] {
+        try check(view(popView, id: required) != nil, "Aa popover contains " + required)
+      }
+
+      for width in [980.0, 640.0] {
         window.setFrame(NSRect(x:0,y:0,width:width,height:752),display:false);root.layoutSubtreeIfNeeded()
-        try await until{host.textView.renderKey == host.textView.requestedRenderKey && host.textView.textAppearance.fontSize == (size == 32 ? 32 : 14)}
-        try check(host.textView.textAppearance.theme == (dark ? .dark : .light),"actual native theme control resolves requested Light/Dark")
-        try click(root,"toggleTools");root.layoutSubtreeIfNeeded()
-        let expected:Set<String>=["sourceSelected","highlightSelected","askSelected","locateSelected","editorReceipt","lastEdit","account","zoomIn","zoomOut","fitPage","previewDisplayExplicitly","applyDisplayExplicitly","cancelDisplayExplicitly","markSelected","undoReviewExplicitly","clearReviewExplicitly","saveOfflineExplicitly","refreshSavedExplicitly","openSavedExplicitly","cancelStorageExplicitly","exportPDFExplicitly","manageAccountExplicitly"]
-        for selector in expected {
-          let control=try button(root,selector)
-          _ = control.scrollToVisible(control.bounds);root.layoutSubtreeIfNeeded()
-          try check(!control.isHiddenOrHasHiddenAncestor && control.target != nil && control.identifier?.rawValue==selector,"existing native auxiliary command retained "+selector)
-          if let scroll=control.enclosingScrollView, let document=scroll.documentView {
-            try check(scroll.contentView.documentVisibleRect.intersects(control.convert(control.bounds,to:document)),"actual auxiliary scroll reaches command "+selector)
+        for targetSize in [32, 14] {
+          for dark in [false, true] {
+            try click(popView, dark ? "selectDarkTheme" : "selectLightTheme")
+            if targetSize == 32 {
+              while Int(host.textView.textAppearance.fontSize.rounded()) < 32 { try click(popView, "increaseFontSize") }
+            } else {
+              while Int(host.textView.textAppearance.fontSize.rounded()) > 14 { try click(popView, "decreaseFontSize") }
+            }
+            try await until { host.textView.renderKey == host.textView.requestedRenderKey && Int(host.textView.textAppearance.fontSize.rounded()) == targetSize }
+            try check(host.textView.textAppearance.theme == (dark ? .dark : .light), "Aa immediate theme resolves Light/Dark")
+            try check((view(popView, id: "fontSizeLabel") as? NSTextField)?.stringValue == "\(targetSize)pt", "Aa stepper updates pt label immediately")
+
+            // Verify overflow menu reachability & callback execution
+            try click(root, "toggleTools")
+            let menu = host.hostWindow.moreMenu
+            let expectedSelectors = ["sourceSelected","highlightSelected","askSelected","locateSelected","editorReceipt","lastEdit","account","zoomIn","zoomOut","fitPage","markSelected","undoReviewExplicitly","clearReviewExplicitly","saveOfflineExplicitly","refreshSavedExplicitly","openSavedMenuEntry:","cancelStorageExplicitly","exportPDFExplicitly","refreshDocument"]
+            for sel in expectedSelectors {
+              if sel == "openSavedMenuEntry:" {
+                try check(menu.items.contains { $0.title == "저장 문서 열기" }, "Overflow menu retains saved documents submenu")
+              } else {
+                try check(menuItem(menu, action: sel) != nil, "Overflow menu retains command " + sel)
+              }
+            }
+            try check(menu.items.contains { $0.title.hasPrefix("최근 진단:") }, "Overflow menu exposes recent diagnostic")
+            try triggerMenu(menu, action: "account")
+            try triggerMenu(menu, action: "markSelected"); host.hostWindow.reviewCount = 1
+            try triggerMenu(menu, action: "undoReviewExplicitly"); try triggerMenu(menu, action: "clearReviewExplicitly")
+            try triggerMenu(menu, action: "saveOfflineExplicitly"); try triggerMenu(menu, action: "refreshSavedExplicitly")
+            try check(host.textView.frame.height >= 220, "body remains usable at narrow/large font")
+
+            // Check narrow width collapse and bounds at 640pt
+            if width <= 640 {
+              try check(host.hostWindow.contents.isHiddenOrHasHiddenAncestor, "Reflow 640pt collapses contents into overflow")
+              try check((try button(root, "triggerFind")).isHiddenOrHasHiddenAncestor, "Reflow 640pt collapses find trigger into overflow")
+              try check(menuItem(menu, action: "outlineMenuSelected:") != nil && menuItem(menu, action: "triggerFind") != nil, "Reflow 640pt overflow contains collapsed items")
+            }
+            try verifyHorizontalRow([host.hostWindow.contents, try button(root, "reflowMode"), try button(root, "pageMode"), try button(root, "triggerFind"), aaButton, trigger], in: root, "Reflow \(Int(width))pt")
+            try save(["collapsed":frames(host),"readingFont":host.textView.textAppearance.fontSize,"dark":dark,"actualWindowAppearance":window.effectiveAppearance.name.rawValue,"width":width],out.appendingPathComponent("layout-\(width)-\(targetSize)-\(dark).json"))
           }
-          try check(control.accessibilityLabel()==control.title,"native Korean AX label "+selector)
-          try check(control.bounds.width + 1 >= min(control.fittingSize.width,root.bounds.width-32),"native button label fits "+selector)
-          if control.isEnabled { try check(window.makeFirstResponder(control),"native keyboard focus reaches "+selector) }
         }
-        try check(host.hostWindow.contents.toolTip == host.hostWindow.contents.titleOfSelectedItem,"long Korean contents retains full text in native popup")
-        let account=try button(root,"account");try check(!account.isHiddenOrHasHiddenAncestor,"auxiliary account reachable")
-        try check(window.makeFirstResponder(account),"offscreen auxiliary focus")
-        try click(root,"account")
-        try click(root,"markSelected");host.hostWindow.reviewCount=1
-        try click(root,"undoReviewExplicitly");try click(root,"clearReviewExplicitly")
-        try click(root,"saveOfflineExplicitly");try click(root,"refreshSavedExplicitly")
-        let prior=frames(host)
-        try click(root,"toggleTools");root.layoutSubtreeIfNeeded()
-        try check(window.firstResponder===trigger,"collapse returns focused child to trigger")
-        try check(account.isHiddenOrHasHiddenAncestor,"collapsed command remains owned but hidden")
-        try check(host.textView.frame.height>=220,"body remains usable at narrow/large font")
-        for v in views(root) where v is NSControl && !v.isHiddenOrHasHiddenAncestor {
-          let rect=v.convert(v.bounds,to:root)
-          try check(rect.minX>=0 && rect.maxX<=root.bounds.width+1,"visible native control horizontal bounds")
-        }
-        try save(["expanded":prior,"collapsed":frames(host),"controlFont":size,"readingFont":host.textView.textAppearance.fontSize,"dark":dark,"actualWindowAppearance":window.effectiveAppearance.name.rawValue,"accountEnabled":account.isEnabled],out.appendingPathComponent("layout-\(width)-\(size)-\(dark).json"))
-      } } }
+      }
+      try click(root, "toggleDisplayPopover")
+      try check(!host.hostWindow.isDisplayPopoverOpen && (aaButton as? NativeDesignButton)?.designRole == .standard, "Aa button resets highlight on close")
+
+      try check(host.hostWindow.contents.toolTip == host.hostWindow.contents.titleOfSelectedItem,"long Korean contents retains full text in native popup")
       let paragraph=host.store.document!.blocks.first{$0.kind == .paragraph}!
       try host.textView.select(from:.init(blockID:paragraph.id,utf16:0,affinity:.upstream),to:.init(blockID:paragraph.id,utf16:paragraph.displayText.utf16.count,affinity:.downstream))
+      host.textView.textViewDidChangeSelection(Notification(name:NSTextView.didChangeSelectionNotification))
+      try await until { !host.hostWindow.capsule.isHidden }
+      let reflowCapsule = host.hostWindow.capsule
+      try check(!reflowCapsule.buttons[.copy]!.isHidden && reflowCapsule.buttons[.copy]!.isEnabled, "Reflow capsule surfaces available copy action")
+      for action in NativeFloatingCapsule.Action.allCases {
+        let b = reflowCapsule.buttons[action]!
+        try check(b.isHidden == !b.isEnabled, "Reflow capsule hides unavailable action \(action.rawValue) and shows only available actions")
+      }
       var highlights=0;host.textView.callbacks.sourceRequested={ request in if request.action == .highlight { highlights+=1 } }
-      try click(root,"toggleTools");try click(root,"highlightSelected")
+      try click(root,"toggleTools")
+      try triggerMenu(host.hostWindow.moreMenu, action: "highlightSelected")
       try check(highlights==1,"source group actual typed highlight callback with real selection; no source write")
       host.hostWindow.updateReaderControls(readOnly:true)
-      for action in ["sourceSelected","highlightSelected","askSelected","locateSelected","editorReceipt","lastEdit","account"] { try check(!(try button(root,action)).isEnabled,"readonly live command disabled "+action) }
-      try click(root,"toggleTools")
+      for action in ["sourceSelected","highlightSelected","askSelected","locateSelected","editorReceipt","lastEdit","account"] {
+        try check(menuItem(host.hostWindow.moreMenu, action: action)?.isEnabled == false, "readonly live command disabled " + action)
+      }
       try check(commands==8 && marks==8 && undo==8 && clear==8 && saves==8 && lists==8 && appearance>=8,"representative native group callbacks; storage/account injected, production IO checked separately")
+
+      // Verify 640pt PDF narrow-width collapse keeps pageNavigation visible & centered without overlap
+      host.hostWindow.releasePageSelection()
+      host.hostWindow.updateReaderControls(readOnly: false)
+      try click(root, "pageMode")
+      try await until { host.visibleMode == .originalPages && host.originalPageView.isPreparedForPaint }
+      window.setFrame(NSRect(x:0,y:0,width:640,height:752),display:false); root.layoutSubtreeIfNeeded()
+      let nav = view(root, id: "pageNavigation")!
+      try check(!nav.isHiddenOrHasHiddenAncestor, "640pt PDF keeps pageNavigation visible")
+      try check(abs(nav.convert(NSPoint(x: nav.bounds.midX, y: 0), to: root).x - root.bounds.midX) <= 12, "640pt PDF keeps pageNavigation centered")
+      try check(host.hostWindow.contents.isHiddenOrHasHiddenAncestor && host.hostWindow.findField.isHiddenOrHasHiddenAncestor, "640pt PDF collapses secondary items into overflow")
+      try verifyHorizontalRow([nav, trigger], in: root, "PDF 640pt")
+      try click(root, "reflowMode")
+      try await until { host.visibleMode == .nativeReflow }
+
       try check(!trigger.keyEquivalent.isEmpty,"native disclosure keyboard equivalent")
       let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[.command,.option],timestamp:0,windowNumber:window.windowNumber,context:nil,characters:"t",charactersIgnoringModifiers:"t",isARepeat:false,keyCode:17)!
-      try check(root.performKeyEquivalent(with:event),"actual native keyboard equivalent opens disclosure")
-      try check(!(try button(root,"account")).isHiddenOrHasHiddenAncestor,"keyboard reaches auxiliary commands")
+      try check(root.performKeyEquivalent(with:event),"actual native keyboard equivalent opens overflow menu")
     }
     try check(NSApp.activationPolicy() == .prohibited && NSApp.windows.allSatisfy{!$0.isVisible && !$0.isKeyWindow && !$0.isMainWindow},"no visible/key/main GUI windows")
     try save(["case":mode,"assertions":checks,"skips":0,"visibleWindows":0,"activation":"prohibited","GUIAcceptance":false],out.appendingPathComponent("result.json"))

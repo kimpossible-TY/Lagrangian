@@ -137,28 +137,28 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
     @MainActor static func reviewD2(_ host: NativeReaderWindowController) async throws {
         let root=host.hostWindow.window!.contentView!,window=host.hostWindow.window!
         func views(_ v:NSView)->[NSView]{[v]+v.subviews.flatMap{views($0)}}
-        let all=views(root)
-        let theme=all.compactMap{$0 as? NSPopUpButton}.first{$0.identifier?.rawValue=="theme"}!
         func click(_ title:String)throws{
-            let selector=["Preview Display":"previewDisplayExplicitly","Apply Display":"applyDisplayExplicitly","Cancel Display":"cancelDisplayExplicitly","Reflow":"reflowMode","Original PDF":"pageMode"][title]!
-            let button=all.compactMap{$0 as? NSButton}.first{$0.identifier?.rawValue==selector}!
-            if button.isHiddenOrHasHiddenAncestor { let toggle=all.compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!;try check(NSApp.sendAction(toggle.action!,to:toggle.target,from:toggle),"D2 explicit tool disclosure") }
-            _ = button.scrollToVisible(button.bounds)
+            let selector=["Reflow":"reflowMode","Original PDF":"pageMode","Aa":"toggleDisplayPopover"][title]!
+            let searchRoot = views(root)
+            let button=searchRoot.compactMap{$0 as? NSButton}.first{$0.identifier?.rawValue==selector}!
             try check(button.isEnabled && !button.isHiddenOrHasHiddenAncestor,"D2 reachable control "+title)
             button.performClick(nil)
         }
         // The host starts in real Original PDF with a prepared raster. Change
         // only this owned window's effective appearance, never NSApp/the OS.
         try click("Reflow");try await until{host.visibleMode == .nativeReflow && host.textView.renderKey==host.textView.requestedRenderKey}
-        theme.selectItem(at:2);try check(NSApp.sendAction(theme.action!,to:theme.target,from:theme),"D2 native Automatic action")
+        try click("Aa")
+        let popView = host.hostWindow.displayPopoverContentView
+        let autoBtn = views(popView).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "themeAutomatic" }!
+        try check(autoBtn.isEnabled, "D2 Aa popover Automatic button enabled")
+        try check(NSApp.sendAction(autoBtn.action!, to: autoBtn.target, from: autoBtn), "D2 native Automatic action")
         try await until{host.textView.renderKey==host.textView.requestedRenderKey}
-        try click("Apply Display")
         for (appearance,expected) in [(NSAppearance.Name.darkAqua,NativeReaderTextAppearance.Theme.dark),(.aqua,.light)] {
             try click("Original PDF");try await until{host.visibleMode == .originalPages && host.originalPageView.isPreparedForPaint}
             window.appearance=NSAppearance(named:appearance)
             try await Task.sleep(nanoseconds:30_000_000)
             try click("Reflow");try await until{host.visibleMode == .nativeReflow && host.textView.renderKey==host.textView.requestedRenderKey}
-            try check(theme.indexOfSelectedItem==2 && host.textView.textAppearance.theme==expected && host.textView.renderKey?.appearance.theme==expected,"D2 Reflow resolves current window appearance before preparation both directions")
+            try check(host.hostWindow.selectedThemeIndex==2 && host.textView.textAppearance.theme==expected && host.textView.renderKey?.appearance.theme==expected,"D2 Reflow resolves current window appearance before preparation both directions")
         }
     }
     @MainActor private static func reviewN1(_ host: NativeReaderWindowController, _ source: PageSwitch) async throws {
@@ -196,14 +196,24 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
     }
     @MainActor static func reviewN2(_ out: URL) async throws {
         let env = ProcessInfo.processInfo.environment
-        let fixture = URL(fileURLWithPath: env["FLOW_NATIVE_FIXTURE"]!)
+        let devRoot = URL(fileURLWithPath: "/Volumes/devSSD/Developer/lagrangian-native-20261117")
+        let repoHelper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tools/flow-reader/native/math_layout.mjs").path
+        let cwdHelper = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("tools/flow-reader/native/math_layout.mjs").path
+        let defaultHelper = FileManager.default.fileExists(atPath: repoHelper) ? repoHelper : cwdHelper
+        let fixture = URL(fileURLWithPath: env["FLOW_NATIVE_FIXTURE"] ?? devRoot.appendingPathComponent("test-output/contract/final-contract/native.json").path)
         let doc = try NativeReaderDocument.decode(Data(contentsOf:fixture))
         var assets = [String:Data]()
         for a in doc.assets { assets[a.id] = try Data(contentsOf:fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(a.id)) }
         try check(!assets.isEmpty,"N2 actual compiler snapshot includes assets")
         let snapshot = NativeReaderRecoverySnapshot(document:doc,assets:assets,restoration:.initial,drafts:[])
         let live = OfflineInputs()
-        let runtime = NativeReaderRuntime(node:URL(fileURLWithPath:env["FLOW_TEST_NODE"]!),helper:URL(fileURLWithPath:env["FLOW_TEST_NATIVE_HELPER"]!),runtime:URL(fileURLWithPath:env["FLOW_TEST_NATIVE_RUNTIME"]!))
+        let runtime = NativeReaderRuntime(
+            node: URL(fileURLWithPath: env["FLOW_TEST_NODE"] ?? "/opt/homebrew/bin/node"),
+            helper: URL(fileURLWithPath: env["FLOW_TEST_NATIVE_HELPER"] ?? defaultHelper),
+            runtime: URL(fileURLWithPath: env["FLOW_TEST_NATIVE_RUNTIME"] ?? devRoot.appendingPathComponent("dependencies/mathjax413").path))
         var actionCalls = 0
         let network=NativeReaderNetwork(send:{_,_ in _ = try await live.reject(); throw NativeReaderOperationFailure.unavailable},
             stream:{_ in AsyncThrowingStream{$0.finish(throwing:NativeReaderOperationFailure.unavailable)}})
@@ -287,40 +297,48 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
     @MainActor static func reviewExport(_ host:NativeReaderWindowController,_ out:URL)async throws{
         func views(_ v:NSView)->[NSView]{[v]+v.subviews.flatMap{views($0)}}
         let root=host.hostWindow.window!.contentView!
-        func button(_ title:String)throws->NSButton{
+        func menuAction(_ title:String)throws->NSMenuItem{
             root.layoutSubtreeIfNeeded()
             let selector=["Export PDF":"exportPDFExplicitly","Cancel":"cancelStorageExplicitly"][title]!
-            guard let b=views(root).compactMap({$0 as? NSButton}).first(where:{$0.identifier?.rawValue==selector}),b.target != nil,b.action != nil else {throw FlowError(message:"Export native control missing: "+title)}
-            if b.isHiddenOrHasHiddenAncestor { let toggle=views(root).compactMap{$0 as? NSButton}.first{$0.action==NSSelectorFromString("toggleTools")}!;try check(NSApp.sendAction(toggle.action!,to:toggle.target,from:toggle),"export explicit tool disclosure") }
-            _ = b.scrollToVisible(b.bounds);root.layoutSubtreeIfNeeded()
-            try check(!b.isHiddenOrHasHiddenAncestor && root.bounds.contains(b.convert(b.bounds,to:root)),"Export laid-out reachable "+title)
-            return b
+            guard let toggle=views(root).compactMap({$0 as? NSButton}).first(where:{$0.action==NSSelectorFromString("toggleTools")}),
+                  !toggle.isHiddenOrHasHiddenAncestor else { throw FlowError(message:"Overflow trigger missing") }
+            try check(NSApp.sendAction(toggle.action!,to:toggle.target,from:toggle),"export overflow menu open")
+            guard let item=host.hostWindow.moreMenu.items.first(where:{$0.action.map(NSStringFromSelector)==selector}),item.target != nil,item.action != nil else {
+                throw FlowError(message:"Export native control missing: "+title)
+            }
+            return item
+        }
+        func click(_ title:String)throws{
+            let item=try menuAction(title)
+            try check(item.isEnabled,"Export reachable enabled "+title)
+            try check(NSApp.sendAction(item.action!,to:item.target,from:item),"Export native menu action "+title)
         }
         let disk=NativeReaderRecoveryStore(root:out.appendingPathComponent("export-owned-recovery"))
         try await host.saveRecovery(to:disk)
         let saved=try await disk.load(identity:host.store.document!.identity),original=saved.originalPages!,document=saved.document
         let target=out.appendingPathComponent("original-export.pdf"),old=Data("previous owned file".utf8)
         try old.write(to:target)
-        host.choosePDFDestination={_ in target};let export=try button("Export PDF")
-        try check(export.isEnabled,"F16 actual Export PDF enabled for accepted original")
-        export.performClick(nil);try await until{host.hostWindow.notice.stringValue=="Original PDF exported."}
+        host.choosePDFDestination={_ in target}
+        let exportItem = try menuAction("Export PDF")
+        try check(exportItem.isEnabled,"F16 actual Export PDF enabled for accepted original")
+        try click("Export PDF");try await until{host.hostWindow.notice.stringValue=="Original PDF exported."}
         let bytes=try Data(contentsOf:target)
         try check(bytes==original.data && NativeReaderRecoverySnapshot.digest(bytes)==original.publication.pdfSHA256,"F16 exports exact accepted revision/input/digest bytes")
         try check(PDFDocument(url:target)?.pageCount==host.originalPageView.store.accepted!.binding.pages.count,"F16 exported original reopened by actual PDFKit")
-        host.choosePDFDestination={_ in nil};export.performClick(nil)
-        try await until{(try? button("Cancel").isEnabled)==false}
+        host.choosePDFDestination={_ in nil};try click("Export PDF")
+        try await until{(try? menuAction("Cancel").isEnabled)==false}
         let targetBytes1=try Data(contentsOf:target);try check(targetBytes1==bytes,"F16 save panel cancel preserves old file")
         var continuation:CheckedContinuation<URL?,Never>?,entered=false
         host.choosePDFDestination={_ in entered=true;return await withCheckedContinuation{continuation=$0}}
-        export.performClick(nil);try await until{entered}
-        try button("Cancel").performClick(nil);continuation!.resume(returning:target);continuation=nil
+        try click("Export PDF");try await until{entered}
+        try click("Cancel");continuation!.resume(returning:target);continuation=nil
         try await Task.sleep(nanoseconds:30_000_000)
         let targetBytes2=try Data(contentsOf:target);try check(targetBytes2==bytes,"F16 Cancel rejects late chooser and preserves previous file")
-        entered=false;export.performClick(nil);try await until{entered}
+        entered=false;try click("Export PDF");try await until{entered}
         host.refresh();let generation=host.store.generation
         try await until{host.session.state == .reading && host.store.document?.generation==generation}
         continuation!.resume(returning:target);continuation=nil
-        try await until{(try? button("Cancel").isEnabled)==false}
+        try await until{(try? menuAction("Cancel").isEnabled)==false}
         let targetBytes3=try Data(contentsOf:target);try check(targetBytes3==bytes,"F16 changed accepted snapshot rejects late export chooser")
         let bad=NativeOriginalPageRecovery(publication:original.publication,data:Data("tampered".utf8),viewport:original.viewport)
         try await rejected("F16 tamper before staging"){_ = try NativeReaderRecoveryStore.stageOriginalPDF(bad,document:document,to:target)}
@@ -335,7 +353,7 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
         try await rejected("F16 destination changed before atomic publication"){try staged.commit()}
         let targetBytes5=try Data(contentsOf:target);try check(targetBytes5==newer,"F16 atomic guard retains newer destination")
         entered=false;host.choosePDFDestination={_ in entered=true;return await withCheckedContinuation{continuation=$0}}
-        export.performClick(nil);try await until{entered};host.dispose();continuation!.resume(returning:target)
+        try click("Export PDF");try await until{entered};host.dispose();continuation!.resume(returning:target)
         try await Task.sleep(nanoseconds:30_000_000)
         let targetBytes6=try Data(contentsOf:target);try check(targetBytes6==newer,"F16 disposal rejects late chooser with zero writes")
         let leftovers=try FileManager.default.contentsOfDirectory(atPath:out.path).filter{$0.hasPrefix(".lagrangian-export-")}
@@ -578,6 +596,40 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
         try await restored.restoreRecovery(disk)
         try await until { restored.originalPageView.isPreparedForPaint }
         try check(restored.visibleMode == .originalPages && restored.session.isReadOnly && restored.originalPageView.store.pageIndex == 255, "offline typed recovery not connected")
+        do {
+            func rViews(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap { rViews($0) } }
+            let rWin = restored.hostWindow.window!, rRoot = rWin.contentView!
+            rWin.setFrame(NSRect(x: 0, y: 0, width: 980, height: 752), display: false); rRoot.layoutSubtreeIfNeeded()
+            let rAll = rViews(rRoot)
+            let badge = rAll.first { $0.identifier?.rawValue == "offlinePDFBadge" }
+            let badgeText = badge.map { rViews($0).compactMap { ($0 as? NSTextField)?.stringValue }.joined() } ?? ""
+            try check(badge != nil && !badge!.isHiddenOrHasHiddenAncestor && badgeText == "오프라인 PDF", "offline PDF toolbar shows exact '오프라인 PDF' badge")
+            let nav = rAll.first { $0.identifier?.rawValue == "pageNavigation" }!
+            try check(!nav.isHiddenOrHasHiddenAncestor && rAll.first(where: { $0.identifier?.rawValue == "pageCounter" }).flatMap { ($0 as? NSTextField)?.stringValue } == "256 / 256", "offline PDF toolbar shows centered 256 / 256 counter")
+            try check(restored.hostWindow.findField.bezelStyle == .roundedBezel && !restored.hostWindow.findField.isHiddenOrHasHiddenAncestor, "offline PDF toolbar shows rounded search field")
+            restored.hostWindow.findField.stringValue = "FarNeedle255"
+            _ = NSApp.sendAction(restored.hostWindow.findField.action!, to: restored.hostWindow.findField.target, from: restored.hostWindow.findField)
+            try await until { restored.session.hasSelection && !restored.hostWindow.capsule.isHidden }
+            let rCapsule = restored.hostWindow.capsule
+            let rViewport = restored.originalPageView.enclosingScrollView!.contentView.convert(restored.originalPageView.enclosingScrollView!.contentView.bounds, to: rRoot)
+            try check(!rCapsule.convert(rCapsule.bounds, to: rRoot).intersects(rViewport), "offline PDF search hit capsule docks without overlapping PDF")
+            try check(!rCapsule.buttons[.copy]!.isHidden && !rCapsule.closeButton.isHidden && rCapsule.footnote.stringValue == "오프라인 PDF · 복사·검색만 지원" && !rCapsule.footnote.isHidden, "offline PDF capsule shows copy, close, and compact footer")
+            try check(rCapsule.buttons[.source]!.isHidden && rCapsule.buttons[.highlight]!.isHidden && rCapsule.buttons[.ask]!.isHidden && rCapsule.buttons[.editor]!.isHidden && rCapsule.releaseSelectionButton.isHidden, "offline PDF capsule hides unsupported buttons")
+            try check(rViews(rRoot).compactMap({ $0 as? NSButton }).filter({ !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("복사") }).count == 1, "no duplicate copy button in offline PDF mode")
+            restored.hostWindow.releasePageSelection()
+            try check(restored.hostWindow.findField.stringValue == "FarNeedle255", "search query preserved after release")
+            rWin.setFrame(NSRect(x: 0, y: 0, width: 640, height: 752), display: false); rRoot.layoutSubtreeIfNeeded()
+            try check(!nav.isHiddenOrHasHiddenAncestor && abs(nav.convert(NSPoint(x: nav.bounds.midX, y: 0), to: rRoot).x - rRoot.bounds.midX) <= 12, "640pt offline PDF keeps pageNavigation centered")
+            try check(restored.hostWindow.contents.isHiddenOrHasHiddenAncestor && restored.hostWindow.findField.isHiddenOrHasHiddenAncestor, "640pt offline PDF collapses secondary items into overflow")
+            let moreBtn = rAll.compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "toggleTools" }!
+            var placed = [NSRect]()
+            for ctrl in [badge!, nav, moreBtn] where !ctrl.isHiddenOrHasHiddenAncestor {
+                let rect = ctrl.convert(ctrl.bounds, to: rRoot)
+                try check(rect.minX >= -0.5 && rect.maxX <= rRoot.bounds.width + 0.5, "640pt offline PDF control within horizontal bounds")
+                for prev in placed { try check(!prev.insetBy(dx: 0.5, dy: 0.5).intersects(rect), "640pt offline PDF non-overlapping toolbar controls") }
+                placed.append(rect)
+            }
+        }
         try await rejected("offline source authorization") { try restored.session.authorize(restored.session.context!) }
         // Existing disk owner detects byte corruption before page preparation.
         let files = try FileManager.default.contentsOfDirectory(at: recoveryOwner.root, includingPropertiesForKeys: nil)
