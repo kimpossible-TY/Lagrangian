@@ -1340,6 +1340,27 @@
             "sha256": "0d6b847fc52ca55217555aab33080206155d2a5c5ec5f7168353e5eaac4f30f3"
           }
         ]
+      },
+      {
+        "baseRevision": "1a218ca609ed746ab2cbb4cedd9417fbe50119ab",
+        "revision": "c5c52ad95bf191b2af27885ca93c5bd7073756bb",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "9e7c3af3dc58611c36ce3c25c8bda78d434ac5f2aa2d399e721f712b03e4a561",
+            "sha256": "374453955561bb1eed1dfde97bd625a31c2a3fcc20bf6ddce56aba44b26ef350"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/NativeReaderUIRefinementTests.swift",
+            "baseSHA256": "1e4638d2ef8efda1d4f66761eac31e8e6972736df0e37e90b398140c9de65dd7",
+            "sha256": "d081992da87c89b964511c5764c0890c894ab2da2de065c927bf06d63b233721"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/OriginalPageTests.swift",
+            "baseSHA256": "0d6b847fc52ca55217555aab33080206155d2a5c5ec5f7168353e5eaac4f30f3",
+            "sha256": "9705c091b121e649e582738967d759a4fee23c403fa59ea8748f5c6cd081f4a2"
+          }
+        ]
       }
     ]
   }
