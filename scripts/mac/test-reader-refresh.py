@@ -148,7 +148,9 @@ python3() {
 }
 install_run 123
 """
-        env=dict(self.env, TEST_PORT=str(self.port), TEST_SHA=sha, TEST_ENGINE=str(engine), TEST_SERVE=str(serve), TEST_NATIVE=str(native))
+        cache=self.home/'engine-cache'
+        cache.mkdir()
+        env=dict(self.env, TEST_PORT=str(self.port), TEST_SHA=sha, TEST_ENGINE=str(engine), TEST_SERVE=str(serve), TEST_NATIVE=str(native), LAGRANGIAN_ENGINE_CACHE=str(cache))
         result=subprocess.run(['bash','-c',script],cwd=ROOT,env=env,capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertEqual((support/'last-installed-run').read_text(),'123\n')

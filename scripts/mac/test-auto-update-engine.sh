@@ -442,36 +442,42 @@ login_agent_is_replacement "$target" 8
 
 inode_file="$TEST_DIR/login-bin"
 printf 'binary\n' > "$inode_file"
-# Not named inode: login_process_maps_binary locals that name, and a stub
-# would see the unset local under set -u.
+# Python spawns lsof, so a shell function would not be visible. The stub is an
+# executable on PATH and reads the case from the environment.
 expected_inode=$(stat -f %i "$inode_file")
-lsof() {
-  case "$LSOF_MODE" in
-    match) printf 'p1\nftxt\ni%s\nn%s\n' "$expected_inode" "$inode_file" ;;
-    wrong-path) printf 'ftxt\ni%s\nn%s\n' "$expected_inode" "$inode_file.other" ;;
-    missing-inode) printf 'ftxt\ni0\nn%s\n' "$inode_file" ;;
-    split) printf 'ftxt\ni%s\nftxt\nn%s\n' "$expected_inode" "$inode_file" ;;
-    *) return 1 ;;
-  esac
-}
-LSOF_MODE=match
-login_process_maps_binary 42 "$inode_file"
+stubbin="$TEST_DIR/bin"
+mkdir -p "$stubbin"
+cat > "$stubbin/lsof" <<'EOF'
+#!/bin/bash
+case "$LSOF_MODE" in
+  match) printf 'p1\nftxt\ni%s\nn%s\n' "$EXPECTED_INODE" "$INODE_FILE" ;;
+  wrong-path) printf 'ftxt\ni%s\nn%s\n' "$EXPECTED_INODE" "$INODE_FILE.other" ;;
+  missing-inode) printf 'ftxt\ni0\nn%s\n' "$INODE_FILE" ;;
+  split) printf 'ftxt\ni%s\nftxt\nn%s\n' "$EXPECTED_INODE" "$INODE_FILE" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$stubbin/lsof"
+export EXPECTED_INODE="$expected_inode" INODE_FILE="$inode_file" LSOF_MODE=match
+saved_path="$PATH"
+PATH="$stubbin:$PATH"
+process_maps_binary 42 "$inode_file"
 LSOF_MODE=wrong-path
-if login_process_maps_binary 42 "$inode_file"; then
+if process_maps_binary 42 "$inode_file"; then
   echo 'wrong path mapped as the installed binary' >&2
   exit 1
 fi
 LSOF_MODE=missing-inode
-if login_process_maps_binary 42 "$inode_file"; then
+if process_maps_binary 42 "$inode_file"; then
   echo 'missing inode mapped as the installed binary' >&2
   exit 1
 fi
 LSOF_MODE=split
-if login_process_maps_binary 42 "$inode_file"; then
+if process_maps_binary 42 "$inode_file"; then
   echo 'inode and path in different blocks mapped as a match' >&2
   exit 1
 fi
-unset -f lsof
+PATH="$saved_path"
 
 printf 'auto-update login and cache checks passed\n'
 python3 scripts/mac/test-reader-refresh.py
