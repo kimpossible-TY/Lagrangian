@@ -9,25 +9,42 @@ STATUS="$HOME/Library/Application Support/Lagrangian/pipeline-status.json"
 APP="$HOME/Applications/Lagrangian.app"
 ATTEMPTS="$HOME/Library/Application Support/Lagrangian/update-attempts"
 
-# Canonical engine cache on the Developer SSD. The default
-# ~/Library/Caches/Lagrangian/engines path is a symlink, and fetch-engine
-# rejects non-canonical destinations. Do not fall back to that path.
-ENGINE_CACHE_CONFIGURED="/Volumes/devSSD/Developer/.cache/lagrangian-engines"
+# fetch-engine rejects a symlink destination. Override with LAGRANGIAN_ENGINE_CACHE.
+# The default is on the Developer SSD. Do not fall back to ~/Library/Caches,
+# which is a symlink.
+ENGINE_CACHE_CONFIGURED="${LAGRANGIAN_ENGINE_CACHE:-/Volumes/devSSD/Developer/.cache/lagrangian-engines}"
+LOGIN_LABEL=io.github.kimpossible-ty.tinymist-flow.login
+LOGIN_PLIST="$HOME/Library/LaunchAgents/${LOGIN_LABEL}.plist"
 
 engine_cache_root() {
-  local configured="$ENGINE_CACHE_CONFIGURED"
-  if [[ ! -e "$configured" ]]; then
-    echo "$(date) engine cache is unavailable: $configured is missing (is the SSD mounted?)" >&2
+  local configured="$ENGINE_CACHE_CONFIGURED" resolved dev rootdev check_device=0
+  if [[ ! -e "$configured" && ! -L "$configured" ]]; then
+    echo "$(date) engine cache is unavailable: $configured is missing" >&2
     return 1
   fi
-  local resolved
   if ! resolved=$(realpath "$configured"); then
-    echo "$(date) engine cache is unavailable: could not resolve $configured (is the SSD mounted?)" >&2
+    echo "$(date) engine cache is unavailable: could not resolve $configured" >&2
     return 1
   fi
-  if [[ -L "$resolved" || ! -d "$resolved" ]]; then
-    echo "$(date) engine cache is unavailable: $resolved is not a real directory (is the SSD mounted?)" >&2
+  if [[ ! -d "$resolved" ]]; then
+    echo "$(date) engine cache is unavailable: $resolved is not a real directory" >&2
     return 1
+  fi
+  # Only the Developer SSD path must be a different device from /. A custom
+  # cache outside /Volumes/devSSD is accepted as a real directory.
+  case "$configured" in
+    /Volumes/devSSD|/Volumes/devSSD/*) check_device=1 ;;
+  esac
+  case "$resolved" in
+    /Volumes/devSSD|/Volumes/devSSD/*) check_device=1 ;;
+  esac
+  if (( check_device == 1 )); then
+    dev=$(stat -f %d "$resolved")
+    rootdev=$(stat -f %d /)
+    if [[ "$dev" == "$rootdev" ]]; then
+      echo "$(date) engine cache is unavailable: $resolved is on the boot volume (is the SSD mounted?)" >&2
+      return 1
+    fi
   fi
   printf '%s\n' "$resolved"
 }
@@ -43,6 +60,7 @@ d["run"]=run or d.get("run"); d["current"]=st; d["state"]=state; d["updatedAt"]=
 tmp=p+".tmp"; json.dump(d,open(tmp,"w"),ensure_ascii=False,indent=2); os.replace(tmp,p)
 PY
 }
+# Claim at install start, after the engine-cache preflight and before download.
 # A persistent, atomic claim prevents launchd relaunches (or interruption) from
 # reinstalling the same run. Retry requires explicit operator action; a newer
 # successful run gets an independent claim. Never infer completion from a claim.
@@ -96,10 +114,10 @@ failed() {
   notify "빌드 $id 설치 실패 (로그 확인)"
   exit "$code"
 }
-verify_services() { python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" <<'PY'
+verify_services() { python3 - "$1" "$APP" "$sha" "$WT/active-previews.json" "$LOGIN_LABEL" <<'PY'
 import hashlib,json,os,re,subprocess,sys,urllib.parse,urllib.request
 from pathlib import Path
-mode,app,sha,snapshot=sys.argv[1:]
+mode,app,sha,snapshot,label=sys.argv[1:]
 app=Path(app); native=app/'Contents/MacOS/Lagrangian'
 def run(*args):
     return subprocess.check_output([str(a) for a in args],text=True,timeout=15).strip()
@@ -129,11 +147,21 @@ engine=app/'Contents/MacOS/flow-engine'
 require(hashlib.sha256(engine.read_bytes()).hexdigest()==manifest['engineSHA256'],
         'Installed engine checksum mismatch')
 # A matching process anywhere is insufficient: check the registered login PID.
-login=run('launchctl','print',f'gui/{os.getuid()}/io.github.kimpossible-ty.tinymist-flow.login')
+login=run('launchctl','print',f'gui/{os.getuid()}/{label}')
 match=re.search(r'^\s*pid = ([0-9]+)$',login,re.M)
 require(match is not None,'Background login job has no PID; inspect launchd/AMFI logs')
-command=run('ps','-ww','-p',match.group(1),'-o','command=')
+login_pid=match.group(1)
+command=run('ps','-ww','-p',login_pid,'-o','command=')
 require(command==str(native)+' --background','Unexpected background login process')
+# A launchd job dictionary (any line besides the pid) is a real listing: the
+# process must map the installed binary. A pid-only print still has to match
+# the command line above.
+if any(ln.strip() and not re.match(r'^\s*pid = [0-9]+$', ln) for ln in login.splitlines()):
+    mapped=run('lsof','-a','-p',login_pid,'-d','txt','-FnDi')
+    inode=str(native.stat().st_ino)
+    require(any(('i'+inode) in block.splitlines() and ('n'+str(native)) in block.splitlines()
+                for block in mapped.split('ftxt\n')[1:]),
+            'Background login process does not map the installed app binary')
 expected=json.loads(Path(snapshot).read_text())
 for profile in expected['previews']:
     state=data(native,'--status',profile['id'])
@@ -175,69 +203,183 @@ if mode=='complete':
 print('Verified '+('app, engine and Reader' if mode=='complete' else 'app and engine'))
 PY
 }
-# launchctl print has a pid when the login agent is actually running.
-login_agent_has_pid() {
-  local target="$1" out
-  if ! out=$(launchctl print "$target" 2>/dev/null); then
-    return 1
+# Read the login job into LOGIN_AGENT_PID and LOGIN_AGENT_LISTING.
+# A listing is any print that has a line besides "pid = N" (real launchctl print
+# is a job dictionary). A pid-only line is not previous-process evidence.
+# Output goes to a file: a failing print inside $(...) would inherit the install
+# ERR trap (set -E) and record a false failure.
+read_login_agent_pid() {
+  local target="$1" rc=0 line out
+  LOGIN_AGENT_PID=""
+  LOGIN_AGENT_LISTING=0
+  out=$(mktemp "${TMPDIR:-/tmp}/login-agent-print.XXXXXX")
+  launchctl print "$target" >"$out" 2>/dev/null || rc=$?
+  if (( rc == 0 )); then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^[[:space:]]*pid\ =\ ([0-9]+)$ ]]; then
+        LOGIN_AGENT_PID="${BASH_REMATCH[1]}"
+      elif [[ -n "${line//[[:space:]]/}" ]]; then
+        LOGIN_AGENT_LISTING=1
+      fi
+    done <"$out"
   fi
-  grep -Eq '^[[:space:]]*pid = [0-9]+$' <<<"$out"
+  rm -f "$out"
+}
+# A listed pid counts only when it differs from the pre-kickstart pid.
+# An empty old pid means the listing had no process to replace. A pid-only
+# print is accepted only when there was no listing to replace.
+login_agent_is_replacement() {
+  local target="$1" old_pid="$2"
+  read_login_agent_pid "$target"
+  [[ -n "$LOGIN_AGENT_PID" ]] || return 1
+  if (( LOGIN_AGENT_LISTING == 0 )); then
+    [[ -z "$old_pid" ]]
+    return
+  fi
+  [[ -z "$old_pid" || "$LOGIN_AGENT_PID" != "$old_pid" ]]
 }
 # Wait up to `seconds` seconds, checking once a second. Not a spawn retry.
-# The last action is a pid check, so a late spawn is not treated as failure.
+# The last action is a replacement-pid check, so a late spawn is not a failure.
 poll_login_agent_pid() {
-  local target="$1" seconds="$2" waited=0
+  local target="$1" seconds="$2" old_pid="$3" waited=0
   while (( waited < seconds )); do
     sleep 1
     waited=$((waited + 1))
-    if login_agent_has_pid "$target"; then
+    if login_agent_is_replacement "$target" "$old_pid"; then
       return 0
     fi
   done
   return 1
 }
+# bootout can return while launchd still reports the job. Print failure or empty
+# output means unloaded. 100 checks at 0.1s is the 10s budget.
+wait_login_agent_unloaded() {
+  local target="$1" waited=0 rc out
+  out=$(mktemp "${TMPDIR:-/tmp}/login-agent-print.XXXXXX")
+  while (( waited < 100 )); do
+    rc=0
+    launchctl print "$target" >"$out" 2>/dev/null || rc=$?
+    if (( rc != 0 )) || ! grep -q '[^[:space:]]' "$out"; then
+      rm -f "$out"
+      return 0
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  rm -f "$out"
+  echo "$(date) login-agent still loaded after 10s; not bootstrapping $target" >&2
+  return 1
+}
+login_restart_failed() {
+  local uid="$1" plist="$2"
+  echo "$(date) login-agent spawn failed after kickstart -k, a second kickstart, and bootout/enable/bootstrap (inspect launchd/AMFI logs)" >&2
+  echo "$(date) RECOVERY: launchctl bootstrap gui/${uid} '${plist}'" >&2
+  return 1
+}
+# bootout, wait until unloaded, enable, bootstrap. One full-cycle retry.
+# A still-loaded job is not bootstrapped. The final bootstrap failure is returned.
+bootstrap_login_agent() {
+  local target="$1" plist="$2" uid="$3" attempt
+  if [[ ! -f "$plist" ]]; then
+    echo "$(date) login-agent plist missing or invalid: $plist" >&2
+    return 1
+  fi
+  if ! plutil -lint -s "$plist"; then
+    echo "$(date) login-agent plist missing or invalid: $plist" >&2
+    return 1
+  fi
+  attempt=0
+  while (( attempt < 2 )); do
+    attempt=$((attempt + 1))
+    launchctl bootout "$target" || true
+    if ! wait_login_agent_unloaded "$target"; then
+      return 1
+    fi
+    if ! launchctl enable "$target"; then
+      echo "$(date) login-agent enable returned non-zero (attempt ${attempt}/2)" >&2
+      if (( attempt < 2 )); then
+        continue
+      fi
+      return 1
+    fi
+    if launchctl bootstrap "gui/${uid}" "$plist"; then
+      return 0
+    fi
+    echo "$(date) login-agent bootstrap returned non-zero (attempt ${attempt}/2)" >&2
+  done
+  return 1
+}
 # kickstart -k can lose a newly signed login agent to a Launch Constraint
-# Violation. Cap: wait, one kickstart without -k, then one bootout/enable/bootstrap.
-# verify_services still checks the PID and command line afterward.
+# Violation. The previous pid must not satisfy the check. Cap: poll, one
+# kickstart without -k, then bootout/enable/bootstrap (one cycle retry).
+# After a successful bootstrap, poll and allow one kickstart without -k.
+# verify_services still checks the PID, command line, and binary inode.
 restart_login_agent() {
-  local uid target plist
+  local uid target plist old_pid
   uid=$(id -u)
-  target="gui/${uid}/io.github.kimpossible-ty.tinymist-flow.login"
-  plist="${HOME}/Library/LaunchAgents/io.github.kimpossible-ty.tinymist-flow.login.plist"
+  target="gui/${uid}/${LOGIN_LABEL}"
+  plist="$LOGIN_PLIST"
+  read_login_agent_pid "$target"
+  if (( LOGIN_AGENT_LISTING == 1 )); then
+    old_pid="$LOGIN_AGENT_PID"
+  else
+    old_pid=""
+  fi
 
   launchctl kickstart -k "$target" || echo "$(date) login-agent kickstart -k returned non-zero; waiting for spawn"
   sleep 3
-  if login_agent_has_pid "$target"; then
+  if login_agent_is_replacement "$target" "$old_pid"; then
     return 0
   fi
-  echo "$(date) login-agent has no pid after kickstart -k; polling up to 10s"
-  if poll_login_agent_pid "$target" 10; then
+  echo "$(date) login-agent has no replacement pid after kickstart -k; polling up to 10s"
+  if poll_login_agent_pid "$target" 10 "$old_pid"; then
     return 0
   fi
 
-  echo "$(date) login-agent still has no pid; kickstart without -k"
+  echo "$(date) login-agent still has no replacement pid; kickstart without -k"
   launchctl kickstart "$target" || echo "$(date) login-agent kickstart without -k returned non-zero"
-  if poll_login_agent_pid "$target" 5; then
+  if poll_login_agent_pid "$target" 5 "$old_pid"; then
     return 0
   fi
 
-  echo "$(date) login-agent still has no pid; bootout/enable/bootstrap"
-  launchctl bootout "$target" || echo "$(date) login-agent bootout returned non-zero (not loaded or already unloaded); continuing"
-  launchctl enable "$target" || echo "$(date) login-agent enable returned non-zero"
-  launchctl bootstrap "gui/${uid}" "$plist" || echo "$(date) login-agent bootstrap returned non-zero"
-  if poll_login_agent_pid "$target" 5; then
+  echo "$(date) login-agent still has no replacement pid; bootout/enable/bootstrap"
+  if ! bootstrap_login_agent "$target" "$plist" "$uid"; then
+    login_restart_failed "$uid" "$plist" || true
+    return 1
+  fi
+  if poll_login_agent_pid "$target" 5 "$old_pid"; then
     return 0
   fi
 
-  echo "$(date) login-agent spawn failed after kickstart -k, a second kickstart, and bootout/enable/bootstrap (inspect launchd/AMFI logs)" >&2
+  echo "$(date) login-agent still has no replacement pid after bootstrap; kickstart without -k"
+  launchctl kickstart "$target" || echo "$(date) login-agent kickstart without -k returned non-zero"
+  if poll_login_agent_pid "$target" 5 "$old_pid"; then
+    return 0
+  fi
+
+  login_restart_failed "$uid" "$plist" || true
   return 1
 }
 install_run() (
-local id="$1"
+local id="$1" cache claim_rc=0
+# Preflight outside the ERR trap. A failing command substitution under set -E
+# runs failed() twice; reuse this path for fetch-engine --dest.
+if ! cache=$(engine_cache_root); then
+  echo "$(date) engine cache is unavailable; skipping the claim for run $id and retrying later"
+  return 0
+fi
 # This conditional wraps only the claim helper, not install_run: ERR/errexit
 # must remain enabled for every actual installation/verification command.
-if ! begin_attempt "$id"; then
-  echo "$(date) run $id not claimed; no automatic reinstall (inspect update-attempts)"
+# The claim is taken here, after the cache preflight and before download.
+begin_attempt "$id" || claim_rc=$?
+if [[ "$claim_rc" == 75 ]]; then
+  echo "$(date) run $id already attempted; automatic reinstall blocked (inspect update-attempts)"
+  return 0
+fi
+if [[ "$claim_rc" != 0 ]]; then
+  echo "$(date) run $id claim failed with exit $claim_rc (permissions or invalid id); no claim was recorded"
+  stage detect failed "claim failed with exit $claim_rc" || true
+  notify "빌드 $id 클레임 실패" || true
   return 0
 fi
 CUR=detect
@@ -256,7 +398,6 @@ cleanup_wt() { git -C "$SRC" worktree remove --force "$WT" 2>/dev/null || rm -rf
 trap cleanup_wt EXIT
 cd "$WT"
 stage download running
-cache=$(engine_cache_root)
 engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$id" --dest "$cache/$id")
 reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$id")
 echo "$(date) run $id sha $sha reader bundle $reader"
@@ -275,8 +416,8 @@ stage restart done; CUR=reader; stage reader running
 READER_SRC="$reader" "$HOME/Library/Application Support/Lagrangian/refresh-reader-engine.sh"
 verify_services complete
 stage reader done; CUR=done
-record_attempt readiness verified "App, engine and Reader readiness passed"
-# Commit only after engine, background app and Reader readiness all passed.
+record_attempt reader verified "App, engine and Reader readiness passed"
+# Commit only after engine, background app and Reader checks all passed.
 # Keep the existing marker on every failure; replace a complete file atomically.
 python3 - "$STATE" "$id" <<'PY'
 import os,sys,tempfile
@@ -342,7 +483,15 @@ watch_iteration() {
       fi
       return
     fi
+    if ! engine_cache_root >/dev/null; then
+      echo "$(date) engine cache is unavailable; skipping the claim for run $success and retrying later"
+      NEXT_DELAY=60
+      return
+    fi
     install_run "$success"
+    # 60s whenever install_run returns, including an immediate claim hold
+    # (exit 75). Catch-up of a still-newer successful run waits out this delay.
+    # A successful gh run watch above leaves NEXT_DELAY at 0.
     NEXT_DELAY=60
   fi
 }
