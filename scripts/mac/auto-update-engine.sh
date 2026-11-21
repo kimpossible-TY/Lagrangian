@@ -7,6 +7,7 @@ SRC="$HOME/Developer/lagrangian"
 STATE="$HOME/Library/Application Support/Lagrangian/last-installed-run"
 STATUS="$HOME/Library/Application Support/Lagrangian/pipeline-status.json"
 APP="$HOME/Applications/Lagrangian.app"
+ATTEMPTS="$HOME/Library/Application Support/Lagrangian/update-attempts"
 stage() { python3 - "$STATUS" "$1" "$2" "${id:-}" "${3:-}" <<'PY'
 import json,sys,time,os
 p,st,state,run,msg=sys.argv[1:6]
@@ -18,10 +19,54 @@ d["run"]=run or d.get("run"); d["current"]=st; d["state"]=state; d["updatedAt"]=
 tmp=p+".tmp"; json.dump(d,open(tmp,"w"),ensure_ascii=False,indent=2); os.replace(tmp,p)
 PY
 }
+# A persistent, atomic claim prevents launchd relaunches (or interruption) from
+# reinstalling the same run. Retry requires explicit operator action; a newer
+# successful run gets an independent claim. Never infer completion from a claim.
+begin_attempt() { python3 - "$ATTEMPTS" "$1" <<'PYCODE'
+import json,os,sys,time
+from pathlib import Path
+root,run=Path(sys.argv[1]),sys.argv[2]
+if not run.isdigit(): raise ValueError('Invalid run ID')
+root.mkdir(mode=0o700,parents=True,exist_ok=True)
+path=root/run
+try: path.mkdir(mode=0o700)
+except FileExistsError: sys.exit(75)
+record=path/'state.json'
+with record.open('x') as stream:
+    json.dump({'run':run,'phase':'claimed','state':'in_progress',
+               'updatedAt':time.strftime('%Y-%m-%dT%H:%M:%S%z')},stream)
+    stream.flush(); os.fsync(stream.fileno())
+PYCODE
+}
+record_attempt() { python3 - "$ATTEMPTS" "$id" "$1" "$2" "${3:-}" <<'PYCODE'
+import json,os,sys,tempfile,time
+from pathlib import Path
+root,run,phase,state,message=sys.argv[1:]
+if not run.isdigit(): raise ValueError('Invalid run ID')
+path=Path(root)/run
+if path.is_symlink() or not path.is_dir(): raise RuntimeError('Missing attempt claim')
+try: previous=json.loads((path/'state.json').read_text())
+except (OSError,ValueError): previous={}
+package_verified=previous.get('packageVerified',False) or (phase=='package' and state=='verified')
+package_at=previous.get('packageVerifiedAt')
+if phase=='package' and state=='verified': package_at=time.strftime('%Y-%m-%dT%H:%M:%S%z')
+fd,tmp=tempfile.mkstemp(prefix='.state-',dir=path)
+try:
+    with os.fdopen(fd,'w') as stream:
+        json.dump({'run':run,'phase':phase,'state':state,'message':message,
+                   'packageVerified':package_verified,'packageVerifiedAt':package_at,
+                   'updatedAt':time.strftime('%Y-%m-%dT%H:%M:%S%z')},stream)
+        stream.flush(); os.fsync(stream.fileno())
+    os.replace(tmp,path/'state.json')
+finally:
+    if os.path.exists(tmp): os.unlink(tmp)
+PYCODE
+}
 notify() { osascript -e "display notification \"$1\" with title \"Lagrangian\"" >/dev/null 2>&1 || true; }
 failed() {
   local code="$1" line="$2"
   trap - ERR
+  record_attempt "$CUR" failed "exit $code at updater line $line; automatic retry blocked" || true
   stage "$CUR" failed "exit $code at updater line $line" || true
   echo "$(date) install of run $id FAILED at $CUR (exit $code, line $line)"
   notify "빌드 $id 설치 실패 (로그 확인)"
@@ -108,6 +153,14 @@ PY
 }
 install_run() (
 local id="$1"
+# This conditional wraps only the claim helper, not install_run: ERR/errexit
+# must remain enabled for every actual installation/verification command.
+if ! begin_attempt "$id"; then
+  echo "$(date) run $id not claimed; no automatic reinstall (inspect update-attempts)"
+  return 0
+fi
+CUR=detect
+trap 'failed "$?" "$LINENO"' ERR
 echo "$(date) new run $id"
 notify "새 빌드 $id 발견, 설치 시작"
 stage detect running
@@ -130,6 +183,8 @@ app=$(python3 scripts/flow-app.py build --engine "$engine" | tail -1)
 verify_services snapshot
 python3 scripts/flow-app.py install "$app"
 python3 scripts/flow-app.py verify "$APP" >/dev/null
+# Package replacement is durable but does NOT mean activation succeeded.
+record_attempt package verified "App files verified; activation and Reader readiness still pending"
 stage package done; CUR=restart; stage restart running
 launchctl kickstart -k "gui/$(id -u)/io.github.kimpossible-ty.tinymist-flow.login"
 sleep 3
@@ -139,6 +194,7 @@ stage restart done; CUR=reader; stage reader running
 READER_SRC="$reader" "$HOME/Library/Application Support/Lagrangian/refresh-reader-engine.sh"
 verify_services complete
 stage reader done; CUR=done
+record_attempt readiness verified "App, engine and Reader readiness passed"
 # Commit only after engine, background app and Reader readiness all passed.
 # Keep the existing marker on every failure; replace a complete file atomically.
 python3 - "$STATE" "$id" <<'PY'
@@ -153,6 +209,7 @@ try:
 finally:
     if temporary and os.path.exists(temporary): os.unlink(temporary)
 PY
+record_attempt complete done "Successful installed-run marker committed"
 echo "$(date) installed run $id"
 stage done done
 notify "빌드 $id 설치 완료"
@@ -195,8 +252,17 @@ watch_iteration() {
     fi
   elif (( success > installed )); then
     LAST_WATCHED=""
+    if [[ -e "$ATTEMPTS/$success" || -L "$ATTEMPTS/$success" ]]; then
+      # Keep the failure and its last phase visible. Do not reset pipeline status,
+      # show another notification, or retry package replacement automatically.
+      if [[ "${LAST_BLOCKED:-}" != "$success" ]]; then
+        echo "$(date) run $success already attempted; automatic reinstall blocked"
+        LAST_BLOCKED="$success"
+      fi
+      return
+    fi
     install_run "$success"
-    NEXT_DELAY=0
+    NEXT_DELAY=60
   fi
 }
 

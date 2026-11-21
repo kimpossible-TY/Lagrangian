@@ -5,6 +5,7 @@ source scripts/mac/auto-update-engine.sh
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/autoupdate-test.XXXXXX")
 trap 'rm -rf "$TEST_DIR"' EXIT
 STATE="$TEST_DIR/last-installed-run"
+ATTEMPTS="$TEST_DIR/update-attempts"
 EVENTS="$TEST_DIR/events"
 printf '100\n' > "$STATE"
 : > "$EVENTS"
@@ -59,6 +60,15 @@ SUCCESS=107
 watch_iteration; expect 'install 107'
 SUCCESS=104
 watch_iteration; expect ''
+# A persistent failed/interrupted run is held across updater processes.
+printf '107\n' > "$STATE"
+mkdir -p "$ATTEMPTS/108"
+SUCCESS=108
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+# A separate newer successful run is not suppressed by the hold.
+SUCCESS=109
+watch_iteration; expect 'install 109'
 # Failed lookup and malformed state must never install.
 SUCCESS=106; LIST_ERROR=1
 watch_iteration; expect ''
