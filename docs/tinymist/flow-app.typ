@@ -34,7 +34,7 @@ The center card selects the project and starts reading.
 
 - Project picker: choose which project this window controls.
 - Shortcut path: the entry file's location is shortened to `.../<dir>/<entry.typ>`.
-- Action row: the primary button *Read* (읽기 시작), the secondary button *Offline document* (오프라인 문서), and the *•••* overflow menu (새 프로젝트 추가…, PDF 내보내기, 오프라인 저장, 문서 폴더 열기 등).
+- Action row: the primary button *Read* (읽기 시작), the secondary button *Offline document* (오프라인 문서), and the *•••* overflow menu (*주소 복사*, *설정 파일 보기*, *프로젝트 추가…*, *Connect Editor…*, *Disconnect Editor*, *사용·업데이트·복구 안내*).
 
 Reading and offline actions stay in this row; project settings are not edited on the home window.
 
@@ -43,7 +43,7 @@ Reading and offline actions stay in this row; project settings are not edited on
 One line below the project card reports the service and keeps its actions in the same row.
 
 - Stopped: a status dot, *프리뷰 서비스 · 중지됨*, the address `127.0.0.1:<port>`, and *Start* (시작) and *Logs* (로그).
-- Running: a status dot, *프리뷰 서비스 · 실행 중*, the address `127.0.0.1:<port>` as a clickable link, and *External Reader* (외부 Reader), *Stop* (중지), and *•••* (다시 시작, 로그 보기, 주소 복사 등).
+- Running: a status dot, *프리뷰 서비스 · 실행 중*, the address `127.0.0.1:<port>` as a clickable link, and *External Reader* (외부 Reader), *Stop* (중지), and *•••* (*재시작*, *로그 열기*).
 
 The dot follows the service state; reader-side activity is described in *Understand preview status* below.
 
@@ -55,13 +55,15 @@ The bottom bar keeps two persistent items: the *로그인 시 앱 열기* checkb
 
 Settings are not edited on the home window. *⚙* or *프로젝트 설정…* opens a separate sheet with:
 
-- *Name* (이름)
-- *Root folder* (루트 폴더) and *Entry file* (진입 파일), each with *Browse* (경로 찾아보기)
-- *Host* (호스트) and *Port* (포트)
-- *Output file name* (출력 파일명)
-- *Start automatically* (자동 시작)
+- *프로젝트 이름* (`name`)
+- *프로젝트 폴더* (`root`) with *찾아보기…* (`browseRoot`)
+- *진입 파일* (`entry`) (text field, no separate Browse button)
+- *글꼴 폴더 (`;` 구분)* (`fonts`)
+- *로컬 패키지 폴더* (`packages`)
+- *로컬 포트* (`port`)
+- *HTTPS 주소 (선택)* (`publicURL`)
 
-*Save settings* (설정 저장) is available inside this sheet only.
+*설정 저장* (Save settings) is available inside this sheet only; cancelling or closing the sheet without saving discards unsaved field edits.
 
 = Open your first preview
 
@@ -69,8 +71,8 @@ Use Flow to manage a document's live preview while editing its Typst source in y
 
 + Open `~/Applications/Lagrangian.app` (received via Finder or installed package). The Flow menu appears in the menu bar.
 + In the home window, click *+* (프로젝트 추가) in the top bar and select the document's `.typ` entry file. The #link("examples/reading-demo.typ")[reading demo] is a small document for trying selection, highlights, references, and themes.
-+ Set *Root folder* (루트 폴더) to the workspace root if the entry file uses sibling files or folders outside its own directory. Use *Browse* (경로 찾아보기) to choose a path.
-+ Adjust *Host* (호스트) and *Port* (포트) if the defaults are not suitable, add any required font or package folders, then click *Save settings* (설정 저장) inside the settings sheet.
++ Set *프로젝트 폴더* (`root`) to the workspace root if the entry file uses sibling files or folders outside its own directory (using *찾아보기…*), and confirm *진입 파일* (`entry`).
++ Adjust *글꼴 폴더 (`;` 구분)* (`fonts`), *로컬 패키지 폴더* (`packages`), *로컬 포트* (`port`), or *HTTPS 주소 (선택)* (`publicURL`) if needed, then click *설정 저장* (Save settings) inside the settings sheet.
 + Click *Read* (읽기 시작) in the project card. In an installed app supporting native reading, Flow saves changed settings, starts or reuses the managed document service, and prepares the native Reader window. Save a source edit in your editor to refresh that document. Use the separate *External Reader* action when you explicitly want the web reader.
 
 *Result in an installed native app:* Flow opens a native Reader for the project. Settings validation, the request, document acceptance and actual native presentation remain distinct progress states. The separately selected External Reader opens its configured browser address. Historical web-only installed releases used Start reading to open that browser directly; check the guide and metadata bundled with the app as described in #doc-ref(<identifying-installed-versions-and-guides>, "identifying-installed-versions-and-guides")[Identifying installed versions and guides]. If preparation fails, the explanation stays in the window; correct the cause and choose *Read again* (다시 읽기). *Logs* (로그) provides further details. Each project keeps its own entry file, settings, port, and preview lifecycle.
@@ -81,7 +83,7 @@ The project card's picker selects which project the home window controls. *Stop*
 
 *Read* (읽기 시작) also works for an already running project and waits for its available document before native preparation. *External Reader* (외부 Reader) is the explicit web action; the existing phone/tablet web URL remains available. Service start/stop/restart controls manage the service separately from Read. Switching projects or stopping cancels the current pending Read. Service and settings operations run in the background so the window remains responsive.
 
-Project settings are edited only in the settings sheet described in *Home window* above: *Name* (이름), *Root folder* (루트 폴더), *Entry file* (진입 파일), *Host* (호스트) and *Port* (포트), *Output file name* (출력 파일명), and *Start automatically* (자동 시작). *Save settings* (설정 저장) is not offered on the home window itself.
+Project settings are edited only in the settings sheet described in *Home window* above: *프로젝트 이름*, *프로젝트 폴더* (with *찾아보기…*), *진입 파일*, *글꼴 폴더 (`;` 구분)*, *로컬 패키지 폴더*, *로컬 포트*, and *HTTPS 주소 (선택)*. *설정 저장* (Save settings) is not offered on the home window itself, and cancelling or closing the sheet without saving discards unsaved edits.
 
 Font paths are relative to the project root and separated by semicolons. For example, `fonts;../shared-fonts` selects two folders. The local package folder is optional; use it when your document depends on local packages. Saving changed settings restarts a running preview.
 
@@ -495,9 +497,9 @@ The native Reader uses one toolbar row per mode. Navigation stays on the left, t
 
 *본문* shows the reflowed native body and *원본 PDF* opens the original pages. The single body row carries:
 
-- Left: the brand and sidebar toggle, and the *목차 ▾* dropdown.
+- Left: the brand mark (`NativeBrandMark`) and the *목차 ▾* dropdown.
 - Center: the *본문 | 원본 PDF* segmented control.
-- Right: search (*⌘F*), *Aa* (view settings), and the *•••* overflow menu (새로고침, 외부 Reader 열기, 오프라인 저장, PDF 내보내기 등).
+- Right: search (*⌘F*), *Aa* (view settings popover), and the *•••* overflow menu (새로고침, 검토 표시/실행 취소/지우기, 오프라인 저장, 저장 문서 열기, 저장 목록 새로고침, PDF 내보내기, 계정 관리, 돌아가기, 확대/축소/페이지 맞춤 등).
 
 *목차* navigates the body. If an active body or PDF selection holds the view, dismiss the selection before choosing the other mode. Selecting a PDF search result creates a display selection. Typing a search query alone does not hold the view. *새로고침* is disabled for a restored offline copy. When restoration is in progress or fails, the recovery status takes precedence and the existing recovery controls handle retry or cancel.
 
@@ -575,15 +577,15 @@ current authorization.
 
 *원본 PDF* opens the original pages with one toolbar row, including a restored offline copy.
 
-- Left: the sidebar toggle, *목차 ▾*, and the *오프라인 PDF* badge.
+- Left: the brand mark (`NativeBrandMark`), *목차 ▾*, and the *오프라인 PDF* badge.
 - Center: grouped page navigation: `<`, the current page and the total page count (`current / total`), and `>`.
 - Right: the search field and the *•••* overflow menu.
 
-A search hit or a selection in the offline copy shows a compact capsule with *Copy* (복사) and *Close* (닫기), above the caption *오프라인 PDF · 복사·검색만 지원*.
+A search hit or a selection in live/online *원본 PDF* shows a compact capsule with *Copy* (복사) and *Close* (닫기) above the caption *원본 PDF · 복사·검색만 지원*, while in an offline restored copy it shows *오프라인 PDF · 복사·검색만 지원*.
 
 == Reader shortcuts
 
-- *⌥⌘T*: *목차*
+- *⌥⌘T*: 더보기(•••) 메뉴 토글
 - *⌘F*: search in *본문*, or focus the original-PDF search field
 - *Esc*: close the popover, the capsule, or search
 - Arrow keys: move between pages and navigate the body
