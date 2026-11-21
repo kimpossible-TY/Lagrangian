@@ -107,9 +107,31 @@ else: sys.exit(1)
         self.config.write_text(json.dumps({'services':self.services,'shared':{'port':self.port}}))
         support=self.data.parent; helper=support/'refresh-reader-engine.sh'; helper.write_text('#!/bin/bash\nexit 0\n'); helper.chmod(0o755)
         fakebin=self.home/'bin'; fakebin.mkdir()
-        for name, body in {'launchctl':'echo "pid = 42"', 'ps':'case "$*" in *42*) if [[ "$TEST_PS_READER" == 1 ]]; then echo "$TEST_SERVE"; else echo "$TEST_NATIVE --background"; fi;; esac', 'sleep':':'}.items():
+        for name, body in {'ps':'exit 0', 'sleep':':'}.items():
             path=fakebin/name; path.write_text('#!/bin/bash\n'+body+'\n'); path.chmod(0o755)
         (fakebin/'ps').write_text("#!/bin/bash\ncase \"$*\" in *\"-p 42\"*) echo \"$TEST_NATIVE --background\";; *) echo \"$TEST_SERVE\";; esac\n")
+        # No pid before kickstart, so the pre-kickstart pid is empty. After
+        # kickstart the same pid 42 is a replacement. lsof must show that
+        # binary's inode and path or verify_services rejects the login job.
+        (fakebin/'launchctl').write_text("""#!/bin/bash
+marker="$HOME/launchctl-kicked"
+if [[ "$1" == kickstart ]]; then
+  : > "$marker"
+  exit 0
+fi
+if [[ "$1" == print ]]; then
+  if [[ -f "$marker" ]]; then
+    printf 'state = running\\npid = 42\\n'
+  else
+    printf 'state = running\\n'
+  fi
+fi
+exit 0
+""")
+        (fakebin/'launchctl').chmod(0o755)
+        (fakebin/'lsof').write_text(
+            "#!/bin/bash\nprintf 'ftxt\\ni%s\\nn%s\\n' " + repr(str(native.stat().st_ino)) + ' "$TEST_NATIVE"\n')
+        (fakebin/'lsof').chmod(0o755)
         script="""source scripts/mac/auto-update-engine.sh
 PATH="$HOME/bin:$PATH"
 gh() { printf '%s\n' "$TEST_SHA"; }
