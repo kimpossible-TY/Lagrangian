@@ -117,6 +117,41 @@ eval "$saved_stage"
 install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
 printf 'auto-update watch regression passed\n'
 
+# Real install_run through watch_iteration. The gh stub fails `gh run view`,
+# which is the first command after a successful claim. A subshell keeps the
+# updater's set -e exit from aborting this script.
+eval "$saved_install_run"
+printf '100\n' > "$STATE"
+RUNNING=''; SUCCESS=201; WATCH_RESULT=0; LIST_ERROR=0
+ENGINE_CACHE_CONFIGURED="$TEST_DIR/engine-cache"
+: > "$TEST_DIR/s1-launch.log"
+: > "$TEST_DIR/s1-git.log"
+notify() { :; }
+launchctl() { printf '%s\n' "$*" >> "$TEST_DIR/s1-launch.log"; return 1; }
+git() { printf '%s\n' "$*" >> "$TEST_DIR/s1-git.log"; return 1; }
+rc=0
+set +e
+(watch_iteration)
+rc=$?
+set -e
+[[ "$rc" != 0 ]]
+[[ -f "$ATTEMPTS/201/state.json" ]]
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/201/state.json")" == failed ]]
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["phase"])' "$ATTEMPTS/201/state.json")" == download ]]
+[[ "$(cat "$STATE")" == "100" ]]
+if grep -E -q 'kickstart|bootout' "$TEST_DIR/s1-launch.log"; then
+  echo 'restart_login_agent ran after a failed install' >&2
+  exit 1
+fi
+if [[ -s "$TEST_DIR/s1-git.log" ]]; then
+  echo 'git ran after the post-claim failure' >&2
+  exit 1
+fi
+unset -f launchctl git
+eval "$saved_notify"
+install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
+printf 'auto-update install failure leaves the marker unchanged\n'
+
 rc=0
 begin_attempt 9001 || rc=$?
 [[ "$rc" == 0 ]]
