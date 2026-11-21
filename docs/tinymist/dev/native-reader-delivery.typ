@@ -45,6 +45,8 @@ python3 scripts/verify-native-reader-app.py <isolated>/Lagrangian.app \
   --source-revision <current-commit>
 ```
 
+`<delivery>` must be outside the backend checkout, `<runtime>`, and `<current-reader>` (stage rejects overlap).
+
 Use `--help` and each subcommand's `--help` for the authoritative parser. Runtime
 preparation signs its copied Node before computing the runtime inventory. Backend
 staging rewrites only copied Python framework load references, signs internal
@@ -347,3 +349,13 @@ The subsequent current F10 explanation is pinned separately: exact one-path
 consented editor operation from mapping-only locate, without claiming GUI or
 Unicode manager matching acceptance. Native code correction remains d98f6e98;
 this docs record adds no native path or delivery allowlist exception.
+
+The footnote-merge owner correction registers the four main paths from
+`fdd6f613f5451ecb2ac38660001c16833ee0c5ad` →
+`316417a79562efb6b6162a5802606b98ed4a35da`:
+`tools/flow-reader/web/rendering/annotations.js`,
+`tools/flow-reader/tests/footnotes-browser.mjs`,
+`tools/flow-reader/tests/test_annotations.mjs`, and
+`tools/flow-reader/tests/fixtures/side-footnotes.typ`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.
+The current delivery-owned allowlist is 27 exact paths.

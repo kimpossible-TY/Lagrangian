@@ -196,6 +196,7 @@ DELIVERY_SOURCE_PATHS = (
     'tests/flow-app/test_native_delivery_artifact.py',
     'tests/flow-app/test_native_delivery_consumer.py',
     'tests/flow-app/test_native_source_binding.py',
+    'tests/flow-app/test_reader_bundle.py',
     'tools/flow-reader/native/runtime/backend-delivery.json',
 )
 
@@ -534,6 +535,7 @@ def replace_verified(candidate, output):
 
 def publish_verified(candidate, output, verifier):
     """Exchange a verified candidate without a remove/rename interruption gap."""
+    output = Path(output).absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
     require(output.parent.resolve() == output.parent and not output.is_symlink(), 'output path/symlink')
     if output.exists():

@@ -381,6 +381,9 @@ def extract_verified_tar(archive, dest, records, archive_sha256, *, max_archive_
         if any(str(p) in expected and expected[str(p)]['kind'] != 'directory' for p in parents):
             raise ValueError('Archive link/file used as parent')
     _bounded_tar_headers(archive, max_entries, max_entry_bytes)
+    # Parent components are canonicalized here (macOS /var -> /private/var).
+    # The final component stays unchanged, so a symlink dest is still non-canonical.
+    dest = dest.parent.resolve() / dest.name
     if dest.resolve() != dest or dest.is_symlink() or (dest.exists() and any(dest.iterdir())):
         raise ValueError('Archive extraction requires a canonical empty owned output')
     dest.mkdir(parents=True, exist_ok=True)
@@ -546,6 +549,10 @@ def materialize(manifest, archive_path, dest):
     """Extract a checked manifest into ``dest`` and verify the tree."""
     manifest = check_manifest(manifest)
     dest = Path(dest)
+    # extract_verified_tar canonicalizes parents. Reject a symlink dest before rmtree
+    # so the failure stays this error; resolving the whole dest would follow the link.
+    if dest.is_symlink():
+        raise ValueError('Archive extraction requires a canonical empty owned output')
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
@@ -589,7 +596,9 @@ def package_reader_bundle(root, head_sha, output, worktree=False):
         }
         (output / MANIFEST_NAME).write_text(dump_manifest(manifest))
         with tempfile.TemporaryDirectory(prefix='reader-bundle-check-') as temporary:
-            materialize(load_manifest(output / MANIFEST_NAME), archive, Path(temporary) / 'tree')
+            # Resolve the temp directory (macOS /var -> /private/var). 'tree' is a real
+            # final component, so the canonical-output check still sees a non-symlink dest.
+            materialize(load_manifest(output / MANIFEST_NAME), archive, Path(temporary).resolve() / 'tree')
     except Exception:
         shutil.rmtree(output, ignore_errors=True)
         raise
@@ -629,13 +638,14 @@ def default_staging(head_sha, home=None, platform=None):
 
 def assert_not_installed_reader(dest, home=None):
     """Refuse to unpack into the installed app, its data, or the legacy app data."""
-    home = Path.home() if home is None else Path(home)
+    # Resolve home and each installed root so a symlinked parent still matches dest.
+    home = (Path.home() if home is None else Path(home)).resolve()
     resolved = Path(dest).expanduser().resolve()
-    roots = (
-        home / 'Library/Application Support/Lagrangian',
-        home / 'Library/Application Support/tinymist-flow',
-        home / 'Applications',
-    )
+    roots = tuple((home / p).resolve() for p in (
+        'Library/Application Support/Lagrangian',
+        'Library/Application Support/tinymist-flow',
+        'Applications',
+    ))
     for root in roots:
         if resolved == root or root in resolved.parents:
             raise ValueError('Refusing to unpack a reader bundle into installed application data: ' + str(resolved))
@@ -674,7 +684,8 @@ def download_bundle(gh, repo, run_id, head_sha):
     """Download the sha-named artifact, then the stable name if that name is absent."""
     errors = []
     for name in (SHA_ARTIFACT_PREFIX + head_sha, STABLE_ARTIFACT):
-        temporary = Path(tempfile.mkdtemp(prefix='reader-bundle-download-'))
+        # mkdtemp inherits a symlinked TMPDIR on macOS (/var -> /private/var).
+        temporary = Path(tempfile.mkdtemp(prefix='reader-bundle-download-')).resolve()
         try:
             gh(['run', 'download', str(run_id), '--repo', repo, '--name', name, '--dir', str(temporary)])
             return temporary, name
@@ -748,7 +759,7 @@ def fetch_reader_bundle(repo=None, run_id=None, head_sha=None, branch=None, dest
         final = Path(dest).expanduser() if dest is not None else default_staging(record['headSha'], home)
         final = assert_not_installed_reader(final, home)
         final.parent.mkdir(parents=True, exist_ok=True)
-        incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=final.parent))
+        incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=final.parent)).resolve()
         materialize(manifest, archive_path, incoming)
         assert_staging_replaceable(final)
         _replace_staging(incoming, final)

@@ -192,7 +192,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         import tempfile
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); cached = root / 'cached'; cached.mkdir()
+            root = Path(directory).resolve(); cached = root / 'cached'; cached.mkdir()
             engine = b'same-engine'
             (cached / 'flow-engine').write_bytes(engine)
             checksum = hashlib.sha256(engine).hexdigest()
@@ -235,6 +235,129 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
                 with self.assertRaises(ValueError):reuse.download_payload('fixture/repo','1',dest)
                 self.assertEqual((dest/'flow-engine').read_bytes(),data)
 
+    def test_relative_dest_lands_at_absolute_path_and_symlink_dest_is_rejected(self):
+        import hashlib
+        import os
+        import shutil
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            cached = root / 'cached'
+            cached.mkdir()
+            engine = b'relative-dest-engine'
+            (cached / 'flow-engine').write_bytes(engine)
+            checksum = hashlib.sha256(engine).hexdigest()
+            (cached / 'flow-engine.sha256').write_text(checksum)
+            (cached / 'release.json').write_text(json.dumps({'engineInputSHA256': checksum,
+                'engineBuild': {'target': reuse.ENGINE_TARGET, 'profile': reuse.ENGINE_PROFILE}}))
+            write(cached / 'Lagrangian.app/Contents/MacOS/Lagrangian', 'stale cached application')
+            def gh(args, repo_cwd=None):
+                shutil.copytree(cached, Path(args[-1]))
+                return ''
+            previous = os.getcwd()
+            os.chdir(root)
+            try:
+                destination = Path('dist/engine-input')
+                with patch.object(reuse, '_gh', gh):
+                    self.assertEqual(reuse.download_payload('fixture/repo', '1', destination), checksum)
+                    landed = destination.absolute()
+                    self.assertEqual(landed, root / 'dist/engine-input')
+                    self.assertFalse(landed.is_symlink())
+                    self.assertEqual(sorted(p.name for p in landed.iterdir()), ['flow-engine', 'flow-engine.sha256', 'release.json'])
+                    self.assertEqual((landed / 'flow-engine').read_bytes(), engine)
+                    real = root / 'elsewhere'
+                    real.mkdir()
+                    link = Path('dist/engine-link')
+                    link.symlink_to(real)
+                    with self.assertRaises(ValueError) as caught:
+                        reuse.download_payload('fixture/repo', '1', link)
+                    self.assertEqual(str(caught.exception), 'output path/symlink')
+                    self.assertTrue(link.is_symlink())
+                    self.assertEqual(list(real.iterdir()), [])
+                    self.assertEqual((landed / 'flow-engine').read_bytes(), engine)
+            finally:
+                os.chdir(previous)
+
+    def test_main_absolutizes_relative_engine_artifact_dir(self):
+        import io
+        import os
+        import tempfile
+        from contextlib import redirect_stderr
+        from unittest.mock import patch
+        digest = 'a' * 64
+        match = {'databaseId': 9, 'headSha': 'b' * 40, 'url': 'https://example.test/9'}
+        received = []
+
+        def download_payload(repo, run_id, dest, *, head=None):
+            received.append(dest)
+            return digest
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            previous = os.getcwd()
+            os.chdir(root)
+            try:
+                env = {
+                    'GITHUB_REPOSITORY': 'fixture/repo',
+                    'ENGINE_INPUT_HASH': digest,
+                    'ENGINE_REUSE_BRANCHES': 'main',
+                    'ENGINE_ARTIFACT_DIR': 'dist/engine-input',
+                }
+                with patch.dict(os.environ, env), \
+                        patch.object(reuse, 'list_successful_runs', return_value=[match]), \
+                        patch.object(reuse, 'select_source_run', return_value=match), \
+                        patch.object(reuse, 'download_payload', side_effect=download_payload), \
+                        patch.object(reuse, 'set_output'), \
+                        patch.object(reuse, 'summarize'), \
+                        redirect_stderr(io.StringIO()):
+                    reuse.main()
+                self.assertEqual(len(received), 1)
+                dest = received[0]
+                expected = (root / 'dist/engine-input').absolute()
+                self.assertTrue(dest.is_absolute())
+                self.assertEqual(dest, expected)
+                self.assertEqual(dest, Path('dist/engine-input').absolute())
+            finally:
+                os.chdir(previous)
+
+    def test_publish_verified_accepts_relative_output_and_rejects_symlink(self):
+        import os
+        import tempfile
+        delivery = load('publish_verified_relative', ROOT / 'scripts/stage-native-reader-delivery.py')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            candidate = root / 'candidate'
+            candidate.mkdir()
+            (candidate / 'marker').write_text('ready\n')
+            previous = os.getcwd()
+            os.chdir(root)
+            try:
+                output = Path('dist/published')
+                delivery.publish_verified(candidate, output, lambda _path: None)
+                landed = output.absolute()
+                self.assertEqual(landed, root / 'dist/published')
+                self.assertFalse(landed.is_symlink())
+                self.assertEqual((landed / 'marker').read_text(), 'ready\n')
+                self.assertFalse(candidate.exists())
+                held = root / 'held'
+                held.mkdir()
+                (held / 'marker').write_text('kept\n')
+                other = root / 'other'
+                other.mkdir()
+                (other / 'marker').write_text('blocked\n')
+                link = Path('dist/linked')
+                link.symlink_to(held)
+                with self.assertRaises(ValueError) as caught:
+                    delivery.publish_verified(other, link, lambda _path: None)
+                self.assertEqual(str(caught.exception), 'output path/symlink')
+                self.assertTrue(link.is_symlink())
+                self.assertTrue(other.exists())
+                self.assertEqual((held / 'marker').read_text(), 'kept\n')
+                self.assertEqual((landed / 'marker').read_text(), 'ready\n')
+            finally:
+                os.chdir(previous)
+
     def test_hit_and_miss_build_current_swift_resources_backend_and_helper(self):
         import argparse
         import hashlib
@@ -244,7 +367,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         package = load('fresh_app_cache_fixture', ROOT / 'scripts/flow-app.py')
         runtime_owner = package.delivery_module()
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); repo = root / 'checkout'; repo.mkdir()
+            root = Path(directory).resolve(); repo = root / 'checkout'; repo.mkdir()
             write(repo / 'apps/macos/sources.json', json.dumps({'core':['main.swift'],'native':[],'app':[]}))
             write(repo / 'apps/macos/main.swift','current Swift')
             write(repo / 'assets/branding/lagrangian.png','current resource')

@@ -192,6 +192,51 @@ class PackageTests(Fixture):
             finally:
                 installer.shutil.copytree = original
 
+    def test_symlink_parent_extracts_and_final_symlink_dest_is_rejected(self):
+        """A symlinked parent simulates macOS /var -> /private/var.
+
+        extract_verified_tar canonicalizes that parent, so packaging, materialize,
+        and a direct extract under the link land in the real directory. A dest
+        whose final component is a symlink stays a non-canonical output.
+        """
+        base = Path(self.directory.name).resolve()
+        real_parent = base / 'real-parent'
+        real_parent.mkdir()
+        linked_parent = base / 'linked-parent'
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        output = linked_parent / 'artifact'
+        original = bundle.tempfile.TemporaryDirectory
+
+        def temporary_under_link(*args, **kwargs):
+            return original(*args, **{**kwargs, 'dir': linked_parent})
+
+        with patch.object(bundle.tempfile, 'TemporaryDirectory', side_effect=temporary_under_link):
+            manifest = self.package(output=output)
+        staged = linked_parent / 'tree'
+        bundle.materialize(manifest, output / 'reader-bundle.tar', staged)
+        self.assertEqual(
+            (real_parent / 'tree' / 'tools/flow-reader/install.py').read_text(),
+            'print("install")\n',
+        )
+        self.assertEqual(staged.resolve(), (real_parent / 'tree').resolve())
+
+        empty = base / 'empty-dest'
+        empty.mkdir()
+        dest_link = base / 'dest-link'
+        dest_link.symlink_to(empty, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'canonical empty owned output'):
+            bundle.extract_archive(output / 'reader-bundle.tar', dest_link, manifest)
+        with self.assertRaisesRegex(ValueError, 'canonical empty owned output'):
+            bundle.materialize(manifest, output / 'reader-bundle.tar', dest_link)
+        self.assertEqual(list(empty.iterdir()), [])
+        self.assertTrue(dest_link.is_symlink())
+        bundle.extract_archive(output / 'reader-bundle.tar', linked_parent / 'direct', manifest)
+        self.assertEqual(
+            (real_parent / 'direct' / 'tools/flow-reader/install.py').read_text(),
+            'print("install")\n',
+        )
+        self.assertFalse((linked_parent / 'direct').is_symlink())
+
     def test_git_checkout_still_requires_a_clean_commit(self):
         with tempfile.TemporaryDirectory() as temporary:
             staging = Path(temporary) / 'staging'
@@ -345,6 +390,23 @@ class FetchTests(Fixture):
         with patch.object(bundle.shutil, 'which', return_value=None):
             with self.assertRaisesRegex(ValueError, 'does not install the reader'):
                 bundle.fetch_reader_bundle(repo='kimpossible-TY/Lagrangian', run_id='42', dest=dest)
+
+    def test_dest_under_symlinked_installed_root_is_refused(self):
+        base = Path(self.directory.name).resolve()
+        home = base / 'home'
+        cases = (
+            ('Library/Application Support/Lagrangian', base / 'real-lagrangian'),
+            ('Applications', base / 'real-applications'),
+        )
+        for relative, real in cases:
+            real.mkdir()
+            link = home / relative
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(real, target_is_directory=True)
+            with self.subTest(relative=relative):
+                with self.assertRaisesRegex(ValueError, 'installed application data'):
+                    bundle.assert_not_installed_reader(link / 'reader' / 'staging', home=home)
+                self.assertFalse((real / 'reader').exists())
 
     def test_dest_refuses_unrelated_contents_and_replaces_a_prior_bundle(self):
         home = Path(self.directory.name) / 'home'

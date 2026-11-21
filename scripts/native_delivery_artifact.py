@@ -153,7 +153,14 @@ def binding(root, *, repository=None, run_id=None, head=None, engine_normalized=
 
 def unpack(download, dest, *, repository=None, run_id=None, head=None):
     """Never fall back to a flat payload when archive input is absent or invalid."""
-    download, dest = Path(download).absolute(), Path(dest).absolute()
+    # Ancestor symlinks of the download (macOS /var -> /private/var, and /tmp)
+    # are canonicalized. The final component stays unresolved, so a symlink
+    # wrapper still fails wrapper.resolve() != wrapper. Dest parent
+    # canonicalization belongs to extract_verified_tar; resolving all of dest
+    # would follow a final-component symlink.
+    download = Path(download).absolute()
+    download = download.parent.resolve() / download.name
+    dest = Path(dest).absolute()
     entries = []
     for p in download.rglob('*'):
         if len(entries) >= 64: raise ValueError('Transport wrapper entry budget')
@@ -167,7 +174,7 @@ def unpack(download, dest, *, repository=None, run_id=None, head=None):
     if wrapper.resolve() != wrapper:
         raise ValueError('Native transport wrapper path escapes')
     m, _ = checked_manifest(manifests[0], repository=repository, run_id=run_id, head=head)
-    reader_bundle.extract_verified_tar(archives[0], dest, m['inventory'], m['archiveSHA256'],
+    dest = reader_bundle.extract_verified_tar(archives[0], dest, m['inventory'], m['archiveSHA256'],
         max_archive_bytes=MAX_ARCHIVE, max_entry_bytes=MAX_ENTRY, max_total_bytes=MAX_TOTAL, max_entries=MAX_ENTRIES)
     stored = dest / CACHE; stored.mkdir()
     shutil.copy2(manifests[0], stored / MANIFEST); shutil.copy2(archives[0], stored / ARCHIVE)

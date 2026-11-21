@@ -143,6 +143,35 @@ class NativeArtifactTests(unittest.TestCase):
         with self.assertRaises(ValueError):artifact.binding(restored)
         self.assertEqual(before['archiveSHA256'],reader_bundle.file_digest(self.output/artifact.ARCHIVE))
 
+    def test_symlinked_parent_unpacks_and_symlink_wrapper_is_rejected(self):
+        base = self.root / 'link-base'
+        real_parent = base / 'real-parent'
+        real_parent.mkdir(parents=True)
+        linked_parent = base / 'linked-parent'
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        download = linked_parent / 'download'
+        shutil.copytree(self.output, download)
+        dest = linked_parent / 'restored'
+        restored = artifact.unpack(download, dest, repository='fixture/repo', run_id='17', head=self.head)
+        self.assertEqual(artifact.inventory(restored, cached=True), artifact.inventory(self.payload))
+        self.assertEqual(restored, real_parent / 'restored')
+        self.assertFalse(restored.is_symlink())
+
+        wrapper = base / 'wrapper-link'
+        wrapper.symlink_to(self.output, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'wrapper path escapes'):
+            artifact.unpack(wrapper, base / 'escaped', repository='fixture/repo', run_id='17', head=self.head)
+        self.assertFalse((base / 'escaped').exists())
+
+        empty = base / 'empty-dest'
+        empty.mkdir()
+        dest_link = base / 'dest-link'
+        dest_link.symlink_to(empty, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'canonical empty owned output'):
+            artifact.unpack(download, dest_link, repository='fixture/repo', run_id='17', head=self.head)
+        self.assertEqual(list(empty.iterdir()), [])
+        self.assertTrue(dest_link.is_symlink())
+
     def test_producer_rejects_special_input_modes_without_normalizing_them(self):
         for name, mode in [('flow-engine',0o4755),('Lagrangian.app/bin/native',0o2755),('Lagrangian.app/bin',0o1755)]:
             path=self.payload/name; original=path.stat().st_mode&0o7777

@@ -1110,6 +1110,32 @@
             "sha256": "02f304cb9fd812301a11e54c059af5c50529fa6fc5211dccdbd9d46c87015979"
           }
         ]
+      },
+      {
+        "baseRevision": "fdd6f613f5451ecb2ac38660001c16833ee0c5ad",
+        "revision": "316417a79562efb6b6162a5802606b98ed4a35da",
+        "files": [
+          {
+            "path": "tools/flow-reader/tests/fixtures/side-footnotes.typ",
+            "baseSHA256": "aefcbdbce3eb36fbdb36118922aa95b9c38dc4739b695d80c2497a6dfca0d244",
+            "sha256": "d451844ff864119c1071b7d614be8ea360c9d6fa50ed6aff0442893e56683efa"
+          },
+          {
+            "path": "tools/flow-reader/tests/footnotes-browser.mjs",
+            "baseSHA256": "a5fce44a08f261cb343e464893e1515f37c8e63b2bdc8a308b7f8f662f913119",
+            "sha256": "b49a5c4154c96a3ca4cb0e87e12434aad4d19fe0e87c14162c33d1ac1286a294"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_annotations.mjs",
+            "baseSHA256": "9a4d7d04fea24d8219f62d7897738286322f58d39ecf355e208cecfea74b2f4f",
+            "sha256": "d177a26311c92d5256eec9fdba7ab60d18a268b4838f3067c2323eb2f046963b"
+          },
+          {
+            "path": "tools/flow-reader/web/rendering/annotations.js",
+            "baseSHA256": "10c48b253eba44ed5f54f33fbaaebbf7fbacc79b0866e75ae09c0c1913b810b1",
+            "sha256": "73c5853234c0a2ef7c5092ce8a88383ee47f0d16338c00b2300688d2bcc1b92f"
+          }
+        ]
       }
     ]
   }
