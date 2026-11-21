@@ -45,6 +45,8 @@ python3 scripts/verify-native-reader-app.py <isolated>/Lagrangian.app \
   --source-revision <current-commit>
 ```
 
+`<delivery>` must be outside the backend checkout, `<runtime>`, and `<current-reader>` (stage rejects overlap).
+
 Use `--help` and each subcommand's `--help` for the authoritative parser. Runtime
 preparation signs its copied Node before computing the runtime inventory. Backend
 staging rewrites only copied Python framework load references, signs internal
