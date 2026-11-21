@@ -334,7 +334,7 @@ The immutable338/8744 correction records remain unchanged. Source provenance
 appends the exact cc557788→f510fe32 component (19paths) and f510fe32→
 `d98f6e98cd282450a47cf8ceea9d8fea59145cda` correction (28paths), with Git-derived
 before/after hashes, ancestry and exact path sets. The current delivery-owned
-allowlist remains27 exact paths; no native prefix/blanket HEAD exemption is added.
+allowlist remains25 exact paths; no native prefix/blanket HEAD exemption is added.
 Current source/app identity comes from the external v4 build handoff, independently
 of retained raw387 engine E/build provenance. This is an intermediate diagnostic
 app, with GUI/startup cause, F13/NA16 and full125-case acceptance still incomplete.
@@ -356,3 +356,4 @@ The footnote-merge owner correction registers the four main paths from
 `tools/flow-reader/tests/test_annotations.mjs`, and
 `tools/flow-reader/tests/fixtures/side-footnotes.typ`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+The current delivery-owned allowlist is 27 exact paths.
