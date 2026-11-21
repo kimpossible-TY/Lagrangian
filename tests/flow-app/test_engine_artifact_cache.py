@@ -192,7 +192,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         import tempfile
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); cached = root / 'cached'; cached.mkdir()
+            root = Path(directory).resolve(); cached = root / 'cached'; cached.mkdir()
             engine = b'same-engine'
             (cached / 'flow-engine').write_bytes(engine)
             checksum = hashlib.sha256(engine).hexdigest()
@@ -325,7 +325,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         package = load('fresh_app_cache_fixture', ROOT / 'scripts/flow-app.py')
         runtime_owner = package.delivery_module()
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); repo = root / 'checkout'; repo.mkdir()
+            root = Path(directory).resolve(); repo = root / 'checkout'; repo.mkdir()
             write(repo / 'apps/macos/sources.json', json.dumps({'core':['main.swift'],'native':[],'app':[]}))
             write(repo / 'apps/macos/main.swift','current Swift')
             write(repo / 'assets/branding/lagrangian.png','current resource')
