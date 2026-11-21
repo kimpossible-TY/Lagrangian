@@ -180,7 +180,7 @@ def main(argv=None):
         print('engine-artifact-cache: miss', file=sys.stderr)
         return
     run_id = str(match['databaseId'])
-    dest = Path(os.environ.get('ENGINE_ARTIFACT_DIR', 'dist/flow-engine-darwin-arm64'))
+    dest = Path(os.environ.get('ENGINE_ARTIFACT_DIR', 'dist/flow-engine-darwin-arm64')).expanduser().absolute()
     engine_sha = download_payload(repo, run_id, dest, head=flow_engine_runs.parse_sha(match.get('headSha')))
     set_output('hit', 'true')
     set_output('source_run', run_id)
