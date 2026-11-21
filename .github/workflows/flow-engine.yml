@@ -150,10 +150,10 @@ jobs:
         run: |
           python3 scripts/stage-native-reader-delivery.py unpack-reader --bundle dist/reader-bundle --output dist/current-reader
           python3 scripts/stage-native-reader-delivery.py binding --backend . --engine dist/engine-input/flow-engine --runtime-source dist/native-runtime --helper tools/flow-reader/native/math_layout.mjs --reader-bundle dist/current-reader --output dist/delivery-input.json
-          python3 scripts/stage-native-reader-delivery.py stage --manifest dist/delivery-input.json --backend . --engine dist/engine-input/flow-engine --runtime-source dist/native-runtime --helper tools/flow-reader/native/math_layout.mjs --reader-bundle dist/current-reader --python-archive dist/native-dependencies/python/python-3.13.11-macos11.pkg --compiler dist/native-dependencies/compiler/typst-aarch64-apple-darwin/typst --typst-packages dist/native-dependencies/compiler/packages --certifi-wheel dist/native-dependencies/python/certifi-2026.10.23-py3-none-any.whl --output dist/native-delivery --identity -
+          python3 scripts/stage-native-reader-delivery.py stage --manifest dist/delivery-input.json --backend . --engine dist/engine-input/flow-engine --runtime-source dist/native-runtime --helper tools/flow-reader/native/math_layout.mjs --reader-bundle dist/current-reader --python-archive dist/native-dependencies/python/python-3.13.11-macos11.pkg --compiler dist/native-dependencies/compiler/typst-aarch64-apple-darwin/typst --typst-packages dist/native-dependencies/compiler/packages --certifi-wheel dist/native-dependencies/python/certifi-2026.10.23-py3-none-any.whl --output "$RUNNER_TEMP/native-delivery" --identity -
 
       - name: Build current native app on hit and miss
-        run: python3 scripts/flow-app.py build --engine dist/engine-input/flow-engine --engine-provenance dist/engine-input/release.json --delivery dist/native-delivery --identity -
+        run: python3 scripts/flow-app.py build --engine dist/engine-input/flow-engine --engine-provenance dist/engine-input/release.json --delivery "$RUNNER_TEMP/native-delivery" --identity -
 
       - name: Stage the engine artifact
         run: |
