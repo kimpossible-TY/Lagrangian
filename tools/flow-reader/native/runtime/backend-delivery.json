@@ -1361,6 +1361,22 @@
             "sha256": "9705c091b121e649e582738967d759a4fee23c403fa59ea8748f5c6cd081f4a2"
           }
         ]
+      },
+      {
+        "baseRevision": "06e360686a42fd3141883be3bfa25db125068415",
+        "revision": "d17337ed08594affb8df117bd21673881fa3fea9",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "374453955561bb1eed1dfde97bd625a31c2a3fcc20bf6ddce56aba44b26ef350",
+            "sha256": "c84c983a74387b34ba660dc507efb11de4b116fd120e447d6cd0e09b0d13390f"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/OriginalPageTests.swift",
+            "baseSHA256": "9705c091b121e649e582738967d759a4fee23c403fa59ea8748f5c6cd081f4a2",
+            "sha256": "d366678ade948b2fc45563c1ead849408a264f4507d877e25e969ea40829767e"
+          }
+        ]
       }
     ]
   }
