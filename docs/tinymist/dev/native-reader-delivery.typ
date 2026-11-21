@@ -347,3 +347,12 @@ The subsequent current F10 explanation is pinned separately: exact one-path
 consented editor operation from mapping-only locate, without claiming GUI or
 Unicode manager matching acceptance. Native code correction remains d98f6e98;
 this docs record adds no native path or delivery allowlist exception.
+
+The footnote-merge owner correction registers the four main paths from
+`fdd6f613f5451ecb2ac38660001c16833ee0c5ad` →
+`316417a79562efb6b6162a5802606b98ed4a35da`:
+`tools/flow-reader/web/rendering/annotations.js`,
+`tools/flow-reader/tests/footnotes-browser.mjs`,
+`tools/flow-reader/tests/test_annotations.mjs`, and
+`tools/flow-reader/tests/fixtures/side-footnotes.typ`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.
