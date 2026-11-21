@@ -24,8 +24,12 @@ claim directory to retry the same run. Claims are not pruned automatically.
 
 The engine cache must be a real directory. The fetch destination cannot be a
 symlink. The default is `/Volumes/devSSD/Developer/.cache/lagrangian-engines`.
-Override it with `LAGRANGIAN_ENGINE_CACHE`. When that volume is missing, the
-updater skips the claim and retries later.
+Override it with `LAGRANGIAN_ENGINE_CACHE`. A launchd override belongs in the
+job's EnvironmentVariables; see `dev.lagrangian.engine-autoupdate.plist.example`.
+When that volume is missing, the updater skips the claim and retries later.
+
+The login-agent restart cap is about 50 seconds worst case, and a failure logs
+a dated RECOVERY command (`launchctl enable gui/<uid>/<label> && launchctl bootstrap gui/<uid> '<plist>'`).
 
 After `install_run` returns — a successful install, an already-claimed hold, or
 any other return from the install attempt — `watch_iteration` sets the next
