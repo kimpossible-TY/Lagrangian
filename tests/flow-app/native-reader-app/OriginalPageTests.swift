@@ -628,6 +628,14 @@ private func occupyPDF(_ access: isolated NativeOriginalPDFAccess, latch: PageWo
             try check(restored.hostWindow.findField.stringValue == "FarNeedle255", "search query preserved after release")
             rWin.setFrame(NSRect(x: 0, y: 0, width: 640, height: 752), display: false); rRoot.layoutSubtreeIfNeeded()
             try check(rWin.frame.width <= 640.5, "640pt offline PDF settles at width <= 640.5")
+            try check(rWin.minSize.width <= 640, "640pt offline PDF window minSize.width <= 640")
+            let horizontalAttrs: Set<NSLayoutConstraint.Attribute> = [.leading, .trailing, .left, .right, .centerX]
+            let toolbarHorizontal = restored.hostWindow.toolbarView.constraints.filter { c in
+                type(of: c) == NSLayoutConstraint.self &&
+                horizontalAttrs.contains(c.firstAttribute) &&
+                !((c.secondItem as AnyObject?) === restored.hostWindow.toolbarView && (c.firstAttribute == .leading || c.firstAttribute == .trailing))
+            }
+            try check(!toolbarHorizontal.isEmpty && toolbarHorizontal.allSatisfy { $0.priority < .windowSizeStayPut }, "toolbar horizontal inter-group constraints yield below windowSizeStayPut")
             try check(!nav.isHiddenOrHasHiddenAncestor && abs(nav.convert(NSPoint(x: nav.bounds.midX, y: 0), to: rRoot).x - rRoot.bounds.midX) <= 12, "640pt offline PDF keeps pageNavigation centered")
             try check(restored.hostWindow.contents.isHiddenOrHasHiddenAncestor && restored.hostWindow.findField.isHiddenOrHasHiddenAncestor, "640pt offline PDF collapses secondary items into overflow")
             let moreBtn = rAll.compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "toggleTools" }!

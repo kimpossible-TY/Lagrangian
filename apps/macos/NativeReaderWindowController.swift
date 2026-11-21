@@ -1216,7 +1216,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 }
 
-@MainActor private final class NativeReaderToolbarView: NSView {
+@MainActor final class NativeReaderToolbarView: NSView {
   var onLayoutWidth: ((CGFloat) -> Void)?
   private var lastWidth: CGFloat = 0
   override func setFrameSize(_ newSize: NSSize) {
@@ -1245,6 +1245,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var capsuleDocked = false
   private var capsuleConstraints = [NSLayoutConstraint]()
   private var capsuleDockWindowHeightDelta: CGFloat = 0
+  private var capsuleDockUserResizedHeight = false
   private var isAdjustingWindowHeightForDock = false
   private var lastObservedWindowHeight: CGFloat?
   private var overlayTopConstraint: NSLayoutConstraint?
@@ -1269,7 +1270,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private let increaseFontButton = NativeDesignButton(title: "+", target: nil, action: nil)
   private let fontSizeLabel = NSTextField(labelWithString: "14pt")
   private(set) var selectedThemeIndex = 0
-  private let toolbarView = NativeReaderToolbarView()
+  let toolbarView = NativeReaderToolbarView()
   private let leftToolbarGroup = NSStackView()
   private let centerToolbarGroup = NSStackView()
   private let rightToolbarGroup = NSStackView()
@@ -1388,11 +1389,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       toolbarView.addSubview(group)
     }
     let centerAlign = centerToolbarGroup.centerXAnchor.constraint(equalTo: toolbarView.centerXAnchor)
-    centerAlign.priority = .defaultHigh
+    centerAlign.priority = NSLayoutConstraint.Priority(480)
     let centerMinLeading = centerToolbarGroup.leadingAnchor.constraint(greaterThanOrEqualTo: leftToolbarGroup.trailingAnchor, constant: 8)
-    centerMinLeading.priority = .defaultHigh
+    centerMinLeading.priority = NSLayoutConstraint.Priority(490)
     let centerMaxTrailing = centerToolbarGroup.trailingAnchor.constraint(lessThanOrEqualTo: rightToolbarGroup.leadingAnchor, constant: -8)
-    centerMaxTrailing.priority = .defaultHigh
+    centerMaxTrailing.priority = NSLayoutConstraint.Priority(490)
     NSLayoutConstraint.activate([
       leftToolbarGroup.leadingAnchor.constraint(equalTo: toolbarView.leadingAnchor),
       leftToolbarGroup.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
@@ -1403,9 +1404,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       rightToolbarGroup.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor),
       rightToolbarGroup.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor)
     ])
+    toolbarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     leftToolbarGroup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    centerToolbarGroup.setContentCompressionResistancePriority(.required, for: .horizontal)
-    rightToolbarGroup.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+    centerToolbarGroup.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(495), for: .horizontal)
+    rightToolbarGroup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
     brandMark.translatesAutoresizingMaskIntoConstraints = false
     brandMark.widthAnchor.constraint(equalToConstant: 26).isActive = true
@@ -1505,9 +1507,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     findField.target = self; findField.action = #selector(findPage)
     findField.translatesAutoresizingMaskIntoConstraints = false
     let findPreferredWidth = findField.widthAnchor.constraint(equalToConstant: 168)
-    findPreferredWidth.priority = .defaultHigh
+    findPreferredWidth.priority = NSLayoutConstraint.Priority(470)
     let findMinWidth = findField.widthAnchor.constraint(greaterThanOrEqualToConstant: 96)
-    findMinWidth.priority = .defaultHigh
+    findMinWidth.priority = NSLayoutConstraint.Priority(480)
     findPreferredWidth.isActive = true
     findMinWidth.isActive = true
     findField.heightAnchor.constraint(equalToConstant: 30).isActive = true
@@ -1555,6 +1557,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     modeStatus.font = NativeAppDesign.Typography.font(.caption)
     selectionStatus.font = NativeAppDesign.Typography.font(.caption)
     modeStatus.setAccessibilityLabel("읽기 모드"); selectionStatus.setAccessibilityLabel("읽기 상태와 다음 동작")
+    modeStatus.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    selectionStatus.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     retryRecoveryButton.target = self; retryRecoveryButton.action = #selector(retryRecovery)
     cancelRecoveryButton.target = self; cancelRecoveryButton.action = #selector(cancelRecovery)
     retryRecoveryButton.identifier = NSUserInterfaceItemIdentifier("retryRecovery")
@@ -1778,6 +1782,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     if abs(newHeight - currentHeight) < 0.5 {
       if targetDelta == 0 { capsuleDockWindowHeightDelta = 0 }
+      lastObservedWindowHeight = window.frame.size.height
       return
     }
     let newOriginY = visible.map { max($0.minY, min($0.maxY - newHeight, topY - newHeight)) } ?? (topY - newHeight)
@@ -1795,6 +1800,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       window?.makeFirstResponder(capsuleFocusTarget?() ?? (currentMode == .originalPages ? original : reader.bodyTextView))
     }
     capsule.hide()
+    capsuleDockUserResizedHeight = false
     if capsuleDocked {
       NSLayoutConstraint.deactivate(capsuleConstraints); capsuleConstraints = []
       stack.removeArrangedSubview(capsule); capsule.removeFromSuperview(); capsuleDocked = false
@@ -1825,6 +1831,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       stack.insertArrangedSubview(capsule, at: index); capsule.translatesAutoresizingMaskIntoConstraints = false
       capsuleConstraints = [capsule.widthAnchor.constraint(equalTo: stack.widthAnchor), capsule.heightAnchor.constraint(equalToConstant: dockHeight)]
       NSLayoutConstraint.activate(capsuleConstraints); capsuleDocked = true
+      capsuleDockUserResizedHeight = false
       updateOverlayTopConstraint()
       adjustWindowHeightForCapsuleDock(to: currentMode == .nativeReflow ? dockHeight + stack.spacing : 0)
       root.layoutSubtreeIfNeeded()
@@ -1833,7 +1840,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       let dockHeight = ceil(capsule.preferredSize(width: stack.bounds.width).height)
       capsuleConstraints.last?.constant = dockHeight
       updateOverlayTopConstraint()
-      adjustWindowHeightForCapsuleDock(to: currentMode == .nativeReflow ? dockHeight + stack.spacing : 0)
+      if !capsuleDockUserResizedHeight {
+        adjustWindowHeightForCapsuleDock(to: currentMode == .nativeReflow ? dockHeight + stack.spacing : 0)
+      }
       root.layoutSubtreeIfNeeded()
     }
     capsule.layoutSubtreeIfNeeded()
@@ -1905,6 +1914,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   func prepareForOpen() {
     cancelFind()
     hideCapsule()
+    capsuleDockUserResizedHeight = false
+    capsuleDockWindowHeightDelta = 0
+    lastObservedWindowHeight = window?.frame.size.height
     closeDisplayPopover()
     isMoreMenuOpen = false
     findExpandedAtNarrowWidth = false
@@ -2693,15 +2705,22 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   @objc func editorReceipt() { guard currentMode == .nativeReflow else { return }; onEditorReceipt?() }
   @objc func account() { onAccount?() }
   @objc func manageAccountExplicitly() { if let homepage { onManageAccount?(homepage) } }
-  override func cancelOperation(_ sender: Any?) {
+  @discardableResult func handleReaderEscape() -> Bool {
+    if currentMode == .nativeReflow, reader.hideFindBar() {
+      return true
+    }
     if isDisplayPopoverOpen {
       closeDisplayPopover()
-      return
+      return true
     }
     if let binding = capsule.binding, !capsule.isHidden {
       capsule.onDismiss?(binding)
-      return
+      return true
     }
+    return false
+  }
+  override func cancelOperation(_ sender: Any?) {
+    if handleReaderEscape() { return }
     super.cancelOperation(sender)
   }
   func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
@@ -2713,6 +2732,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     if !isAdjustingWindowHeightForDock, let window {
       if let prev = lastObservedWindowHeight, abs(window.frame.size.height - prev) >= 1 {
         capsuleDockWindowHeightDelta = 0
+        if capsuleDocked {
+          capsuleDockUserResizedHeight = true
+        }
       }
       lastObservedWindowHeight = window.frame.size.height
     }
@@ -2725,6 +2747,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 extension NativeReaderHostWindow: NativeReaderFindActionHost {
   var isReaderFindHostHidden: Bool { reader.isHidden }
 }
+
+extension NativeReaderHostWindow: NativeReaderCancelActionHost {}
 
 /// The scroll viewport supplies width; the document view supplies page size.
 /// Resizing a zoomed document must not recursively change its own fit width.

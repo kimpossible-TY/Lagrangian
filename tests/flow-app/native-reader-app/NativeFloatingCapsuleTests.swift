@@ -268,6 +268,21 @@ private actor FakeChatHTTP {
                 "separateDock":!frame.intersects(viewport),"selectionIsShort":host.store.selection!.fragments.count == 1],out,"r19-occlusion-observations")
             try check(host.store.selection!.fragments.count == 1 && !selected.isEmpty,"Actual filled viewport with only first short phrase selected")
             try check(!frame.intersects(usedInRoot) && !frame.intersects(majorFrame) && !selected.contains { frame.intersects($0) },"R19-3 capsule must avoid all actual used body and primary controls, or dock separately")
+            if !frame.intersects(viewport) {
+                let dockedHeight = window.frame.size.height
+                window.setFrame(NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: window.frame.size.width, height: dockedHeight - 80), display: false)
+                host.hostWindow.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
+                root.layoutSubtreeIfNeeded()
+                try check(abs(window.frame.size.height - (dockedHeight - 80)) <= 0.5, "R06 P1-1 docked capsule must not re-expand window height after manual vertical shrink")
+                window.setFrame(NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: window.frame.size.width, height: dockedHeight - 40), display: false)
+                host.hostWindow.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
+                root.layoutSubtreeIfNeeded()
+                try check(abs(window.frame.size.height - (dockedHeight - 40)) <= 0.5, "R06 P1-1 docked capsule must preserve subsequent manual vertical resize")
+            }
+            window.makeFirstResponder(host.textView.bodyTextView)
+            let escEvent = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!
+            window.sendEvent(escEvent)
+            try check(host.hostWindow.capsule.isHidden && host.store.selection != nil, "R09 Fix #3 body-focused Esc dismisses capsule via window.sendEvent without releasing selection")
         } else if mode == "home" {
             let env = AppEnvironment(variables:[:],userHome:out.appendingPathComponent("isolated-home"))
             try SettingsStore(directory: env.support).save(Settings(selectedID: profile.id, profiles: [profile]))

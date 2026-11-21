@@ -6,6 +6,10 @@ import AppKit
   func performTextFinderAction(_ sender: Any?)
 }
 
+@MainActor protocol NativeReaderCancelActionHost: AnyObject {
+  func handleReaderEscape() -> Bool
+}
+
 /// Standard editing keeps AppKit semantics normally. Fixture inputs reject
 /// system clipboard operations at the responder, including direct commands.
 class NativeReaderInputTextView: NSTextView {
@@ -90,13 +94,28 @@ final class NativeReaderEditingWindow: NSWindow {
     }
     return super.performKeyEquivalent(with: event)
   }
+  override func sendEvent(_ event: NSEvent) {
+    if event.type == .keyDown,
+       event.keyCode == 53,
+       event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty {
+      let responderView = firstResponder as? NSView
+      let isFieldEditor = (responderView as? NSTextView)?.isFieldEditor == true
+      let isNonBodyInput = responderView is NativeReaderInputTextView && !(responderView is NativeReaderBodyTextView)
+      if !isFieldEditor && !isNonBodyInput,
+         let controller = windowController as? NativeReaderCancelActionHost,
+         controller.handleReaderEscape() {
+        return
+      }
+    }
+    super.sendEvent(event)
+  }
   override func keyDown(with event: NSEvent) {
     if event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty {
       let responderView = firstResponder as? NSView
       let isFieldEditor = (responderView as? NSTextView)?.isFieldEditor == true
       let isNonBodyInput = responderView is NativeReaderInputTextView && !(responderView is NativeReaderBodyTextView)
-      if !isFieldEditor && !isNonBodyInput, let controller = windowController {
-        controller.cancelOperation(nil)
+      if !isFieldEditor && !isNonBodyInput,
+         (windowController as? NativeReaderCancelActionHost)?.handleReaderEscape() == true {
         return
       }
     }
