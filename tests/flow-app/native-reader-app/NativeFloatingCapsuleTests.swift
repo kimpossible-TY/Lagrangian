@@ -418,7 +418,9 @@ private actor FakeChatHTTP {
             try check(!capsuleRect.intersects(pdfViewport), "PDF search-hit capsule docks without overlapping PDF body")
             try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled && !capsule.closeButton.isHidden, "PDF search-hit capsule exposes copy and close")
             try check(capsule.buttons[.source]!.isHidden && !capsule.buttons[.source]!.isEnabled && capsule.buttons[.highlight]!.isHidden && !capsule.buttons[.highlight]!.isEnabled && capsule.buttons[.ask]!.isHidden && !capsule.buttons[.ask]!.isEnabled && capsule.buttons[.editor]!.isHidden && !capsule.buttons[.editor]!.isEnabled && capsule.releaseSelectionButton.isHidden,"PDF only copy/search/navigation and hides 4 unsupported buttons")
-            try check(capsule.footnote.stringValue == "오프라인 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "PDF capsule shows compact footer note")
+            try check(capsule.footnote.stringValue == "원본 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "Live PDF capsule shows online footer note")
+            capsule.present(.init(context: host.session.context!, ticket: UUID(), originalPDF: true, offlineOriginalPDF: true), unavailable: [.source: "x", .highlight: "x", .ask: "x", .editor: "x"], summary: "오프라인 PDF 선택")
+            try check(capsule.footnote.stringValue == "오프라인 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "Offline PDF capsule shows offline footer note")
             try check(views(root).compactMap({ $0 as? NSButton }).filter({ !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("복사") }).count == 1, "No duplicate copy button alongside capsule")
             host.originalPageView.releaseSelection();try click(try button(root,"reflowMode"));try await until{host.visibleMode == .nativeReflow}
             let snapshot = NativeReaderRecoverySnapshot(document:document,assets:[:],restoration:.initial,drafts:[])

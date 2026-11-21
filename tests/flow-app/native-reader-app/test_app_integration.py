@@ -1083,6 +1083,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try check(host.localReview.marks.isEmpty,"new accepted snapshot revokes old review")
       try firstSelection();try click("Mark for review");host.cancel();try check(host.localReview.marks.isEmpty,"cancel invalidates review paint")
     case "restore-resize", "restore-hold", "restore-cancel", "restore-close":
+      if mode == "restore-hold", let w = host.hostWindow.window { w.setContentSize(NSSize(width: w.contentLayoutRect.width, height: 420)); w.contentView?.layoutSubtreeIfNeeded(); try await ready(host) }
       try firstSelection();try click("Mark for review");try click("Save Offline");try await storageIdle()
       let saved=try await disk.load(identity:document.identity),originalBytes=try fileBytes(),oldKey=text.renderKey
       let pending=UUID(),draft=NativeReaderRecoveredDraft(conversationID:UUID(),version:2,text:"newer N",pendingMessageID:pending,model:"fixture-model",pendingQuestion:"uncertain M",pendingModel:"fixture-model")
@@ -1127,7 +1128,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let saved=try await disk.load(identity:document.identity),priorBytes=try fileBytes(),priorKey=text.renderKey
       var bad=saved;bad.reviewMarks=[saved.reviewMarks[0],saved.reviewMarks[0]];invalidReview=bad
       try click("Release selection");try click("Refresh Saved");try await storageIdle();try click("Open Saved");try await storageIdle()
-      try check(host.hostWindow.notice.stringValue.contains("failed"),"invalid review snapshot is explicitly rejected")
+      try check(host.hostWindow.notice.stringValue.contains("실패") || host.hostWindow.notice.stringValue.contains("failed"),"invalid review snapshot is explicitly rejected")
       try check(host.store.document==document && text.renderKey==priorKey && host.localReview.marks.count==1,"invalid review snapshot cannot replace painted accepted A before failing")
       let afterBytes=try fileBytes();try check(afterBytes==priorBytes,"invalid review preserves durable file")
     case "navigation":
@@ -1281,7 +1282,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let first=document.blocks[0],last=document.blocks[32]
       try text.select(from:.init(blockID:first.id,utf16:0,affinity:.upstream),to:.init(blockID:last.id,utf16:last.displayText.utf16.count,affinity:.downstream))
       try check(host.store.selection?.fragments.count==33,"actual compiler33 local display selection")
-      try click("Save Offline");try check(host.hostWindow.notice.stringValue.contains("32 blocks"),"explicit stored-selection cap rejection")
+      try click("Save Offline");try check(host.hostWindow.notice.stringValue.contains("32개 블록") || host.hostWindow.notice.stringValue.contains("32 blocks"),"explicit stored-selection cap rejection")
       let currentBytes=try fileBytes();try check(currentBytes==bytes && host.store.selection?.fragments.count==33,"over-cap save retains file and full display selection")
       try click("Release selection");var appearance=text.textAppearance;appearance.zoom=0.25;try text.setAppearance(appearance);host.hostWindow.onAppearance?();try await ready(host)
       try click("Save Offline");let quarterBytes=try fileBytes();try check(quarterBytes==bytes,"display0.25 does not relax typed recovery0.5")
@@ -1319,7 +1320,8 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       let probe=remote.store.document!.blocks.first{$0.kind == .paragraph && $0.displayText.contains("Source and chat probe")}!
       try remote.textView.select(from:.init(blockID:probe.id,utf16:0,affinity:.upstream),to:.init(blockID:probe.id,utf16:probe.displayText.utf16.count,affinity:.downstream))
       try featureButton(rr,"Ask").performClick(nil)
-      try await until{remote.chatView != nil && remote.chatView!.models.numberOfItems>0}
+      try await until{remote.chatView != nil}
+      try check(remote.chatView!.models.numberOfItems==0,"Ask opens local composer without eager account/model calls")
       var chat=remote.chatView!
       if mode=="remote-reopen"{
         chat.composer.string="uncertain original M";chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
@@ -1335,8 +1337,13 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
         try await until{remote.session.state == .reading};try await ready(remote);fputs("C2 live accepted\n",stderr)
         let p=remote.store.document!.blocks.first{$0.id==probe.id}!
         try remote.textView.select(from:.init(blockID:p.id,utf16:0,affinity:.upstream),to:.init(blockID:p.id,utf16:p.displayText.utf16.count,affinity:.downstream))
-        try featureButton(rr,"Ask").performClick(nil);try await until{remote.chatView != nil && remote.chatView!.models.numberOfItems>0}
-        chat=remote.chatView!;try featureButton(rr,"Refresh conversation").performClick(nil);fputs("C2 history issued\n",stderr)
+        try featureButton(rr,"Ask").performClick(nil);try await until{remote.chatView != nil}
+        chat=remote.chatView!
+        try check(chat.models.numberOfItems==0 && !chat.historyButton.isEnabled,"C2 Ask after refresh opens local composer without eager network calls")
+        chat.composer.string="newer draft N";chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
+        try await until{chat.sendButton.isEnabled};try featureButton(rr,"Send").performClick(nil)
+        try await until{chat.models.numberOfItems>0 && chat.historyButton.isEnabled && chat.recoveryDraft?.pendingMessageID != nil}
+        try featureButton(rr,"Refresh conversation").performClick(nil);fputs("C2 history issued\n",stderr)
         try await until{chat.historyButton.isEnabled && chat.recoveryDraft?.pendingMessageID==nil};fputs("C2 history resolved\n",stderr)
         chat.composer.string="latest draft N2";chat.textDidChange(Notification(name:NSText.didChangeNotification,object:chat.composer))
         try await Task.sleep(nanoseconds:400_000_000)
@@ -1345,6 +1352,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
         try remote.textView.select(from:.init(blockID:p.id,utf16:0,affinity:.upstream),to:.init(blockID:p.id,utf16:p.displayText.utf16.count,affinity:.downstream))
         let old=chat;try featureButton(rr,"Ask").performClick(nil);do{try await until{remote.chatView !== old && remote.chatView != nil}}catch{throw FlowError(message:"C2 reopen failed: "+remote.hostWindow.notice.stringValue+" selected=\(remote.store.selection != nil)")}
         chat=remote.chatView!
+        try check(chat.models.numberOfItems>0,"C2 resumed composer restores model choices")
         try check(chat.composer.string=="latest draft N2" && chat.recoveryDraft?.pendingMessageID==nil && chat.recoveryDraft?.pendingQuestion==nil,"C2 reopened same conversation preserves N2 and resolved pending M")
       }else{chat.composer.string="New live private draft from native composer"}
 
@@ -1353,7 +1361,11 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try await until{(try? featureButton(rr,"Save Offline").isEnabled)==true}
       try featureButton(rr,"Save Offline").performClick(nil);try await until{(try? featureButton(rr,"Cancel").isEnabled)==false}
       let composerSnapshot=try await disk.load(identity:remote.store.document!.identity)
-      try check(composerSnapshot.drafts.count==1 && composerSnapshot.drafts[0].text==chat.composer.string && composerSnapshot.drafts[0].model=="fixture-model","actual native composer getter is wired to UI offline save without Send")
+      if mode=="remote-reopen"{
+        try check(composerSnapshot.drafts.count==1 && composerSnapshot.drafts[0].text==chat.composer.string && composerSnapshot.drafts[0].model=="fixture-model","actual native composer getter is wired to UI offline save without Send")
+      }else{
+        try check(composerSnapshot.drafts.isEmpty && chat.composer.string=="New live private draft from native composer","local composer draft stays local without server conversation before Send")
+      }
       let paragraph=remote.store.document!.blocks.first{$0.kind == .paragraph && !$0.displayText.isEmpty}!
       try remote.textView.select(from:.init(blockID:paragraph.id,utf16:0,affinity:.upstream),to:.init(blockID:paragraph.id,utf16:paragraph.displayText.utf16.count,affinity:.downstream))
       try featureButton(rr,"Mark for review").performClick(nil);try check(remote.localReview.marks.count==1,"local review on production HTTP publication")
@@ -1379,7 +1391,7 @@ FEATURE_SWIFT = SWIFT.split('@main struct HostIntegration')[0] + r'''
       try check(offline.store.document?.identity==document.identity,"Home action opens saved profile snapshot")
       delegate.settings.profiles.append(other);delegate.settings.selectedID=other.id
       try featureButton(delegate.window.contentView!,"오프라인 문서").performClick(nil)
-      let different=delegate.offlineWindow!;try await until{different.hostWindow.notice.stringValue.contains("No saved")}
+      let different=delegate.offlineWindow!;try await until{different.hostWindow.notice.stringValue.contains("저장된 문서가 없습니다") || different.hostWindow.notice.stringValue.contains("No saved")}
       try check(different.store.document==nil,"other profile Home action cannot open prior namespace")
       let empty=try await two.list();try check(empty.isEmpty,"other profile cannot enumerate saved namespace")
     default:throw FlowError(message:"unknown feature")

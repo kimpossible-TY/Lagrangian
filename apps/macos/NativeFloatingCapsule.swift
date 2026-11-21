@@ -29,6 +29,13 @@ enum NativeChrome {
         let context: NativeReaderRequestContext
         let ticket: UUID
         let originalPDF: Bool
+        let offlineOriginalPDF: Bool
+        init(context: NativeReaderRequestContext, ticket: UUID, originalPDF: Bool, offlineOriginalPDF: Bool = false) {
+            self.context = context
+            self.ticket = ticket
+            self.originalPDF = originalPDF
+            self.offlineOriginalPDF = offlineOriginalPDF
+        }
     }
     enum Action: String, CaseIterable { case copy, source, highlight, ask, editor }
     private(set) var binding: Binding?
@@ -87,7 +94,7 @@ enum NativeChrome {
         releaseSelectionButton.isHidden = true
         releaseSelectionButton.isEnabled = false
         if binding.originalPDF {
-            footnote.stringValue = "오프라인 PDF · 복사·검색만 지원"
+            footnote.stringValue = binding.offlineOriginalPDF ? "오프라인 PDF · 복사·검색만 지원" : "원본 PDF · 복사·검색만 지원"
             footnote.isHidden = false
         } else {
             footnote.stringValue = ""
