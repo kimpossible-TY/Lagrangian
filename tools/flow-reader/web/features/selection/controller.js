@@ -13,6 +13,7 @@ export { textIndex } from "./dom-selection.js";
 
 const MAX_PREFETCH_FORMULAS = 128;
 const MAX_PREFETCH_CONCURRENCY = 4;
+const MAX_SELECTION_SEGMENTS = 128;
 
 const excerptKey = (fragment, segment) =>
   `${fragment.revision ?? ""}:${fragment.key}:${segment.start}:${segment.end}:${segment.text}`;
@@ -619,6 +620,9 @@ export class ReaderSelectionActions {
       fragments &&
       (fragments.length > 32 ||
         fragments.reduce((size, part) => size + part.exact.length, 0) > 20000);
+    const tooManyHighlightSegments = Boolean(
+      fragments?.some((part) => (part.segments?.length ?? 0) > MAX_SELECTION_SEGMENTS),
+    );
     const selected = Boolean(fragments);
     for (const button of [this.copyButton, this.saveButton, this.sourceButton, this.strikeButton])
       button.hidden = !selected;
@@ -628,7 +632,9 @@ export class ReaderSelectionActions {
     this.copyButton.disabled = Boolean(
       tooLarge || this.copying || this.copyPending(this.copiedSelection ?? fragments),
     );
-    this.sourceButton.disabled = Boolean(tooLarge || pending || !this.canHighlight());
+    this.sourceButton.disabled = Boolean(
+      tooLarge || tooManyHighlightSegments || pending || !this.canHighlight(),
+    );
     this.saveButton.disabled = Boolean(tooLarge || codexTooLarge || pending);
     this.strikeButton.disabled = Boolean(tooLarge);
     this.sourceButton.hidden = !selected && !this.source.pending;

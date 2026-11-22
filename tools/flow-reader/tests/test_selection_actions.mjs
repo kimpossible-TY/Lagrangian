@@ -562,3 +562,39 @@ test("pathological selections cap prefetched formulas at a safe upper bound", as
   assert.equal(h.requests.length, 128);
   assert.equal(h.controller.copyPending(huge.fragments), false);
 });
+
+test("source highlight disables above 128 segments while staying enabled at 128 and keeping copy usable", (t) => {
+  const h = selectionControllerHarness(t);
+  const makeSegmented = (count, key = "block-0") => {
+    const segments = Array.from({ length: count }, () => ({ text: "a" }));
+    return {
+      key,
+      exact: "a".repeat(count),
+      start: 0,
+      end: count,
+      revision: "r1",
+      segments,
+    };
+  };
+
+  const atLimit = [makeSegmented(128)];
+  h.controller.selection = atLimit;
+  h.controller.copiedSelection = atLimit;
+  h.controller.updateActions();
+  assert.equal(h.elements.get("#reader-source-highlight").disabled, false);
+  assert.equal(h.elements.get("#reader-copy").disabled, false);
+
+  const overLimit = [makeSegmented(129)];
+  h.controller.selection = overLimit;
+  h.controller.copiedSelection = overLimit;
+  h.controller.updateActions();
+  assert.equal(h.elements.get("#reader-source-highlight").disabled, true);
+  assert.equal(h.elements.get("#reader-copy").disabled, false);
+
+  const multiOverLimit = [makeSegmented(4, "block-0"), makeSegmented(129, "block-1")];
+  h.controller.selection = multiOverLimit;
+  h.controller.copiedSelection = multiOverLimit;
+  h.controller.updateActions();
+  assert.equal(h.elements.get("#reader-source-highlight").disabled, true);
+  assert.equal(h.elements.get("#reader-copy").disabled, false);
+});

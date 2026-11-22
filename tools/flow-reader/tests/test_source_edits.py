@@ -321,6 +321,68 @@ class SourceHighlightTests(unittest.TestCase):
             self.entry.read_text(),
         )
 
+    def test_multiblock_equation_and_dense_paragraph_with_at_label_references_highlight(self):
+        source = (
+            '#import "@local/text-utils:0.1.2": highlighted\n'
+            '#set heading(numbering: "1.1")\n'
+            '#set math.equation(numbering: "(1)")\n\n'
+            '= Unitary Fourier Transform <unitary_fourier_transform_and_inverse>\n\n'
+            '$ norm(hat(f)) = norm(f) $ <Fourier>\n\n'
+            '$ u_t - Delta u = 0 $\n\n'
+            "By Plancherel's theorem (@Fourier), we have $Lambda^(-s) f$ and $Lambda^(-s) g$. "
+            'By @Fourier, see @Fourier[Theorem 1] in @unitary_fourier_transform_and_inverse.\n'
+        )
+        state = self.compile(source)
+        equation = next(
+            part for part in state.bundle.passages
+            if '(2)' in part['text'] and 'Plancherel' not in part['text']
+        )
+        paragraph = next(part for part in state.bundle.passages if 'Plancherel' in part['text'])
+        eq_text = equation['text'].removesuffix('(2)')
+
+        # Build segments mirroring frontend sourceSegments() output for the paragraph.
+        spans = sorted(paragraph['source_ranges'], key=lambda span: span['text_start'])
+        segments = []
+        cursor = 0
+        for span in spans:
+            if span['text_start'] > cursor:
+                segments.append({'text': paragraph['text'][cursor:span['text_start']]})
+            part = {'text': paragraph['text'][span['text_start']:span['text_end']]}
+            if span['kind'] == 'math':
+                part.update(math=True, complete=True)
+            segments.append(part)
+            cursor = span['text_end']
+        if cursor < len(paragraph['text']):
+            segments.append({'text': paragraph['text'][cursor:]})
+        merged = []
+        for part in segments:
+            if merged and not part.get('math') and not merged[-1].get('math'):
+                merged[-1]['text'] += part['text']
+            else:
+                merged.append(part)
+
+        fragments = [
+            {
+                **self.fragment(state, equation['text']),
+                'segments': [
+                    {'text': eq_text, 'math': True, 'complete': True},
+                    {'text': '(2)'},
+                ],
+            },
+            {**self.fragment(state, paragraph['text']), 'segments': merged},
+        ]
+        result = state.highlight(state.revision, fragments)
+        self.assertEqual(result['status'], 'highlighted', result)
+        updated = self.entry.read_text()
+        self.assertIn(
+            '#highlighted[$ u_t - Delta u = 0 $\n\n'
+            "By Plancherel's theorem (@Fourier), we have $Lambda^(-s) f$ and $Lambda^(-s) g$. "
+            'By @Fourier, see @Fourier[Theorem 1] in @unitary_fourier_transform_and_inverse.]',
+            updated,
+        )
+        state.compile()
+        self.assertTrue(state.report['contentGatePassed'], state.report)
+
     def test_a_save_during_candidate_compilation_is_not_overwritten(self):
         state = self.compile("Before selected text after.")
         fragment = self.fragment(state, "selected text")

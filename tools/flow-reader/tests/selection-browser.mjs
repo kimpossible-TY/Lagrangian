@@ -701,7 +701,7 @@ async function verify(browser, viewport) {
           const section = blocks.slice(startIndex, startIndex + 5);
           const views = section.flatMap((block) => [...block.querySelectorAll(".flow-math-view")]);
           return (
-            views.length === 22 &&
+            views.length === 24 &&
             views.every((view) => ["ready", "overflow"].includes(view.dataset.mathState)) &&
             Boolean(section[1].querySelector(".flow-equation-number")) &&
             Boolean(section[4].querySelector(".flow-equation-number"))
@@ -823,7 +823,31 @@ async function verify(browser, viewport) {
         locatedRanges[0][0] === locatedRanges[1][0] && locatedRanges[0][1] === locatedRanges[1][1],
       );
 
-      // (2) 22-formula Typst source copy via #reader-copy without fallback notice.
+      // (2) 24-formula Typst source copy via #reader-copy without fallback notice,
+      // including repeated non-BMP math symbols around ±64 UTF-16 boundaries.
+      const hasLoneSurrogate = (text) => {
+        for (let i = 0; i < text.length; i++) {
+          const code = text.charCodeAt(i);
+          if (code >= 0xd800 && code <= 0xdbff) {
+            const next = text.charCodeAt(i + 1);
+            if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+            i++;
+          } else if (code >= 0xdc00 && code <= 0xdfff) {
+            return true;
+          }
+        }
+        return false;
+      };
+      const block4Segments = withNumber.fragments[3].segments;
+      check(
+        "Repeated non-BMP math segments emit zero lone UTF-16 surrogates in text, prefix, or suffix",
+        block4Segments.every(
+          (seg) =>
+            !hasLoneSurrogate(seg.text) &&
+            !hasLoneSurrogate(seg.prefix ?? "") &&
+            !hasLoneSurrogate(seg.suffix ?? ""),
+        ),
+      );
       await clearSelection();
       await denseSelection({ from: 0, to: 4, endMode: "block", applySelection: true });
       await copyReady();
@@ -837,15 +861,17 @@ async function verify(browser, viewport) {
       const expectedFormulas = [
         "$ u_1 + v_1 = w_1 $",
         ...Array.from({ length: 11 }, (_, i) => `$a_${i + 1}$`),
+        "$Lambda^(-s)$",
         ...Array.from({ length: 9 }, (_, i) => `$b_${i + 1}$`),
         "$ u_2 + v_2 = w_2 $",
       ];
       check(
-        "Copy across 22 formulas copies Typst source for all 22 formulas without fallback notice",
+        "Copy across 24 formulas copies Typst source for all formulas including repeated non-BMP symbols without fallback notice",
         copiedDense.includes("$ u_1 + v_1 = w_1 $") &&
           copiedDense.includes("$a_11$") &&
           copiedDense.includes("$b_9$") &&
           copiedDense.includes("$ u_2 + v_2 = w_2 $") &&
+          copiedDense.split("$Lambda^(-s)$").length - 1 === 2 &&
           expectedFormulas.every((formula) => copiedDense.includes(formula)) &&
           !copyMessage.includes("수식 원문을 확인할 수 없어 화면에 표시된 글자로 복사했습니다.") &&
           copyMessage.includes("수식을 Typst 원문으로 복사했습니다."),
@@ -890,7 +916,9 @@ async function verify(browser, viewport) {
       // (b) 23-segment Block 3 paragraph, and
       // (c) multi-block selection spanning Block 1 + Block 2 + Block 3.
       const block3Source =
-        "Term " + Array.from({ length: 11 }, (_, i) => `$a_${i + 1}$`).join(" and ") + " end.";
+        "Term " +
+        Array.from({ length: 11 }, (_, i) => `$a_${i + 1}$`).join(" and ") +
+        " by (@dense-eq).";
 
       // (4a) Block 2 including its generated equation number.
       const block2Selection = await denseSelection({

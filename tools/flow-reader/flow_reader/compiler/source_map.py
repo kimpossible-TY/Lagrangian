@@ -52,6 +52,7 @@ def markup_ranges(source, *, invocations=False, include_labels=True):
     length = len(source)
     call_pattern = re.compile(r"#[\w-]+(?:\.[\w-]+)*")
     reference_pattern = re.compile(r"#\s*\(\s*s\.ref\s*\)\s*\(")
+    label_reference_pattern = re.compile(r"@[\w.:-]+")
     ident_pattern = re.compile(r"[^\W\d][\w-]*(?:\.[^\W\d][\w-]*)*")
     code_keywords = frozenset({
         "let", "set", "show", "if", "for", "while", "import", "include", "context",
@@ -280,8 +281,16 @@ def markup_ranges(source, *, invocations=False, include_labels=True):
                     end = source.find(">", position + 1)
                     position = length if end < 0 else end + 1
                 elif character == "@":
-                    label = re.match(r"@[^\s\[\]{}(),;]+", source[position:])
-                    position += label.end() if label else 1
+                    label = label_reference_pattern.match(source, position)
+                    body = source[position + 1:label.end()].rstrip(".:") if label else ""
+                    if body:
+                        end = position + 1 + len(body)
+                        if end < length and source[end] == "[":
+                            end = opaque(end + 1, "]")
+                        yield position, end, "reference"
+                        position = end
+                    else:
+                        position += 1
                 else:
                     position += 1
             else:

@@ -250,3 +250,70 @@ test("partial and complete math segments classify accurately across math contain
   assert.equal(eqPartial[0].math, true);
   assert.equal(eqPartial[0].complete, false);
 });
+
+function hasLoneSurrogate(text) {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      i++;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+test("sourceSegments never splits UTF-16 surrogate pairs in prefix, suffix, or segment text", (t) => {
+  withNodeGlobals(t);
+  // Place non-BMP mathematical italic glyphs (𝑓, 𝑠, 𝐿) directly across ±64 UTF-16
+  // offsets from two repeated occurrences of Λ−𝑠 in the same paragraph.
+  const firstFiller = "a".repeat(63);
+  const secondFiller = "b".repeat(63);
+  const paragraph = el("p", {
+    attributes: { "data-reader-key": "p-surrogate" },
+    children: [
+      "Lead ",
+      el("span", { classes: ["flow-math-view"], children: ["Λ−𝑠"] }),
+      firstFiller,
+      el("span", { classes: ["flow-math-view"], children: ["𝐿"] }),
+      " mid ",
+      el("span", { classes: ["flow-math-view"], children: ["𝑓"] }),
+      secondFiller,
+      el("span", { classes: ["flow-math-view"], children: ["Λ−𝑠"] }),
+      " tail.",
+    ],
+  });
+  const index = logicalTextIndex(paragraph);
+  const segments = sourceSegments(index, 0, index.text.length);
+  const repeated = segments.filter((seg) => seg.math && seg.text === "Λ−𝑠");
+  assert.equal(repeated.length, 2);
+
+  // Confirm raw ±64 slicing would have split the 𝐿 and 𝑓 surrogate pairs.
+  assert.equal(hasLoneSurrogate(index.text.slice(repeated[0].end, repeated[0].end + 64)), true);
+  assert.equal(hasLoneSurrogate(index.text.slice(repeated[1].start - 64, repeated[1].start)), true);
+
+  for (const seg of segments) {
+    assert.equal(hasLoneSurrogate(seg.text), false, `lone surrogate in text: ${seg.text}`);
+    if (seg.prefix !== undefined) {
+      assert.equal(hasLoneSurrogate(seg.prefix), false, `lone surrogate in prefix: ${seg.prefix}`);
+    }
+    if (seg.suffix !== undefined) {
+      assert.equal(hasLoneSurrogate(seg.suffix), false, `lone surrogate in suffix: ${seg.suffix}`);
+    }
+  }
+  assert.equal(repeated[0].suffix, firstFiller);
+  assert.equal(repeated[1].prefix, secondFiller);
+  assert.ok(repeated[0].text.includes("𝑠"));
+  assert.ok(repeated[1].text.includes("𝑠"));
+
+  // Mid-surrogate start/end bounds passed directly are also snapped to full code points.
+  const glyphStart = index.text.indexOf("𝐿");
+  const snapped = sourceSegments(index, glyphStart + 1, glyphStart + 2);
+  assert.equal(snapped.length, 1);
+  assert.equal(snapped[0].text, "𝐿");
+  assert.equal(hasLoneSurrogate(snapped[0].text), false);
+  assert.equal(hasLoneSurrogate(snapped[0].prefix), false);
+  assert.equal(hasLoneSurrogate(snapped[0].suffix), false);
+});

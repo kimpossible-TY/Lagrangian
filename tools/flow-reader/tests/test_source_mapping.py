@@ -45,6 +45,24 @@ class CarrierAcceptanceTests(unittest.TestCase):
         self.assertIn(('#(s.ref)("interval-images")', 'reference'),
                       [(source[start:end], kind) for start, end, kind in ranges])
 
+    def test_at_label_references_emit_reference_ranges_and_preserve_trailing_punctuation(self):
+        source = (
+            'By @Fourier, see (@Fourier) and @sec:1.2. Also @sec:1.2: and '
+            '@Fourier[Theorem 1] end. Bare @ @. @: stay text.'
+        )
+        extracted = [(source[start:end], kind) for start, end, kind in markup_ranges(source)]
+        references = [text for text, kind in extracted if kind == 'reference']
+        self.assertEqual(
+            references,
+            ['@Fourier', '@Fourier', '@sec:1.2', '@sec:1.2', '@Fourier[Theorem 1]'],
+        )
+        self.assertIn(('. Also', 'text'), extracted)
+        self.assertIn((': and', 'text'), extracted)
+        self.assertIn((') and', 'text'), extracted)
+        self.assertIn(('end. Bare', 'text'), extracted)
+        self.assertIn(('.', 'text'), extracted)
+        self.assertIn((': stay text.', 'text'), extracted)
+
     def navigation_for(self, body):
         carriers = SourceCarriers()
         carriers.navigation_sources['0'] = {'path': '/unused.typ', 'source_hash': 'unused',
@@ -695,6 +713,53 @@ class CompiledSourceMappingTests(unittest.TestCase):
 
         self.assertEqual(state.source(state.revision, [self.fragment(state, "(4.1.16)")])["status"], "unmapped")
         self.assertEqual(state.source(state.revision, [self.fragment(state, mixed["text"])])["status"], "unmapped")
+
+    def test_at_label_references_locate_and_save_focus_across_multiblock_selection(self):
+        source = (
+            '#set heading(numbering: "1.1")\n'
+            '#set math.equation(numbering: "(1)")\n\n'
+            '= Unitary Fourier Transform <unitary_fourier_transform_and_inverse>\n\n'
+            '$ norm(hat(f)) = norm(f) $ <Fourier>\n\n'
+            "By Plancherel's theorem (@Fourier), $u_t - Delta u = 0$ holds. "
+            'By @Fourier, see @Fourier[Theorem 1] in @unitary_fourier_transform_and_inverse.\n'
+        )
+        state = self.state(source)
+        plain = compile_project(self.project, self.work / 'plain-at-ref', map_sources=False)
+        self.assertTrue(plain['contentGatePassed'])
+        self.assertEqual(state.document, (self.work / 'plain-at-ref/document.html').read_bytes())
+
+        equation = next(part for part in state.bundle.passages if '(1)' in part['text'] and 'Plancherel' not in part['text'])
+        paragraph = next(part for part in state.bundle.passages if "Plancherel" in part['text'])
+        ref_spans = [span for span in paragraph['source_ranges'] if span['kind'] == 'reference']
+        self.assertEqual(
+            [source[span['start']:span['end']] for span in ref_spans],
+            ['@Fourier', '@Fourier', '@Fourier[Theorem 1]', '@unitary_fourier_transform_and_inverse'],
+        )
+
+        fragments = [
+            self.fragment(state, equation['text']),
+            self.fragment(state, paragraph['text']),
+        ]
+        located = state.source(state.revision, fragments)
+        saved = state.save_focus(state.revision, fragments, state.focus.service, 42)
+        self.assertEqual(located['status'], 'located', located)
+        self.assertEqual(located['path'], str(self.entry))
+        self.assertEqual(saved['status'], 'selected', saved)
+        self.assertEqual(saved['source']['filepath'], str(self.entry))
+        self.assertTrue(state.read_focus()['source_excerpt_matches_disk'])
+
+        # Partial selection inside a rendered @label reference must remain unmapped.
+        first_ref = ref_spans[0]
+        rendered_ref = paragraph['text'][first_ref['text_start']:first_ref['text_end']]
+        partial_text = rendered_ref[:max(1, len(rendered_ref) // 2)]
+        partial_start = first_ref['text_start']
+        partial = {
+            'key': paragraph['key'],
+            'exact': partial_text,
+            'prefix': paragraph['text'][:partial_start][-64:],
+            'suffix': paragraph['text'][partial_start + len(partial_text):][:64],
+        }
+        self.assertEqual(state.source(state.revision, [partial])['status'], 'unmapped')
 
 
 if __name__ == "__main__":
