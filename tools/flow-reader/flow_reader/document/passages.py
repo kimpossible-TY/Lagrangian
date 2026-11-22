@@ -31,6 +31,8 @@ class PassageIndex(HTMLParser):
         self.active = []
         self.passages = []
         self.block_sections = block_sections
+        self._equation_number_depth = None
+        self._raw_equation_numbers = {}
         self.feed(source)
 
     def handle_starttag(self, tag, attrs):
@@ -46,6 +48,9 @@ class PassageIndex(HTMLParser):
         if tag not in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
                        "param", "source", "track", "wbr"}:
             self.stack.append((tag, excluded, passage))
+            if (not excluded and self._equation_number_depth is None
+                    and "flow-equation-number" in attributes.get("class", "").split()):
+                self._equation_number_depth = len(self.stack)
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -54,16 +59,35 @@ class PassageIndex(HTMLParser):
     def handle_endtag(self, tag):
         if not self.stack or self.stack[-1][0] != tag:
             return
+        if self._equation_number_depth == len(self.stack):
+            self._equation_number_depth = None
         _, _, passage = self.stack.pop()
         if passage:
             self.active.pop()
-            passage["text"] = normalized("".join(passage["text"]))
+            text, offsets = normalized_offsets("".join(passage["text"]))
+            passage["text"] = text
+            raw_ranges = self._raw_equation_numbers.pop(id(passage), [])
+            equation_number_ranges = []
+            for start, end in raw_ranges:
+                covered = [i for i, offset in enumerate(offsets)
+                           if start <= offset < end and not text[i].isspace()]
+                if covered:
+                    equation_number_ranges.append((covered[0], covered[-1] + 1))
+            passage["equation_number_ranges"] = equation_number_ranges
             if passage["text"]:
                 self.passages.append(passage)
 
     def handle_data(self, data):
         if self.active and self.stack and not self.stack[-1][1]:
-            self.active[-1]["text"].append(data)
+            passage = self.active[-1]
+            if self._equation_number_depth is not None:
+                offset = sum(map(len, passage["text"]))
+                ranges = self._raw_equation_numbers.setdefault(id(passage), [])
+                if ranges and ranges[-1][1] == offset:
+                    ranges[-1][1] += len(data)
+                else:
+                    ranges.append([offset, offset + len(data)])
+            passage["text"].append(data)
 
 
 def validate_fragments(fragments):

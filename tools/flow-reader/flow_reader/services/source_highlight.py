@@ -18,6 +18,9 @@ from flow_reader.document.sections import assign_block_ids, split_document
 from flow_reader.services.source_mapping import mapped_source_range
 
 
+MAX_SELECTION_SEGMENTS = 128
+
+
 class StaleSelection(ValueError):
     """The accepted inputs changed while an explicit edit was being verified."""
 
@@ -28,7 +31,7 @@ def selection_pattern(fragments):
     patterns, mathematical = [], False
     for fragment in fragments:
         parts = fragment.get("segments", [{"text": fragment["exact"]}])
-        if not isinstance(parts, list) or not 1 <= len(parts) <= 16:
+        if not isinstance(parts, list) or not 1 <= len(parts) <= MAX_SELECTION_SEGMENTS:
             raise ValueError("Invalid source selection segments")
         if any(not isinstance(part, dict) or not isinstance(part.get("text"), str) for part in parts):
             raise ValueError("Invalid source selection segment")
@@ -167,9 +170,18 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh, wri
     for fragment, location in zip(clean, locations):
         ordinal = next(i for i, passage in enumerate(bundle.passages)
                        if passage["key"] == location["key"])
-        text = bundle.passages[ordinal]["text"]
+        passage = bundle.passages[ordinal]
+        text = passage["text"]
         start = list(occurrences(text, fragment["exact"]))[location["occurrence"]]
-        expected.append((ordinal, start, start + len(fragment["exact"])))
+        end = start + len(fragment["exact"])
+        ignored = set()
+        for eq_start, eq_end in passage.get("equation_number_ranges", ()):
+            ignored.update(range(eq_start, eq_end))
+        selected = [i for i in range(start, end)
+                    if i not in ignored and not text[i].isspace()]
+        if not selected:
+            return "unmapped"
+        expected.append((ordinal, selected[0], selected[-1] + 1))
     pattern, mathematical = selection_pattern(fragments)
     if pattern is None:
         return "unsupported"

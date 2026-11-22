@@ -19,10 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.build import Project, compile_project
 from flow_reader.compiler.source_map import SourceCarriers, markup_ranges
+from flow_reader.document.passages import PassageIndex, validate_fragments
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.services.source_mapping import edit_location, source_excerpt
+from flow_reader.services.source_mapping import edit_location, mapped_source_range, source_excerpt
 
 
 class CarrierAcceptanceTests(unittest.TestCase):
@@ -117,6 +118,118 @@ class CarrierAcceptanceTests(unittest.TestCase):
         result = carriers.extract(baseline, annotated)
         self.assertEqual([part["text"] for part in result.values()], ["Stable"])
         self.assertFalse(carriers.complete)
+
+    def test_arguments_skip_code_keywords_and_frame_calls_while_preserving_markup(self):
+        source = (
+            '#figure(\n'
+            '  context {\n'
+            '    import "@preview/cetz:0.4.2": canvas, draw\n'
+            '    canvas(length: 1cm, { content((0, 0), text(size: 9pt)[$xi_(1)$]) })\n'
+            '  },\n'
+            '  caption: [Context figure caption.],\n'
+            ')\n'
+            '#figure(\n'
+            '  cetz.canvas(length: 1cm, { content((0, 0), [$eta$]) }),\n'
+            '  caption: [Direct CeTZ caption.],\n'
+            ')\n'
+            '#figure(canvas(length: 1cm)[$zeta$], caption: [Trailing canvas caption.])\n'
+            '#figure(html.frame[$omega$], caption: [Frame caption.])\n'
+            '#figure(if true { [$a$] } else { [$b$] }, caption: [Conditional caption.])\n'
+            '#figure(\n'
+            '  [Body.],\n'
+            '  caption: context_note[Context prefix.] + setting[Set prefix.] '
+            '+ format[For prefix.] + canvas_title[Canvas prefix.],\n'
+            ')\n'
+            '#proof[Proof body.]\n'
+            '#proposition[Proposition body.]\n'
+            '#scope(s => [Closure body.])\n'
+        )
+        extracted = [source[start:end] for start, end, _ in markup_ranges(source)]
+        for forbidden in ('$xi_(1)$', '$eta$', '$zeta$', '$omega$', '$a$', '$b$'):
+            self.assertNotIn(forbidden, extracted)
+        for retained in (
+            'Context figure caption.',
+            'Direct CeTZ caption.',
+            'Trailing canvas caption.',
+            'Frame caption.',
+            'Conditional caption.',
+            'Context prefix.',
+            'Set prefix.',
+            'For prefix.',
+            'Canvas prefix.',
+            'Proof body.',
+            'Proposition body.',
+            'Closure body.',
+        ):
+            self.assertIn(retained, extracted)
+
+    def test_passage_index_and_mapped_source_range_handle_equation_number_ranges(self):
+        html = (
+            '<html><body>'
+            '<p data-reader-key="p1">Intro text.</p>'
+            '<div class="flow-equation" data-reader-key="eq1">'
+            '<math>u=0</math><div class="flow-equation-number"> (4.1.16) </div>'
+            '</div>'
+            '<div class="flow-equation" data-reader-key="eq2">'
+            '<math>v=1</math><div class="flow-equation-number">(4.1.17)</div>'
+            '</div>'
+            '<p data-reader-key="p2">Mapped Unmapped</p>'
+            '</body></html>'
+        )
+        blocks = {'p1': 'section-0', 'eq1': 'section-0', 'eq2': 'section-0', 'p2': 'section-0'}
+        passages = PassageIndex(html, blocks).passages
+        by_key = {part['key']: part for part in passages}
+        self.assertEqual(by_key['p1']['equation_number_ranges'], [])
+        self.assertEqual(by_key['eq1']['text'], 'u=0 (4.1.16)')
+        self.assertEqual(by_key['eq1']['equation_number_ranges'], [(4, 12)])
+        self.assertEqual(by_key['eq1']['text'][4:12], '(4.1.16)')
+        self.assertEqual(by_key['eq2']['text'], 'v=1(4.1.17)')
+        self.assertEqual(by_key['eq2']['equation_number_ranges'], [(3, 11)])
+        self.assertEqual(by_key['eq2']['text'][3:11], '(4.1.17)')
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            entry = root / 'main.typ'
+            source = 'Intro text.\n\n$ u = 0 $\n\n$ v = 1 $\n\nMapped\n'
+            entry.write_text(source)
+            digest = hashlib.sha256(source.encode()).hexdigest()
+            project = Project(root, Path('main.typ'), root / 'packages')
+
+            def span(snippet, kind, text_start, text_end):
+                start = source.index(snippet)
+                return {'path': str(entry), 'source_hash': digest,
+                        'start': start, 'end': start + len(snippet),
+                        'kind': kind, 'text_start': text_start, 'text_end': text_end}
+
+            by_key['p1']['source_ranges'] = [span('Intro text.', 'text', 0, len('Intro text.'))]
+            by_key['eq1']['source_ranges'] = [span('$ u = 0 $', 'math', 0, 3)]
+            by_key['eq2']['source_ranges'] = [span('$ v = 1 $', 'math', 0, 3)]
+            by_key['p2']['source_ranges'] = [span('Mapped', 'text', 0, len('Mapped'))]
+            bundle = SimpleNamespace(passages=passages)
+
+            including = validate_fragments([
+                {'key': 'p1', 'exact': 'Intro text.'},
+                {'key': 'eq1', 'exact': 'u=0 (4.1.16)'},
+                {'key': 'eq2', 'exact': 'v=1(4.1.17)'},
+            ])
+            located_inc = mapped_source_range(project, (), bundle, including)
+            self.assertEqual(located_inc['status'], 'located')
+            self.assertEqual(len(located_inc['spans']), 3)
+
+            excluding_trailing = validate_fragments([
+                {'key': 'p1', 'exact': 'Intro text.'},
+                {'key': 'eq1', 'exact': 'u=0 (4.1.16)'},
+                {'key': 'eq2', 'exact': 'v=1'},
+            ])
+            located_exc = mapped_source_range(project, (), bundle, excluding_trailing)
+            self.assertEqual(located_exc['status'], 'located')
+            self.assertEqual(located_exc['spans'], located_inc['spans'])
+
+            number_only = validate_fragments([{'key': 'eq1', 'exact': '(4.1.16)'}])
+            self.assertEqual(mapped_source_range(project, (), bundle, number_only)['status'], 'unmapped')
+
+            uncovered = validate_fragments([{'key': 'p2', 'exact': 'Mapped Unmapped'}])
+            self.assertEqual(mapped_source_range(project, (), bundle, uncovered)['status'], 'unmapped')
 
 
 class SourceExcerptTests(unittest.TestCase):
@@ -492,6 +605,96 @@ class CompiledSourceMappingTests(unittest.TestCase):
         span["path"] = original_path
         span["source_hash"] = "0" * 64
         self.assertEqual(state.source(state.revision, [fragment])["status"], "stale")
+
+    def test_cetz_context_and_html_frame_figures_compile_without_paragraph_warnings(self):
+        source = (
+            '#import "@preview/cetz:0.4.2" as cetz\n'
+            '#let proof(body) = block(par(body))\n'
+            '#let proposition(body) = block(par(body))\n'
+            '#let scope(body) = body(none)\n'
+            'Before figures with $alpha$.\n\n'
+            '#figure(\n'
+            '  context {\n'
+            '    import "@preview/cetz:0.4.2": canvas, draw\n'
+            '    canvas(length: 1cm, {\n'
+            '      import draw: *\n'
+            '      line((0, 0), (1, 0))\n'
+            '      content((0.5, 0.2), text(size: 9pt)[$xi_(1)$])\n'
+            '    })\n'
+            '  },\n'
+            '  caption: [CeTZ context caption with $xi_(1)$.],\n'
+            ')\n\n'
+            '#figure(\n'
+            '  cetz.canvas(length: 1cm, {\n'
+            '    import cetz.draw: *\n'
+            '    line((0, 0), (1, 1))\n'
+            '    content((0.5, 0.5), text(size: 9pt)[$xi_(2)$])\n'
+            '  }),\n'
+            '  caption: [Direct CeTZ caption.],\n'
+            ')\n\n'
+            '#figure(\n'
+            '  html.frame[Framed $omega$ content],\n'
+            '  caption: [HTML frame caption.],\n'
+            ')\n\n'
+            '#proposition[Proposition statement.]\n\n'
+            '#proof[Proof argument.]\n\n'
+            '#scope(s => [Closure content.])\n'
+        )
+        state = self.state(source)
+        self.assertEqual(state.report.get("sourceMapStatus"), "verified")
+        self.assertFalse(any("elem may not occur inside of a paragraph" in warning
+                             for warning in state.report.get("warnings", {})))
+        for phrase in (
+            "Before figures",
+            "CeTZ context caption",
+            "Direct CeTZ caption.",
+            "HTML frame caption.",
+            "Proposition statement.",
+            "Proof argument.",
+            "Closure content.",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(state.source(state.revision, [self.fragment(state, phrase)])["status"], "located")
+
+    def test_numbered_display_equation_selection_locates_with_or_without_equation_number(self):
+        source = (
+            '#set math.equation(numbering: n => "(4.1." + str(15 + n) + ")")\n'
+            '#let hidden = [Generated words.]\n\n'
+            'Introductory prose.\n\n'
+            '$ u_t - Delta u = 0 $\n\n'
+            '$ u(0, x) = g(x) $\n\n'
+            'Plain prose and #hidden\n'
+        )
+        state = self.state(source)
+        intro = next(part for part in state.bundle.passages if part["text"] == "Introductory prose.")
+        eq1 = next(part for part in state.bundle.passages if "(4.1.16)" in part["text"])
+        eq2 = next(part for part in state.bundle.passages if "(4.1.17)" in part["text"])
+        mixed = next(part for part in state.bundle.passages if "Generated words." in part["text"])
+
+        self.assertTrue(eq1.get("equation_number_ranges"))
+        self.assertTrue(eq2.get("equation_number_ranges"))
+        eq2_without_number = eq2["text"].removesuffix("(4.1.17)").strip()
+
+        including = [
+            self.fragment(state, intro["text"]),
+            self.fragment(state, eq1["text"]),
+            self.fragment(state, eq2["text"]),
+        ]
+        located_inc = state.source(state.revision, including)
+        self.assertEqual(located_inc["status"], "located")
+
+        excluding_trailing = [
+            self.fragment(state, intro["text"]),
+            self.fragment(state, eq1["text"]),
+            self.fragment(state, eq2_without_number),
+        ]
+        located_exc = state.source(state.revision, excluding_trailing)
+        self.assertEqual(located_exc["status"], "located")
+        self.assertEqual((located_exc["line"], located_exc["end_line"]),
+                         (located_inc["line"], located_inc["end_line"]))
+
+        self.assertEqual(state.source(state.revision, [self.fragment(state, "(4.1.16)")])["status"], "unmapped")
+        self.assertEqual(state.source(state.revision, [self.fragment(state, mixed["text"])])["status"], "unmapped")
 
 
 if __name__ == "__main__":

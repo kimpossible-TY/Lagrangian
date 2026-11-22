@@ -148,7 +148,7 @@ def source_position(source, offset):
             "column": len(source[line_start:offset].encode("utf-8"))}
 
 
-def mapped_source_range(project, dependencies, bundle, clean):
+def mapped_source_range(project, dependencies, bundle, clean, *, ignore_equation_numbers=True):
     """Resolve covered ordered text/math/reference ranges to source offsets."""
     passages = {part["key"]: part for part in bundle.passages}
     if not any(passages.get(part["key"], {}).get("source_ranges") for part in clean):
@@ -165,6 +165,10 @@ def mapped_source_range(project, dependencies, bundle, clean):
         start = list(occurrences(passage["text"], fragment["exact"]))[location["occurrence"]]
         end = start + len(fragment["exact"])
         covered = set()
+        if ignore_equation_numbers:
+            for eq_start, eq_end in passage.get("equation_number_ranges", ()):
+                covered.update(range(eq_start, eq_end))
+        before_count = len(selected)
         for span in passage.get("source_ranges", []):
             first, last = max(start, span["text_start"]), min(end, span["text_end"])
             if first >= last or not passage["text"][first:last].strip():
@@ -194,6 +198,8 @@ def mapped_source_range(project, dependencies, bundle, clean):
                 return {"status": "unmapped"}
             selected.append((path, source_start, source_end, span["kind"]))
             covered.update(range(first, last))
+        if len(selected) == before_count:
+            return {"status": "unmapped"}
         if any(not passage["text"][i].isspace() and i not in covered for i in range(start, end)):
             return {"status": "unmapped"}
     if not selected or len({path for path, _, _, _ in selected}) != 1:
@@ -258,7 +264,8 @@ def source_excerpt(project, dependencies, bundle, fragments):
     clean = validate_fragments(fragments)
     if len(clean) != 1:
         return {"status": "unmapped"}
-    mapped = mapped_source_range(project, dependencies, bundle, clean)
+    mapped = mapped_source_range(project, dependencies, bundle, clean,
+                                 ignore_equation_numbers=False)
     if mapped is None:
         return {"status": "unmapped"}
     if mapped.get("status") != "located":

@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.build import Project
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.services.source_highlight import selection_pattern
+from flow_reader.services.source_highlight import MAX_SELECTION_SEGMENTS, selection_pattern
 
 
 class SourceHighlightTests(unittest.TestCase):
@@ -221,6 +221,106 @@ class SourceHighlightTests(unittest.TestCase):
         self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
         self.assertIn("#highlighted[$ alpha^2 + beta + 1 $]", self.entry.read_text())
 
+    def test_display_equation_with_generated_number_segment_highlights_equation(self):
+        source = ('#import "@local/text-utils:0.1.2": highlighted\n'
+                  '#set math.equation(numbering: "(1)")\n$ alpha^2 + beta + 1 $')
+        state = self.compile(source)
+        passage = state.bundle.passages[0]
+        self.assertTrue(passage["text"].endswith("(1)"))
+        self.assertTrue(passage.get("equation_number_ranges"))
+        eq_text = passage["text"].removesuffix("(1)")
+
+        number_only = self.fragment(state, "(1)")
+        number_only["segments"] = [{"text": "(1)"}]
+        self.assertEqual(state.highlight(state.revision, [number_only])["status"], "unmapped")
+        self.assertEqual(self.entry.read_text(), source)
+
+        fragment = self.fragment(state, passage["text"])
+        fragment["segments"] = [
+            {"text": eq_text, "math": True, "complete": True},
+            {"text": "(1)"},
+        ]
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
+        self.assertIn("#highlighted[$ alpha^2 + beta + 1 $]", self.entry.read_text())
+
+    def test_twenty_three_segment_math_and_text_selection_highlights(self):
+        terms = [f"term {i} $x_{i}$" for i in range(11)]
+        sentence = " ".join(terms) + " end."
+        source = f'#import "@local/text-utils:0.1.2": highlighted\n{sentence}\n'
+        state = self.compile(source)
+        passage = state.bundle.passages[0]
+        spans = sorted(passage["source_ranges"], key=lambda span: span["text_start"])
+        segments = []
+        cursor = 0
+        for span in spans:
+            if span["text_start"] > cursor:
+                segments.append({"text": passage["text"][cursor:span["text_start"]]})
+            part = {"text": passage["text"][span["text_start"]:span["text_end"]]}
+            if span["kind"] == "math":
+                part.update(math=True, complete=True)
+            segments.append(part)
+            cursor = span["text_end"]
+        if cursor < len(passage["text"]):
+            segments.append({"text": passage["text"][cursor:]})
+        # Merge adjacent non-math segments so the selection has exactly 23 segments
+        # (11 math segments interleaved with 12 text segments).
+        merged = []
+        for part in segments:
+            if merged and not part.get("math") and not merged[-1].get("math"):
+                merged[-1]["text"] += part["text"]
+            else:
+                merged.append(part)
+        self.assertEqual(len(merged), 23)
+        fragment = self.fragment(state, passage["text"])
+        fragment["segments"] = merged
+        self.assertEqual(state.highlight(state.revision, [fragment])["status"], "highlighted")
+        self.assertIn(f"#highlighted[{sentence}]", self.entry.read_text())
+
+        too_many = [{"text": "a"}] * (MAX_SELECTION_SEGMENTS + 1)
+        with self.assertRaisesRegex(ValueError, "Invalid source selection segments"):
+            selection_pattern([{"exact": "a" * (MAX_SELECTION_SEGMENTS + 1), "segments": too_many}])
+
+    def test_multiblock_paragraph_and_numbered_display_equation_highlight(self):
+        source = (
+            '#import "@local/text-utils:0.1.2": highlighted\n'
+            '#set math.equation(numbering: "(1)")\n\n'
+            'Intro paragraph before equation.\n\n'
+            '$ alpha^2 + beta + 1 $\n\n'
+            'Outro paragraph after equation.\n'
+        )
+        state = self.compile(source)
+        intro, equation, outro = state.bundle.passages[:3]
+        eq_text = equation["text"].removesuffix("(1)")
+        fragments = [
+            {**self.fragment(state, intro["text"]), "segments": [{"text": intro["text"]}]},
+            {
+                **self.fragment(state, equation["text"]),
+                "segments": [
+                    {"text": eq_text, "math": True, "complete": True},
+                    {"text": "(1)"},
+                ],
+            },
+            {**self.fragment(state, outro["text"]), "segments": [{"text": outro["text"]}]},
+        ]
+
+        # When paged compilation rejects the multi-block highlight, return unmapped
+        # with zero source mutations.
+        with patch("flow_reader.services.source_highlight.paged_candidate_compiles", return_value=False):
+            rejected = state.highlight(state.revision, fragments)
+        self.assertEqual(rejected["status"], "unmapped")
+        self.assertEqual(self.entry.read_text(), source)
+
+        # With real HTML + paged PDF compilation, never raise ValueError and
+        # assert the deterministic status observed from Typst.
+        result = state.highlight(state.revision, fragments)
+        self.assertEqual(result["status"], "highlighted")
+        self.assertIn(
+            '#highlighted[Intro paragraph before equation.\n\n'
+            '$ alpha^2 + beta + 1 $\n\n'
+            'Outro paragraph after equation.]',
+            self.entry.read_text(),
+        )
+
     def test_a_save_during_candidate_compilation_is_not_overwritten(self):
         state = self.compile("Before selected text after.")
         fragment = self.fragment(state, "selected text")
@@ -264,9 +364,23 @@ class SourceHighlightTests(unittest.TestCase):
 
 class SourceSelectionValidationTests(unittest.TestCase):
     def test_malformed_or_inconsistent_segments_are_rejected(self):
-        for segments in ([None], [{"text": "Different"}], []):
+        for segments in ([None], [{"text": "Different"}], [], "not-a-list"):
             with self.assertRaises(ValueError):
                 selection_pattern([{"exact": "Selected", "segments": segments}])
+
+    def test_selection_segment_limit_allows_up_to_max_and_rejects_excess(self):
+        self.assertEqual(MAX_SELECTION_SEGMENTS, 128)
+        at_limit = [{"text": "a"}] * MAX_SELECTION_SEGMENTS
+        pattern, mathematical = selection_pattern([{"exact": "a" * MAX_SELECTION_SEGMENTS, "segments": at_limit}])
+        self.assertIsNotNone(pattern)
+        self.assertFalse(mathematical)
+
+        over_limit = [{"text": "a"}] * (MAX_SELECTION_SEGMENTS + 1)
+        with self.assertRaisesRegex(ValueError, "Invalid source selection segments"):
+            selection_pattern([{"exact": "a" * (MAX_SELECTION_SEGMENTS + 1), "segments": over_limit}])
+
+        incomplete = [{"text": "x", "math": True, "complete": False}]
+        self.assertEqual(selection_pattern([{"exact": "x", "segments": incomplete}]), (None, True))
 
 
 if __name__ == "__main__":

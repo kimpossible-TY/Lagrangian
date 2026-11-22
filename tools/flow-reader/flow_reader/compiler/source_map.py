@@ -52,21 +52,44 @@ def markup_ranges(source, *, invocations=False, include_labels=True):
     length = len(source)
     call_pattern = re.compile(r"#[\w-]+(?:\.[\w-]+)*")
     reference_pattern = re.compile(r"#\s*\(\s*s\.ref\s*\)\s*\(")
+    ident_pattern = re.compile(r"[^\W\d][\w-]*(?:\.[^\W\d][\w-]*)*")
+    code_keywords = frozenset({
+        "let", "set", "show", "if", "for", "while", "import", "include", "context",
+    })
 
-    def opaque(position, closing=None):
+    def is_frame_call(name):
+        return name in {"canvas", "html.frame"} or name.endswith(".canvas")
+
+    def skip_comment(position):
+        if source.startswith("//", position):
+            end = source.find("\n", position)
+            return length if end < 0 else end
+        if source.startswith("/*", position):
+            depth, position = 1, position + 2
+            while position < length and depth:
+                if source.startswith("/*", position):
+                    depth, position = depth + 1, position + 2
+                elif source.startswith("*/", position):
+                    depth, position = depth - 1, position + 2
+                else:
+                    position += 1
+            return position
+        return position
+
+    def skip_ws_comments(position):
         while position < length:
-            if source.startswith("//", position):
-                end = source.find("\n", position)
-                position = length if end < 0 else end
-            elif source.startswith("/*", position):
-                depth, position = 1, position + 2
-                while position < length and depth:
-                    if source.startswith("/*", position):
-                        depth, position = depth + 1, position + 2
-                    elif source.startswith("*/", position):
-                        depth, position = depth - 1, position + 2
-                    else:
-                        position += 1
+            if source[position].isspace():
+                position += 1
+            elif source.startswith(("//", "/*"), position):
+                position = skip_comment(position)
+            else:
+                break
+        return position
+
+    def opaque(position, closing=None, *, stop_chars="\n"):
+        while position < length:
+            if source.startswith(("//", "/*"), position):
+                position = skip_comment(position)
             elif source[position] == '"':
                 position += 1
                 while position < length:
@@ -77,16 +100,25 @@ def markup_ranges(source, *, invocations=False, include_labels=True):
                         break
                     else:
                         position += 1
+            elif source[position] == "`":
+                count = len(source[position:]) - len(source[position:].lstrip("`"))
+                end = source.find("`" * count, position + count)
+                position = length if end < 0 else end + count
             elif source[position] in "([{":
                 position = opaque(position + 1, {"(": ")", "[": "]", "{": "}"}[source[position]])
             elif closing and source[position] == closing:
                 return position + 1
-            elif not closing and source[position] in ")]}":
-                return position
-            elif not closing and source[position] == "\n":
+            elif not closing and (source[position] in ")]}" or source[position] in stop_chars):
                 return position
             else:
                 position += 1
+        return position
+
+    def skip_frame_arguments(position):
+        if position < length and source[position] == "(":
+            position = opaque(position + 1, ")")
+        while position < length and source[position] == "[":
+            position = opaque(position + 1, "]")
         return position
 
     def arguments(position, closing):
@@ -108,8 +140,35 @@ def markup_ranges(source, *, invocations=False, include_labels=True):
                         break
                     else:
                         position += 1
+            elif character == "`":
+                count = len(source[position:]) - len(source[position:].lstrip("`"))
+                end = source.find("`" * count, position + count)
+                position = length if end < 0 else end + count
             elif source.startswith(("//", "/*"), position):
-                position = opaque(position)
+                position = skip_comment(position)
+            elif character.isdigit():
+                while position < length and (source[position].isalnum() or source[position] in "._"):
+                    position += 1
+            elif character.isalpha() or character == "_":
+                ident = ident_pattern.match(source, position)
+                name = ident[0]
+                end = ident.end()
+                if name in code_keywords:
+                    if closing == ")":
+                        position = opaque(end, stop_chars=",;")
+                    else:
+                        position = opaque(skip_ws_comments(end), stop_chars=";\n")
+                        if name == "if":
+                            while True:
+                                nxt = skip_ws_comments(position)
+                                nxt_ident = ident_pattern.match(source, nxt)
+                                if not nxt_ident or nxt_ident[0] != "else":
+                                    break
+                                position = opaque(skip_ws_comments(nxt_ident.end()), stop_chars=";\n")
+                elif is_frame_call(name):
+                    position = skip_frame_arguments(end)
+                else:
+                    position = end
             else:
                 position += 1
         return position
@@ -197,16 +256,19 @@ def markup_ranges(source, *, invocations=False, include_labels=True):
                     continue
                 end = call.end()
                 name = call[0][1:]
-                if name in {"let", "set", "show", "if", "for", "while", "import", "include", "context"}:
-                    position = opaque(end)
+                if name in code_keywords:
+                    position = opaque(skip_ws_comments(end))
                     continue
-                if end < length and source[end] == "(":
-                    end = yield from arguments(end + 1, ")")
-                if end < length and source[end] == "[":
-                    position = yield from markup(end + 1, True)
+                if is_frame_call(name):
+                    position = skip_frame_arguments(end)
                 else:
-                    # A variable or unknown expression is not literal prose.
-                    position = end
+                    if end < length and source[end] == "(":
+                        end = yield from arguments(end + 1, ")")
+                    if end < length and source[end] == "[":
+                        position = yield from markup(end + 1, True)
+                    else:
+                        # A variable or unknown expression is not literal prose.
+                        position = end
                 if invocations and position > call.end():
                     if include_labels:
                         position = attached_label_end(position)
