@@ -11,6 +11,9 @@ import { ReaderTransport } from "../session/transport.js";
 import { SelectionPress } from "../../reader-common/selection/press.js";
 export { textIndex } from "./dom-selection.js";
 
+const MAX_PREFETCH_FORMULAS = 128;
+const MAX_PREFETCH_CONCURRENCY = 4;
+
 const excerptKey = (fragment, segment) =>
   `${fragment.revision ?? ""}:${fragment.key}:${segment.start}:${segment.end}:${segment.text}`;
 
@@ -48,6 +51,10 @@ export class ReaderSelectionActions {
     this.sourcePaint = new SourceHighlightRenderer(article);
     this.excerpts = new Map();
     this.excerptGeneration = 0;
+    this.excerptSelectionKey = null;
+    this.excerptDocument = null;
+    this.excerptRevision = null;
+    this.excerptBatch = null;
     this.copying = false;
     this.touchSelecting = false;
     this.selectionRange = null;
@@ -158,60 +165,171 @@ export class ReaderSelectionActions {
     });
   }
 
+  cancelPendingExcerpts({ clearResolved = false } = {}) {
+    let hadPending = false;
+    if (clearResolved) {
+      this.excerpts.clear();
+    } else {
+      for (const [key, entry] of this.excerpts) {
+        if (entry.status === "pending") {
+          this.excerpts.delete(key);
+          hadPending = true;
+        }
+      }
+    }
+    const hadBatch = Boolean(this.excerptBatch);
+    if (this.excerptBatch) {
+      this.excerptBatch.queue.length = 0;
+      this.excerptBatch = null;
+    }
+    const hadSelection = this.excerptSelectionKey !== null;
+    this.excerptSelectionKey = null;
+    if (clearResolved || hadPending || hadBatch || hadSelection) this.excerptGeneration++;
+  }
+
+  isExcerptBatchCurrent(batch) {
+    return (
+      !this.disposed &&
+      this.excerptBatch === batch &&
+      batch.generation === this.excerptGeneration &&
+      this.manifest === batch.document &&
+      this.manifest?.revision === batch.revision
+    );
+  }
+
+  drainExcerptBatch(batch) {
+    while (batch.inFlight < MAX_PREFETCH_CONCURRENCY && batch.queue.length > 0) {
+      if (!this.isExcerptBatchCurrent(batch)) {
+        for (const item of batch.queue) {
+          if (this.excerpts.get(item.key) === item.entry) this.excerpts.delete(item.key);
+        }
+        batch.queue.length = 0;
+        return;
+      }
+      const item = batch.queue.shift();
+      const { key, entry, fragment, segment } = item;
+      if (this.excerpts.get(key) !== entry || entry.status !== "pending") continue;
+      batch.inFlight++;
+      entry.promise = this.transport
+        .post(
+          "api/source-text",
+          {
+            revision: fragment.revision ?? batch.revision,
+            fragments: [
+              {
+                key: fragment.key,
+                exact: segment.text,
+                prefix: segment.prefix ?? "",
+                suffix: segment.suffix ?? "",
+              },
+            ],
+          },
+          15000,
+        )
+        .then((result) => {
+          if (!this.isExcerptBatchCurrent(batch) || this.excerpts.get(key) !== entry) return;
+          entry.status = result?.status === "located" ? "located" : (result?.status ?? "unmapped");
+          entry.text = entry.status === "located" ? result.text : null;
+        })
+        .catch(() => {
+          if (!this.isExcerptBatchCurrent(batch) || this.excerpts.get(key) !== entry) return;
+          entry.status = "error";
+        })
+        .finally(() => {
+          batch.inFlight--;
+          if (!this.isExcerptBatchCurrent(batch)) {
+            if (this.excerpts.get(key) === entry && entry.status === "pending") {
+              this.excerpts.delete(key);
+            }
+            for (const queued of batch.queue) {
+              if (this.excerpts.get(queued.key) === queued.entry) {
+                this.excerpts.delete(queued.key);
+              }
+            }
+            batch.queue.length = 0;
+            return;
+          }
+          this.drainExcerptBatch(batch);
+          this.updateActions();
+        });
+    }
+  }
+
   prefetch(fragments) {
     const document = this.manifest;
-    if (!document) return;
-    const generation = this.excerptGeneration;
-    let count = 0;
+    if (!document || this.disposed) return;
+    const revision = document.revision;
+    if (this.excerptDocument !== document || this.excerptRevision !== revision) {
+      this.cancelPendingExcerpts({ clearResolved: true });
+      this.excerptDocument = document;
+      this.excerptRevision = revision;
+    }
+    const items = [];
+    const seen = new Set();
     for (const fragment of fragments ?? []) {
       for (const segment of fragment.segments ?? []) {
         if (!segment.math || !segment.complete) continue;
         const key = excerptKey(fragment, segment);
-        if (this.excerpts.has(key)) continue;
-        if (count++ >= 8) return;
-        const entry = { status: "pending", text: null };
-        entry.promise = this.transport
-          .post(
-            "api/source-text",
-            {
-              revision: fragment.revision ?? document.revision,
-              fragments: [
-                {
-                  key: fragment.key,
-                  exact: segment.text,
-                  prefix: segment.prefix ?? "",
-                  suffix: segment.suffix ?? "",
-                },
-              ],
-            },
-            15000,
-          )
-          .then((result) => {
-            if (generation !== this.excerptGeneration || this.manifest !== document) return;
-            entry.status =
-              result?.status === "located" ? "located" : (result?.status ?? "unmapped");
-            entry.text = entry.status === "located" ? result.text : null;
-          })
-          .catch(() => {
-            if (generation === this.excerptGeneration) entry.status = "error";
-          })
-          .finally(() => {
-            if (generation === this.excerptGeneration) this.updateActions();
-          });
-        this.excerpts.set(key, entry);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({ key, fragment, segment });
+        if (items.length >= MAX_PREFETCH_FORMULAS) break;
+      }
+      if (items.length >= MAX_PREFETCH_FORMULAS) break;
+    }
+    const selectionKey = items.map((item) => item.key).join("\0");
+    if (this.excerptSelectionKey !== selectionKey) {
+      this.cancelPendingExcerpts();
+      this.excerptSelectionKey = selectionKey;
+    } else if (
+      this.excerptBatch &&
+      (this.excerptBatch.generation !== this.excerptGeneration ||
+        this.excerptBatch.document !== document ||
+        this.excerptBatch.revision !== revision)
+    ) {
+      this.excerptBatch.queue.length = 0;
+      this.excerptBatch = null;
+      for (const [key, entry] of this.excerpts) {
+        if (entry.status === "pending") this.excerpts.delete(key);
       }
     }
+    if (!items.length) return;
+    const generation = this.excerptGeneration;
+    let batch = this.excerptBatch;
+    if (
+      !batch ||
+      batch.generation !== generation ||
+      batch.document !== document ||
+      batch.revision !== revision
+    ) {
+      batch = this.excerptBatch = { generation, document, revision, queue: [], inFlight: 0 };
+    }
+    for (const { key, fragment, segment } of items) {
+      if (this.excerpts.has(key)) continue;
+      const entry = { status: "pending", text: null, generation, document, revision };
+      this.excerpts.set(key, entry);
+      batch.queue.push({ key, entry, fragment, segment });
+    }
+    this.drainExcerptBatch(batch);
   }
 
   copyPending(fragments) {
+    const document = this.manifest;
+    if (!document || this.disposed) return false;
+    const generation = this.excerptGeneration;
+    const revision = document.revision;
     return Boolean(
       fragments?.some((fragment) =>
-        (fragment.segments ?? []).some(
-          (segment) =>
-            segment.math &&
-            segment.complete &&
-            this.excerpts.get(excerptKey(fragment, segment))?.status === "pending",
-        ),
+        (fragment.segments ?? []).some((segment) => {
+          if (!segment.math || !segment.complete) return false;
+          const entry = this.excerpts.get(excerptKey(fragment, segment));
+          return (
+            entry?.status === "pending" &&
+            (entry.generation === undefined || entry.generation === generation) &&
+            (entry.document === undefined || entry.document === document) &&
+            (entry.revision === undefined || entry.revision === revision)
+          );
+        }),
       ),
     );
   }
@@ -398,8 +516,9 @@ export class ReaderSelectionActions {
     this.retainedSelection = null;
     this.selectionRange = null;
     this.copiedSelection = null;
-    this.excerptGeneration++;
-    this.excerpts.clear();
+    this.cancelPendingExcerpts({ clearResolved: true });
+    this.excerptDocument = manifest;
+    this.excerptRevision = manifest?.revision ?? null;
     this.copying = false;
     this.touchSelecting = false;
     clearTimeout(this.snapTimer);
@@ -462,6 +581,9 @@ export class ReaderSelectionActions {
         !this.retainedSelection
       ) {
         this.selection = null;
+        this.selectionRange = null;
+        this.copiedSelection = null;
+        this.cancelPendingExcerpts();
       }
       this.updateActions();
       return;
@@ -479,6 +601,10 @@ export class ReaderSelectionActions {
         this.copiedSelection = this.selection;
       }
       this.prefetch(this.copiedSelection);
+    } else {
+      this.selectionRange = null;
+      this.copiedSelection = null;
+      this.cancelPendingExcerpts();
     }
     this.retainedSelection = null;
     this.updateActions();
@@ -555,13 +681,15 @@ export class ReaderSelectionActions {
     this.source.dismiss();
     this.chat.dismiss();
     this.selection = this.retainedSelection = this.selectionRange = this.copiedSelection = null;
+    this.cancelPendingExcerpts();
     window.getSelection()?.removeAllRanges();
     this.updateActions();
   }
   dispose() {
     this.disposed = true;
-    this.excerptGeneration++;
-    this.excerpts.clear();
+    this.cancelPendingExcerpts({ clearResolved: true });
+    this.excerptDocument = null;
+    this.excerptRevision = null;
     this.source.dismiss();
     this.chat.dispose();
     this.transport.dispose();

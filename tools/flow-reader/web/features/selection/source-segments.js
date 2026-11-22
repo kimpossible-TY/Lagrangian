@@ -6,11 +6,12 @@ export function sourceSegments(index, start, end) {
     const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
     // Equation numbers belong to the surrounding block, not the mathematical
     // expression whose complete source must be selected.
-    return (
-      element?.closest(".flow-math-view,math") ??
-      element?.closest(".flow-equation,.flow-inline-equation") ??
-      null
-    );
+    if (element?.closest(".flow-equation-number")) return null;
+    const math = element?.closest(".flow-math-view,math");
+    if (math) return math;
+    const equation = element?.closest(".flow-equation,.flow-inline-equation");
+    if (!equation || equation.querySelector?.(".flow-math-view,math")) return null;
+    return equation;
   };
   const groups = [];
   for (let i = start; i < end; i++) {
