@@ -1413,6 +1413,92 @@
             "sha256": "9d5d91e6094b0c9be001cfccb7278f160719c82c691a63089ae798a201e2066d"
           }
         ]
+      },
+      {
+        "baseRevision": "36b05a6a8d6f0febba038e204eabad601a229ca4",
+        "revision": "86c8d12de6076dd1989d7981fad1b28a0870caf6",
+        "files": [
+          {
+            "path": "tools/flow-reader/flow_reader/compiler/source_map.py",
+            "baseSHA256": "ceae63223aebd102220d3105e2a4eda7e471a46581af9c28c7fa9fb14b79612f",
+            "sha256": "c76c0004c2600734145d1187d938e40312cecc554ea3191d70f631ebfdd95ca8"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/document/passages.py",
+            "baseSHA256": "1c15ff6feaa7b651c64c4a21f4d3cc0c6248a124f2152c6a9125706e7bd9e252",
+            "sha256": "68fafc4847c4519a331849a05b995fdecd391de15d3f55dfa7e0968dcd5d7817"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/paragraph_chat.py",
+            "baseSHA256": "14b94475bbb21f409c37fd42e1e82307900aae4d8e410f121fae1cc5d50cfe58",
+            "sha256": "54a51369245ce35b05e939976741bb0a2057b6ec0274d77dcc0dbaaa1420ef67"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/selection.py",
+            "baseSHA256": "81b1c01d794ed4c5151d8b3d377656df1b26aa87530a0271164313d540998d47",
+            "sha256": "fdba13bcd24e567ef5313834f409d65814e569cb8bcd17d9c369adbbfdca77c7"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/source_highlight.py",
+            "baseSHA256": "994fb36b0f4c4c6a4b75bebf88de802a376534519b4aab5fee6935b2c372de24",
+            "sha256": "ae3384dc45c45c5586def6b72e5b93caafee7f17f7745850ec8dc462f25e3c37"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/source_mapping.py",
+            "baseSHA256": "4f1b859e6cd57b490eec9299288ef4cc84cfd468575b1306702dbf386e8d0300",
+            "sha256": "0fe3d9857947374d4f7d49ef119b0582a606939272ce4a9c19f0303ef4da9181"
+          },
+          {
+            "path": "tools/flow-reader/tests/selection-browser.mjs",
+            "baseSHA256": "c902ac511f7caece74b873e76c05675debddd457bb5ea66e0ab1eef148e33e6b",
+            "sha256": "c2f516c25c1058eacb1942569f935d22630b71dd0fd4d41769510342519f7dbb"
+          },
+          {
+            "path": "tools/flow-reader/tests/selection_fixture.py",
+            "baseSHA256": "acbebcc726fe8a2cfb06b89e67a2ef1a4f609d0cf85ec15f688839f5b244ca06",
+            "sha256": "e6bc608b4c2d9d97a6d56a7845c26fc381fdf048d607fcca6c6421b1c6e50ce2"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_focus.py",
+            "baseSHA256": "4e1b1a4f1302a7fa4bcaa34686685f838df7b47bfa47ac35a0011fcabf762d47",
+            "sha256": "0a2f8229f710b93376ea5e3a98c74cfbee18afd0b534974b1693043880d851e1"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_paragraph_chat.py",
+            "baseSHA256": "2c34e060c1b884c4d6cf8cfd4eae4198baf5969501c659ef80d41e81877a82f6",
+            "sha256": "c8d0fe13fd4fc3209846b794ac4c4cadabb928e2e3d92fb003f9e668da25eac4"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_selection_actions.mjs",
+            "baseSHA256": "3162f8d28220c35212b9d1df8b4e2631c0771a5491c47edd7043a53d82e00139",
+            "sha256": "35b99d1e41d1c7e9ed9a13c73f2df8e35b642b29a368f1b102ba6cb7bbf30744"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_selection_copy.mjs",
+            "baseSHA256": "804d5db2e066c21b029ef6019feb293405ef067686f9c0393d1cc614c63a55b8",
+            "sha256": "049d2e6034eb744d90841722338c60eb385c45fd2cc9a2872a311150243b8595"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_source_edits.py",
+            "baseSHA256": "c35a236ee627cf50a2a2475ba129828fea2bbc76e60827a16ca947a7e329b8e4",
+            "sha256": "39dc6d7978900e7f3aa7f2949a8ae5f1357b0ab8c7fda09cdb8553f2f5e9a218"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_source_mapping.py",
+            "baseSHA256": "5b21b5c50828bd3eb23cce01df315096135cfc3d09678416d015fa3d9d039f56",
+            "sha256": "83bb136523d01e955b3ea76612e62627e4d3aa289f4e6d8689fa7e691c3a94c8"
+          },
+          {
+            "path": "tools/flow-reader/web/features/selection/controller.js",
+            "baseSHA256": "58995dfb75fbf5394207b5cf1b223e9ae056261cbfdd042a961c5bb06ed298a2",
+            "sha256": "e169121b4bb1322c843899fbe806e0848d7a9ade4a123bfc3e561ee79f1887af"
+          },
+          {
+            "path": "tools/flow-reader/web/features/selection/source-segments.js",
+            "baseSHA256": "6bab5954236e44b8e0e8df8ba28de7ab4696a1e198eb18b3068bf57c1b424bda",
+            "sha256": "08d3bbb10f420a4bfc83270708c9caaef11dd768d363810411679ac7905e248d"
+          }
+        ]
       }
     ]
   }

@@ -370,3 +370,24 @@ The release-retention owner correction registers the six gated paths from
 `tools/flow-reader/install.py`, and
 `tools/flow-reader/tests/test_install.py`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+The flow-reader selection owner correction registers the sixteen gated paths from
+`36b05a6a8d6f0febba038e204eabad601a229ca4` →
+`86c8d12de6076dd1989d7981fad1b28a0870caf6`:
+`tools/flow-reader/flow_reader/compiler/source_map.py`,
+`tools/flow-reader/flow_reader/document/passages.py`,
+`tools/flow-reader/flow_reader/services/paragraph_chat.py`,
+`tools/flow-reader/flow_reader/services/selection.py`,
+`tools/flow-reader/flow_reader/services/source_highlight.py`,
+`tools/flow-reader/flow_reader/services/source_mapping.py`,
+`tools/flow-reader/tests/selection-browser.mjs`,
+`tools/flow-reader/tests/selection_fixture.py`,
+`tools/flow-reader/tests/test_focus.py`,
+`tools/flow-reader/tests/test_paragraph_chat.py`,
+`tools/flow-reader/tests/test_selection_actions.mjs`,
+`tools/flow-reader/tests/test_selection_copy.mjs`,
+`tools/flow-reader/tests/test_source_edits.py`,
+`tools/flow-reader/tests/test_source_mapping.py`,
+`tools/flow-reader/web/features/selection/controller.js`, and
+`tools/flow-reader/web/features/selection/source-segments.js`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.
