@@ -49,12 +49,19 @@ bash scripts/mac/test-auto-update-engine.sh
 
 ## Release retention
 
-Installed app and Reader releases stay on the internal SSD under
-`$HOME/Library/Application Support/Lagrangian/` (never symlink `reader/releases/`
-to `/Volumes/devSSD`). Automatic pruning keeps the active release, one immediate
-rollback release, and any release still referenced by a running process, removing
-older managed release directories only after installation and verification
-succeed.
+App rollback backups (`$HOME/Library/Application Support/Lagrangian/releases/`,
+with the active app at `$HOME/Applications/Lagrangian.app`) and installed Reader
+releases (`$HOME/Library/Application Support/Lagrangian/reader/releases/`) must
+stay on the internal SSD (never symlink `releases/` or `reader/releases/` to
+`/Volumes/devSSD`). App updates prune `releases/` after replacement, health
+checks (unless `--defer-health-check` is passed), and metadata writes succeed,
+keeping only the single immediate rollback bundle referenced by
+`previous-release.json` (and removing older backups and `*-failed`
+directories). Reader pruning keeps the active release (`bin/flow-reader` and
+configured `browserCompiler`), the immediate rollback release
+(`previous-release.json` / `config.previous.json`), and any release still
+referenced by a running process; standalone `tools/flow-reader/install.py` runs
+prune after install unless `--no-prune` is passed.
 
 During a Reader refresh, `refresh-reader-engine.sh` passes `--no-prune` to
 `tools/flow-reader/install.py` for each service and runs

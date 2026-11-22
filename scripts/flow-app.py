@@ -674,7 +674,10 @@ def _retained_release_dir(data_dir, releases, releases_root):
     """Return the resolved release directory referenced by previous-release.json, or None."""
     previous_path = data_dir / 'previous-release.json'
     try:
-        if not previous_path.exists() and not previous_path.is_symlink():
+        if previous_path.is_symlink():
+            print('Warning: skipping release pruning; previous-release.json is a symlink', file=sys.stderr)
+            return None
+        if not previous_path.exists():
             return None
         payload = json.loads(previous_path.read_text())
     except (OSError, ValueError) as error:
@@ -1266,9 +1269,11 @@ def preflight_reader_environment(app, plan=None):
 def backup_reader_environment(reader_info, backup, refresh_backup=False, dry_run=False, plan=None):
     target_reader = reader_info['target_reader']
     reader_backup = backup / 'reader'
-    for rel in ('config.json', 'config.previous.json', 'bin/flow-reader'):
+    for rel in ('config.json', 'config.previous.json', 'previous-release.json', 'bin/flow-reader'):
         src_file = target_reader / rel
         if not src_file.is_file():
+            if refresh_backup and rel == 'previous-release.json' and not dry_run:
+                (reader_backup / rel).unlink(missing_ok=True)
             continue
         if refresh_backup or not (reader_backup / rel).exists():
             if dry_run:
@@ -1471,6 +1476,7 @@ def finalize_reader_migration(reader_services, reader_cfg, target_reader, app, d
             '--profile', str(entry['parentID']),
             '--port', str(entry['port']),
             '--public-url', str(entry.get('publicURL', '')),
+            '--no-prune',
         ]
         if reader_cfg.get('engine'):
             cmd.extend(['--engine', str(reader_cfg['engine'])])
@@ -1487,6 +1493,23 @@ def finalize_reader_migration(reader_services, reader_cfg, target_reader, app, d
                 plan.append(f'install-reader {sid}: {" ".join(cmd)}')
             continue
         run(cmd, env=flow_env())
+
+def prune_migrated_reader_releases(reader_cfg, target_reader):
+    install_script = ROOT / 'tools/flow-reader/install.py'
+    python_bin = reader_cfg.get('python') or sys.executable
+    cmd = [
+        str(python_bin),
+        str(install_script),
+        '--prune-only',
+        '--data', str(target_reader),
+    ]
+    try:
+        result = subprocess.run(cmd, env=flow_env(), check=False)
+    except OSError as error:
+        print(f'Warning: Reader release pruning failed: {error}', file=sys.stderr)
+        return
+    if result.returncode != 0:
+        print(f'Warning: Reader release pruning exited with status {result.returncode}', file=sys.stderr)
 
 def prepare_background_manager(app, backup, refresh_backup=False, dry_run=False, plan=None):
     agents_dir = Path.home() / 'Library/LaunchAgents'
@@ -1631,6 +1654,8 @@ def migrate(args):
         raise
     if running_readers:
         restart_migrated_readers(running_readers)
+    if reader_info is not None:
+        prune_migrated_reader_releases(reader_cfg, reader_info['target_reader'])
     print('Profiles imported; ingress preserved. Activate with the app Restart control.')
     reader_ids = {s['id'] for s in reader_services}
     for job in control_jobs(p for p in reader_job_profiles(reader_cfg or {}) if p['id'] in reader_ids):
@@ -1717,9 +1742,16 @@ def restore_reader_environment(backup, dry_run=False, plan=None):
     if not reader_backup.exists():
         return
     target_reader = canonical_data_root(DATA) / 'reader'
-    for rel in ('config.json', 'config.previous.json', 'bin/flow-reader'):
+    for rel in ('config.json', 'config.previous.json', 'previous-release.json', 'bin/flow-reader'):
         src = reader_backup / rel
         if not src.is_file():
+            if rel == 'previous-release.json':
+                dst = target_reader / rel
+                if dst.exists() or dst.is_symlink():
+                    if plan is not None:
+                        plan.append(f'remove newly-created {dst}')
+                    if not dry_run:
+                        dst.unlink(missing_ok=True)
             continue
         if plan is not None:
             plan.append(f'restore-reader {src} -> {target_reader / rel}')

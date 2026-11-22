@@ -498,6 +498,20 @@ class ReleasePruning(unittest.TestCase):
         self.assertTrue(obsolete.parent.exists())
         self.assertIn('Warning:', stderr.getvalue())
 
+        # Symlinked previous-release.json (even pointing to a valid JSON record) aborts pruning safely.
+        previous.rmdir()
+        valid_keep = self._make_release('20260103-010203-000003', 'keep')
+        symlink_target = self.root / 'external-previous-release.json'
+        symlink_target.write_text(json.dumps({'app': str(valid_keep)}))
+        previous.symlink_to(symlink_target)
+        stderr = io.StringIO()
+        with patch('sys.stderr', stderr):
+            self.assertEqual(package.prune_releases(self.data), [])
+        self.assertTrue(obsolete.parent.exists())
+        self.assertTrue(valid_keep.parent.exists())
+        self.assertIn('Warning:', stderr.getvalue())
+        self.assertIn('symlink', stderr.getvalue())
+
     def test_non_fatal_oserror_during_prune_warns_continues_and_does_not_fail_replace(self):
         self._make_bundle(self.installed, 'v1')
         incoming = self._make_bundle(self.root / 'incoming/Lagrangian.app', 'v2')
@@ -1910,6 +1924,123 @@ class TailHostingMigration(unittest.TestCase):
                 package.migrate(argparse.Namespace(root=self.tail_root, app=self.app, dry_run=False))
         self.assertEqual(calls, ['login', 'reader'])
         self.assertIn('simulated mid-migration failure', str(caught.exception.__cause__))
+
+    def test_mid_flight_patch_failure_preserves_reader_releases_and_previous_release_json(self):
+        target_reader = self.target_data / 'reader'
+        releases_dir = target_reader / 'releases'
+        r_prev_dir = releases_dir / self.release_dir.name
+        r_ancient = releases_dir / 'r-ancient'
+        r_ancient.mkdir(parents=True)
+        marker = r_ancient / 'marker.txt'
+        marker.write_text('ancient\n')
+        (r_ancient / 'release.json').write_text(json.dumps({
+            'revision': 'r-ancient',
+            'files': {'marker.txt': package.digest(marker)},
+        }) + '\n')
+        prev_record = target_reader / 'previous-release.json'
+
+        # Case 1: previous-release.json did not exist before migration -> rollback leaves no orphan
+        # and does not prune R_prev or r-ancient because install.py ran with --no-prune.
+        self.assertFalse(prev_record.exists())
+        before_config = package.digest(target_reader / 'config.json')
+        before_launcher = package.digest(target_reader / 'bin/flow-reader')
+        with patch.object(package, 'apply_tail_hosting_patches', side_effect=RuntimeError('simulated patch failure')):
+            with self.assertRaisesRegex(RuntimeError, 'simulated patch failure'):
+                package.migrate(argparse.Namespace(root=self.tail_root, app=self.app, dry_run=False))
+        self.assertTrue(r_prev_dir.is_dir())
+        self.assertTrue(r_ancient.is_dir())
+        self.assertFalse(prev_record.exists(), 'rollback must remove orphan previous-release.json')
+        self.assertEqual(package.digest(target_reader / 'config.json'), before_config)
+        self.assertEqual(package.digest(target_reader / 'bin/flow-reader'), before_launcher)
+
+        # Case 2: previous-release.json existed before migration -> rollback restores its exact contents
+        # and preserves both R_prev and the previously recorded rollback release.
+        prev_record.write_text(json.dumps({'schemaVersion': 1, 'release': 'r-ancient'}, indent=2) + '\n')
+        before_prev_digest = package.digest(prev_record)
+        with patch.object(package, 'apply_tail_hosting_patches', side_effect=RuntimeError('simulated patch failure 2')):
+            with self.assertRaisesRegex(RuntimeError, 'simulated patch failure 2'):
+                package.migrate(argparse.Namespace(root=self.tail_root, app=self.app, dry_run=False))
+        self.assertTrue(r_prev_dir.is_dir())
+        self.assertTrue(r_ancient.is_dir())
+        self.assertTrue(prev_record.is_file())
+        self.assertEqual(package.digest(prev_record), before_prev_digest)
+
+    def test_migrate_and_restore_preserves_previous_release_and_deferred_nonfatal_prune(self):
+        target_reader = self.target_data / 'reader'
+        releases_dir = target_reader / 'releases'
+        r_prev_name = self.release_dir.name
+        r_prev_dir = releases_dir / r_prev_name
+        r_ancient = releases_dir / 'r-ancient'
+        r_ancient.mkdir(parents=True)
+        marker = r_ancient / 'marker.txt'
+        marker.write_text('ancient\n')
+        (r_ancient / 'release.json').write_text(json.dumps({
+            'revision': 'r-ancient',
+            'files': {'marker.txt': package.digest(marker)},
+        }) + '\n')
+        prev_record = target_reader / 'previous-release.json'
+        prev_record.write_text(json.dumps({'schemaVersion': 1, 'release': r_prev_name}, indent=2) + '\n')
+        before_prev_digest = package.digest(prev_record)
+
+        recorded = []
+        current_run = subprocess.run
+
+        def spy_run(args, *a, **kw):
+            argv = [str(x) for x in args] if isinstance(args, (list, tuple)) else [str(args)]
+            recorded.append(argv)
+            return current_run(args, *a, **kw)
+
+        with patch.object(subprocess, 'run', side_effect=spy_run):
+            package.migrate(argparse.Namespace(root=self.tail_root, app=self.app, dry_run=False))
+
+        install_calls = [
+            argv for argv in recorded
+            if any('tools/flow-reader/install.py' in tok for tok in argv) and '--prune-only' not in argv
+        ]
+        prune_calls = [
+            argv for argv in recorded
+            if any('tools/flow-reader/install.py' in tok for tok in argv) and '--prune-only' in argv
+        ]
+        self.assertEqual(len(install_calls), 1)
+        self.assertIn('--no-prune', install_calls[0])
+        self.assertEqual(len(prune_calls), 1)
+        self.assertIn('--data', prune_calls[0])
+        self.assertEqual(prune_calls[0][prune_calls[0].index('--data') + 1], str(target_reader))
+        self.assertLess(recorded.index(install_calls[0]), recorded.index(prune_calls[0]))
+
+        # Post-migration: r-ancient was pruned by --prune-only, while R_prev and new release remain.
+        self.assertFalse(r_ancient.exists())
+        self.assertTrue(r_prev_dir.is_dir())
+        self.assertEqual(json.loads(prev_record.read_text())['release'], r_prev_name)
+
+        # Round-trip restore-tail-hosting restores previous-release.json and keeps R_prev consistent.
+        package.restore_hosting(argparse.Namespace(dry_run=False))
+        self.assertTrue(r_prev_dir.is_dir())
+        self.assertEqual(package.digest(prev_record), before_prev_digest)
+        self.assertIn(r_prev_name, (target_reader / 'bin/flow-reader').read_text())
+
+        # Non-fatal prune failures (non-zero exit and OSError) warn to stderr and do not roll back migration.
+        for mode in ('nonzero', 'oserror'):
+            with self.subTest(prune_failure=mode):
+                subprocess.run(
+                    ['/bin/launchctl', 'bootout', f'gui/{os.getuid()}/{self.reader_plist.stem}'],
+                    check=False,
+                )
+                def fail_prune(args, *a, **kw):
+                    argv = [str(x) for x in args] if isinstance(args, (list, tuple)) else [str(args)]
+                    if any('tools/flow-reader/install.py' in tok for tok in argv) and '--prune-only' in argv:
+                        if mode == 'oserror':
+                            raise OSError('simulated prune exec failure')
+                        return subprocess.CompletedProcess(argv, 7, stdout='', stderr='prune failed')
+                    return current_run(args, *a, **kw)
+
+                stderr = io.StringIO()
+                with patch.object(subprocess, 'run', side_effect=fail_prune), patch('sys.stderr', stderr):
+                    package.migrate(argparse.Namespace(root=self.tail_root, app=self.app, dry_run=False))
+                self.assertIn('Warning:', stderr.getvalue())
+                migrated_cfg = json.loads((target_reader / 'config.json').read_text())
+                self.assertEqual(migrated_cfg['flowManager'], str(package.executable(self.app)))
+                package.restore_hosting(argparse.Namespace(dry_run=False))
 
     def test_subprocess_guard_rejects_real_launchctl_and_lsof_invocations(self):
         with self.assertRaisesRegex(AssertionError, 'Refusing to invoke real system binary'):

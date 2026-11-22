@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -179,7 +180,7 @@ def _read_previous_release_record(path):
         raise ValueError(f"{path.name} must be a JSON object")
     release_id = payload.get("release")
     if release_id is None:
-        return None
+        raise ValueError(f"Missing release ID in {path.name}")
     if not _is_valid_release_name(release_id):
         raise ValueError(f"Invalid release ID in {path.name}")
     return release_id
@@ -238,7 +239,7 @@ def _is_prunable_release(entry, releases_resolved):
         return False
     try:
         resolved = entry.resolve()
-    except (OSError, RuntimeError):
+    except RuntimeError:
         return False
     if resolved == releases_resolved or resolved.parent != releases_resolved or not resolved.is_relative_to(releases_resolved):
         return False
@@ -248,15 +249,19 @@ def _is_prunable_release(entry, releases_resolved):
     return True
 
 
-def prune_releases(data=DEFAULT_DATA, *, current_release=None, process_commands=None):
+def _resolve_data_dir(data=None):
+    return Path(data or os.environ.get("FLOW_READER_DATA_DIR") or DEFAULT_DATA).expanduser()
+
+
+def prune_releases(data=None, *, current_release=None, process_commands=None):
     """Remove obsolete managed Reader releases while preserving active, rollback, and live ones.
 
     Aborts safely without deleting anything if critical active metadata or process inspection
     fails. Individual deletion ``OSError``s warn to stderr and continue best-effort.
     """
-    raw_data = Path(data or DEFAULT_DATA).expanduser()
+    raw_data = _resolve_data_dir(data)
     raw_releases = raw_data / "releases"
-    manager = ReaderManager(data)
+    manager = ReaderManager(raw_data)
     releases = manager.data / "releases"
     if raw_releases.is_symlink() or releases.is_symlink() or not releases.is_dir():
         return {"pruned": [], "kept": [], "skipped": "releases directory is missing, non-directory, or symlink"}
@@ -297,12 +302,12 @@ def prune_releases(data=DEFAULT_DATA, *, current_release=None, process_commands=
             kept = []
             errors = []
             for entry in entries:
-                if not _is_prunable_release(entry, releases_resolved):
-                    continue
-                if entry.name in protected:
-                    kept.append(entry.name)
-                    continue
                 try:
+                    if not _is_prunable_release(entry, releases_resolved):
+                        continue
+                    if entry.name in protected:
+                        kept.append(entry.name)
+                        continue
                     shutil.rmtree(entry)
                     pruned.append(entry.name)
                 except OSError as error:
@@ -319,15 +324,20 @@ def prune_releases(data=DEFAULT_DATA, *, current_release=None, process_commands=
 def install(args):
     source = Path(__file__).resolve().parents[2]
     revision = reader_revision(source)
-    manager = ReaderManager(args.data)
+    raw_data = _resolve_data_dir(getattr(args, "data", None))
+    manager = ReaderManager(raw_data)
     config_path = manager.data / "config.json"
     identifier = args.profile + "-reader"
     with manager.locked():
-        config = json.loads(config_path.read_text()) if config_path.exists() else {"schemaVersion": 1, "services": []}
-        if config.get("schemaVersion") != 1:
-            raise ValueError("Unsupported existing reader configuration")
+        existing_config = _read_config_file(config_path, required=False)
+        if existing_config is not None:
+            if existing_config.get("schemaVersion") != 1 or not isinstance(existing_config.get("services"), list):
+                raise ValueError("Unsupported existing reader configuration")
+            config = existing_config
+        else:
+            config = {"schemaVersion": 1, "services": []}
         existing_browser_compiler = config.get("browserCompiler")
-        if config_path.exists():
+        if existing_config is not None:
             for profile in manager.profiles():
                 if manager.job_pid(profile):
                     raise ValueError("Stop the Reader services before updating their installed release")
@@ -441,7 +451,7 @@ def install(args):
     if args.start:
         run([manager.launcher, "--control", "start", identifier])
     if not getattr(args, "no_prune", False):
-        prune_releases(args.data, current_release=release_id)
+        prune_releases(raw_data, current_release=release_id)
     return {"revision": revision, "release": release_id, "manager": str(manager.launcher), "id": identifier,
             "publicURL": args.public_url, "port": args.port, "started": args.start}
 
@@ -451,7 +461,7 @@ def main(argv=None):
     parser.add_argument("--profile", help="Existing Flow parent profile ID")
     parser.add_argument("--port", type=int)
     parser.add_argument("--public-url", default="")
-    parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
+    parser.add_argument("--data", type=Path, default=None)
     parser.add_argument("--flow-manager", type=Path, default=Path.home() / "Applications/Lagrangian.app/Contents/MacOS/Lagrangian")
     parser.add_argument("--python", type=Path, default=Path(shutil.which("python3") or "/missing/python3"))
     parser.add_argument("--compiler", type=Path, default=Path(shutil.which("typst") or "/missing/typst"))
@@ -471,6 +481,8 @@ def main(argv=None):
     pruning.add_argument("--prune-only", action="store_true",
                          help="Prune obsolete managed releases under --data without installing")
     args = parser.parse_args(argv)
+    if args.data is not None:
+        args.data = args.data.expanduser()
     if args.prune_only:
         if args.profile is not None or args.port is not None or args.start:
             parser.error("--prune-only cannot be combined with --profile, --port, or --start")

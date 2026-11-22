@@ -165,6 +165,36 @@ assert (data / 'releases/r-ancient').is_dir()
         self.assertTrue((releases / 'r-prev').is_dir())
         self.assertTrue((releases / 'r-active').is_dir())
 
+    def test_prune_nonzero_warns_exits_zero_and_does_not_rollback(self):
+        releases = self.data / 'releases'
+        for name in ('r-ancient', 'r-active'):
+            (releases / name).mkdir(parents=True)
+            (releases / name / 'release.json').write_text(json.dumps({'revision': name}))
+        self.installer.write_text('''import json, sys
+from pathlib import Path
+with (Path.home()/'events').open('a') as f: f.write('install '+' '.join(sys.argv[1:])+'\\n')
+data = Path.home() / 'Library/Application Support/Lagrangian/reader'
+if '--prune-only' in sys.argv:
+ print('simulated prune error', file=sys.stderr)
+ sys.exit(42)
+config = data / 'config.json'
+payload = json.loads(config.read_text())
+payload['refreshed'] = True
+config.write_text(json.dumps(payload))
+''')
+        result = self.refresh(shared=True, fail=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Warning: Reader release pruning exited with status 42', result.stderr)
+        self.assertIn('All Readers refreshed and verified', result.stdout)
+        # Refreshed config must stay in place (no rollback occurred).
+        refreshed_config = json.loads(self.config.read_text())
+        self.assertTrue(refreshed_config.get('refreshed'))
+        events = self.events.read_text().splitlines()
+        controls = [e for e in events if e.startswith('--control')]
+        self.assertEqual(controls, ['--control stop-shared one-reader', '--control start one-reader'])
+        prunes = [e for e in events if e.startswith('install --prune-only')]
+        self.assertEqual(len(prunes), 1)
+
     def test_updater_shared_verification_and_marker(self):
         app=self.home/'Applications/Lagrangian.app'; mac=app/'Contents/MacOS'; resources=app/'Contents/Resources'
         mac.mkdir(parents=True); resources.mkdir(parents=True)

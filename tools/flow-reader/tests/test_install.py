@@ -581,6 +581,8 @@ class ReaderReleaseRetentionTests(unittest.TestCase):
                 ("bin/flow-reader", "#!/bin/sh\n" + installer.LAUNCHER_MARKER + "exec '/unclosed\n"),
                 ("bin/flow-reader", None),
                 ("config.previous.json", "{bad-json"),
+                (installer.PREVIOUS_RELEASE_FILE, "{}"),
+                (installer.PREVIOUS_RELEASE_FILE, json.dumps({"schemaVersion": 1, "release": None})),
                 (installer.PREVIOUS_RELEASE_FILE, json.dumps({"release": "../escape"})),
             ]
             saved_config = (data / "config.json").read_bytes()
@@ -658,6 +660,156 @@ class ReaderReleaseRetentionTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as conflict:
                     installer.main(["--prune-only", "--profile", "one"])
                 self.assertEqual(conflict.exception.code, 2)
+
+    def test_prune_releases_honors_env_data_dir_and_tilde_expansion(self):
+        with tempfile.TemporaryDirectory(prefix="reader env-tilde ") as temporary:
+            work = Path(temporary)
+            # 1. FLOW_READER_DATA_DIR used when prune_releases() is called with no arguments
+            # (for pruning, ps matching, and symlink guard), leaving DEFAULT_DATA untouched.
+            default_data = work / "default-data"
+            default_stale = _write_managed_release(default_data / "releases", "r-default-stale")
+            _write_launcher(default_data, "r-default-active")
+            _write_managed_release(default_data / "releases", "r-default-active")
+            (default_data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+
+            env_data = work / "env-data"
+            env_releases = env_data / "releases"
+            for name in ("r-active", "r-prev", "r-live", "r-stale"):
+                _write_managed_release(env_releases, name)
+            _write_launcher(env_data, "r-active")
+            (env_data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+            (env_data / installer.PREVIOUS_RELEASE_FILE).write_text(json.dumps({"schemaVersion": 1, "release": "r-prev"}))
+
+            with patch.object(installer, "DEFAULT_DATA", default_data), \
+                 patch.dict(os.environ, {"FLOW_READER_DATA_DIR": str(env_data)}):
+                result = installer.prune_releases(
+                    process_commands=lambda: [f"python3 {env_releases}/r-live/tools/flow-reader/serve.py"]
+                )
+            self.assertEqual(result["pruned"], ["r-stale"])
+            self.assertFalse((env_releases / "r-stale").exists())
+            for kept in ("r-active", "r-prev", "r-live"):
+                self.assertTrue((env_releases / kept).is_dir(), kept)
+            self.assertTrue(default_stale.is_dir(), "DEFAULT_DATA must remain untouched")
+
+            # Symlink guard applies to FLOW_READER_DATA_DIR/releases, not DEFAULT_DATA/releases.
+            external_releases = work / "external-env-releases"
+            _write_managed_release(external_releases, "r-active")
+            _write_managed_release(external_releases, "r-ext-stale")
+            sym_env_data = work / "sym-env-data"
+            sym_env_data.mkdir()
+            (sym_env_data / "releases").symlink_to(external_releases)
+            _write_launcher(sym_env_data, "r-active")
+            (sym_env_data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+            with patch.object(installer, "DEFAULT_DATA", default_data), \
+                 patch.dict(os.environ, {"FLOW_READER_DATA_DIR": str(sym_env_data)}):
+                skipped = installer.prune_releases(process_commands=lambda: [])
+            self.assertIn("skipped", skipped)
+            self.assertTrue((external_releases / "r-ext-stale").is_dir())
+
+            # 2. Passing a ~/... tilde path expands consistently across raw_data and ReaderManager.
+            fake_home = work / "fake-home"
+            tilde_data = fake_home / "reader-tilde"
+            tilde_releases = tilde_data / "releases"
+            for name in ("r-active", "r-live", "r-stale"):
+                _write_managed_release(tilde_releases, name)
+            _write_launcher(tilde_data, "r-active")
+            (tilde_data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+
+            with patch.dict(os.environ, {"HOME": str(fake_home)}), \
+                 patch.object(installer, "DEFAULT_DATA", default_data):
+                res_tilde = installer.prune_releases(
+                    "~/reader-tilde",
+                    process_commands=lambda: [f"python3 {tilde_releases}/r-live/tools/flow-reader/serve.py"],
+                )
+            self.assertEqual(res_tilde["pruned"], ["r-stale"])
+            self.assertFalse((tilde_releases / "r-stale").exists())
+            self.assertTrue((tilde_releases / "r-active").is_dir())
+            self.assertTrue((tilde_releases / "r-live").is_dir())
+
+            # Tilde symlink guard also expands cleanly before checking is_symlink().
+            sym_tilde_data = fake_home / "sym-reader-tilde"
+            sym_tilde_data.mkdir()
+            (sym_tilde_data / "releases").symlink_to(external_releases)
+            _write_launcher(sym_tilde_data, "r-active")
+            (sym_tilde_data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+            with patch.dict(os.environ, {"HOME": str(fake_home)}):
+                skipped_tilde = installer.prune_releases("~/sym-reader-tilde", process_commands=lambda: [])
+            self.assertIn("skipped", skipped_tilde)
+            self.assertTrue((external_releases / "r-ext-stale").is_dir())
+
+    def test_per_entry_inspect_oserror_warns_and_continues(self):
+        with tempfile.TemporaryDirectory(prefix="reader inspect-oserror ") as temporary:
+            data = Path(temporary) / "reader"
+            releases = data / "releases"
+            _write_managed_release(releases, "r-active")
+            err_dir = _write_managed_release(releases, "r-err-inspect")
+            ok_dir = _write_managed_release(releases, "r-ok-prune")
+            _write_launcher(data, "r-active")
+            (data / "config.json").write_text(json.dumps({"schemaVersion": 1, "services": []}))
+
+            real_is_prunable = installer._is_prunable_release
+            def flaky_is_prunable(entry, releases_resolved):
+                if entry.name == "r-err-inspect":
+                    raise PermissionError("cannot stat entry")
+                return real_is_prunable(entry, releases_resolved)
+
+            stderr = io.StringIO()
+            with patch.object(installer, "_is_prunable_release", side_effect=flaky_is_prunable), \
+                 patch.object(sys, "stderr", stderr):
+                result = installer.prune_releases(data, process_commands=lambda: [])
+            self.assertEqual(result["pruned"], ["r-ok-prune"])
+            self.assertFalse(ok_dir.exists())
+            self.assertTrue(err_dir.is_dir())
+            self.assertIn("r-err-inspect", stderr.getvalue())
+            self.assertIn("cannot stat entry", stderr.getvalue())
+            self.assertEqual(len(result.get("errors", [])), 1)
+
+    def test_install_rejects_symlink_or_non_dict_config_cleanly(self):
+        with tempfile.TemporaryDirectory(prefix="reader bad-config ") as temporary:
+            work = Path(temporary)
+            source, _, flow, engine = self._create_install_fixture(work)
+            data = work / "installed"
+            data.mkdir()
+            config_path = data / "config.json"
+
+            with patch.object(installer, "__file__", source / "tools/flow-reader/install.py"):
+                # Non-dict JSON config.json must raise ValueError, not AttributeError.
+                config_path.write_text("[]")
+                with self.assertRaisesRegex(ValueError, "JSON object"):
+                    installer.install(self._make_args(data, flow, engine))
+
+                # Symlinked config.json must be rejected cleanly with ValueError.
+                config_path.unlink()
+                real_cfg = work / "other-config.json"
+                real_cfg.write_text(json.dumps({"schemaVersion": 1, "services": []}))
+                config_path.symlink_to(real_cfg)
+                with self.assertRaisesRegex(ValueError, "Invalid Reader configuration path"):
+                    installer.install(self._make_args(data, flow, engine))
+
+    def test_running_process_commands_error_paths_raise_runtime_error(self):
+        with patch.object(
+            installer.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(["ps"], 1, stdout="", stderr="ps denied"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "ps denied"):
+                installer.running_process_commands()
+
+        with patch.object(
+            installer.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["ps"], 10),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Could not inspect running processes"):
+                installer.running_process_commands()
+
+        with patch.object(
+            installer.subprocess,
+            "run",
+            side_effect=OSError("ps missing"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "ps missing"):
+                installer.running_process_commands()
 
 
 if __name__ == "__main__":
