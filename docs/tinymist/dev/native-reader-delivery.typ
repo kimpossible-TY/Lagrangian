@@ -370,3 +370,12 @@ The release-retention owner correction registers the six gated paths from
 `tools/flow-reader/install.py`, and
 `tools/flow-reader/tests/test_install.py`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+The scripts/mac owner correction registers the four scripts/mac paths from
+`c01e2356d1b594aaef9882dd8ae705293b07912e` →
+`c7d51b716f478f1b65c84ff40ecb025abc395548`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`, and
+`scripts/mac/test-reader-refresh.py`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.
