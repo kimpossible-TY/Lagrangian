@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { once } from "node:events";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const { webkit, chromium } = await import(
@@ -52,6 +52,7 @@ async function verify(browser, viewport) {
     }
   });
   const errors = [];
+  const highlightHttp400s = [];
   let highlights = 0;
   let chatOpens = 0;
   let sourceTexts = 0;
@@ -60,6 +61,11 @@ async function verify(browser, viewport) {
     if (request.url().endsWith("/api/highlight")) highlights++;
     if (request.url().endsWith("/api/source-text")) sourceTexts++;
     if (request.method() === "POST" && request.url().endsWith("/api/chat/open")) chatOpens++;
+  });
+  page.on("response", (response) => {
+    if (response.url().endsWith("/api/highlight") && response.status() === 400) {
+      highlightHttp400s.push(response.status());
+    }
   });
   const ready = () =>
     page.waitForFunction(
@@ -674,6 +680,321 @@ async function verify(browser, viewport) {
         (await readFile(entry, "utf8")).includes("#highlighted[$ alpha^2 + beta + 1 $]"),
       );
       await accepted(before);
+
+      const waitForDenseMathReady = async () => {
+        await page.evaluate(() => {
+          const blocks = [...document.querySelectorAll("#reader-document [data-reader-key]")];
+          const startIndex = blocks.findIndex((node) =>
+            node.textContent.includes("Dense selection intro."),
+          );
+          if (startIndex < 0 || startIndex + 4 >= blocks.length) {
+            throw new Error("Missing dense math fixture blocks");
+          }
+          for (const block of blocks.slice(startIndex, startIndex + 5)) block.scrollIntoView();
+        });
+        await page.waitForFunction(() => {
+          const blocks = [...document.querySelectorAll("#reader-document [data-reader-key]")];
+          const startIndex = blocks.findIndex((node) =>
+            node.textContent.includes("Dense selection intro."),
+          );
+          if (startIndex < 0 || startIndex + 4 >= blocks.length) return false;
+          const section = blocks.slice(startIndex, startIndex + 5);
+          const views = section.flatMap((block) => [...block.querySelectorAll(".flow-math-view")]);
+          return (
+            views.length === 22 &&
+            views.every((view) => ["ready", "overflow"].includes(view.dataset.mathState)) &&
+            Boolean(section[1].querySelector(".flow-equation-number")) &&
+            Boolean(section[4].querySelector(".flow-equation-number"))
+          );
+        });
+      };
+      const denseSelection = async ({
+        from,
+        to,
+        endMode = "block",
+        numberOnly = false,
+        applySelection = false,
+      }) => {
+        const currentState = await (await page.request.get(url + "api/state")).json();
+        const result = await page.evaluate(
+          async ({ manifest, from, to, endMode, numberOnly, applySelection }) => {
+            const { logicalTextIndex, rangesFor } = await import("/rendering/math/identity.js");
+            const { selectedReaderText } = await import("/features/selection/dom-selection.js");
+            const article = document.querySelector("#reader-document");
+            const blocks = [...article.querySelectorAll("[data-reader-key]")];
+            const startIndex = blocks.findIndex((node) =>
+              node.textContent.includes("Dense selection intro."),
+            );
+            const section = blocks.slice(startIndex, startIndex + 5);
+            const range = document.createRange();
+            if (numberOnly) {
+              const number = section[from].querySelector(".flow-equation-number");
+              const index = logicalTextIndex(number);
+              const ranges = rangesFor(index, 0, index.text.length);
+              range.setStart(ranges[0].startContainer, ranges[0].startOffset);
+              range.setEnd(ranges.at(-1).endContainer, ranges.at(-1).endOffset);
+            } else {
+              const startIndexObj = logicalTextIndex(section[from]);
+              const startRanges = rangesFor(startIndexObj, 0, startIndexObj.text.length);
+              const endTarget =
+                endMode === "math" ? section[to].querySelector(".flow-math-view") : section[to];
+              const endIndexObj = logicalTextIndex(endTarget);
+              const endRanges = rangesFor(endIndexObj, 0, endIndexObj.text.length);
+              range.setStart(startRanges[0].startContainer, startRanges[0].startOffset);
+              range.setEnd(endRanges.at(-1).endContainer, endRanges.at(-1).endOffset);
+            }
+            const fragments = selectedReaderText(article, manifest, range);
+            let liveFragments = null;
+            if (applySelection) {
+              section[from].scrollIntoView();
+              getSelection().removeAllRanges();
+              getSelection().addRange(range);
+              document.dispatchEvent(new Event("selectionchange"));
+              if (getSelection().rangeCount) {
+                liveFragments = selectedReaderText(article, manifest, getSelection().getRangeAt(0));
+              }
+            }
+            return {
+              fragments,
+              liveFragments,
+              eq2Number: section[1].querySelector(".flow-equation-number").textContent.trim(),
+              eq5Number: section[4].querySelector(".flow-equation-number").textContent.trim(),
+            };
+          },
+          { manifest: currentState, from, to, endMode, numberOnly, applySelection },
+        );
+        return { ...result, state: currentState };
+      };
+      const clearSelection = async () => {
+        await page.evaluate(() => {
+          window.__copied = null;
+          document.querySelector("#reader-highlight-message").textContent = "";
+          getSelection().removeAllRanges();
+          document.dispatchEvent(new Event("selectionchange"));
+        });
+        await page.waitForFunction(() => document.querySelector("#reader-copy").hidden);
+      };
+
+      await page.reload();
+      await ready();
+      await waitForDenseMathReady();
+      const beforeDense = await readFile(entry, "utf8");
+      const realEntry = await realpath(entry);
+      const restoreDense = async (previousRevision) => {
+        await writeFile(entry, beforeDense, "utf8");
+        await accepted(previousRevision);
+        await page.reload();
+        await ready();
+        await waitForDenseMathReady();
+      };
+
+      // (1) Multi-block focus & source mapping across Blocks 1–5 with and without Block 5's equation number.
+      const withNumber = await denseSelection({ from: 0, to: 4, endMode: "block" });
+      const withoutNumber = await denseSelection({ from: 0, to: 4, endMode: "math" });
+      assert.equal(withNumber.fragments.length, 5);
+      assert.ok(withNumber.fragments[4].exact.includes(withNumber.eq5Number));
+      assert.equal(withoutNumber.fragments.length, 5);
+      assert.ok(!withoutNumber.fragments[4].exact.includes(withoutNumber.eq5Number));
+      const locatedRanges = [];
+      for (const candidate of [withNumber, withoutNumber]) {
+        const focusResponse = await page.request.post(url + "api/focus", {
+          data: {
+            revision: candidate.state.revision,
+            fragments: candidate.fragments,
+            service: candidate.state.service,
+            viewerID: 42,
+          },
+        });
+        assert.equal(focusResponse.status(), 200);
+        const focusBody = await focusResponse.json();
+        const sourceResponse = await page.request.post(url + "api/source", {
+          data: { revision: candidate.state.revision, fragments: candidate.fragments },
+        });
+        assert.equal(sourceResponse.status(), 200);
+        const sourceBody = await sourceResponse.json();
+        assert.equal(focusBody.status, "selected");
+        assert.equal(focusBody.source?.filepath, realEntry);
+        assert.equal(sourceBody.status, "located");
+        assert.equal(sourceBody.path, realEntry);
+        locatedRanges.push([sourceBody.line, sourceBody.end_line]);
+      }
+      check(
+        "Multi-block selection across numbered display equations locates with or without the trailing equation number",
+        locatedRanges[0][0] === locatedRanges[1][0] && locatedRanges[0][1] === locatedRanges[1][1],
+      );
+
+      // (2) 22-formula Typst source copy via #reader-copy without fallback notice.
+      await clearSelection();
+      await denseSelection({ from: 0, to: 4, endMode: "block", applySelection: true });
+      await copyReady();
+      await click("#reader-copy");
+      await copied();
+      await page.waitForFunction(
+        () => document.querySelector("#reader-highlight-message").textContent.trim().length > 0,
+      );
+      const copiedDense = await page.evaluate(() => window.__copied);
+      const copyMessage = await page.locator("#reader-highlight-message").textContent();
+      const expectedFormulas = [
+        "$ u_1 + v_1 = w_1 $",
+        ...Array.from({ length: 11 }, (_, i) => `$a_${i + 1}$`),
+        ...Array.from({ length: 9 }, (_, i) => `$b_${i + 1}$`),
+        "$ u_2 + v_2 = w_2 $",
+      ];
+      check(
+        "Copy across 22 formulas copies Typst source for all 22 formulas without fallback notice",
+        copiedDense.includes("$ u_1 + v_1 = w_1 $") &&
+          copiedDense.includes("$a_11$") &&
+          copiedDense.includes("$b_9$") &&
+          copiedDense.includes("$ u_2 + v_2 = w_2 $") &&
+          expectedFormulas.every((formula) => copiedDense.includes(formula)) &&
+          !copyMessage.includes("수식 원문을 확인할 수 없어 화면에 표시된 글자로 복사했습니다.") &&
+          copyMessage.includes("수식을 Typst 원문으로 복사했습니다."),
+      );
+      await click("#reader-selection-cancel");
+
+      // (3) Equation-number-only selection is rejected by both /api/focus and /api/highlight.
+      const numberOnly = await denseSelection({ from: 1, to: 1, numberOnly: true });
+      assert.equal(numberOnly.fragments.length, 1);
+      assert.equal(numberOnly.fragments[0].exact, numberOnly.eq2Number);
+      const numberFocusResponse = await page.request.post(url + "api/focus", {
+        data: {
+          revision: numberOnly.state.revision,
+          fragments: numberOnly.fragments,
+          service: numberOnly.state.service,
+          viewerID: 42,
+        },
+      });
+      assert.equal(numberFocusResponse.status(), 200);
+      const numberFocusBody = await numberFocusResponse.json();
+      const numberSourceResponse = await page.request.post(url + "api/source", {
+        data: { revision: numberOnly.state.revision, fragments: numberOnly.fragments },
+      });
+      assert.equal(numberSourceResponse.status(), 200);
+      const numberSourceBody = await numberSourceResponse.json();
+      const numberHighlightResponse = await page.request.post(url + "api/highlight", {
+        data: { revision: numberOnly.state.revision, fragments: numberOnly.fragments },
+      });
+      assert.equal(numberHighlightResponse.status(), 200);
+      const numberHighlightBody = await numberHighlightResponse.json();
+      check(
+        "Equation-number-only selection is unmapped for focus, source, and highlight",
+        numberFocusBody.status === "unmapped" &&
+          numberFocusBody.source === null &&
+          numberSourceBody.status === "unmapped" &&
+          numberHighlightBody.status === "unmapped" &&
+          (await readFile(entry, "utf8")) === beforeDense,
+      );
+
+      // (4) /api/highlight returns HTTP 200 highlighted (zero HTTP 400) for:
+      // (a) Block 2 including its generated equation number,
+      // (b) 23-segment Block 3 paragraph, and
+      // (c) multi-block selection spanning Block 1 + Block 2 + Block 3.
+      const block3Source =
+        "Term " + Array.from({ length: 11 }, (_, i) => `$a_${i + 1}$`).join(" and ") + " end.";
+
+      // (4a) Block 2 including its generated equation number.
+      const block2Selection = await denseSelection({
+        from: 1,
+        to: 1,
+        endMode: "block",
+        applySelection: true,
+      });
+      assert.ok(block2Selection.fragments[0].exact.includes(block2Selection.eq2Number));
+      const before4a = block2Selection.state.revision;
+      if (block2Selection.liveFragments?.[0]?.exact.includes(block2Selection.eq2Number)) {
+        await page.locator("#reader-source-highlight").waitFor({ state: "visible" });
+        await page.waitForFunction(
+          () => !document.querySelector("#reader-source-highlight").disabled,
+        );
+        const res4aPromise = page.waitForResponse((response) =>
+          response.url().endsWith("/api/highlight"),
+        );
+        await click("#reader-source-highlight");
+        const res4a = await res4aPromise;
+        assert.equal(res4a.status(), 200);
+        assert.ok(
+          res4a.request().postDataJSON().fragments[0].exact.includes(block2Selection.eq2Number),
+        );
+        assert.equal((await res4a.json()).status, "highlighted");
+      } else {
+        const res4a = await page.request.post(url + "api/highlight", {
+          data: { revision: before4a, fragments: block2Selection.fragments },
+        });
+        assert.equal(res4a.status(), 200);
+        assert.equal((await res4a.json()).status, "highlighted");
+      }
+      check(
+        "Highlighting a numbered display equation including its equation number writes #highlighted[...]",
+        (await readFile(entry, "utf8")).includes("#highlighted[$ u_1 + v_1 = w_1 $]"),
+      );
+      await restoreDense(await accepted(before4a));
+
+      // (4b) 23-segment Block 3 paragraph.
+      await clearSelection();
+      const block3Selection = await denseSelection({
+        from: 2,
+        to: 2,
+        endMode: "block",
+        applySelection: true,
+      });
+      assert.equal(block3Selection.fragments[0].segments.length, 23);
+      await page.locator("#reader-source-highlight").waitFor({ state: "visible" });
+      await page.waitForFunction(
+        () => !document.querySelector("#reader-source-highlight").disabled,
+      );
+      const before4b = block3Selection.state.revision;
+      const res4bPromise = page.waitForResponse((response) =>
+        response.url().endsWith("/api/highlight"),
+      );
+      await click("#reader-source-highlight");
+      const res4b = await res4bPromise;
+      assert.equal(res4b.status(), 200);
+      assert.equal(res4b.request().postDataJSON().fragments[0].segments.length, 23);
+      assert.equal((await res4b.json()).status, "highlighted");
+      check(
+        "Highlighting a 23-segment inline-math paragraph writes #highlighted[...] without HTTP 400",
+        (await readFile(entry, "utf8")).includes(`#highlighted[${block3Source}]`),
+      );
+      await restoreDense(await accepted(before4b));
+
+      // (4c) Multi-block selection spanning Block 1 + Block 2 + Block 3.
+      await clearSelection();
+      const multiSelection = await denseSelection({
+        from: 0,
+        to: 2,
+        endMode: "block",
+        applySelection: true,
+      });
+      assert.equal(multiSelection.fragments.length, 3);
+      assert.ok(multiSelection.fragments[1].exact.includes(multiSelection.eq2Number));
+      assert.equal(multiSelection.fragments[2].segments.length, 23);
+      await page.locator("#reader-source-highlight").waitFor({ state: "visible" });
+      await page.waitForFunction(
+        () => !document.querySelector("#reader-source-highlight").disabled,
+      );
+      const before4c = multiSelection.state.revision;
+      const res4cPromise = page.waitForResponse((response) =>
+        response.url().endsWith("/api/highlight"),
+      );
+      await click("#reader-source-highlight");
+      const res4c = await res4cPromise;
+      assert.equal(res4c.status(), 200);
+      const req4c = res4c.request().postDataJSON();
+      assert.equal(req4c.fragments.length, 3);
+      assert.ok(req4c.fragments[1].exact.includes(multiSelection.eq2Number));
+      assert.equal(req4c.fragments[2].segments.length, 23);
+      assert.equal((await res4c.json()).status, "highlighted");
+      check(
+        "Highlighting a multi-block selection spanning prose, numbered display equation, and 23-segment paragraph writes #highlighted[...]",
+        (await readFile(entry, "utf8")).includes(
+          `#highlighted[Dense selection intro.\n\n$ u_1 + v_1 = w_1 $\n\n${block3Source}]`,
+        ),
+      );
+      await restoreDense(await accepted(before4c));
+      check(
+        "Dense highlight regressions produced zero HTTP 400 responses",
+        highlightHttp400s.length === 0,
+      );
     }
     assert.deepEqual(errors, []);
     console.log(`PASS ${viewport.width}×${viewport.height}`);

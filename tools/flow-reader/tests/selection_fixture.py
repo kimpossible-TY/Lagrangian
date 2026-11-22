@@ -51,7 +51,12 @@ def main():
             '#let generated-equation() = $gamma + delta$\n'
             '#generated-equation()\n\n' +
             ''.join(f'Trailing paragraph {i} permits ordinary vertical reading.\n\n'
-                    for i in range(15)))
+                    for i in range(15)) +
+            'Dense selection intro.\n\n'
+            '$ u_1 + v_1 = w_1 $\n\n'
+            'Term ' + ' and '.join(f'$a_{i}$' for i in range(1, 12)) + ' end.\n\n'
+            'More ' + ' and '.join(f'$b_{i}$' for i in range(1, 10)) + ' done.\n\n'
+            '$ u_2 + v_2 = w_2 $\n')
         project = Project(root, entry.resolve(), Path(os.environ["FLOW_READER_PACKAGES"]),
                           compiler=os.environ.get("FLOW_READER_TYPST", "typst"))
         managed = os.environ.get('FLOW_READER_MANAGED_FIXTURE') == '1'
