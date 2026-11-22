@@ -391,3 +391,12 @@ The flow-reader selection owner correction registers the sixteen gated paths fro
 `tools/flow-reader/web/features/selection/controller.js`, and
 `tools/flow-reader/web/features/selection/source-segments.js`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+The scripts/mac owner correction registers the four scripts/mac paths from
+`99583ad8d4576a513b6cd8b6d676700773ffde54` →
+`edee107b243630d920d7efa8653bd22b7f6d10ea`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`, and
+`scripts/mac/test-reader-refresh.py`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.
