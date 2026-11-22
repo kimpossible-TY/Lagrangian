@@ -563,6 +563,36 @@ class ParagraphChatTests(unittest.TestCase):
         self.assertEqual(final["thread"][-1]["text"], "Incomplete ")
         self.assertEqual(len([b for path, b in self.fake.requests if path == "/responses"]), 10)
 
+    def test_open_strips_boundary_lone_surrogates_from_persisted_fragments(self):
+        stale_fragment = {
+            **self.reader.fragments("keeps its own")[0],
+            "prefix": "\udc65 First paragraph ",
+            "suffix": " question. \ud835",
+        }
+        expected_fragments = [{
+            "key": stale_fragment["key"],
+            "exact": "keeps its own",
+            "prefix": "First paragraph",
+            "suffix": "question.",
+        }]
+        record = self.chat.open(self.reader.request(fragments=[stale_fragment]))["conversations"][0]
+        self.assertEqual(record["context"]["fragments"], expected_fragments)
+        encoded = json.dumps(record, ensure_ascii=False).encode("utf-8")
+        self.assertEqual(json.loads(encoded)["context"]["fragments"], expected_fragments)
+        stored = self.chat.list(self.reader.request())["conversations"][0]
+        self.assertEqual(stored["context"]["fragments"], expected_fragments)
+
+        origin = self.serve()
+        request = Request(
+            origin + "/api/chat/open",
+            json.dumps(self.reader.request(fragments=[stale_fragment])).encode(),
+            {"Origin": origin, "Content-Type": "application/json"},
+        )
+        with urlopen(request) as response:
+            self.assertEqual(response.status, 200)
+            opened = json.load(response)["conversations"][0]
+        self.assertEqual(opened["context"]["fragments"], expected_fragments)
+
 
 class ChatAuthTests(unittest.TestCase):
     def setUp(self):

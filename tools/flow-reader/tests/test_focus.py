@@ -212,6 +212,43 @@ class ReaderFocusTests(unittest.TestCase):
         failed.exception.close()
         self.assertEqual(self.state.focus.path.read_bytes(), original)
 
+    def test_boundary_lone_surrogates_in_context_persist_clean_utf8_focus(self):
+        self.state = self.make_state(
+            "Let 𝑥 be selected 한글 passage near 𝑥.",
+            "<p>Let 𝑥 be selected 한글 passage near 𝑥.</p>",
+        )
+        stale_fragment = self.fragment("selected 한글") | {
+            "prefix": "\udc65 be ",
+            "suffix": " passage near \ud835",
+        }
+        saved = self.save(fragments=[stale_fragment])
+        self.assertEqual(saved["status"], "selected")
+        self.assertEqual(saved["selection"]["fragments"], [{
+            "key": stale_fragment["key"],
+            "exact": "selected 한글",
+            "prefix": "be",
+            "suffix": "passage near",
+        }])
+        read = self.state.read_focus()
+        self.assertTrue(read["selection_usable"])
+        self.assertEqual(read["selection"]["fragments"], saved["selection"]["fragments"])
+        encoded = json.dumps(read, ensure_ascii=False).encode("utf-8")
+        self.assertEqual(json.loads(encoded)["selection"]["fragments"], saved["selection"]["fragments"])
+
+        base = self.server()
+        payload = {"revision": self.state.revision, "fragments": [stale_fragment],
+                   "service": self.state.focus.service, "viewerID": 12}
+        request = Request(base + "api/focus", json.dumps(payload).encode(),
+                          {"Content-Type": "application/json", "Origin": base.rstrip("/")})
+        with urlopen(request) as response:
+            self.assertEqual(response.status, 200)
+            http_saved = json.load(response)
+        self.assertEqual(http_saved["selection"]["fragments"], saved["selection"]["fragments"])
+        http_read = read_reader(base, expected_pid=self.state.focus.service["pid"],
+                                project=self.root, document=self.entry)
+        self.assertTrue(http_read["selection_usable"])
+        self.assertEqual(http_read["selection"]["fragments"], saved["selection"]["fragments"])
+
 
 if __name__ == "__main__":
     unittest.main()

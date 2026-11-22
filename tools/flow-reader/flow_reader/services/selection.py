@@ -1,6 +1,6 @@
 """Explicit selection actions against a single accepted document snapshot."""
 import threading
-from flow_reader.document.passages import locate_passages
+from flow_reader.document.passages import locate_passages, validate_fragments
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 from flow_reader.services.source_highlight import StaleSelection, apply_highlight
@@ -92,6 +92,7 @@ class SelectionActions:
         with self.state.lock:
             if service != self.state.focus.service or revision != self.state.revision or not self.inputs_current():
                 return self.state.focus.record("stale", revision, self.state.revision, viewer_id=viewer_id)
+            clean = validate_fragments(fragments)
             text, locations = selected_text(self.state.bundle, fragments)
             location = source_location(self.state.project, self.state.accepted_dependencies, self.state.bundle, fragments)
             try:
@@ -105,9 +106,7 @@ class SelectionActions:
             start, end = locations[0], locations[-1]
             return self.state.focus.record(
                 "selected" if source else "unmapped", revision, self.state.revision,
-                selection={"text": text, "fragments": [
-                    {name: part.get(name, "") for name in ("key", "exact", "prefix", "suffix")}
-                    for part in fragments]}, source=source,
+                selection={"text": text, "fragments": clean}, source=source,
                 position={"start": {"key": start["key"], "section": start["section"], "offset": start["start"]},
                           "end": {"key": end["key"], "section": end["section"], "offset": end["end"]},
                           "offset_unit": "normalized_unicode"}, viewer_id=viewer_id)

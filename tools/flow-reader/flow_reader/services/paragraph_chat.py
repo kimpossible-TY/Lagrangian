@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 
+from flow_reader.document.passages import validate_fragments
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 from flow_reader.services.chat_auth import ChatAuth, ChatProviderError
@@ -206,6 +207,7 @@ class ParagraphChat:
     def open(self, request):
         snapshot = self.snapshot(request)
         fragments = request.get("fragments")
+        clean = validate_fragments(fragments)
         quote, locations = selected_text(snapshot.bundle, fragments)
         if locations[0]["state"] != "located":
             raise ValueError("Select an unambiguous paragraph")
@@ -221,8 +223,7 @@ class ParagraphChat:
             context = {"documentID": self.state.document_id, "revision": snapshot.revision,
                        "selection": quote, "source": source,
                        "paragraph": next(p["text"] for p in snapshot.bundle.passages if p["key"] == key),
-                       "fragments": [{field: part.get(field, "") for field in ("key", "exact", "prefix", "suffix")}
-                                     for part in fragments]}
+                       "fragments": clean}
             if not record:
                 record = {"conversation_id": str(uuid.uuid4()), "document_id": self.state.document_id,
                           "revision": snapshot.revision, "quote": quote,
