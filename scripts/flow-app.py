@@ -668,6 +668,101 @@ def healthy(app, ids, timeout=30):
         if pending: time.sleep(.5)
     if pending: raise RuntimeError('Preview startup failed; inspect Documents consent and logs: ' + ', '.join(pending))
 
+MANAGED_RELEASE_DIR_RE = re.compile(r'\A\d{8}-\d{6}-\d{6}(?:-failed)?\Z')
+
+def _retained_release_dir(data_dir, releases, releases_root):
+    """Return the resolved release directory referenced by previous-release.json, or None."""
+    previous_path = data_dir / 'previous-release.json'
+    try:
+        if not previous_path.exists() and not previous_path.is_symlink():
+            return None
+        payload = json.loads(previous_path.read_text())
+    except (OSError, ValueError) as error:
+        print(f'Warning: skipping release pruning; unreadable previous-release.json: {error}', file=sys.stderr)
+        return None
+    if not isinstance(payload, dict):
+        print('Warning: skipping release pruning; invalid previous-release.json payload', file=sys.stderr)
+        return None
+    raw_app = payload.get('app')
+    if not isinstance(raw_app, str) or not raw_app.strip():
+        print('Warning: skipping release pruning; previous-release.json missing app path', file=sys.stderr)
+        return None
+    app_path = Path(raw_app)
+    if not app_path.is_absolute():
+        print('Warning: skipping release pruning; previous-release.json app path is not absolute', file=sys.stderr)
+        return None
+    try:
+        resolved_app = app_path.resolve(strict=True)
+        is_dir = resolved_app.is_dir()
+    except (OSError, ValueError) as error:
+        print(f'Warning: skipping release pruning; previous-release.json target unavailable: {error}', file=sys.stderr)
+        return None
+    if not is_dir:
+        print('Warning: skipping release pruning; previous-release.json target is not a directory', file=sys.stderr)
+        return None
+    try:
+        rel = resolved_app.relative_to(releases_root)
+    except ValueError:
+        print('Warning: skipping release pruning; previous-release.json target is outside releases', file=sys.stderr)
+        return None
+    if not rel.parts:
+        print('Warning: skipping release pruning; previous-release.json points to releases root', file=sys.stderr)
+        return None
+    keep_entry = releases / rel.parts[0]
+    try:
+        if keep_entry.is_symlink():
+            print('Warning: skipping release pruning; retained release entry is a symlink', file=sys.stderr)
+            return None
+        keep_dir = keep_entry.resolve(strict=True)
+        keep_is_dir = keep_dir.is_dir()
+    except (OSError, ValueError) as error:
+        print(f'Warning: skipping release pruning; unable to verify retained release: {error}', file=sys.stderr)
+        return None
+    if not keep_is_dir or keep_dir == releases_root or keep_dir.parent != releases_root:
+        print('Warning: skipping release pruning; retained release is outside releases boundary', file=sys.stderr)
+        return None
+    return keep_dir
+
+def prune_releases(data_dir):
+    """Prune obsolete managed release backups while preserving the rollback target."""
+    data_dir = Path(data_dir)
+    releases = data_dir / 'releases'
+    try:
+        if releases.is_symlink() or not releases.is_dir():
+            return []
+        releases_root = releases.resolve(strict=True)
+    except OSError as error:
+        print(f'Warning: skipping release pruning; unable to inspect releases directory: {error}', file=sys.stderr)
+        return []
+    keep_dir = _retained_release_dir(data_dir, releases, releases_root)
+    if keep_dir is None:
+        return []
+    try:
+        entries = sorted(releases.iterdir())
+    except OSError as error:
+        print(f'Warning: skipping release pruning; unable to list releases directory: {error}', file=sys.stderr)
+        return []
+    pruned = []
+    for entry in entries:
+        try:
+            if entry.is_symlink():
+                continue
+            if not MANAGED_RELEASE_DIR_RE.fullmatch(entry.name):
+                continue
+            if not entry.is_dir():
+                continue
+            resolved_entry = entry.resolve(strict=True)
+            if resolved_entry == releases_root or resolved_entry.parent != releases_root:
+                continue
+            if resolved_entry == keep_dir:
+                continue
+            shutil.rmtree(resolved_entry)
+            pruned.append(resolved_entry)
+        except OSError as error:
+            print(f'Warning: failed to prune release {entry}: {error}', file=sys.stderr)
+            continue
+    return pruned
+
 def replace_app(source, destination, data_dir=None, check_health=True):
     validate(source)
     if data_dir is None:
@@ -719,6 +814,7 @@ def _replace_app(source, destination, data_dir, check_health):
         shutil.rmtree(stage.parent, ignore_errors=True)
     if had_previous: write_json(data_dir / 'previous-release.json', {'app': str(backup), 'replacedAt': stamp})
     write_json(data_dir / 'installed-release.json', validate(destination))
+    prune_releases(data_dir)
     print(destination)
 
 def install(args):

@@ -274,6 +274,294 @@ class InstallRecovery(unittest.TestCase):
             self.assertEqual(package.executable(previous).read_text(), 'old')
             self.assertEqual(package.executable(old).read_text(), 'new')
 
+
+class ReleasePruning(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.data = self.root / 'data'
+        self.releases = self.data / 'releases'
+        self.releases.mkdir(parents=True)
+        self.installed = self.root / 'Applications/Lagrangian.app'
+
+    def _make_bundle(self, path, marker):
+        package.executable(path).parent.mkdir(parents=True, exist_ok=True)
+        package.executable(path).write_text(marker)
+        return path
+
+    def _make_release(self, name, marker='old'):
+        return self._make_bundle(self.releases / name / package.APP_BUNDLE, marker)
+
+    def test_successful_update_prunes_obsolete_and_failed_releases_after_metadata_commit(self):
+        self._make_bundle(self.installed, 'v1')
+        incoming = self._make_bundle(self.root / 'incoming/Lagrangian.app', 'v2')
+        obsolete = self._make_release('20260101-010203-000001', 'v0')
+        obsolete_failed = self._make_release('20260102-010203-000002-failed', 'bad')
+        events = []
+        orig_write_json = package.write_json
+        orig_prune = package.prune_releases
+
+        def traced_healthy(app, ids):
+            events.append('healthy')
+
+        def traced_write_json(path, value):
+            events.append(Path(path).name)
+            return orig_write_json(path, value)
+
+        def traced_prune(data_dir):
+            events.append('prune')
+            self.assertTrue((self.data / 'previous-release.json').is_file())
+            self.assertTrue((self.data / 'installed-release.json').is_file())
+            return orig_prune(data_dir)
+
+        with patch.object(package, 'validate', return_value={'version': '2.0.0'}), \
+                patch.object(package, 'running', return_value=['doc']), \
+                patch.object(package, 'profiles', return_value=[{'id': 'doc'}]), \
+                patch.object(package, 'run'), \
+                patch.object(package, 'wait_stopped'), \
+                patch.object(package, 'healthy', side_effect=traced_healthy), \
+                patch.object(package, 'write_json', side_effect=traced_write_json), \
+                patch.object(package, 'prune_releases', side_effect=traced_prune):
+            package.replace_app(incoming, self.installed, self.data)
+
+        self.assertEqual(events, ['healthy', 'previous-release.json', 'installed-release.json', 'prune'])
+        self.assertFalse(obsolete.parent.exists())
+        self.assertFalse(obsolete_failed.parent.exists())
+        retained = Path(json.loads((self.data / 'previous-release.json').read_text())['app'])
+        self.assertTrue(retained.is_dir())
+        self.assertEqual(package.executable(retained).read_text(), 'v1')
+        self.assertEqual(package.executable(self.installed).read_text(), 'v2')
+        self.assertEqual([p.name for p in self.releases.iterdir()], [retained.parent.name])
+
+    def test_first_install_without_previous_release_does_not_fail_or_prune(self):
+        incoming = self._make_bundle(self.root / 'incoming/Lagrangian.app', 'v1')
+        existing = self._make_release('20260101-010203-000001', 'unrecorded')
+        with patch.object(package, 'validate', return_value={'version': '1.0.0'}), \
+                patch.object(package, 'running', return_value=[]):
+            package.replace_app(incoming, self.installed, self.data)
+        self.assertFalse((self.data / 'previous-release.json').exists())
+        self.assertTrue((self.data / 'installed-release.json').is_file())
+        self.assertTrue(existing.parent.exists())
+
+    def test_failed_install_and_post_swap_errors_prune_nothing(self):
+        self._make_bundle(self.installed, 'v1')
+        incoming = self._make_bundle(self.root / 'incoming/Lagrangian.app', 'v2')
+        obsolete = self._make_release('20260101-010203-000001', 'v0')
+        obsolete_failed = self._make_release('20260102-010203-000002-failed', 'bad')
+        retained = self._make_release('20260103-010203-000003', 'v0.5')
+        (self.data / 'previous-release.json').write_text(json.dumps({'app': str(retained)}))
+
+        with patch.object(package, 'validate', return_value={}), \
+                patch.object(package, 'running', return_value=['doc']), \
+                patch.object(package, 'profiles', return_value=[{'id': 'doc'}]), \
+                patch.object(package, 'run'), \
+                patch.object(package, 'wait_stopped'), \
+                patch.object(package.subprocess, 'run'), \
+                patch.object(package, 'healthy', side_effect=RuntimeError('health check failed')):
+            with self.assertRaisesRegex(RuntimeError, 'health check failed'):
+                package.replace_app(incoming, self.installed, self.data)
+
+        self.assertEqual(package.executable(self.installed).read_text(), 'v1')
+        self.assertTrue(obsolete.parent.exists())
+        self.assertTrue(obsolete_failed.parent.exists())
+        self.assertTrue(retained.parent.exists())
+        new_failed = [p for p in self.releases.iterdir() if p.name.endswith('-failed') and p.name != obsolete_failed.parent.name]
+        self.assertEqual(len(new_failed), 1)
+        self.assertEqual(package.executable(new_failed[0] / package.APP_BUNDLE).read_text(), 'v2')
+
+        # A failure while writing installed-release.json must also skip pruning.
+        orig_write_json = package.write_json
+        def fail_installed_write(path, value):
+            if Path(path).name == 'installed-release.json':
+                raise OSError('disk full')
+            return orig_write_json(path, value)
+
+        incoming_v3 = self._make_bundle(self.root / 'incoming-v3/Lagrangian.app', 'v3')
+        with patch.object(package, 'validate', return_value={'version': '3.0.0'}), \
+                patch.object(package, 'running', return_value=[]), \
+                patch.object(package, 'write_json', side_effect=fail_installed_write):
+            with self.assertRaisesRegex(OSError, 'disk full'):
+                package.replace_app(incoming_v3, self.installed, self.data)
+        self.assertTrue(obsolete.parent.exists())
+        self.assertTrue(obsolete_failed.parent.exists())
+        self.assertTrue(new_failed[0].exists())
+
+    def test_symlink_releases_root_is_skipped_untouched(self):
+        external_releases = self.root / 'external-releases'
+        external_releases.mkdir()
+        keep_app = self._make_bundle(external_releases / '20260103-010203-000003' / package.APP_BUNDLE, 'keep')
+        old_app = self._make_bundle(external_releases / '20260101-010203-000001' / package.APP_BUNDLE, 'old')
+        shutil.rmtree(self.releases)
+        self.releases.symlink_to(external_releases)
+        (self.data / 'previous-release.json').write_text(json.dumps({'app': str(keep_app)}))
+
+        self.assertEqual(package.prune_releases(self.data), [])
+        self.assertTrue(self.releases.is_symlink())
+        self.assertTrue(keep_app.exists())
+        self.assertTrue(old_app.exists())
+
+        # Missing or non-directory releases root is also skipped safely.
+        self.releases.unlink()
+        self.assertEqual(package.prune_releases(self.data), [])
+        self.releases.write_text('not a directory')
+        self.assertEqual(package.prune_releases(self.data), [])
+        self.assertTrue(self.releases.is_file())
+
+    def test_safety_guards_preserve_symlinks_unmanaged_entries_and_out_of_boundary_paths(self):
+        keep_app = self._make_release('20260103-010203-000003', 'keep')
+        obsolete_app = self._make_release('20260101-010203-000001', 'old')
+        obsolete_failed = self._make_release('20260102-010203-000002-failed', 'old-failed')
+        (self.data / 'previous-release.json').write_text(json.dumps({'app': str(keep_app)}))
+
+        outside_dir = self.root / 'outside-dir'
+        outside_dir.mkdir()
+        (outside_dir / 'sentinel.txt').write_text('untouched')
+        symlink_managed = self.releases / '20260104-010203-000004'
+        symlink_managed.symlink_to(outside_dir)
+        symlink_failed = self.releases / '20260105-010203-000005-failed'
+        symlink_failed.symlink_to(keep_app.parent)
+
+        managed_name_file = self.releases / '20260106-010203-000006'
+        managed_name_file.write_text('regular file')
+        hidden_file = self.releases / '.DS_Store'
+        hidden_file.write_text('hidden')
+        hidden_dir = self.releases / '.20260107-010203-000007'
+        hidden_dir.mkdir()
+        unmanaged_dir = self.releases / 'manual-backup'
+        unmanaged_dir.mkdir()
+        near_miss_dir = self.releases / '20260108-010203-000008-keep'
+        near_miss_dir.mkdir()
+        unexpected_file = self.releases / 'notes.txt'
+        unexpected_file.write_text('keep me')
+
+        # Simulate an entry whose resolved path escapes releases.resolve() even if not a symlink.
+        escape_candidate = self._make_release('20260109-010203-000009', 'escape')
+        orig_resolve = Path.resolve
+        def guarded_resolve(path_self, strict=False):
+            if path_self.name == '20260109-010203-000009':
+                return outside_dir.resolve()
+            return orig_resolve(path_self, strict=strict)
+
+        with patch.object(Path, 'resolve', guarded_resolve):
+            pruned = package.prune_releases(self.data)
+
+        self.assertEqual({p.name for p in pruned}, {'20260101-010203-000001', '20260102-010203-000002-failed'})
+        self.assertFalse(obsolete_app.parent.exists())
+        self.assertFalse(obsolete_failed.parent.exists())
+        self.assertTrue(keep_app.exists())
+        self.assertTrue(symlink_managed.is_symlink())
+        self.assertTrue((outside_dir / 'sentinel.txt').is_file())
+        self.assertTrue(symlink_failed.is_symlink())
+        self.assertTrue(managed_name_file.is_file())
+        self.assertTrue(hidden_file.is_file())
+        self.assertTrue(hidden_dir.is_dir())
+        self.assertTrue(unmanaged_dir.is_dir())
+        self.assertTrue(near_miss_dir.is_dir())
+        self.assertTrue(unexpected_file.is_file())
+        self.assertTrue(escape_candidate.parent.is_dir())
+
+    def test_invalid_or_unreadable_previous_release_aborts_pruning_safely(self):
+        obsolete = self._make_release('20260101-010203-000001', 'old')
+        outside_app = self._make_bundle(self.root / 'outside/Lagrangian.app', 'outside')
+        file_inside = self.releases / '20260102-010203-000002'
+        file_inside.write_text('not a dir')
+        previous = self.data / 'previous-release.json'
+
+        cases = [
+            ('malformed-json', '{not valid json'),
+            ('non-dict-json', '[]'),
+            ('missing-app', json.dumps({'replacedAt': '20260103-010203-000003'})),
+            ('empty-app', json.dumps({'app': '   '})),
+            ('non-string-app', json.dumps({'app': 123})),
+            ('relative-app', json.dumps({'app': 'releases/20260101-010203-000001/Lagrangian.app'})),
+            ('outside-boundary', json.dumps({'app': str(outside_app)})),
+            ('releases-root', json.dumps({'app': str(self.releases)})),
+            ('missing-target', json.dumps({'app': str(self.releases / '20260109-010203-000009/Lagrangian.app')})),
+            ('file-target', json.dumps({'app': str(file_inside)})),
+        ]
+        for label, content in cases:
+            with self.subTest(case=label):
+                previous.write_text(content)
+                stderr = io.StringIO()
+                with patch('sys.stderr', stderr):
+                    self.assertEqual(package.prune_releases(self.data), [])
+                self.assertTrue(obsolete.parent.exists())
+                self.assertIn('Warning:', stderr.getvalue())
+
+        # Unreadable previous-release.json (e.g., directory or permission error).
+        previous.unlink()
+        previous.mkdir()
+        stderr = io.StringIO()
+        with patch('sys.stderr', stderr):
+            self.assertEqual(package.prune_releases(self.data), [])
+        self.assertTrue(obsolete.parent.exists())
+        self.assertIn('Warning:', stderr.getvalue())
+
+    def test_non_fatal_oserror_during_prune_warns_continues_and_does_not_fail_replace(self):
+        self._make_bundle(self.installed, 'v1')
+        incoming = self._make_bundle(self.root / 'incoming/Lagrangian.app', 'v2')
+        first_old = self._make_release('20260101-010203-000001', 'old1')
+        inspect_err = self._make_release('20260102-010203-000002', 'old2')
+        third_old = self._make_release('20260103-010203-000003', 'old3')
+        orig_rmtree = shutil.rmtree
+        orig_resolve = Path.resolve
+
+        def flaky_rmtree(path, *args, **kwargs):
+            if Path(path).name == first_old.parent.name:
+                raise PermissionError('simulated permission denied')
+            return orig_rmtree(path, *args, **kwargs)
+
+        def flaky_resolve(path_self, strict=False):
+            if path_self.name == inspect_err.parent.name:
+                raise OSError('simulated stat failure')
+            return orig_resolve(path_self, strict=strict)
+
+        stderr = io.StringIO()
+        with patch.object(package, 'validate', return_value={'version': '2.0.0'}), \
+                patch.object(package, 'running', return_value=[]), \
+                patch.object(package.shutil, 'rmtree', side_effect=flaky_rmtree), \
+                patch.object(Path, 'resolve', flaky_resolve), \
+                patch('sys.stderr', stderr):
+            package.replace_app(incoming, self.installed, self.data)
+
+        self.assertEqual(package.executable(self.installed).read_text(), 'v2')
+        self.assertTrue((self.data / 'installed-release.json').is_file())
+        self.assertTrue(first_old.parent.exists())
+        self.assertTrue(inspect_err.parent.exists())
+        self.assertFalse(third_old.parent.exists())
+        retained = Path(json.loads((self.data / 'previous-release.json').read_text())['app'])
+        self.assertTrue(retained.is_dir())
+        self.assertIn('Warning:', stderr.getvalue())
+        self.assertIn(first_old.parent.name, stderr.getvalue())
+        self.assertIn(inspect_err.parent.name, stderr.getvalue())
+
+    def test_rollback_succeeds_cleanly_after_pruning(self):
+        self._make_bundle(self.installed, 'v1')
+        incoming = self._make_bundle(self.root / 'incoming/Lagrangian.app', 'v2')
+        obsolete = self._make_release('20260101-010203-000001', 'v0')
+        obsolete_failed = self._make_release('20260102-010203-000002-failed', 'bad')
+
+        with patch.object(package, 'DATA', self.data), \
+                patch.object(package, 'validate', return_value={'version': 'test'}), \
+                patch.object(package, 'running', return_value=[]), \
+                patch.object(package, 'run'):
+            package.replace_app(incoming, self.installed, self.data)
+            self.assertFalse(obsolete.parent.exists())
+            self.assertFalse(obsolete_failed.parent.exists())
+            self.assertEqual(package.executable(self.installed).read_text(), 'v2')
+            first_backup = Path(json.loads((self.data / 'previous-release.json').read_text())['app'])
+            self.assertEqual(package.executable(first_backup).read_text(), 'v1')
+
+            package.rollback(argparse.Namespace(app=self.installed))
+
+        self.assertEqual(package.executable(self.installed).read_text(), 'v1')
+        second_backup = Path(json.loads((self.data / 'previous-release.json').read_text())['app'])
+        self.assertTrue(second_backup.is_dir())
+        self.assertEqual(package.executable(second_backup).read_text(), 'v2')
+        self.assertFalse(first_backup.parent.exists())
+        self.assertEqual([p.name for p in self.releases.iterdir()], [second_backup.parent.name])
+
 class SharedReaderControl(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
