@@ -117,6 +117,65 @@ eval "$saved_stage"
 install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
 printf 'auto-update watch regression passed\n'
 
+# Real install_run through watch_iteration. The gh stub fails `gh run view`,
+# which is the first command after a successful claim. A subshell keeps the
+# updater's set -e exit from aborting this script. HOME, SRC, APP, and
+# LOGIN_PLIST are redirected under TEST_DIR first so a fail-open regression
+# cannot reach live services.
+eval "$saved_install_run"
+printf '100\n' > "$STATE"
+RUNNING=''; SUCCESS=201; WATCH_RESULT=0; LIST_ERROR=0
+ENGINE_CACHE_CONFIGURED="$TEST_DIR/engine-cache"
+: > "$TEST_DIR/s1-launch.log"
+: > "$TEST_DIR/s1-git.log"
+notify() { :; }
+launchctl() { printf '%s\n' "$*" >> "$TEST_DIR/s1-launch.log"; return 1; }
+git() { printf '%s\n' "$*" >> "$TEST_DIR/s1-git.log"; return 1; }
+saved_home="$HOME"
+saved_src="$SRC"
+saved_app="$APP"
+saved_login_plist="$LOGIN_PLIST"
+HOME="$TEST_DIR/home"
+mkdir -p \
+  "$HOME/Library/Application Support/Lagrangian" \
+  "$HOME/Library/LaunchAgents" \
+  "$HOME/Applications" \
+  "$HOME/Developer/lagrangian"
+SRC="$HOME/Developer/lagrangian"
+APP="$HOME/Applications/Lagrangian.app"
+LOGIN_PLIST="$HOME/Library/LaunchAgents/${LOGIN_LABEL}.plist"
+cat > "$HOME/Library/Application Support/Lagrangian/refresh-reader-engine.sh" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+chmod +x "$HOME/Library/Application Support/Lagrangian/refresh-reader-engine.sh"
+rc=0
+set +e
+(watch_iteration)
+rc=$?
+set -e
+[[ "$rc" != 0 ]]
+[[ -f "$ATTEMPTS/201/state.json" ]]
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/201/state.json")" == failed ]]
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["phase"])' "$ATTEMPTS/201/state.json")" == download ]]
+[[ "$(cat "$STATE")" == "100" ]]
+if grep -E -q 'kickstart|bootout' "$TEST_DIR/s1-launch.log"; then
+  echo 'restart_login_agent ran after a failed install' >&2
+  exit 1
+fi
+if [[ -s "$TEST_DIR/s1-git.log" ]]; then
+  echo 'git ran after the post-claim failure' >&2
+  exit 1
+fi
+unset -f launchctl git
+eval "$saved_notify"
+install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
+HOME="$saved_home"
+SRC="$saved_src"
+APP="$saved_app"
+LOGIN_PLIST="$saved_login_plist"
+printf 'auto-update install failure leaves the marker unchanged\n'
+
 rc=0
 begin_attempt 9001 || rc=$?
 [[ "$rc" == 0 ]]
@@ -125,7 +184,7 @@ rc=0
 begin_attempt 9001 || rc=$?
 [[ "$rc" == 75 ]]
 rc=0
-begin_attempt 'not-a-run' || rc=$?
+begin_attempt 'not-a-run' 2>/dev/null || rc=$?
 [[ "$rc" != 0 && "$rc" != 75 ]]
 [[ ! -e "$ATTEMPTS/not-a-run" ]]
 
@@ -407,36 +466,47 @@ login_agent_is_replacement "$target" 8
 
 inode_file="$TEST_DIR/login-bin"
 printf 'binary\n' > "$inode_file"
-# Not named inode: login_process_maps_binary locals that name, and a stub
-# would see the unset local under set -u.
-expected_inode=$(stat -f %i "$inode_file")
-lsof() {
-  case "$LSOF_MODE" in
-    match) printf 'p1\nftxt\ni%s\nn%s\n' "$expected_inode" "$inode_file" ;;
-    wrong-path) printf 'ftxt\ni%s\nn%s\n' "$expected_inode" "$inode_file.other" ;;
-    missing-inode) printf 'ftxt\ni0\nn%s\n' "$inode_file" ;;
-    split) printf 'ftxt\ni%s\nftxt\nn%s\n' "$expected_inode" "$inode_file" ;;
-    *) return 1 ;;
-  esac
-}
-LSOF_MODE=match
-login_process_maps_binary 42 "$inode_file"
+# Python spawns lsof, so a shell function would not be visible. The stub is an
+# executable on PATH and reads the case from the environment.
+expected_inode=$(python3 -c 'import os,sys;print(os.stat(sys.argv[1]).st_ino)' "$inode_file")
+stubbin="$TEST_DIR/bin"
+mkdir -p "$stubbin"
+cat > "$stubbin/lsof" <<'EOF'
+#!/bin/bash
+case "$LSOF_MODE" in
+  match) printf 'p1\nftxt\ni%s\nn%s\n' "$EXPECTED_INODE" "$INODE_FILE" ;;
+  wrong-path) printf 'ftxt\ni%s\nn%s\n' "$EXPECTED_INODE" "$INODE_FILE.other" ;;
+  missing-inode) printf 'ftxt\ni0\nn%s\n' "$INODE_FILE" ;;
+  split) printf 'ftxt\ni%s\nftxt\nn%s\n' "$EXPECTED_INODE" "$INODE_FILE" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$stubbin/lsof"
+export EXPECTED_INODE="$expected_inode" INODE_FILE="$inode_file" LSOF_MODE=match
+saved_path="$PATH"
+PATH="$stubbin:$PATH"
+process_maps_binary 42 "$inode_file"
 LSOF_MODE=wrong-path
-if login_process_maps_binary 42 "$inode_file"; then
+if process_maps_binary 42 "$inode_file"; then
   echo 'wrong path mapped as the installed binary' >&2
   exit 1
 fi
 LSOF_MODE=missing-inode
-if login_process_maps_binary 42 "$inode_file"; then
+if process_maps_binary 42 "$inode_file"; then
   echo 'missing inode mapped as the installed binary' >&2
   exit 1
 fi
 LSOF_MODE=split
-if login_process_maps_binary 42 "$inode_file"; then
+if process_maps_binary 42 "$inode_file"; then
   echo 'inode and path in different blocks mapped as a match' >&2
   exit 1
 fi
-unset -f lsof
+LSOF_MODE=fail
+if process_maps_binary 42 "$inode_file"; then
+  echo 'lsof failure mapped as the installed binary' >&2
+  exit 1
+fi
+PATH="$saved_path"
 
 printf 'auto-update login and cache checks passed\n'
 python3 scripts/mac/test-reader-refresh.py

@@ -1499,6 +1499,32 @@
             "sha256": "08d3bbb10f420a4bfc83270708c9caaef11dd768d363810411679ac7905e248d"
           }
         ]
+      },
+      {
+        "baseRevision": "99583ad8d4576a513b6cd8b6d676700773ffde54",
+        "revision": "edee107b243630d920d7efa8653bd22b7f6d10ea",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "7f6a04d13c079c1f7f7dc50d03785b0a0dbc287bccd45dd1ed6cd13d979fc9d8",
+            "sha256": "6a771cedb953ec1609eb085d79d48f7fbb8a80a6a11aacdb3ee1dc50341b0239"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "7736716b4039736bcd5d35905db4f9bc36bb423a5c4ddc6189799804daecd81d",
+            "sha256": "ac1a5e368420e98302f7ce6947808f4469a6a9e79f1e2ac16e74a37b0796d6d7"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "c7cdda92050f613a2725f59c628499d3a72ec93bedef29ee5bb71e82099eec24",
+            "sha256": "848da342f363ee8368a6c9009029f80c0d7a6ee3b46194753450714a0453a268"
+          },
+          {
+            "path": "scripts/mac/test-reader-refresh.py",
+            "baseSHA256": "812b7082f4fa4c8bbbf2c3295d20a032d646bedca96f8150acb41b11b8c48d43",
+            "sha256": "44065b89241b4f0747dff9aabde3778db87dfc3491fcdc2df48552f6ed348ced"
+          }
+        ]
       }
     ]
   }
