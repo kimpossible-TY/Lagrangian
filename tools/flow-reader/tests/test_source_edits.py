@@ -383,6 +383,122 @@ class SourceHighlightTests(unittest.TestCase):
         state.compile()
         self.assertTrue(state.report['contentGatePassed'], state.report)
 
+    def _segments_for_passage(self, passage):
+        spans = sorted(passage["source_ranges"], key=lambda span: span["text_start"])
+        segments = []
+        cursor = 0
+        for span in spans:
+            if span["text_start"] > cursor:
+                segments.append({"text": passage["text"][cursor:span["text_start"]]})
+            part = {"text": passage["text"][span["text_start"]:span["text_end"]]}
+            if span["kind"] == "math":
+                part.update(math=True, complete=True)
+            segments.append(part)
+            cursor = span["text_end"]
+        if cursor < len(passage["text"]):
+            segments.append({"text": passage["text"][cursor:]})
+        merged = []
+        for part in segments:
+            if merged and not part.get("math") and not merged[-1].get("math"):
+                merged[-1]["text"] += part["text"]
+            else:
+                merged.append(part)
+        return merged
+
+    def test_multiblock_highlight_after_paragraph_tab_across_display_equation_and_refs(self):
+        source = (
+            '#import "@local/text-utils:0.1.2": highlighted, paragraph_tab, apply-paragraph-tabs\n'
+            '#show: apply-paragraph-tabs\n'
+            '#set heading(numbering: "1.1")\n'
+            '#set math.equation(numbering: "(1)")\n\n'
+            '= Unitary Fourier Transform <unitary_fourier_transform_and_inverse>\n\n'
+            '$ norm(hat(f)) = norm(f) $ <Fourier>\n\n'
+            '#paragraph_tab\n'
+            'To endow $H^(s)$ with a Hilbert-space structure, we transport the $L^(2)$ inner product:\n'
+            '$\n'
+            ' (u,v)_(H^(s)):=(Lambda^(s)u,Lambda^(s)v)_(L^(2)),\n'
+            ' quad u,v in H^(s).\n'
+            '$\n'
+            "Because $Lambda^(s)$ is linear, Plancherel's theorem (@Fourier) and "
+            '@unitary_fourier_transform_and_inverse give $norm(Lambda^(s)u)_(2)=norm(u)_(H^(s))$.\n'
+        )
+        state = self.compile(source)
+        intro = next(part for part in state.bundle.passages if part["text"].startswith("To endow"))
+        equation = next(
+            part for part in state.bundle.passages
+            if "(2)" in part["text"] and "To endow" not in part["text"] and "Because" not in part["text"]
+        )
+        outro = next(part for part in state.bundle.passages if part["text"].startswith("Because"))
+        eq_text = equation["text"].removesuffix("(2)")
+        fragments = [
+            {**self.fragment(state, intro["text"]), "segments": self._segments_for_passage(intro)},
+            {
+                **self.fragment(state, equation["text"]),
+                "segments": [
+                    {"text": eq_text, "math": True, "complete": True},
+                    {"text": "(2)"},
+                ],
+            },
+            {**self.fragment(state, outro["text"]), "segments": self._segments_for_passage(outro)},
+        ]
+        result = state.highlight(state.revision, fragments)
+        self.assertEqual(result["status"], "highlighted", result)
+        updated = self.entry.read_text()
+        self.assertIn(
+            '#paragraph_tab\n'
+            '#highlighted[To endow $H^(s)$ with a Hilbert-space structure, we transport the $L^(2)$ inner product:\n'
+            '$\n'
+            ' (u,v)_(H^(s)):=(Lambda^(s)u,Lambda^(s)v)_(L^(2)),\n'
+            ' quad u,v in H^(s).\n'
+            '$\n'
+            "Because $Lambda^(s)$ is linear, Plancherel's theorem (@Fourier) and "
+            '@unitary_fourier_transform_and_inverse give $norm(Lambda^(s)u)_(2)=norm(u)_(H^(s))$.]',
+            updated,
+        )
+        state.compile()
+        self.assertTrue(state.report["contentGatePassed"], state.report)
+
+    def test_multiblock_highlight_ending_on_numbered_display_equation(self):
+        source = (
+            '#import "@local/text-utils:0.1.2": highlighted, paragraph_tab, apply-paragraph-tabs\n'
+            '#show: apply-paragraph-tabs\n'
+            '#set math.equation(numbering: "(1)")\n\n'
+            '#paragraph_tab\n'
+            'To endow $H^(s)$ with a Hilbert-space structure:\n'
+            '$\n'
+            ' (u,v)_(H^(s)):=(Lambda^(s)u,Lambda^(s)v)_(L^(2)).\n'
+            '$\n'
+            'Following paragraph stays outside the highlight.\n'
+        )
+        state = self.compile(source)
+        intro = next(part for part in state.bundle.passages if part["text"].startswith("To endow"))
+        equation = next(part for part in state.bundle.passages if "(1)" in part["text"])
+        eq_text = equation["text"].removesuffix("(1)")
+        fragments = [
+            {**self.fragment(state, intro["text"]), "segments": self._segments_for_passage(intro)},
+            {
+                **self.fragment(state, equation["text"]),
+                "segments": [
+                    {"text": eq_text, "math": True, "complete": True},
+                    {"text": "(1)"},
+                ],
+            },
+        ]
+        result = state.highlight(state.revision, fragments)
+        self.assertEqual(result["status"], "highlighted", result)
+        updated = self.entry.read_text()
+        self.assertIn(
+            '#paragraph_tab\n'
+            '#highlighted[To endow $H^(s)$ with a Hilbert-space structure:\n'
+            '$\n'
+            ' (u,v)_(H^(s)):=(Lambda^(s)u,Lambda^(s)v)_(L^(2)).\n'
+            '$]\n'
+            'Following paragraph stays outside the highlight.\n',
+            updated,
+        )
+        state.compile()
+        self.assertTrue(state.report["contentGatePassed"], state.report)
+
     def test_a_save_during_candidate_compilation_is_not_overwritten(self):
         state = self.compile("Before selected text after.")
         fragment = self.fragment(state, "selected text")

@@ -90,6 +90,18 @@ class PassageIndex(HTMLParser):
             passage["text"].append(data)
 
 
+def _strip_boundary_surrogates(text, *, leading=False, trailing=False):
+    """Strip lone UTF-16 surrogates left when stale clients slice non-BMP context."""
+    start, end = 0, len(text)
+    if leading:
+        while start < end and 0xD800 <= ord(text[start]) <= 0xDFFF:
+            start += 1
+    if trailing:
+        while end > start and 0xD800 <= ord(text[end - 1]) <= 0xDFFF:
+            end -= 1
+    return text[start:end]
+
+
 def validate_fragments(fragments):
     if not isinstance(fragments, list) or not 1 <= len(fragments) <= 32:
         raise ValueError("Expected 1–32 saved passage fragments")
@@ -102,7 +114,12 @@ def validate_fragments(fragments):
             text = fragment.get(field, "")
             if not isinstance(text, str) or len(text) > limit:
                 raise ValueError(f"Invalid passage {field}")
-            value[field] = normalized(text)
+            clean = normalized(text)
+            if field == "prefix":
+                clean = normalized(_strip_boundary_surrogates(clean, leading=True))
+            elif field == "suffix":
+                clean = normalized(_strip_boundary_surrogates(clean, trailing=True))
+            value[field] = clean
         if not value["exact"]:
             raise ValueError("A saved passage needs quotation text")
         result.append(value)

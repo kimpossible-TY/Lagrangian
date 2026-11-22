@@ -66,26 +66,41 @@ class MarkedPassages(PassageIndex):
 
     def __init__(self, source, block_sections, token):
         self.token = token
-        self.marker_depth = None
+        self.marking = False
+        self.start_markers = 0
+        self.end_markers = 0
+        self.valid = True
         self.number_depth = None
-        self.markers = 0
         self.marked = {}
         self.raw = {}
         super().__init__(source, block_sections)
 
     def handle_starttag(self, tag, attrs):
-        marked = dict(attrs).get("data-flow-source-edit") == self.token
+        attributes = dict(attrs)
         super().handle_starttag(tag, attrs)
-        if marked:
-            self.markers += 1
-            self.marker_depth = len(self.stack)
-        if "flow-equation-number" in dict(attrs).get("class", "").split():
+        if attributes.get("data-flow-source-edit") == self.token:
+            edge = attributes.get("data-flow-source-edit-edge")
+            if edge == "start":
+                if self.marking:
+                    self.valid = False
+                else:
+                    self.marking = True
+                    self.start_markers += 1
+            elif edge == "end":
+                if not self.marking:
+                    self.valid = False
+                else:
+                    self.marking = False
+                    self.end_markers += 1
+            else:
+                self.valid = False
+        if "flow-equation-number" in attributes.get("class", "").split():
             self.number_depth = len(self.stack)
 
     def handle_data(self, data):
         if self.active and self.stack and not self.stack[-1][1]:
             passage = self.active[-1]
-            if self.marker_depth and self.number_depth is None:
+            if self.marking and self.number_depth is None:
                 start = sum(map(len, passage["text"]))
                 interval = self.marked.setdefault(id(passage), [start, start])
                 interval[1] = start + len(data)
@@ -96,8 +111,6 @@ class MarkedPassages(PassageIndex):
             passage = self.stack[-1][2]
             if passage:
                 self.raw[id(passage)] = "".join(passage["text"])
-            if self.marker_depth == len(self.stack):
-                self.marker_depth = None
             if self.number_depth == len(self.stack):
                 self.number_depth = None
         super().handle_endtag(tag)
@@ -245,8 +258,11 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh, wri
         for function in (["highlighted"] if mathematical else ["highlighted", "highlight"]):
             fresh()
             highlighted = f"#{function}[{source[start:end]}]"
-            marked = (f'#html.elem("span", attrs: ("data-flow-source-edit": "{token}"))'
-                      f'[{highlighted}]')
+            start_marker = (f'#html.elem("span", attrs: ("data-flow-source-edit": "{token}", '
+                            f'"data-flow-source-edit-edge": "start"), []);')
+            end_marker = (f'#html.elem("span", attrs: ("data-flow-source-edit": "{token}", '
+                          f'"data-flow-source-edit-edge": "end"), []);')
+            marked = f"{start_marker}{highlighted}{end_marker}"
             updated = source[:start] + marked + source[end:]
             with tempfile.TemporaryDirectory(prefix="source-highlight-", dir=output) as temporary:
                 work = Path(temporary)
@@ -264,7 +280,8 @@ def apply_highlight(project, output, bundle, dependencies, fragments, fresh, wri
                 # Parse one complete document after globally assigning reading keys.
                 keyed = assign_block_ids(document)
                 index = MarkedPassages(keyed, compiled.manifest["blocks"], token)
-                if (index.markers != 1 or [item["text"] for item in index.passages] != baseline
+                if (not index.valid or index.start_markers != 1 or index.end_markers != 1
+                        or index.marking or [item["text"] for item in index.passages] != baseline
                         or index.intervals() != expected):
                     continue
                 final = source[:start] + highlighted + source[end:]

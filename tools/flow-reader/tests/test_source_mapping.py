@@ -273,6 +273,101 @@ class SourceExcerptTests(unittest.TestCase):
                     self.assertEqual(source_excerpt(project, (), bundle, [fragment]),
                                      {'status': 'located', 'text': formula})
 
+    def test_stale_client_boundary_lone_surrogates_disambiguate_repeated_non_bmp_formula(self):
+        formula = '$Lambda^(-s)$'
+        rendered = 'Λ−𝑠'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            entry = root / 'main.typ'
+            project = Project(root, Path('main.typ'), root / 'packages')
+            source = (
+                'Because $Lambda^(s)$ is surjective with inverse $Lambda^(-s)$, '
+                'the candidate limit $u:=Lambda^(-s)f$ belongs to $H^(s)$.'
+            )
+            entry.write_text(source)
+            digest = hashlib.sha256(source.encode()).hexdigest()
+            passage_text = (
+                'Because Λ𝑠 is surjective with inverse Λ−𝑠, '
+                'the candidate limit 𝑢≔Λ−𝑠𝑓 belongs to 𝐻𝑠.'
+            )
+            first_rendered_start = passage_text.index(rendered)
+            first_source_start = source.index(formula)
+            second_rendered_start = passage_text.index(rendered, first_rendered_start + len(rendered))
+            second_source_start = source.index('$u:=Lambda^(-s)f$')
+            spans = [
+                {
+                    'path': str(entry),
+                    'source_hash': digest,
+                    'start': first_source_start,
+                    'end': first_source_start + len(formula),
+                    'kind': 'math',
+                    'text_start': first_rendered_start,
+                    'text_end': first_rendered_start + len(rendered),
+                },
+                {
+                    'path': str(entry),
+                    'source_hash': digest,
+                    'start': second_source_start,
+                    'end': second_source_start + len('$u:=Lambda^(-s)f$'),
+                    'kind': 'math',
+                    'text_start': second_rendered_start - 2,
+                    'text_end': second_rendered_start + len(rendered) + 1,
+                },
+            ]
+            bundle = SimpleNamespace(passages=[{
+                'key': 'p-inverse',
+                'id': 'p-inverse',
+                'section': 'section-0',
+                'text': passage_text,
+                'source_ranges': spans,
+            }])
+
+            # Stale cached client slicing UTF-16 code units leaves a leading low
+            # surrogate in prefix and trailing high surrogate in suffix.
+            stale_fragment = {
+                'key': 'p-inverse',
+                'exact': rendered,
+                'prefix': '\udc3f is surjective with inverse ',
+                'suffix': ', the candidate limit \ud835',
+            }
+            self.assertEqual(
+                source_excerpt(project, (), bundle, [stale_fragment]),
+                {'status': 'located', 'text': formula},
+            )
+            # Clean context also locates identically.
+            clean_fragment = {
+                'key': 'p-inverse',
+                'exact': rendered,
+                'prefix': 'is surjective with inverse ',
+                'suffix': ', the candidate limit ',
+            }
+            self.assertEqual(
+                source_excerpt(project, (), bundle, [clean_fragment]),
+                {'status': 'located', 'text': formula},
+            )
+            # Genuinely ambiguous context (no matching prefix/suffix) still returns ambiguous.
+            ambiguous_fragment = {
+                'key': 'p-inverse',
+                'exact': rendered,
+                'prefix': '',
+                'suffix': '',
+            }
+            self.assertEqual(
+                source_excerpt(project, (), bundle, [ambiguous_fragment]),
+                {'status': 'ambiguous'},
+            )
+            # validate_fragments never mutates exact or key.
+            validated = validate_fragments([{
+                'key': '\udc3f-key-\ud835',
+                'exact': '\udc3f' + rendered + '\ud835',
+                'prefix': ' \udc3f with inverse ',
+                'suffix': ', limit \ud835 ',
+            }])[0]
+            self.assertEqual(validated['key'], '\udc3f-key-\ud835')
+            self.assertEqual(validated['exact'], '\udc3f' + rendered + '\ud835')
+            self.assertEqual(validated['prefix'], 'with inverse')
+            self.assertEqual(validated['suffix'], ', limit')
+
 
 class CompiledSourceMappingTests(unittest.TestCase):
     def setUp(self):
