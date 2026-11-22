@@ -1377,6 +1377,42 @@
             "sha256": "d366678ade948b2fc45563c1ead849408a264f4507d877e25e969ea40829767e"
           }
         ]
+      },
+      {
+        "baseRevision": "87ebbae84e676233acbacedf6402e5f046222773",
+        "revision": "36b05a6a8d6f0febba038e204eabad601a229ca4",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "0eff7940207ccccd0368ddf8d7f00fbb5b484024f00c151350ba325085ea8061",
+            "sha256": "7f6a04d13c079c1f7f7dc50d03785b0a0dbc287bccd45dd1ed6cd13d979fc9d8"
+          },
+          {
+            "path": "scripts/mac/refresh-reader-engine.sh",
+            "baseSHA256": "562f3df6ab7b7c9655381a62e7920ed33fa05f7d460603bbee5bb2d9149c4572",
+            "sha256": "27bcd19e86146ef170ff23b4834d0c8443a1352e1aaf9f687ae3b6696768b5e1"
+          },
+          {
+            "path": "scripts/mac/test-reader-refresh.py",
+            "baseSHA256": "ce280e07ec65dbcb52d4b95fb7689f896158eff9a3fc36b3e7067d8f01ad17f7",
+            "sha256": "812b7082f4fa4c8bbbf2c3295d20a032d646bedca96f8150acb41b11b8c48d43"
+          },
+          {
+            "path": "tests/flow-app/test_app.py",
+            "baseSHA256": "309773be85509645dd591a0857fa8722be1efeb8fcfa9c54f9a6f50724459cf7",
+            "sha256": "0a020fdbeb297d5a6a080f0adfefe515583c9ac97e9f22891d1560fe6f892129"
+          },
+          {
+            "path": "tools/flow-reader/install.py",
+            "baseSHA256": "85dfddc472335d210c2d085ecc367b6a02bc90d53142acd9e25dda90d3fc6ef0",
+            "sha256": "b96577a0b74d557120bfc94d3680d7eff94a33aa6163da99a911684670ca9489"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_install.py",
+            "baseSHA256": "63ed077ee02b2e36726b4c01302d191075ed00f0abe090c86c8569b7b049e05d",
+            "sha256": "9d5d91e6094b0c9be001cfccb7278f160719c82c691a63089ae798a201e2066d"
+          }
+        ]
       }
     ]
   }
