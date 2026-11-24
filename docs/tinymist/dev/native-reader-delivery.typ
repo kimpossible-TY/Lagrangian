@@ -400,3 +400,16 @@ The scripts/mac owner correction registers the four scripts/mac paths from
 `scripts/mac/test-auto-update-engine.sh`, and
 `scripts/mac/test-reader-refresh.py`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+The flow-reader follow-up owner correction registers the eight paths from
+`7b089be34903e6712b26550b99eba5175e404042` →
+`ccb31c9b63741409d078ef0963ede12347dc63b2`:
+`docs/tinymist/dev/reader-architecture.typ`,
+`tools/flow-reader/AGENTS.md`,
+`tools/flow-reader/flow_reader/compiler/source_map.py`,
+`tools/flow-reader/flow_reader/document/passages.py`,
+`tools/flow-reader/flow_reader/server/native_reader.py`,
+`tools/flow-reader/flow_reader/services/source_highlight.py`,
+`tools/flow-reader/tests/test_native_editor_dispatch.py`, and
+`tools/flow-reader/tests/test_passages.py`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.

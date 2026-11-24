@@ -1525,6 +1525,52 @@
             "sha256": "44065b89241b4f0747dff9aabde3778db87dfc3491fcdc2df48552f6ed348ced"
           }
         ]
+      },
+      {
+        "baseRevision": "7b089be34903e6712b26550b99eba5175e404042",
+        "revision": "ccb31c9b63741409d078ef0963ede12347dc63b2",
+        "files": [
+          {
+            "path": "docs/tinymist/dev/reader-architecture.typ",
+            "baseSHA256": "08bfa63635709e67abd20fb7e8aacbfdc549d7da1d9fc43db1fe32cf67fea4ac",
+            "sha256": "ab360ea04d3dad9b6ee762751a3e11ccd181e835b47f438fbf7e2b50fd5694aa"
+          },
+          {
+            "path": "tools/flow-reader/AGENTS.md",
+            "baseSHA256": "a342cce8bb725cb762d9fbce97c1b076e5a86fa7a968ad7a7f5d6f016c369897",
+            "sha256": "059a710c51ddfafc4998fd270c1482e0266b943f8cd9500ae916cf4bad165862"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/compiler/source_map.py",
+            "baseSHA256": "c76c0004c2600734145d1187d938e40312cecc554ea3191d70f631ebfdd95ca8",
+            "sha256": "793b5ea6e13751b7d4523b743971b791d8bc19a35d2c6c98e9d6243e9b1b87b2"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/document/passages.py",
+            "baseSHA256": "68fafc4847c4519a331849a05b995fdecd391de15d3f55dfa7e0968dcd5d7817",
+            "sha256": "af6753ae0a53d70fd11440d9dd369140a851808d06c7a638effefbedac73952e"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/native_reader.py",
+            "baseSHA256": "bf5e6a2478a260162aa988814d502df21b2c5081d71e8e415a46aac7f487f363",
+            "sha256": "6b139f00c7af1a18b9a1c3f9a12b5c05e0cd45c89cb20829d4290f311be813a6"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/source_highlight.py",
+            "baseSHA256": "ae3384dc45c45c5586def6b72e5b93caafee7f17f7745850ec8dc462f25e3c37",
+            "sha256": "5ab75eae1d0be41f2054d8609a91e18ddd2ec61d94b094a7ed59b2c9da9305e4"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_native_editor_dispatch.py",
+            "baseSHA256": "28d4b9e57e858fbc687ebabbcd3bb04a77d99c8e414e39917b3556b1c2b9f16c",
+            "sha256": "d4ec80cb03eed628281c6987e207901c123f6c6696b25c77295cacfab1fabe19"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_passages.py",
+            "baseSHA256": "9cb917a428e4a28c1ca20c5e598b5cdfac4f14b18664ffd7e692a97810a87192",
+            "sha256": "aeaef782298f17f1940459b4a4a72e914932c42a6f35393f7653b770e357cc67"
+          }
+        ]
       }
     ]
   }
