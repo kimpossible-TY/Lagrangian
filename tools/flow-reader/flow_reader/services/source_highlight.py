@@ -70,7 +70,6 @@ class MarkedPassages(PassageIndex):
         self.start_markers = 0
         self.end_markers = 0
         self.valid = True
-        self.number_depth = None
         self.marked = {}
         self.raw = {}
         super().__init__(source, block_sections)
@@ -94,13 +93,11 @@ class MarkedPassages(PassageIndex):
                     self.end_markers += 1
             else:
                 self.valid = False
-        if "flow-equation-number" in attributes.get("class", "").split():
-            self.number_depth = len(self.stack)
 
     def handle_data(self, data):
         if self.active and self.stack and not self.stack[-1][1]:
             passage = self.active[-1]
-            if self.marking and self.number_depth is None:
+            if self.marking and not self.in_equation_number:
                 start = sum(map(len, passage["text"]))
                 interval = self.marked.setdefault(id(passage), [start, start])
                 interval[1] = start + len(data)
@@ -111,8 +108,6 @@ class MarkedPassages(PassageIndex):
             passage = self.stack[-1][2]
             if passage:
                 self.raw[id(passage)] = "".join(passage["text"])
-            if self.number_depth == len(self.stack):
-                self.number_depth = None
         super().handle_endtag(tag)
 
     def intervals(self):

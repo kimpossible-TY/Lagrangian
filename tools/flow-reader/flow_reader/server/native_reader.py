@@ -10,6 +10,7 @@ from flow_reader.document.native_document import import_accepted_document, SUPPO
 from flow_reader.document.passages import normalized, locate_passages
 from flow_reader.errors import RevisionChanged
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
+from flow_reader.services.source_highlight import MAX_SELECTION_SEGMENTS
 
 MAX_DOCUMENT = 32 * 1024 * 1024
 MAX_CHAT = 2 * 1024 * 1024
@@ -207,7 +208,7 @@ class NativeReaderService:
                 position = end
             if position < units[1]:
                 segments.append({"text": raw[position*2:units[1]*2].decode("utf-16-le")})
-            if len(segments) > 16:
+            if len(segments) > MAX_SELECTION_SEGMENTS:
                 return None
             result.append({"key": carrier["passageKey"], "exact": exact, "segments": segments,
                            "prefix": normalized(before)[-120:], "suffix": normalized(after)[:120]})

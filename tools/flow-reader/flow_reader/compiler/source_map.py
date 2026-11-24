@@ -551,7 +551,6 @@ class CarrierPassages(PassageIndex):
 
     def __init__(self, source, blocks, carriers):
         self.carriers, self.carrier_stack, self.raw_ranges = carriers, [], {}
-        self.number_depth = None
         self.valid = True
         super().__init__(source, blocks)
 
@@ -568,12 +567,10 @@ class CarrierPassages(PassageIndex):
                 self.carrier_stack.pop()
             else:
                 self.valid = False
-        if "flow-equation-number" in attributes.get("class", "").split():
-            self.number_depth = len(self.stack)
 
     def handle_data(self, data):
         if (self.active and self.stack and not self.stack[-1][1]
-                and self.carrier_stack and self.number_depth is None):
+                and self.carrier_stack and not self.in_equation_number):
             passage = self.active[-1]
             offset = sum(map(len, passage["text"]))
             ranges = self.raw_ranges.setdefault(id(passage), [])
@@ -596,6 +593,4 @@ class CarrierPassages(PassageIndex):
                         result.append({**self.carriers.ranges[identifier],
                                        "text_start": covered[0], "text_end": covered[-1] + 1})
                 passage["source_ranges"] = result
-            if self.number_depth == len(self.stack):
-                self.number_depth = None
         super().handle_endtag(tag)

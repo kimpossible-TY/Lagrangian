@@ -13,10 +13,12 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.build import Project
-from flow_reader.document.passages import locate_passages
+from flow_reader.compiler.source_map import CarrierPassages, SourceCarriers
+from flow_reader.document.passages import PassageIndex, locate_passages
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
+from flow_reader.services.source_highlight import MarkedPassages
 
 
 class PassageTests(unittest.TestCase):
@@ -86,6 +88,114 @@ class PassageTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 worker.join()
+
+    def test_equation_number_guards_shared_across_passage_index_carrier_and_marked_parsers(self):
+        class RecordingPassageIndex(PassageIndex):
+            def __init__(self, source, block_sections):
+                self.trace = []
+                super().__init__(source, block_sections)
+
+            def handle_data(self, data):
+                if data.strip():
+                    self.trace.append((data, self.in_equation_number))
+                super().handle_data(data)
+
+        carriers = SourceCarriers()
+        carriers.ranges = {
+            "0": {"path": "main.typ", "source_hash": "0" * 64, "start": 0, "end": 5, "kind": "math"},
+            "1": {"path": "main.typ", "source_hash": "0" * 64, "start": 6, "end": 12, "kind": "text"},
+        }
+        token = "edit-token"
+        c_start = f'<span {carriers.attribute}="0" data-flow-source-edge="start"></span>'
+        c_end = f'<span {carriers.attribute}="0" data-flow-source-edge="end"></span>'
+        t_start = f'<span {carriers.attribute}="1" data-flow-source-edge="start"></span>'
+        t_end = f'<span {carriers.attribute}="1" data-flow-source-edge="end"></span>'
+        m_start = f'<span data-flow-source-edit="{token}" data-flow-source-edit-edge="start"></span>'
+        m_end = f'<span data-flow-source-edit="{token}" data-flow-source-edit-edge="end"></span>'
+
+        def build_html(start_tag, end_tag):
+            return (
+                '<html><body>'
+                '<div class="flow-equation" data-reader-key="normal">'
+                f'{start_tag}<math>u=0</math>'
+                '<div class="flow-equation-number">(1)</div>'
+                f'{end_tag}</div>'
+                '<div class="flow-equation" data-reader-key="nested">'
+                f'{start_tag}<math>v=1</math>'
+                '<div class="flow-equation-number">(<span class="flow-equation-number">2</span>.3)</div>'
+                f'{end_tag}</div>'
+                '<div class="flow-equation" data-reader-key="excluded">'
+                f'{start_tag}<nav><span class="flow-equation-number">nav</span></nav>'
+                '<svg><span class="flow-equation-number">svg</span></svg>'
+                '<math>w=2</math>'
+                '<div class="flow-equation-number">(4)</div>'
+                f'{end_tag}</div>'
+                '</body></html>'
+            )
+
+        blocks = {"normal": "section-0", "nested": "section-0", "excluded": "section-0"}
+        plain_html = build_html("", "")
+        carried_html = build_html(c_start, c_end)
+        marked_html = build_html(m_start, m_end)
+
+        plain = RecordingPassageIndex(plain_html, blocks)
+        with self.assertRaises(AttributeError):
+            plain.in_equation_number = True
+        self.assertFalse(plain.in_equation_number)
+        self.assertEqual(plain.trace, [
+            ("u=0", False), ("(1)", True),
+            ("v=1", False), ("(", True), ("2", True), (".3)", True),
+            ("nav", False), ("svg", False), ("w=2", False), ("(4)", True),
+        ])
+
+        plain_by_key = {p["key"]: p for p in plain.passages}
+        self.assertEqual(plain_by_key["normal"]["text"], "u=0(1)")
+        self.assertEqual(plain_by_key["normal"]["equation_number_ranges"], [(3, 6)])
+        self.assertEqual(plain_by_key["nested"]["text"], "v=1(2.3)")
+        self.assertEqual(plain_by_key["nested"]["equation_number_ranges"], [(3, 8)])
+        self.assertEqual(plain_by_key["excluded"]["text"], "w=2(4)")
+        self.assertEqual(plain_by_key["excluded"]["equation_number_ranges"], [(3, 6)])
+
+        carrier_index = CarrierPassages(carried_html, blocks, carriers)
+        self.assertTrue(carrier_index.valid)
+        self.assertFalse(hasattr(carrier_index, "number_depth"))
+        carrier_by_key = {p["key"]: p for p in carrier_index.passages}
+        self.assertEqual(
+            [(r["text_start"], r["text_end"]) for r in carrier_by_key["normal"]["source_ranges"]],
+            [(0, 3)],
+        )
+        self.assertEqual(
+            [(r["text_start"], r["text_end"]) for r in carrier_by_key["nested"]["source_ranges"]],
+            [(0, 3)],
+        )
+        self.assertEqual(
+            [(r["text_start"], r["text_end"]) for r in carrier_by_key["excluded"]["source_ranges"]],
+            [(0, 3)],
+        )
+
+        marked_index = MarkedPassages(marked_html, blocks, token)
+        self.assertTrue(marked_index.valid)
+        self.assertFalse(hasattr(marked_index, "number_depth"))
+        self.assertEqual(marked_index.intervals(), [(0, 0, 3), (1, 0, 3), (2, 0, 3)])
+
+        # Void tags with flow-equation-number must not leak equation-number state.
+        void_blocks = {"void": "section-0"}
+        void_plain = PassageIndex('<html><body><p data-reader-key="void"><br class="flow-equation-number">after</p></body></html>', void_blocks)
+        void_carried = CarrierPassages(
+            f'<html><body><p data-reader-key="void">{t_start}<br class="flow-equation-number">after{t_end}</p></body></html>',
+            void_blocks, carriers,
+        )
+        void_marked = MarkedPassages(
+            f'<html><body><p data-reader-key="void">{m_start}<br class="flow-equation-number">after{m_end}</p></body></html>',
+            void_blocks, token,
+        )
+        self.assertFalse(void_plain.in_equation_number)
+        self.assertEqual(void_plain.passages[0]["equation_number_ranges"], [])
+        self.assertEqual(
+            [(r["text_start"], r["text_end"]) for r in void_carried.passages[0]["source_ranges"]],
+            [(0, 5)],
+        )
+        self.assertEqual(void_marked.intervals(), [(0, 0, 5)])
 
 
 if __name__ == "__main__":

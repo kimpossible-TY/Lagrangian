@@ -35,6 +35,10 @@ class PassageIndex(HTMLParser):
         self._raw_equation_numbers = {}
         self.feed(source)
 
+    @property
+    def in_equation_number(self) -> bool:
+        return self._equation_number_depth is not None
+
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         excluded = bool(self.stack and self.stack[-1][1]) or tag in {"svg", "script", "style", "nav"} or (

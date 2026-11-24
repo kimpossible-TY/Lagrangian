@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -23,11 +24,13 @@ REPO = Path(__file__).resolve().parents[3]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(REPO / 'tools/flow-reader'))
 from flow_reader.compiler.project import Project
+from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.server.native_reader import service_id
+from flow_reader.server.native_reader import NativeReaderService, service_id
 from flow_reader.services.editor_sync import NeovimEditor, vim_string
 from flow_reader.services.native_editor_actions import NativeEditorActions
+from flow_reader.services.source_highlight import MAX_SELECTION_SEGMENTS
 
 OUT = Path(os.environ.get('NA15_OUTPUT', Path(tempfile.gettempdir()) / 'native-editor-actions'))
 
@@ -494,6 +497,50 @@ class NativeEditorDispatchTests(CompilerEditorFixture):
             for operation in ('prepare','jump'):self.assertEqual(self.action(operation,request)['status'],'stale')
             self.assert_unchanged(self.before)
         self.save('rework-marker-proof.json',dict(nativeRegistration=True,legacyHTTPConsentDenied=True,nonBooleanMarkersDenied=True,legacyWriteResolverPreserved=True))
+
+
+class NativeReaderFragmentsTests(unittest.TestCase):
+    def _build_selection(self, math_count, *, trailing_text):
+        part = 'a <math><mi>x</mi></math>'
+        body_inner = ' '.join([part] * math_count) + (' a' if trailing_text else '')
+        bundle = split_document(f'<html><body><p>{body_inner}</p></body></html>', 'rev-1')
+        with tempfile.TemporaryDirectory() as temporary:
+            state = SimpleNamespace(
+                lock=threading.RLock(),
+                output=Path(temporary),
+                document_id='doc-1',
+                focus=SimpleNamespace(service={'pid': 1, 'startedAt': 1}),
+            )
+            service = NativeReaderService(state)
+        snapshot = SimpleNamespace(revision='rev-1', inputs='inputs-1', bundle=bundle)
+        block = service.imported(snapshot).document['blocks'][0]
+        request = {
+            'selection': {
+                'ticket': str(uuid4()),
+                'fragments': [{
+                    'blockID': block['id'],
+                    'rangeUTF16': block['rangeUTF16'],
+                    'exact': block['canonicalText'],
+                }],
+            },
+        }
+        return service, request, snapshot
+
+    def test_dense_math_selection_respects_max_selection_segments(self):
+        self.assertEqual(MAX_SELECTION_SEGMENTS, 128)
+        for math_count, trailing_text, expected_segments in (
+            (11, True, 23),
+            (64, False, MAX_SELECTION_SEGMENTS),
+        ):
+            with self.subTest(expected_segments=expected_segments):
+                service, request, snapshot = self._build_selection(math_count, trailing_text=trailing_text)
+                fragments = service.fragments(request, snapshot)
+                self.assertIsNotNone(fragments)
+                self.assertEqual(len(fragments), 1)
+                self.assertEqual(len(fragments[0]['segments']), expected_segments)
+
+        service, request, snapshot = self._build_selection(64, trailing_text=True)
+        self.assertIsNone(service.fragments(request, snapshot))
 
 
 def serve_fixture(config):
