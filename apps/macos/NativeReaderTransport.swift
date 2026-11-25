@@ -756,7 +756,7 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         return actions
     }
     func revokeEditorConsent() async {
-        guard editor?.consentID != nil else { return }
+        guard !editorConsentRevoked, editor?.consentID != nil else { return }
         editorConsentRevoked = true; epoch += 1
         if let transport { await transport.revokeEditorConsent() }
         else { _ = await resolver.retryEditorCleanup(root: root, entry: entry, readerID: readerID) }

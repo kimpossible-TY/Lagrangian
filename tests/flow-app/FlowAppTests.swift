@@ -421,6 +421,27 @@ struct FlowAppTests {
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         check(scopeRequests == beforeClose + 1, "reader close revoked editor consent more than once")
         checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
+        if !cancelled {
+          let switchRead = delegate.readNative(other, progress: { _ in })
+          RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+          check(scopeRequests == beforeClose + 1, "profile switch revoked closed consent again")
+          switchRead()
+          delegate.settings.selectedID = other.id
+          let failingResolver = delegate.managedResolver
+          delegate.managedResolver = nil
+          finished = false; connected = false
+          Task { @MainActor in
+            connected = (try? await delegate.connectEditor(descriptor: descriptor, for: other, consent: { true })) == true
+            finished = true
+          }
+          waitUntil("editor reconnect after profile switch") { finished }
+          check(connected, "editor reconnect accepted")
+          RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+          check(scopeRequests == beforeClose + 1, "editor reconnect revoked closed consent again")
+          delegate.disconnectEditor()
+          delegate.settings.selectedID = profile.id
+          delegate.managedResolver = failingResolver
+        }
         let beforeReopen = attachRequests.count
         let reopen = delegate.readNative(profile, progress: { _ in })
         waitUntil("reader reopens without editor consent") { attachRequests.count > beforeReopen }
