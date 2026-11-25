@@ -30,7 +30,7 @@ class CrossProjectPreview(unittest.TestCase):
             *[ROOT / 'apps/macos' / name for group in ('core', 'native') for name in manifest[group]],
             ROOT / 'tests/flow-app/native-reader-app/CrossProjectPreviewTests.swift',
             '-o', cls.executable,
-        ], capture_output=True, text=True, timeout=120)
+        ], capture_output=True, text=True, timeout=300)
         if result.returncode != 0 or result.stderr:
             raise RuntimeError(result.stdout + result.stderr)
 

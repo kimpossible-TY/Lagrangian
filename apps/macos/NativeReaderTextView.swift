@@ -853,7 +853,7 @@ extension NativeReaderTextView {
     }
     func currentCrossProjectPosition() -> NativeReaderCrossProjectPosition {
         let blockID = viewportAnchor()?.position.blockID
-        let anchor = store.document?.blocks.first(where: { $0.id == blockID })?.orderedNodes.flatMap(\.anchors).first
+        let anchor = store.document?.blocks.first(where: { $0.id == blockID })?.anchors.first
         return .init(anchor: anchor, blockID: blockID, scrollOffset: Double(scrollView.contentView.bounds.origin.y))
     }
     @discardableResult func scrollToCrossProjectLocation(anchor: String?, blockID: String?, scrollOffset: Double?) -> Bool {

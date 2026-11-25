@@ -23,14 +23,14 @@ struct CrossProjectPreviewTests {
     let generation = try store.beginRequest()
     let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "revision", scope: .fixture)
     let text = String(repeating: "A long line of text. ", count: 40)
-    func block(_ id: String, _ anchor: String) -> NativeReaderNode {
-      NativeReaderNode(id: id, sectionID: "section", kind: .text, canonicalText: text, displayText: text,
-        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: [anchor],
+    func block(_ id: String, _ anchors: [String], children: [NativeReaderNode] = []) -> NativeReaderNode {
+      NativeReaderNode(id: id, sectionID: "section", kind: children.isEmpty ? .text : .paragraph, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: children, anchors: anchors,
         annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
         headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
     }
     let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
-      requiredCapabilities: ["semantic-tree-v1"], blocks: [block("first", "start"), block("second", "end")], assets: [], diagnostics: [])
+      requiredCapabilities: ["semantic-tree-v1"], blocks: [block("first", [], children: [block("child", ["child-anchor"])]), block("second", ["block-anchor"])], assets: [], diagnostics: [])
     let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 180),
                           styleMask: [.borderless], backing: .buffered, defer: false)
@@ -46,8 +46,10 @@ struct CrossProjectPreviewTests {
     try check(converted == view.bodyTextView.convert(raw, to: view), "Node rectangle is converted to reader coordinates")
     try check(view.nodeRectInView(forNodeID: "missing") == nil, "Unknown node has no rectangle")
     let snap = view.currentCrossProjectPosition()
-    try check(snap.blockID == "first" && snap.anchor == "start" && snap.scrollOffset == Double(view.scrollView.contentView.bounds.origin.y), "Snapshot captures viewport")
-    try check(view.scrollToCrossProjectLocation(anchor: "end", blockID: "first", scrollOffset: 0) && view.focusedNodeID == "second", "Anchor takes priority")
+    try check(snap.blockID == "first" && snap.anchor == nil && snap.scrollOffset == Double(view.scrollView.contentView.bounds.origin.y), "Snapshot captures the block without inheriting its child's anchor")
+    try check(view.scrollToCrossProjectLocation(anchor: "block-anchor", blockID: "first", scrollOffset: 0) && view.focusedNodeID == "second", "Anchor takes priority")
+    let anchoredSnap = view.currentCrossProjectPosition()
+    try check(anchoredSnap.blockID == "second" && anchoredSnap.anchor == "block-anchor", "Snapshot captures the block's own anchor")
     try check(!view.scrollToCrossProjectLocation(anchor: "missing", blockID: "first", scrollOffset: 0), "Missing anchor does not fall back")
     try check(view.scrollToCrossProjectLocation(anchor: "", blockID: "first", scrollOffset: nil) && view.focusedNodeID == "first", "Block navigation")
     try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: .greatestFiniteMagnitude), "Finite offset accepted")
