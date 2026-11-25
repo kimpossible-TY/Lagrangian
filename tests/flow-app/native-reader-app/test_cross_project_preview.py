@@ -27,7 +27,7 @@ class CrossProjectPreview(unittest.TestCase):
         manifest = json.loads((ROOT / 'apps/macos/sources.json').read_text())
         result = subprocess.run([
             '/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
-            *[ROOT / 'apps/macos' / name for group in ('core', 'native') for name in manifest[group]],
+            *[ROOT / 'apps/macos' / name for group in ('core', 'native', 'app') for name in manifest[group] if name != 'main.swift'],
             ROOT / 'tests/flow-app/native-reader-app/CrossProjectPreviewTests.swift',
             '-o', cls.executable,
         ], capture_output=True, text=True, timeout=300)
@@ -46,6 +46,15 @@ class CrossProjectPreview(unittest.TestCase):
 
     def test_compact_layout_and_floating_surface_in_both_themes(self):
         self.scenario('layout')
+
+    def test_reader_preview_first_click(self):
+        self.scenario('reader_preview_first_click')
+
+    def test_reader_async_snippet(self):
+        self.scenario('reader_async_snippet')
+
+    def test_reader_second_click_and_back(self):
+        self.scenario('reader_second_click_and_back')
 
     def test_reader_geometry_snapshot_and_location_restoration(self):
         self.scenario('reader')

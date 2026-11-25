@@ -70,6 +70,95 @@ struct CrossProjectPreviewTests {
               "Disposed view rejects geometry and scrolling")
   }
 
+  @MainActor static func controllerScenario(_ scenario: String) async throws {
+    let host = NativeReaderWindowController(provider: NativeReaderOfflineProvider(),
+      target: { _ in throw NativeReaderOperationFailure.unavailable }, show: false, avoidActivation: true, fixtureMode: true)
+    defer { host.dispose() }
+    host.hostWindow.initialize()
+    let generation = try host.store.beginRequest()
+    let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "revision", scope: .fixture)
+    let url = "https://example.org/book.pdf#page=2"
+    let text = "Theorem 2"
+    let leaf = NativeReaderNode(id: "leaf", sectionID: "section", kind: .text, canonicalText: text, displayText: text,
+      rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: [],
+      annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+      headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+    let link = NativeReaderNode(id: "link", sectionID: "section", kind: .link, canonicalText: text, displayText: text,
+      rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [leaf], anchors: ["origin"],
+      annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+      headingLevel: nil, math: nil, cell: nil, link: url, assetID: nil, alt: nil)
+    let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
+      requiredCapabilities: ["semantic-tree-v1"], blocks: [link], assets: [], diagnostics: [])
+    let context = NativeReaderRequestContext(requestID: UUID(), viewID: host.store.viewID, generation: generation, target: identity)
+    try host.textView.adopt(document, context: context)
+    host.hostWindow.window?.contentView?.layoutSubtreeIfNeeded()
+    let project = CrossProjectCatalogProject(title: "Book", pdfURL: "https://example.org/book.pdf",
+      references: ["thm": CrossProjectCatalogEntry(page: 2, text: text)], ambiguousLabels: [])
+    host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": project]) }
+    var opened: [URL] = []
+    host.openHomepage = { opened.append($0) }
+    if scenario == "reader_preview_first_click" {
+      try check(host.textView.activate(nodeID: "link"), "Activate link")
+      try check(opened.isEmpty && host.activeCrossProjectPreviewView?.content.snippetText == "Theorem 2 · p. 2", "First click previews without opening")
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: [:]) }
+      _ = host.textView.activate(nodeID: "link")
+      try check(opened.count == 1, "Unresolved links open normally")
+      var ambiguous = project; ambiguous.ambiguousLabels = ["thm"]
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": ambiguous]) }
+      _ = host.textView.activate(nodeID: "link")
+      try check(opened.count == 2, "Ambiguous links open normally")
+      host.dispose()
+      try check(host.activeCrossProjectPreviewView == nil, "Dispose clears preview")
+    } else if scenario == "reader_async_snippet" {
+      var continuations: [CheckedContinuation<CrossProjectPreviewContent?, Never>] = []
+      host.crossProjectSnippetLoader = { _ in await withCheckedContinuation { continuations.append($0) } }
+      _ = host.textView.activate(nodeID: "link")
+      await Task.yield()
+      guard let old = host.activeCrossProjectPreviewView else { throw Failure(message: "First preview") }
+      _ = host.textView.activate(nodeID: "link")
+      await Task.yield()
+      guard let current = host.activeCrossProjectPreviewView else { throw Failure(message: "Second preview") }
+      try check(continuations.count == 2 && old !== current, "New click replaces pending preview")
+      var loaded = current.content; loaded.snippetText = "Loaded snippet"
+      continuations[0].resume(returning: loaded)
+      await Task.yield()
+      try check(current.content.snippetText != loaded.snippetText && old.content.snippetText != loaded.snippetText, "Cancelled stale result ignored")
+      continuations[1].resume(returning: loaded)
+      await Task.yield()
+      try check(current.content == loaded, "Current snippet updates")
+    } else {
+      var captured: CrossProjectNavigationEntry?
+      var target: CrossProjectPreviewContent?
+      host.onOpenCrossProjectTarget = { target = $0; captured = $1 }
+      let position = host.textView.currentCrossProjectPosition()
+      _ = host.textView.activate(nodeID: "link")
+      host.activeCrossProjectPreviewView?.openButton.performClick(nil)
+      try check(target?.label == "thm" && captured == CrossProjectNavigationEntry(profileID: "", documentTitle: "", anchor: position.anchor, blockID: position.blockID, scrollOffset: position.scrollOffset), "Second click captures origin")
+      try check(opened.isEmpty && host.activeCrossProjectPreviewView == nil, "Jump dismisses preview")
+      host.onOpenCrossProjectTarget = nil
+      _ = host.textView.activate(nodeID: "link")
+      host.activeCrossProjectPreviewView?.openButton.performClick(nil)
+      try check(opened.count == 1, "Missing jump callback opens URL")
+      var returns = 0
+      host.canReturnFromCrossProject = { true }
+      host.onReturnFromCrossProject = { returns += 1; return true }
+      guard let back = Mirror(reflecting: host.hostWindow).children.first(where: { $0.label == "back" })?.value as? NSButton else {
+        throw Failure(message: "Back control")
+      }
+      try check(back.isEnabled, "Cross-project return enables Back")
+      _ = host.textView.navigate(toNodeID: "link")
+      try check(host.textView.canReturnFromReference, "Fixture provides local return")
+      host.hostWindow.returnFromReference()
+      try check(returns == 0 && !host.textView.canReturnFromReference, "Local return has priority")
+      host.hostWindow.returnFromReference()
+      try check(returns == 1, "Next Back invokes cross-project return")
+      host.hostWindow.displayMode(.originalPages)
+      host.hostWindow.updateNavigation()
+      host.hostWindow.returnFromReference()
+      try check(!back.isEnabled && returns == 1, "Original pages disable Back")
+    }
+  }
+
   @MainActor static func clickBody(_ view: NativeCrossProjectPreviewView, _ point: NSPoint, in window: NSWindow) throws {
     let location = view.convert(point, to: nil)
     guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location,
@@ -81,7 +170,7 @@ struct CrossProjectPreviewTests {
     hit.mouseDown(with: event)
   }
 
-  @MainActor static func main() {
+  @MainActor static func main() async {
     do {
       _ = NSApplication.shared
       NSApp.setActivationPolicy(.prohibited)
@@ -182,6 +271,8 @@ struct CrossProjectPreviewTests {
           }
         }
       case "reader": try readerHelpers()
+      case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back":
+        try await controllerScenario(CommandLine.arguments[1])
       default: throw Failure(message: "Unknown fixture scenario")
       }
       print("Passed \(CommandLine.arguments[1]); isolated AppKit component only")

@@ -97,6 +97,20 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   var runtime: NativeReaderRuntime?
   var copyText: (String) -> Bool = { _ in false }
   var openHomepage: ((URL) -> Void)?
+  var crossProjectCatalogProvider: (() -> CrossProjectCatalog?)?
+  var crossProjectSnippetLoader: ((CrossProjectTarget) async -> CrossProjectPreviewContent?)?
+  var onOpenCrossProjectTarget: ((CrossProjectPreviewContent, CrossProjectNavigationEntry) -> Void)?
+  var canReturnFromCrossProject: (() -> Bool)? {
+    didSet { hostWindow.canReturnFromCrossProject = canReturnFromCrossProject; hostWindow.updateNavigation() }
+  }
+  var onReturnFromCrossProject: (() -> Bool)? {
+    didSet { hostWindow.onReturnFromCrossProject = onReturnFromCrossProject }
+  }
+  var pendingCrossProjectTarget: CrossProjectNavigationEntry?
+  private(set) var activeCrossProjectPreviewView: NativeCrossProjectPreviewView?
+  private var crossProjectPreviewTask: Task<Void, Never>?
+  private var crossProjectPreviewPopover: NSPopover?
+  private var crossProjectPreviewSerial = 0
   var choosePDFDestination: (NSWindow) async -> URL? = { window in
     await withCheckedContinuation { continuation in
       let panel = NSSavePanel(); panel.allowedContentTypes = [.pdf]; panel.nameFieldStringValue = "Document.pdf"
@@ -250,7 +264,43 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
             self.textView.renderKey == self.textView.requestedRenderKey,
             node.kind == .link, let raw = node.link, !raw.hasPrefix("#"), let url = URL(string: raw),
             NativeOriginalPDFAccess.safeURL(url) else { return }
-      self.openHomepage?(url) // Explicit native activation only.
+      guard case .unique(let target) = self.crossProjectCatalogProvider?()?.resolve(url: raw, linkText: node.displayText) else {
+        self.openHomepage?(url); return
+      }
+      self.dismissCrossProjectPreview()
+      self.crossProjectPreviewSerial += 1
+      let serial = self.crossProjectPreviewSerial
+      let previewView = NativeCrossProjectPreviewView(content: CrossProjectPreviewContent(
+        projectKey: target.projectKey, projectTitle: target.project.title, referenceText: target.entry.text,
+        label: target.label, snippetText: target.entry.text + " · p. " + String(target.entry.page), truncated: false))
+      self.activeCrossProjectPreviewView = previewView
+      previewView.onOpenTarget = { [weak self] content in
+        guard let self else { return }
+        self.dismissCrossProjectPreview()
+        let pos = self.textView.currentCrossProjectPosition()
+        let entry = CrossProjectNavigationEntry(profileID: self.profile?.id ?? "", documentTitle: self.profile?.name ?? "",
+          anchor: pos.anchor, blockID: pos.blockID, scrollOffset: pos.scrollOffset)
+        if let open = self.onOpenCrossProjectTarget { open(content, entry) }
+        else { self.openHomepage?(url) }
+      }
+      if self.textView.window != nil {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        let controller = NSViewController(); controller.view = previewView
+        popover.contentViewController = controller
+        popover.contentSize = NSSize(width: 340, height: 180)
+        self.crossProjectPreviewPopover = popover
+        let rect = self.textView.nodeRectInView(forNodeID: node.id)
+          ?? NSRect(x: self.textView.bounds.midX, y: min(self.textView.bounds.maxY, 24), width: 1, height: 1)
+        popover.show(relativeTo: rect, of: self.textView, preferredEdge: .maxY)
+      }
+      if let loader = self.crossProjectSnippetLoader {
+        self.crossProjectPreviewTask = Task { @MainActor [weak self, weak previewView] in
+          guard let loaded = await loader(target), !Task.isCancelled, let self, let previewView,
+                self.crossProjectPreviewSerial == serial, self.activeCrossProjectPreviewView === previewView else { return }
+          previewView.update(content: loaded)
+        }
+      }
     }
     hostWindow.onMarkReview = { [weak self] in self?.addReview() }
     hostWindow.onUndoReview = { [weak self] in self?.localReview.undo() }
@@ -433,7 +483,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         self.visibleMode = .nativeReflow; self.hostWindow.displayMode(.nativeReflow)
         self.hostWindow.refreshOutline()
       }
-      self.applyPendingPresentation(); self.hostWindow.refreshLocalControls()
+      self.applyPendingPresentation()
+      if !reflowOnly, let target = self.pendingCrossProjectTarget {
+        self.pendingCrossProjectTarget = nil
+        _ = self.textView.scrollToCrossProjectLocation(anchor: target.anchor, blockID: target.blockID, scrollOffset: target.scrollOffset)
+        self.hostWindow.updateNavigation()
+      }
+      self.hostWindow.refreshLocalControls()
       if let chat = self.chatView {
         if self.chatContext == self.textView.context { self.configureChatMath(chat, key: key) }
         else { self.rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
@@ -1145,8 +1201,15 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     } catch { chat.clearMath(reason: String(describing: error)) }
   }
 
+  private func dismissCrossProjectPreview() {
+    crossProjectPreviewTask?.cancel(); crossProjectPreviewTask = nil
+    crossProjectPreviewPopover?.close(); crossProjectPreviewPopover = nil
+    activeCrossProjectPreviewView = nil
+  }
+
   /// Closing a view explicitly ends its selection lifetime; transport failures do not.
   private func closeView() {
+    dismissCrossProjectPreview()
     guard !disposed else { return }
     originalPageView.releaseSelection()
     cancel()
@@ -1178,6 +1241,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     chatView?.dispose(); session.cancel()
   }
   func dispose() {
+    dismissCrossProjectPreview()
     if let observer = capsuleScrollObserver { NotificationCenter.default.removeObserver(observer); capsuleScrollObserver = nil }
     if let observer = layoutObserver { NotificationCenter.default.removeObserver(observer); layoutObserver = nil }
     cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose()
@@ -1414,6 +1478,8 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
 
 @MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
   let reader: NativeReaderTextView
+  var canReturnFromCrossProject: (() -> Bool)?
+  var onReturnFromCrossProject: (() -> Bool)?
   let notice = NSTextField(wrappingLabelWithString: "원문·대화 작업은 본문 모드에서 사용할 수 있습니다.")
   var onRefresh: (() -> Void)?
   var onCancelRecovery: (() -> Void)?
@@ -2702,7 +2768,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   }
   func updateNavigation() {
     contents.isEnabled = currentMode == .nativeReflow && !reader.outline.isEmpty
-    back.isEnabled = currentMode == .nativeReflow && reader.canReturnFromReference
+    back.isEnabled = currentMode == .nativeReflow && (reader.canReturnFromReference || (canReturnFromCrossProject?() ?? false))
     rebuildMoreMenu()
   }
   func updateReaderControls(readOnly: Bool) {
@@ -2864,7 +2930,12 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     if let item = contents.itemArray.first(where: { $0.representedObject as? String == id }) { contents.select(item) }
     _ = reader.navigate(toNodeID: id); updateNavigation()
   }
-  @objc func returnFromReference() { guard currentMode == .nativeReflow else { return }; _ = reader.returnFromReference(); updateNavigation() }
+  @objc func returnFromReference() {
+    guard currentMode == .nativeReflow else { return }
+    if reader.canReturnFromReference { _ = reader.returnFromReference() }
+    else { _ = onReturnFromCrossProject?() }
+    updateNavigation()
+  }
   private func syncWindowAppearance() {
     if currentMode == .originalPages && !allowsModeSwitch {
       if window?.appearance != nil { window?.appearance = nil }
