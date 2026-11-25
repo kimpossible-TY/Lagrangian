@@ -132,6 +132,66 @@ private func verifyMinimalHome(_ app: FlowApp, profile: Profile) {
   check(abs(markFrame.midX - root.bounds.midX) < 0.5, "centered brand mark")
 }
 
+private actor EditorRevocationTrace {
+  var managerCalls: [[String]] = []
+  var tombstones: [String] = []
+  func manager(_ args: [String]) { managerCalls.append(args) }
+  func tombstone(_ operation: String) { tombstones.append(operation) }
+}
+
+private func verifyManagedRevocation() async throws {
+  let trace = EditorRevocationTrace()
+  let scope = String(repeating: "a", count: 64)
+  let service = ["pid": 123, "startedAt": 456]
+  let network = NativeReaderNetwork(send: { request, _ in
+    if request.url!.path.hasSuffix("api/state") {
+      return NativeReaderHTTPResponse(status: 200, headers: [:], data: try JSONSerialization.data(withJSONObject:
+        ["documentID": "doc", "service": service, "revision": "rev"]))
+    }
+    if request.url!.path.hasSuffix("api/native-document") {
+      let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "reader:123:456", revision: "rev", scope: .service)
+      let node = NativeReaderNode(id: "n", sectionID: "s", kind: .text, canonicalText: "x", displayText: "x",
+        rangeUTF16: [0, 1], offsets: NativeTextOffsets("x"), children: [], anchors: [], annotationTargets: [],
+        visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil, headingLevel: nil,
+        math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+      let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: [node], assets: [], diagnostics: [])
+      return NativeReaderHTTPResponse(status: 200, headers: ["content-type": "application/json", "x-native-input-id": scope], data: try JSONEncoder().encode(document))
+    }
+    let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+    await trace.tombstone(body["operation"] as! String)
+    return NativeReaderHTTPResponse(status: 200, headers: ["content-type": "application/json"], data: Data("{}".utf8))
+  }, stream: { _ in AsyncThrowingStream { $0.finish() } })
+  let resolver = NativeReaderManagedResolver(attach: { args in
+    await trace.manager(args)
+    if args.contains("--native-editor-scope") {
+      return try JSONSerialization.data(withJSONObject: ["scope": scope, "requestBinding": String(repeating: "b", count: 64)])
+    }
+    if args.contains("--release-native-editor-operation") { return Data("{\"released\":true}".utf8) }
+    let operation = args[args.firstIndex(of: "--native-editor-operation")! + 1]
+    return try JSONSerialization.data(withJSONObject: ["url": "http://127.0.0.1:1234/", "documentID": "doc",
+      "service": service, "editorAttachment": "token", "nativeEditorActions": 1,
+      "nativeEditorOperation": operation, "nativeEditorScope": scope])
+  }, network: network)
+  let editor = NativeReaderManagedEditor(address: "editor", executable: "/bin/sh", ownerPID: 123,
+    controlFile: "/fixture/control", consentID: UUID())
+  let client = NativeReaderManagedClient(resolver: resolver, root: "/fixture", entry: "main.typ", editor: editor)
+  let identity = try await client.target()
+  let context = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 1, target: identity)
+  _ = try await client.document(for: context)
+  let transport = try await client.currentActions().transport
+  // Establish an editor context; the preliminary selection tombstone is excluded below.
+  try await transport.revokeEditorSelection(context: context)
+  await client.revokeEditorConsent()
+  await client.revokeEditorConsent()
+  let calls = await trace.managerCalls
+  let tombstones = await trace.tombstones
+  check(calls.filter { $0.contains("--attach") }.count == 1, "managed attach")
+  check(calls.filter { $0.contains("--native-editor-scope") }.count == 1, "scope lookup repeated")
+  check(calls.filter { $0.contains("--release-native-editor-operation") }.count == 1, "editor lease cleanup repeated")
+  check(tombstones == ["revoke", "close"], "managed editor tombstone repeated")
+}
+
 @main
 struct FlowAppTests {
   static func main() throws {
@@ -282,6 +342,14 @@ struct FlowAppTests {
       check(sleepEvents == [true, false], "disposed lifecycle observer fired")
     case "minimal-home-layout":
       verifyMinimalHome(delegate, profile: profile)
+      var managedTestFinished = false
+      var managedTestError: Error?
+      Task { @MainActor in
+        do { try await verifyManagedRevocation() } catch { managedTestError = error }
+        managedTestFinished = true
+      }
+      waitUntil("managed revocation test") { managedTestFinished }
+      check(managedTestError == nil, "managed revocation fixture failed: \(String(describing: managedTestError))")
       delegate.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
       defer { NSStatusBar.system.removeStatusItem(delegate.statusItem) }
       delegate.buildMenu()
@@ -412,19 +480,22 @@ struct FlowAppTests {
         checkEditorMenu(#selector(FlowApp.disconnectEditor), "에디터 연결 해제")
         waitUntil("editor resolution") { scopeRequests > beforeRead }
         if cancelled { cancelRead() }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         let beforeClose = scopeRequests
         delegate.nativeWindow!.hostWindow.window!.close()
         waitUntil("reader consent revoked") {
           scopeRequests > beforeClose && delegate.statusItem.menu!.items.contains { $0.action == #selector(FlowApp.connectEditor) }
         }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         check(scopeRequests == beforeClose + 1, "reader close revoked editor consent more than once")
         checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
         if !cancelled {
-          let switchRead = delegate.readNative(other, progress: { _ in })
-          RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+          let beforeSwitchAttach = attachRequests.count
+          var switchFailed = false
+          let switchRead = delegate.readNative(other, progress: { progress in
+            if case .failed = progress { switchFailed = true }
+          })
+          waitUntil("switched reader attach completed") { attachRequests.count > beforeSwitchAttach && switchFailed }
           check(scopeRequests == beforeClose + 1, "profile switch revoked closed consent again")
+          checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
           switchRead()
           delegate.settings.selectedID = other.id
           let failingResolver = delegate.managedResolver
@@ -436,9 +507,10 @@ struct FlowAppTests {
           }
           waitUntil("editor reconnect after profile switch") { finished }
           check(connected, "editor reconnect accepted")
-          RunLoop.current.run(until: Date().addingTimeInterval(0.1))
           check(scopeRequests == beforeClose + 1, "editor reconnect revoked closed consent again")
           delegate.disconnectEditor()
+          checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
+          check(scopeRequests == beforeClose + 1, "editor disconnect revoked closed consent again")
           delegate.settings.selectedID = profile.id
           delegate.managedResolver = failingResolver
         }
