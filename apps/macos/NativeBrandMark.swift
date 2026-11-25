@@ -86,10 +86,39 @@ enum NativeBrandMark {
             context.addPath(path); context.strokePath()
         }
     }
+    /// Monochrome menu-bar adapter of the canonical path. AppKit supplies its tint.
+    static func statusImage(phase: Phase) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.saveGState()
+            context.concatenate(transform(in: rect.insetBy(dx: 1, dy: 1)))
+            context.setStrokeColor(NSColor.black.cgColor)
+            context.setLineWidth(11); context.setLineCap(.round); context.setLineJoin(.round)
+            context.setLineDash(phase: 0, lengths: (phase == .offline || phase == .reconnecting ? [5, 3] :
+                (phase == .busy ? [18, 6] : [])).map { CGFloat($0) * length / 100 })
+            context.addPath(path); context.strokePath()
+            context.restoreGState()
+            NSColor.black.setFill()
+            if phase == .completed {
+                NSBezierPath(ovalIn: NSRect(x: 14, y: 14, width: 3, height: 3)).fill()
+            } else if phase == .error {
+                NSRect(x: 15, y: 10, width: 2, height: 4).fill()
+                NSBezierPath(ovalIn: NSRect(x: 15, y: 15, width: 2, height: 2)).fill()
+            } else if phase == .held {
+                NSRect(x: 13, y: 12, width: 1, height: 5).fill()
+                NSRect(x: 16, y: 12, width: 1, height: 5).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Lagrangian"
+        return image
+    }
 }
 
 final class NativeBrandMarkView: NSView {
     var phase: NativeBrandMark.Phase = .idle { didSet { needsDisplay = true } }
+    var showsRunningIndicator = false { didSet { needsDisplay = true } }
     var preferencesOverride: NativeAppDesign.Preferences? { didSet { needsDisplay = true } }
     private var observation: NativeDesignObservation?
     override var isFlipped: Bool { true }
@@ -106,5 +135,9 @@ final class NativeBrandMarkView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         NativeBrandMark.draw(in: bounds, context: context, phase: phase,
                              preferences: preferencesOverride ?? .current(appearance: effectiveAppearance))
+        if showsRunningIndicator {
+            NativeAppDesign.sage(preferencesOverride ?? .current(appearance: effectiveAppearance)).setFill()
+            NSBezierPath(ovalIn: NSRect(x: bounds.maxX - 6, y: bounds.maxY - 6, width: 6, height: 6)).fill()
+        }
     }
 }

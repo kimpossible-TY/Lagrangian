@@ -510,12 +510,18 @@ enum ReadingSessionTests {
     app.populate()
     defer { app.session.dispose(); app.window.close() }
     if name == "native-external" {
-      app.openExternalPreview()
-      try spin { !probes.isEmpty }
-      try require(externalOpens == 0 && nativeRequests == 0, "external action conflated native readiness")
+      try require(!app.enabled(#selector(FlowApp.openExternalPreview)), "stopped browser dock enabled")
+      app.start()
+      try spin { probes.count == 1 }
       probes[0](.ready)
+      try spin { app.snapshot?.phase == .ready }
+      try require(app.brandMark.phase == .completed, "running brand did not complete")
+      app.openExternalPreview()
+      try spin { probes.count == 2 }
+      try require(externalOpens == 0 && nativeRequests == 0, "external action conflated native readiness")
+      probes[1](.ready)
       try spin { externalOpens == 1 }
-      try require(agents.events == ["start:fixture"], "external lifecycle changed")
+      try require(agents.events == ["start:fixture", "start:fixture"], "external lifecycle changed")
     } else {
       app.fields["name"]!.stringValue = "Saved native fixture"
       app.openPreview()
@@ -536,7 +542,10 @@ enum ReadingSessionTests {
     defer { app.session.dispose(); app.window.close() }
     app.openPreview()
     try spin { app.snapshot?.phase == .failed }
-    try require(app.detail.stringValue.contains("서비스가 아직"), "unavailable service was hidden")
+    try require(app.snapshot!.detail.contains("서비스가 아직"), "unavailable diagnostic was lost")
+    try require(app.brandMark.phase == .error && app.status.stringValue == "작업을 완료하지 못했습니다. 로그를 확인해 주세요.", "localized inline error missing")
+    try require(!app.status.isHiddenOrHasHiddenAncestor && app.window.frame.height == 272, "error banner must expand")
+    try require(app.serviceToggleButton.symbolName == "exclamationmark.triangle.fill", "error service icon")
     try require(app.nativeWindow == nil && !app.window.isVisible, "unavailable read activated a window")
     try require(!app.enabled(#selector(FlowApp.toggleLogin)), "isolated login mutation enabled")
     try require(!app.enabled(#selector(FlowApp.start)), "isolated launchd control enabled")
@@ -549,20 +558,23 @@ enum ReadingSessionTests {
     previewApp.populate()
     defer { previewApp.session.dispose(); previewApp.window.close() }
     try spin { previewApp.snapshot?.phase == .stopped }
-    try require(previewApp.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨", "preview app did not start stopped")
+    try require(previewApp.brandMark.phase == .offline && previewApp.serviceToggleButton.action == #selector(FlowApp.start), "preview app did not start stopped")
     try require(!previewApp.enabled(#selector(FlowApp.toggleLogin)), "preview app must keep login disabled")
     try require(previewApp.enabled(#selector(FlowApp.start)), "preview app must enable start")
     try require(previewApp.enabled(#selector(FlowApp.stop)), "preview app must enable stop")
     try require(previewApp.enabled(#selector(FlowApp.restart)), "preview app must enable restart")
-    try require(previewApp.enabled(#selector(FlowApp.openExternalPreview)), "preview app must enable external preview")
+    try require(!previewApp.enabled(#selector(FlowApp.openExternalPreview)), "stopped preview must disable browser")
+    try require(!previewApp.enabled(#selector(FlowApp.copyPreviewAddress)), "stopped preview must disable copy")
     previewApp.start()
     try spin { previewApp.snapshot?.phase == .ready && previewApp.snapshot?.pid == 90001 }
-    try require(previewApp.serviceStatusLabel.stringValue == "프리뷰 서비스 · 실행 중", "preview app did not toggle to running")
+    try require(previewApp.brandMark.phase == .completed && previewApp.serviceToggleButton.action == #selector(FlowApp.stop), "preview app did not toggle to running")
     previewApp.restart()
     try spin { previewApp.snapshot?.phase == .ready && previewApp.snapshot?.pid == 90002 }
     previewApp.stop()
     try spin { previewApp.snapshot?.phase == .stopped && previewApp.snapshot?.pid == nil }
-    try require(previewApp.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨", "preview app did not toggle back to stopped")
+    try require(previewApp.brandMark.phase == .offline && previewApp.serviceToggleButton.action == #selector(FlowApp.start), "preview app did not toggle back to stopped")
+    previewApp.start()
+    try spin { previewApp.snapshot?.phase == .ready }
     previewApp.openExternalPreview()
     try spin { externalOpens.count == 1 && previewApp.snapshot?.phase == .ready }
     try require(!previewApp.window.isVisible, "preview app activated a window")
