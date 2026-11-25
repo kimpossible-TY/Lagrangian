@@ -11,7 +11,7 @@ struct CrossProjectPreviewContent: Equatable {
 
 /// Presents a resolved reference; the reader owns project adoption and navigation.
 @MainActor final class NativeCrossProjectPreviewView: NSView {
-  let content: CrossProjectPreviewContent
+  private(set) var content: CrossProjectPreviewContent
   let surface = NativeDesignSurface()
   let openButton = NativeDesignButton(title: "", target: nil, action: nil)
   private let header = NSTextField(labelWithString: "")
@@ -57,6 +57,11 @@ struct CrossProjectPreviewContent: Equatable {
   }
 
   required init?(coder: NSCoder) { nil }
+  func update(content: CrossProjectPreviewContent) {
+    self.content = content
+    header.stringValue = content.projectTitle + " · " + content.referenceText
+    snippet.stringValue = content.snippetText
+  }
   override var isFlipped: Bool { true }
   override var intrinsicContentSize: NSSize { NSSize(width: 340, height: 160) }
 

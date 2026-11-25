@@ -49,6 +49,12 @@ struct NativeReaderViewportAnchor {
     let offsetY: CGFloat
 }
 
+struct NativeReaderCrossProjectPosition: Equatable {
+    let anchor: String?
+    let blockID: String?
+    let scrollOffset: Double
+}
+
 struct NativeReaderTextCallbacks {
     var selectionChanged: (NativeReaderSelection?) -> Void = { _ in }
     var selectionReleased: (UUID) -> Void = { _ in }
@@ -837,6 +843,29 @@ extension NativeReaderTextView {
             result.append(rect.offsetBy(dx: self.bodyTextView.textContainerOrigin.x, dy: self.bodyTextView.textContainerOrigin.y))
         }
         return result
+    }
+    func nodeRectInView(forNodeID id: String) -> NSRect? {
+        guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey,
+              let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == id }) }),
+              let node = block.orderedNodes.first(where: { $0.id == id }), node.visible,
+              let rect = rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).first else { return nil }
+        return bodyTextView.convert(rect, to: self)
+    }
+    func currentCrossProjectPosition() -> NativeReaderCrossProjectPosition {
+        let blockID = viewportAnchor()?.position.blockID
+        let anchor = store.document?.blocks.first(where: { $0.id == blockID })?.orderedNodes.flatMap(\.anchors).first
+        return .init(anchor: anchor, blockID: blockID, scrollOffset: Double(scrollView.contentView.bounds.origin.y))
+    }
+    @discardableResult func scrollToCrossProjectLocation(anchor: String?, blockID: String?, scrollOffset: Double?) -> Bool {
+        guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey else { return false }
+        if let anchor, !anchor.isEmpty { return navigate(toAnchor: anchor) }
+        if let blockID, !blockID.isEmpty { return navigate(toNodeID: blockID) }
+        guard let scrollOffset, scrollOffset.isFinite else { return false }
+        let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
+        let offset = CGFloat(min(Double(maximum), max(0, scrollOffset)))
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        return true
     }
     func select(from start: NativeReaderTextPosition, to end: NativeReaderTextPosition) throws {
         guard !isDisposed, let map = textMap else { throw NativeReaderTextFailure.staleGeometry }

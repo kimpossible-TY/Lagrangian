@@ -12,6 +12,62 @@ struct CrossProjectPreviewTests {
     [view] + view.subviews.flatMap { descendants($0) }
   }
 
+  @MainActor static func readerHelpers() throws {
+    let store = NativeReaderDocumentStore()
+    let view = NativeReaderTextView(store: store)
+    try check(view.nodeRectInView(forNodeID: "first") == nil, "Unrendered nodes have no geometry")
+    let empty = view.currentCrossProjectPosition()
+    try check(empty.anchor == nil && empty.blockID == nil,
+              "Empty viewport snapshot")
+    try check(!view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: 0), "Unrendered view cannot scroll")
+    let generation = try store.beginRequest()
+    let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "revision", scope: .fixture)
+    let text = String(repeating: "A long line of text. ", count: 40)
+    func block(_ id: String, _ anchor: String) -> NativeReaderNode {
+      NativeReaderNode(id: id, sectionID: "section", kind: .text, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: [anchor],
+        annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+        headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+    }
+    let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
+      requiredCapabilities: ["semantic-tree-v1"], blocks: [block("first", "start"), block("second", "end")], assets: [], diagnostics: [])
+    let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 180),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    window.contentView = view
+    view.layoutSubtreeIfNeeded()
+    try view.adopt(document, context: context)
+    view.layoutSubtreeIfNeeded()
+    let first = document.blocks[0]
+    guard let raw = view.rects(blockID: first.id, logical: 0..<first.displayText.utf16.count).first,
+          let converted = view.nodeRectInView(forNodeID: first.id) else { throw Failure(message: "Rendered node geometry") }
+    try check(converted == view.bodyTextView.convert(raw, to: view), "Node rectangle is converted to reader coordinates")
+    try check(view.nodeRectInView(forNodeID: "missing") == nil, "Unknown node has no rectangle")
+    let snap = view.currentCrossProjectPosition()
+    try check(snap.blockID == "first" && snap.anchor == "start" && snap.scrollOffset == Double(view.scrollView.contentView.bounds.origin.y), "Snapshot captures viewport")
+    try check(view.scrollToCrossProjectLocation(anchor: "end", blockID: "first", scrollOffset: 0) && view.focusedNodeID == "second", "Anchor takes priority")
+    try check(!view.scrollToCrossProjectLocation(anchor: "missing", blockID: "first", scrollOffset: 0), "Missing anchor does not fall back")
+    try check(view.scrollToCrossProjectLocation(anchor: "", blockID: "first", scrollOffset: nil) && view.focusedNodeID == "first", "Block navigation")
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: .greatestFiniteMagnitude), "Finite offset accepted")
+    let maximum = max(0, view.bodyTextView.bounds.height - view.scrollView.contentView.bounds.height)
+    try check(abs(view.scrollView.contentView.bounds.minY - maximum) < 1, "Offset clamps to bottom")
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: "", scrollOffset: -5) && view.scrollView.contentView.bounds.minY == 0, "Offset clamps to top")
+    try check(!view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: .nan) && !view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: nil), "Missing and nonfinite offsets fail")
+    let nextGeneration = try store.beginRequest()
+    let nextDocument = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: nextGeneration,
+      requiredCapabilities: ["semantic-tree-v1"], blocks: document.blocks, assets: [], diagnostics: [])
+    let nextContext = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: nextGeneration, target: identity)
+    try store.adopt(nextDocument, for: nextContext)
+    try check(view.renderKey != view.requestedRenderKey, "Fixture retains stale geometry")
+    try check(view.nodeRectInView(forNodeID: "first") == nil && !view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: 0),
+              "Stale geometry and scrolling are rejected")
+    view.dispose()
+    try check(view.nodeRectInView(forNodeID: "first") == nil && !view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: 0),
+              "Disposed view rejects geometry and scrolling")
+  }
+
   @MainActor static func clickBody(_ view: NativeCrossProjectPreviewView, _ point: NSPoint, in window: NSWindow) throws {
     let location = view.convert(point, to: nil)
     guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location,
@@ -62,6 +118,15 @@ struct CrossProjectPreviewTests {
                     && snippet.font == NativeAppDesign.Typography.font(.caption), "Labels use shared chrome typography")
         try check(!all.compactMap { ($0 as? NSButton)?.title }.contains(where: { $0.contains("열기") }),
                   "No button may display the forbidden text label")
+        var replacement = content
+        replacement.projectTitle = "대수"; replacement.referenceText = "정리 3"; replacement.snippetText = "Updated excerpt"
+        view.update(content: replacement)
+        try check(view.content == replacement && header.stringValue == "대수 · 정리 3" && snippet.stringValue == "Updated excerpt",
+                  "Updating content changes the existing labels and target")
+        var activated: CrossProjectPreviewContent?
+        view.onOpenTarget = { activated = $0 }
+        view.openButton.performClick(nil)
+        try check(activated == replacement, "Activation uses updated target")
       case "activation":
         var targets: [CrossProjectPreviewContent] = []
         view.onOpenTarget = { targets.append($0) }
@@ -114,6 +179,7 @@ struct CrossProjectPreviewTests {
             try check(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0, "Preview paints in both appearances")
           }
         }
+      case "reader": try readerHelpers()
       default: throw Failure(message: "Unknown fixture scenario")
       }
       print("Passed \(CommandLine.arguments[1]); isolated AppKit component only")
