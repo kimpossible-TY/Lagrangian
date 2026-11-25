@@ -80,6 +80,11 @@ struct NativeReaderPreparedTextObject {
     private(set) var objects = [String: NativeReaderPreparedTextObject]()
     private var recency = [String: Int]()
     private var clock = 0
+    func copy() -> NativeReaderLazyObjectCache {
+        let result = NativeReaderLazyObjectCache()
+        result.objects = objects; result.recency = recency; result.clock = clock
+        return result
+    }
     var cost: Int { objects.values.reduce(0) { $0 + $1.cost } }
     func touch(_ ids: Set<String>) {
         for id in ids.sorted() where objects[id] != nil { clock += 1; recency[id] = clock }
@@ -341,11 +346,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     typealias LazyObjectProvider = ([NativeReaderNode], NativeReaderTextRenderKey) async throws -> [String: NativeReaderPreparedTextObject]
     private var lazyProvider: LazyObjectProvider?
     private var lazyCache = NativeReaderLazyObjectCache()
-    private var lazyTask: Task<Void, Never>?
+    private(set) var lazyTask: Task<Void, Never>?
     private var lazyEpoch = 0
     private var lazyKey: NativeReaderTextRenderKey?
-    private var lazyRequestGeneration: Int?
     private var lazyAttempted = Set<String>()
+    private var lazyErrorCounts = [String: Int]()
     private var lazyViewportIDs = Set<String>()
     private var lazyVisibleIDs = Set<String>()
     private var viewportObserver: NSObjectProtocol?
@@ -627,11 +632,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             if [.math, .equation, .table, .figure, .image].contains(node.kind) {
                 guard let object = cachedObject?(node, key) ?? (large
                     ? NativeReaderPreparedTextObject.placeholder(node, key: key) : nil) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
-                guard object.key == key, object.size.width.isFinite, object.size.height.isFinite,
-                      object.size.width > 0, object.size.width <= key.width, object.size.height > 0,
-                      object.size.height <= 100000, object.baseline.isFinite,
-                      object.baseline >= 0, object.baseline <= object.size.height,
-                      !object.accessibilityLabel.isEmpty else { throw NativeReaderTextFailure.invalidObject(node.id) }
+                try validatePreparedObject(object, id: node.id, key: key)
                 let blockImage = node.kind == .image && node.imageLayout?.placement == .block
                 if blockImage, text.length > 0, !(text.string as NSString).hasSuffix("\n") {
                     text.append(NSAttributedString(string: "\n", attributes: attributes))
@@ -739,22 +740,32 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         install(try compose(document, key: expected), document: document, key: expected, anchor: pendingViewportAnchor ?? viewportAnchor())
     }
     var requestedRenderKey: NativeReaderTextRenderKey? { isDisposed || isCancelled ? nil : store.document.map { key(for: $0) } }
-    func cancelLazyPreparation() {
+    private func cancelLazyTask() {
         lazyEpoch += 1; lazyTask?.cancel(); lazyTask = nil
-        lazyProvider = nil; lazyKey = nil; lazyRequestGeneration = nil
-        lazyAttempted = []; lazyViewportIDs = []
+    }
+    func cancelLazyPreparation() {
+        cancelLazyTask()
+        lazyProvider = nil; lazyKey = nil
+        lazyAttempted = []; lazyErrorCounts = [:]; lazyViewportIDs = []
         lazyVisibleIDs = []
         lazyCache = NativeReaderLazyObjectCache()
     }
     func invalidateStaleLazyPreparation() {
-        if lazyRequestGeneration != nil && lazyRequestGeneration != store.generation { cancelLazyPreparation() }
+        // Transport generations do not revoke the retained presentation. Only
+        // adoption or changed layout/lifetime inputs revoke these prepared pixels.
+        if let key = lazyKey, key != renderKey || key != requestedRenderKey { cancelLazyPreparation() }
     }
     func configureLazyObjects(key: NativeReaderTextRenderKey, initial: [String: NativeReaderPreparedTextObject],
                               prepare: @escaping LazyObjectProvider) {
+        let cache = NativeReaderLazyObjectCache()
+        do {
+            for (id, object) in initial { try validatePreparedObject(object, id: id, key: key) }
+            cache.insert(initial, protecting: [])
+            try updateObjectAttachments(for: key, objects: cache.objects)
+        } catch { return }
         cancelLazyPreparation()
-        lazyCache.insert(initial, protecting: [])
-        lazyKey = key; lazyRequestGeneration = store.generation; lazyProvider = prepare
-        try? updateObjectAttachments(for: key, objects: lazyCache.objects)
+        lazyCache = cache
+        lazyKey = key; lazyProvider = prepare
         prepareVisibleObjects()
     }
     func cachedLazyObject(_ id: String, key: NativeReaderTextRenderKey) -> NativeReaderPreparedTextObject? {
@@ -785,8 +796,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         let ids = Set(nearby.map(\.id))
         lazyVisibleIDs = visibleIDs
         if ids != lazyViewportIDs {
-            lazyViewportIDs = ids; lazyAttempted = []
-            lazyEpoch += 1; lazyTask?.cancel(); lazyTask = nil
+            lazyViewportIDs = ids; lazyAttempted = []; lazyErrorCounts = [:]
+            cancelLazyTask()
         }
         lazyCache.touch(ids)
         lazyCache.touch(visibleIDs)
@@ -796,32 +807,61 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             .prefix(NativeReaderPreparedTextObject.largeDocumentThreshold))
         guard !missing.isEmpty else { return }
         lazyAttempted.formUnion(missing.map(\.id))
-        let epoch = lazyEpoch, requestGeneration = store.generation
+        let epoch = lazyEpoch
         lazyTask = Task { [weak self] in
+            var providerReturned = false
             do {
                 let values = try await provider(missing, key)
+                providerReturned = true
                 try Task.checkCancellation()
                 guard let self, self.lazyEpoch == epoch, self.lazyKey == key,
                       self.renderKey == key, self.requestedRenderKey == key,
-                      self.store.generation == requestGeneration, !self.isDisposed else { return }
+                      !self.isDisposed, !self.isCancelled else { return }
+                // Validate the entire response, including entries the budget
+                // would omit. Stage LRU eviction until every replacement and
+                // evicted placeholder has also passed attachment validation.
+                for (id, object) in values { try self.validatePreparedObject(object, id: id, key: key) }
+                let staged = self.lazyCache.copy()
+                staged.insert(values, protecting: self.lazyVisibleIDs)
+                let previousIDs = Set(self.lazyCache.objects.keys)
+                let currentIDs = Set(staged.objects.keys)
+                let changedIDs = previousIDs.symmetricDifference(currentIDs).union(currentIDs.intersection(values.keys))
+                try self.updateObjectAttachments(for: key, objects: staged.objects, changedIDs: changedIDs)
+                self.lazyCache = staged
                 // A budget-limited provider can return only a prefix. Retry the
                 // omitted nodes, while remembering returned-but-unadmitted ones
                 // so an overfull viewport cannot spin indefinitely.
                 if !values.isEmpty {
                     self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys))
                 }
-                let previousIDs = Set(self.lazyCache.objects.keys)
-                self.lazyCache.insert(values, protecting: self.lazyVisibleIDs)
-                let currentIDs = Set(self.lazyCache.objects.keys)
-                let changedIDs = previousIDs.symmetricDifference(currentIDs).union(currentIDs.intersection(values.keys))
-                try self.updateObjectAttachments(for: key, objects: self.lazyCache.objects, changedIDs: changedIDs)
                 self.lazyTask = nil
                 self.prepareVisibleObjects()
             } catch {
                 guard let self, self.lazyEpoch == epoch else { return }
                 self.lazyTask = nil
-                if !Task.isCancelled { self.prepareVisibleObjects() }
+                if !Task.isCancelled {
+                    // Initial attempt plus at most two retries per ID in this
+                    // viewport epoch. Invalid results are never retryable.
+                    if !providerReturned {
+                        for node in missing {
+                            let errors = (self.lazyErrorCounts[node.id] ?? 0) + 1
+                            self.lazyErrorCounts[node.id] = errors
+                            if errors <= 2 { self.lazyAttempted.remove(node.id) }
+                        }
+                    }
+                    self.prepareVisibleObjects()
+                }
             }
+        }
+    }
+    private func validatePreparedObject(_ object: NativeReaderPreparedTextObject, id: String,
+                                        key: NativeReaderTextRenderKey) throws {
+        guard object.key == key, object.size.width.isFinite, object.size.height.isFinite,
+              object.size.width > 0, object.size.width <= key.width, object.size.height > 0,
+              object.size.height <= 100000, object.baseline.isFinite, object.baseline >= 0,
+              object.baseline <= object.size.height, !object.accessibilityLabel.isEmpty,
+              object.cost >= 0 else {
+            throw NativeReaderTextFailure.invalidObject(id)
         }
     }
     // No attributed-string replacement or finder reset: only attachment cells
@@ -832,18 +872,18 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
               let storage = bodyTextView.textStorage,
               let manager = bodyTextView.layoutManager else { throw NativeReaderTextFailure.staleGeometry }
         if let changedIDs, changedIDs.isEmpty { return }
+        let updates = try attachmentNodes.filter { changedIDs == nil || changedIDs!.contains($0.id) }.map { node in
+            let object = objects[node.id] ?? NativeReaderPreparedTextObject.placeholder(node, key: key)
+            try validatePreparedObject(object, id: node.id, key: key)
+            return (node, object)
+        }
         let anchor = viewportAnchor(), origin = scrollView.contentView.bounds.origin
         let selections = bodyTextView.selectedRanges, affinity = bodyTextView.selectionAffinity
         suppressSelection = true
         defer { suppressSelection = false }
         // Reflow only newly prepared or evicted cells. Replacing every retained
         // cell would invalidate the whole prepared window on each small batch.
-        for node in attachmentNodes where changedIDs == nil || changedIDs!.contains(node.id) {
-            let object = objects[node.id] ?? NativeReaderPreparedTextObject.placeholder(node, key: key)
-            guard object.key == key, object.size.width.isFinite, object.size.height.isFinite,
-                  object.size.width > 0, object.size.width <= key.width, object.size.height > 0,
-                  object.size.height <= 100000, object.baseline.isFinite, object.baseline >= 0,
-                  object.baseline <= object.size.height, !object.accessibilityLabel.isEmpty else { throw NativeReaderTextFailure.invalidObject(node.id) }
+        for (node, object) in updates {
             if preparedObjects[node.id]?.isPlaceholder == true && object.isPlaceholder { continue }
             guard let range = objectRanges[node.id],
                   range.length > 0, let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { continue }

@@ -848,6 +848,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   private func updatePresentation() {
     textView.invalidateStaleLazyPreparation()
+    // A failed or selection-held refresh settles on the retained render key.
+    // Resume its viewport work without replacing its provider or prepared LRU.
+    textView.prepareVisibleObjects()
     hostWindow.updateStatus(state: session.state, failed: session.failure != nil, allowsRefresh: !session.hasRecoveryCopy,
                             allowsModeSwitch: !disposed && !session.hasRecoveryCopy,
                             pendingRecovery: session.hasPendingRecovery)

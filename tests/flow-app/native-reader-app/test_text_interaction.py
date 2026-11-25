@@ -18,10 +18,14 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
-PRODUCT = ['apps/macos/NativeReaderTextView.swift', 'apps/macos/NativeReaderSelection.swift',
-           'apps/macos/NativeReaderAccessibility.swift']
 COMMON = ['apps/macos/NativeReaderDocument.swift', 'apps/macos/NativeReaderOperations.swift',
           'apps/macos/NativeReaderInputTextView.swift']
+# Compile the session and controller as well as TextKit so retained-request
+# regressions exercise the real session lifecycle and check its composition.
+REGISTRY = json.loads((REPO / 'apps/macos/sources.json').read_text())
+PRODUCT = [f'apps/macos/{name}' for group in ('core', 'native') for name in REGISTRY[group]
+           if f'apps/macos/{name}' not in COMMON and name != 'CLI.swift']
+PRODUCT.append('apps/macos/NativeReaderWindowController.swift')
 
 
 def sha(path):
@@ -110,10 +114,24 @@ class TextInteractionTests(unittest.TestCase):
         self.assertEqual(result['maxCost'], 16 * 1024 * 1024)
         self.assertGreater(result['batches'], 0)
         self.assertGreater(result['partialBatches'], 1)
-        for field in ['offMain', 'eviction', 'generationCancellation', 'widthCancellation', 'appearanceCancellation',
+        for field in ['offMain', 'eviction', 'retainedGeneration', 'widthCancellation', 'appearanceCancellation',
                       'closeCancellation', 'selectionFindViewport', 'scroll', 'buffer', 'return', 'find', 'evictionPlaceholder',
                       'findReflowNotification']:
             self.assertTrue(result[field], field)
+
+    def test_failed_and_selection_held_refresh_keep_retained_lazy_loading(self):
+        result = self.results['stage2']['failures']
+        self.assertTrue(result['failedRefresh'])
+        self.assertTrue(result['heldRefresh'])
+
+    def test_transient_provider_error_retries_and_persistent_errors_are_bounded(self):
+        result = self.results['stage2']['failures']
+        self.assertEqual(result['transientCalls'], 2)
+        self.assertEqual(result['persistentCalls'], 3)
+
+    def test_invalid_batch_and_attachment_updates_are_atomic(self):
+        self.assertTrue(self.results['stage2']['failures']['atomicBatch'])
+        self.assertTrue(self.results['stage2']['failures']['atomicCells'])
 
     def test_18_native_layout_draw_conditions(self):
         self.assertEqual(len(self.results['matrix']), 18)

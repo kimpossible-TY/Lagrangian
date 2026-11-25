@@ -14,6 +14,11 @@ struct TextTestError: Error, CustomStringConvertible {
 }
 @MainActor func tick() { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.003)) }
 
+private struct TextDocumentProvider: NativeReaderDocumentProviding {
+    let load: (NativeReaderRequestContext) async throws -> NativeReaderDocument
+    func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument { try await load(context) }
+}
+
 // Hand-authored oracle. These literals/ranges were not computed by the view, map,
 // importer or layout manager. UTF16, scalar, UTF8 and grapheme units are separate.
 let oracleTexts = [
@@ -113,6 +118,14 @@ extension NSPasteboard {
         let deadline = Date(timeIntervalSinceNow: 5)
         while !predicate() && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
         try check(predicate(), message)
+    }
+    @MainActor static func finishLazyPreparation(_ view: NativeReaderTextView) async throws {
+        var passes = 0
+        while let task = view.lazyTask {
+            passes += 1
+            try check(passes <= 1024, "lazy preparation reaches a bounded idle state")
+            await task.value
+        }
     }
     @MainActor static func largeObjectRegression(_ fixture: NativeReaderDocument) async throws -> [String: Any] {
         let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
@@ -252,22 +265,27 @@ extension NSPasteboard {
         try await waitFor("Find viewport lazy-prepares matching attachment") { view.preparedObjectIDs.contains(foundID) }
         try check(view.bodyTextView.selectedRanges == foundSelection && view.scrollView.isFindBarVisible,
             "Find result and bar survive lazy attachment replacement")
-        // An intentionally uncooperative provider returns after revocation.
-        // Its late result must never mutate TextKit or the accepted cache.
+        // Request generation changes retain display authority for this key.
         var continuation: CheckedContinuation<[String: NativeReaderPreparedTextObject], Never>?
         var entered = false, finished = false
-        view.configureLazyObjects(key: key, initial: [:]) { _, _ in
-            entered = true
-            let value = await withCheckedContinuation { continuation = $0 }
-            finished = true
-            return value
+        var retainedNodes = [NativeReaderNode]()
+        view.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            if !entered {
+                entered = true; retainedNodes = nodes
+                let value = await withCheckedContinuation { continuation = $0 }
+                finished = true
+                return value
+            }
+            return Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, prepared($0, current)) })
         }
         try await waitFor("generation batch entered") { entered }
         _ = try store.beginRequest(); view.invalidateStaleLazyPreparation()
-        continuation!.resume(returning: [blocks[280].id: prepared(blocks[280], key)])
+        continuation!.resume(returning: Dictionary(uniqueKeysWithValues: retainedNodes.map { ($0.id, prepared($0, key)) }))
         try await waitFor("late generation batch returned") { finished }
-        for _ in 0..<5 { await Task.yield() }
-        try check(view.preparedObjectIDs.isEmpty, "stale generation result discarded")
+        try await finishLazyPreparation(view)
+        try check(Set(retainedNodes.map(\.id)).isSubset(of: view.preparedObjectIDs), "retained key accepts work across a new request")
+        // An intentionally uncooperative provider returns after layout/lifetime
+        // revocation. Its late result must never mutate cells or cache.
         entered = false; finished = false
         view.configureLazyObjects(key: key, initial: [:]) { _, _ in
             entered = true
@@ -302,11 +320,147 @@ extension NSPasteboard {
             for _ in 0..<5 { await Task.yield() }
             try check(view.preparedObjectIDs.isEmpty, "\(reason) discards late objects")
         }
+        let failures = try await lazyFailureRegressions(document)
         return ["objects": blocks.count, "initial": initial.count, "maxCost": NativeReaderLazyObjectCache.maxCost,
-            "batches": batches, "offMain": offMain, "eviction": true, "generationCancellation": true, "widthCancellation": true,
+            "batches": batches, "offMain": offMain, "eviction": true, "retainedGeneration": true, "widthCancellation": true,
             "selectionFindViewport": true, "scroll": true, "buffer": true, "return": true, "partialBatches": partialBatches,
             "appearanceCancellation": true, "closeCancellation": true, "find": true, "evictionPlaceholder": true,
-            "findReflowNotification": true]
+            "findReflowNotification": true, "failures": failures]
+    }
+    @MainActor static func lazyFailureRegressions(_ document: NativeReaderDocument) async throws -> [String: Any] {
+        let blocks = document.blocks
+        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey,
+                      cost: Int = 65536) -> NativeReaderPreparedTextObject {
+            .init(key: key, size: NSSize(width: 200, height: 36), baseline: 0,
+                  accessibilityLabel: node.displayText, draw: { _ in }, cost: cost)
+        }
+        func values(_ nodes: [NativeReaderNode], _ key: NativeReaderTextRenderKey) -> [String: NativeReaderPreparedTextObject] {
+            Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, prepared($0, key)) })
+        }
+        let store = NativeReaderDocumentStore()
+        // Use one shared store for Session and the retained TextKit presentation.
+        let retained = NativeReaderTextView(store: store)
+        defer { retained.dispose() }
+        retained.setFrameSize(NSSize(width: 640, height: 96))
+        retained.cachedObject = { [weak retained] node, key in
+            retained?.cachedLazyObject(node.id, key: key) ?? (blocks.prefix(128).contains(where: { $0.id == node.id }) ? prepared(node, key) : nil)
+        }
+        var rejectCandidate = false, preparations = 0, lazyKeys = [NativeReaderTextRenderKey]()
+        let session = NativeReaderSession(store: store, provider: TextDocumentProvider(load: { context in
+            document.rebinding(generation: context.generation)
+        }), target: { document.identity }, prepare: { candidate, context in
+            preparations += 1
+            if rejectCandidate { throw TextTestError(description: "deterministic candidate preparation failure") }
+            let key = try retained.preparationKey(for: candidate, context: context)
+            return .init(isCurrent: { true }, adopt: {
+                try retained.adopt(candidate, context: context)
+                retained.configureLazyObjects(key: key, initial: values(Array(blocks.prefix(128)), key)) { nodes, current in
+                    lazyKeys.append(current)
+                    return values(nodes, current)
+                }
+            })
+        })
+        defer { session.event(.dispose) }
+        // The same presentation reconciliation used by WindowController.
+        session.onChange = {
+            retained.invalidateStaleLazyPreparation()
+            retained.prepareVisibleObjects()
+        }
+        session.refresh()
+        try await waitFor("initial retained publication") { session.state == .reading && store.document != nil }
+        try await finishLazyPreparation(retained)
+        let retainedDocument = store.document!, key = retained.renderKey!, context = retained.context!
+        let initialIDs = retained.preparedObjectIDs, initialCost = retained.preparedObjectCost
+        rejectCandidate = true
+        session.refresh()
+        try check(retained.preparedObjectIDs == initialIDs && retained.preparedObjectCost == initialCost,
+                  "request start preserves retained cache and accounting")
+        try await waitFor("failed refresh settles on retained document") { session.failure != nil }
+        try check(store.document == retainedDocument && retained.renderKey == key && retained.context == context,
+                  "failure preserves retained publication")
+        try check(retained.navigate(toNodeID: blocks[280].id), "navigate after failed refresh")
+        try await finishLazyPreparation(retained)
+        try check(retained.preparedObjectIDs.contains(blocks[280].id), "failed refresh still prepares retained placeholders")
+        let range = try retained.textMap!.presentationRange(blockID: blocks[280].id, logical: 0..<blocks[280].displayText.utf16.count)
+        retained.bodyTextView.setSelectedRange(range, affinity: .upstream, stillSelecting: false)
+        let selection = store.selection, selectedRanges = retained.bodyTextView.selectedRanges
+        let callsBeforeHold = preparations, heldIDs = retained.preparedObjectIDs, heldCost = retained.preparedObjectCost
+        rejectCandidate = false
+        session.refresh()
+        try await waitFor("selection-held refresh settles") { session.state == .offline && session.failure == nil }
+        try check(preparations == callsBeforeHold && store.document == retainedDocument && retained.renderKey == key &&
+                  retained.preparedObjectIDs == heldIDs && retained.preparedObjectCost == heldCost,
+                  "held refresh preserves retained provider/cache without preparing candidate")
+        try check(retained.navigate(toNodeID: blocks[200].id), "navigate during selection-held refresh")
+        try await finishLazyPreparation(retained)
+        try check(retained.preparedObjectIDs.contains(blocks[200].id) && !lazyKeys.isEmpty && lazyKeys.allSatisfy { $0 == key },
+                  "held refresh lazy work uses retained render key")
+        try check(store.selection == selection && retained.bodyTextView.selectedRanges == selectedRanges,
+                  "retained loading preserves active selection")
+        try rejects("retained pixels do not grant current source authority") { try session.authorize(context) }
+
+        // A transient busy response retries the same IDs; a persistent response
+        // stops after the initial attempt plus exactly two retries in this epoch.
+        var transientCalls = 0
+        retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            transientCalls += 1
+            if transientCalls == 1 { throw TextTestError(description: "math-worker-busy") }
+            return values(nodes, current)
+        }
+        try await finishLazyPreparation(retained)
+        try check(transientCalls == 2 && retained.preparedObjectIDs.contains(blocks[200].id), "transient provider error recovers")
+        var persistentCalls = 0
+        retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            persistentCalls += 1
+            throw TextTestError(description: "persistent math-worker-busy")
+        }
+        try await finishLazyPreparation(retained)
+        for _ in 0..<5 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
+        try check(persistentCalls == 3 && retained.preparedObjectIDs.isEmpty, "persistent error bounded to two retries per ID")
+
+        func attachment(_ node: NativeReaderNode) throws -> NSTextAttachment {
+            let range = try retained.textMap!.presentationRange(blockID: node.id, logical: 0..<node.displayText.utf16.count)
+            return retained.bodyTextView.textStorage!.attribute(.attachment, at: range.location, effectiveRange: nil) as! NSTextAttachment
+        }
+        // The valid first entry used to mutate before the invalid later entry.
+        // Snapshot every cell's identity, not just its metrics or visible pixels.
+        let attachments = try blocks.map(attachment)
+        let cells = attachments.map { $0.attachmentCell! }
+        var invalid = NativeReaderPreparedTextObject(key: key, size: NSSize(width: key.width + 1, height: 40),
+            baseline: 0, accessibilityLabel: blocks[201].displayText, draw: { _ in }, cost: 65536)
+        let invalidPair = [blocks[200].id: prepared(blocks[200], key), blocks[201].id: invalid]
+        try rejects("atomic direct attachment update") { try retained.updateObjectAttachments(for: key, objects: invalidPair) }
+        try check(zip(attachments, cells).allSatisfy { $0.0.attachmentCell === $0.1 }, "invalid later cell leaves every cell untouched")
+
+        // Seed a full LRU with offscreen objects, then return a valid expensive
+        // visible object plus an invalid object. A nontransactional insert would
+        // evict the seed and drift both cost and cells before rejecting metrics.
+        var batchContinuation: CheckedContinuation<[String: NativeReaderPreparedTextObject], Never>?
+        var batchNodes = [NativeReaderNode](), invalidCalls = 0
+        let seed = [blocks[0].id: prepared(blocks[0], key, cost: NativeReaderLazyObjectCache.maxCost)]
+        retained.configureLazyObjects(key: key, initial: seed) { nodes, _ in
+            invalidCalls += 1; batchNodes = nodes
+            return await withCheckedContinuation { batchContinuation = $0 }
+        }
+        try await waitFor("invalid batch entered") { batchContinuation != nil }
+        let batchTask = retained.lazyTask!
+        let beforeIDs = retained.preparedObjectIDs, beforeCost = retained.preparedObjectCost
+        let beforeCells = attachments.map { $0.attachmentCell! }
+        let beforeSelection = retained.bodyTextView.selectedRanges, beforeText = retained.bodyTextView.string
+        try check(!batchNodes.isEmpty, "invalid batch has visible missing objects")
+        // Invalid offscreen output must be checked even if the LRU would omit it.
+        invalid.cost = NativeReaderLazyObjectCache.maxCost + 1
+        batchContinuation!.resume(returning: [batchNodes[0].id: prepared(batchNodes[0], key, cost: 1024 * 1024), blocks[319].id: invalid])
+        await batchTask.value
+        try check(retained.preparedObjectIDs == beforeIDs && retained.preparedObjectCost == beforeCost &&
+                  retained.cachedLazyObject(blocks[0].id, key: key)?.cost == NativeReaderLazyObjectCache.maxCost,
+                  "invalid batch leaves LRU entries and exact cost unchanged")
+        try check(zip(attachments, beforeCells).allSatisfy { $0.0.attachmentCell === $0.1 } &&
+                  retained.bodyTextView.selectedRanges == beforeSelection && retained.bodyTextView.string == beforeText,
+                  "invalid batch leaves all cells and selection/text unchanged")
+        try check(invalidCalls == 1 && retained.lazyTask == nil, "invalid result is rejected without transient retry")
+        return ["failedRefresh": true, "heldRefresh": true, "transientCalls": transientCalls,
+                "persistentCalls": persistentCalls, "atomicBatch": true, "atomicCells": true]
     }
     @MainActor static func make(_ document: NativeReaderDocument, provider: Bool = true) throws -> (NativeReaderTextView, NativeReaderRequestContext) {
         let store = NativeReaderDocumentStore()
