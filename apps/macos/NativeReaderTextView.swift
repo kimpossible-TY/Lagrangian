@@ -27,10 +27,83 @@ struct NativeReaderPreparedTextObject {
     let baseline: CGFloat
     let accessibilityLabel: String
     let draw: (NSRect) -> Void
+    var cost: Int = 0
+    var isPlaceholder = false
+
+    static let largeDocumentThreshold = 128
+    static func isObject(_ node: NativeReaderNode) -> Bool {
+        [.math, .equation, .table, .figure, .image].contains(node.kind)
+    }
+    static func attachmentNodes(in document: NativeReaderDocument) -> [NativeReaderNode] {
+        func visit(_ node: NativeReaderNode) -> [NativeReaderNode] {
+            guard node.visible else { return [] }
+            return isObject(node) ? [node] : node.children.flatMap(visit)
+        }
+        return document.blocks.flatMap(visit)
+    }
+    static func isLarge(_ document: NativeReaderDocument) -> Bool {
+        document.blocks.flatMap(\.orderedNodes).filter(isObject).count > largeDocumentThreshold
+    }
+    static func initialNodes(in document: NativeReaderDocument) -> [NativeReaderNode] {
+        let nodes = attachmentNodes(in: document)
+        guard isLarge(document) else { return nodes }
+        var count = 0
+        return Array(nodes.prefix { node in
+            let next = node.orderedNodes.filter(isObject).count
+            guard count + next <= largeDocumentThreshold else { return false }
+            count += next; return true
+        })
+    }
+    static func label(for node: NativeReaderNode) -> String {
+        [node.alt, node.math?.normalizedText, node.displayText].compactMap { $0 }.first { !$0.isEmpty } ?? node.kind.rawValue
+    }
+    static func placeholder(_ node: NativeReaderNode, key: NativeReaderTextRenderKey) -> Self {
+        let inline = node.kind == .math && node.math?.display != true
+        let figure = [.image, .figure, .table].contains(node.kind)
+        let width = key.width.isFinite ? max(1, min(key.width, inline ? 24 : 240)) : 24
+        return Self(key: key, size: NSSize(width: width, height: inline ? 16 : figure ? 120 : 36),
+            baseline: 0, accessibilityLabel: label(for: node), draw: { rect in
+                NSColor(calibratedWhite: key.appearance.theme == .dark ? 0.65 : 0.35, alpha: 0.12).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+            }, isPlaceholder: true)
+    }
     // Optional native substructure interaction, in top-left object-local points.
     // Returned IDs must already exist in this object's accepted semantic subtree.
     var hitNode: ((NSPoint) -> String?)? = nil
     var accessibilityLabelForNode: ((String) -> String?)? = nil
+}
+
+// One cache owns retained object cost and recency. TextKit cells are replaced
+// with placeholders on eviction so they cannot retain the evicted paint closures.
+@MainActor final class NativeReaderLazyObjectCache {
+    nonisolated static let maxCost = 16 * 1024 * 1024
+    private(set) var objects = [String: NativeReaderPreparedTextObject]()
+    private var recency = [String: Int]()
+    private var clock = 0
+    var cost: Int { objects.values.reduce(0) { $0 + $1.cost } }
+    func touch(_ ids: Set<String>) {
+        for id in ids.sorted() where objects[id] != nil { clock += 1; recency[id] = clock }
+    }
+    func insert(_ values: [String: NativeReaderPreparedTextObject], protecting visible: Set<String>) {
+        // Admit visible objects first; buffer entries must never consume the
+        // space needed by a newly visible attachment.
+        let ordered = values.keys.sorted {
+            visible.contains($0) == visible.contains($1) ? $0 < $1 : visible.contains($0)
+        }
+        for id in ordered {
+            let value = values[id]!
+            guard !value.isPlaceholder, value.cost >= 0, value.cost <= Self.maxCost else { continue }
+            while cost - (objects[id]?.cost ?? 0) > Self.maxCost - value.cost {
+                guard let victim = objects.keys.filter({ !visible.contains($0) && $0 != id }).min(by: {
+                    (recency[$0] ?? 0) < (recency[$1] ?? 0)
+                }) else { break }
+                objects.removeValue(forKey: victim); recency.removeValue(forKey: victim)
+            }
+            guard cost - (objects[id]?.cost ?? 0) <= Self.maxCost - value.cost else { continue }
+            objects[id] = value; touch([id])
+        }
+        touch(visible)
+    }
 }
 
 enum NativeReaderTextFailure: Error, Equatable {
@@ -50,6 +123,9 @@ struct NativeReaderViewportAnchor {
 }
 
 struct NativeReaderTextCallbacks {
+    // A placeholder-backed reflow can succeed before its objects are ready.
+    // Notify the preparation owner even when there is no cache-miss failure.
+    var layoutChanged: () -> Void = { }
     var selectionChanged: (NativeReaderSelection?) -> Void = { _ in }
     var selectionReleased: (UUID) -> Void = { _ in }
     var sourceRequested: (NativeReaderSourceRequest) -> Void = { _ in }
@@ -260,6 +336,22 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     private var objectPaints = Set<String>()
     private var objectIDs = Set<String>()
     private var preparedObjects: [String: NativeReaderPreparedTextObject] = [:]
+    private var objectRanges = [String: NSRange]()
+    private var attachmentNodes = [NativeReaderNode]()
+    typealias LazyObjectProvider = ([NativeReaderNode], NativeReaderTextRenderKey) async throws -> [String: NativeReaderPreparedTextObject]
+    private var lazyProvider: LazyObjectProvider?
+    private var lazyCache = NativeReaderLazyObjectCache()
+    private var lazyTask: Task<Void, Never>?
+    private var lazyEpoch = 0
+    private var lazyKey: NativeReaderTextRenderKey?
+    private var lazyRequestGeneration: Int?
+    private var lazyAttempted = Set<String>()
+    private var lazyViewportIDs = Set<String>()
+    private var lazyVisibleIDs = Set<String>()
+    private var viewportObserver: NSObjectProtocol?
+    var preparedObjectCost: Int { lazyCache.cost }
+    var preparedObjectIDs: Set<String> { Set(lazyCache.objects.keys) }
+
     private var paintedKey: NativeReaderTextRenderKey?
     private var pendingViewportAnchor: NativeReaderViewportAnchor?
     private var pendingSelectionAffinity: NSSelectionAffinity?
@@ -306,6 +398,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: maximum * CGFloat(offset)))
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        prepareVisibleObjects()
     }
     var logicalText: String { store.document?.blocks.map(\.displayText).joined(separator: "\n") ?? "" }
     /// Read-only current selection geometry, clipped to the actual native viewport.
@@ -364,6 +457,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         bodyTextView.textContainer?.lineFragmentPadding = 0
         bodyTextView.textContainer?.widthTracksTextView = true
         bodyTextView.setAccessibilityLabel("Reader body")
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        viewportObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.prepareVisibleObjects() }
+        }
         scrollView.documentView = bodyTextView
         addSubview(scrollView)
         statusLabel.isHidden = true
@@ -410,6 +508,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     @discardableResult func performFindAction(_ action: NSTextFinder.Action) -> Bool {
         guard canPerformFind(tag: action.rawValue) else { return false }
         bodyTextView.performNativeFindAction(action)
+        prepareVisibleObjects()
         return true
     }
     @discardableResult func hideFindBar() -> Bool {
@@ -475,6 +574,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             }
             returningAnchor = nil; reviewSelections = []
             self.context = context
+            cancelLazyPreparation()
             isCancelled = false
             operationSerial += 1
             sourcePending = nil
@@ -489,11 +589,14 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         let text: NSAttributedString
         let spans: [NativeReaderPresentationSpan]
         let objects: [String: NativeReaderPreparedTextObject]
+        let objectRanges: [String: NSRange]
     }
     private func compose(_ document: NativeReaderDocument, key: NativeReaderTextRenderKey) throws -> Composition {
         let text = NSMutableAttributedString(string: "")
         var spans: [NativeReaderPresentationSpan] = []
         var objects: [String: NativeReaderPreparedTextObject] = [:]
+        var objectRanges = [String: NSRange]()
+        let large = NativeReaderPreparedTextObject.isLarge(document)
         let foreground = textAppearance.theme == .dark ? NSColor.white : NSColor.black
         let font = NSFont.systemFont(ofSize: textAppearance.effectiveSize)
         let paragraph = NSMutableParagraphStyle()
@@ -522,7 +625,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                 attributes[.paragraphStyle] = style
             }
             if [.math, .equation, .table, .figure, .image].contains(node.kind) {
-                guard let object = cachedObject?(node, key) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
+                guard let object = cachedObject?(node, key) ?? (large
+                    ? NativeReaderPreparedTextObject.placeholder(node, key: key) : nil) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
                 guard object.key == key, object.size.width.isFinite, object.size.height.isFinite,
                       object.size.width > 0, object.size.width <= key.width, object.size.height > 0,
                       object.size.height <= 100000, object.baseline.isFinite,
@@ -541,6 +645,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                 part.addAttributes(attributes, range: NSRange(location: 0, length: part.length))
                 spans.append(.init(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1],
                                    presentation: NSRange(location: text.length, length: part.length), isObject: true))
+                objectRanges[node.id] = NSRange(location: text.length, length: part.length)
                 text.append(part)
                 if blockImage { text.append(NSAttributedString(string: "\n", attributes: attributes)) }
                 objects[node.id] = object
@@ -557,7 +662,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             if index > 0 { text.append(NSAttributedString(string: "\n", attributes: base)) }
             try append(block, block: block, attributes: base)
         }
-        return Composition(text: text, spans: spans, objects: objects)
+        return Composition(text: text, spans: spans, objects: objects, objectRanges: objectRanges)
     }
     private func install(_ composition: Composition, document: NativeReaderDocument, key: NativeReaderTextRenderKey,
                          anchor: NativeReaderViewportAnchor?) {
@@ -570,6 +675,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         objectIDs = Set(composition.objects.keys)
         objectPaints.removeAll()
         preparedObjects = composition.objects
+        objectRanges = composition.objectRanges
+        attachmentNodes = NativeReaderPreparedTextObject.attachmentNodes(in: document)
         textMap = .init(document: document, spans: composition.spans, length: composition.text.length)
         bodyTextView.textStorage?.setAttributedString(composition.text)
         bodyTextView.appearance = NSAppearance(named: textAppearance.theme == .dark ? .darkAqua : .aqua)
@@ -613,10 +720,12 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         if pendingCaret == nil, store.selection == nil {
             pendingCaret = try? textMap?.logical(at: bodyTextView.selectedRange().location, affinity: bodyTextView.selectionAffinity)
         }
+        cancelLazyPreparation()
         layoutGeneration += 1
         do {
             let key = key(for: document)
             install(try compose(document, key: key), document: document, key: key, anchor: pendingViewportAnchor)
+            callbacks.layoutChanged()
         } catch {
             // Keep the retained text/map/AX/selection while current-key objects
             // are prepared. Geometry/draw receipts are separately revoked below.
@@ -630,6 +739,128 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         install(try compose(document, key: expected), document: document, key: expected, anchor: pendingViewportAnchor ?? viewportAnchor())
     }
     var requestedRenderKey: NativeReaderTextRenderKey? { isDisposed || isCancelled ? nil : store.document.map { key(for: $0) } }
+    func cancelLazyPreparation() {
+        lazyEpoch += 1; lazyTask?.cancel(); lazyTask = nil
+        lazyProvider = nil; lazyKey = nil; lazyRequestGeneration = nil
+        lazyAttempted = []; lazyViewportIDs = []
+        lazyVisibleIDs = []
+        lazyCache = NativeReaderLazyObjectCache()
+    }
+    func invalidateStaleLazyPreparation() {
+        if lazyRequestGeneration != nil && lazyRequestGeneration != store.generation { cancelLazyPreparation() }
+    }
+    func configureLazyObjects(key: NativeReaderTextRenderKey, initial: [String: NativeReaderPreparedTextObject],
+                              prepare: @escaping LazyObjectProvider) {
+        cancelLazyPreparation()
+        lazyCache.insert(initial, protecting: [])
+        lazyKey = key; lazyRequestGeneration = store.generation; lazyProvider = prepare
+        try? updateObjectAttachments(for: key, objects: lazyCache.objects)
+        prepareVisibleObjects()
+    }
+    func cachedLazyObject(_ id: String, key: NativeReaderTextRenderKey) -> NativeReaderPreparedTextObject? {
+        guard key == lazyKey else { return nil }
+        return lazyCache.objects[id]
+    }
+    func prepareVisibleObjects() {
+        guard !suppressSelection else { return }
+        invalidateStaleLazyPreparation()
+        guard let key = lazyKey, key == renderKey, key == requestedRenderKey,
+              !isDisposed, !isCancelled, !isHiddenOrHasHiddenAncestor, store.document != nil,
+              let provider = lazyProvider, let manager = bodyTextView.layoutManager,
+              let container = bodyTextView.textContainer else { return }
+        let visible = scrollView.contentView.bounds
+        let buffer = visible.insetBy(dx: 0, dy: -visible.height)
+        func characters(in rect: NSRect) -> NSRange {
+            let origin = bodyTextView.textContainerOrigin
+            let glyphs = manager.glyphRange(forBoundingRect: rect.offsetBy(dx: -origin.x, dy: -origin.y), in: container)
+            return manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        }
+        let visibleRange = characters(in: visible), bufferRange = characters(in: buffer)
+        var visibleIDs = Set<String>()
+        let nearby = attachmentNodes.filter { node in
+            guard let range = objectRanges[node.id] else { return false }
+            if NSIntersectionRange(range, visibleRange).length > 0 { visibleIDs.insert(node.id) }
+            return NSIntersectionRange(range, bufferRange).length > 0
+        }
+        let ids = Set(nearby.map(\.id))
+        lazyVisibleIDs = visibleIDs
+        if ids != lazyViewportIDs {
+            lazyViewportIDs = ids; lazyAttempted = []
+            lazyEpoch += 1; lazyTask?.cancel(); lazyTask = nil
+        }
+        lazyCache.touch(ids)
+        lazyCache.touch(visibleIDs)
+        guard lazyTask == nil else { return }
+        let candidates = nearby.filter { lazyCache.objects[$0.id] == nil && !lazyAttempted.contains($0.id) }
+        let missing = Array((candidates.filter { visibleIDs.contains($0.id) } + candidates.filter { !visibleIDs.contains($0.id) })
+            .prefix(NativeReaderPreparedTextObject.largeDocumentThreshold))
+        guard !missing.isEmpty else { return }
+        lazyAttempted.formUnion(missing.map(\.id))
+        let epoch = lazyEpoch, requestGeneration = store.generation
+        lazyTask = Task { [weak self] in
+            do {
+                let values = try await provider(missing, key)
+                try Task.checkCancellation()
+                guard let self, self.lazyEpoch == epoch, self.lazyKey == key,
+                      self.renderKey == key, self.requestedRenderKey == key,
+                      self.store.generation == requestGeneration, !self.isDisposed else { return }
+                // A budget-limited provider can return only a prefix. Retry the
+                // omitted nodes, while remembering returned-but-unadmitted ones
+                // so an overfull viewport cannot spin indefinitely.
+                if !values.isEmpty {
+                    self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys))
+                }
+                let previousIDs = Set(self.lazyCache.objects.keys)
+                self.lazyCache.insert(values, protecting: self.lazyVisibleIDs)
+                let currentIDs = Set(self.lazyCache.objects.keys)
+                let changedIDs = previousIDs.symmetricDifference(currentIDs).union(currentIDs.intersection(values.keys))
+                try self.updateObjectAttachments(for: key, objects: self.lazyCache.objects, changedIDs: changedIDs)
+                self.lazyTask = nil
+                self.prepareVisibleObjects()
+            } catch {
+                guard let self, self.lazyEpoch == epoch else { return }
+                self.lazyTask = nil
+                if !Task.isCancelled { self.prepareVisibleObjects() }
+            }
+        }
+    }
+    // No attributed-string replacement or finder reset: only attachment cells
+    // and their metrics change, preserving ranges, logical map and find state.
+    func updateObjectAttachments(for key: NativeReaderTextRenderKey,
+                                 objects: [String: NativeReaderPreparedTextObject], changedIDs: Set<String>? = nil) throws {
+        guard key == renderKey, key == requestedRenderKey, !isDisposed, !isCancelled,
+              let storage = bodyTextView.textStorage,
+              let manager = bodyTextView.layoutManager else { throw NativeReaderTextFailure.staleGeometry }
+        if let changedIDs, changedIDs.isEmpty { return }
+        let anchor = viewportAnchor(), origin = scrollView.contentView.bounds.origin
+        let selections = bodyTextView.selectedRanges, affinity = bodyTextView.selectionAffinity
+        suppressSelection = true
+        defer { suppressSelection = false }
+        // Reflow only newly prepared or evicted cells. Replacing every retained
+        // cell would invalidate the whole prepared window on each small batch.
+        for node in attachmentNodes where changedIDs == nil || changedIDs!.contains(node.id) {
+            let object = objects[node.id] ?? NativeReaderPreparedTextObject.placeholder(node, key: key)
+            guard object.key == key, object.size.width.isFinite, object.size.height.isFinite,
+                  object.size.width > 0, object.size.width <= key.width, object.size.height > 0,
+                  object.size.height <= 100000, object.baseline.isFinite, object.baseline >= 0,
+                  object.baseline <= object.size.height, !object.accessibilityLabel.isEmpty else { throw NativeReaderTextFailure.invalidObject(node.id) }
+            if preparedObjects[node.id]?.isPlaceholder == true && object.isPlaceholder { continue }
+            guard let range = objectRanges[node.id],
+                  range.length > 0, let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { continue }
+            attachment.attachmentCell = NativeReaderTextObjectCell(object) { [weak self] painted in
+                guard let self, self.renderKey == painted else { return }; self.objectPaints.insert(node.id)
+            }
+            preparedObjects[node.id] = object
+            manager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+            manager.invalidateDisplay(forCharacterRange: range)
+        }
+        bodyTextView.layoutManager?.ensureLayout(for: bodyTextView.textContainer!)
+        bodyTextView.sizeToFit()
+        bodyTextView.setSelectedRanges(selections, affinity: affinity, stillSelecting: false)
+        if let anchor { restoreViewport(anchor) }
+        else { scrollView.contentView.scroll(to: origin); scrollView.reflectScrolledClipView(scrollView.contentView) }
+        bodyTextView.needsDisplay = true
+    }
     func textViewDidChangeSelection(_ notification: Notification) { bodySelectionChanged() }
     func bodySelectionChanged() {
         guard !suppressSelection, !isDisposed, !isCancelled, renderKey != nil, let map = textMap else { return }
@@ -704,6 +935,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         callbacks.chatRequested(.open(selection), context)
     }
     func cancel() {
+        cancelLazyPreparation()
         // This store is bound to this viewID, not the shared service. Revoke the
         // common adoption generation before any late presenter callback arrives.
         store.cancel()
@@ -731,6 +963,10 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         accessibilityNodes = []
         callbacks = .init()
         cachedObject = nil
+        if let viewportObserver { NotificationCenter.default.removeObserver(viewportObserver) }
+        viewportObserver = nil
+        preparedObjects = [:]; attachmentNodes = []; objectRanges = [:]
+        lazyCache = NativeReaderLazyObjectCache()
     }
     private func showFailure(_ error: Error) { showStatus(String(describing: error)) }
     private func showStatus(_ message: String) {
@@ -893,6 +1129,7 @@ extension NativeReaderTextView {
         if let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == nodes[index].id }) }),
            let range = try? textMap?.presentationRange(blockID: block.id, logical: nodes[index].rangeUTF16[0]..<nodes[index].rangeUTF16[1]) {
             bodyTextView.scrollRangeToVisible(range)
+            prepareVisibleObjects()
         }
         return true
     }
@@ -935,6 +1172,7 @@ extension NativeReaderTextView {
               let range = try? textMap?.presentationRange(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]) else { return false }
         returningAnchor = viewportAnchor()
         bodyTextView.scrollRangeToVisible(range)
+        prepareVisibleObjects()
         focusedNodeID = node.id; callbacks.focusChanged(node.id)
         return true
     }
@@ -957,6 +1195,7 @@ extension NativeReaderTextView {
         let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maximum, max(0, geometry.rect.minY + anchor.offsetY))))
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        prepareVisibleObjects()
     }
     func objectAccessibilityLabel(nodeID: String) -> String? {
         if let object = preparedObjects[nodeID] { return object.accessibilityLabel }

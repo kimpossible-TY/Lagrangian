@@ -189,6 +189,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.onCapsuleLayout = { [weak self] in self?.updateCapsule() }
     hostWindow.onEditorReceipt = { [weak self] in self?.checkEditorReceipt() }
     textView.cachedObject = { [weak self] node, key in
+      if let object = self?.textView.cachedLazyObject(node.id, key: key) { return object }
       guard let cache = self?.cache, Self.sameObjectGeometry(cache.key, key),
             let object = cache.objects[node.id] else { return nil }
       return cache.key == key ? object : Self.rebindObject(object, to: key)
@@ -212,6 +213,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     textView.callbacks.sourceRequested = { [weak self] in self?.source($0) }
     textView.callbacks.chatRequested = { [weak self] command, context in self?.chat(command, context: context) }
+    textView.callbacks.layoutChanged = { [weak self] in self?.layoutChanged() }
     textView.callbacks.statusChanged = { [weak self] message in
       guard let self else { return }
       self.diagnostic = message
@@ -359,57 +361,20 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       descriptors = retained.bytes // Previously verified bytes; never a stale transport request.
     } else { descriptors = try await assets(document, context) }
     try Task.checkCancellation()
-    let hasObjects = document.blocks.flatMap(\.orderedNodes).contains { [.math, .equation, .table, .figure, .image].contains($0.kind) }
-    var objects = [String: NativeReaderPreparedTextObject]()
-    if hasObjects {
-      let needsMath = document.blocks.flatMap(\.orderedNodes).contains { $0.kind == .math }
-      let worker: NativeMathWorker?
-      if needsMath {
-        guard let runtime else {
-          diagnostic = "math-runtime-not-delivered (exit 2): prior accepted view retained"
-          throw NativeObjectError.unsupported("math-runtime-not-delivered")
-        }
-        worker = try runtime.worker()
-      } else { worker = nil }
-      let objectContext = NativeObjectContext(identity: document.identity, snapshotGeneration: document.generation,
-        generation: key.layoutGeneration, width: Double(key.width), fontSize: Double(key.appearance.effectiveSize),
-        fontName: "system", theme: key.appearance.theme == .dark ? .dark : .light, mode: .reflow, pageHeight: 1000)
-      preparingKey = key
-      defer { if preparingKey == key { preparingKey = nil } }
-      let job = Task.detached(priority: .userInitiated) {
-        precondition(!Thread.isMainThread, "Object preparation must leave the UI thread")
-        return try await NativeReaderPagedLayout.layout(document: document, context: objectContext, assets: descriptors,
-          math: { node, width in
-            guard let worker, let math = node.math else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
-            return try await worker.calculate(math, context: objectContext, width: width)
-          }, cancelled: { ticket.isCancelled })
+    let large = NativeReaderPreparedTextObject.isLarge(document)
+    let nodes = NativeReaderPreparedTextObject.initialNodes(in: document)
+    let worker: NativeMathWorker?
+    if document.blocks.flatMap(\.orderedNodes).contains(where: { $0.kind == .math }) {
+      guard let runtime else {
+        diagnostic = "math-runtime-not-delivered (exit 2): prior accepted view retained"
+        throw NativeObjectError.unsupported("math-runtime-not-delivered")
       }
-      let plan = try await withTaskCancellationHandler(operation: { try await job.value }, onCancel: { job.cancel() })
-      try Task.checkCancellation()
-      guard plan.diagnostics.isEmpty else { throw NativeObjectError.unsupported(plan.diagnostics.joined(separator: ";")) }
-      for node in document.blocks.flatMap(\.orderedNodes) where [.math, .equation, .table, .figure, .image].contains(node.kind) {
-        guard let region = plan.regions.first(where: { $0.node.id == node.id }) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
-        let bounds = region.frames.reduce(CGRect.null) { $0.union($1) }
-        guard !bounds.isNull, bounds.width > 0, bounds.height > 0, bounds.width <= key.width else { throw NativeObjectError.invalidGeometry }
-        let ids = Set(node.orderedNodes.map(\.id))
-        let subplan = NativeObjectPlan(context: plan.context, items: plan.items.filter { ids.contains($0.nodeID) },
-          regions: plan.regions.filter { ids.contains($0.node.id) }, size: bounds.size, pageCount: 1, diagnostics: [], cost: plan.cost)
-        var prepared = NativeReaderPreparedTextObject(key: key, size: bounds.size,
-          baseline: min(bounds.height, CGFloat(objectContext.fontSize) * 0.2),
-          // Empty compiler alt carries no label meaning. Use the existing
-          // generic role fallback, not an invalid empty prepared-object label.
-          accessibilityLabel: node.alt.flatMap { $0.isEmpty ? nil : $0 } ?? node.math?.normalizedText ?? (node.displayText.isEmpty ? node.kind.rawValue : node.displayText),
-          draw: { rect in
-            guard let context = NSGraphicsContext.current?.cgContext else { return }
-            context.saveGState(); context.clip(to: rect)
-            context.translateBy(x: rect.minX - bounds.minX, y: rect.minY - bounds.minY)
-            NativeReaderObjectRenderer.draw(subplan, in: context); context.restoreGState()
-          })
-        prepared.hitNode = { subplan.hit(CGPoint(x: $0.x + bounds.minX, y: $0.y + bounds.minY))?.node.id }
-        prepared.accessibilityLabelForNode = { id in subplan.regions.first { $0.node.id == id }.map { $0.node.alt ?? $0.node.math?.normalizedText ?? $0.node.displayText } }
-        objects[node.id] = prepared
-      }
-    }
+      worker = try runtime.worker()
+    } else { worker = nil }
+    preparingKey = key
+    defer { if preparingKey == key { preparingKey = nil } }
+    let objects = try await Self.prepareObjects(document, nodes: nodes, key: key, assets: descriptors,
+      worker: worker, ticket: ticket, fullDocument: !large)
     let preparedObjects = objects
     return .init(isCurrent: { [weak self] in
       guard let self, !self.disposed, !ticket.isCancelled else { return false }
@@ -427,6 +392,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       }
       catch { self.cache = previous; throw error }
       self.acceptedAssets = (document, descriptors)
+      if large {
+        self.textView.configureLazyObjects(key: key, initial: preparedObjects) { nodes, currentKey in
+          try await Self.prepareObjects(document, nodes: nodes, key: currentKey, assets: descriptors,
+            worker: worker, ticket: ticket)
+        }
+        // The LRU and attachment cells are the only retained paint owners.
+        self.cache = (key, [:])
+      } else { self.textView.cancelLazyPreparation() }
       self.acceptedPaintKey = key; self.paintedKey = nil; self.diagnostic = nil
       if !reflowOnly {
         self.localReview.clear()
@@ -434,11 +407,73 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         self.hostWindow.refreshOutline()
       }
       self.applyPendingPresentation(); self.hostWindow.refreshLocalControls()
+      self.textView.prepareVisibleObjects()
       if let chat = self.chatView {
         if self.chatContext == self.textView.context { self.configureChatMath(chat, key: key) }
         else { self.rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
       }
     })
+  }
+
+  private nonisolated static func prepareObjects(_ document: NativeReaderDocument, nodes: [NativeReaderNode],
+    key: NativeReaderTextRenderKey, assets: [String: Data], worker: NativeMathWorker?,
+    ticket: ReadingOperationTicket, fullDocument: Bool = false) async throws -> [String: NativeReaderPreparedTextObject] {
+    guard !nodes.isEmpty else { return [:] }
+    let c = NativeObjectContext(identity: document.identity, snapshotGeneration: document.generation,
+      generation: key.layoutGeneration, width: Double(key.width), fontSize: Double(key.appearance.effectiveSize),
+      fontName: "system", theme: key.appearance.theme == .dark ? .dark : .light, mode: .reflow, pageHeight: 1000)
+    let job = Task.detached(priority: .userInitiated) {
+      precondition(!Thread.isMainThread, "Object preparation must leave the UI thread")
+      var selected = nodes
+      while true {
+        do {
+          let plan = try await NativeReaderPagedLayout.layout(document: document,
+            blockIDs: Set(fullDocument ? document.blocks.map(\.id) : selected.map(\.id)), context: c, assets: assets,
+            mathBatch: { items, context in
+              guard let worker else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
+              return try await worker.calculateBatch(items, context: context)
+            }, math: { node, width in
+              guard let worker, let math = node.math else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
+              return try await worker.calculate(math, context: c, width: width)
+            }, cancelled: { ticket.isCancelled })
+          guard plan.diagnostics.isEmpty else { throw NativeObjectError.unsupported(plan.diagnostics.joined(separator: ";")) }
+          var objects = [String: NativeReaderPreparedTextObject]()
+          for node in selected {
+            try Task.checkCancellation()
+            guard let region = plan.regions.first(where: { $0.node.id == node.id }) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
+            let bounds = region.frames.reduce(CGRect.null) { $0.union($1) }
+            guard !bounds.isNull, bounds.width > 0, bounds.height > 0, bounds.width <= key.width else { throw NativeObjectError.invalidGeometry }
+            let ids = Set(node.orderedNodes.map(\.id))
+            let cost = plan.blockCosts[node.id] ?? plan.cost
+            let subplan = NativeObjectPlan(context: plan.context, items: plan.items.filter { ids.contains($0.nodeID) },
+              regions: plan.regions.filter { ids.contains($0.node.id) }, size: bounds.size, pageCount: 1, diagnostics: [], cost: cost)
+            var prepared = NativeReaderPreparedTextObject(key: key, size: bounds.size,
+              baseline: min(bounds.height, CGFloat(c.fontSize) * 0.2),
+              accessibilityLabel: NativeReaderPreparedTextObject.label(for: node), draw: { rect in
+                guard let context = NSGraphicsContext.current?.cgContext else { return }
+                context.saveGState(); context.clip(to: rect)
+                context.translateBy(x: rect.minX - bounds.minX, y: rect.minY - bounds.minY)
+                NativeReaderObjectRenderer.draw(subplan, in: context); context.restoreGState()
+              }, cost: cost)
+            prepared.hitNode = { subplan.hit(CGPoint(x: $0.x + bounds.minX, y: $0.y + bounds.minY))?.node.id }
+            prepared.accessibilityLabelForNode = { id in subplan.regions.first { $0.node.id == id }.map { NativeReaderPreparedTextObject.label(for: $0.node) } }
+            objects[node.id] = prepared
+          }
+          if !fullDocument && objects.values.reduce(0, { $0 + $1.cost }) > NativeReaderLazyObjectCache.maxCost {
+            throw NativeObjectError.budget
+          }
+          return objects
+        } catch NativeObjectError.budget where !fullDocument && selected.count > 1 {
+          selected = Array(selected.prefix(max(1, selected.count / 2)))
+        }
+      }
+    }
+    return try await withTaskCancellationHandler(operation: {
+      let objects = try await job.value
+      try Task.checkCancellation()
+      guard !ticket.isCancelled else { throw NativeObjectError.cancelled }
+      return objects
+    }, onCancel: { job.cancel() })
   }
 
   func setMode(_ mode: Mode) throws {
@@ -450,6 +485,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
     guard self.mode != mode else { return }
     if mode == .nativeReflow { try hostWindow.resolveAutomaticAppearance() }
+    textView.cancelLazyPreparation()
     self.mode = mode; session.refresh()
   }
 
@@ -760,6 +796,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       accessibilityLabel: object.accessibilityLabel,
       draw: object.draw
     )
+    rebound.cost = object.cost
+    rebound.isPlaceholder = object.isPlaceholder
     rebound.hitNode = object.hitNode
     rebound.accessibilityLabelForNode = object.accessibilityLabelForNode
     return rebound
@@ -768,6 +806,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   /// Reprepare only the latest layout key. Session retains incoming candidates;
   /// an accepted snapshot reflow never adopts/releases selection or changes service state.
   private func layoutChanged() {
+    textView.invalidateStaleLazyPreparation()
     updateCapsule()
     guard !disposed, !requestTicket.isCancelled else { return }
     hostWindow.refreshLocalControls()
@@ -778,7 +817,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard visibleMode == .nativeReflow, let document = store.document, let context = session.context,
           context == textView.context,
           let key = textView.requestedRenderKey, key != cache?.key else { return }
-    if textView.renderKey == key, let currentCache = cache, Self.sameObjectGeometry(currentCache.key, key) {
+    if !NativeReaderPreparedTextObject.isLarge(document), textView.renderKey == key,
+       let currentCache = cache, Self.sameObjectGeometry(currentCache.key, key) {
       let rebound = currentCache.objects.mapValues { Self.rebindObject($0, to: key) }
       cache = (key, rebound)
       if acceptedPaintKey == currentCache.key {
@@ -807,6 +847,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   private func updatePresentation() {
+    textView.invalidateStaleLazyPreparation()
     hostWindow.updateStatus(state: session.state, failed: session.failure != nil, allowsRefresh: !session.hasRecoveryCopy,
                             allowsModeSwitch: !disposed && !session.hasRecoveryCopy,
                             pendingRecovery: session.hasPendingRecovery)
@@ -1160,6 +1201,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func cancel() {
+    textView.cancelLazyPreparation()
     hostWindow.cancelFind()
     hostWindow.hideCapsule()
     cancelStorage()

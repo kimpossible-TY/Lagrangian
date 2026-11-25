@@ -573,6 +573,111 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         let directPlan = try await NativeReaderPagedLayout.layout(document: doc, context: first, assets: assets,
             math: { node, width in try await worker.calculate(node.math!, context: first, width: width) })
         try require(directPlan.items.map(\.frame) == firstPlan.items.map(\.frame), "end-to-end production async layout")
+        let batchLog = ExecutionLog()
+        let batchWorker = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: URL(fileURLWithPath: config["helper"]!),
+            runtime: URL(fileURLWithPath: config["runtime"]!), record: { batchLog.append($0) })
+        let batchItems = (0..<260).map { (id: "formula-\($0)", math: n.math!, width: first.width - 32) }
+        let batched = try await batchWorker.calculateBatch(batchItems, context: first)
+        try require(batched.count == 260 && batchLog.values.count == 2, "260 formulas in exactly two sandboxed subprocesses")
+        for item in batchItems {
+            let value = batched[item.id]!
+            try require(value.inputHash == calculated.inputHash && value.width == calculated.width && value.fontSize == calculated.fontSize &&
+                value.context.revision == calculated.context.revision && value.context.generation == calculated.context.generation &&
+                value.context.theme == calculated.context.theme && value.font == calculated.font && value.diagnostics == calculated.diagnostics,
+                "batch single metadata parity")
+            try require(value.whole.svg == calculated.whole.svg && value.whole.width == calculated.whole.width &&
+                value.whole.ascent == calculated.whole.ascent && value.whole.descent == calculated.whole.descent &&
+                value.fragments.map(\.svg) == calculated.fragments.map(\.svg) && value.fragments.map(\.width) == calculated.fragments.map(\.width) &&
+                value.fragments.map(\.ascent) == calculated.fragments.map(\.ascent) && value.fragments.map(\.descent) == calculated.fragments.map(\.descent),
+                "exact batch single paint/geometry parity")
+        }
+        try await expectAsyncFailure("duplicate batch IDs") { _ = try await batchWorker.calculateBatch([batchItems[0], batchItems[0]], context: first) }
+        let callsBeforeEmpty = batchLog.values.count
+        let empty = try await batchWorker.calculateBatch([], context: first)
+        try require(empty.isEmpty && batchLog.values.count == callsBeforeEmpty, "empty batch starts no process")
+        let distinctItems = batchItems.enumerated().map { index, item in
+            (id: item.id, math: item.math, width: Double(100 + index))
+        }
+        // A deterministic protocol adapter enforces the invocation boundary
+        // independently of deduplication. Real-runtime exact parity is above;
+        // 260 unrelated MathJax computations are not a timing oracle.
+        let boundedHelper = root.appendingPathComponent("bounded-batch.mjs")
+        try """
+            const good = \(String(decoding: data, as: UTF8.self));
+            let raw = ''; for await (const chunk of process.stdin) raw += chunk;
+            const request = JSON.parse(raw);
+            if (request.kind !== 'mathml-batch' || request.items.length > 256) process.exit(1);
+            process.stdout.write(JSON.stringify({kind: 'mathml-batch', items: request.items.map(item =>
+                ({...good, width: item.width, fontSize: item.fontSize, context: item.context}))}));
+            """.write(to: boundedHelper, atomically: true, encoding: .utf8)
+        let distinctLog = ExecutionLog()
+        let distinctWorker = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: boundedHelper,
+            runtime: URL(fileURLWithPath: config["runtime"]!), record: { distinctLog.append($0) })
+        let distinct = try await distinctWorker.calculateBatch(distinctItems, context: first)
+        try require(distinct.count == 260 && distinctLog.values.count == 2,
+            "260 distinct width requests cross the 256-item subprocess boundary")
+        for item in distinctItems {
+            try require(distinct[item.id]!.width == item.width && distinct[item.id]!.inputHash == calculated.inputHash,
+                "every distinct width response is bound to its request")
+        }
+        let callsBeforeInvalid = batchLog.values.count
+        try await expectAsyncFailure("invalid final chunk starts no child") {
+            _ = try await batchWorker.calculateBatch(Array(distinctItems.prefix(256)) + [(id: "invalid", math: n.math!, width: .nan)], context: first)
+        }
+        try require(batchLog.values.count == callsBeforeInvalid, "batch preflight rejects before any subprocess")
+        // Corrupt only the second result: every item must be validated, not
+        // merely the envelope or the first formula in a successful process.
+        let validJSON = String(decoding: data, as: UTF8.self)
+        let corruptions = ["bad.inputHash = 'wrong'", "bad.context.revision = 'wrong'", "bad.context.generation += 1",
+            "bad.context.theme = 'wrong'", "bad.width += 1", "bad.fontSize += 1", "bad.whole.width = -1",
+            "bad.fragments[0].ascent = -1"]
+        for (index, corruption) in corruptions.enumerated() {
+            let helper = root.appendingPathComponent("invalid-batch-\(index).mjs")
+            try """
+                const good = \(validJSON);
+                const bad = JSON.parse(JSON.stringify(good));
+                bad.width += 1;
+                \(corruption);
+                for await (const chunk of process.stdin) {}
+                process.stdout.write(JSON.stringify({kind: 'mathml-batch', items: [good, bad]}));
+                """.write(to: helper, atomically: true, encoding: .utf8)
+            let invalid = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: helper,
+                runtime: URL(fileURLWithPath: config["runtime"]!))
+            try await expectAsyncFailure("invalid second batch item \(index)") {
+                _ = try await invalid.calculateBatch([batchItems[0], (id: "different-width", math: n.math!, width: first.width - 31)], context: first)
+            }
+        }
+        let batchedPlan = try await NativeReaderPagedLayout.layout(document: doc, context: first, assets: assets,
+            mathBatch: { items, c in try await worker.calculateBatch(items, context: c) },
+            math: { _, _ in throw NativeObjectError.unsupported("unexpected-single-call") })
+        try require(batchedPlan.items.map(\.frame) == firstPlan.items.map(\.frame), "batch full layout including table/equation width parity")
+        let chosen = doc.blocks.first { $0.orderedNodes.contains { $0.kind == .math } }!
+        let subset = try await NativeReaderPagedLayout.layout(document: doc, blockIDs: [chosen.id], context: first, assets: assets,
+            mathBatch: { items, c in try await worker.calculateBatch(items, context: c) },
+            math: { _, _ in throw NativeObjectError.stale })
+        try require(!subset.regions.isEmpty && subset.regions.allSatisfy { $0.blockID == chosen.id } && subset.cost <= 16 * 1024 * 1024,
+            "subset never prepares other blocks and preserves budget")
+        try await expectAsyncFailure("cancelled batch subset") {
+            _ = try await NativeReaderPagedLayout.layout(document: doc, blockIDs: [chosen.id], context: first, assets: assets,
+                mathBatch: { _, _ in throw NativeObjectError.stale }, math: noMath, cancelled: { true })
+        }
+        var windowNode = try JSONSerialization.jsonObject(with: JSONEncoder().encode(n)) as! [String: Any]
+        windowNode["rangeUTF16"] = [0, n.displayText.utf16.count]
+        windowNode["anchors"] = []; windowNode["annotationTargets"] = []
+        let windowBlocks = try (0..<320).map { index -> NativeReaderNode in
+            var value = windowNode; value["id"] = "window-\(index)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let large = NativeReaderDocument(schemaVersion: 1, identity: doc.identity, generation: doc.generation,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: windowBlocks, assets: [], diagnostics: [])
+        let window = try await NativeReaderPagedLayout.layout(document: large, blockIDs: Set(windowBlocks.prefix(128).map(\.id)),
+            context: first, assets: [:], mathBatch: { items, c in try await worker.calculateBatch(items, context: c) }, math: noMath)
+        try require(window.regions.count == 128 && window.cost <= 16 * 1024 * 1024 &&
+            window.blockCosts.values.reduce(0, +) == window.cost, "real 320-formula document initial window and exact retained cost")
+        try write(["formulas": batched.count, "subprocesses": callsBeforeEmpty, "parity": true,
+            "distinctFormulas": distinct.count, "distinctSubprocesses": distinctLog.values.count, "invalidPreflight": true,
+            "subsetCost": subset.cost, "widthParity": true, "invalidItemsRejected": corruptions.count,
+            "largeObjects": windowBlocks.count, "initialObjects": window.regions.count, "initialCost": window.cost], root.appendingPathComponent("stage2-batch.json"))
         // These child scripts are explicitly fake failure adapters; the real
         // runtime success above and real late-output decode remain separate.
         let delay = root.appendingPathComponent("delay-helper.mjs")
@@ -584,6 +689,11 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         do { _ = try await pending.value; throw NSError(domain: "cancel accepted", code: 3) }
         catch NativeObjectError.cancelled { }
         try require(ProcessInfo.processInfo.systemUptime - started < 2, "bounded subprocess cancellation")
+        let batchStarted = ProcessInfo.processInfo.systemUptime
+        let pendingBatch = Task { try await slow.calculateBatch(Array(batchItems.prefix(2)), context: first) }
+        try await Task.sleep(nanoseconds: 200000000); pendingBatch.cancel()
+        try await expectAsyncFailure("cancelled batch subprocess") { _ = try await pendingBatch.value }
+        try require(ProcessInfo.processInfo.systemUptime - batchStarted < 2, "batch cancellation kills child promptly")
         let deadline = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: delay, runtime: URL(fileURLWithPath: config["runtime"]!), timeout: 0.1, record: { executionLog.append($0) })
         do { _ = try await deadline.calculate(n.math!, context: first, width: first.width - 32); throw NSError(domain: "timeout accepted", code: 3) }
         catch NativeObjectError.unsupported("math-helper-timeout") { }

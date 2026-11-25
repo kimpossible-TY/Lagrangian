@@ -103,6 +103,18 @@ class TextInteractionTests(unittest.TestCase):
         save(cls.out / 'results.json', cls.results)
         save(cls.evidence_root / 'latest.json', {'evidence': str(cls.out), 'seconds': time.time() - cls.started})
 
+    def test_large_document_initial_window_lazy_lru_and_stale_work(self):
+        result = self.results['stage2']
+        self.assertGreater(result['objects'], 300)
+        self.assertEqual(result['initial'], 128)
+        self.assertEqual(result['maxCost'], 16 * 1024 * 1024)
+        self.assertGreater(result['batches'], 0)
+        self.assertGreater(result['partialBatches'], 1)
+        for field in ['offMain', 'eviction', 'generationCancellation', 'widthCancellation', 'appearanceCancellation',
+                      'closeCancellation', 'selectionFindViewport', 'scroll', 'buffer', 'return', 'find', 'evictionPlaceholder',
+                      'findReflowNotification']:
+            self.assertTrue(result[field], field)
+
     def test_18_native_layout_draw_conditions(self):
         self.assertEqual(len(self.results['matrix']), 18)
         self.assertTrue(all(r['inkPixels'] > 100 and r['painted'] for r in self.results['matrix']))
@@ -139,8 +151,14 @@ class TextInteractionTests(unittest.TestCase):
 class CoreLongSelection(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ['CORE_REVIEW_OUTPUT']) / ('long-' + str(time.time_ns()))
-        cls.out.mkdir()
+        root = Path(os.environ.get('CORE_REVIEW_OUTPUT', os.environ.get('NA02_OUTPUT_ROOT', str(DEV / 'test-output/text')))).resolve()
+        cls.out = root / ('long-' + str(time.time_ns()))
+        cls.out.mkdir(parents=True)
+        for key, folder in [('TMPDIR', 'tmp/text'), ('CLANG_MODULE_CACHE_PATH', 'cache/text/clang'),
+                            ('SWIFT_MODULECACHE_PATH', 'cache/text/swift')]:
+            value = DEV / folder
+            value.mkdir(parents=True, exist_ok=True)
+            os.environ[key] = str(value)
         cls.binary = cls.out / 'LongView'
         cls.commands = []
         # Recompile the independent literal Typst fixtures through the real

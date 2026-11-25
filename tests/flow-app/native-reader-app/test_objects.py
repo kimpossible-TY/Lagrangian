@@ -445,6 +445,21 @@ class ObjectsTests(unittest.TestCase):
         self.assertEqual(self.result['negativeFailures'], 0)
         self.assertEqual(self.result['vectorBlueArea'], self.oracle['vector']['blueArea'])
 
+    def test_native_batch_chunking_parity_and_subset(self):
+        result = json.loads((self.out / 'stage2-batch.json').read_text())
+        self.assertEqual(result['formulas'], 260)
+        self.assertLessEqual(result['subprocesses'], 2)
+        self.assertEqual(result['distinctFormulas'], 260)
+        self.assertEqual(result['distinctSubprocesses'], 2)
+        self.assertTrue(result['invalidPreflight'])
+        self.assertTrue(result['parity'])
+        self.assertTrue(result['widthParity'])
+        self.assertEqual(result['invalidItemsRejected'], 8)
+        self.assertLessEqual(result['subsetCost'], 16 * 1024 * 1024)
+        self.assertGreater(result['largeObjects'], 300)
+        self.assertEqual(result['initialObjects'], 128)
+        self.assertLessEqual(result['initialCost'], 16 * 1024 * 1024)
+
     def test_helper_fragment_advances_preserve_whole_formula(self):
         requests = json.loads((self.out / 'requests.json').read_text())
         checked = 0

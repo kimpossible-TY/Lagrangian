@@ -85,7 +85,7 @@ extension NSPasteboard {
 }
 
 @main struct TextInteractionMain {
-    @MainActor static func main() {
+    @MainActor static func main() async {
         do {
             FindPasteboardIsolation.install()
             _ = NSApplication.shared.setActivationPolicy(.prohibited)
@@ -97,7 +97,8 @@ extension NSPasteboard {
             let document = try NativeReaderDocument.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
             let out = URL(fileURLWithPath: CommandLine.arguments[2])
             try check(document.blocks.map(\.displayText) == oracleTexts, "actual compiler logical reading order")
-            let results = try run(document, out: out)
+            var results = try run(document, out: out)
+            results["stage2"] = try await largeObjectRegression(document)
             NSPasteboard(name: .init(FindPasteboardIsolation.findName)).releaseGlobally()
             NSPasteboard(name: .init(FindPasteboardIsolation.generalName)).releaseGlobally()
             let data = try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])
@@ -106,6 +107,206 @@ extension NSPasteboard {
             fputs("TextInteractionTests FAILED: \(error)\n", stderr)
             exit(1)
         }
+    }
+    nonisolated static func onMainThread() -> Bool { Thread.isMainThread }
+    @MainActor static func waitFor(_ message: String, _ predicate: () -> Bool) async throws {
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !predicate() && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        try check(predicate(), message)
+    }
+    @MainActor static func largeObjectRegression(_ fixture: NativeReaderDocument) async throws -> [String: Any] {
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        var meaning = encoded["math"] as! [String: Any]; meaning["display"] = true; encoded["math"] = meaning
+        let blocks = try (0..<320).map { i -> NativeReaderNode in
+            var value = encoded; value["id"] = "large-\(i)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+        try document.validate()
+        try check(NativeReaderPreparedTextObject.isLarge(document) && NativeReaderPreparedTextObject.initialNodes(in: document).count == 128,
+            "320 formulas prepare only first 128")
+        let small = NativeReaderDocument(schemaVersion: 1, identity: document.identity, generation: 1,
+            requiredCapabilities: document.requiredCapabilities, blocks: Array(blocks.prefix(128)), assets: [], diagnostics: [])
+        try check(!NativeReaderPreparedTextObject.isLarge(small) && NativeReaderPreparedTextObject.initialNodes(in: small).count == 128,
+            "128 formulas remain eager")
+        let store = NativeReaderDocumentStore(); _ = try store.beginRequest()
+        let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: 1, target: document.identity)
+        let view = NativeReaderTextView(store: store)
+        defer { view.dispose() }
+        view.setFrameSize(NSSize(width: 640, height: 96))
+        let initialIDs = Set(blocks.prefix(128).map(\.id))
+        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey, cost: Int = 65536) -> NativeReaderPreparedTextObject {
+            NativeReaderPreparedTextObject(key: key, size: NSSize(width: 240, height: 40), baseline: 0,
+                accessibilityLabel: node.math!.normalizedText, draw: { _ in }, cost: cost)
+        }
+        view.cachedObject = { node, key in initialIDs.contains(node.id) ? prepared(node, key) : nil }
+        try view.adopt(document, context: context)
+        var reflowNotifications = 0
+        view.callbacks.layoutChanged = { reflowNotifications += 1 }
+        _ = view.performFindAction(.showFindInterface)
+        try check(reflowNotifications == 1, "successful placeholder reflow notifies preparation owner when Find opens")
+        let key = view.renderKey!
+        let initial = Dictionary(uniqueKeysWithValues: blocks.prefix(128).map { ($0.id, prepared($0, key)) })
+        let placeholder = NativeReaderPreparedTextObject.placeholder(blocks[280], key: key)
+        try check(placeholder.isPlaceholder && placeholder.size == NSSize(width: 240, height: 36) && !placeholder.accessibilityLabel.isEmpty,
+            "deterministic bounded display placeholder")
+        var inline = encoded; var inlineMath = meaning; inlineMath["display"] = false; inline["math"] = inlineMath
+        let inlineNode = try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: inline))
+        try check(NativeReaderPreparedTextObject.placeholder(inlineNode, key: key).size == NSSize(width: 24, height: 16), "inline placeholder")
+        let labelNode = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .figure || $0.kind == .image }!
+        let narrowKey = NativeReaderTextRenderKey(identity: key.identity, documentGeneration: 1, viewID: key.viewID,
+            layoutGeneration: key.layoutGeneration, width: 100, appearance: key.appearance)
+        try check(NativeReaderPreparedTextObject.placeholder(labelNode, key: narrowKey).size == NSSize(width: 100, height: 120), "figure placeholder clamps to width")
+        var offMain = false, batches = 0, requestedIDs = Set<String>()
+        view.configureLazyObjects(key: key, initial: initial) { nodes, current in
+            batches += 1
+            requestedIDs.formUnion(nodes.map(\.id))
+            let result = await Task.detached {
+                let main = onMainThread()
+                let objects = Dictionary(uniqueKeysWithValues: nodes.map { node in
+                    (node.id, NativeReaderPreparedTextObject(key: current, size: NSSize(width: 240, height: 48), baseline: 0,
+                        accessibilityLabel: node.math!.normalizedText, draw: { _ in }, cost: 2 * 1024 * 1024))
+                })
+                return (objects, main)
+            }.value
+            offMain = !result.1
+            return result.0
+        }
+        try check(view.preparedObjectCost == 128 * 65536, "initial cost within exact budget")
+        let initialRange = try view.textMap!.presentationRange(blockID: blocks[0].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.setSelectedRange(initialRange, affinity: .upstream, stillSelecting: false)
+        let selected = view.bodyTextView.selectedRanges, selection = store.selection
+        let text = view.bodyTextView.string, finder = view.scrollView.isFindBarVisible
+        try check(view.navigate(toNodeID: blocks[280].id), "TOC jump changes viewport")
+        view.prepareVisibleObjects()
+        let anchor = view.viewportAnchor()
+        let visible = view.scrollView.contentView.bounds
+        let buffered = visible.insetBy(dx: 0, dy: -visible.height)
+        let expectedRequests = Set(blocks.filter { node in
+            view.rects(blockID: node.id, logical: 0..<source.displayText.utf16.count).contains { $0.intersects(buffered) }
+        }.map(\.id))
+        try await waitFor("scroll lazy-prepares newly visible formula") { view.preparedObjectIDs.contains(blocks[280].id) }
+        try await waitFor("one viewport above and below requested") { expectedRequests.isSubset(of: requestedIDs) }
+        try check(expectedRequests.count > 1, "viewport buffer includes neighboring attachments")
+        try check(view.preparedObjectCost <= 16 * 1024 * 1024 && initialIDs.intersection(view.preparedObjectIDs).count < 128,
+            "offscreen entries evicted within 16 MiB")
+        let evictedID = initialIDs.subtracting(view.preparedObjectIDs).sorted().first!
+        let evictedRange = try view.textMap!.presentationRange(blockID: evictedID, logical: 0..<source.displayText.utf16.count)
+        let evictedAttachment = view.bodyTextView.textStorage!.attribute(.attachment, at: evictedRange.location,
+            effectiveRange: nil) as! NSTextAttachment
+        try check(evictedAttachment.attachmentCell!.cellSize() == NSSize(width: 240, height: 36),
+            "eviction replaces retained paint cell with lightweight placeholder metrics")
+        try check(view.bodyTextView.selectedRanges == selected && store.selection == selection && view.bodyTextView.selectionAffinity == .upstream &&
+            view.bodyTextView.string == text && view.scrollView.isFindBarVisible == finder, "in-place replacement preserves selection, text and find bar")
+        try check(view.viewportAnchor()?.position.blockID == anchor?.position.blockID && offMain, "viewport anchor and background preparation")
+        // Ordinary clip-view scrolling, without a navigation helper, must also
+        // trigger preparation through the bounds-change observer.
+        let scrollTarget = try view.textMap!.presentationRange(blockID: blocks[200].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.scrollRangeToVisible(scrollTarget)
+        try await waitFor("clip-view scroll prepares missing attachment") { view.preparedObjectIDs.contains(blocks[200].id) }
+        try check(view.preparedObjectCost <= 16 * 1024 * 1024 && view.bodyTextView.selectedRanges == selected,
+            "metric-changing scroll batch preserves selection and budget")
+        try check(view.returnFromReference(), "Return restores the saved viewport")
+        try await waitFor("Return lazy-prepares evicted origin") { view.preparedObjectIDs.contains(blocks[0].id) }
+        try check(view.bodyTextView.selectedRanges == selected && view.scrollView.isFindBarVisible == finder,
+            "Return preparation retains selection and find interface")
+        // A provider may reduce a batch to fit the preparation budget. Nodes
+        // omitted from that result must still get their own later request.
+        let buffer = view.scrollView.contentView.bounds.insetBy(dx: 0, dy: -view.scrollView.contentView.bounds.height)
+        let partialIDs = Set(blocks.filter { node in
+            view.rects(blockID: node.id, logical: 0..<source.displayText.utf16.count).contains { $0.intersects(buffer) }
+        }.map(\.id))
+        try check(partialIDs.count > 1, "scroll buffer covers multiple formulas")
+        var partialBatches = 0
+        view.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            partialBatches += 1
+            guard let node = nodes.first else { return [:] }
+            return [node.id: prepared(node, current)]
+        }
+        try await waitFor("partial budget batches retry omitted nodes") { partialIDs.isSubset(of: view.preparedObjectIDs) }
+        try check(partialBatches > 1, "partial provider uses multiple bounded batches")
+        let cache = NativeReaderLazyObjectCache()
+        let half = 8 * 1024 * 1024
+        cache.insert(["a": prepared(blocks[0], key, cost: half), "b": prepared(blocks[1], key, cost: half)], protecting: [])
+        cache.touch(["a"])
+        cache.insert(["c": prepared(blocks[2], key, cost: half)], protecting: ["a"])
+        try check(cache.cost == 16 * 1024 * 1024 && Set(cache.objects.keys) == ["a", "c"], "deterministic LRU evicts least recent offscreen entry")
+        // Exercise AppKit's own query/action path at a distant attachment. Find
+        // deliberately changes selection; lazy completion must preserve that
+        // new result and the already open embedded bar.
+        func descendants(_ parent: NSView) -> [NSView] { parent.subviews.flatMap { [$0] + descendants($0) } }
+        let findStart = try view.textMap!.presentationRange(blockID: blocks[280].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.setSelectedRange(NSRange(location: findStart.location, length: 0))
+        guard let bar = view.scrollView.findBarView,
+              let field = descendants(bar).compactMap({ $0 as? NSSearchField }).first,
+              let action = field.action else { throw TextTestError(description: "large document embedded Find field") }
+        field.stringValue = "\u{fffc}"
+        try check(field.sendAction(action, to: field.target) && view.performFindAction(.nextMatch), "large document native Find action")
+        let foundID = store.selection!.fragments.first!.blockID
+        let foundSelection = view.bodyTextView.selectedRanges
+        try check(Int(foundID.dropFirst("large-".count))! >= 280, "Find reveals a distant unprepared formula")
+        try await waitFor("Find viewport lazy-prepares matching attachment") { view.preparedObjectIDs.contains(foundID) }
+        try check(view.bodyTextView.selectedRanges == foundSelection && view.scrollView.isFindBarVisible,
+            "Find result and bar survive lazy attachment replacement")
+        // An intentionally uncooperative provider returns after revocation.
+        // Its late result must never mutate TextKit or the accepted cache.
+        var continuation: CheckedContinuation<[String: NativeReaderPreparedTextObject], Never>?
+        var entered = false, finished = false
+        view.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            entered = true
+            let value = await withCheckedContinuation { continuation = $0 }
+            finished = true
+            return value
+        }
+        try await waitFor("generation batch entered") { entered }
+        _ = try store.beginRequest(); view.invalidateStaleLazyPreparation()
+        continuation!.resume(returning: [blocks[280].id: prepared(blocks[280], key)])
+        try await waitFor("late generation batch returned") { finished }
+        for _ in 0..<5 { await Task.yield() }
+        try check(view.preparedObjectIDs.isEmpty, "stale generation result discarded")
+        entered = false; finished = false
+        view.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            entered = true
+            let value = await withCheckedContinuation { continuation = $0 }
+            finished = true
+            return value
+        }
+        try await waitFor("width batch entered") { entered }
+        view.setFrameSize(NSSize(width: 520, height: 96))
+        continuation!.resume(returning: [blocks[280].id: prepared(blocks[280], key)])
+        try await waitFor("late width batch returned") { finished }
+        for _ in 0..<5 { await Task.yield() }
+        try check(view.preparedObjectIDs.isEmpty && view.requestedRenderKey != key, "width cancellation discards late metrics")
+        try rejects("stale in-place attachments") { try view.updateObjectAttachments(for: key, objects: initial) }
+        for reason in ["appearance", "close"] {
+            let current = view.requestedRenderKey!
+            try view.refreshPreparedObjects(for: current)
+            entered = false; finished = false
+            view.configureLazyObjects(key: current, initial: [:]) { _, _ in
+                entered = true
+                let value = await withCheckedContinuation { continuation = $0 }
+                finished = true
+                return value
+            }
+            try await waitFor("\(reason) batch entered") { entered }
+            if reason == "appearance" {
+                var appearance = view.textAppearance; appearance.theme = .dark
+                try view.setAppearance(appearance)
+            } else { view.dispose() }
+            continuation!.resume(returning: [blocks[280].id: prepared(blocks[280], current)])
+            try await waitFor("\(reason) batch returned") { finished }
+            for _ in 0..<5 { await Task.yield() }
+            try check(view.preparedObjectIDs.isEmpty, "\(reason) discards late objects")
+        }
+        return ["objects": blocks.count, "initial": initial.count, "maxCost": NativeReaderLazyObjectCache.maxCost,
+            "batches": batches, "offMain": offMain, "eviction": true, "generationCancellation": true, "widthCancellation": true,
+            "selectionFindViewport": true, "scroll": true, "buffer": true, "return": true, "partialBatches": partialBatches,
+            "appearanceCancellation": true, "closeCancellation": true, "find": true, "evictionPlaceholder": true,
+            "findReflowNotification": true]
     }
     @MainActor static func make(_ document: NativeReaderDocument, provider: Bool = true) throws -> (NativeReaderTextView, NativeReaderRequestContext) {
         let store = NativeReaderDocumentStore()

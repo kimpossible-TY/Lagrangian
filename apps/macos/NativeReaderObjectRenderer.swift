@@ -423,6 +423,59 @@ actor NativeMathWorker {
         return try NativeMathLayout.decode(bytes, math: math, context: context, width: width)
     }
 
+    func calculateBatch(_ items: [(id: String, math: NativeMath, width: Double)], context: NativeObjectContext) async throws -> [String: NativeMathLayout] {
+        try Task.checkCancellation()
+        try context.validate()
+        guard Set(items.map(\.id)).count == items.count else { throw NativeObjectError.stale }
+        // Validate the complete request before starting any child. A malformed
+        // later chunk must not spend subprocess work on an unusable batch.
+        for item in items {
+            try Task.checkCancellation()
+            guard item.width.isFinite, (16...8192).contains(item.width) else { throw NativeObjectError.invalidGeometry }
+            guard item.math.mathML.utf8.count <= 65536 else { throw NativeObjectError.budget }
+        }
+        var layouts = [String: NativeMathLayout]()
+        struct Input: Hashable { let mathML: String; let width: Double }
+        for start in stride(from: 0, to: items.count, by: 256) {
+            try Task.checkCancellation()
+            let chunk = items[start..<min(start + 256, items.count)]
+            // Repeated symbols/formulas share computation only within this
+            // bounded invocation. Each semantic item is still decoded below.
+            var requests = [[String: Any]](), indices = [Input: Int](), positions = [Int]()
+            for item in chunk {
+                try Task.checkCancellation()
+                let input = Input(mathML: item.math.mathML, width: item.width)
+                if let index = indices[input] { positions.append(index); continue }
+                positions.append(requests.count); indices[input] = requests.count
+                requests.append(["mathML": item.math.mathML, "width": item.width, "fontSize": context.fontSize,
+                    "font": "MathJaxNewcm", "context": ["revision": context.identity.revision,
+                    "generation": context.generation, "theme": context.theme.rawValue]])
+            }
+            guard active < 2 else { throw NativeObjectError.unsupported("math-worker-busy") }
+            let input = try JSONSerialization.data(withJSONObject: ["kind": "mathml-batch", "items": requests])
+            active += 1
+            defer { active -= 1 }
+            let cancellation = NativeMathCancellation(), node = self.node, helper = self.helper,
+                runtime = self.runtime, timeout = self.timeout, record = self.record
+            let bytes = try await withTaskCancellationHandler(operation: {
+                try await Task.detached(priority: .userInitiated) {
+                    try Self.execute(node: node, helper: helper, runtime: runtime, input: input,
+                        timeout: timeout, cancellation: cancellation, record: record)
+                }.value
+            }, onCancel: { cancellation.cancel() })
+            try Task.checkCancellation()
+            guard let response = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  response["kind"] as? String == "mathml-batch", let results = response["items"] as? [[String: Any]],
+                  results.count == requests.count else { throw NativeObjectError.stale }
+            for (item, position) in zip(chunk, positions) {
+                try Task.checkCancellation()
+                layouts[item.id] = try NativeMathLayout.decode(JSONSerialization.data(withJSONObject: results[position]),
+                    math: item.math, context: context, width: item.width)
+            }
+        }
+        return layouts
+    }
+
     func prepare(tex: String, display: Bool, context: NativeObjectContext) async throws -> NativePreparedAnswerMath {
         let bytes = try await compute(["kind": "tex", "tex": tex, "display": display], source: tex, context: context, width: context.width)
         struct Meaning: Decodable {
