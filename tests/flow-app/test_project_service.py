@@ -20,6 +20,8 @@ class SwiftSources(unittest.TestCase):
         core = package.swift_sources(include_app=False)
         self.assertNotIn(ROOT / 'apps/macos/main.swift', core)
         self.assertNotIn(ROOT / 'apps/macos/FlowApp.swift', core)
+        self.assertIn(ROOT / 'apps/macos/CrossProjectReference.swift', core)
+        self.assertNotIn(ROOT / 'apps/macos/NativeCrossProjectPreviewPopover.swift', core)
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'Native app tests require macOS')
@@ -38,6 +40,27 @@ class ProjectServices(unittest.TestCase):
     def scenario(self, name):
         result = subprocess.run([self.executable, name], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_reference_key_legacy_decoding_validation_and_round_trip(self):
+        self.scenario('reference-key')
+
+    def test_trailing_newline_rejected_for_reference_key_id_and_label(self):
+        self.scenario('trailing-newline-validation')
+
+    def test_directory_discovery_depth_hidden_directories_and_order(self):
+        self.scenario('directory-discovery')
+
+    def test_directory_registration_entry_selection_and_defaults(self):
+        self.scenario('directory-registration')
+
+    def test_directory_registration_failures_preserve_settings(self):
+        self.scenario('directory-failures')
+
+    def test_cross_project_catalog_resolution_validation_and_profile_matching(self):
+        self.scenario('cross-project-catalog')
+
+    def test_cross_project_navigation_bounded_history_and_metadata(self):
+        self.scenario('cross-project-stack')
 
     def test_profile_selection_preserves_profiles_and_saves_without_service_control(self):
         self.scenario('select-profile')

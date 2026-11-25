@@ -9,6 +9,7 @@
     "LaunchAgentService.swift",
     "EngineLaunch.swift",
     "ProjectService.swift",
+    "CrossProjectReference.swift",
     "PreviewReadiness.swift",
     "NativeReaderDocument.swift",
     "NativeReaderOperations.swift",
@@ -23,6 +24,7 @@
   ],
   "native": [
     "NativeAppDesign.swift",
+    "NativeCrossProjectPreviewPopover.swift",
     "NativeBrandMark.swift",
     "NativeFloatingCapsule.swift",
     "NativeReaderSelection.swift",

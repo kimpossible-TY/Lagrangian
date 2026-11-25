@@ -10,7 +10,11 @@ func require(_ condition: Bool, _ message: String) throws {
 }
 
 private func matches(_ value: String, _ pattern: String) -> Bool {
-  value.range(of: pattern, options: .regularExpression) != nil
+  value.range(of: "\\A(?:\(pattern))\\z", options: .regularExpression) == value.startIndex..<value.endIndex
+}
+
+func pathIsInside(_ path: String, directory: String) -> Bool {
+  path.hasPrefix(directory == "/" ? "/" : directory + "/") && path != directory
 }
 
 struct Profile: Codable, Equatable {
@@ -23,6 +27,7 @@ struct Profile: Codable, Equatable {
   var port: Int
   var publicURL: String
   var label: String
+  var projectRefKey: String? = nil
 
   var url: String { publicURL.isEmpty ? "http://127.0.0.1:\(port)/" : publicURL }
 
@@ -35,16 +40,21 @@ struct Profile: Codable, Equatable {
   }
 
   func validate(checkFiles: Bool = false, fileManager: FileManager = .default) throws {
-    try require(matches(id, "^[a-z0-9][a-z0-9-]{0,63}$"), "프로젝트 ID가 올바르지 않습니다.")
+    try require(matches(id, "[a-z0-9][a-z0-9-]{0,63}"), "프로젝트 ID가 올바르지 않습니다.")
+    if let projectRefKey, !projectRefKey.isEmpty {
+      try require(
+        matches(projectRefKey, "[a-z0-9][a-z0-9-]{0,63}"),
+        "프로젝트 참조 키가 올바르지 않습니다.")
+    }
     try require(!name.trimmingCharacters(in: .whitespaces).isEmpty, "프로젝트 이름을 입력하세요.")
     try require(root.hasPrefix("/") && !entry.isEmpty, "프로젝트 폴더와 진입 파일을 지정하세요.")
     let rootURL = URL(fileURLWithPath: root).standardizedFileURL.path
     let entryPath = path(entry)
     try require(
-      entryPath.hasPrefix(rootURL + "/") && entryPath.hasSuffix(".typ"),
+      pathIsInside(entryPath, directory: rootURL) && entryPath.hasSuffix(".typ"),
       "진입 파일은 프로젝트 폴더 안의 .typ 파일이어야 합니다.")
     try require((1024...65535).contains(port), "포트는 1024–65535 범위여야 합니다.")
-    try require(matches(label, "^[a-zA-Z0-9][a-zA-Z0-9.-]+$"), "LaunchAgent 이름이 올바르지 않습니다.")
+    try require(matches(label, "[a-zA-Z0-9][a-zA-Z0-9.-]+"), "LaunchAgent 이름이 올바르지 않습니다.")
     if !publicURL.isEmpty {
       guard let url = URLComponents(string: publicURL) else {
         throw FlowError(message: "HTTPS 주소가 올바르지 않습니다.")
