@@ -702,6 +702,7 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
 /// NA06's profile-scoped composition seam. Re-resolve through ReaderManager on
 /// reconnect; a new incarnation replaces only this view's transport/action adapters.
 actor NativeReaderManagedClient: NativeReaderDocumentProviding {
+    internal static var onRevokeEditorConsentDidFinish: (@Sendable () -> Void)? = nil
     private let resolver: NativeReaderManagedResolver
     private let root: String
     private let entry: String
@@ -756,6 +757,7 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         return actions
     }
     func revokeEditorConsent() async {
+        defer { Self.onRevokeEditorConsentDidFinish?() }
         guard !editorConsentRevoked, editor?.consentID != nil else { return }
         editorConsentRevoked = true; epoch += 1
         if let transport { await transport.revokeEditorConsent() }

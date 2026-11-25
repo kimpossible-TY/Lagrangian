@@ -13,6 +13,13 @@ private func waitUntil(_ message: String, _ predicate: () -> Bool) {
   check(predicate(), message)
 }
 
+private final class CompletionCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+  func increment() { lock.lock(); defer { lock.unlock() }; value += 1 }
+  var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 private final class Services: ProjectControlling {
   private let lock = NSLock()
   private var running: [String: Int] = [:]
@@ -426,6 +433,9 @@ struct FlowAppTests {
       check(services.actions == ["start", "stop"], "dock actions changed lifecycle")
       fallthrough
     case "editor-consent-menu":
+      let revocations = CompletionCounter()
+      NativeReaderManagedClient.onRevokeEditorConsentDidFinish = { revocations.increment() }
+      defer { NativeReaderManagedClient.onRevokeEditorConsentDidFinish = nil }
       delegate.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
       defer { NSStatusBar.system.removeStatusItem(delegate.statusItem); delegate.nativeWindow?.dispose() }
       delegate.buildMenu()
@@ -494,6 +504,7 @@ struct FlowAppTests {
             if case .failed = progress { switchFailed = true }
           })
           waitUntil("switched reader attach completed") { attachRequests.count > beforeSwitchAttach && switchFailed }
+          waitUntil("disposed reader consent revocation completed") { revocations.count >= 2 }
           check(scopeRequests == beforeClose + 1, "profile switch revoked closed consent again")
           checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
           switchRead()
