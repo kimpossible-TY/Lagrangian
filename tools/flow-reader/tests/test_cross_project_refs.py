@@ -52,6 +52,21 @@ class CrossProjectTests(unittest.TestCase):
         with self.assertRaises(CatalogError):
             load_project_catalog(self.path)
 
+    def test_nonstandard_json_constants_rejected_anywhere(self):
+        for constant in (float('nan'), float('inf'), float('-inf')):
+            for location in ('coordinate', 'root_extra', 'nested_extra'):
+                with self.subTest(constant=constant, location=location):
+                    data = copy.deepcopy(self.data)
+                    if location == 'coordinate':
+                        data['projects']['p']['references']['a']['x'] = constant
+                    elif location == 'root_extra':
+                        data['extra'] = constant
+                    else:
+                        data['projects']['p']['references']['a']['extra'] = [constant]
+                    self.write(data)
+                    with self.assertRaises(CatalogError):
+                        load_project_catalog(self.path)
+
     def test_invalid_catalogs(self):
         variants = [[], {'schema': True, 'projects': {}}, {'schema': 2, 'projects': {}},
                     {'schema': 1, 'projects': []}]
@@ -97,6 +112,14 @@ class CrossProjectTests(unittest.TestCase):
             self.assertEqual(resolve_cross_project_ref(self.catalog, href=href).status, 'unresolved')
         self.assertEqual(resolve_cross_project_ref(
             self.catalog, href='https://example.org/doc.pdf#page=' + '9' * 5000).status, 'unresolved')
+        malformed = 'http://[broken#page=1'
+        result = resolve_cross_project_ref(self.catalog, href=malformed)
+        self.assertEqual((result.status, result.resolution_mode), ('unresolved', 'unresolved'))
+        payload = build_preview_payload(self.catalog, self.document, href=malformed)
+        self.assertEqual(payload['resolution']['status'], 'unresolved')
+        self.assertEqual(payload['resolution']['resolutionMode'], 'unresolved')
+        self.assertFalse(payload['snippet']['matched'])
+        json.dumps(payload, allow_nan=False)
 
     def test_snippet_anchor_text_boundaries_and_truncation(self):
         snippet = extract_block_snippet(self.document, label='a', reference_text='Introduction')

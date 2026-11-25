@@ -7,6 +7,8 @@ import os
 import stat
 from urllib.parse import parse_qs, urldefrag
 
+from flow_reader.document.passages import normalized
+
 
 class CatalogError(ValueError):
     """The catalog cannot be read or does not satisfy its schema."""
@@ -40,6 +42,10 @@ def _nonempty(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def _reject_json_constant(value):
+    raise CatalogError(f'invalid JSON constant: {value}')
+
+
 def load_project_catalog(path, *, max_bytes=16777216):
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
@@ -49,7 +55,7 @@ def load_project_catalog(path, *, max_bytes=16777216):
             raw = source.read(max_bytes + 1)
         if len(raw) > max_bytes:
             raise CatalogError('catalog exceeds size limit')
-        data = json.loads(raw.decode('utf-8'))
+        data = json.loads(raw.decode('utf-8'), parse_constant=_reject_json_constant)
     except (OSError, UnicodeError, ValueError, OverflowError) as exc:
         if isinstance(exc, CatalogError):
             raise
@@ -102,11 +108,9 @@ class CrossProjectRefResolution:
                     page=self.page, pdfUrl=self.pdf_url, candidateLabels=list(self.candidate_labels))
 
 
-def _normalize(text):
-    return ' '.join(text.split()) if isinstance(text, str) else ''
-
-
 def _resolution(status, mode=None, project=None, label=None, ref=None, candidates=()):
+    if status == 'unresolved' and mode is None:
+        mode = 'unresolved'
     return CrossProjectRefResolution(status, mode, project.key if project else None,
         project.title if project else None, label, ref.text if ref else None,
         ref.page if ref else None, project.pdf_url if project else None, tuple(sorted(candidates)))
@@ -126,7 +130,10 @@ def resolve_cross_project_ref(catalog, *, href=None, link_text=None, data_attrs=
         return _resolution('unresolved', project=project, label=label if isinstance(label, str) else None)
     if not isinstance(href, str):
         return _resolution('unresolved')
-    base, fragment = urldefrag(href)
+    try:
+        base, fragment = urldefrag(href)
+    except ValueError:
+        return _resolution('unresolved')
     pages = parse_qs(fragment).get('page', [])
     if len(pages) != 1 or not pages[0].isascii() or not pages[0].isdigit():
         return _resolution('unresolved')
@@ -138,9 +145,9 @@ def resolve_cross_project_ref(catalog, *, href=None, link_text=None, data_attrs=
         return _resolution('unresolved')
     matches = [(p, r) for p in catalog.projects.values() if p.pdf_url == base
                for r in p.references.values() if r.page == page]
-    normalized = _normalize(link_text)
-    text_matches = [(p, r) for p, r in matches if normalized and normalized in
-                    (_normalize(r.text), _normalize(f'{r.text} of {p.title}'))]
+    normalized_text = normalized(link_text if isinstance(link_text, str) else '')
+    text_matches = [(p, r) for p, r in matches if normalized_text and normalized_text in
+                    (normalized(r.text), normalized(f'{r.text} of {p.title}'))]
     selected = text_matches or matches
     if len(selected) == 1:
         project, ref = selected[0]
@@ -184,9 +191,10 @@ def extract_block_snippet(document, *, label=None, reference_text=None, max_char
     index = next((i for i, b in enumerate(blocks) if label and _has_anchor(b, label)), None)
     mode = 'anchor'
     if index is None:
-        needle = _normalize(reference_text)
+        needle = normalized(reference_text if isinstance(reference_text, str) else '')
         index = next((i for i, b in enumerate(blocks) if needle and any(
-            needle in _normalize(b.get(field)) for field in ('displayText', 'canonicalText'))), None)
+            needle in normalized(b.get(field) if isinstance(b.get(field), str) else '')
+            for field in ('displayText', 'canonicalText'))), None)
         mode = 'reference_text'
     if index is None:
         return empty
