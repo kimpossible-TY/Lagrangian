@@ -457,6 +457,161 @@ class ObjectsTests(unittest.TestCase):
             checked += 1
         self.assertGreater(checked, 50)
 
+    def test_helper_multiscripts_and_bounded_batch(self):
+        scripts = '<math><mmultiscripts><mi>x</mi><mi>i</mi><mi>j</mi><mprescripts/><mi>k</mi><mi>l</mi></mmultiscripts></math>'
+        good = dict(kind='mathml', mathML=scripts, width=320, fontSize=20, font='MathJaxNewcm',
+                    context=dict(revision='batch', generation=1, theme='light'))
+        single = json.loads(self.command(self.helper_command, json.dumps(good)))
+        items = [dict(good, context=dict(revision='item-' + str(i), generation=i,
+                                        theme='dark' if i % 2 else 'light')) for i in range(512)]
+        response = json.loads(self.command(self.helper_command, json.dumps(dict(kind='mathml-batch', items=items)), timeout=120))
+        self.assertEqual(response['kind'], 'mathml-batch')
+        self.assertEqual(len(response['items']), 512)
+        for request, actual in zip(items, response['items']):
+            self.assertEqual(actual['context'], request['context'])
+            self.assertEqual(actual['inputHash'], hashlib.sha256(scripts.encode()).hexdigest())
+            for field in ['whole', 'fragments', 'font', 'fontSize', 'width', 'diagnostics']:
+                self.assertEqual(actual[field], single[field])
+            self.assertIn('data-mml-node="mmultiscripts"', actual['whole']['svg'])
+            self.assertNotRegex(actual['whole']['svg'], r'<(?:text|image|use|foreignObject)\b|href=|url\(')
+        self.assertNotIn('kind', single)  # Preserve the single MathML response contract.
+        one = json.loads(self.command(self.helper_command, json.dumps(dict(kind='mathml-batch', items=[good]))))
+        self.assertEqual(one['items'][0]['whole'], single['whole'])
+        # Force two input chunks to divide a non-ASCII scalar, independently of
+        # OS pipe buffering, while executing the actual helper entry point.
+        chunked = '''
+          import { Readable } from 'node:stream';
+          import { pathToFileURL } from 'node:url';
+          const [helper, runtime, json] = process.argv.slice(1);
+          const raw = Buffer.from(json), split = raw.indexOf(Buffer.from('α')) + 1;
+          const stream = Readable.from((async function* () {
+            yield raw.subarray(0, split);
+            await new Promise(setImmediate);
+            yield raw.subarray(split);
+          })(), { objectMode: false });
+          Object.defineProperty(process, 'stdin', { value: stream });
+          process.argv = [process.execPath, helper, '--runtime', runtime];
+          await import(pathToFileURL(helper).href);
+        '''
+        unicode_item = dict(good, mathML='<math><mi>α</mi></math>')
+        payload = dict(kind='mathml-batch', items=[unicode_item])
+        actual = json.loads(self.command(self.helper_command[:-3] + ['--input-type=module', '-e', chunked,
+            self.helper_command[-3], self.helper_command[-1], json.dumps(payload, ensure_ascii=False)]))
+        self.assertEqual(actual['items'][0]['inputHash'], hashlib.sha256(unicode_item['mathML'].encode()).hexdigest())
+        invalid = [dict(kind='mathml-batch', items=x) for x in [[], [good] * 513, {}, [None],
+            [dict(good, kind='tex')], [dict(good, width=0)], [dict(good, extra=True)],
+            [dict(good, context=dict(theme='light', generation=-1, revision='bad'))],
+            [dict(good, mathML='<math><script>x</script></math>')],
+            [dict(good, mathML='<math><mi href="https://example.org">x</mi></math>')],
+            [dict(good, mathML='<math><mtext>' + 'x' * 65536 + '</mtext></math>')]]]
+        invalid.append(dict(kind='mathml-batch', items=[good], extra=True))
+        for payload in invalid:
+            with self.subTest(payload=str(payload)[:80]):
+                self.assertEqual(self.command(self.helper_command, json.dumps(payload), expected=2), '')
+
+    def test_importer_and_native_nested_svg_png(self):
+        def chunk(kind, data):
+            return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+        png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) +
+               chunk(b'IDAT', zlib.compress(b'\x00\x20\x60\xc0')) + chunk(b'IEND', b''))
+        uri = 'data:image/png;base64,' + base64.b64encode(png).decode()
+        rect = '<rect width="40" height="20" fill="#2060c0"/>'
+        image = '<image x="10" y="15" width="20" height="10" preserveAspectRatio="none" href="' + uri + '"/>'
+        cases = [
+            ('nested-viewbox', '<svg x="10" y="15" width="20" height="10" viewBox="0 0 40 20">' + rect + '</svg>', [10, 15, 20, 10]),
+            ('nested-css-px', '<svg x="10" y="15" style="width:20px;height:10px" viewBox="0 0 40 20">' + rect + '</svg>', [10, 15, 20, 10]),
+            ('nested-css-em', '<svg x="10" y="15" style="width:1.25em;height:0.625em" viewBox="0 0 40 20">' + rect + '</svg>', [10, 15, 20, 10]),
+            ('nested-css-pt', '<svg x="10" y="15" width="90" height="70" style="width:15pt;height:7.5pt" viewBox="0 0 40 20">' + rect + '</svg>', [10, 15, 20, 10]),
+            ('nested-css-overflow', '<svg x="10" y="15" style="width:20px;height:10px;overflow:visible" viewBox="0 0 40 20"><rect width="60" height="20" fill="#2060c0"/></svg>', [10, 15, 30, 10]),
+            ('nested-default', '<svg><rect x="10" y="15" width="20" height="10" fill="#2060c0"/></svg>', [10, 15, 20, 10]),
+            ('nested-scalar', '<svg x="10," y="15," width="20" height="10" viewBox="0 0 40 20">' + rect + '</svg>', [10, 15, 20, 10]),
+            ('nested-transform', '<svg x="10" y="15" width="20" height="10" viewBox="0 0 40 20" transform="translate(5,5)">' + rect + '</svg>', [15, 20, 20, 10]),
+            ('png-href', image, [10, 15, 20, 10]),
+            ('png-xlink', image.replace(' href=', ' xlink:href='), [10, 15, 20, 10]),
+            ('png-whitespace', image[:-2] + '>\n </image>', [10, 15, 20, 10]),
+            ('nested-png', '<svg x="10" y="15" width="20" height="10" viewBox="0 0 40 20"><image width="40" height="20" preserveAspectRatio="none" href="' + uri + '"/></svg>', [10, 15, 20, 10]),
+            ('png-default-aspect', image.replace(' preserveAspectRatio="none"', ''), [15, 15, 10, 10])]
+        def wrap(body):
+            return '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 80">' + body + '</svg>'
+        def imported(svg):
+            bundle = SectionBundle({'revision': 'pde-svg', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body>' + svg + '</body></html>').encode()}, {}, [])
+            return next(iter(import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).assets.values())).decode()
+        encoded_cases = [dict(name=name, svg=imported(wrap(body)), rects=[bounds]) for name, body, bounds in cases]
+        definitions = '<defs><g id="shared"><svg viewBox="0 0 40 20"><rect width="20" height="10" fill="#2060c0"/></svg></g></defs>'
+        instances = ['<svg x="5" y="5" width="20" height="10"><use href="#shared"/></svg>',
+                     '<svg x="40" y="30" width="40" height="20"><use href="#shared"/></svg>']
+        # Both orders must resolve independently of declaration/first-use traversal.
+        for implicit_viewport in [False, True]:
+            # An extra SVG without dimensions or viewBox also needs a fresh
+            # synthesized viewBox for each instance, not the defs viewport.
+            shared = definitions.replace('<svg viewBox=', '<svg><svg viewBox=').replace('</svg></g>', '</svg></svg></g>') if implicit_viewport else definitions
+            for reverse in [False, True]:
+                body = shared + ''.join(reversed(instances) if reverse else instances)
+                encoded_cases.append(dict(name='nested-defs-' + str(implicit_viewport) + '-' + str(reverse), svg=imported(wrap(body)),
+                                          rects=[[5, 5, 10, 5], [40, 30, 20, 10]]))
+        # A real PNG with uncompressed IDAT, deterministic blue pixels and >1 MiB
+        # of base64 SVG bytes; no random data, fake signature or trailing padding.
+        large_png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 640, 480, 8, 2, 0, 0, 0)) +
+                     chunk(b'IDAT', zlib.compress((b'\0' + b'\x20\x60\xc0' * 640) * 480, level=0)) + chunk(b'IEND', b''))
+        large_uri = 'data:image/png;base64,' + base64.b64encode(large_png).decode()
+        large_svg = imported(wrap(image.replace(uri, large_uri)))
+        self.assertGreater(len(large_svg.encode()), 1024 * 1024)
+        encoded_cases.append(dict(name='png-over-1mib', svg=large_svg, rects=[[10, 15, 20, 10]]))
+        save(self.out / 'pde-svg-cases.json', encoded_cases)
+        alpha_cases = []
+        for paint in ['fill', 'stroke']:
+            geometry = ('<rect x="10" y="15" width="20" height="10" ' if paint == 'fill' else
+                        '<path d="M10 20H30" fill="none" stroke-width="10" ')
+            for color, alpha in [('#ff000080', 128 / 255), ('#f008', 136 / 255)]:
+                for name, parent, child, rgba in [
+                    ('inherited-explicit', paint + '-opacity="0.5"', paint + '="' + color + '"', [1, 0, 0, 0.5 * alpha]),
+                    ('same-element', '', paint + '="' + color + '" ' + paint + '-opacity="0.5"', [1, 0, 0, 0.5 * alpha]),
+                    ('inherited-paint', paint + '="' + color + '" ' + paint + '-opacity="0.5"', '', [1, 0, 0, 0.5 * alpha]),
+                    ('opacity-override', paint + '="' + color + '" ' + paint + '-opacity="0.5"', paint + '-opacity="0.25"', [1, 0, 0, 0.25 * alpha]),
+                    ('opaque-override', paint + '="' + color + '"', paint + '="#0000ff"', [0, 0, 1, 1]),
+                    ('opaque-with-explicit', paint + '="' + color + '" ' + paint + '-opacity="0.5"', paint + '="#0000ff"', [0, 0, 1, 0.5])]:
+                    body = '<g ' + parent + '><g>' + geometry + child + '/></g></g>'
+                    for rich in [False, True]:
+                        svg = wrap('<svg>' + body + '</svg>' if rich else body)
+                        alpha_cases.append(dict(name=paint + color + name + ('-rich' if rich else ''),
+                                                svg=imported(svg), rgba=rgba, rich=rich))
+        for paint in ['fill', 'stroke']:
+            geometry = ('<rect x="10" y="15" width="20" height="10" ' if paint == 'fill' else
+                        '<path d="M10 20H30" fill="none" stroke-width="10" ')
+            for color, alpha in [('#ff000080', 128 / 255), ('#f008', 136 / 255)]:
+                for opaque in [False, True]:
+                    target = ('<g id="target" ' + paint + '="' + color + '">' + geometry + paint + '="#0000ff"/></g>'
+                              if opaque else geometry + 'id="target" ' + paint + '="' + color + '"/>')
+                    body = '<defs>' + target + '</defs><use href="#target" ' + paint + '-opacity="0.5"/>'
+                    alpha_cases.append(dict(name=paint + '-defs-use-' + color + ('-opaque' if opaque else '-direct'),
+                        svg=imported(wrap(body)), rgba=[0, 0, 1, 0.5] if opaque else [1, 0, 0, 0.5 * alpha], rich=True))
+        save(self.out / 'pde-svg-alpha.json', alpha_cases)
+        invalid = [image.replace(uri, bad) for bad in ['https://example.org/x', 'data:image/jpeg;base64,AAAA',
+            'data:image/png;base64,!!!!', 'data:image/png;base64,' + base64.b64encode(b'not a PNG').decode(),
+            uri + '\n', 'data:image/png;base64,' + 'A' * (4 * ((8 * 1024 * 1024 + 2) // 3) + 4)]]
+        invalid += [image.replace('width="20"', 'width="' + v + '"') for v in ['0', '-1', '4097', 'NaN', 'inf', '1e999', '1px']]
+        invalid += [image.replace('height="10"', ''), image.replace('href=', 'xlink:href="' + uri + '" href='),
+            image.replace('/>', ' viewBox="0 0 1 1"/>'), image.replace('/>', ' d="M0 0"/>'),
+            image.replace('preserveAspectRatio="none"', 'preserveAspectRatio="invalid"'),
+            '<svg preserveAspectRatio="invalid">' + rect + '</svg>', '<svg width="1em">' + rect + '</svg>',
+            '<svg xmlns="https://example.org">' + rect + '</svg>', '<svg>unrendered text</svg>',
+            '<svg width="0">' + rect + '</svg>', '<svg viewBox="0 0 -1 10">' + rect + '</svg>',
+            '<svg transform="scale(1e100)">' + rect + '</svg>', '<svg><script/></svg>',
+            '<svg><foreignObject/></svg>', '<svg><text>x</text></svg>', '<svg><font/></svg>']
+        invalid = [wrap(body) for body in invalid]
+        for svg in invalid:
+            with self.subTest(svg=svg[:100]), self.assertRaises(NativeImportError):
+                imported(svg)
+        save(self.out / 'pde-svg-invalid.json', invalid)
+        self.command([self.binary, 'pde-svg', self.out, HERE / 'fixtures/objects.expect.json'])
+        result = json.loads((self.out / 'pde-svg-results.json').read_text())
+        self.assertEqual(result['rejected'], len(invalid))
+        self.assertEqual([r['bluePixels'] for r in result['cases']],
+                         [sum(b[2] * b[3] for b in item['rects']) for item in encoded_cases])
+        self.assertEqual(result['alphaCases'], len(alpha_cases))
+        self.assertTrue(result['byteAndPixelLimitsChecked'])
+
     def test_helper_independent_fraction_metrics(self):
         payload = dict(mathML=self.oracle['indivisibleMathML'], width=320, fontSize=20, font='MathJaxNewcm',
                        context=dict(revision='oracle', generation=1, theme='light'))

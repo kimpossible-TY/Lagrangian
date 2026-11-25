@@ -54,13 +54,15 @@ private final class OriginalPreparationGate: @unchecked Sendable {
                                   "font": "MathJaxNewcm", "fontSize": c.fontSize, "width": width, "whole": f, "fragments": [f], "diagnostics": []]
         return try NativeMathLayout.decode(JSONSerialization.data(withJSONObject: data), math: n.math!, context: c, width: width)
     }
-    static func bitmap(_ size: CGSize, dark: Bool) throws -> CGContext {
+    static func bitmap(_ size: CGSize, dark: Bool, opaque: Bool = true) throws -> CGContext {
         let w = Int(ceil(size.width)), h = Int(ceil(size.height))
         guard w > 0, h > 0, w * h < 16000000, let ctx = CGContext(data: nil, width: w, height: h,
             bitsPerComponent: 8, bytesPerRow: 4 * w, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
             throw NativeObjectError.budget
         }
-        ctx.setFillColor(CGColor(gray: dark ? 0 : 1, alpha: 1)); ctx.fill(CGRect(origin: .zero, size: size))
+        if opaque {
+            ctx.setFillColor(CGColor(gray: dark ? 0 : 1, alpha: 1)); ctx.fill(CGRect(origin: .zero, size: size))
+        } else { ctx.clear(CGRect(origin: .zero, size: size)) }
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         return ctx
     }
@@ -143,6 +145,93 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         if mode == "symbol-overflow" {
             do { try symbolOverflow(root: root) }
             catch { fputs("symbol overflow oracle failed: \(error)\n", stderr); exit(1) }
+            return
+        }
+        if mode == "pde-svg" {
+            let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("pde-svg-cases.json"))) as! [[String: Any]]
+            var results = [[String: Any]]()
+            for item in cases {
+                let scene = try NativeVectorScene.decode(Data((item["svg"] as! String).utf8), dark: false)
+                try require(scene.image != nil, "nested SVG and PNG use validated rich renderer")
+                let ctx = try bitmap(CGSize(width: 100, height: 80), dark: false)
+                scene.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: 100, height: 80))
+                let boxes = item["rects"] as! [[Int]]
+                try savePNG(ctx, root.appendingPathComponent("pde-" + (item["name"] as! String) + ".png"))
+                for y in 0..<80 { for x in 0..<100 {
+                    let p = sample(ctx, x, y)
+                    let blue = p[2] > p[0] + 20 && p[2] > p[1] + 20
+                    let expected = boxes.contains { b in x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3] }
+                    try require(blue == expected, "PDE SVG independent pixel mask: " + (item["name"] as! String) + " at \(x),\(y): \(p)")
+                } }
+                results.append(["name": item["name"]!, "bluePixels": pixels(ctx, dark: false).blue])
+            }
+            let invalid = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("pde-svg-invalid.json"))) as! [String]
+            for svg in invalid {
+                try expectFailure("PDE SVG invalid") { _ = try NativeVectorScene.decode(Data(svg.utf8), dark: false) }
+            }
+            for css in ["width:20px;height:10px", "width:15pt;height:7.5pt", "width:1.25em;height:0.625em"] {
+                let svg = "<svg style=\"\(css);overflow:visible\" viewBox=\"0 0 40 20\"><rect width=\"40\" height=\"20\"/></svg>"
+                let scene = try NativeVectorScene.decode(Data(svg.utf8), dark: false)
+                try require(scene.intrinsicSize == CGSize(width: 20, height: 10), "CSS viewport intrinsic geometry")
+            }
+            let alphaCases = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("pde-svg-alpha.json"))) as! [[String: Any]]
+            for item in alphaCases {
+                let scene = try NativeVectorScene.decode(Data((item["svg"] as! String).utf8), dark: false)
+                let ctx = try bitmap(CGSize(width: 100, height: 80), dark: false, opaque: false)
+                scene.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: 100, height: 80))
+                let rgba = item["rgba"] as! [Double]
+                // Read uncomposited alpha directly: CoreSVG and CoreGraphics
+                // use different RGB color spaces, which affect RGB-over-white
+                // comparisons but cannot change this independent alpha oracle.
+                let actual = sample(ctx, 20, 20)
+                let alphaByte = Int(ctx.data!.assumingMemoryBound(to: UInt8.self)[20 * ctx.bytesPerRow + 20 * 4 + 3])
+                let expectedAlpha = Int((rgba[3] * 255).rounded())
+                try require(abs(alphaByte - expectedAlpha) <= 1,
+                            "hex alpha native pixel: " + (item["name"] as! String) + " \(alphaByte) expected \(expectedAlpha)")
+                let dominant = rgba[0] == 1 ? 0 : 2
+                try require(actual[dominant] > actual[1] + 20 && actual[dominant] > actual[2 - dominant] + 20,
+                            "hex alpha native paint override: " + (item["name"] as! String))
+                if item["rich"] as? Bool == true {
+                    try require(scene.image != nil, "hex alpha nested SVG uses native raster consumer")
+                } else {
+                    guard let shape = scene.shapes.last else { throw NSError(domain: "NA03 hex alpha native shape missing", code: 1) }
+                    let alpha = (item["name"] as! String).hasPrefix("fill") ? shape.fill!.alpha : shape.stroke!.alpha
+                    try require(abs(alpha - rgba[3]) < 1e-12, "hex alpha exact native geometry")
+                }
+            }
+            for paint in ["fill", "stroke"] {
+                for suffix in ["-direct", "-opaque"] {
+                    try require(alphaCases.contains { ($0["name"] as? String)?.hasPrefix(paint + "-defs-use-") == true &&
+                        ($0["name"] as? String)?.hasSuffix(suffix) == true }, "defs/use alpha pixel coverage")
+                }
+            }
+            let embedded = Data((cases.first { ($0["name"] as? String) == "png-over-1mib" }!["svg"] as! String).utf8)
+            try require(embedded.count > 1024 * 1024, "embedded SVG exceeds old 1 MiB limit")
+            let embeddedLimit = 6 * 1024 * 1024
+            var atLimit = embedded
+            atLimit.append(Data(repeating: 32, count: embeddedLimit - embedded.count))
+            let boundary = try NativeVectorScene.decode(atLimit, dark: false)
+            try require(boundary.image != nil && boundary.decodedCost <= 16 * 1024 * 1024, "embedded byte boundary decodes within pixel cap")
+            atLimit.append(32)
+            try expectFailure("embedded encoded byte cap") { _ = try NativeVectorScene.decode(atLimit, dark: false) }
+            let plain = "<svg viewBox=\"0 0 100 80\"><rect width=\"20\" height=\"10\"/></svg>"
+            let plainBytes = Data(plain.utf8)
+            _ = try NativeVectorScene.decode(plainBytes, dark: false, pixelBudget: plainBytes.count * 16)
+            try expectFailure("plain SVG proportional byte budget") {
+                _ = try NativeVectorScene.decode(plainBytes, dark: false, pixelBudget: plainBytes.count * 16 - 1)
+            }
+            try expectFailure("embedded caller pixel budget") {
+                _ = try NativeVectorScene.decode(embedded, dark: false, pixelBudget: 10000)
+            }
+            for svg in [embedded, Data("<svg viewBox=\"0 0 100 80\"><g opacity=\"0.5\"><rect width=\"20\" height=\"10\"/></g></svg>".utf8)] {
+                for budget in [16 * 1024 * 1024, Int.max] {
+                    try expectFailure("decoded pixel hard cap") {
+                        _ = try NativeVectorScene.decode(svg, dark: false, pixelBudget: budget, targetSize: CGSize(width: 1100, height: 1100))
+                    }
+                }
+            }
+            try write(["cases": results, "rejected": invalid.count, "alphaCases": alphaCases.count,
+                       "byteAndPixelLimitsChecked": true], root.appendingPathComponent("pde-svg-results.json"))
             return
         }
         if mode == "raw-import" { try await rawImport(root: root, oracle: oracle); return }
@@ -325,7 +414,10 @@ private final class OriginalPreparationGate: @unchecked Sendable {
             }
         }
         try write(richResults, root.appendingPathComponent("rich-asset-results.json"))
-        let labeled = try NativeVectorScene.decode(Data(contentsOf: root.appendingPathComponent("raw-labeled.svg")), dark: false)
+        // This glyph oracle uses the compiler's original 74.506 x 30 user
+        // coordinates, independently of its CSS em display viewport.
+        let labeled = try NativeVectorScene.decode(Data(contentsOf: root.appendingPathComponent("raw-labeled.svg")),
+                                                   dark: false, targetSize: CGSize(width: 74.506, height: 30))
         let labeledCtx = try bitmap(labeled.viewBox.size, dark: false)
         labeled.draw(in: labeledCtx, rect: CGRect(origin: .zero, size: labeled.viewBox.size))
         var black = 0
