@@ -116,6 +116,7 @@ struct FlowAppTests {
       let catalogJSON = """
         {"schema":1,"projects":{
           "my-book":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]},
+          "invalid_key":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]},
           "ambiguous-book":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]},
           "ambiguous_book":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]}
         }}
@@ -132,6 +133,17 @@ struct FlowAppTests {
       let savedMain = try store.load()
       let savedMainProfile = try savedMain.profile(delegate.settings.selectedID)
       check(savedMainProfile.projectRefKey == "my-book", "key not persisted")
+
+      let invalidKeyDirectory = root.appendingPathComponent("Invalid Key")
+      try manager.createDirectory(at: invalidKeyDirectory, withIntermediateDirectories: true)
+      try Data().write(to: invalidKeyDirectory.appendingPathComponent("main.typ"))
+      delegate.settings.profiles[delegate.settings.profiles.count - 1].packages = packages.path
+      delegate.registerProjectSelection(at: invalidKeyDirectory)
+      waitUntil("invalid key directory registered") { !delegate.mutating && delegate.active?.root == invalidKeyDirectory.path }
+      check(delegate.active?.projectRefKey == nil, "invalid catalog key was assigned")
+      let savedInvalidKey = try store.load()
+      let savedInvalidKeyProfile = try savedInvalidKey.profile(delegate.settings.selectedID)
+      check(savedInvalidKeyProfile.projectRefKey == nil, "invalid key persisted")
 
       let ambiguous = root.appendingPathComponent("Ambiguous Book")
       try manager.createDirectory(at: ambiguous, withIntermediateDirectories: true)

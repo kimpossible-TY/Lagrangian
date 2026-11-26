@@ -1190,15 +1190,15 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ? home.appendingPathComponent("Library/Application Support/typst/packages")
         : URL(fileURLWithPath: packages, isDirectory: true)
       let catalogURL = packagesURL.appendingPathComponent("local/project-references/0.1.0/projects.json")
-      func normalized(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-          .split(whereSeparator: { $0.isWhitespace || $0 == "_" || $0 == "-" })
-          .joined(separator: "-")
-      }
-      let folder = normalized(url.lastPathComponent)
-      if !folder.isEmpty, let catalog = try? CrossProjectCatalog.load(from: catalogURL) {
-        let matches = catalog.projects.keys.filter { normalized($0) == folder }
-        if matches.count == 1 { detectedKey = matches[0] }
+      if let catalog = try? CrossProjectCatalog.load(from: catalogURL) {
+        var probe = Profile(
+          id: "probe", name: url.lastPathComponent, root: url.path, entry: "entry.typ",
+          fonts: [], packages: "", port: 23625, publicURL: "", label: "project.probe")
+        let matches = catalog.projects.keys.filter { catalog.matchProfile(for: $0, in: [probe]) != nil }
+        if matches.count == 1 {
+          probe.projectRefKey = matches[0]
+          if (try? probe.validate()) != nil { detectedKey = matches[0] }
+        }
       }
     }
     let entry = selectedEntry
