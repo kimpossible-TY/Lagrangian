@@ -881,82 +881,8 @@ extension ServiceTests {
             try await rejects("invalidation rejects empty or over-budget UTF-8 owner") { try await longCache.invalidate(ownerID: ownerID, key: a.key) }
         }
 
-        // Derive both on-disk names independently of the private cache helpers.
-        // Keep the real envelope bytes when recreating the historical filename.
-        struct LayoutStorageKey: Encodable { let ownerID: String; let key: NativeReaderLayoutCacheKey }
-        let cacheEncoder = JSONEncoder(); cacheEncoder.outputFormatting = [.sortedKeys]
-        func cacheFile(_ item: NativeReaderLayoutSnapshot, in directory: URL, legacy: Bool = false) throws -> URL {
-            let key = try legacy ? cacheEncoder.encode(item.key) : cacheEncoder.encode(LayoutStorageKey(ownerID: item.ownerID, key: item.key))
-            return directory.appendingPathComponent(NativeReaderRecoverySnapshot.digest(key) + ".layout")
-        }
-        for useLatest in [true, false] {
-            let directory = root.appendingPathComponent(useLatest ? "legacy-latest" : "legacy-load")
-            let legacyClock = LayoutTestClock()
-            let cache = NativeReaderLayoutCache(root: directory, now: { legacyClock.next() })
-            let original = owned(a, profileA), other = owned(a, profileB, offset: 0.7)
-            let scoped = try cacheFile(original, in: directory), legacy = try cacheFile(original, in: directory, legacy: true)
-            let otherFile = try cacheFile(other, in: directory)
-            try await cache.save(other); try await cache.save(original)
-            let originalBytes = try Data(contentsOf: scoped), otherBytes = try Data(contentsOf: otherFile)
-            try FileManager.default.moveItem(at: scoped, to: legacy)
-            let wrongOwner = "absent-profile"
-            let wrongLoad = try await cache.load(ownerID: wrongOwner, key: original.key)
-            let wrongLatest = try await cache.latest(ownerID: wrongOwner)
-            try await cache.invalidate(ownerID: wrongOwner, key: original.key)
-            try serviceCheck(wrongLoad == nil && wrongLatest == nil && (try Data(contentsOf: legacy)) == originalBytes,
-                "legacy lookup and invalidation preserve another owner's file")
-            let recovered: NativeReaderLayoutSnapshot?
-            if useLatest { recovered = try await cache.latest(ownerID: original.ownerID) }
-            else { recovered = try await cache.load(ownerID: original.ownerID, key: original.key) }
-            try serviceCheck(try recovered.map { try cacheEncoder.encode($0) } == cacheEncoder.encode(original),
-                "legacy recovery preserves the entire validated snapshot")
-            try serviceCheck(!FileManager.default.fileExists(atPath: legacy.path) &&
-                (try Data(contentsOf: scoped)) == originalBytes && (try Data(contentsOf: otherFile)) == otherBytes,
-                "both entry points rename legacy bytes to the scoped file and preserve the other profile")
-
-            // Force latest to encounter the valid legacy before the corrupt destination.
-            try originalBytes.write(to: legacy)
-            var corruptEnvelope = try JSONSerialization.jsonObject(with: originalBytes) as! [String: Any]
-            corruptEnvelope["sha256"] = String(repeating: "0", count: 64)
-            try JSONSerialization.data(withJSONObject: corruptEnvelope).write(to: scoped)
-            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000_000_000)], ofItemAtPath: legacy.path)
-            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000_000)], ofItemAtPath: scoped.path)
-            let repaired: NativeReaderLayoutSnapshot?
-            if useLatest { repaired = try await cache.latest(ownerID: original.ownerID) }
-            else { repaired = try await cache.load(ownerID: original.ownerID, key: original.key) }
-            try serviceCheck(try repaired.map { try cacheEncoder.encode($0) } == cacheEncoder.encode(original),
-                "\(useLatest ? "latest" : "load") recovers the validated legacy snapshot despite a corrupt scoped destination")
-            try serviceCheck(!FileManager.default.fileExists(atPath: legacy.path) &&
-                (try Data(contentsOf: scoped)) == originalBytes && (try Data(contentsOf: otherFile)) == otherBytes,
-                "\(useLatest ? "latest" : "load") replaces corrupt scoped bytes by migrating legacy and preserves the other profile")
-
-            // A duplicate with a later mtime must still defer to the scoped data.
-            let newer = owned(a, profileA, offset: 0.85)
-            try await cache.save(newer)
-            let newerBytes = try Data(contentsOf: scoped)
-            try originalBytes.write(to: legacy)
-            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000_000_000)], ofItemAtPath: legacy.path)
-            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000_000)], ofItemAtPath: scoped.path)
-            let scopedLoad = try await cache.load(ownerID: original.ownerID, key: original.key)
-            // load touches scoped mtime; explicitly keep the legacy first in latest's order.
-            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000_000)], ofItemAtPath: scoped.path)
-            let preferred = try await cache.latest(ownerID: original.ownerID)
-            try serviceCheck(scopedLoad?.restoration.offset == 0.85 && preferred?.restoration.offset == 0.85 &&
-                !FileManager.default.fileExists(atPath: legacy.path) && (try Data(contentsOf: scoped)) == newerBytes &&
-                (try Data(contentsOf: otherFile)) == otherBytes,
-                "newer legacy duplicate cannot overwrite scoped data or another owner's file")
-
-            try originalBytes.write(to: legacy)
-            try await cache.invalidate(ownerID: original.ownerID, key: original.key)
-            try serviceCheck(!FileManager.default.fileExists(atPath: scoped.path) && !FileManager.default.fileExists(atPath: legacy.path) &&
-                (try Data(contentsOf: otherFile)) == otherBytes, "invalidation removes matching scoped and legacy files only")
-            // Also preserve a different owner's key-only file with the same key.
-            try FileManager.default.moveItem(at: otherFile, to: legacy)
-            try await cache.invalidate(ownerID: original.ownerID, key: original.key)
-            try serviceCheck(try Data(contentsOf: legacy) == otherBytes, "invalidation leaves a different owner's legacy file intact")
-            try await cache.invalidate(ownerID: other.ownerID, key: other.key)
-            try serviceCheck(try await cache.diskBytes() == 0, "legacy-only invalidation removes the matching owner")
-        }
+        // Monolithic legacy snapshots are disposable; the new filename carries
+        // identity without decoding unrelated profiles (covered by LayoutCacheTests).
         // Identical layout keys in two profiles must remain independent.
         // Superseding A must not delete B as an old version of A's document.
         let sharedA = owned(a, profileA), sharedB = owned(a, profileB, offset: 0.7), sharedC = owned(c, profileA)
@@ -1060,7 +986,8 @@ extension ServiceTests {
             try JSONSerialization.data(withJSONObject: envelope).write(to: file)
         }
         try serviceCheck(try await disk.latest(ownerID: changed.ownerID) == nil, "corrupt SHA envelope never loaded")
-        try serviceCheck(try await disk.diskBytes() == 0, "corrupt SHA envelopes discarded regardless of directory order")
+        _ = try await disk.latest(ownerID: c.ownerID)
+        try serviceCheck(try await disk.diskBytes() == 0, "corrupt matching owners discarded")
         let tiny = NativeReaderLayoutCache(root: root.appendingPathComponent("tiny"), byteLimit: 1)
         try await rejects("oversize file rejected before writing") { try await tiny.save(a) }
         try serviceCheck(try await tiny.diskBytes() == 0, "oversize write consumes no disk budget")
@@ -1115,7 +1042,7 @@ extension ServiceTests {
         return ["byteCap": cap, "lru": true, "privateDirectory": true, "keyInvalidation": true,
                 "sha256": true, "strictRebinding": true, "mathEntryCap": retained.count,
                 "viewedAssets": true, "recoveryCoexistence": true, "noFollow": true,
-                "sharedProfiles": true, "sharedLRU": true, "longOwnerID": true, "legacyMigration": true,
+                "sharedProfiles": true, "sharedLRU": true, "longOwnerID": true, "legacyDiscard": true,
                 "restoreRetryWait": true, "restoreRetryAdopted": true]
     }
 }

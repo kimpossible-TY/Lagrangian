@@ -2,6 +2,7 @@
 
 from http.server import ThreadingHTTPServer
 import json
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -18,10 +19,16 @@ from flow_reader.document.passages import PassageIndex, locate_passages
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.services.source_highlight import MarkedPassages
+from flow_reader.services.source_highlight import MarkedPassages, MAX_SELECTION_SEGMENTS
 
 
 class PassageTests(unittest.TestCase):
+    def test_browser_and_service_selection_segment_cap_match(self):
+        controller = (ROOT / 'web/features/selection/controller.js').read_text()
+        match = re.search(r'const MAX_SELECTION_SEGMENTS = (\d+);', controller)
+        self.assertIsNotNone(match, 'browser selection cap declaration missing')
+        self.assertEqual(int(match[1]), MAX_SELECTION_SEGMENTS)
+
     def test_quotes_relocate_after_paragraph_edit_and_section_move(self):
         original = '<html><body><h2>Topic</h2><p>First. A saved quotation. Last.</p></body></html>'
         before = split_document(original, "before", max_blocks=2)

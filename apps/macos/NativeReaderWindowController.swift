@@ -155,6 +155,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var editorRequest: NativeReaderSourceRequest?
   private var editorBusy = false
   private let revokeEditorConsent: () async -> Void
+  func returnUnattachedEditorConsent() -> Bool {
+    (provider as? NativeReaderManagedClient)?.returnUnattachedEditorConsent() ?? true
+  }
   private(set) var chatView: NativeReaderChatView?
   lazy var hostWindow = NativeReaderHostWindow(reader: textView, show: show, avoidActivation: avoidActivation, fixtureMode: fixtureMode)
 
@@ -1000,7 +1003,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
             assets: bytes.filter { referenced.contains($0.key) })
         }.value
         try Task.checkCancellation()
-        try await layoutCache.save(snapshot)
+        try await layoutCache.save(snapshot, immediate: immediate)
       } catch { /* A disposable cache must not interrupt live reading. */ }
     }
   }

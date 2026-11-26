@@ -477,3 +477,71 @@ The cross-project integration owner correction registers the twenty-eight paths 
 `tools/flow-reader/tests/test_cross_project_refs.py`, and
 `tools/flow-reader/tests/test_sections.py`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+
+= Post-review source registration
+
+Registered owner corrections may retire a regular source with a null `sha256`
+and its exact prior `baseSHA256`. The binder validates absence at the correction
+revision and current HEAD, and rejects a reappearing file unless a later owner
+correction registers it with a null `baseSHA256`. Delivery-owned paths can never
+be deleted through a correction. Historical correction records remain immutable.
+Missing files without an explicit deletion correction still fail source binding.
+
+The post-review owner correction registers the following paths from
+`705f48b30e74887d00acb871806fd9f62ef9aa7e` → `44e0aa6f7efd3d08e4390bdc63924b5d60b268c3`:
+`apps/macos/CrossProjectReference.swift`,
+`apps/macos/FlowApp.swift`,
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`apps/macos/NativeReaderRecoveryStore.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/add-cross-project-references/design.md`,
+`openspec/changes/add-cross-project-references/proposal.md`,
+`openspec/changes/add-cross-project-references/specs/native-reader/spec.md`,
+`openspec/changes/add-cross-project-references/tasks.md`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/proposal.md`,
+`openspec/changes/implement-native-reader-app/specs/flow-macos-app/spec.md`,
+`openspec/changes/implement-native-reader-app/specs/native-original-pages/spec.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/FlowAppTests.swift`,
+`tests/flow-app/native-reader-app/LayoutCacheTests.swift`,
+`tests/flow-app/native-reader-app/MathBatchTests.swift`,
+`tests/flow-app/native-reader-app/ServiceTests.swift`,
+`tests/flow-app/native-reader-app/test_cross_project_preview.py`,
+`tests/flow-app/native-reader-app/test_layout_cache.py`,
+`tests/flow-app/native-reader-app/test_math_batch.py`,
+`tests/flow-app/test_flow_ui.py`,
+`tools/flow-reader/flow_reader/services/cross_project_refs.py`,
+`tools/flow-reader/tests/test_cross_project_refs.py`,
+`tools/flow-reader/tests/test_passages.py`.
+Hashes are Git-derived; deleted sources bind null sha256.
+
+The post-review math chunk follow-up registers the following paths from
+`78f89ae202b1d87081e0fac6f705dbd8ae64d12d` → `9942afbcf8d3860a3bb1ac5f5cffe4924fb78f88`:
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`tests/flow-app/native-reader-app/MathBatchTests.swift`.
+Hashes are Git-derived.
+
+The PR #33 re-review owner correction registers the following 17 paths from
+`ed8ad5175d143910df1dfe120e29d5b9ddf83d8c` → `d86c625fcb3a9554188309ca08351e8531f61c31`:
+`apps/macos/FlowApp.swift`,
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`apps/macos/NativeReaderTransport.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/add-cross-project-references/design.md`,
+`openspec/changes/add-cross-project-references/specs/native-reader/spec.md`,
+`openspec/changes/add-cross-project-references/tasks.md`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-original-pages/spec.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/FlowAppTests.swift`,
+`tests/flow-app/native-reader-app/MathBatchTests.swift`,
+`tests/flow-app/native-reader-app/test_math_batch.py`,
+`tests/flow-app/test_flow_ui.py`,
+`tools/flow-reader/tests/test_passages.py`.
+Hashes are Git-derived.

@@ -174,7 +174,18 @@ locator remains historical. This executor follows the existing single-writer pla
 
 ## 18. Minimal redesign implementation and verification checklist
 
-- [x] 18.1 Home & Settings split: remove Home header subtitle (부제 없음) and separate Settings sheet into `FlowApp.swift` while keeping `apps/macos/NativeAppDesign.swift`, `apps/macos/NativeBrandMark.swift`, and `apps/macos/sources.json` unchanged.
+- [x] 18.1 Simplified Home & Settings: compact header, project selector and `읽기`, icon dock and status-bar menu items; sage running dot, NativeAppDesign `.ghost` role and NativeBrandMark `statusImage`; separate Settings sheet with Save only inside it. Existing files own the new tokens/branding; sources.json remains the registry.
 - [x] 18.2 Reader single-row toolbar & Aa popover: implement 1-row Reader toolbar, immediate `Aa` appearance/font/zoom reflection, and compact selection / `오프라인 PDF` search-hit capsule (exact `오프라인 PDF` label, fits within 640px width).
 - [ ] 18.3 Preserved contracts & accessibility: verify `NativeChrome.install(on:)` / `NativeChrome.apply(to:)`, `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, `NativeReaderActions`, shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`), VoiceOver/AX, WCAG 2.1 SC 1.4.11 (3:1+), and non-overlapping PDF body/highlight docking.
 - [ ] 18.4 Shared test integration & independent review: integrate shared test suite and complete independent audit/review checklist before merge.
+
+## Post-review contract corrections
+
+- [x] r1-S1: specify disposable owner-scoped 64 MiB LRU layouts, cached-copy promotion and shared envelope/atomic writes alongside typed RecoveryStore ownership.
+- [x] r1-S3: filter hashed filenames before decoding, skip identical viewed content, flush position on close/cancel and store documents separately per revision.
+- [x] r1-S4/r1-S5: record 20ad89a5 wire/helper contracts and bounded halving retry with cross-language limit checks.
+- [x] r1-S2: align Home/menu-bar spec and design with the retained simplified UI.
+
+## PR33 re-review corrections
+- [x] Bound math retries by one per-chunk deadline (twice the initial timeout), retain atomic preparation, and fail deterministic output-limit without splitting.
+- [x] Restore the offline original PDF toolbar requirement scope and concrete toolbar labels. Exact 705f48b3 paragraph restoration exceeds OpenSpec's 500-character strict limit; retain minimal reflow with capsule labels/actions in the existing scenario.

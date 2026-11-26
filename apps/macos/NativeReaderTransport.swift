@@ -353,7 +353,8 @@ struct NativeReaderManagedResolver {
         } catch { return false }
     }
 
-    func resolve(root: String, entry: String, readerID: String? = nil, editor: NativeReaderManagedEditor? = nil) async throws -> (NativeReaderAttachment, NativeDocumentIdentity) {
+    func resolve(root: String, entry: String, readerID: String? = nil, editor: NativeReaderManagedEditor? = nil,
+                 willAttachEditor: () throws -> Void = {}) async throws -> (NativeReaderAttachment, NativeDocumentIdentity) {
         let callerDeadline = Date().addingTimeInterval(10)
         // Pending editor retirement gates a NEW movement grant, never body,
         // Source or Ask authority. Plain Read neither retries nor confirms it.
@@ -396,7 +397,11 @@ struct NativeReaderManagedResolver {
             await retirements.retain(operation!, scope: scope!, lease: lease!)
         } else { operation = nil; lease = nil }
         let data: Data
-        do { data = try await attach(args) }
+        do {
+            try Task.checkCancellation()
+            if editor?.consentID != nil { try willAttachEditor() }
+            data = try await attach(args)
+        }
         catch {
             await lease?.release(deadline: callerDeadline)
             if error is CancellationError { throw CancellationError() }
@@ -702,6 +707,26 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
 /// NA06's profile-scoped composition seam. Re-resolve through ReaderManager on
 /// reconnect; a new incarnation replaces only this view's transport/action adapters.
 actor NativeReaderManagedClient: NativeReaderDocumentProviding {
+    /// Atomically return an unused reservation or consume it before invoking
+    /// attach. Cancellation can race resolution, including a lost manager reply.
+    private final class EditorConsentReservation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var attached = false
+        private var returned = false
+        func attach() throws {
+            lock.lock(); defer { lock.unlock() }
+            guard !returned else { throw CancellationError() }
+            attached = true
+        }
+        func returnIfUnattached() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard !attached else { return false }
+            returned = true
+            return true
+        }
+    }
+    nonisolated private let editorConsentReservation = EditorConsentReservation()
+    nonisolated func returnUnattachedEditorConsent() -> Bool { editorConsentReservation.returnIfUnattached() }
     private static let revokeEditorConsentDidFinishLock = NSLock()
     nonisolated(unsafe) private static var revokeEditorConsentDidFinishStorage: (@Sendable () -> Void)?
     internal static var onRevokeEditorConsentDidFinish: (@Sendable () -> Void)? {
@@ -737,7 +762,8 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         epoch += 1
         let current = epoch
         var (attachment, identity) = try await resolver.resolve(root: root, entry: entry, readerID: readerID,
-            editor: transport == nil && !editorConsentRevoked ? editor : nil)
+            editor: transport == nil && !editorConsentRevoked ? editor : nil,
+            willAttachEditor: { try self.editorConsentReservation.attach() })
         guard !disposed, epoch == current else { await attachment.editorLease?.release(); throw NativeReaderContractError.staleGeneration }
         let replaced = transport?.attachment.serviceID != attachment.serviceID || transport?.attachment.baseURL != attachment.baseURL || transport?.attachment.documentID != attachment.documentID
         if replaced {
