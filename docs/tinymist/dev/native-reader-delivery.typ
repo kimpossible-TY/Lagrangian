@@ -587,3 +587,27 @@ The web viewer unification owner correction registers the following 27 paths fro
 `tools/reader-common/navigation/cross-project-return.js`,
 `tools/reader-common/tests/cross-project-return.mjs`.
 Hashes are Git-derived.
+
+The native reader design parity owner correction registers the following 21 paths from `3206b3104581503a8556a0b4010d382f321d5f75` → `67c56a1b8c25cb1054f4d29ab7331427263d5da0`:
+`apps/macos/FlowApp.swift`,
+`apps/macos/NativeAppDesign.swift`,
+`apps/macos/NativeBrandMark.swift`,
+`apps/macos/NativeFloatingCapsule.swift`,
+`apps/macos/NativeModeMorphSwitch.swift`,
+`apps/macos/NativeOutlineDrawerView.swift`,
+`apps/macos/NativeReaderOriginalPageView.swift`,
+`apps/macos/NativeReaderTextView.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`docs/tinymist/dev/native-cream-design.typ`,
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-original-pages/spec.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/native-reader-app/NativeCreamDesignTests.swift`,
+`tests/flow-app/native-reader-app/NativeDesignParityTests.swift`,
+`tests/flow-app/native-reader-app/NativeFloatingCapsuleTests.swift`,
+`tests/flow-app/native-reader-app/NativeReaderUIRefinementTests.swift`,
+`tests/flow-app/native-reader-app/test_native_design_parity.py`,
+`tests/flow-app/native-reader-app/test_native_floating_capsule.py`.
+Hashes are Git-derived.
