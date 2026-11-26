@@ -28,10 +28,10 @@ private struct ParityInput: NativeReaderDocumentProviding {
             visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil, headingLevel: level,
             math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
     }
-    static func document() -> NativeReaderDocument {
+    static func document(shortEnd: Bool = false) -> NativeReaderDocument {
         let blocks = (0..<40).map { index -> NativeReaderNode in
             let heading = index % 10 == 0
-            let text = heading ? "목차 제목 \(index) · 연구 노트" : "Search needle \(index). " + String(repeating: "선택 영역과 본문을 보존합니다. ", count: 8)
+            let text = heading ? "목차 제목 \(index) · 연구 노트" : "Search needle \(index). " + String(repeating: "선택 영역과 본문을 보존합니다. ", count: shortEnd && index == 39 ? 0 : 8)
             return node("b\(index)", text: text, kind: heading ? .heading : .paragraph, level: heading ? 1 : nil,
                         children: [node("t\(index)", text: text, kind: .text)])
         }
@@ -66,7 +66,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
     @MainActor static func run() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let output = URL(fileURLWithPath: CommandLine.arguments[1]), scenario = CommandLine.arguments[2]
-        let doc = document(), bytes = pdf(); try doc.validate()
+        let doc = document(shortEnd: scenario == "review-offset"), bytes = pdf(); try doc.validate()
         let host = NativeReaderWindowController(provider: ParityInput(value: doc), target: { _ in doc.identity },
             originalPages: { context in .init(publication: publication(context, bytes), data: bytes) }, show: false, avoidActivation: true, fixtureMode: true)
         defer { host.dispose() }
@@ -235,7 +235,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
                       !host.textView.visibleSelectionRects(in: root).contains { $0.intersects(capsule.frame) },
                       "Final Reflow selection scrolls above tools using the reserved bottom inset")
             try check(window.frame == originalFrame, "Selection release and final-paragraph reveal keep window frame unchanged")
-        } else if scenario == "review-existing" || scenario == "review-added" {
+        } else if scenario == "review-existing" || scenario == "review-added" || scenario == "review-offset" {
             if scenario == "review-existing" {
                 let first = doc.blocks[1]
                 try host.textView.select(from: .init(blockID: first.id, utf16: 0, affinity: .downstream),
@@ -246,18 +246,30 @@ private struct ParityInput: NativeReaderDocumentProviding {
             let scroll = host.textView.scrollView, body = host.textView.bodyTextView, last = doc.blocks.last!
             scroll.contentView.scroll(to: NSPoint(x: 0, y: body.bounds.height - scroll.contentView.bounds.height))
             scroll.reflectScrolledClipView(scroll.contentView)
-            try host.textView.select(from: .init(blockID: last.id, utf16: last.displayText.utf16.count - 12, affinity: .downstream),
-                to: .init(blockID: last.id, utf16: last.displayText.utf16.count, affinity: .upstream))
+            let start = scenario == "review-offset" ? 0 : last.displayText.utf16.count - 12
+            let end = scenario == "review-offset" ? 6 : last.displayText.utf16.count
+            if scenario == "review-offset" { chrome.reviewCount = 1 }
+            try host.textView.select(from: .init(blockID: last.id, utf16: start, affinity: .downstream),
+                to: .init(blockID: last.id, utf16: end, affinity: .upstream))
             chrome.showSelectionActions(); try await until { !chrome.capsule.isHidden }
             if scenario == "review-added" { chrome.markSelected() }
             try await Task.sleep(nanoseconds: 200_000_000)
             root.layoutSubtreeIfNeeded()
-            let rects = host.textView.visibleSelectionRects(in: root)
+            let manager = body.layoutManager!, container = body.textContainer!
+            let glyphs = manager.glyphRange(forCharacterRange: body.selectedRange(), actualCharacterRange: nil)
+            let fullBounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                .offsetBy(dx: body.textContainerOrigin.x, dy: body.textContainerOrigin.y)
+            let selectionRect = body.convert(fullBounds, to: root)
+            let viewport = scroll.contentView.convert(scroll.contentView.bounds, to: root)
             let primary = chrome.capsule.convert(chrome.capsule.surface.frame, to: root)
             let review = chrome.reviewActionsCapsule.convert(chrome.reviewActionsCapsule.bounds, to: root)
             try check(chrome.reviewCount == 1 && !chrome.reviewActionsCapsule.isHidden, "Review tools visible")
-            try check(scroll.contentInsets.bottom >= 148 && !rects.isEmpty && !rects.contains { $0.intersects(primary) || $0.intersects(review) },
-                "Final selection clears both capsules: selection=\(rects), review=\(review), inset=\(scroll.contentInsets.bottom)")
+            let obstruction = primary.union(review)
+            try check(scroll.contentInsets.bottom >= 148 && selectionRect.minY >= obstruction.maxY && selectionRect.maxY <= viewport.maxY,
+                "Full selection clears both capsules and remains visible: selection=\(selectionRect), obstruction=\(obstruction), viewport=\(viewport)")
+            if scenario == "review-offset" {
+                try check(selectionRect.maxX < obstruction.minX, "Narrow selection is horizontally offset from tools")
+            }
             try check(window.frame == originalFrame, "Review never resizes window")
             chrome.reviewCount = 0
             try check(scroll.contentInsets.bottom == 104, "Removing review restores base inset")

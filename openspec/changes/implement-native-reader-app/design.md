@@ -803,7 +803,7 @@ constraints account for AppKit alignment insets to retain actual 32x30pt bounds.
 NativeFloatingCapsule owns ticket-bound action presentation and its keyboard
 loop, with 54pt vertical tiles on 64pt glass, bottom-center at 16pt. Source and
 Editor collapse at 640pt; red Strike uses the existing review owner. A 26pt
-mini pill preserves exact PDF footnotes or explains the 32-block limit. Writable
+mini pill preserves exact PDF footnotes or, for more than 32 selected fragments, explains the existing 32-fragment remote-submission limit. Ask and remote submission are restricted; local Copy, Highlight and Strike remain available. This is the target contract: current source routes Highlight through the source service and can reject over-limit Strike, so these two local paths remain implementation gaps. Writable
 Reflow with review marks shows a separate 40pt Undo/Clear capsule. Host placement
 uses Reflow's 104pt bottom inset and PDF's temporary bottom inset with existing
 selection geometry to scroll ink clear. No selection path changes window.frame,
@@ -823,7 +823,17 @@ No math placeholder/batch implementation or PDF printed ink is changed.
 
 NRD01B verification is headless CLI and offscreen AppKit only. The self-contained
 NativeDesignParityTests harness generates temporary semantic/PDF fixtures and
-uses an isolated module cache without an external lock prerequisite. Its five
+uses an isolated module cache without an external lock prerequisite. Its nine
 cases cover drawer/focus/scroll, notifications/pass-through, brand/mode/toolbar,
-bottom tools/review/tickets, and keyboard/PDF selection. This is source-component
+bottom tools/review/tickets, existing and first review, horizontally offset document-end selection, pending Strike, and keyboard/PDF selection. This is source-component
 verification; interactive GUI, actual OS13 and live installation are separate.
+
+### Redesign boundaries and verification
+
+Chrome and placement belong to `apps/macos/NativeReaderWindowController.swift`;
+shared design controls remain in `apps/macos/NativeAppDesign.swift` and registration
+in `apps/macos/sources.json`. Tests belong in
+`tests/flow-app/native-reader-app/NativeDesignParityTests.swift` and
+`tests/flow-app/native-reader-app/test_native_design_parity.py`; contracts and
+checklists belong in `openspec/changes/implement-native-reader-app/`.
+The exact commands and remaining independent acceptance gates are recorded in tasks.md.

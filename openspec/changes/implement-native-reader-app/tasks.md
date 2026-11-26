@@ -1,5 +1,7 @@
 # Tasks
 
+NA denotes the native application workstream; P0 denotes the prerequisite shared-contract baseline, not application acceptance. F01–F18 are the feature acceptance gates enumerated in `docs/tinymist/dev/native-reader-app-contract.typ`.
+
 ## 1. NA01 shared contract and importer
 
 - [x] 1.1 Implement typed Swift semantic document and guarded operations; verify production sources compile with Swift 5, warnings-as-errors and macOS13 target.
@@ -7,7 +9,9 @@
 - [x] 1.3 Execute existing-dependency Node object helper and native Swift paint; record SVG/PDF results and MathJax blocked/unsupported scope without declaring full fidelity.
 - [x] 1.4 Freeze exact downstream API/authority/F01–18 gates in design and canonical Typst; verify Typst compilation, OpenSpec strict validation, 16-path scope and unchanged P0 hashes.
 
-## 2. Downstream native implementation (separate PM assignments)
+## 2. Downstream native implementation (active remaining scope)
+
+NA02–NA05 remain open for full feature, accessibility, transport and packaging acceptance; the completed NRD tasks cover only redesign parity and do not supersede these gates.
 
 - [ ] 2.1 NA02 implements native text/selection/AX against this contract SHA with interaction tests and documentation.
 - [ ] 2.2 NA03 implements math/table/figure/paged paint, selection and accessibility; verify width/font/fidelity fixtures and document unsupported primitives/resources.
@@ -15,6 +19,8 @@
 - [ ] 2.4 NA05 builds isolated native home/document/settings shell and packages shared sources/resources with prebuilt engine; verify fast local app build and ownership-safe lifecycle tests.
 
 ## 3. Integration and independent acceptance
+
+NA06–NA07 remain active for integrated artifact provenance and independent full-feature acceptance; completed NRD tasks do not supersede them.
 
 - [ ] 3.1 NA06 integrates exact worker commits and resources, updates canonical guide and produces isolated app with source/engine/artifact provenance and installed-layout tests.
 - [ ] 3.2 NA07 verifies independent oracle, affected regressions and full feature matrix; retain actual exits/skips/limitations bound to integrated source/app SHA.
@@ -99,6 +105,8 @@ or close official final GUI/VO/OS13/live/packaging acceptance.
 
 ## 12. v4 intermediate corrections
 
+D1/D2, SF1/SF2 and V301–V306 remain active final-source and artifact acceptance scope; NRD parity tasks do not supersede them. See the v4 sections of design.md for the individual findings and evidence.
+
 - [ ] 12.1 Diagnose startup offscreen without claiming GUI reproduction; add dev-root-only value timeline and verify storage/event lifetime separately.
 - [ ] 12.2 Fix D1/D2 and duplicate-label profile selection with actual-control counterexamples; connect explicit-Read environment recovery.
 - [ ] 12.3 Make the owned fixture manager argv-only with root/marker/symlink negatives.
@@ -175,7 +183,7 @@ locator remains historical. This executor follows the existing single-writer pla
 ## 18. Minimal redesign implementation and verification checklist
 
 - [x] 18.1 Simplified Home & Settings: compact header, project selector and `읽기`, icon dock and status-bar menu items; sage running dot, NativeAppDesign `.ghost` role and NativeBrandMark `statusImage`; separate Settings sheet with Save only inside it. Existing files own the new tokens/branding; sources.json remains the registry.
-- [x] 18.2 Reader single-row toolbar & Aa popover: implement 1-row Reader toolbar, immediate `Aa` appearance/font/zoom reflection, and compact selection / `오프라인 PDF` search-hit capsule (exact `오프라인 PDF` label, fits within 640px width).
+- [x] 18.2 Reader single-row toolbar & Aa popover: implement 1-row Reader toolbar, immediate `Aa` appearance/font/zoom reflection, and compact selection / `오프라인 PDF` search-hit capsule (exact `오프라인 PDF` label, fits within 640pt width).
 - [ ] 18.3 Preserved contracts & accessibility: verify `NativeChrome.install(on:)` / `NativeChrome.apply(to:)`, `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, `NativeReaderActions`, shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`), VoiceOver/AX, WCAG 2.1 SC 1.4.11 (3:1+), and non-overlapping PDF body/highlight docking.
 - [ ] 18.4 Shared test integration & independent review: integrate shared test suite and complete independent audit/review checklist before merge.
 
@@ -197,4 +205,33 @@ locator remains historical. This executor follows the existing single-writer pla
 - [x] Replace notifications with centered content-sized pass-through glass capsules and persistent inline actions without focus theft.
 - [x] Replace selection docking/window resizing with bottom glass tools, vertical tiles, review actions, exact PDF/limit mini pills and renderer scroll avoidance; preserve tickets and keyboard focus.
 - [x] Connect reader shortcuts and layered Escape while retaining FlowApp Cmd+0 and opaque Aa.
-- [x] Validate self-contained five-feature offscreen parity (5 cases, including actual layered Escape and final-paragraph/PDF reveal), existing capsule/UI regressions (24 cases) and bundle identity (2 cases), standalone Swift harnesses/app with warnings-as-errors on arm64 macOS13, strict OpenSpec and both canonical Typst documents. Interactive GUI and live installation remain outside this task.
+- [x] Validate self-contained offscreen parity (9 cases, including actual layered Escape and final-paragraph/PDF reveal), existing capsule/UI regressions (24 cases) and bundle identity (2 cases), standalone Swift harnesses/app with warnings-as-errors on arm64 macOS13, strict OpenSpec and both canonical Typst documents. Interactive GUI and live installation remain outside this task.
+
+## Remaining verification entrypoints and boundaries
+
+Redesign changes: `apps/macos/NativeReaderWindowController.swift` and existing
+controls under `apps/macos/`; registration: `apps/macos/sources.json`; tests:
+`tests/flow-app/native-reader-app/`; documentation: this change's `design.md`,
+`tasks.md`, and `specs/`. Preserve the owner boundaries in design.md.
+
+For source-component checklist items run from the repository root:
+
+- `openspec validate implement-native-reader-app --strict`: exit 0.
+- `/opt/homebrew/bin/python3 -m unittest tests/flow-app/native-reader-app/test_native_design_parity.py -v`: all 9 tests pass without skips.
+- `/opt/homebrew/bin/python3 -m unittest tests/flow-app/native-reader-app/test_native_floating_capsule.py -k test_existing_UI_layout -k test_selection_capsule_and_local_composer -k test_restrictions_and_layout -k test_R19_3_short_selection_does_not_cover_other_body -v`: all selected tests pass without skips.
+- `yarn flow:test`: all applicable isolated native app tests pass; record optional skips and artifact SHA. The test harness compiles Swift with warnings as errors.
+- The following standalone arm64 macOS 13 compiler gate must exit 0 for UI, capsule and app targets:
+
+```sh
+/opt/homebrew/bin/python3 -c "import json, os, subprocess, tempfile, pathlib; reg=json.loads(pathlib.Path('apps/macos/sources.json').read_text()); srcs=[f'apps/macos/{f}' for g in ('core','native','app') for f in reg[g] if f!='main.swift']; td=tempfile.mkdtemp(prefix='nrd01d-'); mc=os.path.join(td,'mc'); os.makedirs(mc,exist_ok=True); [subprocess.run(['swiftc',*(['-parse-as-library'] if lib else []),'-swift-version','5','-warnings-as-errors','-target','arm64-apple-macosx13.0','-module-cache-path',mc,*s,'-o',f'{td}/{n}'], check=True) for n,lib,s in [('ui',True,[*srcs,'tests/flow-app/native-reader-app/NativeReaderUIRefinementTests.swift']),('capsule',True,[*srcs,'tests/flow-app/native-reader-app/NativeFloatingCapsuleTests.swift']),('app',False,[*srcs,'apps/macos/main.swift'])]]"
+```
+
+For 2.1–2.4 and 12.1–12.5 run the relevant native reader tests via
+`/opt/homebrew/bin/python3 -m unittest discover -s tests/flow-app/native-reader-app -v`,
+plus `yarn flow:test` and strict validation; require exit 0, no required skips,
+and evidence for each named behavior. For 3.1–3.3, 10.4, 13.4, 15.4, 16.4,
+17.4 and 18.4, bind test results and independent review to the actual integrated
+source and app artifact; require all F01–F18 gates and assigned independent reports
+to pass. For 18.3, additionally require recorded real GUI, VoiceOver/AX, contrast
+measurements and actual OS13 results for each stated path. Those human/device gates
+are not established by headless commands and remain open until evidence is attached.

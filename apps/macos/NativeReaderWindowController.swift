@@ -2408,9 +2408,21 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     if currentMode != .nativeReflow { originalScroll?.automaticallyAdjustsContentInsets = false; originalScroll?.contentInsets.bottom = size.height + 24 }
     guard let scroll, let documentView = scroll.documentView else { return }
     let obstruction = reviewActionsCapsule.isHidden ? capsule.frame : capsule.frame.union(reviewActionsCapsule.frame)
-    let occluded = rects.filter { $0.intersects(obstruction.insetBy(dx: -4, dy: -8)) }
+    let occluded = rects.filter { $0.minY < obstruction.maxY + 8 && $0.maxY > obstruction.minY - 8 }
     guard !occluded.isEmpty else { return }
-    let selected = occluded.reduce(NSRect.null) { $0.union($1) }
+    var selected = occluded.reduce(NSRect.null) { $0.union($1) }
+    if currentMode == .nativeReflow {
+      let body = reader.bodyTextView
+      if let manager = body.layoutManager, let container = body.textContainer, body.selectedRange().length > 0 {
+        let glyphs = manager.glyphRange(forCharacterRange: body.selectedRange(), actualCharacterRange: nil)
+        let bounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
+          .offsetBy(dx: body.textContainerOrigin.x, dy: body.textContainerOrigin.y)
+        selected = body.convert(bounds, to: root)
+      }
+    } else if let original, let page = original.selected,
+              let bounds = try? original.store.viewRect(forPageRect: page.pageBounds) {
+      selected = original.convert(bounds, to: root)
+    }
     let delta = obstruction.maxY + 12 - selected.minY
     guard delta > 0.5 else { return }
     revealingSelection = true; defer { revealingSelection = false }

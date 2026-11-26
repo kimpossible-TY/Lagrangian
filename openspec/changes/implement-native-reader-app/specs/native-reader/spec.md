@@ -412,8 +412,8 @@ expression and use actual registered scope for document equivalence.
 The native reflow reader SHALL present one toolbar row with a ghost outline toggle, sliding mode pill, SF Symbol search and overflow buttons, and opaque immediate Aa popover. Paper SHALL extend to both window edges. Valid selection actions SHALL float at the viewport bottom without resizing the window. At 640pt Reflow SHALL retain an icon-only outline toggle and compact mode switch.
 
 #### Scenario: Unified toolbar, immediate Aa popover, selection capsule, and narrow width
-- **WHEN** the reflow reader renders at standard or 640px narrow width, opens `Aa`, or transitions between empty and valid text selection
-- **THEN** the single-row toolbar omits any subtitle, keeps 85–90% document area, and collapses secondary items into `•••` at 640px
+- **WHEN** the reflow reader renders at standard or 640pt narrow width, opens `Aa`, or transitions between empty and valid text selection
+- **THEN** the single-row toolbar omits any subtitle, measures document area as `(windowContentHeight - 44pt) / windowContentHeight` at standard window content heights of at least 720pt (93.9% at 720pt; the earlier 85–90% target is incompatible with this formula), and collapses secondary items into `•••` at 640pt
 - **AND** `Aa` renders an opaque popover with immediate theme/font-size/`오프라인 저장`/`PDF 내보내기` controls and no `보기 미리 보기/적용/취소` buttons
 - **AND** `복사` appears in the bottom selection capsule; persistent held states expose an explicit `선택 해제` action when needed
 
@@ -475,7 +475,7 @@ NativeFloatingCapsule SHALL use a 64pt glass surface with 28pt continuous corner
 - **THEN** available tiles are Copy, Highlight, Ask, red Strike, Source and Editor, with Source and Editor in overflow at 640pt or narrower
 - **AND** a rule divider precedes the circular dismiss control, which preserves selection and restores focus
 - **AND** review marks in writable Reflow show a 40pt upper glass capsule with Undo and Clear All, 8pt above the tools
-- **AND** a 32-block limit uses a 26pt mini pill; stale bindings cannot act on newer tickets
+- **AND** a selection of more than 32 fragments shows a 26pt limit mini pill explaining the existing 32-fragment remote-submission limit; Ask and other remote submissions are restricted, while local Copy, Highlight and Strike remain available; stale bindings cannot act on newer tickets
 
 ### Requirement: Interactive brand and accepted mode switch
 NativeBrandMarkControl SHALL open Home through FlowApp.showWindow on hold or rightward swipe and expose status, Home and Refresh on tap. NativeModeMorphSwitch SHALL keep its thumb on the accepted mode during asynchronous requests or held selections. Wide Reflow SHALL center a labeled 140x32pt pill; compact Reflow and wide online PDF SHALL use 80x32pt icon-only pills.
@@ -487,7 +487,7 @@ NativeBrandMarkControl SHALL open Home through FlowApp.showWindow on hold or rig
 - **AND** existing reflowMode and pageMode selectors remain available with native radio semantics
 
 ### Requirement: Reader shortcut ownership and layered Escape
-The reader SHALL route Cmd+backslash, Cmd+1/2, Cmd+Shift+O, Opt+Cmd+0, Cmd+R, Shift+Return, Cmd+Shift+S/H/K and Opt+Cmd+A to existing mode, outline, zoom, refresh, strike, highlight, Ask and capsule owners. Cmd+0 SHALL remain FlowApp Home. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
+The host SHALL route Cmd+\ to the outline drawer toggle, Cmd+1 to Reflow and Cmd+2 to Original PDF through the mode owner, Cmd+Shift+O to outline focus, Opt+Cmd+0 to zoom reset/fit, Cmd+R and Shift+Return to Refresh, Cmd+Shift+S to the Strike review owner, Cmd+Shift+H to Highlight, Cmd+Shift+K to Ask, and Opt+Cmd+A to capsule focus/reopen. Cmd+0 SHALL remain Home via FlowApp. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
 
 #### Scenario: Capsule keyboard loop and reopen
 - **WHEN** the user presses Opt+Cmd+A with a retained selection
