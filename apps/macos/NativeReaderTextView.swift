@@ -850,10 +850,10 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                     attributes[.underlineColor] = p.highlightEdge
                 }
             }
-            if node.kind == .break {
+            if node.kind == .break, !node.displayText.contains(where: { $0.isNewline }) {
                 text.append(NSAttributedString(string: "\n", attributes: attributes))
-                // The accepted node may carry canonical characters as well. Map
-                // those exactly below; only the inserted newline is unmapped.
+                // Importer breaks already carry a canonical newline. Only an
+                // empty break needs an additional, unmapped presentation line.
             }
             if let language = node.language { attributes[NSAttributedString.Key(kCTLanguageAttributeName as String)] = language }
             if let direction = node.direction, direction != "auto" {
@@ -888,17 +888,23 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                                    presentation: NSRange(location: text.length, length: part.length), isObject: false))
                 text.append(part)
             } else {
-                let blockKinds: Set<NativeReaderNode.Kind> = [.paragraph, .heading, .group, .equation, .table, .figure, .caption]
+                func isBlock(_ node: NativeReaderNode) -> Bool {
+                    // Span/sup/code also arrive as groups. A group introduces
+                    // block boundaries only when it actually contains blocks.
+                    if node.kind == .group { return node.children.contains(where: isBlock) }
+                    return [.paragraph, .heading, .equation, .table, .figure, .caption].contains(node.kind)
+                        || (node.kind == .image && node.imageLayout?.placement == .block)
+                }
                 var previousWasBlock = false
                 var previousWasBreak = false
                 for (index, child) in node.children.enumerated() {
-                    let isBlock = blockKinds.contains(child.kind) || (child.kind == .image && child.imageLayout?.placement == .block)
-                    if node.kind == .group, index > 0, child.kind != .break, !previousWasBreak, previousWasBlock || isBlock,
+                    let childIsBlock = isBlock(child)
+                    if node.kind == .group, index > 0, child.kind != .break, !previousWasBreak, previousWasBlock || childIsBlock,
                        !(text.string as NSString).hasSuffix("\n") {
                         text.append(NSAttributedString(string: "\n", attributes: base))
                     }
                     try append(child, block: block, attributes: attributes)
-                    previousWasBlock = isBlock
+                    previousWasBlock = childIsBlock
                     previousWasBreak = child.kind == .break
                 }
             }

@@ -44,6 +44,8 @@ private final class Actions: NSObject {
             case "foundation": try foundation(output)
 #if NATIVE_DESIGN_PARITY
             case "reader-parity": try readerParity(output)
+            case "interaction-regressions": try interactionRegressions(output)
+            case "importer-presentation": try importerPresentation(output)
 #endif
             case "vector": try vector(output)
             case "controls": try controls(output)
@@ -445,6 +447,117 @@ private final class Actions: NSObject {
         try save(["checks": checks, "guiVerified": false], output, "foundation-observations")
     }
 #if NATIVE_DESIGN_PARITY
+    @MainActor static func importerPresentation(_ output: URL) throws {
+        let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))
+        let document = try NativeReaderDocument.decode(data)
+        let store = NativeReaderDocumentStore(), generation = try store.beginRequest()
+        let reader = NativeReaderTextView(store: store)
+        defer { reader.dispose() }
+        reader.setFrameSize(NSSize(width: 800, height: 600))
+        try reader.adopt(document, context: .init(requestID: UUID(), viewID: store.viewID,
+            generation: generation, target: document.identity))
+        try check(reader.bodyTextView.string == CommandLine.arguments[4],
+                  "Actual importer presentation: \(reader.bodyTextView.string.debugDescription)")
+        try check(store.document == document, "Presentation preserves the accepted importer document")
+        let map = reader.textMap!, displayed = reader.bodyTextView.string as NSString
+        for span in map.spans {
+            let block = document.blocks.first { $0.id == span.blockID }!
+            let logical = NSRange(location: span.logical.lowerBound, length: span.logical.count)
+            try check(!span.isObject && displayed.substring(with: span.presentation) ==
+                      (block.canonicalText as NSString).substring(with: logical), "UTF16 span retains exact canonical text")
+        }
+        let selection = try map.selection(for: NSRange(location: 0, length: displayed.length))
+        try check(selection?.fragments.map(\.exact) == document.blocks.map(\.canonicalText),
+                  "Full copy preserves canonical newlines and excludes presentation separators")
+        for block in document.blocks {
+            for offset in block.graphemeBoundariesUTF16 {
+                let logical = NativeReaderTextPosition(blockID: block.id, utf16: offset, affinity: .downstream)
+                let presentation = try map.presentation(of: logical)
+                let roundTrip = try map.logical(at: presentation, affinity: .downstream)
+                try check(roundTrip == logical, "Canonical grapheme offset round trip")
+            }
+        }
+        try save(["checks": checks, "guiVerified": false], output, "importer-observations")
+    }
+
+    @MainActor static func interactionRegressions(_ output: URL) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        func pointer(_ type: NSEvent.EventType, _ point: NSPoint, in view: NSView) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [], timestamp: 1,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        for compact in [false, true] {
+            let width: CGFloat = compact ? 80 : 140
+            let control = NativeModeMorphSwitch(frame: NSRect(x: 100, y: 100, width: width, height: 32))
+            control.compact = compact; control.preferencesOverride = .init(theme: .light, reduceMotion: true)
+            window.contentView!.addSubview(control); control.layoutSubtreeIfNeeded()
+            defer { control.removeFromSuperview() }
+            var requests = 0
+            control.onRequestMode = { _ in requests += 1 }
+            let pdf = NSPoint(x: width * 0.75, y: 16)
+            for release in [NSPoint(x: pdf.x, y: 150), NSPoint(x: pdf.x, y: 24), NSPoint(x: width + 10, y: 16)] {
+                control.mouseDown(with: pointer(.leftMouseDown, pdf, in: control))
+                control.mouseDragged(with: pointer(.leftMouseDragged, release, in: control))
+                control.mouseUp(with: pointer(.leftMouseUp, release, in: control))
+                control.layoutSubtreeIfNeeded()
+                try check(requests == 0 && control.requestedMode == nil, "Vertical/outside release cancels mode intent")
+                try check(control.layer!.sublayers![1].frame.minX == 3, "Canceled thumb returns to accepted mode")
+            }
+            // A release without an intermediate drag event must cancel too.
+            control.mouseDown(with: pointer(.leftMouseDown, pdf, in: control))
+            control.mouseUp(with: pointer(.leftMouseUp, NSPoint(x: pdf.x, y: 150), in: control))
+            try check(requests == 0, "Outside mouseUp alone cannot activate a segment")
+            let body = NSPoint(x: 10, y: 16), dragged = NSPoint(x: width - 10, y: 16)
+            control.mouseDown(with: pointer(.leftMouseDown, body, in: control))
+            control.mouseDragged(with: pointer(.leftMouseDragged, dragged, in: control)); control.layoutSubtreeIfNeeded()
+            try check(control.layer!.sublayers![1].frame.minX > 3, "Available drag moves thumb")
+            control.allowsModeSwitch = false
+            control.mouseDragged(with: pointer(.leftMouseDragged, dragged, in: control)); control.layoutSubtreeIfNeeded()
+            try check(control.layer!.sublayers![1].frame.minX == 3, "Disabling during drag immediately pins accepted thumb")
+            control.allowsModeSwitch = true
+            control.mouseUp(with: pointer(.leftMouseUp, dragged, in: control))
+            try check(requests == 0, "Reenabling cannot revive the canceled gesture")
+            control.mouseDown(with: pointer(.leftMouseDown, pdf, in: control))
+            control.mouseUp(with: pointer(.leftMouseUp, pdf, in: control))
+            try check(requests == 1 && control.requestedMode == .originalPages, "Fresh click works after cancellation")
+            control.requestedMode = nil
+            control.mouseDown(with: pointer(.leftMouseDown, body, in: control))
+            control.mouseDragged(with: pointer(.leftMouseDragged, dragged, in: control))
+            control.mouseUp(with: pointer(.leftMouseUp, dragged, in: control)); control.layoutSubtreeIfNeeded()
+            try check(requests == 2 && control.layer!.sublayers![1].frame.minX == 3, "Horizontal swipe requests once and awaits acceptance")
+        }
+        let drawer = NativeOutlineDrawerView(frame: window.contentView!.bounds)
+        drawer.preferencesOverride = .init(theme: .light, reduceMotion: true)
+        drawer.entries = [.init(id: "one", title: "첫 장", depth: 0)]
+        let body = NSTextView(frame: window.contentView!.bounds)
+        body.string = "문단😀선택"; window.contentView!.addSubview(body)
+        window.contentView!.addSubview(drawer); window.makeFirstResponder(body)
+        let selection = NSRange(location: 0, length: 4); body.setSelectedRange(selection)
+        drawer.present()
+        func click(_ point: NSPoint) throws {
+            guard let hit = drawer.hitTest(drawer.convert(point, to: drawer.superview)) else {
+                throw Failure(message: "Missing drawer hit target")
+            }
+            hit.mouseDown(with: pointer(.leftMouseDown, point, in: drawer))
+        }
+        for inside in [NSPoint(x: 4, y: drawer.glass.bounds.midY), NSPoint(x: 10, y: drawer.glass.bounds.midY),
+                       NSPoint(x: drawer.glass.bounds.midX, y: drawer.glass.bounds.height - 4)] {
+            try click(drawer.glass.convert(inside, to: drawer))
+            try check(!drawer.isHidden && body.selectedRange() == selection, "Panel padding/header keeps drawer and body selection")
+        }
+        try click(NSPoint(x: 700, y: 300))
+        try check(drawer.isHidden && body.selectedRange() == selection && window.firstResponder === body,
+                  "Scrim dismisses and restores focus without changing selection")
+        drawer.present()
+        try click(drawer.glass.convert(NSPoint(x: 1, y: 1), to: drawer))
+        try check(drawer.isHidden, "Transparent rounded corner is scrim")
+        try check(!window.isVisible, "Regression events stay offscreen")
+        try save(["checks": checks, "guiVerified": false], output, "interaction-regressions-observations")
+    }
+
     @MainActor static func readerParity(_ output: URL) throws {
         let control = NativeModeMorphSwitch(frame: NSRect(x: 0, y: 0, width: 140, height: 32))
         control.preferencesOverride = .init(theme: .light, reduceMotion: true)

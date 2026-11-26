@@ -81,7 +81,13 @@ final class NativeOutlineDrawerView: NSView, NSTableViewDataSource, NSTableViewD
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance(); needsDisplay = true; tableView.reloadData()
     }
-    override func mouseDown(with event: NSEvent) { dismiss() }
+    override func mouseDown(with event: NSEvent) {
+        // Empty panel/header areas bubble up through the responder chain too.
+        // Only the scrim outside the rounded panel is a dismissal target.
+        let point = glass.convert(event.locationInWindow, from: nil)
+        let panel = NSBezierPath(roundedRect: glass.bounds, xRadius: glass.cornerRadius, yRadius: glass.cornerRadius)
+        if !panel.contains(point) { dismiss() }
+    }
     override func cancelOperation(_ sender: Any?) { dismiss() }
     func present() {
         guard isHidden else { return }

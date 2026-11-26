@@ -88,6 +88,32 @@ class NativeDesignFoundationTests(unittest.TestCase):
     def test_clipped_glass_and_brand_gestures(self): self.scenario('foundation')
     def test_drawer_switch_and_reader_presentation(self): self.scenario('reader-parity')
 
+    def test_mode_cancellation_and_drawer_interior(self): self.scenario('interaction-regressions')
+
+    def test_importer_breaks_and_nested_inline_groups(self):
+        with patch.object(sys, 'path', [str(ROOT / 'tools/flow-reader'), *sys.path]):
+            from flow_reader.document.native_document import import_accepted_document
+            from flow_reader.document.sections import split_document
+        cases = [
+            ('break', '<p>A<br>B</p>', 'A\nB'),
+            ('consecutive-breaks', '<p>A<br><br>B</p>', 'A\n\nB'),
+            ('nested-inline', '<p><span>A<span>B</span>C</span></p>', 'ABC'),
+            ('inline-siblings', '<p>A<span>B</span>C<sup>D</sup><code>E</code>F</p>', 'ABCDEF'),
+            ('unicode-inline', '<p><span>한😀<span>e\u0301</span>끝</span></p>', '한😀e\u0301끝'),
+            ('nested-blocks', '<div><p>A</p><div><p>B</p><p>C</p></div></div>', 'A\nB\nC'),
+            ('mixed-groups', '<div><p>A</p><span>B<span>C</span>D</span><p>E</p></div>', 'A\nBCD\nE'),
+        ]
+        for name, body, expected in cases:
+            with self.subTest(name=name):
+                bundle = split_document('<html><body>' + body + '</body></html>', 'regression')
+                document = import_accepted_document(bundle, document_id='fixture', service_id='offline',
+                    generation=1, identity_scope='fixture').document
+                fixture = self.output / (name + '.json')
+                fixture.write_text(json.dumps(document))
+                result = subprocess.run([str(self.binary), str(self.output), 'importer-presentation',
+                    str(fixture), expected], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 class PMReceiptTests(unittest.TestCase):
     def setUp(self):

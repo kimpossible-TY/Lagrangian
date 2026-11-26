@@ -14,7 +14,12 @@ final class NativeModeMorphSwitch: NSControl {
     var requestedMode: Mode? { didSet { needsLayout = true } }
     var heldSelection = false { didSet { needsLayout = true } }
     var compact = false { didSet { invalidateIntrinsicContentSize(); needsLayout = true; updateButtons() } }
-    var allowsModeSwitch = true { didSet { updateButtons(); needsLayout = true } }
+    var allowsModeSwitch = true {
+        didSet {
+            if !allowsModeSwitch { pressOrigin = nil; updateThumb(animated: false) }
+            updateButtons(); needsLayout = true
+        }
+    }
     var preferencesOverride: NativeAppDesign.Preferences? { didSet { needsLayout = true; updateButtons() } }
     var preferences: NativeAppDesign.Preferences { preferencesOverride ?? .current(appearance: effectiveAppearance) }
     let reflowButton = NativeModeSegmentButton()
@@ -130,9 +135,13 @@ final class NativeModeMorphSwitch: NSControl {
         window?.makeFirstResponder(self); pressOrigin = convert(event.locationInWindow, from: nil)
     }
     override func mouseDragged(with event: NSEvent) {
-        guard let pressOrigin else { return }
+        guard isEnabled, allowsModeSwitch, let pressOrigin else { return }
         guard !(heldSelection && preferences.reduceMotion) else { return }
-        let dx = convert(event.locationInWindow, from: nil).x - pressOrigin.x
+        let point = convert(event.locationInWindow, from: nil)
+        let dx = point.x - pressOrigin.x, dy = point.y - pressOrigin.y
+        if abs(dy) >= 3, abs(dy) >= abs(dx) {
+            self.pressOrigin = nil; updateThumb(animated: true); return
+        }
         let proposed = acceptedX + dx
         let clamped = min(3 + slot, max(3, proposed))
         let overshoot = min(3, max(-3, (proposed - clamped) * 0.25))
@@ -143,11 +152,13 @@ final class NativeModeMorphSwitch: NSControl {
         guard let pressOrigin else { return }
         self.pressOrigin = nil
         let point = convert(event.locationInWindow, from: nil), dx = point.x - pressOrigin.x
+        let dy = point.y - pressOrigin.y
+        guard isEnabled, allowsModeSwitch, bounds.contains(point) else { updateThumb(animated: true); return }
         let mode: Mode
-        if abs(dx) >= slot * 0.40 {
+        if abs(dx) >= slot * 0.40, abs(dx) > 2 * abs(dy) {
             mode = dx > 0 ? .originalPages : .nativeReflow
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        } else if abs(dx) < 3 { mode = point.x < bounds.midX ? .nativeReflow : .originalPages }
+        } else if hypot(dx, dy) < 3 { mode = point.x < bounds.midX ? .nativeReflow : .originalPages }
         else { updateThumb(animated: true); return }
         let button = mode == .nativeReflow ? reflowButton : pageButton
         button.performClick(nil)
