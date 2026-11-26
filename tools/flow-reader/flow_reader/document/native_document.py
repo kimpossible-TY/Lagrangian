@@ -254,6 +254,7 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
     identity = {"documentID": _token(document_id), "serviceID": _token(service_id),
                 "revision": revision, "scope": identity_scope}
     blocks, assets, descriptors, diagnostics, seen_anchors = [], {}, {}, [], set()
+    label_anchors = set()
     counter = 0
     required = set(required_capabilities) | {"semantic-tree-v1"}
 
@@ -318,14 +319,16 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
             raise NativeImportError("unsupported-class")
         if attrs.get("id"):
             anchor = _token(attrs["id"])
-            if anchor in seen_anchors:
+            if anchor in seen_anchors and anchor not in label_anchors:
                 raise NativeImportError("duplicate-anchor")
-            seen_anchors.add(anchor)
-            value["anchors"].append(anchor)
+            if anchor not in seen_anchors:
+                seen_anchors.add(anchor)
+                value["anchors"].append(anchor)
         if attrs.get("data-flow-label"):
             anchor = _token(attrs["data-flow-label"])
             if anchor not in seen_anchors:
                 seen_anchors.add(anchor)
+                label_anchors.add(anchor)
                 value["anchors"].append(anchor)
         if attrs.get("data-flow-mark"):
             value["anchors"].append("mark:" + _token(attrs["data-flow-mark"]))

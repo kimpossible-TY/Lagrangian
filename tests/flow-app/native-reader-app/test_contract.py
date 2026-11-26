@@ -23,6 +23,13 @@ DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 CLOSURE = Path(os.environ["NA09_ROOT"]).resolve() if os.environ.get("NA09_ROOT") else None
 EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/contract'
 ISOLATED = CLOSURE if CLOSURE else DEV
+def find_typst():
+    candidates = [os.environ.get('FLOW_READER_TYPST'), shutil.which('typst'),
+                  DEV / 'dependencies/portable-typst/v0.15.1/typst-aarch64-apple-darwin/typst',
+                  DEV / 'dependencies/portable-typst/typst-aarch64-apple-darwin/typst']
+    return next((str(path) for path in candidates if path and Path(path).is_file() and os.access(path, os.X_OK)), None)
+
+
 sys.path.insert(0, str(REPO / 'tools/flow-reader'))
 from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.project import Project, document_identity
@@ -52,12 +59,20 @@ class LabelContractTests(unittest.TestCase):
         self.assertNotIn('same', model['blocks'][1]['anchors'])
         self.assertEqual(model['requiredCapabilities'], ['semantic-tree-v1'])
 
-    @unittest.skipUnless(shutil.which('typst'), 'prebuilt Typst compiler unavailable')
+    def test_label_before_matching_id_keeps_first_anchor(self):
+        html = '<html><body><h2 data-flow-label="same">First</h2><h2 id="same">Second</h2></body></html>'
+        bundle = split_document(html, 'labels', max_blocks=1)
+        model = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).document
+        self.assertEqual(bundle.manifest['anchors']['same'], bundle.manifest['sections'][0]['id'])
+        self.assertIn('same', model['blocks'][0]['anchors'])
+        self.assertNotIn('same', model['blocks'][1]['anchors'])
+
+    @unittest.skipUnless(find_typst(), 'prebuilt Typst compiler unavailable')
     def test_real_unreferenced_and_referenced_labels(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / 'main.typ'
-            project = Project(root, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=shutil.which('typst'))
+            project = Project(root, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=find_typst())
             for reference in ('', '\nSee @def-convolution.\n'):
                 source.write_text('#set heading(numbering: "1.")\n= Convolution <def-convolution>\n\n#figure(kind: "definition", supplement: [Definition])[Body] <def-fig>\n\n$ f * g $ <eq-conv>\n' + ''.join('\n= Internal <' + prefix + 'test>\n' for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-')) + reference)
                 state = ReaderState(project, root / 'output', '', False)
@@ -89,7 +104,7 @@ class ContractTests(unittest.TestCase):
                 raise RuntimeError('command failed: ' + str(argv[0]) + ': ' + result.stderr[:2000])
             return result.stdout.strip()
         cls.command = staticmethod(command)
-        compiler = Path(shutil.which('typst') or '/missing')
+        compiler = Path(find_typst() or '/missing')
         if not compiler.is_file() or not shutil.which('sandbox-exec'):
             raise RuntimeError('prebuilt typst and sandbox-exec required')
         for name, value in {'TMPDIR': ISOLATED / 'tmp/contract', 'CLANG_MODULE_CACHE_PATH': ISOLATED / 'cache/contract/clang',
