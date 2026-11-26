@@ -270,8 +270,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     textView.callbacks.semanticActivated = { [weak self] node, context in
       guard let self, self.visibleMode == .nativeReflow, self.textView.context == context,
             self.textView.renderKey == self.textView.requestedRenderKey,
-            node.kind == .link, let raw = node.link, !raw.hasPrefix("#"), let url = URL(string: raw),
-            NativeOriginalPDFAccess.safeURL(url) else { return }
+            node.kind == .link, let raw = node.link, let url = URL(string: raw),
+            (raw.hasPrefix("#") ? node.projectRef != nil : NativeOriginalPDFAccess.safeURL(url)) else { return }
       let resolution: CrossProjectResolution
       if let catalog = self.crossProjectCatalogProvider?() {
         if let meta = node.projectRef {

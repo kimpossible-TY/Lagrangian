@@ -70,14 +70,14 @@ struct CrossProjectPreviewTests {
               "Disposed view rejects geometry and scrolling")
   }
 
-  @MainActor static func controllerScenario(_ scenario: String) async throws {
+  @MainActor static func controllerScenario(_ scenario: String, fragmentLink: Bool = false) async throws {
     let host = NativeReaderWindowController(provider: NativeReaderOfflineProvider(),
       target: { _ in throw NativeReaderOperationFailure.unavailable }, show: false, avoidActivation: true, fixtureMode: true)
     defer { host.dispose() }
     host.hostWindow.initialize()
     let generation = try host.store.beginRequest()
     let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "revision", scope: .fixture)
-    let url = "https://example.org/book.pdf#page=2"
+    let url = fragmentLink ? "#local-anchor" : "https://example.org/book.pdf#page=2"
     let text = "Theorem 2"
     let leaf = NativeReaderNode(id: "leaf", sectionID: "section", kind: .text, canonicalText: text, displayText: text,
       rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: [],
@@ -398,6 +398,9 @@ struct CrossProjectPreviewTests {
       case "project_ref_contract_and_snippet": try contractAndSnippet()
       case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime", "reader_explicit_project_ref":
         try await controllerScenario(CommandLine.arguments[1])
+        if CommandLine.arguments[1] == "reader_explicit_project_ref" {
+          try await controllerScenario(CommandLine.arguments[1], fragmentLink: true)
+        }
       default: throw Failure(message: "Unknown fixture scenario")
       }
       print("Passed \(CommandLine.arguments[1]); isolated AppKit component only")
