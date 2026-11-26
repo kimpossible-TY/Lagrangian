@@ -30,8 +30,12 @@ origins are never pushed. Back discards missing or non-unique profile entries an
 tries the next retained entry; a real target's failed navigation preserves that
 entry. Cross-project candidates reserve only the target editor descriptor. The
 origin window's consent tracking stays intact until windowInitialized commits.
-Failure/cancel returns the reservation to consentedEditors; successful adoption
-moves consent tracking to the new window.
+Failure/cancel before invoking consented attach returns the reservation to
+consentedEditors. Invoking attach consumes it, including on response loss;
+disposal retires the lease and closes any established editor context. A later
+attempt requires fresh consent (`에디터 연결…`). Returning the reservation is
+atomic with starting attach, so cancellation cannot restore consent while attach
+uses it. Successful adoption moves consent tracking to the new window.
 
 ## Native wire and HTML label export
 The optional link-node projectRef value is `{project,label,title?,page?,text?}`;

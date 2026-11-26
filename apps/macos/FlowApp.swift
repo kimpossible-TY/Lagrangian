@@ -185,7 +185,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       pushOnSuccess: CrossProjectNavigationEntry?, popOnSuccess: Bool) -> Bool {
     cancelPendingCrossProjectTransition()
     // Reserve the descriptor while the candidate prepares; origin tracking stays
-    // intact until successful adoption. Failure/cancel returns the reservation.
+    // intact until successful adoption. Only a pre-attach failure/cancel can
+    // return the reservation; disposal closes any consent used by attach.
     let editor = consentedEditors.removeValue(forKey: targetProfile.id)
     guard let candidate = makeNativeReaderWindowController(for: targetProfile, editor: editor) else {
       if let editor { consentedEditors[targetProfile.id] = editor }
@@ -215,7 +216,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         candidate.hostWindow.updateNavigation()
       case .failed:
         self.pendingCrossProjectWindow = nil; self.pendingCrossProjectCancel = nil
-        self.restorePendingCrossProjectEditor()
+        self.restorePendingCrossProjectEditor(candidate: candidate)
         candidate.dispose()
       default: break
       }
@@ -226,8 +227,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return true
   }
 
-  @MainActor private func restorePendingCrossProjectEditor() {
-    if let pending = pendingCrossProjectEditor { consentedEditors[pending.profileID] = pending.editor }
+  @MainActor private func restorePendingCrossProjectEditor(candidate: NativeReaderWindowController?) {
+    if let pending = pendingCrossProjectEditor, candidate?.returnUnattachedEditorConsent() == true {
+      consentedEditors[pending.profileID] = pending.editor
+    }
     pendingCrossProjectEditor = nil
   }
 
@@ -236,7 +239,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let cancel = pendingCrossProjectCancel
     let candidate = pendingCrossProjectWindow
     pendingCrossProjectCancel = nil; pendingCrossProjectWindow = nil
-    restorePendingCrossProjectEditor()
+    restorePendingCrossProjectEditor(candidate: candidate)
     cancel?(); candidate?.dispose()
   }
 

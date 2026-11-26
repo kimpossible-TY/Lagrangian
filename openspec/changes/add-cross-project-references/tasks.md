@@ -29,5 +29,5 @@ These contracts are wired through the existing owners and covered by integrated 
 - [x] r2-S1: retain target reader startup for preview and document the policy explicitly.
 - [x] r2-S2: reset Back on new Read/profile selection, skip deleted origins and reject empty origins.
 - [x] r2-S3: remove the unused Python catalog/snippet policy after confirming no production importers.
-- [x] r2-S4: reserve candidate editor consent and commit only on successful initialization; restore on failure/cancel.
+- [x] r2-S4: reserve candidate editor consent and commit only on successful initialization; restore on failure/cancel only before invoking consented attach. Cover managed attach arguments, close tombstones and fresh consent after attach-then-fail/cancel.
 - [x] r2-S5: align Impact, fixed Back label, explicit-identity failure behavior, wire capability limits and HTML label export scenarios.

@@ -177,7 +177,9 @@ reader service through ReaderManager; only committed second-click navigation
 replaces the origin and pushes history. Back uses the fixed `돌아가기` action,
 skips deleted profiles and restores the next valid entry. New explicit Read and
 profile selection reset history. Candidate editor reservations commit at
-windowInitialized and return on failure/cancel without replacing origin tracking.
+windowInitialized and return on failure/cancel only before consented attach,
+without replacing origin tracking. Starting attach consumes the reservation;
+disposal retires it and later attempts require fresh consent.
 Existing source, service and consent owners retain authority.
 
 The Typst HTML producer `packages/local/flow-reader/0.1.0/lib.typ` exports user

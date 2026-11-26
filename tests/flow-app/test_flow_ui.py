@@ -59,6 +59,9 @@ class ReadingUI(unittest.TestCase):
     def test_cross_project_consent_is_committed_only_on_success(self):
         self.scenario('cross-project-consent')
 
+    def test_cross_project_managed_consent_restores_only_before_attach(self):
+        self.scenario('cross-project-managed-consent')
+
     def test_cross_project_session_lifecycle(self):
         self.scenario('cross-project-session-lifecycle')
 

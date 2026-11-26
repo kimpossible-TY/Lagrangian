@@ -59,11 +59,17 @@ First-click snippet loading MAY start the target project's managed reader servic
 - **AND** the origin reader stays current until a second-click navigation commits
 
 ### Requirement: Provisional editor consent during project navigation
-Candidate creation SHALL reserve only the target editor descriptor. Reader consent tracking SHALL commit at windowInitialized, preserving the origin's tracking before that point. Failed or cancelled candidates SHALL return the descriptor to consentedEditors.
+Candidate creation SHALL reserve only the target editor descriptor. Reader consent tracking SHALL commit at windowInitialized, preserving the origin before then. Failed/cancelled candidates SHALL return the descriptor only before consented attach is invoked. Invoking attach SHALL consume the reservation, including on response loss. Disposal SHALL retire its registration and close any established consent context; later attempts SHALL require fresh consent.
 
-#### Scenario: Candidate fails or is cancelled
-- **WHEN** a target with existing editor consent fails to initialize or its navigation is cancelled
+#### Scenario: Candidate fails or is cancelled before attach
+- **WHEN** a target with existing editor consent fails to initialize or its navigation is cancelled before invoking attach with the consent
 - **THEN** the target's consent remains available for a later attempt
+- **AND** the origin reader and its editor consent tracking remain intact
+
+#### Scenario: Candidate fails or is cancelled after attach
+- **WHEN** the candidate has invoked attach with `--native-editor-consent` and then fails or is cancelled before windowInitialized
+- **THEN** disposal retires its editor lease and sends a close tombstone for any established editor context
+- **AND** the consumed consent is not restored; the target menu shows `에디터 연결…` and requires fresh consent
 - **AND** the origin reader and its editor consent tracking remain intact
 
 ### Requirement: Native explicit-reference wire and failure policy
