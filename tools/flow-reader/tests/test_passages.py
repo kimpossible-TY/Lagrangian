@@ -2,6 +2,8 @@
 
 from http.server import ThreadingHTTPServer
 import json
+import math
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -18,10 +20,35 @@ from flow_reader.document.passages import PassageIndex, locate_passages
 from flow_reader.document.sections import split_document
 from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
-from flow_reader.services.source_highlight import MarkedPassages
+from flow_reader.services.source_highlight import MarkedPassages, MAX_SELECTION_SEGMENTS
 
 
 class PassageTests(unittest.TestCase):
+    def test_browser_and_service_selection_segment_cap_match(self):
+        controller = (ROOT / 'web/features/selection/controller.js').read_text()
+        match = re.search(r'const MAX_SELECTION_SEGMENTS = (\d+);', controller)
+        self.assertIsNotNone(match, 'browser selection cap declaration missing')
+        self.assertEqual(int(match[1]), MAX_SELECTION_SEGMENTS)
+
+    def test_native_math_batch_limits_match_pinned_helper(self):
+        helper = (ROOT / 'native/math_layout.mjs').read_text()
+        swift = (ROOT.parents[1] / 'apps/macos/NativeReaderObjectRenderer.swift').read_text()
+
+        def constant(source, declaration):
+            match = re.search(declaration + r' = ([0-9 *]+)(?:;|\n)', source)
+            self.assertIsNotNone(match, declaration)
+            return math.prod(int(n.strip()) for n in match[1].split('*'))
+
+        self.assertEqual(constant(swift, 'static let maximumBytes'), constant(helper, 'const BATCH_LIMIT'))
+        self.assertEqual(constant(swift, 'static let itemOutputBytes'), constant(helper, 'const LIMIT'))
+        count = re.search(r'input.items.length > (\d+)', helper)
+        self.assertIsNotNone(count)
+        self.assertEqual(constant(swift, 'static let maximumItems'), int(count[1]))
+        self.assertIn('inputBytes > 256 * 1024', helper)
+        self.assertEqual(constant(swift, 'static let itemInputBytes'), 256 * 1024)
+        self.assertIn('Buffer.byteLength(source) > 65536', helper)
+        self.assertEqual(constant(swift, 'static let sourceBytes'), 65536)
+
     def test_quotes_relocate_after_paragraph_edit_and_section_move(self):
         original = '<html><body><h2>Topic</h2><p>First. A saved quotation. Last.</p></body></html>'
         before = split_document(original, "before", max_blocks=2)
