@@ -7,6 +7,40 @@ private struct ParityInput: NativeReaderDocumentProviding {
     func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument { value.rebinding(generation: context.generation) }
 }
 
+private final class SymbolReferenceView: NSView {
+    let symbol: String, circular: Bool, upright: Bool
+    init(symbol: String, circular: Bool, upright: Bool, frame: NSRect) {
+        self.symbol = symbol; self.circular = circular; self.upright = upright
+        super.init(frame: frame)
+    }
+    required init?(coder: NSCoder) { nil }
+    override var isFlipped: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        if circular {
+            NativeChrome.color(\.wash).setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: 18, yRadius: 18).fill()
+        }
+        let color = NativeChrome.color(circular ? \.secondaryInk : \.accent)
+        let config = NSImage.SymbolConfiguration(pointSize: circular ? 12 : 17, weight: .medium)
+            .applying(.init(paletteColors: [color]))
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
+        let scale = min(20 / image.size.width, 20 / image.size.height)
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        let center = NSPoint(x: bounds.midX, y: circular ? bounds.midY : 18)
+        image.draw(in: NSRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height),
+                   from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: upright, hints: nil)
+    }
+}
+
+private final class ReviewFixtureCell: NSTextAttachmentCell {
+    var paintedFrame: NSRect?
+    override func cellSize() -> NSSize { NSSize(width: 30, height: 24) }
+    override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: -6) }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        paintedFrame = cellFrame; NSColor.red.setFill(); cellFrame.fill()
+    }
+}
+
 @main struct NativeDesignParityTests {
     @MainActor static var assertions = 0
     @MainActor static func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -278,6 +312,39 @@ private struct ParityInput: NativeReaderDocumentProviding {
                 return color.alphaComponent > 0.1 && color.blueComponent > color.redComponent + 0.05
             }.count }
             try check(tinted > 0, "Symbol pixels use the accent tint")
+            func bitmapOf(_ view: NSView) -> NSBitmapImageRep {
+                let result = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: result)
+                return result
+            }
+            func difference(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> CGFloat {
+                var total: CGFloat = 0
+                for y in 0..<a.pixelsHigh { for x in 0..<a.pixelsWide {
+                    let p = a.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    let q = b.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    total += abs(p.redComponent - q.redComponent) + abs(p.greenComponent - q.greenComponent)
+                        + abs(p.blueComponent - q.blueComponent) + abs(p.alphaComponent - q.alphaComponent)
+                } }
+                return total
+            }
+            // A deliberately asymmetric symbol distinguishes an upright image from its vertical mirror.
+            for circular in [false, true] {
+                let frame = NSRect(x: 0, y: 0, width: circular ? 36 : 70, height: circular ? 36 : 54)
+                let button = NativeCapsuleButton(frame: frame)
+                button.circular = circular; button.symbol = "arrow.up"; button.iconInk = \.accent; button.title = ""
+                let actual = bitmapOf(button)
+                let upright = bitmapOf(SymbolReferenceView(symbol: "arrow.up", circular: circular, upright: true, frame: frame))
+                let inverted = bitmapOf(SymbolReferenceView(symbol: "arrow.up", circular: circular, upright: false, frame: frame))
+                try check(difference(upright, inverted) > 5 && difference(actual, upright) < difference(actual, inverted) * 0.25,
+                          "\(circular ? "Circular" : "Tile") symbol matches upright, not inverted rendering: \(difference(upright, inverted)), \(difference(actual, upright)), \(difference(actual, inverted))")
+            }
+            let close = NativeCapsuleButton(frame: NSRect(x: 0, y: 0, width: 36, height: 36))
+            close.circular = true; close.symbol = "xmark"
+            let closeBitmap = bitmapOf(close)
+            let closeReference = bitmapOf(SymbolReferenceView(symbol: "xmark", circular: true, upright: true, frame: close.bounds))
+            let blankReference = bitmapOf(SymbolReferenceView(symbol: "", circular: true, upright: true, frame: close.bounds))
+            try check(difference(closeBitmap, closeReference) < 0.1 && difference(closeBitmap, blankReference) > 5 && close.iconBox.midX == close.bounds.midX && close.iconBox.midY == close.bounds.midY,
+                      "Close xmark is rendered in the centered circular icon box")
             let block = doc.blocks[1]
             let segments = host.textView.reviewStrikeSegments(blockID: block.id, logical: 0..<block.displayText.utf16.count)
             try check(segments.count >= 2 && Set(segments.map { Int($0.midY.rounded()) }).count == segments.count, "Review produces distinct wrapped line strikes")
@@ -376,6 +443,22 @@ private struct ParityInput: NativeReaderDocumentProviding {
                       !host.textView.visibleSelectionRects(in: root).contains { $0.intersects(capsule.frame) },
                       "Final Reflow selection scrolls above tools using the reserved bottom inset")
             try check(window.frame == originalFrame, "Selection release and final-paragraph reveal keep window frame unchanged")
+            // Paint a math-sized attachment into an existing one-character logical range and
+            // compare the strike against the actual painted cell frame, not its baseline formula.
+            let attachmentRange = try host.textView.textMap!.presentationRange(blockID: block.id, logical: 0..<1)
+            let original = text.textStorage!.attributedSubstring(from: attachmentRange)
+            let attachment = NSTextAttachment(), cell = ReviewFixtureCell(textCell: "")
+            attachment.attachmentCell = cell
+            text.textStorage!.replaceCharacters(in: attachmentRange, with: NSAttributedString(attachment: attachment))
+            layout.ensureLayout(for: textContainer)
+            let attachmentSegments = host.textView.reviewStrikeSegments(blockID: block.id, logical: 0..<1)
+            let region = NSRect(x: attachmentSegments[0].minX - 5, y: attachmentSegments[0].midY - 40, width: 40, height: 80).integral
+            let attachmentBitmap = text.bitmapImageRepForCachingDisplay(in: region)!
+            text.cacheDisplay(in: region, to: attachmentBitmap)
+            try check(attachmentSegments.count == 1 && cell.paintedFrame != nil, "Math-sized attachment paints and has a review strike")
+            try check(abs(attachmentSegments[0].midY - cell.paintedFrame!.midY) <= 0.5,
+                      "Attachment strike crosses the painted visual center: \(attachmentSegments[0]) vs \(cell.paintedFrame!)")
+            text.textStorage!.replaceCharacters(in: attachmentRange, with: original)
         } else if scenario == "review-existing" || scenario == "review-added" || scenario == "review-offset" {
             if scenario == "review-existing" {
                 let first = doc.blocks[1]

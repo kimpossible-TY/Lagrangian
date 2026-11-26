@@ -1409,13 +1409,16 @@ extension NativeReaderTextView {
             guard glyphBounds.width > 0 else { return }
             let baseline = lineRect.minY + manager.location(forGlyphAt: segment.location).y + origin.y
             let characters = manager.characterRange(forGlyphRange: segment, actualGlyphRange: nil)
-            var attachment: NSTextAttachment?
-            storage.enumerateAttribute(.attachment, in: characters) { value, _, stop in
-                if let value = value as? NSTextAttachment { attachment = value; stop.pointee = true }
+            var attachment: (NSTextAttachment, NSRange)?
+            storage.enumerateAttribute(.attachment, in: characters) { value, range, stop in
+                if let value = value as? NSTextAttachment { attachment = (value, range); stop.pointee = true }
             }
             let y: CGFloat
-            if let attachment, let cell = attachment.attachmentCell {
-                y = baseline - (cell.cellBaselineOffset().y + cell.cellSize().height * 0.5)
+            if let (attachment, range) = attachment, let cell = attachment.attachmentCell {
+                // TextKit's attachment glyph location already includes the cell's baseline offset.
+                let attachmentGlyph = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                let bottom = lineRect.minY + manager.location(forGlyphAt: attachmentGlyph.location).y + origin.y
+                y = bottom - cell.cellSize().height * 0.5
             } else {
                 let font = storage.attribute(.font, at: characters.location, effectiveRange: nil) as? NSFont ?? self.bodyTextView.font ?? NSFont.systemFont(ofSize: 13)
                 y = min(glyphBounds.maxY, max(glyphBounds.minY, baseline - font.ascender * 0.36))
