@@ -53,6 +53,9 @@ class ReadingUI(unittest.TestCase):
         result = subprocess.run([self.executable, name], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_cross_project_navigation(self):
+        self.scenario('cross-project-navigation')
+
     def test_startup_timeline_does_not_retain_its_owner(self):
         self.scenario('timeline-owner')
 

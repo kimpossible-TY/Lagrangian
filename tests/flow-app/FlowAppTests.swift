@@ -13,6 +13,15 @@ private func waitUntil(_ message: String, _ predicate: () -> Bool) {
   check(predicate(), message)
 }
 
+private struct CrossProjectTestProvider: NativeReaderDocumentProviding {
+  let documentValue: NativeReaderDocument
+  let fail: Bool
+  func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument {
+    if fail { throw NativeReaderOperationFailure.unavailable }
+    return documentValue.rebinding(generation: context.generation)
+  }
+}
+
 private final class Services: ProjectControlling {
   private let lock = NSLock()
   private var running: [String: Int] = [:]
@@ -108,6 +117,97 @@ struct FlowAppTests {
     waitUntil("initial stopped status") { delegate.snapshot?.phase == .stopped }
 
     switch CommandLine.arguments[1] {
+    case "cross-project-navigation":
+      let packages = root.appendingPathComponent("packages")
+      let catalogURL = packages.appendingPathComponent("local/project-references/0.1.0/projects.json")
+      try FileManager.default.createDirectory(at: catalogURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data("""
+        {"schema":1,"projects":{"other":{"title":"Other","pdf_url":"https://example.test/other.pdf","references":{"target":{"page":1,"text":"Target text"}},"ambiguous_labels":[]}}}
+        """.utf8).write(to: catalogURL)
+      var origin = profile; origin.packages = packages.path
+      other.packages = packages.path; other.projectRefKey = "other"
+      delegate.settings.profiles = [origin, other]
+      let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "rev", scope: .fixture)
+      let text = "Target text"
+      let leaf = NativeReaderNode(id: "leaf", sectionID: "section", kind: .text, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: [],
+        annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+        headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+      var link = NativeReaderNode(id: "link", sectionID: "section", kind: .link, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [leaf], anchors: ["origin", "target"],
+        annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+        headingLevel: nil, math: nil, cell: nil, link: "https://example.test/other.pdf#page=1", assetID: nil, alt: nil)
+      link.projectRef = NativeProjectRefMetadata(project: "other", label: "target", title: nil, page: nil, text: nil)
+      let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: [link], assets: [], diagnostics: [])
+      var failing = false
+      var lastCandidate: NativeReaderWindowController?
+      delegate.nativeWindowControllerFactory = { _ in
+        let made = NativeReaderWindowController(provider: CrossProjectTestProvider(documentValue: document, fail: failing),
+          target: { _ in identity }, show: false, avoidActivation: true, fixtureMode: true)
+        lastCandidate = made
+        return made
+      }
+      delegate.crossProjectDocumentLoader = { _ in document }
+      var ready = false
+      _ = delegate.readNative(origin) { if case .windowInitialized = $0 { ready = true } }
+      waitUntil("origin ready or failed") { ready || delegate.nativeWindow?.session.failure != nil }
+      check(ready, "origin failed: " + (delegate.nativeWindow?.session.failure ?? "unknown"))
+      let initial = delegate.nativeWindow!
+      check(initial.crossProjectCatalogProvider?()?.projects["other"] != nil, "catalog loaded")
+      guard case let .unique(target) = initial.crossProjectCatalogProvider?()?.resolve(projectKey: "other", label: "target") else { fatalError("catalog target") }
+      var loaded = false
+      var snippet: CrossProjectPreviewContent?
+      Task { @MainActor in snippet = await initial.crossProjectSnippetLoader?(target); loaded = true }
+      waitUntil("snippet loaded") { loaded }
+      check(snippet?.snippetText == text, "snippet extracted")
+      let missing = CrossProjectTarget(projectKey: "missing", label: target.label, project: target.project, entry: target.entry)
+      loaded = false; Task { @MainActor in snippet = await initial.crossProjectSnippetLoader?(missing); loaded = true }
+      waitUntil("unmatched snippet") { loaded }
+      check(snippet == nil, "unmatched snippet fallback")
+      delegate.crossProjectDocumentLoader = { _ in throw NativeReaderOperationFailure.unavailable }
+      loaded = false; Task { @MainActor in snippet = await initial.crossProjectSnippetLoader?(target); loaded = true }
+      waitUntil("snippet error") { loaded }
+      check(snippet == nil, "snippet error fallback")
+      delegate.crossProjectDocumentLoader = { _ in document }
+      var duplicate = other; duplicate.id = "duplicate"
+      delegate.settings.profiles.append(duplicate)
+      loaded = false; Task { @MainActor in snippet = await initial.crossProjectSnippetLoader?(target); loaded = true }
+      waitUntil("ambiguous snippet") { loaded }
+      check(snippet == nil, "ambiguous snippet fallback")
+      let content = CrossProjectPreviewContent(projectKey: "other", projectTitle: "Other", referenceText: text, label: "target", snippetText: text, truncated: false)
+      let position = initial.textView.currentCrossProjectPosition()
+      let returnEntry = CrossProjectNavigationEntry(profileID: origin.id, documentTitle: origin.name, anchor: position.anchor, blockID: position.blockID, scrollOffset: position.scrollOffset)
+      initial.onOpenCrossProjectTarget?(content, returnEntry)
+      check(delegate.nativeWindow === initial && !delegate.crossProjectNavigationStack.canGoBack, "ambiguous jump ignored")
+      delegate.settings.profiles.removeLast()
+      check(initial.textView.activate(nodeID: "link"), "first click")
+      waitUntil("preview") { initial.activeCrossProjectPreviewView?.content.snippetText == text }
+      initial.activeCrossProjectPreviewView?.openButton.performClick(nil)
+      waitUntil("jump committed") { delegate.nativeProfile?.id == other.id }
+      let destination = delegate.nativeWindow!
+      check(destination !== initial && delegate.crossProjectNavigationStack.peek() == returnEntry, "jump pushed origin")
+      check(destination.textView.focusedNodeID == "link", "target anchor restored")
+      check(destination.onReturnFromCrossProject?() == true, "back started")
+      waitUntil("back committed") { delegate.nativeProfile?.id == origin.id }
+      let restored = delegate.nativeWindow!
+      check(!delegate.crossProjectNavigationStack.canGoBack && restored.textView.focusedNodeID == "link", "back popped and restored origin")
+      failing = true
+      restored.onOpenCrossProjectTarget?(content, returnEntry)
+      waitUntil("failed jump disposed") { lastCandidate?.session.state == .disposed }
+      check(delegate.nativeWindow === restored && !delegate.crossProjectNavigationStack.canGoBack, "failed jump preserved origin")
+      delegate.crossProjectNavigationStack.push(returnEntry)
+      check(restored.onReturnFromCrossProject?() == true, "failed back started")
+      waitUntil("failed back disposed") { lastCandidate?.session.state == .disposed }
+      check(delegate.nativeWindow === restored && delegate.nativeProfile?.id == origin.id && delegate.crossProjectNavigationStack.peek() == returnEntry, "failed back preserved state")
+      var bounded = CrossProjectNavigationStack()
+      check(bounded.maxDepth == 64, "default stack depth")
+      for index in 0..<65 {
+        bounded.push(CrossProjectNavigationEntry(profileID: String(index), documentTitle: "", anchor: nil, blockID: nil, scrollOffset: 0))
+      }
+      for index in stride(from: 64, through: 1, by: -1) { check(bounded.pop()?.profileID == String(index), "oldest entry evicted") }
+      check(bounded.pop() == nil, "stack bounded")
+      delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
     case "ide-directory-add":
       let manager = FileManager.default
       let packages = root.appendingPathComponent("custom-packages")

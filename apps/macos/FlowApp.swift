@@ -38,6 +38,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   private var consentedEditors: [String: NativeReaderManagedEditor] = [:]
   var managedResolver: NativeReaderManagedResolver?
   var nativeWindow: NativeReaderWindowController?
+  var crossProjectNavigationStack = CrossProjectNavigationStack()
+  var nativeWindowControllerFactory: ((Profile) -> NativeReaderWindowController?)?
+  var crossProjectDocumentLoader: ((Profile) async throws -> NativeReaderDocument)?
+  private var pendingCrossProjectWindow: NativeReaderWindowController?
+  private var pendingCrossProjectCancel: (() -> Void)?
+  private var crossProjectNavigationSerial = 0
   var offlineWindow: NativeReaderWindowController?
   var nativeReadOverride: ReadingSessionController.NativeRead?
   let environment: AppEnvironment
@@ -72,49 +78,147 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   )
   /// The same production composition is called by Read and isolated offscreen
   /// tests; service inventory and window visibility remain explicit inputs.
-  @MainActor func readNative(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
-      if let read = self.nativeReadOverride { return read(profile, progress) }
-      if self.nativeProfile != profile || self.nativeWindow?.session.hasRecoveryCopy == true {
-        self.nativeWindow?.dispose(); self.nativeWindow = nil; self.nativeProfile = profile
-      }
-      if self.nativeWindow == nil {
-        if let fixture = self.fixture, self.isolated {
-          let provider = NativeReaderFixtureProvider(url: fixture)
-          self.nativeWindow = NativeReaderWindowController(provider: provider, target: { _ in try await provider.load().identity },
-            assets: { document, _ in
-              try await Task.detached {
-                var bytes = [String: Data]()
-                for asset in document.assets {
-                  bytes[asset.id] = try Data(contentsOf: fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(asset.id))
-                }
-                return bytes
-              }.value
-            }, runtime: self.nativeRuntime, show: self.showNativeWindow, avoidActivation: self.noActivate, fixtureMode: self.fixtureMode,
-               offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
+  func crossProjectCatalog(for profile: Profile?) -> CrossProjectCatalog? {
+    let packages = profile?.packages ?? ""
+    let root = packages.isEmpty
+      ? environment.userHome.appendingPathComponent("Library/Application Support/typst/packages")
+      : URL(fileURLWithPath: packages, isDirectory: true)
+    return try? CrossProjectCatalog.load(from: root.appendingPathComponent("local/project-references/0.1.0/projects.json"))
+  }
+
+  @MainActor func makeNativeReaderWindowController(for profile: Profile) -> NativeReaderWindowController? {
+    let controller: NativeReaderWindowController
+    if let factory = nativeWindowControllerFactory {
+      guard let made = factory(profile) else { return nil }
+      controller = made
+    } else if let fixture, isolated {
+      let provider = NativeReaderFixtureProvider(url: fixture)
+      controller = NativeReaderWindowController(provider: provider, target: { _ in try await provider.load().identity },
+        assets: { document, _ in
+          try await Task.detached {
+            var bytes = [String: Data]()
+            for asset in document.assets {
+              bytes[asset.id] = try Data(contentsOf: fixture.deletingLastPathComponent().appendingPathComponent("assets").appendingPathComponent(asset.id))
+            }
+            return bytes
+          }.value
+        }, runtime: nativeRuntime, show: showNativeWindow, avoidActivation: noActivate, fixtureMode: fixtureMode,
+        offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
+    } else {
+      guard let resolver = managedResolver else { return nil }
+      let client = NativeReaderManagedClient(resolver: resolver, root: profile.root, entry: profile.entry,
+                                             editor: consentedEditors.removeValue(forKey: profile.id))
+      controller = NativeReaderWindowController(provider: client, target: { _ in try await client.target() },
+        assets: { document, context in
+          let actions = try await client.currentActions()
+          var assets = [String: Data]()
+          for asset in document.assets { assets[asset.id] = try await actions.transport.asset(asset, context: context) }
+          return assets
+        }, runtime: nativeRuntime, actions: { try await client.currentActions() },
+        invalidate: { await client.invalidate() }, show: showNativeWindow, avoidActivation: noActivate, fixtureMode: fixtureMode,
+        offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
+    }
+    configureNativeWindowController(controller, for: profile)
+    return controller
+  }
+
+  @MainActor func configureNativeWindowController(_ controller: NativeReaderWindowController, for profile: Profile) {
+    controller.copyText = copyText
+    controller.openHomepage = { [weak self] url in
+      guard let self, !self.fixtureMode else { return }
+      _ = self.openExternalURL(url)
+    }
+    controller.crossProjectCatalogProvider = { [weak self] in self?.crossProjectCatalog(for: profile) }
+    controller.crossProjectSnippetLoader = { [weak self] target in
+      guard let self, let catalog = self.crossProjectCatalog(for: profile),
+            let targetProfile = catalog.matchProfile(for: target.projectKey, in: self.settings.profiles) else { return nil }
+      do {
+        let document: NativeReaderDocument
+        if let loader = self.crossProjectDocumentLoader {
+          document = try await loader(targetProfile)
         } else {
-          guard let resolver = self.managedResolver else {
-            progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
-            return {}
+          guard let resolver = self.managedResolver else { return nil }
+          let client = NativeReaderManagedClient(resolver: resolver, root: targetProfile.root, entry: targetProfile.entry, editor: nil)
+          do {
+            let identity = try await client.target()
+            let context = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 1, target: identity)
+            document = try await client.document(for: context)
+            await client.dispose()
+          } catch {
+            await client.dispose()
+            throw error
           }
-          let client = NativeReaderManagedClient(resolver: resolver, root: profile.root, entry: profile.entry,
-                                                 editor: self.consentedEditors.removeValue(forKey: profile.id))
-          self.nativeWindow = NativeReaderWindowController(provider: client, target: { _ in try await client.target() },
-            assets: { document, context in
-              let actions = try await client.currentActions()
-              var assets = [String: Data]()
-              for asset in document.assets { assets[asset.id] = try await actions.transport.asset(asset, context: context) }
-              return assets
-            }, runtime: self.nativeRuntime, actions: { try await client.currentActions() },
-            invalidate: { await client.invalidate() }, show: self.showNativeWindow, avoidActivation: self.noActivate, fixtureMode: self.fixtureMode,
-               offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: self.environment.nativeRecoveryRoot(for: profile))))
         }
-        self.nativeWindow?.copyText = self.copyText
-        self.nativeWindow?.openHomepage = { [weak self] url in
-          guard let self, !self.fixtureMode else { return }
-          _ = self.openExternalURL(url)
-        }
+        guard let snippet = CrossProjectSnippetExtractor.extract(from: document, label: target.label, referenceText: target.entry.text) else { return nil }
+        return CrossProjectPreviewContent(projectKey: target.projectKey, projectTitle: target.project.title,
+          referenceText: target.entry.text, label: target.label, snippetText: snippet.text, truncated: snippet.truncated)
+      } catch { return nil }
+    }
+    controller.onOpenCrossProjectTarget = { [weak self] content, returnEntry in
+      guard let self, let target = self.crossProjectCatalog(for: profile)?.matchProfile(for: content.projectKey, in: self.settings.profiles) else { return }
+      let location = CrossProjectNavigationEntry(profileID: target.id, documentTitle: target.name, anchor: content.label, blockID: nil, scrollOffset: 0)
+      self.beginCrossProjectTransition(to: target, targetLocation: location, pushOnSuccess: returnEntry, popOnSuccess: false)
+    }
+    controller.canReturnFromCrossProject = { [weak self] in self?.crossProjectNavigationStack.canGoBack ?? false }
+    controller.onReturnFromCrossProject = { [weak self] in
+      guard let self, let entry = self.crossProjectNavigationStack.peek() else { return false }
+      let matches = self.settings.profiles.filter { $0.id == entry.profileID }
+      guard matches.count == 1 else { return false }
+      return self.beginCrossProjectTransition(to: matches[0], targetLocation: entry, pushOnSuccess: nil, popOnSuccess: true)
+    }
+  }
+
+  @MainActor @discardableResult func beginCrossProjectTransition(to targetProfile: Profile, targetLocation: CrossProjectNavigationEntry,
+      pushOnSuccess: CrossProjectNavigationEntry?, popOnSuccess: Bool) -> Bool {
+    cancelPendingCrossProjectTransition()
+    guard let candidate = makeNativeReaderWindowController(for: targetProfile) else { return false }
+    candidate.pendingCrossProjectTarget = targetLocation
+    crossProjectNavigationSerial += 1
+    let serial = crossProjectNavigationSerial
+    pendingCrossProjectWindow = candidate
+    var committed = false
+    let cancel = candidate.open(targetProfile) { [weak self, weak candidate] progress in
+      guard let self, let candidate, self.crossProjectNavigationSerial == serial,
+            self.pendingCrossProjectWindow === candidate, !committed else { return }
+      switch progress {
+      case .windowInitialized:
+        committed = true
+        self.pendingCrossProjectWindow = nil; self.pendingCrossProjectCancel = nil
+        if let entry = pushOnSuccess { self.crossProjectNavigationStack.push(entry) }
+        if popOnSuccess { _ = self.crossProjectNavigationStack.pop() }
+        self.nativeWindow?.dispose()
+        self.nativeWindow = candidate; self.nativeProfile = targetProfile
+        candidate.hostWindow.updateNavigation()
+      case .failed:
+        self.pendingCrossProjectWindow = nil; self.pendingCrossProjectCancel = nil
+        candidate.dispose()
+      default: break
       }
-      return self.nativeWindow!.open(profile, progress: progress)
+    }
+    if pendingCrossProjectWindow === candidate { pendingCrossProjectCancel = cancel }
+    return true
+  }
+
+  @MainActor func cancelPendingCrossProjectTransition() {
+    crossProjectNavigationSerial += 1
+    let cancel = pendingCrossProjectCancel
+    let candidate = pendingCrossProjectWindow
+    pendingCrossProjectCancel = nil; pendingCrossProjectWindow = nil
+    cancel?(); candidate?.dispose()
+  }
+
+  @MainActor func readNative(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
+    cancelPendingCrossProjectTransition()
+    if let read = nativeReadOverride { return read(profile, progress) }
+    if nativeProfile != profile || nativeWindow?.session.hasRecoveryCopy == true {
+      nativeWindow?.dispose(); nativeWindow = nil; nativeProfile = profile
+    }
+    if nativeWindow == nil { nativeWindow = makeNativeReaderWindowController(for: profile) }
+    guard let window = nativeWindow else {
+      progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
+      return {}
+    }
+    return window.open(profile, progress: progress)
   }
   lazy var readingEnvironment = NativeReadingEnvironment(
     onSleep: { [weak self] in self?.sleepChanged($0) },
@@ -347,6 +451,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
   func applicationWillTerminate(_ notification: Notification) {
     readingIntent += 1
+    cancelPendingCrossProjectTransition()
     readingEnvironment.dispose()
     session.dispose()
     nativeWindow?.dispose(); offlineWindow?.dispose()
@@ -1185,12 +1290,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let selection = (chooseEntry ?? self.chooseProjectEntry)(url, candidates) else { return }
         selectedEntry = selection
       }
-      let packages = active?.packages ?? ""
-      let packagesURL = packages.isEmpty
-        ? home.appendingPathComponent("Library/Application Support/typst/packages")
-        : URL(fileURLWithPath: packages, isDirectory: true)
-      let catalogURL = packagesURL.appendingPathComponent("local/project-references/0.1.0/projects.json")
-      if let catalog = try? CrossProjectCatalog.load(from: catalogURL) {
+      if let catalog = crossProjectCatalog(for: active) {
         var probe = Profile(
           id: "probe", name: url.lastPathComponent, root: url.path, entry: "entry.typ",
           fonts: [], packages: "", port: 23625, publicURL: "", label: "project.probe")
