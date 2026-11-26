@@ -625,14 +625,16 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
             return value
         attrs = n.attrs
         common = {"id", "data-reader-key", "class", "role", "aria-level", "lang", "dir"}
-        allowed = common | {"a": {"href"}, "td": {"colspan", "rowspan"},
+        allowed = common | {"a": {"href", "data-project-ref-project", "data-project-ref-label",
+                                  "data-project-ref-title", "data-project-ref-page", "data-project-ref-text"},
+                            "td": {"colspan", "rowspan"},
                             "th": {"colspan", "rowspan", "scope"},
                             "span": {"data-flow-mark", "data-flow-targets", "aria-hidden", "data-flow-request", "style"},
                             "div": {"style"}, "ol": {"style", "start"}, "ul": {"style"}, "li": {"value"},
                             "code": {"data-lang"},
                             "mrow": {"data-flow-mark"},
                             "img": {"src", "alt", "width", "height", "style", "loading", "decoding"}}.get(n.tag, set())
-        allowed |= {"data-flow-graphic", "data-flow-canvas", "data-flow-canvas-package", "data-flow-canvas-model", "data-flow-canvas-label"}
+        allowed |= {"data-flow-graphic", "data-flow-canvas", "data-flow-canvas-package", "data-flow-canvas-model", "data-flow-canvas-label", "data-flow-canvas-identity"}
         if n.tag not in {"math", "svg"} and set(attrs) - allowed:
             raise NativeImportError("unsupported-attribute")
         if attrs.get("role") not in {None, "heading", "doc-toc", "doc-noteref", "doc-biblioref", "doc-backlink", "doc-bibliography", "doc-endnotes", "mark"} or (attrs.get("role") == "heading" and heading_level(n.tag, attrs) is None):

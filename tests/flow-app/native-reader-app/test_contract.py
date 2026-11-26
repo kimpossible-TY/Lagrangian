@@ -250,6 +250,22 @@ class ContractTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(NativeImportError):
                 import_accepted_document(bundle(source), document_id='fixture', service_id='offline', generation=1)
 
+    def test_pde_metadata_attributes_and_unknown_attributes(self):
+        def imported(html):
+            bundle = SectionBundle({'revision': 'pde-attributes', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body>' + html + '</body></html>').encode()}, {}, [])
+            return import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+
+        canvas = imported('<div class="flow-canvas" data-flow-canvas-identity="canvas-1">Canvas</div>')
+        self.assertEqual(canvas.document['blocks'][0]['canonicalText'], 'Canvas')
+        anchor = imported('<a href="https://example.org" data-project-ref-project="p" '
+                          'data-project-ref-label="l" data-project-ref-title="t" '
+                          'data-project-ref-page="1" data-project-ref-text="text">Link</a>')
+        self.assertEqual(anchor.document['blocks'][0]['link'], 'https://example.org')
+        for html in ['<div data-unknown="x">Canvas</div>', '<a href="https://example.org" data-unknown="x">Link</a>']:
+            with self.subTest(html=html), self.assertRaisesRegex(NativeImportError, '^unsupported-attribute$'):
+                imported(html)
+
     def test_pde_constructs_and_sanitization(self):
         def imported(html):
             bundle = SectionBundle({'revision': 'pde', 'sections': [{'id': 's'}]},
