@@ -914,6 +914,22 @@ extension ServiceTests {
                 (try Data(contentsOf: scoped)) == originalBytes && (try Data(contentsOf: otherFile)) == otherBytes,
                 "both entry points rename legacy bytes to the scoped file and preserve the other profile")
 
+            // Force latest to encounter the valid legacy before the corrupt destination.
+            try originalBytes.write(to: legacy)
+            var corruptEnvelope = try JSONSerialization.jsonObject(with: originalBytes) as! [String: Any]
+            corruptEnvelope["sha256"] = String(repeating: "0", count: 64)
+            try JSONSerialization.data(withJSONObject: corruptEnvelope).write(to: scoped)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000_000_000)], ofItemAtPath: legacy.path)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000_000)], ofItemAtPath: scoped.path)
+            let repaired: NativeReaderLayoutSnapshot?
+            if useLatest { repaired = try await cache.latest(ownerID: original.ownerID) }
+            else { repaired = try await cache.load(ownerID: original.ownerID, key: original.key) }
+            try serviceCheck(try repaired.map { try cacheEncoder.encode($0) } == cacheEncoder.encode(original),
+                "\(useLatest ? "latest" : "load") recovers the validated legacy snapshot despite a corrupt scoped destination")
+            try serviceCheck(!FileManager.default.fileExists(atPath: legacy.path) &&
+                (try Data(contentsOf: scoped)) == originalBytes && (try Data(contentsOf: otherFile)) == otherBytes,
+                "\(useLatest ? "latest" : "load") replaces corrupt scoped bytes by migrating legacy and preserves the other profile")
+
             // A duplicate with a later mtime must still defer to the scoped data.
             let newer = owned(a, profileA, offset: 0.85)
             try await cache.save(newer)

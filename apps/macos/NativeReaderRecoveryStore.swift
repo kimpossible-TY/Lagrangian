@@ -530,18 +530,22 @@ actor NativeReaderLayoutCache {
         return snapshot
     }
     // directory() holds the namespace lock across the existence check and rename.
-    // A scoped entry takes precedence even when the legacy duplicate is newer.
+    // A valid matching scoped entry takes precedence even when the legacy duplicate is newer.
     private func migrate(_ snapshot: NativeReaderLayoutSnapshot, from source: String, fd: Int32) throws -> NativeReaderLayoutSnapshot {
         let destination = try name(ownerID: snapshot.ownerID, key: snapshot.key)
         guard source != destination else { return snapshot }
         var info = stat()
         if fstatat(fd, destination, &info, AT_SYMLINK_NOFOLLOW) == 0 {
-            let scoped = try read(destination, fd: fd)
-            guard unlinkat(fd, source, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
-            _ = fsync(fd)
-            return scoped
+            if let scoped = try? read(destination, fd: fd), scoped.ownerID == snapshot.ownerID, scoped.key == snapshot.key {
+                guard unlinkat(fd, source, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+                _ = fsync(fd)
+                return scoped
+            }
+            guard unlinkat(fd, destination, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+        } else if errno != ENOENT {
+            throw NativeReaderOperationFailure.unavailable
         }
-        guard errno == ENOENT, renameat(fd, source, fd, destination) == 0 else { throw NativeReaderOperationFailure.unavailable }
+        guard renameat(fd, source, fd, destination) == 0 else { throw NativeReaderOperationFailure.unavailable }
         _ = fsync(fd)
         return snapshot
     }
@@ -550,17 +554,16 @@ actor NativeReaderLayoutCache {
         try key.validate(); try Task.checkCancellation()
         let fd = try directory(); defer { close(fd) }
         let name = try self.name(ownerID: ownerID, key: key)
-        var source = name
-        if faccessat(fd, source, F_OK, AT_SYMLINK_NOFOLLOW) != 0 {
-            source = try legacyName(key)
-            guard faccessat(fd, source, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
+        for source in [name, try legacyName(key)] {
+            guard faccessat(fd, source, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { continue }
+            let value: NativeReaderLayoutSnapshot
+            do { value = try read(source, fd: fd) }
+            catch { unlinkat(fd, source, 0); continue }
+            guard value.ownerID == ownerID, value.key == key else { return nil }
+            let result = try migrate(value, from: source, fd: fd)
+            touch(name, directory: fd); return result
         }
-        let value: NativeReaderLayoutSnapshot
-        do { value = try read(source, fd: fd) }
-        catch { unlinkat(fd, source, 0); return nil }
-        guard value.ownerID == ownerID, value.key == key else { return nil }
-        let result = try migrate(value, from: source, fd: fd)
-        touch(name, directory: fd); return result
+        return nil
     }
     func latest(ownerID: String) throws -> NativeReaderLayoutSnapshot? {
         try Task.checkCancellation()
