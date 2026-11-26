@@ -56,6 +56,9 @@ class ReadingUI(unittest.TestCase):
     def test_cross_project_navigation(self):
         self.scenario('cross-project-navigation')
 
+    def test_cross_project_session_lifecycle(self):
+        self.scenario('cross-project-session-lifecycle')
+
     def test_startup_timeline_does_not_retain_its_owner(self):
         self.scenario('timeline-owner')
 

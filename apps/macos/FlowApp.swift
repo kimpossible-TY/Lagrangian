@@ -40,10 +40,14 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   var nativeWindow: NativeReaderWindowController?
   var crossProjectNavigationStack = CrossProjectNavigationStack()
   var nativeWindowControllerFactory: ((Profile) -> NativeReaderWindowController?)?
+  var crossProjectOpen: ((NativeReaderWindowController, Profile, @escaping (NativeReadProgress) -> Void) -> () -> Void)?
   var crossProjectDocumentLoader: ((Profile) async throws -> NativeReaderDocument)?
   private var pendingCrossProjectWindow: NativeReaderWindowController?
   private var pendingCrossProjectCancel: (() -> Void)?
   private var crossProjectNavigationSerial = 0
+  private var activeNativeReadCancel: (() -> Void)?
+  private var nativeReadSessionToken = 0
+  private var nativeSessionOriginProfileID: String?
   var offlineWindow: NativeReaderWindowController?
   var nativeReadOverride: ReadingSessionController.NativeRead?
   let environment: AppEnvironment
@@ -65,7 +69,9 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       return self.readNative(profile, progress: progress)
     },
     nativeEvent: { [weak self] event in
-      guard let self, self.nativeProfile == self.active, let window = self.nativeWindow else { return false }
+      guard let self, (self.nativeProfile == self.active ||
+        (self.nativeSessionOriginProfileID != nil && self.nativeSessionOriginProfileID == self.active?.id)),
+        let window = self.nativeWindow else { return false }
       return MainActor.assumeIsolated { window.environmentChanged(event) }
     },
     probe: devIsolatedServicePreview
@@ -177,7 +183,8 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let serial = crossProjectNavigationSerial
     pendingCrossProjectWindow = candidate
     var committed = false
-    let cancel = candidate.open(targetProfile) { [weak self, weak candidate] progress in
+    var cancel: (() -> Void)?
+    let onProgress: (NativeReadProgress) -> Void = { [weak self, weak candidate] progress in
       guard let self, let candidate, self.crossProjectNavigationSerial == serial,
             self.pendingCrossProjectWindow === candidate, !committed else { return }
       switch progress {
@@ -188,6 +195,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if popOnSuccess { _ = self.crossProjectNavigationStack.pop() }
         self.nativeWindow?.dispose()
         self.nativeWindow = candidate; self.nativeProfile = targetProfile
+        self.activeNativeReadCancel = cancel
         candidate.hostWindow.updateNavigation()
       case .failed:
         self.pendingCrossProjectWindow = nil; self.pendingCrossProjectCancel = nil
@@ -195,6 +203,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       default: break
       }
     }
+    cancel = crossProjectOpen?(candidate, targetProfile, onProgress) ?? candidate.open(targetProfile, progress: onProgress)
     if pendingCrossProjectWindow === candidate { pendingCrossProjectCancel = cancel }
     return true
   }
@@ -218,7 +227,19 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
       return {}
     }
-    return window.open(profile, progress: progress)
+    nativeReadSessionToken += 1
+    let token = nativeReadSessionToken
+    nativeSessionOriginProfileID = profile.id
+    let openCancel = window.open(profile, progress: progress)
+    activeNativeReadCancel = openCancel
+    return { [weak self] in
+      guard let self, self.nativeReadSessionToken == token else { return }
+      self.cancelPendingCrossProjectTransition()
+      self.nativeSessionOriginProfileID = nil
+      let cancel = self.activeNativeReadCancel
+      self.activeNativeReadCancel = nil
+      cancel?()
+    }
   }
   lazy var readingEnvironment = NativeReadingEnvironment(
     onSleep: { [weak self] in self?.sleepChanged($0) },
@@ -452,8 +473,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   func applicationWillTerminate(_ notification: Notification) {
     readingIntent += 1
     cancelPendingCrossProjectTransition()
+    nativeSessionOriginProfileID = nil
     readingEnvironment.dispose()
     session.dispose()
+    activeNativeReadCancel = nil
     nativeWindow?.dispose(); offlineWindow?.dispose()
   }
   func networkChanged(_ available: Bool) { session.networkChanged(available: available) }
@@ -1242,10 +1265,12 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     if noActivate { window?.orderFrontRegardless() }
     else { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
   }
-  @objc func selectProfile() {
+  @MainActor @objc func selectProfile() {
     guard !mutating, picker.indexOfSelectedItem >= 0 else { return }
     let id = settings.profiles[picker.indexOfSelectedItem].id
     readingIntent += 1
+    cancelPendingCrossProjectTransition()
+    nativeSessionOriginProfileID = nil
     let previous = settings
     let service = projectService
     // Invalidate a pending browser opening as soon as another project is selected.

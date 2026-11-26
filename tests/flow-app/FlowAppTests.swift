@@ -22,6 +22,25 @@ private struct CrossProjectTestProvider: NativeReaderDocumentProviding {
   }
 }
 
+private struct DelayedCrossProjectProvider: NativeReaderDocumentProviding {
+  let documentValue: NativeReaderDocument
+  let entered: DispatchSemaphore
+  let release: DispatchSemaphore
+  let finished: DispatchSemaphore
+  func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument {
+    entered.signal()
+    let release = self.release
+    await withCheckedContinuation { continuation in
+      DispatchQueue.global().async {
+        _ = release.wait(timeout: .now() + 5)
+        continuation.resume()
+      }
+    }
+    finished.signal()
+    return documentValue.rebinding(generation: context.generation)
+  }
+}
+
 private final class Services: ProjectControlling {
   private let lock = NSLock()
   private var running: [String: Int] = [:]
@@ -208,6 +227,78 @@ struct FlowAppTests {
       for index in stride(from: 64, through: 1, by: -1) { check(bounded.pop()?.profileID == String(index), "oldest entry evicted") }
       check(bounded.pop() == nil, "stack bounded")
       delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+    case "cross-project-session-lifecycle":
+      let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "rev", scope: .fixture)
+      let text = "Target text"
+      let node = NativeReaderNode(id: "target", sectionID: "section", kind: .text, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: ["target"],
+        annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+        headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+      let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: [node], assets: [], diagnostics: [])
+      let subject = FlowApp(environment: environment, projectService: ProjectService(store: storage, launchAgents: services))
+      subject.settings = Settings(selectedID: profile.id, profiles: [profile, other])
+      subject.buildWindow(); subject.populate()
+      defer { subject.session.dispose(); subject.window.close() }
+      let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+      var delayed = false
+      var candidate: NativeReaderWindowController?
+      subject.nativeWindowControllerFactory = { _ in
+        let provider: NativeReaderDocumentProviding = delayed
+          ? DelayedCrossProjectProvider(documentValue: document, entered: entered, release: release, finished: finished)
+          : CrossProjectTestProvider(documentValue: document, fail: false)
+        let window = NativeReaderWindowController(provider: provider, target: { _ in identity },
+          show: false, avoidActivation: true, fixtureMode: true)
+        candidate = window
+        return window
+      }
+      subject.session.read()
+      waitUntil("session origin ready") { subject.nativeWindow?.session.state == .reading }
+      let entry = CrossProjectNavigationEntry(profileID: profile.id, documentTitle: profile.name, anchor: nil, blockID: nil, scrollOffset: 0)
+      let target = CrossProjectNavigationEntry(profileID: other.id, documentTitle: other.name, anchor: "target", blockID: nil, scrollOffset: 0)
+      check(subject.beginCrossProjectTransition(to: other, targetLocation: target, pushOnSuccess: entry, popOnSuccess: false), "jump started")
+      waitUntil("session jump committed") { subject.nativeProfile?.id == other.id }
+      let adopted = subject.nativeWindow!
+      subject.session.setSleeping(true)
+      check(adopted.session.state == .sleeping, "sleep delivered to adopted window")
+      subject.session.select(nil)
+      waitUntil("adopted read cancelled") { adopted.session.state == .offline }
+      check(!adopted.environmentChanged(.sleep), "adopted ticket cancelled")
+
+      subject.session.setSleeping(false)
+      subject.session.select(profile); subject.session.read()
+      waitUntil("second origin ready") { subject.nativeProfile?.id == profile.id && subject.nativeWindow?.session.state == .reading }
+      let origin = subject.nativeWindow!
+      let stackBefore = subject.crossProjectNavigationStack.peek()
+      delayed = true
+      var lateProgress: ((NativeReadProgress) -> Void)?
+      subject.crossProjectOpen = { window, profile, progress in
+        lateProgress = progress
+        return window.open(profile, progress: progress)
+      }
+      check(subject.beginCrossProjectTransition(to: other, targetLocation: target, pushOnSuccess: entry, popOnSuccess: false), "delayed jump started")
+      var didEnter = false
+      waitUntil("delayed document started") {
+        if !didEnter { didEnter = entered.wait(timeout: .now()) == .success }
+        return didEnter
+      }
+      let pending = candidate!
+      subject.picker.selectItem(at: 1)
+      subject.selectProfile()
+      check(pending.session.state == .disposed, "selection cancels pending transition")
+      lateProgress?(.windowInitialized)
+      check(subject.nativeWindow === origin && subject.crossProjectNavigationStack.peek() == stackBefore,
+        "late initialization callback ignored")
+      release.signal()
+      var didFinish = false
+      waitUntil("late document returned") {
+        if !didFinish { didFinish = finished.wait(timeout: .now()) == .success }
+        return didFinish
+      }
+      RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+      check(subject.nativeWindow === origin && subject.nativeProfile?.id == profile.id &&
+        subject.crossProjectNavigationStack.peek() == stackBefore, "late completion preserved window and stack")
+      waitUntil("profile selection completed") { !subject.mutating }
     case "ide-directory-add":
       let manager = FileManager.default
       let packages = root.appendingPathComponent("custom-packages")
