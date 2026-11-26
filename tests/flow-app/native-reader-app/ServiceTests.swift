@@ -853,14 +853,14 @@ extension ServiceTests {
             "distinct AppEnvironment profiles share the default layout namespace")
         try serviceCheck(defaultA.byteLimit == 64 * 1024 * 1024 && defaultB.byteLimit == 64 * 1024 * 1024,
             "default shared disk cap is 64 MiB")
-        func owned(_ snapshot: NativeReaderLayoutSnapshot, _ profile: Profile) -> NativeReaderLayoutSnapshot {
+        func owned(_ snapshot: NativeReaderLayoutSnapshot, _ profile: Profile, offset: Double = 0.45) -> NativeReaderLayoutSnapshot {
             .init(ownerID: [profile.id, profile.root, profile.entry].joined(separator: "\n"), key: snapshot.key,
-                document: snapshot.document, restoration: snapshot.restoration, viewedBlockIDs: snapshot.viewedBlockIDs,
+                document: snapshot.document, restoration: .init(blockID: snapshot.restoration.blockID, offset: offset, zoom: 1, selectionTicket: nil, fragments: []), viewedBlockIDs: snapshot.viewedBlockIDs,
                 layouts: snapshot.layouts, assets: snapshot.assets)
         }
-        // Same document in two profiles, with independently chosen geometry.
+        // Identical layout keys in two profiles must remain independent.
         // Superseding A must not delete B as an old version of A's document.
-        let sharedA = owned(a, profileA), sharedB = owned(snapshot(1, width: 641), profileB), sharedC = owned(c, profileA)
+        let sharedA = owned(a, profileA), sharedB = owned(a, profileB, offset: 0.7), sharedC = owned(c, profileA)
         let sharedProbe = NativeReaderLayoutCache(root: root.appendingPathComponent("shared-probe"))
         var sharedSizes = [Int](), sharedPrevious = 0
         for item in [sharedA, sharedB, sharedC] {
@@ -872,12 +872,22 @@ extension ServiceTests {
         let cacheA = NativeReaderLayoutCache(root: defaultA.root, byteLimit: sharedCap, now: { sharedClock.next() })
         let cacheB = NativeReaderLayoutCache(root: defaultB.root, byteLimit: sharedCap, now: { sharedClock.next() })
         try await cacheA.save(sharedA); try await cacheB.save(sharedB)
-        let loadedA = try await cacheA.load(key: sharedA.key), loadedB = try await cacheB.load(key: sharedB.key)
-        try serviceCheck(loadedA?.ownerID == sharedA.ownerID && loadedB?.ownerID == sharedB.ownerID, "same document profiles coexist")
-        _ = try await cacheA.load(key: sharedA.key) // A is the newest read across both actors.
+        let loadedA = try await cacheA.load(ownerID: sharedA.ownerID, key: sharedA.key), loadedB = try await cacheB.load(ownerID: sharedB.ownerID, key: sharedB.key)
+        try serviceCheck(loadedA?.ownerID == sharedA.ownerID && loadedA?.restoration.offset == sharedA.restoration.offset &&
+            loadedB?.ownerID == sharedB.ownerID && loadedB?.restoration.offset == sharedB.restoration.offset, "same document profiles coexist")
+        try serviceCheck(sharedA.key == sharedB.key && sharedA.ownerID != sharedB.ownerID, "identical keys have distinct owners")
+        let latestA = try await cacheA.latest(ownerID: sharedA.ownerID), latestB = try await cacheB.latest(ownerID: sharedB.ownerID)
+        try serviceCheck(latestA?.ownerID == sharedA.ownerID && latestA?.restoration.offset == sharedA.restoration.offset &&
+            latestB?.ownerID == sharedB.ownerID && latestB?.restoration.offset == sharedB.restoration.offset, "latest preserves both profiles")
+        try await cacheA.invalidate(ownerID: sharedA.ownerID, key: sharedA.key)
+        let invalidatedA = try await cacheA.load(ownerID: sharedA.ownerID, key: sharedA.key)
+        let preservedB = try await cacheB.load(ownerID: sharedB.ownerID, key: sharedB.key)
+        try serviceCheck(invalidatedA == nil && preservedB?.ownerID == sharedB.ownerID, "invalidation preserves other profile")
+        try await cacheA.save(sharedA)
+        _ = try await cacheA.load(ownerID: sharedA.ownerID, key: sharedA.key) // A is the newest read across both actors.
         try await cacheA.save(sharedC)
-        try serviceCheck(try await cacheB.load(key: sharedB.key) == nil, "shared LRU evicts B across profile actors")
-        let sharedRetainedA = try await cacheA.load(key: sharedA.key), sharedRetainedC = try await cacheB.load(key: sharedC.key)
+        try serviceCheck(try await cacheB.load(ownerID: sharedB.ownerID, key: sharedB.key) == nil, "shared LRU evicts B across profile actors")
+        let sharedRetainedA = try await cacheA.load(ownerID: sharedA.ownerID, key: sharedA.key), sharedRetainedC = try await cacheB.load(ownerID: sharedC.ownerID, key: sharedC.key)
         let sharedBytes = try await cacheA.diskBytes()
         try serviceCheck(sharedRetainedA != nil && sharedRetainedC != nil && sharedBytes <= sharedCap,
             "combined profile bytes obey one shared cap")
@@ -926,24 +936,24 @@ extension ServiceTests {
         let clock = LayoutTestClock(), directory = root.appendingPathComponent("bounded/layout-cache")
         let disk = NativeReaderLayoutCache(root: directory, byteLimit: cap, now: { clock.next() })
         try await disk.save(a); try await disk.save(b)
-        try serviceCheck(try await disk.load(key: a.key) != nil, "read touches LRU")
+        try serviceCheck(try await disk.load(ownerID: a.ownerID, key: a.key) != nil, "read touches LRU")
         try await disk.save(c)
         try serviceCheck(try await disk.diskBytes() <= cap, "strict total disk byte cap")
-        try serviceCheck(try await disk.load(key: b.key) == nil, "least recently read document evicted")
-        let retainedA = try await disk.load(key: a.key), retainedC = try await disk.load(key: c.key)
+        try serviceCheck(try await disk.load(ownerID: b.ownerID, key: b.key) == nil, "least recently read document evicted")
+        let retainedA = try await disk.load(ownerID: a.ownerID, key: a.key), retainedC = try await disk.load(ownerID: c.ownerID, key: c.key)
         try serviceCheck(retainedA != nil && retainedC != nil, "recent documents retained")
         let permissions = try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber
         try serviceCheck(permissions?.intValue == 0o700, "layout cache namespace private")
         for changed in [snapshot(1, width: 641), snapshot(1, fontSize: 15), snapshot(1, font: "Helvetica"),
                         snapshot(1, theme: "dark"), snapshot(1, revision: "new-revision")] {
             try serviceCheck(changed.key != a.key, "stable layout input changes key")
-            try serviceCheck(try await disk.load(key: changed.key) == nil, "changed key cannot return stale metrics")
+            try serviceCheck(try await disk.load(ownerID: changed.ownerID, key: changed.key) == nil, "changed key cannot return stale metrics")
         }
         try serviceCheck(snapshot(1, width: 640.24).key == a.key && snapshot(1, width: 640.26).key.width == 640.5,
             "half point width quantization")
         let changed = snapshot(1, width: 641)
         try await disk.save(changed)
-        try serviceCheck(try await disk.load(key: a.key) == nil, "old geometry invalidated on save")
+        try serviceCheck(try await disk.load(ownerID: a.ownerID, key: a.key) == nil, "old geometry invalidated on save")
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         for file in files {
             var envelope = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
@@ -993,7 +1003,7 @@ extension ServiceTests {
         try await recovery.save(.init(document: document, assets: assets, restoration: .initial, drafts: []))
         let assetCache = NativeReaderLayoutCache(root: recovery.root.appendingPathComponent("layout-cache"))
         try await assetCache.save(assetSnapshot)
-        let assetLoaded = try await assetCache.load(key: assetSnapshot.key)!
+        let assetLoaded = try await assetCache.load(ownerID: assetSnapshot.ownerID, key: assetSnapshot.key)!
         try serviceCheck(Set(assetLoaded.assets.keys) == referenced && !referenced.isEmpty, "only viewed-block asset bytes round trip")
         try serviceCheck(try await recovery.list().count == 1, "layout namespace does not collide with recovery files")
         let unreadAssets = NativeReaderLayoutSnapshot(ownerID: a.ownerID, key: a.key, document: a.document,

@@ -389,6 +389,10 @@ actor NativeReaderLayoutCache {
     nonisolated let root: URL
     let byteLimit: Int
     private let now: @Sendable () -> Date
+    private struct StorageKey: Encodable {
+        let ownerID: String
+        let key: NativeReaderLayoutCacheKey
+    }
     private struct Envelope: Codable {
         let schema: Int
         let sha256: String
@@ -426,9 +430,9 @@ actor NativeReaderLayoutCache {
             return fd
         } catch { close(fd); throw error }
     }
-    private func name(_ key: NativeReaderLayoutCacheKey) throws -> String {
+    private func name(ownerID: String, key: NativeReaderLayoutCacheKey) throws -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return NativeReaderRecoverySnapshot.digest(try encoder.encode(key)) + ".layout"
+        return NativeReaderRecoverySnapshot.digest(try encoder.encode(StorageKey(ownerID: ownerID, key: key))) + ".layout"
     }
     private func files(_ fd: Int32) throws -> [(name: String, size: Int, date: timespec)] {
         try FileManager.default.contentsOfDirectory(atPath: root.path).compactMap { name in
@@ -445,6 +449,7 @@ actor NativeReaderLayoutCache {
     }
     func save(_ snapshot: NativeReaderLayoutSnapshot) throws {
         try Task.checkCancellation(); try snapshot.validate()
+        guard !snapshot.ownerID.isEmpty, snapshot.ownerID.count <= 256 else { throw NativeObjectError.stale }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let raw = try encoder.encode(snapshot)
         guard raw.count <= Self.payloadLimit else { throw NativeObjectError.budget }
@@ -453,7 +458,7 @@ actor NativeReaderLayoutCache {
             uncompressedBytes: raw.count, payload: compressed))
         guard data.count <= byteLimit else { throw NativeObjectError.budget }
         let fd = try directory(); defer { close(fd) }
-        let destination = try name(snapshot.key)
+        let destination = try name(ownerID: snapshot.ownerID, key: snapshot.key)
         var entries = try files(fd).sorted {
             $0.date.tv_sec == $1.date.tv_sec ? ($0.date.tv_nsec == $1.date.tv_nsec ? $0.name < $1.name : $0.date.tv_nsec < $1.date.tv_nsec) : $0.date.tv_sec < $1.date.tv_sec
         }
@@ -518,13 +523,15 @@ actor NativeReaderLayoutCache {
         guard NativeReaderRecoverySnapshot.digest(raw) == envelope.sha256 else { throw NativeObjectError.stale }
         let snapshot = try JSONDecoder().decode(NativeReaderLayoutSnapshot.self, from: raw)
         try snapshot.validate()
-        guard try self.name(snapshot.key) == name else { throw NativeObjectError.stale }
+        guard !snapshot.ownerID.isEmpty, snapshot.ownerID.count <= 256,
+              try self.name(ownerID: snapshot.ownerID, key: snapshot.key) == name else { throw NativeObjectError.stale }
         return snapshot
     }
-    func load(key: NativeReaderLayoutCacheKey) throws -> NativeReaderLayoutSnapshot? {
+    func load(ownerID: String, key: NativeReaderLayoutCacheKey) throws -> NativeReaderLayoutSnapshot? {
+        guard !ownerID.isEmpty, ownerID.count <= 256 else { throw NativeObjectError.stale }
         try key.validate(); try Task.checkCancellation()
         let fd = try directory(); defer { close(fd) }
-        let name = try self.name(key)
+        let name = try self.name(ownerID: ownerID, key: key)
         guard faccessat(fd, name, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
         do { let value = try read(name, fd: fd); touch(name, directory: fd); return value }
         catch { unlinkat(fd, name, 0); return nil }
@@ -539,7 +546,9 @@ actor NativeReaderLayoutCache {
         }
         return nil
     }
-    func invalidate(_ key: NativeReaderLayoutCacheKey) throws {
-        let fd = try directory(); defer { close(fd) }; unlinkat(fd, try name(key), 0)
+    func invalidate(ownerID: String, key: NativeReaderLayoutCacheKey) throws {
+        guard !ownerID.isEmpty, ownerID.count <= 256 else { throw NativeObjectError.stale }
+        try key.validate()
+        let fd = try directory(); defer { close(fd) }; unlinkat(fd, try name(ownerID: ownerID, key: key), 0)
     }
 }

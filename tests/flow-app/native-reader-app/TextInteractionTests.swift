@@ -1182,7 +1182,7 @@ extension TextInteractionMain {
             try await waitFor("\(field) window reconfigured") { reopened.acceptedPaintKey == reopened.textView.requestedRenderKey }
             try await finishLazyPreparation(reopened.textView)
             try check(calls.value() > beforeAppearance && !reopened.textView.preparedObjectIDs.contains(blocks[250].id), "\(field) recomputes only visible viewport")
-            let invalidated = try await disk.load(key: oldKey) == nil
+            let invalidated = try await disk.load(ownerID: saved.ownerID, key: oldKey) == nil
             try check(invalidated, "\(field) invalidates old disk key")
             reopened.persistLayoutWindow(immediate: true); await reopened.layoutPersistenceTask?.value
         }
@@ -1196,7 +1196,7 @@ extension TextInteractionMain {
                 reopened.acceptedPaintKey == reopened.textView.requestedRenderKey
         }
         try await finishLazyPreparation(reopened.textView)
-        let widthInvalid = try await disk.load(key: appearanceKey) == nil
+        let widthInvalid = try await disk.load(ownerID: saved.ownerID, key: appearanceKey) == nil
         try check(widthInvalid, "width invalidates old disk key")
         reopened.dispose(); await reopened.layoutPersistenceTask?.value
 
@@ -1211,12 +1211,12 @@ extension TextInteractionMain {
         }, runtime: runtime, show: false, fixtureMode: true, offlineStorage: storage)
         _ = changed.open(profile) { _ in }
         try await waitFor("old revision shown read-only") { changed.session.isCachedCopy && changed.store.document != nil }
-        let revisionRetained = try await disk.load(key: previous) != nil
+        let revisionRetained = try await disk.load(ownerID: saved.ownerID, key: previous) != nil
         try check(revisionRetained, "revision test retains matching geometry until server confirmation")
         verifyNewVersion = true
         try await waitFor("new revision adopted") { changed.session.state == .reading && changed.store.document?.identity == revision }
         try await finishLazyPreparation(changed.textView)
-        let revisionInvalid = try await disk.load(key: previous) == nil
+        let revisionInvalid = try await disk.load(ownerID: saved.ownerID, key: previous) == nil
         try check(revisionInvalid, "revision invalidates old disk key")
         try check(!changed.textView.preparedObjectIDs.contains(blocks[250].id), "new revision never precomputes unread window")
         changed.dispose(); await changed.layoutPersistenceTask?.value
@@ -1262,7 +1262,7 @@ extension TextInteractionMain {
         _ = mismatch.open(profile) { _ in }
         try await waitFor("changed font cached document shown read-only") { mismatch.session.isCachedCopy && mismatch.store.document != nil }
         try await finishLazyPreparation(mismatch.textView)
-        let fontMismatchInvalidated = try await smallDisk.load(key: closed.key) == nil
+        let fontMismatchInvalidated = try await smallDisk.load(ownerID: closed.ownerID, key: closed.key) == nil
         try check(fontMismatchInvalidated, "reopen with a different font invalidates old metrics before version confirmation")
         try check(calls.value() > beforeMismatch && !mismatch.textView.preparedObjectIDs.contains(smallBlocks.last!.id), "font mismatch lazily recomputes viewed window only")
         let mismatchCalls = calls.value()

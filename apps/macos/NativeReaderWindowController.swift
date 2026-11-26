@@ -166,7 +166,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         try Task.checkCancellation()
         if let cached = self.cachedWindow, cached.key.documentID != identity.documentID || cached.key.revision != identity.revision {
           self.layoutPersistenceTask?.cancel()
-          try? await self.layoutCache?.invalidate(cached.key)
+          try? await self.layoutCache?.invalidate(ownerID: cached.ownerID, key: cached.key)
         }
         return identity
       }
@@ -419,9 +419,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     textView.preparesViewedWindowsOnly = bounded
     let large = bounded || NativeReaderPreparedTextObject.isLarge(document)
     let diskKey = Self.layoutKey(key)
-    if bounded, let previous = persistedLayoutKey, previous != diskKey {
+    if bounded, let previous = persistedLayoutKey, previous != diskKey, let profile {
       layoutPersistenceTask?.cancel()
-      try? await layoutCache?.invalidate(previous)
+      try? await layoutCache?.invalidate(ownerID: Self.cacheOwner(profile), key: previous)
     }
     if bounded { persistedLayoutKey = diskKey }
     let restored = cachedWindow?.restoration
