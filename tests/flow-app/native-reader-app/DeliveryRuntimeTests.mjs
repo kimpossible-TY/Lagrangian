@@ -42,7 +42,7 @@ test('official release identity, full license and signed bytes survive relocatio
   assert.equal(d.macOS13Execution,'unverified'); verify(0);
 });
 test('final 9b helper computes MathML and base AMS TeX offline with real modules',()=>{
-  assert.equal(hash(fs.readFileSync(`${runtime}/helper.mjs`)),'dc100395fc2ea1299c99ec90c201faaed80a1ca5ad0fefaa5d2451278e4a5d76');
+  assert.equal(hash(fs.readFileSync(`${runtime}/helper.mjs`)),'82f5d948ce927f47d9ab04380f2e895ffed98c06b418565f6ff5338174a813c0');
   const base={width:320,fontSize:20,font:'MathJaxNewcm',context:{revision:'NA13',generation:1,theme:'light'}};
   const inputs=[{mathML:'<math><mfrac><mi>a</mi><mi>b</mi></mfrac></math>'},
     {kind:'tex',tex:'\\frac{a}{b}',display:true},{kind:'tex',tex:'\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}',display:true}];
