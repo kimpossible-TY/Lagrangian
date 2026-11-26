@@ -2,9 +2,9 @@
 
 Lagrangian is the canonical native macOS product and feature contract. Lagrangian Web Viewer is its web-optimized projection, composed from `tools/flow-reader/web/`, the existing `flow_reader` backend and renderer-independent `tools/reader-common` policy. Internal paths, packaging names, CLI flags and protocols remain compatible.
 
-WV01R provides the existing branding. WV02C implements the read-only Python cross-project preview service and static-only handler repair. WV03C is the separately tracked, **unimplemented** web preview/jump/Back adapter described below. The `/d/<id>/` full-page routing host already exists; this change does not replace it with a SPA.
+WV01R provides the existing branding. WV02C implements the read-only Python cross-project preview service and static-only handler repair. WV03I implements the shared return stack and web preview/jump/Back adapter described below. The `/d/<id>/` full-page routing host already exists; this change does not replace it with a SPA.
 
-`apps/macos/` is unchanged in this change. Its native Swift `CrossProjectCatalog`, `CrossProjectSnippetExtractor`, `CrossProjectNavigationStack`, managed session adoption and editor consent owners remain authoritative for native clients. Native preview may use its existing managed-service startup path. The Python web service never starts services or migrates native consumers. The native stack's existing 64-entry policy is distinct from the planned web stack's 32-entry limit. Earlier proposal/architecture-delta language about native consumption describes a later integration, not WV02C delivery.
+`apps/macos/` is unchanged in this change. Its native Swift `CrossProjectCatalog`, `CrossProjectSnippetExtractor`, `CrossProjectNavigationStack`, managed session adoption and editor consent owners remain authoritative for native clients. Native preview may use its existing managed-service startup path. The Python web service never starts services or migrates native consumers. The native stack's existing 64-entry policy is distinct from the web stack's 32-entry limit. Earlier proposal/architecture-delta language about native consumption describes a later integration, not WV02C delivery.
 
 ## WV02C: catalog and resolution
 
@@ -47,25 +47,102 @@ All common fields are present, with null metadata for unresolved/ambiguous resul
 
 `handler_for(None)` constructs neither `NativeReaderService` nor `NativePageService`. Explicitly allowlisted static assets remain available; document APIs, including `/api/native-*` and `/api/cross-project/preview`, return 503 without dereferencing absent state. Static traversal and unregistered assets remain unavailable.
 
-## WV03C: planned full-page jump and Back return
+## Peer configuration example and identity mapping
 
-The web adapter will first show a popover without navigating. A second explicit activation of its jump control uses the validated `targetUrl` to perform a full-page navigation to `/d/<id>/#<anchor>`. Each document bootstraps its own existing reader, API scope and service worker. There is no SPA `pushState` document swapping, staged DOM adoption, shared active-reader object or compensating `history.go` protocol.
+This is an illustrative existing configuration, not an instruction to change live settings. The parent Flow manager's `--profiles` output includes:
 
-`tools/reader-common/navigation/cross-project-return.js` will own `CrossProjectReturnStack` with **max 32 entries**. Inject capture, availability, navigate and restore operations; DOM geometry stays in `tools/flow-reader/web/features/navigation/cross-project-preview.js`. Store only serializable route/document identity, title, semantic anchor/block and finite viewport offset, never source paths, DOM nodes or credentials.
-
-Before jumping, capture the origin and persist the bounded return stack in tab-local `sessionStorage` under `lagrangian:cross-project-return:v1`. Use `lagrangian:cross-project-pending:v1` as the one-shot pending restore/transition record. The destination checks its identity and readiness before accepting the pending transition. Back peeks the origin, records its expected restoration and navigates its full-page route; the origin consumes the pending restore once after ready and restores its semantic position, then acknowledges consumption of that return entry. Failed readiness or restoration must leave retained history recoverable; stale transitions cannot consume newer entries. A failed full-page load may leave a browser error page, so the design promises retained restoration state, not an impossible atomic in-place document swap. Missing/nonunique mounts are skipped without guessing. Oldest entries are evicted at 32; malformed storage is empty and storage failure must not silently promise a recoverable Back action.
-
-Explicit Homepage document open resets cross-project stack and pending state. Reload within the same tab retains the stack. Ordinary in-document `#fragment` navigation and existing `ReferenceReturn` remain independent: the adapter adds no `popstate` handler that consumes fragment history. Cross-project Back is an explicit reader action; browser Back retains normal full-page history semantics.
-
-WV03C must explicitly register **both** `reader-common/navigation/cross-project-return.js` and `features/navigation/cross-project-preview.js` in `tools/flow-reader/web/assets.json` before importing them. Verify source and installed shared-tree delivery. These modules, registrations and browser interactions are planned and are not implemented by WV02C.
-
-## Verification and delivery boundaries
-
-`test_cross_project_refs.py` covers strict schema/bounds/path containment, Swift resolution parity, canonical snippets, registry ambiguity, safe URLs, metadata-only fallbacks, standalone and routed HTTP, capability and static-only handlers. Run the following headless checks from the repository root. The slow Typst graphics suite `test_serving.py` runs separately and is omitted here; no graphics-suite result is claimed.
-
-```sh
-PYTHONPATH=tools/flow-reader:tools/flow-reader/tests /opt/homebrew/bin/python3 -B -m unittest tools/flow-reader/tests/test_cross_project_refs.py tools/flow-reader/tests/test_routing.py tools/flow-reader/tests/test_homepage.py tools/flow-reader/tests/test_sections.py test_install.ReaderInstallTests.test_clean_release_works_and_rejected_updates_preserve_installed_files -v
-/opt/homebrew/bin/openspec validate unify-lagrangian-web-viewer --strict
+```json
+{"profiles":[
+  {"id":"notes","name":"Notes","root":"/work/notes","entry":"main.typ","packages":"/work/packages","fonts":[],"port":31001},
+  {"id":"book","name":"Book Title","root":"/work/book","entry":"main.typ","packages":"/work/packages","fonts":[],"port":31002,"projectRefKey":"book-key"}
+]}
 ```
 
-Also run the complete `test_install.py` suite to verify static delivery and release-preservation behavior. Use isolated temporary state, headless CLI only, no Rust builds, no app/launchd installation or restart. WV03C remains unchecked pending its implementation and interaction/delivery verification. Native files and native behavior are unchanged.
+The Reader manager config includes these fields in addition to its existing executable paths and schema:
+
+```json
+{"schemaVersion":1,"shared":{"port":8769},"services":[
+  {"id":"notes-reader","parentID":"notes","port":32001},
+  {"id":"book-reader","parentID":"book","port":32002}
+]}
+```
+
+`ReaderManager.profiles()` inherits root, entry, packages and `projectRefKey` from each parent; a key placed only in a Reader `services` entry is not an override. `document_arguments()` supplies `--package-path` to construct `Project.packages`. Both projects may share `/work/packages`, but each source independently reads its own configured package root. For example `/work/packages/local/project-references/0.1.0/projects.json` can contain:
+
+```json
+{"schema":1,"projects":{"book-key":{"title":"Book Title","pdf_url":"https://example.test/book.pdf","references":{"thm":{"page":4,"text":"Theorem 1"}},"ambiguous_labels":[]}}}
+```
+
+The registry contains only mounted states: an inventory entry/profile alone cannot start or mount a peer. `ReaderRuntime.documents["book-reader"]` maps to the target `ReaderState`; `HomeInventory(loaded=(parents, profiles, documents))` describes the same mounts for Homepage. A directly composed routed handler uses that loaded inventory if available. When no configured profile exists for a mounted state, its route ID and `state.project.root.name` remain usable fallbacks, with an empty title. When profiles exist but have no nonempty `projectRefKey`, exact route/profile ID wins, then normalized key **or catalog project title** may match root basename or profile title. Profile title is selected in order: `profile.title`, parent name via `parentID`, `profile.name`, empty string. At each tier any duplicate blocks lookup; there is no fallback past an ambiguous tier. A nonempty explicit key excludes that profile from all fallback tiers, even if its directory name matches. Unmounted profiles, unknown keys and standalone `serve.py` (empty registry) yield metadata-only previews. No peer lookup reads target roots or starts a service.
+
+The route ID is the stable manager service ID (`book-reader`), restricted to `[a-z0-9][a-z0-9-]{0,63}`; it is not `documentID`. `/d/book-reader/` delegates its API and sections to the corresponding mounted state. That state's `documentID` is the first 24 hex characters of SHA-256 over Python `json.dumps([str(resolved_root), relative_entry])`. Its `service` is `{pid, startedAt}` from `FocusStore`; revision identifies its accepted compiler snapshot. `/api/state` and `/api/manifest` expose these identities, and section loads validate them. Preview importing binds the target accepted bundle to `document_id` and service ID `reader:<pid>:<startedAt>` while holding the target publication lock. The client does not infer any of these identities from the route ID. A full-page target bootstrap obtains its own identities and API scope. Persisted returns bind only to the exact route/query/hash and section; they deliberately do not persist or compare an old revision/service that may change while away. Reusing a route ID for another document is not proven safe by stored state; absent saved sections fail restoration and retain pending state.
+
+## WV03I: adapter wiring and link matching
+
+`reader.js` composes `CrossProjectPreview`, a storage-backed `CrossProjectReturnStack`, and `createCrossProjectPosition`. SessionStorage operations are lazy wrappers so denied storage access is caught by shared policy. The adapter receives capture/restore, capability, document/service/revision identity, request, location, external-open and transition-ID operations. `createCrossProjectPosition` alone owns DOM section geometry and delegates stable semantic holding to the existing reading-position owner. Shared policy imports no renderer or transport. The preview never starts a reader service.
+
+An unmodified primary click is eligible unless already prevented or on a download link. Exact `a[data-project-ref-project][data-project-ref-label]` metadata wins over href and text, even when href is a fragment and capability is currently false; it is always prevented and requested as `project` + `label`. Otherwise `viewer.crossProject === true` (the adapter's `enabled()` operation) permits absolute safe HTTP(S) href candidates with positive `#page=N`, on either origin, excluding same-origin mounted viewer routes. The request sends `href` plus trimmed nonempty link text as `text`. The backend applies the exact PDF URL/text rules above. Ordinary fragments, relative paths, non-page external URLs, mail/executable schemes, downloads, modified clicks and disabled-capability hrefs remain native. A candidate's default action is temporarily prevented for asynchronous resolution; unresolved results or request failure resume its original href using `location.assign`, or external open for a non-self target. No return entry is recorded for that fallback.
+
+First click opens a nonmodal, named `role="dialog"` popover anchored below the link, clamped to the viewport, using cream/dark `theme.css` tokens. It renders project title, label/reference text and canonical snippet exclusively through `textContent`. Explicit links immediately show loading feedback. Unique results with no snippet show a clear unavailable-body message. A unique same-origin canonical `/d/<id>/#<anchor>` target enables the `해당 문서로 이동` button; clicking that button or the noninteractive preview card captures the origin, persists it, then calls `location.assign(target)`. Queries, missing trailing slash, credentials, encoded route IDs, traversal and noncanonical URLs are rejected as jump targets. There is no SPA document swap. The button is disabled for ambiguous, unresolved, error or unavailable-route states. A safe PDF fallback opens externally; a unique cross-origin HTTP(S) viewer URL opens externally with `target="_blank" rel="noopener noreferrer"` and never enters tab return history. In-viewer jumps and Back are restricted to same-origin `/d/<id>/` routes. If neither viewer nor PDF is usable, the card explains that the web route is unavailable; ambiguity never chooses a candidate.
+
+Every new request/dismiss increments the request generation and aborts the previous controller. Both success and failure must still match generation and captured document/service/revision identity; detached source links cannot publish or trigger fallback navigation. `update()` dismisses previews when identity changes. Escape, outside click (including while loading) and close dismiss. Focus returns to the connected source link on Escape/close/dispose; outside click restores it only if focus would otherwise remain in the removed card, preserving focus on outside controls. `dispose()` aborts requests, removes all registered listeners, hides Back and prevents late publication. Pagehide always dismisses/aborts preview work; disposal runs on non-persisted `pagehide`. A bfcache page keeps its normal lifecycle, and persisted `pageshow` dismisses old previews, releases the navigation latch, reloads the stack from storage and updates Back visibility. This prevents another document or Homepage reset from leaving stale in-memory history. No new `popstate` handler is installed.
+
+## WV03I: persisted schemas and transition ordering
+
+The stack key `lagrangian:cross-project-return:v1` contains precisely this JSON envelope (zero to 32 oldest-to-newest entries):
+
+```json
+{"version":1,"entries":[{"path":"/d/notes-reader/?section=section-2#origin","documentTitle":"Notes","sectionId":"section-2","anchor":"origin","scrollOffset":134.5}]}
+```
+
+The one-shot key `lagrangian:cross-project-pending:v1` contains:
+
+```json
+{"version":1,"transitionId":"2dc28c7a-a22d-4e86-8fa3-68743e5b5512","entry":{"path":"/d/notes-reader/?section=section-2#origin","documentTitle":"Notes","sectionId":"section-2","anchor":"origin","scrollOffset":134.5}}
+```
+
+Version must be numeric `1`; title is a string (possibly empty), sectionId is a nonempty string, anchor is a string or null, and scrollOffset is a finite number (including negative/fractional values). Unknown entry fields are discarded by copying those five fields. `path` is a canonical origin-relative path beginning with one `/`, never `//`, an absolute/executable scheme, backslash, whitespace/control character, traversal or encoded route escape. The shared validator accepts relative paths in general; the web adapter further requires the `/d/<id>/` pathname for captured origins and Back, while retaining the origin's exact query/hash. Maximum depth is 32 (a smaller injected limit is supported), evicting oldest entries. Constructors validate all entries, trim excess and treat corrupt JSON, primitive envelopes, unsupported versions or any invalid entry as empty and remove the corrupt key on a best-effort basis. Invalid pending records are similarly removed. Storage exceptions never escape. A failed set/remove does not commit the corresponding in-memory mutation or report successful consumption. Null storage supports in-memory policy use; the web always injects sessionStorage and requires successful writes before navigating.
+
+Transitions are:
+
+1. **JUMP**: capture `{path,documentTitle,sectionId,anchor,scrollOffset}` from the current ready section; push/write stack before `location.assign(target)`. Capture or persistence failure leaves the document current and shows a save-position error. Repeated activation while navigating is ignored. Synchronous assign failure pops the newly pushed entry and displays an open error (best-effort rollback; already evicted oldest entries are not reconstructed).
+2. **BACK**: peek top; create a fresh `crypto.randomUUID()` transition ID; write pending **before** popping/writing stack, then assign the saved exact path. If pending write fails, do not pop or navigate. If pop fails, remove that transition's pending record and stay. A synchronous assign failure pushes the entry back and removes that pending record, best effort. A later network/load failure leaves the one-shot pending origin recoverable through browser navigation/reload; full-page navigation is not an atomic DOM transaction.
+3. **RESTORE**: `peekPending(current pathname+search+hash)` accepts only the exact destination, version and nonempty transitionId. Wrong-document reads leave it intact. On initial render (`!revision`), its section takes precedence over saved reading state, fragment and section query, and is loaded only if present in the manifest. It also suppresses automatic last-change jumping. Normal update anchoring cannot override that saved section. The render callback must still match load sequence and snapshot. Readiness requires a manifest with matching state documentID/revision/service, article `aria-busy` not `true`, and a mounted `[data-reader-section]` with the exact sectionId and `data-section-state="ready"`.
+4. **CONSUME**: release the previous reading hold; compute finite `top = scrollY + section.getBoundingClientRect().top + scrollOffset`, scroll instantly and require actual scrollY within one CSS pixel of top. Then hold the newly captured semantic reading anchor and focus the article without scrolling; verify the final scrollY still meets that tolerance after holding/focus. Only a successful restoration removes pending, and only if its exact path **and transitionId** still match. Failed readiness, absent section, nonfinite geometry, clamped or shifted scroll, or failed remove retains pending for recovery/reload; it never consumes a newer transition. Repeated consumption returns null. No timer claims an unverified restoration; automatic layout retry beyond that render is not implemented. The saved `anchor` preserves semantic metadata; section-relative scrollOffset is the exact initial restoration authority, not a guessed anchor offset.
+5. **HOME-OPEN**: explicit document link or alternative variant item activation removes both keys, with storage denial contained. Homepage refresh alone and document reload do not clear history.
+
+Back visibility comes from `stack.canGoBack`, labeled `← <documentTitle>` or `← 원래 문서로`. It shares the existing navigation-action button styles. In-document `ReferenceReturn` is independent: it holds one renderer-native origin when a local reference is followed, replaces that origin on a new reference, and consumes it only after the existing semantic restoration succeeds. Its `원래 위치로` button, fragment history, `navigationHistory()` and `popstate` behavior are unchanged. Cross-project Back is a separate explicit action; browser Back retains normal full-page semantics.
+
+## Exact WV03I file map
+
+| Operation | Paths | Responsibility |
+| --- | --- | --- |
+| Create | `tools/reader-common/navigation/cross-project-return.js`, `tools/reader-common/navigation/cross-project-return.d.ts` | Validated bounded persistence, LIFO API and one-shot pending schema/types |
+| Create | `tools/reader-common/tests/cross-project-return.mjs` | Policy, validation, eviction, corruption and storage-failure tests |
+| Create | `tools/flow-reader/web/features/navigation/cross-project-preview.js` | Preview lifecycle, safe route validation, capture/restore geometry, jump and Back adapter |
+| Create | `tools/flow-reader/tests/test_cross_project_preview.mjs` | Headless DOM events, cancellation, safe text, navigation, pending consumption, Homepage reset and manifest wiring |
+| Modify | `tools/flow-reader/web/reader.js` | Inject adapter operations, pending section precedence/restoration, identity update and disposal |
+| Modify | `tools/flow-reader/web/index.html`, `tools/flow-reader/web/reader.css` | Hidden Back control and themed accessible preview styling |
+| Modify | `tools/flow-reader/web/home/home.js` | Explicit-open reset of both sessionStorage keys |
+| Modify | `tools/flow-reader/web/assets.json` | Sorted explicit routes for both new runtime modules |
+| Modify | `openspec/changes/unify-lagrangian-web-viewer/design.md`, `openspec/changes/unify-lagrangian-web-viewer/specs/web-viewer/spec.md`, `openspec/changes/unify-lagrangian-web-viewer/tasks.md`, `docs/tinymist/dev/reader-architecture.typ` | Implemented contracts, ownership, task completion and verification |
+| Delete | None | Existing native/backend and ReferenceReturn owners remain intact |
+
+The asset manifest registers **both** `reader-common/navigation/cross-project-return.js` and `features/navigation/cross-project-preview.js` in exact sorted order. Existing `install.py`, `server/assets.py` and reader-bundle packaging deliver/validate both shared and concrete trees without changes. Native Swift retains its 64-entry stack and adoption/editor-consent behavior.
+
+## Executable verification checklist
+
+Run from the repository root, headless CLI only, with isolated temporary state. Do not build Rust, install/restart apps or launchd, or modify live configuration. DOM fixtures exercise the required paths; they do not claim native GUI or visual review.
+
+```sh
+/opt/homebrew/bin/node --test tools/reader-common/tests/*.mjs
+/opt/homebrew/bin/node --test tools/flow-reader/tests/test_cross_project_preview.mjs tools/flow-reader/tests/test_web_viewer_branding.mjs tools/flow-reader/tests/test_home_account.mjs tools/flow-reader/tests/test_reading_navigation.mjs tools/flow-reader/tests/test_reader_links.mjs
+PYTHONPATH=tools/flow-reader:tools/flow-reader/tests /opt/homebrew/bin/python3 -B -m unittest tools/flow-reader/tests/test_cross_project_refs.py test_install.ReaderInstallTests.test_clean_release_works_and_rejected_updates_preserve_installed_files tests/flow-app/test_reader_bundle.py -v
+/opt/homebrew/bin/openspec validate unify-lagrangian-web-viewer --strict
+npm run lint:readers
+/opt/homebrew/bin/node --test tools/flow-reader/tests/test_*.mjs
+PYTHONPATH=tools/flow-reader:tools/flow-reader/tests /opt/homebrew/bin/python3 -B -m unittest test_install -v
+/opt/homebrew/bin/typst compile --root . docs/tinymist/dev/reader-architecture.typ /tmp/lg-reader-architecture.pdf
+```
+
+Policy tests cover exact field preservation, 32-entry eviction, safe paths, invalid/corrupt data, one-shot destination/transition checks and denied storage. DOM tests cover preview-before-navigation, full-page jump and durable origin, stale success/failure, dismissal/disposal, literal XSS-safe text, metadata-only/ambiguous/unresolved/external states, Back ordering, exact section-relative offset and single consumption, Homepage reset, manifest completeness and bootstrap wiring. Service tests cover the existing bounded catalog, peer/profile fallback, snippets and HTTP behavior; install and bundle tests cover source and installed asset delivery. All flow-reader Node tests supply regression coverage for fragments, reading navigation and Homepage. Optional full service/compiler/physical-device integrations remain separate; no result is implied by this checklist.

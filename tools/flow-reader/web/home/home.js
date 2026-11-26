@@ -374,9 +374,18 @@ function documentCard(doc) {
       const link = node("a", "", "reader-link");
       const item = node("wa-dropdown-item");
       item.append(link);
+      // Both the primary link and Web Awesome's alternative item open documents.
+      const resetCrossProjectReturn = () => {
+        try {
+          sessionStorage.removeItem("lagrangian:cross-project-return:v1");
+          sessionStorage.removeItem("lagrangian:cross-project-pending:v1");
+        } catch { /* Storage can be unavailable in private/embedded contexts. */ }
+      };
       link.addEventListener("click", (event) => {
         if (link.parentElement === item) event.preventDefault();
+        resetCrossProjectReturn();
       });
+      item.addEventListener("click", resetCrossProjectReturn);
       entry = { link, item };
       record.variants.set(key, entry);
     }

@@ -11,8 +11,10 @@
 - [x] WV02C.3 Wire strict 1024-character preview queries, peer registry, viewer capability and `handler_for(None)` static delivery in standalone and routed servers (under 2 hours).
 - [x] WV02C.4 Align design/spec/source map and verify backend, HTTP, routing, homepage, sections, install and strict OpenSpec validation; leave `apps/macos/` unchanged (under 2 hours).
 
-## WV03C — shared return policy and full-page web interaction (planned)
+## WV03I — shared return policy and full-page web interaction (implemented)
 
-- [ ] WV03C.1 Implement/test `CrossProjectReturnStack` max 32 entries in `reader-common/navigation/cross-project-return.js`, versioned sessionStorage and one-shot pending restore (under 2 hours).
-- [ ] WV03C.2 Implement/test `features/navigation/cross-project-preview.js`: first-click preview, explicit second-click full-page `/d/<id>/` jump, Back restoration, failed/stale transitions and Homepage explicit-open reset without fragment/popstate collisions (under 2 hours).
-- [ ] WV03C.3 Register both modules explicitly in `web/assets.json` and verify source/installed delivery and final web interactions (under 2 hours).
+- [x] WV03I.1 Implement/test `CrossProjectReturnStack` max 32 entries in `reader-common/navigation/cross-project-return.js`, versioned sessionStorage and one-shot pending restore (under 2 hours).
+- [x] WV03I.2 Implement/test `features/navigation/cross-project-preview.js`: first-click preview, explicit second-click full-page `/d/<id>/` jump, Back restoration, failed/stale transitions and Homepage explicit-open reset without fragment/popstate collisions (under 2 hours).
+- [x] WV03I.3 Register both modules explicitly in `web/assets.json` and verify source/installed delivery and final web interactions (under 2 hours).
+
+- [x] WV03I.4 Finalize exact schemas, transition ordering, peer configuration/fallback, route identity map, file map and executable headless verification contracts (under 2 hours).

@@ -26,6 +26,8 @@ import {
 } from "./features/editor-sync/terminal-bridge.js";
 import { ReaderChangeNavigation } from "./features/navigation/change-navigation.js";
 import { ReferenceReturn } from "./reader-common/navigation/reference-return.js";
+import { CrossProjectReturnStack } from "./reader-common/navigation/cross-project-return.js";
+import { CrossProjectPreview, createCrossProjectPosition } from "./features/navigation/cross-project-preview.js";
 import { OutlineDrawer, ReaderGestures } from "./features/navigation/reading-navigation.js";
 import { createToolbarVisibility } from "./features/navigation/toolbar-visibility.js";
 
@@ -129,6 +131,23 @@ const readingPosition = createReadingPosition(article, {
 });
 const readingAnchor = () => readingPosition.capture();
 const restoreAnchor = (anchor) => readingPosition.restore(anchor);
+const crossProjects = new CrossProjectPreview(article, {
+  stack: new CrossProjectReturnStack({ storage: {
+    getItem: (key) => sessionStorage.getItem(key),
+    setItem: (key, value) => sessionStorage.setItem(key, value),
+    removeItem: (key) => sessionStorage.removeItem(key),
+  } }),
+  returnButton: document.querySelector("#reader-cross-project-return"),
+  enabled: () => serverState?.viewer?.crossProject === true,
+  identity: () => JSON.stringify([serverState?.documentID, serverState?.service, serverState?.revision]),
+  ...createCrossProjectPosition(article, {
+    ready: () => manifest && sameSession(manifest, serverState),
+    readSection: () => currentSection,
+    captureAnchor: readingAnchor,
+    release: () => readingPosition.release(),
+    holdAnchor: () => readingPosition.hold(readingAnchor()),
+  }),
+});
 const references = new ReferenceReturn(
   document.querySelector("#reader-reference-back"),
   (anchor) => {
@@ -490,7 +509,9 @@ function renderDocument(html, nextManifest, section, options) {
   pending = null;
   requestAnimationFrame(() => {
     if (disposed || !sameSnapshot(manifest, nextManifest) || sequence !== loadSequence) return;
-    if (options.target) {
+    if (options.crossProjectReturn) {
+      crossProjects.restorePending(options.crossProjectReturn);
+    } else if (options.target) {
       const target = document.getElementById(options.target);
       if (Number.isFinite(options.referenceViewportY) && target) {
         scrollTargetTo(target, options.referenceViewportY);
@@ -605,7 +626,7 @@ async function loadSection(nextManifest, section, options = {}) {
       activity.state.cancel(sequence);
       return;
     }
-    if (options.update && manifest?.documentID === nextManifest.documentID) {
+    if (options.update && !options.crossProjectReturn && manifest?.documentID === nextManifest.documentID) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
       if (destination !== section) return loadSection(nextManifest, destination, options);
@@ -782,6 +803,7 @@ window.addEventListener("pagehide", (event) => {
     appearance.dispose();
     changes.dispose();
     references.dispose();
+    crossProjects.dispose();
     mathematics.dispose();
     canvases.dispose();
   }
@@ -834,6 +856,7 @@ async function refresh(signal, current) {
     if (pending && !sameSession(pending, state)) pending = null;
   }
   serverState = state;
+  crossProjects.update();
   activity.state.update(state);
   activity.refresh();
   // An identical revision can survive a service restart. New selections use
@@ -876,6 +899,7 @@ async function refresh(signal, current) {
     pending = candidate;
   }
   if (pending && !selectionActive()) {
+    const crossProjectReturn = !revision ? crossProjects.pendingReturn() : null;
     const entryAnchor =
       !revision &&
       (!history.state?.readerDocumentID || history.state.readerDocumentID === pending.documentID)
@@ -897,14 +921,15 @@ async function refresh(signal, current) {
     const sectionHint =
       !revision && !resuming && new URL(location.href).searchParams.get("section");
     const explicit =
-      !revision && (Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward");
+      !revision && (Boolean(crossProjectReturn) || Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward");
     if (!revision) awaitingEntryChange = explicit && !pending.lastChange;
     changes.queue(pending, explicit);
-    const section =
-      sectionHint && pending.sections.some((item) => item.id === sectionHint)
+    const returnSection = crossProjectReturn?.entry.sectionId;
+    const section = returnSection && pending.sections.some((item) => item.id === returnSection)
+      ? returnSection : sectionHint && pending.sections.some((item) => item.id === sectionHint)
         ? (pending.anchors[target] ?? sectionHint)
         : sectionFor(pending, anchor, target);
-    await loadSection(pending, section, { anchor, target, update: true, signal });
+    await loadSection(pending, section, { anchor, target, crossProjectReturn, update: true, signal });
   }
   if (manifest && !state.offline) void offline.save(manifest);
   selectionActions?.connectionChanged(!state.offline);

@@ -2709,3 +2709,43 @@ math svg {
     color: GrayText;
   }
 }
+
+.reader-cross-project-preview {
+  position: fixed;
+  z-index: 120;
+  box-sizing: border-box;
+  width: min(26rem, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: var(--space-4);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-medium);
+  box-shadow: var(--shadow-card);
+  font: var(--type-body)/1.6 var(--font-system);
+}
+.reader-cross-project-preview p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: var(--space-2) 0;
+}
+.reader-cross-project-preview button {
+  border: 1px solid var(--line);
+  margin: var(--space-1);
+}
+.reader-cross-project-preview :focus-visible,
+.reader-cross-project-preview:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.reader-cross-project-preview button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+#reader-cross-project-return {
+  max-width: min(24rem, 80vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

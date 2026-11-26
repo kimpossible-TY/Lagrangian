@@ -464,16 +464,78 @@ the boolean reflects catalog availability, not target readiness.
 `handler_for(None)` creates neither NativeReaderService nor NativePageService;
 allowlisted static assets work and document/native/preview APIs return 503.
 
-WV03C remains planned: `reader-common/navigation/cross-project-return.js` will
-own CrossProjectReturnStack, max 32 entries in sessionStorage
-`lagrangian:cross-project-return:v1`, with one-shot pending restore
-`lagrangian:cross-project-pending:v1`. The concrete
-`features/navigation/cross-project-preview.js` will show a first-click popover,
-then explicitly navigate a full page to `/d/<id>/#<anchor>` and use explicit Back
-for readiness-bound origin restoration. Homepage explicit-open resets both
-records; reload retains tab history. Failed/stale restoration retains recoverable
-entries. There is no SPA pushState document swapping or competing popstate
-handler: in-document fragment ReferenceReturn keeps its existing ownership.
-Both modules require explicit `web/assets.json` registration and source/installed
-layout verification when implemented. Native Swift keeps its existing stack and
-adoption/consent behavior.
+WV03I implements `reader-common/navigation/cross-project-return.js` and its
+`.d.ts` contract. CrossProjectReturnStack owns validation, oldest-entry eviction
+at max 32, injected storage and LIFO push/pop/peek/canGoBack/clear. SessionStorage
+`lagrangian:cross-project-return:v1` stores
+`{version:1,entries:[{path,documentTitle,sectionId,anchor,scrollOffset}]}`;
+`lagrangian:cross-project-pending:v1` stores
+`{version:1,transitionId,entry}`. Paths are canonical origin-relative paths,
+sectionId is nonempty, anchor is string or null and scrollOffset is finite.
+Corrupt/invalid records recover empty and are removed best effort; storage
+exceptions do not commit failed mutations. Wrong path or transition never
+consumes pending. The native Swift stack remains independently owned at 64.
+
+The concrete `features/navigation/cross-project-preview.js` owns
+CrossProjectPreview and createCrossProjectPosition. `reader.js` injects storage,
+capability, document/service/revision identity and section reading-position
+operations. Explicit project/label metadata wins over href/text, including
+fragment hrefs. Otherwise enabled capability allows safe absolute HTTP(S)
+positive-page-fragment candidates, excluding same-origin viewer routes;
+unresolved/error candidates resume their original href without return history.
+Ordinary fragments, relative/non-page links, downloads and modified clicks stay
+native. Popovers use named nonmodal dialog semantics, textContent-only canonical
+snippets and cream/dark theme tokens. The jump button or noninteractive card
+performs full-page navigation only for a unique canonical same-origin
+`/d/<id>/` target, never SPA swapping. Unavailable, ambiguous and unresolved
+states disable the jump and explain why; safe PDFs and unique cross-origin
+viewer URLs open externally without tab return state. Request generations,
+AbortController and document/service/revision guards suppress stale success
+and failure. Escape, close, outside click and dispose cancel work; focus is
+restored without stealing an outside control's focus. Dispose removes listeners.
+Pagehide aborts preview work even for cached pages. Persisted pageshow
+dismisses old cards, releases the navigation latch and reloads
+the stack from storage so Homepage resets and other documents remain authoritative.
+
+JUMP captures the exact origin route/query/hash, title, ready section, semantic
+anchor and section-relative offset, persists the stack, then assigns the target.
+BACK writes a pending record with a fresh UUID before popping/persisting the
+stack and assigning the origin path. Synchronous assignment failure rolls back
+best effort; later load failure leaves pending recoverable by browser navigation
+or reload. On initial bootstrap, pending selects the saved section ahead of
+fragment, section query and normal reading state. A matching state/manifest
+session, non-busy article and exact ready section are required. Restoration
+scrolls to finite section document top plus saved scrollOffset, requires actual
+scroll within one CSS pixel, then holds the current semantic anchor and focuses
+the article without scrolling. The final scroll must still meet that tolerance.
+Only then is the matching path/transition consumed
+once. Failed readiness/geometry or pending removal retains the record for
+recovery/reload; it does not automatically retry layout beyond that render.
+Homepage explicit document/variant open clears both records; reload retains tab
+history. Cross-project Back has its own labeled navigation-action button.
+In-document ReferenceReturn still holds one semantic origin and consumes it
+only after verified restoration, with existing fragment/popstate handling.
+
+ReaderRuntime maps stable manager service IDs to mounted states and routes;
+`/d/<id>/` IDs are not documentID. The latter hashes resolved root/entry;
+service identifies process pid/startedAt and revision identifies accepted output.
+Each full-page bootstrap obtains and validates those identities afresh. Stored
+return routes do not authorize old revision/service reuse. Profiles inherit
+Project.packages and projectRefKey from their parent Flow profile; a key in a
+Reader services entry alone does not override it. Registry fallback applies
+only to unconfigured profiles: exact ID, then normalized key or catalog title
+against root basename or profile title, rejecting duplicate tiers. Profile title
+uses explicit title, parent name, profile name, then empty. A mounted state with
+no profile can fall back to route ID/root basename; inventory-only/unmounted
+profiles cannot supply a peer. The change design contains concrete configuration,
+full JSON schemas, transition ordering and the exact create/modify/delete map.
+
+Both runtime modules are explicitly registered in sorted `web/assets.json`;
+existing install.py, server/assets.py and reader-bundle tooling deliver them
+without changes. `reader-common/tests/cross-project-return.mjs` and
+`flow-reader/tests/test_cross_project_preview.mjs` cover policy and headless DOM
+transitions, cancellation, literal text, exact return, Homepage reset and wiring.
+Run all shared and flow-reader Node tests, focused Python cross-project service,
+install and bundle tests, reader lint and strict OpenSpec validation. These are
+headless checks, not native GUI or visual review. Native files and app/service
+installation are outside WV03I.
