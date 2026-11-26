@@ -43,4 +43,7 @@ class NativeDesignParityTests(unittest.TestCase):
     def test_centered_pass_through_notifications(self): self.scenario('notifications')
     def test_brand_mode_morph_and_toolbar(self): self.scenario('toolbar')
     def test_bottom_capsule_ticket_focus_and_review(self): self.scenario('capsule')
+    def test_document_end_existing_review(self): self.scenario('review-existing')
+    def test_document_end_first_strike(self): self.scenario('review-added')
+    def test_pending_refresh_local_strike(self): self.scenario('pending-strike')
     def test_keyboard_pdf_selection_and_immutable_ink(self): self.scenario('keyboard-pdf')

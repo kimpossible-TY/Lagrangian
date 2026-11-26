@@ -217,6 +217,8 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(chrome.reviewActionsCapsule.isHidden, "Read only state hides review actions")
             capsule.compact = true; capsule.present(binding, unavailable: [:], summary: "최대 32개 블록")
             try check(capsule.buttons[.source]!.isHidden && capsule.buttons[.editor]!.isHidden && !capsule.overflowButton.isHidden && !capsule.footnote.isHidden, "Compact tools overflow with limit mini pill")
+            chrome.placeCapsule(viewport: viewport, avoiding: host.textView.visibleSelectionRects(in: root))
+            try check(host.textView.scrollView.contentInsets.bottom >= 132, "Footnote reserves space above the primary capsule")
             chrome.showSelectionActions(); capsule.focusFirstAction(); chrome.toggleDisplayPopover()
             window.sendEvent(event(window, "\u{1b}", [], code: 53))
             try check(!chrome.isDisplayPopoverOpen && !capsule.isHidden && host.store.selection != nil,
@@ -229,10 +231,52 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try host.textView.select(from: .init(blockID: last.id, utf16: last.displayText.utf16.count - 12, affinity: .downstream),
                                      to: .init(blockID: last.id, utf16: last.displayText.utf16.count, affinity: .upstream))
             chrome.showSelectionActions(); try await until { !capsule.isHidden }
-            try check(scroll.contentInsets.bottom == 104 && !host.textView.visibleSelectionRects(in: root).isEmpty &&
+            try check(scroll.contentInsets.bottom >= 104 && !host.textView.visibleSelectionRects(in: root).isEmpty &&
                       !host.textView.visibleSelectionRects(in: root).contains { $0.intersects(capsule.frame) },
                       "Final Reflow selection scrolls above tools using the reserved bottom inset")
             try check(window.frame == originalFrame, "Selection release and final-paragraph reveal keep window frame unchanged")
+        } else if scenario == "review-existing" || scenario == "review-added" {
+            if scenario == "review-existing" {
+                let first = doc.blocks[1]
+                try host.textView.select(from: .init(blockID: first.id, utf16: 0, affinity: .downstream),
+                    to: .init(blockID: first.id, utf16: 13, affinity: .upstream))
+                chrome.markSelected(); chrome.releasePageSelection()
+                try check(chrome.reviewCount == 1, "Existing review retained")
+            }
+            let scroll = host.textView.scrollView, body = host.textView.bodyTextView, last = doc.blocks.last!
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: body.bounds.height - scroll.contentView.bounds.height))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try host.textView.select(from: .init(blockID: last.id, utf16: last.displayText.utf16.count - 12, affinity: .downstream),
+                to: .init(blockID: last.id, utf16: last.displayText.utf16.count, affinity: .upstream))
+            chrome.showSelectionActions(); try await until { !chrome.capsule.isHidden }
+            if scenario == "review-added" { chrome.markSelected() }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            root.layoutSubtreeIfNeeded()
+            let rects = host.textView.visibleSelectionRects(in: root)
+            let primary = chrome.capsule.convert(chrome.capsule.surface.frame, to: root)
+            let review = chrome.reviewActionsCapsule.convert(chrome.reviewActionsCapsule.bounds, to: root)
+            try check(chrome.reviewCount == 1 && !chrome.reviewActionsCapsule.isHidden, "Review tools visible")
+            try check(scroll.contentInsets.bottom >= 148 && !rects.isEmpty && !rects.contains { $0.intersects(primary) || $0.intersects(review) },
+                "Final selection clears both capsules: selection=\(rects), review=\(review), inset=\(scroll.contentInsets.bottom)")
+            try check(window.frame == originalFrame, "Review never resizes window")
+            chrome.reviewCount = 0
+            try check(scroll.contentInsets.bottom == 104, "Removing review restores base inset")
+        } else if scenario == "pending-strike" {
+            let block = doc.blocks[1]
+            try host.textView.select(from: .init(blockID: block.id, utf16: 0, affinity: .downstream),
+                to: .init(blockID: block.id, utf16: 13, affinity: .upstream))
+            chrome.showSelectionActions()
+            let ticket = host.store.selection!.ticket
+            host.session.refresh()
+            try check((try? host.session.authorize(context, selection: ticket)) == nil, "Pending refresh gates services")
+            var serviceCalls = 0
+            host.textView.callbacks.sourceRequested = { _ in serviceCalls += 1 }
+            chrome.capsule.onAction?(chrome.capsule.binding!, .highlight)
+            try check(serviceCalls == 0, "Service action remains gated")
+            chrome.capsule.buttons[.strike]!.performClick(nil)
+            try check(chrome.reviewCount == 1 && host.store.selection?.ticket == ticket, "Strike tile applies during held refresh")
+            _ = root.performKeyEquivalent(with: event(window, "s", [.command, .shift]))
+            try check(chrome.reviewCount == 2, "Shortcut applies the same local review")
         } else if scenario == "keyboard-pdf" {
             var strikes = 0, highlights = 0, asks = 0, refreshes = 0
             chrome.onMarkReview = { strikes += 1 }; chrome.onRefresh = { refreshes += 1 }

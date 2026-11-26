@@ -1317,13 +1317,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     guard store.selection?.ticket == binding.ticket else { return }
     if action == .copy { _ = textView.copyPlainText(); return }
+    if action == .strike {
+      guard visibleMode == .nativeReflow, !session.isReadOnly, !session.hasRecoveryCopy else { return }
+      hostWindow.markSelected(); return
+    }
     guard (try? session.authorize(binding.context, selection: binding.ticket)) != nil else { return }
     switch action {
     case .copy: break
     case .source: _ = textView.requestSource(.excerpt)
     case .highlight: _ = textView.requestSource(.highlight)
     case .editor: hostWindow.locateSelected()
-    case .strike: hostWindow.markSelected()
+    case .strike: break
     case .ask: textView.openChat()
     }
   }
@@ -1834,7 +1838,10 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   private var savedEntries = [NativeReaderRecoveryStore.Entry]()
   private var recoveredDrafts = [NativeReaderRecoveredDraft]()
   private var homepage: URL?
-  var reviewCount = 0 { didSet { updateReviewCapsule(); rebuildMoreMenu() } }
+  var reviewCount = 0 { didSet {
+    updateReviewCapsule(); rebuildMoreMenu()
+    if (oldValue == 0) != (reviewCount == 0), !capsule.isHidden { onCapsuleLayout?() }
+  } }
   var exportBusy = false { didSet { updateOfflineControls() } }
   var storageAvailable = false { didSet { updateOfflineControls() } }
   var storageBusy = false { didSet { updateOfflineControls() } }
@@ -2398,8 +2405,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     capsule.layoutSubtreeIfNeeded(); updateReviewCapsule()
     guard !revealingSelection else { return }
     let scroll = currentMode == .nativeReflow ? reader.scrollView : originalScroll
-    if currentMode == .nativeReflow { reader.scrollView.contentInsets.bottom = 104 }
-    else { originalScroll?.automaticallyAdjustsContentInsets = false; originalScroll?.contentInsets.bottom = size.height + 24 }
+    if currentMode != .nativeReflow { originalScroll?.automaticallyAdjustsContentInsets = false; originalScroll?.contentInsets.bottom = size.height + 24 }
     guard let scroll, let documentView = scroll.documentView else { return }
     let obstruction = reviewActionsCapsule.isHidden ? capsule.frame : capsule.frame.union(reviewActionsCapsule.frame)
     let occluded = rects.filter { $0.intersects(obstruction.insetBy(dx: -4, dy: -8)) }
@@ -2419,6 +2425,11 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   }
   private func updateReviewCapsule() {
     reviewActionsCapsule.isHidden = reviewActionsUnavailable || reviewCount == 0
+    if currentMode == .nativeReflow {
+      let height = capsule.isHidden ? CGFloat(64) : capsule.frame.height
+      let inset = reviewActionsCapsule.isHidden ? (!capsule.isHidden && !capsule.footnote.isHidden ? CGFloat(132) : 104) : height + 84
+      reader.scrollView.contentInsets.bottom = max(104, inset)
+    }
     guard !reviewActionsCapsule.isHidden, let root = window?.contentView else { return }
     let y = capsule.isHidden ? CGFloat(16) : capsule.frame.maxY + 8
     reviewActionsCapsule.frame = NSRect(x: root.bounds.midX - 126, y: y, width: 252, height: 40)
@@ -3163,6 +3174,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     isReadOnlyState = readOnly
     if readOnly { homepage = nil; accountStatus.stringValue = "오프라인 · 계정 작업을 사용할 수 없습니다" }
     updateReviewCapsule(); updateNavigation(); updateOfflineControls(); rebuildMoreMenu()
+    if !capsule.isHidden { onCapsuleLayout?() }
   }
   private func updateOfflineControls() {
     let prepared = reader.store.document != nil && (currentMode == .originalPages || (reader.renderKey != nil && reader.renderKey == reader.requestedRenderKey))
