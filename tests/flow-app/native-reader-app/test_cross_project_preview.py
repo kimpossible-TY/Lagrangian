@@ -71,6 +71,9 @@ class CrossProjectPreview(unittest.TestCase):
     def test_reader_geometry_snapshot_and_location_restoration(self):
         self.scenario('reader')
 
+    def test_restored_location_disables_back_when_stack_is_empty(self):
+        self.scenario('reader_restored_back_disabled')
+
 
 if __name__ == '__main__':
     unittest.main()

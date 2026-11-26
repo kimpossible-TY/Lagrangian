@@ -858,14 +858,25 @@ extension NativeReaderTextView {
     }
     @discardableResult func scrollToCrossProjectLocation(anchor: String?, blockID: String?, scrollOffset: Double?) -> Bool {
         guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey else { return false }
-        if let anchor, !anchor.isEmpty { return navigate(toAnchor: anchor) }
-        if let blockID, !blockID.isEmpty { return navigate(toNodeID: blockID) }
+        if let anchor, !anchor.isEmpty {
+            guard let node = store.document?.blocks.flatMap(\.orderedNodes).first(where: { $0.anchors.contains(anchor) }) else { return false }
+            return scrollToNode(id: node.id, recordReturn: false, topAlign: true)
+        }
+        if let blockID, !blockID.isEmpty {
+            guard scrollToNode(id: blockID, recordReturn: false) else { return false }
+            guard let scrollOffset, scrollOffset.isFinite else { return true }
+            scrollToCrossProjectOffset(scrollOffset)
+            return true
+        }
         guard let scrollOffset, scrollOffset.isFinite else { return false }
+        scrollToCrossProjectOffset(scrollOffset)
+        return true
+    }
+    private func scrollToCrossProjectOffset(_ scrollOffset: Double) {
         let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
         let offset = CGFloat(min(Double(maximum), max(0, scrollOffset)))
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        return true
     }
     func select(from start: NativeReaderTextPosition, to end: NativeReaderTextPosition) throws {
         guard !isDisposed, let map = textMap else { throw NativeReaderTextFailure.staleGeometry }
@@ -955,15 +966,29 @@ extension NativeReaderTextView {
     }
     @discardableResult func navigate(toAnchor anchor: String) -> Bool {
         guard let node = store.document?.blocks.flatMap(\.orderedNodes).first(where: { $0.anchors.contains(anchor) }) else { return false }
-        return navigate(toNodeID: node.id)
+        return scrollToNode(id: node.id, recordReturn: true, topAlign: false)
     }
     @discardableResult func navigate(toNodeID id: String) -> Bool {
+        scrollToNode(id: id, recordReturn: true, topAlign: false)
+    }
+    private func scrollToNode(id: String, recordReturn: Bool, topAlign: Bool = false) -> Bool {
         guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey,
               let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == id }) }),
               let node = block.orderedNodes.first(where: { $0.id == id }), node.visible,
               let range = try? textMap?.presentationRange(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]) else { return false }
-        returningAnchor = viewportAnchor()
-        bodyTextView.scrollRangeToVisible(range)
+        if recordReturn { returningAnchor = viewportAnchor() }
+        if topAlign {
+            bodyTextView.layoutManager?.ensureLayout(for: bodyTextView.textContainer!)
+            if let rect = rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).first {
+                let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maximum, max(0, rect.minY - 24))))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            } else {
+                bodyTextView.scrollRangeToVisible(range)
+            }
+        } else {
+            bodyTextView.scrollRangeToVisible(range)
+        }
         focusedNodeID = node.id; callbacks.focusChanged(node.id)
         return true
     }

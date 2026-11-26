@@ -30,7 +30,7 @@ struct CrossProjectPreviewTests {
         headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
     }
     let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
-      requiredCapabilities: ["semantic-tree-v1"], blocks: [block("first", [], children: [block("child", ["child-anchor"])]), block("second", ["block-anchor"])], assets: [], diagnostics: [])
+      requiredCapabilities: ["semantic-tree-v1"], blocks: [block("first", [], children: [block("child", ["child-anchor"])]), block("second", ["block-anchor"]), block("third", [])], assets: [], diagnostics: [])
     let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 180),
                           styleMask: [.borderless], backing: .buffered, defer: false)
@@ -48,15 +48,27 @@ struct CrossProjectPreviewTests {
     let snap = view.currentCrossProjectPosition()
     try check(snap.blockID == "first" && snap.anchor == nil && snap.scrollOffset == Double(view.scrollView.contentView.bounds.origin.y), "Snapshot captures the block without inheriting its child's anchor")
     try check(view.scrollToCrossProjectLocation(anchor: "block-anchor", blockID: "first", scrollOffset: 0) && view.focusedNodeID == "second", "Anchor takes priority")
+    guard let targetRect = view.rects(blockID: "second", logical: 0..<text.utf16.count).first else { throw Failure(message: "Target geometry") }
+    try check(abs(view.scrollView.contentView.bounds.minY - (targetRect.minY - 24)) < 1 && !view.canReturnFromReference,
+              "Anchor is top-aligned without a local return")
+    view.scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetRect.minY + 1))
+    view.scrollView.reflectScrolledClipView(view.scrollView.contentView)
     let anchoredSnap = view.currentCrossProjectPosition()
     try check(anchoredSnap.blockID == "second" && anchoredSnap.anchor == "block-anchor", "Snapshot captures the block's own anchor")
     try check(!view.scrollToCrossProjectLocation(anchor: "missing", blockID: "first", scrollOffset: 0), "Missing anchor does not fall back")
     try check(view.scrollToCrossProjectLocation(anchor: "", blockID: "first", scrollOffset: nil) && view.focusedNodeID == "first", "Block navigation")
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: "first", scrollOffset: 120) &&
+              abs(view.scrollView.contentView.bounds.origin.y - 120) < 1 && !view.canReturnFromReference,
+              "Block and offset restore exact position without a local return")
+    try check(!view.scrollToCrossProjectLocation(anchor: nil, blockID: "missing", scrollOffset: 120), "Missing block does not fall back")
     try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: .greatestFiniteMagnitude), "Finite offset accepted")
     let maximum = max(0, view.bodyTextView.bounds.height - view.scrollView.contentView.bounds.height)
     try check(abs(view.scrollView.contentView.bounds.minY - maximum) < 1, "Offset clamps to bottom")
     try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: "", scrollOffset: -5) && view.scrollView.contentView.bounds.minY == 0, "Offset clamps to top")
     try check(!view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: .nan) && !view.scrollToCrossProjectLocation(anchor: nil, blockID: nil, scrollOffset: nil), "Missing and nonfinite offsets fail")
+    try check(view.navigate(toAnchor: "block-anchor") && view.canReturnFromReference, "Local anchor navigation records a return")
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: "first", scrollOffset: 120) && view.canReturnFromReference,
+              "Cross-project restoration preserves an existing local return")
     let nextGeneration = try store.beginRequest()
     let nextDocument = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: nextGeneration,
       requiredCapabilities: ["semantic-tree-v1"], blocks: document.blocks, assets: [], diagnostics: [])
@@ -94,10 +106,14 @@ struct CrossProjectPreviewTests {
       requiredCapabilities: ["semantic-tree-v1"], blocks: [link], assets: [], diagnostics: [])
     let context = NativeReaderRequestContext(requestID: UUID(), viewID: host.store.viewID, generation: generation, target: identity)
     let pending = CrossProjectNavigationEntry(profileID: "origin", documentTitle: "Origin", anchor: "origin", blockID: nil, scrollOffset: 0)
+    host.canReturnFromCrossProject = { false }
     host.pendingCrossProjectTarget = pending
     let adoption = try await host.prepare(document, context: context)
     try adoption.adopt()
     try check(host.pendingCrossProjectTarget == nil && host.textView.focusedNodeID == "link", "Document adoption consumes and restores pending location")
+    guard let back = Mirror(reflecting: host.hostWindow).children.first(where: { $0.label == "back" })?.value as? NSButton,
+          let menuBack = host.hostWindow.moreMenu.item(withTitle: "돌아가기") else { throw Failure(message: "Back controls") }
+    try check(!back.isEnabled && !menuBack.isEnabled, "Restoration with an empty cross-project stack disables Back controls")
     host.pendingCrossProjectTarget = pending
     let reflow = try await host.prepare(document, context: context, reflowOnly: true)
     try reflow.adopt()
@@ -452,7 +468,7 @@ struct CrossProjectPreviewTests {
       case "reader": try readerHelpers()
       case "project_ref_contract_and_snippet": try contractAndSnippet()
       case "reader_explicit_unsafe_links": try await explicitUnsafeLinks()
-      case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime", "reader_explicit_project_ref":
+      case "reader_restored_back_disabled", "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime", "reader_explicit_project_ref":
         try await controllerScenario(CommandLine.arguments[1])
         if CommandLine.arguments[1] == "reader_explicit_project_ref" {
           try await controllerScenario(CommandLine.arguments[1], fragmentLink: true)
