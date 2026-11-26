@@ -40,6 +40,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument { throw NativeReaderOperationFailure.unavailable }
 }
 
+@MainActor private final class CrossProjectPopoverDelegate: NSObject, NSPopoverDelegate {
+  var didClose: ((NSPopover) -> Void)?
+  func popoverDidClose(_ notification: Notification) {
+    if let popover = notification.object as? NSPopover { didClose?(popover) }
+  }
+}
+
 /// One window, one store, one session. Heavy preparation never publishes a snapshot.
 @MainActor final class NativeReaderWindowController {
   typealias Target = (Profile) async throws -> NativeDocumentIdentity
@@ -110,6 +117,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private(set) var activeCrossProjectPreviewView: NativeCrossProjectPreviewView?
   private var crossProjectPreviewTask: Task<Void, Never>?
   private var crossProjectPreviewPopover: NSPopover?
+  private let crossProjectPopoverDelegate = CrossProjectPopoverDelegate()
   private var crossProjectPreviewSerial = 0
   var choosePDFDestination: (NSWindow) async -> URL? = { window in
     await withCheckedContinuation { continuation in
@@ -286,6 +294,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       if self.textView.window != nil {
         let popover = NSPopover()
         popover.behavior = .transient
+        self.crossProjectPopoverDelegate.didClose = { [weak self] closed in
+          guard let self, self.crossProjectPreviewPopover === closed else { return }
+          self.dismissCrossProjectPreview()
+        }
+        popover.delegate = self.crossProjectPopoverDelegate
         let controller = NSViewController(); controller.view = previewView
         popover.contentViewController = controller
         popover.contentSize = NSSize(width: 340, height: 180)
@@ -398,7 +411,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   func refresh() { hostWindow.cancelFind(); acceptedPaintKey = nil; paintedKey = nil; session.refresh() }
 
-  private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false, recoveryAssets: [String: Data]? = nil, recoveryPages: NativeOriginalPageRecovery? = nil) async throws -> NativeReaderSession.PreparedAdoption {
+  func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false, recoveryAssets: [String: Data]? = nil, recoveryPages: NativeOriginalPageRecovery? = nil) async throws -> NativeReaderSession.PreparedAdoption {
     if !reflowOnly, mode == .originalPages { return try await prepareOriginal(document, context: context, recoveryAssets: recoveryAssets, recovery: recoveryPages) }
     let ticket = requestTicket
     let key = try reflowOnly ? textView.retainedPreparationKey(for: document, context: context) : textView.preparationKey(for: document, context: context)
@@ -1203,7 +1216,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   private func dismissCrossProjectPreview() {
     crossProjectPreviewTask?.cancel(); crossProjectPreviewTask = nil
-    crossProjectPreviewPopover?.close(); crossProjectPreviewPopover = nil
+    let popover = crossProjectPreviewPopover; crossProjectPreviewPopover = nil
+    popover?.close()
     activeCrossProjectPreviewView = nil
   }
 
@@ -2832,7 +2846,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     addItem("계정 관리", #selector(manageAccountExplicitly), enabled: homepage != nil)
     moreMenu.addItem(.separator())
 
-    addItem("돌아가기", #selector(returnFromReference), enabled: currentMode == .nativeReflow && reader.canReturnFromReference)
+    addItem("돌아가기", #selector(returnFromReference), enabled: currentMode == .nativeReflow && (reader.canReturnFromReference || (canReturnFromCrossProject?() ?? false)))
     addItem("확대", #selector(zoomIn), enabled: true)
     addItem("축소", #selector(zoomOut), enabled: true)
     addItem("맞춤", #selector(fitPage), enabled: true)

@@ -90,7 +90,16 @@ struct CrossProjectPreviewTests {
     let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
       requiredCapabilities: ["semantic-tree-v1"], blocks: [link], assets: [], diagnostics: [])
     let context = NativeReaderRequestContext(requestID: UUID(), viewID: host.store.viewID, generation: generation, target: identity)
-    try host.textView.adopt(document, context: context)
+    let pending = CrossProjectNavigationEntry(profileID: "origin", documentTitle: "Origin", anchor: "origin", blockID: nil, scrollOffset: 0)
+    host.pendingCrossProjectTarget = pending
+    let adoption = try await host.prepare(document, context: context)
+    try adoption.adopt()
+    try check(host.pendingCrossProjectTarget == nil && host.textView.focusedNodeID == "link", "Document adoption consumes and restores pending location")
+    host.pendingCrossProjectTarget = pending
+    let reflow = try await host.prepare(document, context: context, reflowOnly: true)
+    try reflow.adopt()
+    try check(host.pendingCrossProjectTarget == pending, "Reflow preserves pending location")
+    host.pendingCrossProjectTarget = nil
     host.hostWindow.window?.contentView?.layoutSubtreeIfNeeded()
     let project = CrossProjectCatalogProject(title: "Book", pdfURL: "https://example.org/book.pdf",
       references: ["thm": CrossProjectCatalogEntry(page: 2, text: text)], ambiguousLabels: [])
@@ -126,6 +135,24 @@ struct CrossProjectPreviewTests {
       continuations[1].resume(returning: loaded)
       await Task.yield()
       try check(current.content == loaded, "Current snippet updates")
+      _ = host.textView.activate(nodeID: "link")
+      await Task.yield()
+      guard let dismissed = host.activeCrossProjectPreviewView,
+            let popover = Mirror(reflecting: host).children.first(where: { $0.label == "crossProjectPreviewPopover" })?.value as? NSPopover,
+            let delegate = popover.delegate else { throw Failure(message: "Presented popover") }
+      popover.close()
+      // Deliver the same AppKit delegate event if an offscreen popover was not shown.
+      delegate.popoverDidClose?(Notification(name: NSPopover.didCloseNotification, object: popover))
+      try check(host.activeCrossProjectPreviewView == nil, "Popover close clears active preview")
+      _ = host.textView.activate(nodeID: "link")
+      await Task.yield()
+      guard let newest = host.activeCrossProjectPreviewView else { throw Failure(message: "Replacement preview") }
+      delegate.popoverDidClose?(Notification(name: NSPopover.didCloseNotification, object: popover))
+      try check(host.activeCrossProjectPreviewView === newest, "Old close event cannot dismiss replacement")
+      continuations[2].resume(returning: loaded)
+      continuations[3].resume(returning: nil)
+      await Task.yield()
+      try check(dismissed.content != loaded, "Dismissed preview ignores late snippet")
     } else {
       var captured: CrossProjectNavigationEntry?
       var target: CrossProjectPreviewContent?
@@ -146,16 +173,20 @@ struct CrossProjectPreviewTests {
         throw Failure(message: "Back control")
       }
       try check(back.isEnabled, "Cross-project return enables Back")
+      guard let menuBack = host.hostWindow.moreMenu.item(withTitle: "돌아가기") else { throw Failure(message: "Back menu item") }
+      try check(menuBack.isEnabled, "Cross-project return enables Back menu item")
       _ = host.textView.navigate(toNodeID: "link")
       try check(host.textView.canReturnFromReference, "Fixture provides local return")
       host.hostWindow.returnFromReference()
       try check(returns == 0 && !host.textView.canReturnFromReference, "Local return has priority")
-      host.hostWindow.returnFromReference()
+      guard let crossBack = host.hostWindow.moreMenu.item(withTitle: "돌아가기"), crossBack.isEnabled,
+            let action = crossBack.action else { throw Failure(message: "Cross-project Back menu action") }
+      _ = NSApp.sendAction(action, to: crossBack.target, from: crossBack)
       try check(returns == 1, "Next Back invokes cross-project return")
       host.hostWindow.displayMode(.originalPages)
       host.hostWindow.updateNavigation()
       host.hostWindow.returnFromReference()
-      try check(!back.isEnabled && returns == 1, "Original pages disable Back")
+      try check(!back.isEnabled && host.hostWindow.moreMenu.item(withTitle: "돌아가기")?.isEnabled == false && returns == 1, "Original pages disable Back")
     }
   }
 
