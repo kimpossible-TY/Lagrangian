@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
@@ -195,7 +197,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(layout, dict(naturalUnit='pt', width=dict(value=48, unit='pt'), height=dict(value=18, unit='pt'), placement='block', fit='fill', loading='lazy', decoding='async'))
         self.assertEqual(result.assets[key], data)  # Original digest-bound SVG bytes.
         for attrs in ['width="0"', 'width="NaN"', 'height="inf"', 'width="4097"', 'width="-1"',
-                      'width="20%"', 'width="1e999"', 'width', 'style', 'loading="auto"', 'decoding="lazy"',
+                      'width="101%"', 'width="1e999"', 'width', 'style', 'loading="auto"', 'decoding="lazy"',
                       'style="width: calc(1pt + 2pt)"', 'style="width: 2pt; width: 3pt"',
                       'style="position: absolute"', 'style="display: none"', 'style="overflow: visible"',
                       'style="object-fit: cover"', 'style="background: url(https://example.org/x)"']:
@@ -248,6 +250,259 @@ class ContractTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(NativeImportError):
                 import_accepted_document(bundle(source), document_id='fixture', service_id='offline', generation=1)
 
+    def test_pde_metadata_attributes_and_unknown_attributes(self):
+        def imported(html):
+            bundle = SectionBundle({'revision': 'pde-attributes', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body>' + html + '</body></html>').encode()}, {}, [])
+            return import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+
+        canvas = imported('<div class="flow-canvas" data-flow-canvas-identity="canvas-1">Canvas</div>')
+        self.assertEqual(canvas.document['blocks'][0]['canonicalText'], 'Canvas')
+        anchor = imported('<a href="https://example.org" data-project-ref-project="p" '
+                          'data-project-ref-label="l" data-project-ref-title="t" '
+                          'data-project-ref-page="1" data-project-ref-text="text">Link</a>')
+        self.assertEqual(anchor.document['blocks'][0]['link'], 'https://example.org')
+        for html in ['<div data-unknown="x">Canvas</div>', '<a href="https://example.org" data-unknown="x">Link</a>']:
+            with self.subTest(html=html), self.assertRaisesRegex(NativeImportError, '^unsupported-attribute$'):
+                imported(html)
+
+    def test_pde_constructs_and_sanitization(self):
+        def imported(html):
+            bundle = SectionBundle({'revision': 'pde', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body>' + html + '</body></html>').encode()}, {}, [])
+            return import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+        classes = 'flow-callout flow-callout-title flow-definition flow-note flow-lemma flow-proposition flow-emphasis flow-theorem flow-paragraph-tab flow-highlight flow-flowbox flow-aligned prefix flow-graphic flow-grid flow-book-cover flow-canvas flow-canvas-stage flow-canvas-labels flow-canvas-label flow-canvas-label-number flow-canvas-label-body flow-canvas-stack'
+        html = ('<section class="' + classes + '" data-flow-canvas="x"><header role="doc-toc">H</header><nav><ol style="list-style-type:decimal"><li value="3"><sup>3</sup><mark>M</mark><code>C</code></li></ol><ul><li>L</li></ul></nav>'
+                '<div style="display:flex;flex-wrap:wrap;flex-direction:row;gap:1em"><span aria-hidden="true" data-flow-request="x" data-flow-graphic="x" data-flow-canvas-package="x" data-flow-canvas-model="x" data-flow-canvas-label="x" style="white-space:pre;display:inline;font-size:1em;font-weight:bold;font-style:italic;color:red">x</span></div>'
+                '<p><math><mmultiscripts><mi data-flow-mark="m" style="color:red">x</mi><mprescripts></mprescripts><mrow data-flow-mark="m"></mrow></mmultiscripts><sup id="fn"><a href="#end">1</a></sup><span class="flow-graphic"></span><br><code>c</code></math><span data-flow-targets="[&quot;m&quot;]">z</span></p><p id="end" role="doc-endnotes"><a role="doc-backlink" href="#fn">back</a></p></section>')
+        result = imported(html)
+        def walk(node):
+            yield node
+            for child in node['children']:
+                yield from walk(child)
+        nodes = [n for block in result.document['blocks'] for n in walk(block)]
+        mathnode = next(n for n in nodes if n['kind'] == 'math')
+        self.assertEqual(mathnode['anchors'], ['mark:m', 'fn'])
+        self.assertIn('<msup><mrow></mrow><mtext>1</mtext></msup>', mathnode['math']['mathML'])
+        self.assertNotIn('data-flow-', mathnode['math']['mathML'])
+        self.assertEqual(mathnode['canonicalText'], 'x1\nc')
+        duplicate = imported('<p><math><mi id="mark:x" data-flow-mark="x">x</mi><mi data-flow-mark="x">y</mi></math><span data-flow-targets="[&quot;x&quot;]">z</span></p>')
+        duplicate_math = next(n for b in duplicate.document['blocks'] for n in walk(b) if n['kind'] == 'math')
+        self.assertEqual(duplicate_math['anchors'], ['mark:x'])
+        gradient = imported('<svg><defs><linearGradient id="g"><stop stop-color="#ff000080" stop-opacity="0.5"/></linearGradient></defs><rect fill="url(#g)" style="stroke:#00ff0080;stroke-opacity:0.5"/><rect style="fill:#ff000080;fill-opacity:0.5"/></svg>')
+        normalized = next(iter(gradient.assets.values())).decode()
+        self.assertIn('stop-color="#ff0000"', normalized)
+        self.assertIn('stop-opacity="0.25098039215686274"', normalized)
+        self.assertIn('stroke:#00ff00;stroke-opacity:0.25098039215686274', normalized)
+        self.assertIn('fill:#ff0000;fill-opacity:0.25098039215686274', normalized)
+        png = base64.b64encode(b'\x89PNG\r\n\x1a\n').decode()
+        svg = '<svg xmlns:h5="http://www.w3.org/1999/xhtml"><svg><rect fill="#ff000080" stroke="oklab(100% 0 0)"/><image width="1" height="1" href="data:image/png;base64,' + png + '" data-flow-raster-layer="x"/></svg></svg>'
+        data = next(iter(imported(svg).assets.values())).decode()
+        for part in ['fill="#ff0000"', 'fill-opacity=', 'stroke="#ffffff"', '<image', '<svg><svg>']:
+            self.assertIn(part, data)
+        self.assertNotIn('xmlns:h5', data)
+        for bad in ['<span style="color:expression(x)">x</span>', '<div style="position:absolute">x</div>', '<svg><image width="1" height="1" href="https://example.org/x"/></svg>', '<svg><image width="1" height="1" href="data:image/jpeg;base64,AAAA"/></svg>', '<svg><text>x</text></svg>']:
+            with self.subTest(bad=bad), self.assertRaises(NativeImportError):
+                imported(bad)
+
+    def test_pde_marks_math_html_styles_and_numbering(self):
+        from html import escape
+        from xml.etree import ElementTree as ET
+        def imported(html):
+            bundle = SectionBundle({'revision': 'pde-regression', 'sections': [{'id': 'a'}, {'id': 'b'}]},
+                {'a': ('<html><body>' + html + '</body></html>').encode(),
+                 'b': b'<html><body><p id="same"><span data-flow-mark="repeat">again</span></p></body></html>'}, {}, [])
+            return import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).document
+        name = '한글 mark, spaced'
+        encoded = 'mark:h-' + hashlib.sha256(name.encode()).hexdigest()[:24]
+        targets = escape(json.dumps([name, 'repeat'], ensure_ascii=False), quote=True)
+        html = ('<p id="same"><span data-flow-mark="' + name + '">A</span><span id="mark:repeat" data-flow-mark="repeat">B</span></p>'
+                '<p><math><mi data-flow-mark="repeat">x</mi>'
+                '<span class="flow-annotation" data-flow-targets="' + targets + '">α<span style="font-family:serif;text-decoration:underline">β</span></span>'
+                '<span class="flow-graphic" data-flow-graphic="opaque" data-flow-targets="repeat">G</span>'
+                '<span>plain</span><sup id="note" role="doc-noteref"><a href="#same">1</a></sup>'
+                '<a href="https://example.org">link</a><br><code data-lang="typst">code</code></math>'
+                '<span data-flow-targets="repeat, repeat">Z</span></p>'
+                '<ol start="4"><li>four</li><li value="9">nine</li><li>ten<ol><li>one</li></ol></li><li value="-2">minus</li><li>minus one</li></ol>')
+        document = imported(html)
+        def walk(n):
+            yield n
+            for c in n['children']:
+                yield from walk(c)
+        nodes = [n for b in document['blocks'] for n in walk(b)]
+        anchors = [a for n in nodes for a in n['anchors']]
+        self.assertEqual(anchors, ['same', encoded, 'mark:repeat', 'note'])
+        mathnode = next(n for n in nodes if n['kind'] == 'math')
+        self.assertEqual(mathnode['annotationTargets'], [encoded, 'mark:repeat', 'mark:repeat'])
+        self.assertEqual(mathnode['canonicalText'], 'xαβGplain1link\ncode')
+        self.assertEqual(mathnode['canonicalText'], mathnode['displayText'])
+        xml = ET.fromstring(mathnode['math']['mathML'])
+        self.assertEqual(''.join(xml.itertext()), mathnode['canonicalText'])
+        self.assertTrue(all(e.tag in {'math', 'mi', 'mrow', 'mtext', 'msup'} for e in xml.iter()))
+        self.assertEqual([n['listItemNumber'] for n in nodes if 'listItemNumber' in n], [4, 9, 10, 1, -2, -1])
+        self.assertEqual(imported(html), document)
+        # Exercise the actual Swift wire decoder, recovery encoding and rebinding,
+        # including mark: tokens whose prefix extends the 128-character name.
+        names = ['a' * 128, 'a' * 129, '공백 이름']
+        extra = ''.join('<span data-flow-mark="' + n + '">' + n + '</span>' for n in names)
+        extra += '<span data-flow-targets="' + escape(json.dumps(names), quote=True) + '">target</span>'
+        pde = self.out / 'pde-contract.json'
+        save(pde, imported(html + '<p>' + extra + '</p>'))
+        self.assertEqual(self.command([self.out / 'ContractTests', '--roundtrip', pde]), 'ok')
+        for family in ['sans-serif', 'serif', 'monospace']:
+            for decoration in ['underline', 'none', 'line-through']:
+                imported('<p><span style="font-family:' + family + ';text-decoration:' + decoration + '">ok</span></p>')
+        for bad in ['<span data-flow-targets="[1]">x</span>', '<span data-flow-targets="[]">x</span>',
+                    '<span data-flow-targets="[&quot;x&quot;,]">x</span>', '<span data-flow-targets="[&quot;&quot;]">x</span>',
+                    '<span style="font-family:evil">x</span>', '<span style="text-decoration:blink">x</span>',
+                    '<math><span style="font-family:url(evil)">x</span></math>', '<math><a href="file:///x">x</a></math>',
+                    '<math><span onclick="x">x</span></math>', '<math><code data-lang="x"><script>x</script></code></math>',
+                    '<ol><li value="2147483648">x</li></ol>', '<ol start="oops"><li>x</li></ol>']:
+            with self.subTest(bad=bad), self.assertRaises(NativeImportError):
+                imported(bad)
+
+    def test_svg_alpha_precedence_and_oklab(self):
+        from xml.etree import ElementTree as ET
+        def normalized(body):
+            bundle = SectionBundle({'revision': 'colors', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body><svg viewBox="0 0 10 10">' + body + '</svg></body></html>').encode()}, {}, [])
+            result = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+            return ET.fromstring(next(iter(result.assets.values())))
+        for color, opacity in [('fill', 'fill-opacity'), ('stroke', 'stroke-opacity'), ('stop-color', 'stop-opacity')]:
+            for paint_style in [False, True]:
+                for alpha_style in [False, True]:
+                    attrs, style = {}, {}
+                    (style if paint_style else attrs)[color] = '#12345680'
+                    (style if alpha_style else attrs)[opacity] = '0.5'
+                    if style:
+                        attrs['style'] = ';'.join(k + ':' + v for k, v in style.items())
+                    attr = ' '.join(k + '="' + v + '"' for k, v in attrs.items())
+                    body = '<stop ' + attr + '/>' if color == 'stop-color' else '<rect width="10" height="10" ' + attr + '/>'
+                    if color == 'stop-color':
+                        body = '<defs><linearGradient id="g">' + body + '</linearGradient></defs>'
+                    node = next(e for e in normalized(body).iter() if e.tag == ('stop' if color == 'stop-color' else 'rect'))
+                    effective = dict(node.attrib)
+                    effective.update(dict(p.split(':') for p in effective.pop('style', '').split(';') if p))
+                    self.assertEqual(effective[color], '#123456')
+                    self.assertAlmostEqual(float(effective[opacity]), 0.5 * 128 / 255)
+            # A style paint overrides the attribute paint and its alpha.
+            node = normalized('<rect fill="#12345680" fill-opacity="0.5" style="fill:#abcdef40;fill-opacity:0.25"/>')[0]
+            self.assertIn('fill-opacity:' + str(0.25 * 64 / 255), node.attrib['style'])
+        colors = ['oklab(0% 0 0)', 'oklab(100% 0 0)', 'oklab(50% 0 0)', 'oklab(200% 0 0)', 'oklab(-20% 0 0)', 'oklab(70% 0.4 -0.4)']
+        root = normalized(''.join('<rect fill="' + c + '"/>' for c in colors))
+        self.assertEqual([e.attrib['fill'] for e in root][:5], ['#000000', '#ffffff', '#636363', '#ffffff', '#000000'])
+        self.assertRegex(root[-1].attrib['fill'], r'^#[0-9a-f]{6}$')
+
+    def test_svg_hex_alpha_inherits_paint_and_explicit_opacity_separately(self):
+        from xml.etree import ElementTree as ET
+        def effective(node):
+            attrs = dict(node.attrib)
+            attrs.update(dict(p.split(':') for p in attrs.pop('style', '').split(';') if p))
+            return attrs
+        def normalized(body, delivery='inline'):
+            svg = '<svg viewBox="0 0 10 10">' + body + '</svg>'
+            assets = {}
+            if delivery == 'data':
+                html = '<img src="data:image/svg+xml;base64,' + base64.b64encode(svg.encode()).decode() + '">'
+            elif delivery == 'asset':
+                key = hashlib.sha256(svg.encode()).hexdigest() + '.svg'
+                assets[key] = svg.encode()
+                html = '<img src="api/assets/' + key + '">'
+            else:
+                html = svg
+            bundle = SectionBundle({'revision': 'alpha-inheritance', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body>' + html + '</body></html>').encode()}, assets, [])
+            result = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+            return ET.fromstring(next(iter(result.assets.values())))[0]
+        for paint in ['fill', 'stroke']:
+            opacity = paint + '-opacity'
+            for color, alpha in [('#ff000080', 128 / 255), ('#f008', 136 / 255)]:
+                for css in [False, True]:
+                    def attr(values):
+                        return ('style="' + ';'.join(k + ':' + v for k, v in values.items()) + '"' if css else
+                                ' '.join(k + '="' + v + '"' for k, v in values.items()))
+                    with self.subTest(paint=paint, color=color, css=css):
+                        group = normalized('<g ' + attr({opacity: '0.5'}) + '><g><rect ' + attr({paint: color}) + '/></g></g>')
+                        child = effective(group[0][0])
+                        self.assertEqual(child[paint], '#ff0000')
+                        self.assertAlmostEqual(float(child[opacity]), 0.5 * alpha)
+                        group = normalized('<g ' + attr({paint: color, opacity: '0.5'}) + '><g><rect ' + attr({paint: '#0000ff'}) + '/></g><rect/><rect ' + attr({opacity: '0.25'}) + '/></g>')
+                        self.assertAlmostEqual(float(effective(group)[opacity]), 0.5 * alpha)
+                        self.assertEqual(effective(group[0][0])[paint], '#0000ff')
+                        self.assertAlmostEqual(float(effective(group[0][0])[opacity]), 0.5)
+                        self.assertAlmostEqual(float(effective(group[1])[opacity]), 0.5 * alpha)
+                        self.assertAlmostEqual(float(effective(group[2])[opacity]), 0.25 * alpha)
+                        group = normalized('<g ' + attr({paint: color}) + '><rect ' + attr({paint: '#0000ff'}) + '/></g>')
+                        self.assertEqual(float(effective(group[0])[opacity]), 1)
+                for delivery in ['inline', 'data', 'asset']:
+                    # CSS paint and presentation opacity have independent
+                    # cascades, including through digest-bound SVG delivery.
+                    group = normalized('<g style="' + opacity + ':0.5"><g ' + paint + '="' + color +
+                        '"><rect style="' + paint + ':#0000ff"/><rect ' + opacity +
+                        '="0.25"/><rect ' + paint + '="' + color + '" style="' + opacity + ':0.75"/></g></g>', delivery)
+                    children = [effective(child) for child in group[0]]
+                    with self.subTest(paint=paint, color=color, delivery=delivery):
+                        self.assertEqual(float(children[0][opacity]), 0.5)
+                        self.assertAlmostEqual(float(children[1][opacity]), 0.25 * alpha)
+                        self.assertAlmostEqual(float(children[2][opacity]), 0.75 * alpha)
+
+    def test_svg_use_hex_alpha_inherits_instance_opacity(self):
+        from xml.etree import ElementTree as ET
+        for paint in ('fill', 'stroke'):
+            opacity = paint + '-opacity'
+            for color, alpha in (('#ff000080', 128 / 255), ('#f008', 136 / 255)):
+                for opaque in (False, True):
+                    target = ('<g id="target" ' + paint + '="' + color + '"><rect ' + paint + '="#0000ff"/></g>'
+                              if opaque else '<rect id="target" ' + paint + '="' + color + '"/>')
+                    svg = '<svg viewBox="0 0 10 10"><defs>' + target + '</defs><use href="#target" ' + opacity + '="0.5"/></svg>'
+                    bundle = SectionBundle({'revision': 'use-alpha', 'sections': [{'id': 's'}]},
+                        {'s': ('<html><body>' + svg + '</body></html>').encode()}, {}, [])
+                    result = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+                    root = ET.fromstring(next(iter(result.assets.values())))
+                    use = next(e for e in root.iter() if e.tag.endswith('use'))
+                    identifier = next(v[1:] for k, v in use.attrib.items() if k.endswith('href'))
+                    instance = next(e for e in root.iter() if e.attrib.get('id') == identifier)
+                    rect = next(e for e in instance.iter() if e.tag.endswith('rect'))
+                    attrs = dict(rect.attrib)
+                    attrs.update(dict(p.split(':') for p in attrs.pop('style', '').split(';') if p))
+                    with self.subTest(paint=paint, color=color, opaque=opaque):
+                        self.assertAlmostEqual(float(attrs[opacity]), 0.5 * (1 if opaque else alpha))
+                        self.assertEqual(attrs[paint], '#0000ff' if opaque else '#ff0000')
+
+    def test_percentage_image_layout(self):
+        data = b'<svg viewBox="0 0 20 10"><rect width="20" height="10"/></svg>'
+        key = hashlib.sha256(data).hexdigest() + '.svg'
+        for attrs in ['width="50%" height="100%"', 'style="width:50%;height:100%"']:
+            b = SectionBundle({'revision': 'percent', 'sections': [{'id': 's'}]},
+                {'s': ('<html><body><img src="api/assets/' + key + '" ' + attrs + '></body></html>').encode()}, {key: data}, [])
+            result = import_accepted_document(b, document_id='fixture', service_id='offline', generation=1)
+            layout = result.document['blocks'][0]['imageLayout']
+            self.assertEqual(layout['width'], {'value': 50, 'unit': '%'})
+            self.assertEqual(layout['height'], {'value': 100, 'unit': '%'})
+            fixture = self.out / 'percentage-contract.json'
+            save(fixture, result.document)
+            self.assertEqual(self.command([self.out / 'ContractTests', '--roundtrip', fixture]), 'ok')
+        from flow_reader.document.native_document import _image_layout
+        for value in ['0%', '-1%', '100.01%', 'NaN%', 'inf%', '1e999%']:
+            with self.subTest(value=value), self.assertRaises(NativeImportError):
+                _image_layout({'width': value}, natural_unit='px')
+
+    def test_compact_document_budget(self):
+        from flow_reader.server import native_reader
+        self.assertEqual(native_reader.MAX_DOCUMENT, 64 * 1024 * 1024)
+        document = {'values': ['a', 'b']}
+        compact = len(json.dumps(document, ensure_ascii=False, separators=(',', ':')).encode())
+        snapshot = SimpleNamespace(revision='r', inputs='i', bundle=None)
+        state = SimpleNamespace(focus=SimpleNamespace(service={'pid': 1, 'startedAt': 2}), document_id='d')
+        service = native_reader.NativeReaderService.__new__(native_reader.NativeReaderService)
+        service.state, service.cached = state, None
+        result = SimpleNamespace(document=document, assets={})
+        with patch.object(native_reader, 'import_accepted_document', return_value=result), patch.object(native_reader, 'MAX_DOCUMENT', compact):
+            self.assertIs(service.imported(snapshot), result)
+            service.cached = None
+            with patch.object(native_reader, 'MAX_DOCUMENT', compact - 1), self.assertRaisesRegex(ValueError, 'document limit'):
+                service.imported(snapshot)
+
     def test_independent_units(self):
         for case in self.oracle['unicodeCases']:
             text = self.model['blocks'][1]['canonicalText']
@@ -258,8 +513,8 @@ class ContractTests(unittest.TestCase):
 
     def test_atomic_import_rejections(self):
         original = copy.deepcopy(self.model)
-        for html in ['<unknown>lost</unknown>', '<p><span style="color:red">unhandled style</span></p>',
-                     '<p id="same">A</p><p id="same">B</p>', '<p><a href="file:///private/data">bad</a></p>',
+        for html in ['<unknown>lost</unknown>', '<p><span style="color:url(evil)">unsafe style</span></p>',
+                     '<p><a href="file:///private/data">bad</a></p>',
                      '<p><math><unknown>x</unknown></math></p>', '<p><img src="/private/picture.png"></p>',
                      '<svg><script>unsafe</script></svg>', '<svg><use href="file:///private/glyph"></use></svg>',
                      '<p role="button">unknown role</p>']:

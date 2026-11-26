@@ -40,15 +40,18 @@ struct NativeVectorScene {
 
     static func decode(_ data: Data, dark: Bool, pixelBudget: Int = 16 * 1024 * 1024,
                        targetSize: CGSize? = nil) throws -> Self {
-        guard data.count <= max(0, pixelBudget) / 16 else { throw NativeObjectError.budget }
+        let pixelBudget = min(max(0, pixelBudget), 16 * 1024 * 1024)
+        let embeddedByteLimit = 6 * 1024 * 1024
+        guard data.count <= embeddedByteLimit else { throw NativeObjectError.budget }
         let safe = try NativeSafeSVG.inspect(data, dark: dark)
+        guard safe.hasEmbeddedPNG || data.count <= pixelBudget / 16 else { throw NativeObjectError.budget }
         let display = targetSize ?? safe.viewport
         guard display.width.isFinite, display.height.isFinite, display.width > 0, display.height > 0, display.width <= 8192, display.height <= 8192 else { throw NativeObjectError.budget }
         // Keep the exact native path consumer for MathJax's glyph/advance oracle.
         // Rich SVG is decoded only after the same security/complexity boundary.
         if !safe.rich {
             let delegate = NativeSVGParser(dark: dark)
-            let parser = XMLParser(data: safe.data)
+            let parser = XMLParser(data: try safe.data)
             parser.shouldResolveExternalEntities = false; parser.delegate = delegate
             guard parser.parse(), delegate.failure == nil, delegate.depth == 0,
                   let box = delegate.box, !delegate.shapes.isEmpty else {
@@ -60,7 +63,7 @@ struct NativeVectorScene {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, size.width <= 4096, size.height <= 4096 else { throw NativeObjectError.budget }
         let w = Int(ceil(size.width * 2)), h = Int(ceil(size.height * 2))
         guard w > 0, h > 0, w <= 8192, h <= 8192, w <= pixelBudget / 4 / h else { throw NativeObjectError.budget }
-        let xml = safe.serialized(width: w, height: h)
+        let xml = try safe.serialized(width: w, height: h)
         guard let native = NSImage(data: xml) else { throw NativeObjectError.unsupported("native-svg-decode") }
         native.size = NSSize(width: w, height: h)
         var rect = NSRect(x: 0, y: 0, width: w, height: h)
@@ -239,7 +242,7 @@ private final class NativeSVGParser: NSObject, XMLParserDelegate {
         do {
             guard depth < 128, shapes.count < 20000 else { throw NativeObjectError.budget }
             let common: Set<String> = ["xmlns", "xmlns:xlink", "id", "role", "focusable", "aria-hidden", "aria-label", "data-mml-node", "data-c", "data-mjx-texclass", "data-latex", "transform", "fill", "stroke", "stroke-width", "fill-rule", "opacity", "fill-opacity", "stroke-opacity", "style", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset"]
-            let local: [String: Set<String>] = ["svg": ["viewBox", "width", "height", "preserveAspectRatio"], "g": [], "path": ["d"], "rect": ["x", "y", "width", "height"], "circle": ["cx", "cy", "r"], "ellipse": ["cx", "cy", "rx", "ry"], "line": ["x1", "y1", "x2", "y2"], "polyline": ["points"], "polygon": ["points"]]
+            let local: [String: Set<String>] = ["svg": ["viewBox", "width", "height", "preserveAspectRatio", "overflow"], "g": [], "path": ["d"], "rect": ["x", "y", "width", "height"], "circle": ["cx", "cy", "r"], "ellipse": ["cx", "cy", "rx", "ry"], "line": ["x1", "y1", "x2", "y2"], "polyline": ["points"], "polygon": ["points"]]
             guard let allowed = local[name], Set(a.keys).isSubset(of: common.union(allowed)),
                   depth != 0 || name == "svg", name != "svg" || depth == 0 else { throw NativeObjectError.unsupported("svg-element-or-attribute") }
             if let css = a["style"] {
@@ -420,6 +423,59 @@ actor NativeMathWorker {
         return try NativeMathLayout.decode(bytes, math: math, context: context, width: width)
     }
 
+    func calculateBatch(_ items: [(id: String, math: NativeMath, width: Double)], context: NativeObjectContext) async throws -> [String: NativeMathLayout] {
+        try Task.checkCancellation()
+        try context.validate()
+        guard Set(items.map(\.id)).count == items.count else { throw NativeObjectError.stale }
+        // Validate the complete request before starting any child. A malformed
+        // later chunk must not spend subprocess work on an unusable batch.
+        for item in items {
+            try Task.checkCancellation()
+            guard item.width.isFinite, (16...8192).contains(item.width) else { throw NativeObjectError.invalidGeometry }
+            guard item.math.mathML.utf8.count <= 65536 else { throw NativeObjectError.budget }
+        }
+        var layouts = [String: NativeMathLayout]()
+        struct Input: Hashable { let mathML: String; let width: Double }
+        for start in stride(from: 0, to: items.count, by: 256) {
+            try Task.checkCancellation()
+            let chunk = items[start..<min(start + 256, items.count)]
+            // Repeated symbols/formulas share computation only within this
+            // bounded invocation. Each semantic item is still decoded below.
+            var requests = [[String: Any]](), indices = [Input: Int](), positions = [Int]()
+            for item in chunk {
+                try Task.checkCancellation()
+                let input = Input(mathML: item.math.mathML, width: item.width)
+                if let index = indices[input] { positions.append(index); continue }
+                positions.append(requests.count); indices[input] = requests.count
+                requests.append(["mathML": item.math.mathML, "width": item.width, "fontSize": context.fontSize,
+                    "font": "MathJaxNewcm", "context": ["revision": context.identity.revision,
+                    "generation": context.generation, "theme": context.theme.rawValue]])
+            }
+            guard active < 2 else { throw NativeObjectError.unsupported("math-worker-busy") }
+            let input = try JSONSerialization.data(withJSONObject: ["kind": "mathml-batch", "items": requests])
+            active += 1
+            defer { active -= 1 }
+            let cancellation = NativeMathCancellation(), node = self.node, helper = self.helper,
+                runtime = self.runtime, timeout = self.timeout, record = self.record
+            let bytes = try await withTaskCancellationHandler(operation: {
+                try await Task.detached(priority: .userInitiated) {
+                    try Self.execute(node: node, helper: helper, runtime: runtime, input: input,
+                        timeout: timeout, cancellation: cancellation, record: record)
+                }.value
+            }, onCancel: { cancellation.cancel() })
+            try Task.checkCancellation()
+            guard let response = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  response["kind"] as? String == "mathml-batch", let results = response["items"] as? [[String: Any]],
+                  results.count == requests.count else { throw NativeObjectError.stale }
+            for (item, position) in zip(chunk, positions) {
+                try Task.checkCancellation()
+                layouts[item.id] = try NativeMathLayout.decode(JSONSerialization.data(withJSONObject: results[position]),
+                    math: item.math, context: context, width: item.width)
+            }
+        }
+        return layouts
+    }
+
     func prepare(tex: String, display: Bool, context: NativeObjectContext) async throws -> NativePreparedAnswerMath {
         let bytes = try await compute(["kind": "tex", "tex": tex, "display": display], source: tex, context: context, width: context.width)
         struct Meaning: Decodable {
@@ -577,24 +633,119 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
     private var failure: NativeObjectError?
     private let dark: Bool
     private(set) var rich = false
+    private(set) var hasEmbeddedPNG = false
     private(set) var viewport = CGSize.zero
     private(set) var box = CGRect.zero
     init(dark: Bool) { self.dark = dark }
-    var data: Data { Data(xml(root!).utf8) }
-    func serialized(width: Int, height: Int) -> Data {
+    var data: Data { get throws { Data(try xml(root!, viewport: box.size).utf8) } }
+    func serialized(width: Int, height: Int) throws -> Data {
         var attrs = root!.attrs
         attrs["width"] = "\(width)pt"; attrs["height"] = "\(height)pt"
         attrs["xmlns:xlink"] = "http://www.w3.org/1999/xlink"
         attrs["xmlns"] = "http://www.w3.org/2000/svg"
-        return Data(xml(root!, attributes: attrs).utf8)
+        return Data(try xml(root!, attributes: attrs, viewport: box.size).utf8)
     }
-    private func xml(_ n: Element, attributes: [String: String]? = nil) -> String {
+    // Resolve a value copy for this instance. Definitions can be reached with
+    // several different parent viewports during validation and serialization.
+    private func viewportAttributes(_ attributes: [String: String], viewport: CGSize) throws -> ([String: String], CGSize) {
+        var attrs = attributes
+        let w = try side(attrs["width"], viewport.width), h = try side(attrs["height"], viewport.height)
+        attrs["width"] = String(Double(w)); attrs["height"] = String(Double(h))
+        if attrs["viewBox"] == nil { attrs["viewBox"] = "0 0 \(w) \(h)" }
+        let v = try numbers(attrs["viewBox"]!)
+        return (attrs, CGSize(width: v[2], height: v[3]))
+    }
+    private func side(_ raw: String?, _ fallback: CGFloat) throws -> CGFloat {
+        guard let raw = raw else { return fallback }
+        let suffix = raw.hasSuffix("pt") ? "pt" : raw.hasSuffix("px") ? "px" : ""
+        guard let n = Double(suffix.isEmpty ? raw : String(raw.dropLast(2))), n.isFinite, n > 0, n <= 1e8 else { throw NativeObjectError.invalidGeometry }
+        return CGFloat(n * (suffix == "pt" ? 4.0 / 3 : 1))
+    }
+    private func viewportMapping(_ attrs: [String: String]) throws -> CGAffineTransform {
+        let w = try side(attrs["width"], 0), h = try side(attrs["height"], 0)
+        let v = try numbers(attrs["viewBox"]!)
+        return viewBoxMapping(v, width: w, height: h,
+                              x: CGFloat(Double(attrs["x"] ?? "0") ?? 0),
+                              y: CGFloat(Double(attrs["y"] ?? "0") ?? 0),
+                              aspect: attrs["preserveAspectRatio"] ?? "xMidYMid meet")
+    }
+    private func viewBoxMapping(_ v: [CGFloat], width w: CGFloat, height h: CGFloat,
+                                x: CGFloat, y: CGFloat, aspect: String) -> CGAffineTransform {
+        var sx = w / v[2], sy = h / v[3], tx = x, ty = y
+        if aspect != "none" {
+            sx = aspect.hasSuffix("slice") ? max(sx, sy) : min(sx, sy); sy = sx
+            let align: CGFloat = aspect.hasPrefix("xMinYMin") ? 0 : aspect.hasPrefix("xMaxYMax") ? 1 : 0.5
+            tx += (w - v[2] * sx) * align; ty += (h - v[3] * sy) * align
+        }
+        return CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: tx - v[0] * sx, ty: ty - v[1] * sy)
+    }
+    private func requiresInstanceExpansion(_ e: Element) -> Bool {
+        e.name == "svg" || e.attrs["fill-opacity"] != nil || e.attrs["stroke-opacity"] != nil ||
+            e.children.contains(where: requiresInstanceExpansion) ||
+            e.refs.compactMap { ids[$0] }.contains(where: requiresInstanceExpansion)
+    }
+    private func xml(_ n: Element, attributes: [String: String]? = nil, viewport: CGSize,
+                     instance: Bool = false, inheritedPaintOpacity: [String: String] = [:],
+                     inheritedPaint: [String: String] = [:]) throws -> String {
         func escape(_ s: String) -> String {
             s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;")
                 .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
         }
-        let a = attributes ?? n.attrs
-        return "<" + n.name + a.keys.sorted().map { " " + $0 + "=\"" + escape(a[$0]!) + "\"" }.joined() + ">" + n.children.map { xml($0) }.joined() + "</" + n.name + ">"
+        func tag(_ name: String, _ attrs: [String: String], _ body: String) -> String {
+            "<" + name + attrs.keys.sorted().map { " " + $0 + "=\"" + escape(attrs[$0]!) + "\"" }.joined() + ">" + body + "</" + name + ">"
+        }
+        var a = attributes ?? n.attrs, childViewport = viewport
+        var paintOpacity = inheritedPaintOpacity
+        var paint = inheritedPaint
+        let container = ["svg", "g", "defs", "symbol", "clipPath"].contains(n.name)
+        let paintOpacityKeys = ["fill-opacity", "stroke-opacity"]
+        for key in paintOpacityKeys {
+            if let value = a[key] { paintOpacity[key] = value }
+            // CoreSVG multiplies group paint opacity into child overrides.
+            // SVG paint opacity inherits by replacement; resolve it onto the
+            // painted elements instead, keeping group `opacity` independent.
+            if container {
+                a.removeValue(forKey: key)
+            } else if let value = paintOpacity[key] { a[key] = value }
+        }
+        for key in ["fill", "stroke"] {
+            if let value = a[key] { paint[key] = value }
+            // CoreSVG also drops leaf paint opacity when only the paint is
+            // inherited. Resolve both together on this instance's primitives.
+            if !container, paintOpacity[key + "-opacity"] != nil, let value = paint[key] { a[key] = value }
+        }
+        if n.name == "svg", n !== root {
+            (a, childViewport) = try viewportAttributes(a, viewport: viewport)
+        }
+        if instance { a.removeValue(forKey: "id") }
+        if n.name == "use", let href = a["xlink:href"], let target = ids[String(href.dropFirst())],
+           !paintOpacity.isEmpty || requiresInstanceExpansion(target) {
+            // Shared definitions keep authored attributes. Each expanded use
+            // resolves viewport dimensions and paint inheritance independently.
+            let x = a.removeValue(forKey: "x") ?? "0", y = a.removeValue(forKey: "y") ?? "0"
+            let width = a.removeValue(forKey: "width"), height = a.removeValue(forKey: "height")
+            a.removeValue(forKey: "xlink:href")
+            for key in paintOpacityKeys { a.removeValue(forKey: key) }
+            let body: String
+            if target.name == "symbol" {
+                var attrs = target.attrs
+                attrs.removeValue(forKey: "id")
+                attrs["width"] = width ?? attrs["width"] ?? String(Double(viewport.width))
+                attrs["height"] = height ?? attrs["height"] ?? String(Double(viewport.height))
+                let svg = Element("svg", attrs); svg.children = target.children
+                body = try xml(svg, viewport: viewport, instance: true, inheritedPaintOpacity: paintOpacity, inheritedPaint: paint)
+            } else { body = try xml(target, viewport: viewport, instance: true, inheritedPaintOpacity: paintOpacity, inheritedPaint: paint) }
+            return tag("g", a, tag("g", ["transform": "translate(\(x),\(y))"], body))
+        }
+        let body = try n.children.map { try xml($0, viewport: childViewport, instance: instance, inheritedPaintOpacity: paintOpacity, inheritedPaint: paint) }.joined()
+        if n.name == "svg", n !== root, a["overflow"] == "visible" {
+            // CoreSVG clips nested SVGs even with visible overflow. Keep its
+            // validated viewport mapping while expressing the unclipped body.
+            let t = try viewportMapping(a)
+            for key in ["x", "y", "width", "height", "viewBox", "preserveAspectRatio"] { a.removeValue(forKey: key) }
+            return tag("g", a, tag("g", ["transform": "matrix(\(t.a),\(t.b),\(t.c),\(t.d),\(t.tx),\(t.ty))"], body))
+        }
+        return tag(n.name, a, body)
     }
     static func inspect(_ data: Data, dark: Bool) throws -> NativeSafeSVG {
         guard !data.isEmpty, data.count <= 8 * 1024 * 1024,
@@ -621,7 +772,7 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             guard stack.count < 128, elements.count < 20000, attributes.count <= 64 else { throw NativeObjectError.budget }
             let common: Set<String> = ["xmlns", "xmlns:xlink", "id", "role", "focusable", "aria-label", "aria-hidden", "class", "style", "transform", "fill", "fill-rule", "fill-opacity", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "stroke-opacity", "opacity", "clip-path", "clip-rule", "data-mml-node", "data-mjx-texclass", "data-c", "data-latex"]
             let local: [String: Set<String>] = [
-                "svg": ["viewBox", "width", "height", "preserveAspectRatio"], "g": [], "defs": [],
+                "svg": ["viewBox", "x", "y", "width", "height", "preserveAspectRatio"], "g": [], "defs": [],
                 "symbol": ["viewBox", "width", "height", "preserveAspectRatio", "overflow"],
                 "use": ["href", "xlink:href", "x", "y", "width", "height"],
                 "path": ["d"], "rect": ["x", "y", "width", "height", "rx", "ry"], "circle": ["cx", "cy", "r"],
@@ -629,18 +780,20 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
                 "clipPath": ["clipPathUnits"],
                 "linearGradient": ["href", "xlink:href", "x1", "y1", "x2", "y2", "gradientUnits", "gradientTransform", "spreadMethod"],
                 "radialGradient": ["href", "xlink:href", "cx", "cy", "r", "fx", "fy", "fr", "gradientUnits", "gradientTransform", "spreadMethod"],
-                "stop": ["offset", "stop-color", "stop-opacity"]]
+                "stop": ["offset", "stop-color", "stop-opacity"],
+                "image": ["href", "xlink:href", "x", "y", "width", "height", "preserveAspectRatio"]]
             guard let allowed = local[name], Set(attributes.keys).isSubset(of: common.union(allowed)),
-                  !stack.isEmpty || root == nil && name == "svg", name != "svg" || stack.isEmpty else {
+                  !stack.isEmpty || root == nil && name == "svg" else {
                 throw NativeObjectError.unsupported("svg-element-or-attribute")
             }
             if let parent = stack.last {
                 if ["linearGradient", "radialGradient"].contains(parent.name), parent.children.count >= 256 { throw NativeObjectError.budget }
-                if parent.name == "use" || parent.name == "path" || parent.name == "stop" { throw NativeObjectError.unsupported("svg-child") }
+                if ["use", "path", "stop", "image"].contains(parent.name) { throw NativeObjectError.unsupported("svg-child") }
                 if ["linearGradient", "radialGradient"].contains(parent.name), name != "stop" { throw NativeObjectError.unsupported("svg-gradient-child") }
                 if name == "stop", !["linearGradient", "radialGradient"].contains(parent.name) { throw NativeObjectError.unsupported("svg-stop-parent") }
             }
             let e = Element(name, attributes)
+            if name == "svg", !stack.isEmpty { rich = true }
             try attributesChecked(e)
             if let id = e.attrs["id"] {
                 guard id.range(of: "^[A-Za-z0-9_.:-]{1,128}$", options: .regularExpression) != nil, ids[id] == nil else { throw NativeObjectError.unsupported("svg-id") }
@@ -663,9 +816,15 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
                 switch p[0] {
                 case "width", "height":
                     guard e.name == "svg", p[1].range(of: "^[0-9]+(?:\\.[0-9]+)?(?:em|pt|px)$", options: .regularExpression) != nil else { throw NativeObjectError.unsupported("svg-style") }
+                    let raw = p[1]
+                    guard let value = Double(raw.dropLast(2)), value.isFinite else { throw NativeObjectError.invalidGeometry }
+                    let scale = raw.hasSuffix("em") ? 16.0 : raw.hasSuffix("pt") ? 4.0 / 3 : 1
+                    e.attrs[p[0]] = String(value * scale)
                 case "display": guard e.name == "svg", p[1] == "block" else { throw NativeObjectError.unsupported("svg-style") }
-                case "overflow": guard e.name == "svg", p[1] == "visible" else { throw NativeObjectError.unsupported("svg-style") }
-                case "fill", "stroke", "fill-opacity", "stroke-opacity", "opacity", "stroke-width", "clip-path", "fill-rule", "clip-rule": e.attrs[p[0]] = p[1]
+                case "overflow":
+                    guard e.name == "svg", p[1] == "visible" else { throw NativeObjectError.unsupported("svg-style") }
+                    e.attrs["overflow"] = "visible"
+                case "fill", "stroke", "stop-color", "stop-opacity", "fill-opacity", "stroke-opacity", "opacity", "stroke-width", "clip-path", "fill-rule", "clip-rule": e.attrs[p[0]] = p[1]
                 default: throw NativeObjectError.unsupported("svg-style")
                 }
             }
@@ -684,6 +843,7 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
                 if ["r", "rx", "ry", "fr", "stroke-width"].contains(key), v < 0 { throw NativeObjectError.invalidGeometry }
                 if key == "stroke-miterlimit", v < 1 { throw NativeObjectError.invalidGeometry }
                 e.coordinate = max(e.coordinate, abs(v))
+                if ["svg", "image"].contains(e.name), ["x", "y"].contains(key) { e.attrs[key] = String(Double(v)) }
             }
             if ["width", "height"].contains(key) {
                 let regex = try NSRegularExpression(pattern: "^(\\+?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?)(pt|px|em|ex)?$")
@@ -698,7 +858,7 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
                 else if !["none", "black", "white"].contains(value), value.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) == nil { throw NativeObjectError.unsupported("svg-paint") }
             }
             if key == "clip-path" { if value != "none" { _ = try reference(value, url: true) }; rich = true }
-            if ["href", "xlink:href"].contains(key) { _ = try reference(value, url: false); rich = true }
+            if ["href", "xlink:href"].contains(key), e.name != "image" { _ = try reference(value, url: false); rich = true }
             if ["transform", "gradientTransform"].contains(key) {
                 let t = try affine(value)
                 if key == "transform" { e.transform = t }
@@ -723,6 +883,27 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             let n = try numbers(viewBox)
             guard n.count == 4, n[2] > 0, n[3] > 0 else { throw NativeObjectError.invalidGeometry }
             e.coordinate = max(e.coordinate, n.map(abs).max()!)
+        }
+        if e.name == "svg" {
+            for key in ["width", "height"] where e.attrs[key] != nil {
+                guard try numbers(e.attrs[key]!.replacingOccurrences(of: "(?:pt|px|em|ex)$", with: "", options: .regularExpression)).first! > 0 else {
+                    throw NativeObjectError.invalidGeometry
+                }
+            }
+        }
+        if e.name == "image" {
+            guard (e.attrs["href"] == nil) != (e.attrs["xlink:href"] == nil),
+                  let href = e.attrs["href"] ?? e.attrs["xlink:href"] else { throw NativeObjectError.unsupported("svg-image") }
+            let prefix = "data:image/png;base64,", limit = 8 * 1024 * 1024
+            guard href.hasPrefix(prefix), href.utf8.count <= prefix.utf8.count + 4 * ((limit + 2) / 3) else { throw NativeObjectError.unsupported("svg-image") }
+            let encoded = String(href.dropFirst(prefix.count))
+            guard let bytes = Data(base64Encoded: encoded), bytes.count <= limit,
+                  bytes.base64EncodedString() == encoded,
+                  bytes.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) else { throw NativeObjectError.unsupported("svg-image") }
+            for key in ["width", "height"] {
+                guard let raw = e.attrs[key], let side = Double(raw), side.isFinite, side > 0, side <= 4096 else { throw NativeObjectError.invalidGeometry }
+            }
+            rich = true; hasEmbeddedPNG = true
         }
         if e.attrs["clip-rule"] != nil { rich = true }
         if let d = e.attrs["d"] {
@@ -753,7 +934,8 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
         }
         for e in elements {
             if let a = e.attrs["href"], let b = e.attrs["xlink:href"], a != b { throw NativeObjectError.unsupported("svg-reference-conflict") }
-            for key in ["href", "xlink:href", "clip-path", "fill", "stroke"] {
+            for key in ["href", "xlink:href", "clip-path", "fill", "stroke", "stop-color"] {
+                if e.name == "image" && ["href", "xlink:href"].contains(key) { continue }
                 guard let value = e.attrs[key], value.hasPrefix("#") && ["href", "xlink:href"].contains(key) || value.hasPrefix("url(") else { continue }
                 let targetID = try reference(value, url: value.hasPrefix("url("))
                 guard let target = ids[targetID] else { throw NativeObjectError.unsupported("svg-unresolved-reference") }
@@ -770,7 +952,7 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             if let href = e.attrs.removeValue(forKey: "href") { e.attrs["xlink:href"] = href }
         }
         var active = Set<ObjectIdentifier>(), total = 0
-        func walk(_ e: Element, _ inherited: CGAffineTransform, _ depth: Int) throws {
+        func walk(_ e: Element, _ inherited: CGAffineTransform, _ depth: Int, _ viewport: CGSize) throws {
             let id = ObjectIdentifier(e)
             guard !active.contains(id), depth <= 128 else { throw NativeObjectError.unsupported("svg-reference-cycle-or-depth") }
             active.insert(id); defer { active.remove(id) }
@@ -780,12 +962,18 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             if e.name == "use" {
                 transform = CGAffineTransform(translationX: Double(e.attrs["x"] ?? "0") ?? 0, y: Double(e.attrs["y"] ?? "0") ?? 0).concatenating(transform)
             }
+            var childViewport = viewport
+            if e.name == "svg", e !== root {
+                let (attrs, resolvedViewport) = try viewportAttributes(e.attrs, viewport: viewport)
+                childViewport = resolvedViewport
+                transform = try viewportMapping(attrs).concatenating(transform)
+            }
             let linear = max(abs(transform.a) + abs(transform.c), abs(transform.b) + abs(transform.d))
             guard [transform.a, transform.b, transform.c, transform.d, transform.tx, transform.ty].allSatisfy({ $0.isFinite && abs($0) <= 1e9 }),
                   e.coordinate * linear + max(abs(transform.tx), abs(transform.ty)) <= 1e9 else { throw NativeObjectError.invalidGeometry }
-            for child in e.children + e.refs.compactMap({ ids[$0] }) { try walk(child, transform, depth + 1) }
+            for child in e.children + e.refs.compactMap({ ids[$0] }) { try walk(child, transform, depth + 1, childViewport) }
         }
-        try walk(root, .identity, 0)
+        try walk(root, .identity, 0, box.size)
     }
     // CoreSVG ignores symbol overflow and parts of its viewBox mapping. Express
     // hidden instances with validated SVG groups/transforms/clips before decode;
@@ -826,17 +1014,12 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             let w = try side(use.attrs["width"] ?? symbol.attrs["width"])
             let h = try side(use.attrs["height"] ?? symbol.attrs["height"])
             let x = CGFloat(Double(use.attrs["x"] ?? "0") ?? 0), y = CGFloat(Double(use.attrs["y"] ?? "0") ?? 0)
-            var sx: CGFloat = 1, sy: CGFloat = 1, tx = x, ty = y
+            let mapping: CGAffineTransform
             if let raw = symbol.attrs["viewBox"] {
-                let v = try numbers(raw)
-                sx = w / v[2]; sy = h / v[3]
-                let aspect = symbol.attrs["preserveAspectRatio"] ?? "xMidYMid meet"
-                if aspect != "none" {
-                    sx = aspect.hasSuffix("slice") ? max(sx, sy) : min(sx, sy); sy = sx
-                    let align: CGFloat = aspect.hasPrefix("xMinYMin") ? 0 : aspect.hasPrefix("xMaxYMax") ? 1 : 0.5
-                    tx += (w - v[2] * sx) * align; ty += (h - v[3] * sy) * align
-                }
-                tx -= v[0] * sx; ty -= v[1] * sy
+                mapping = viewBoxMapping(try numbers(raw), width: w, height: h, x: x, y: y,
+                                         aspect: symbol.attrs["preserveAspectRatio"] ?? "xMidYMid meet")
+            } else {
+                mapping = CGAffineTransform(translationX: x, y: y)
             }
             let content: Element
             if let existing = contents[ObjectIdentifier(symbol)] { content = existing }
@@ -857,7 +1040,7 @@ private final class NativeSafeSVG: NSObject, XMLParserDelegate {
             let clip = Element("clipPath", ["id": id, "clipPathUnits": "userSpaceOnUse"])
             clip.children = [rect]; ids[id] = clip; definitions.children.append(clip)
             let clipped = Element("g", ["clip-path": "url(#\(id))"])
-            let mapped = Element("g", ["transform": "matrix(\(sx),0,0,\(sy),\(tx - x),\(ty - y))"])
+            let mapped = Element("g", ["transform": "matrix(\(mapping.a),0,0,\(mapping.d),\(mapping.tx - x),\(mapping.ty - y))"])
             let transformed = Element("g", [:]), originalClip = Element("g", [:])
             let translated = Element("g", ["transform": "translate(\(x),\(y))"])
             if let transform = use.attrs.removeValue(forKey: "transform") { transformed.attrs["transform"] = transform }

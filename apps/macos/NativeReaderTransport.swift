@@ -608,10 +608,10 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
     func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument {
         let fields = try fields(context)
         active = context
-        let response = try await network.send(request(path: "api/native-document", fields: fields, get: true), 32 * 1024 * 1024)
+        let response = try await network.send(request(path: "api/native-document", fields: fields, get: true), NativeReaderDocument.maximumJSONBytes)
         try Task.checkCancellation()
         guard active == context, !disposed else { throw NativeReaderContractError.staleGeneration }
-        try validate(response, limit: 32 * 1024 * 1024)
+        try validate(response, limit: NativeReaderDocument.maximumJSONBytes)
         guard let binding = response.headers["x-native-input-id"], binding.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw NativeReaderOperationFailure.rejected(code: "input-binding")
         }

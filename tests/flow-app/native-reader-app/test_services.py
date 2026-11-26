@@ -27,8 +27,8 @@ DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 CLOSURE = Path(os.environ["NA09_ROOT"]).resolve() if os.environ.get("NA09_ROOT") else None
 EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/services/adoption-v3'
 ISOLATED = CLOSURE if CLOSURE else DEV
-OUT = EVIDENCE / os.environ.get('NA04_RUN', 'services-' + str(time.time_ns()))
-if not OUT.resolve().is_relative_to(EVIDENCE) or OUT.exists():
+OUT = Path(os.environ['NA04_OUTPUT']).resolve() if os.environ.get('NA04_OUTPUT') else EVIDENCE / os.environ.get('NA04_RUN', 'services-' + str(time.time_ns()))
+if not (OUT.resolve().is_relative_to(EVIDENCE) or OUT.resolve().is_relative_to(DEV / 'test-output/services')) or OUT.exists():
     raise RuntimeError('NA04 evidence directory must be new under adoption-v3; preserve historical bytes')
 OUT.mkdir(parents=True, exist_ok=True)
 for name, value in {'TMPDIR': ISOLATED / 'tmp/services', 'CLANG_MODULE_CACHE_PATH': ISOLATED / 'cache/services/clang',
@@ -416,6 +416,13 @@ class NativeServiceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         report = json.loads(result.stdout)
         self.assertGreaterEqual(report['assertions'], 35)
+        cache = report['stage3']
+        self.assertGreater(cache['byteCap'], 0)
+        self.assertEqual(cache['mathEntryCap'], 256)
+        for field in ['lru', 'privateDirectory', 'keyInvalidation', 'sha256', 'strictRebinding',
+                      'viewedAssets', 'recoveryCoexistence', 'noFollow', 'sharedProfiles', 'sharedLRU',
+                      'restoreRetryWait', 'restoreRetryAdopted']:
+            self.assertTrue(cache[field], field)
         save('swift-results.json', report)
         from collections import Counter
         # Each original explicit message reaches the real owner's fake provider
