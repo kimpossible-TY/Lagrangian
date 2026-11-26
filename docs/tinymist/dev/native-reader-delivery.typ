@@ -524,3 +524,24 @@ The post-review math chunk follow-up registers the following paths from
 `apps/macos/NativeReaderObjectRenderer.swift`,
 `tests/flow-app/native-reader-app/MathBatchTests.swift`.
 Hashes are Git-derived.
+
+The PR #33 re-review owner correction registers the following 17 paths from
+`ed8ad5175d143910df1dfe120e29d5b9ddf83d8c` → `d86c625fcb3a9554188309ca08351e8531f61c31`:
+`apps/macos/FlowApp.swift`,
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`apps/macos/NativeReaderTransport.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/add-cross-project-references/design.md`,
+`openspec/changes/add-cross-project-references/specs/native-reader/spec.md`,
+`openspec/changes/add-cross-project-references/tasks.md`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-original-pages/spec.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/FlowAppTests.swift`,
+`tests/flow-app/native-reader-app/MathBatchTests.swift`,
+`tests/flow-app/native-reader-app/test_math_batch.py`,
+`tests/flow-app/test_flow_ui.py`,
+`tools/flow-reader/tests/test_passages.py`.
+Hashes are Git-derived.
