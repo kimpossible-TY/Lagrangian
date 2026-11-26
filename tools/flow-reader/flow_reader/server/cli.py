@@ -12,7 +12,7 @@ from flow_reader.server.state import ReaderState
 from flow_reader.server.http import handler_for
 from flow_reader.server.watch import watch
 from flow_reader.server.home import claim_host
-from flow_reader.server.routing import handler_for_reader, handler_for_legacy
+from flow_reader.server.routing import handler_for_reader, handler_for_legacy, peer_registry
 from flow_reader.server.preview_proxy import PreviewProxy
 from flow_reader.services.source_history import SourceHistoryClient
 from flow_reader.services.manager import ReaderManager
@@ -118,6 +118,7 @@ class ReaderRuntime:
             state = state_factory(plan, provider, self.directory)
             self.stack.callback(state.close)
             self.documents[key] = state
+        self.peer_lookup = peer_registry(self.documents, profiles, parents)
         capability = secrets.token_urlsafe(32)
         self.capability_path = self.directory / ("home-capability-" + secrets.token_hex(8) + ".json")
         write_json(self.capability_path, {"capability": capability})
@@ -128,6 +129,7 @@ class ReaderRuntime:
         self.stack.callback(inventory.close)
         self.admin = self.bind(port, handler_for_reader(self.documents, inventory, account,
                                capability=capability, previews=self.previews,
+                               peer_lookup=self.peer_lookup,
                                preview_parents={p["id"]: p["parentID"] for p in profiles}))
         self.origin = f"http://{LOOPBACK_HOST}:{self.admin.server_port}/"
         inventory.preview_origins = (public, self.origin)
@@ -136,6 +138,7 @@ class ReaderRuntime:
         if proxy_port is not None:
             self.bind(proxy_port, handler_for_reader(self.documents, inventory, account,
                       capability=capability, ingress="proxy", public_origin=public, previews=self.previews,
+                      peer_lookup=self.peer_lookup,
                       preview_parents={p["id"]: p["parentID"] for p in profiles}))
         for profile in profiles:
             legacy_port = profile.get("legacyPort", plans[profile["id"]].port)

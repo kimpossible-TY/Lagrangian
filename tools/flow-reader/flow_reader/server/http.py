@@ -10,9 +10,10 @@ from flow_reader.services.editor_sync import UNSPECIFIED_EDITOR
 from flow_reader.server.assets import reader_assets
 from flow_reader.server.offline import snapshot_inventory, worker_script
 from flow_reader.services.chat_auth import ChatProviderError
+from flow_reader.services.cross_project_refs import CrossProjectPreviewService, preview_query
 
 
-def handler_for(state, *, public_url=None, homepage_url=None):
+def handler_for(state, *, public_url=None, homepage_url=None, peer_lookup=None):
     public = urlsplit(public_url or "")
     if public_url and (public.scheme != "https" or not public.hostname or public.username
                        or public.password or public.path not in {"", "/"} or public.query or public.fragment):
@@ -29,11 +30,13 @@ def handler_for(state, *, public_url=None, homepage_url=None):
     vendor_routes["/vendor/mathjax-4.1.3/manifest.json"] = vendor / "manifest.json"
     offline_worker = worker_script(assets, vendor_routes)
     from flow_reader.server.native_reader import NativeReaderService
-    native = NativeReaderService(state)
+    native = NativeReaderService(state) if state is not None else None
     import select
     import socket
     from flow_reader.server.native_pages import NativePageService
-    pages = NativePageService(state, native)
+    pages = NativePageService(state, native) if state is not None else None
+    cross_project = (CrossProjectPreviewService(state, peer_lookup, allowed_origin=public_url)
+                     if state is not None else None)
     native_posts = {"/api/native-action", "/api/native-chat", "/api/native-editor"}
     compiler_pool = getattr(state, "compiler_pool", None)
     compiler_assets = getattr(state, "compiler_assets", None)
@@ -53,6 +56,8 @@ def handler_for(state, *, public_url=None, homepage_url=None):
             if not self.allowed_host():
                 return self.respond(b"Unrecognized reader host", "text/plain", 421)
             path = urlsplit(self.path).path
+            if state is None and path.startswith("/api/"):
+                return self.respond(b'{"error":"Document service unavailable"}', "application/json", 503)
             if path in native_posts and not self.native_guard():
                 return
             if path not in compiler_actions | chat_actions | native_posts | {"/api/graphics", "/api/locate", "/api/canvases", "/api/decorations",
@@ -269,6 +274,16 @@ def handler_for(state, *, public_url=None, homepage_url=None):
                 return self.respond(b"Unrecognized reader host", "text/plain", 421)
             url = urlsplit(self.path)
             path = url.path.rstrip("/") or "/"
+            if state is None and (path.startswith("/api/") or path in {"/health", "/document.html"}):
+                return self.respond(b'{"error":"Document service unavailable"}', "application/json", 503)
+            if path == "/api/cross-project/preview":
+                try:
+                    if url.scheme or url.netloc or "#" in self.path or url.path != path:
+                        raise ValueError("Invalid cross-project route")
+                    result = cross_project.preview(**preview_query(url.query))
+                    return self.respond(json.dumps(result, ensure_ascii=False).encode(), "application/json")
+                except (ValueError, UnicodeError):
+                    return self.respond(b'{"error":"Invalid cross-project query"}', "application/json", 400)
             if path in {"/api/native-document", "/api/native-pages"} or path.startswith(("/api/native-assets/", "/api/native-pages/")):
                 if url.path != path:
                     return self.respond(b"Not found", "text/plain", 404)

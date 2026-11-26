@@ -1,18 +1,18 @@
 ## WV01R — contract and naming
 
-- [x] WV01R.1 Define product positioning, compatibility boundaries and planned WV02/WV03 contracts (under 2 hours).
+- [x] WV01R.1 Define product positioning and compatibility boundaries (under 2 hours).
 - [x] WV01R.2 Align web titles, manifest and home labels; add focused branding coverage (under 2 hours).
 - [x] WV01R.3 Document ownership and run focused headless verification (under 2 hours).
 
-## WV02 — backend cross-project ownership
+## WV02C — read-only web backend cross-project previews
 
-- [ ] WV02.1 Implement bounded catalog loading and identity resolution in `cross_project_refs.py`, preserving native resolution semantics (under 2 hours).
-- [ ] WV02.2 Extract bounded snippets from accepted documents via `import_accepted_document` and cover failure cases (under 2 hours).
-- [ ] WV02.3 Add bounded preview endpoint, capability advertisement and safe `handler_for(None)` static delivery with tests (under 2 hours).
-- [ ] WV02.4 Migrate native consumers to the backend owner and verify existing native navigation and consent contracts (under 2 hours).
+- [x] WV02C.1 Implement bounded catalog loading and Swift-compatible unique/ambiguous/unresolved resolution in `cross_project_refs.py` (under 2 hours).
+- [x] WV02C.2 Extract 600-character/four-block plain-text snippets from mounted accepted documents via `import_accepted_document`; preserve metadata-only fallback (under 2 hours).
+- [x] WV02C.3 Wire strict 1024-character preview queries, peer registry, viewer capability and `handler_for(None)` static delivery in standalone and routed servers (under 2 hours).
+- [x] WV02C.4 Align design/spec/source map and verify backend, HTTP, routing, homepage, sections, install and strict OpenSpec validation; leave `apps/macos/` unchanged (under 2 hours).
 
-## WV03 — shared navigation and web interaction
+## WV03C — shared return policy and full-page web interaction (planned)
 
-- [ ] WV03.1 Implement and test bounded `cross-project-return.js` history and injected commit/restore operations (under 2 hours).
-- [ ] WV03.2 Implement and test web first-click preview, second-click jump and Back restoration including failures (under 2 hours).
-- [ ] WV03.3 Verify shared policy, web and native integration against the final implementation (under 2 hours).
+- [ ] WV03C.1 Implement/test `CrossProjectReturnStack` max 32 entries in `reader-common/navigation/cross-project-return.js`, versioned sessionStorage and one-shot pending restore (under 2 hours).
+- [ ] WV03C.2 Implement/test `features/navigation/cross-project-preview.js`: first-click preview, explicit second-click full-page `/d/<id>/` jump, Back restoration, failed/stale transitions and Homepage explicit-open reset without fragment/popstate collisions (under 2 hours).
+- [ ] WV03C.3 Register both modules explicitly in `web/assets.json` and verify source/installed delivery and final web interactions (under 2 hours).

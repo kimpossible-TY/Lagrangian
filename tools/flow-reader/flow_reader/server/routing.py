@@ -1,10 +1,44 @@
 """One-origin composition of existing Homepage and document HTTP handlers."""
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
+import re
 from urllib.parse import unquote, urlsplit
 
 from flow_reader.server.home import handler_for_home
 from flow_reader.server.http import handler_for
 from flow_reader.services.homepage import document_prefix, preview_prefix, reader_url
+
+
+def peer_registry(documents, profiles=(), parents=()):
+    """Freeze trusted mount aliases; duplicate matches fail closed.
+
+    Explicit projectRefKey is authoritative, then exact profile ID, then the
+    normalized root basename or title of profiles without a configured key.
+    Only the returned closure sees roots; the wire receives mounted routes.
+    """
+    def normalized(value):
+        return re.sub(r"[\s_-]+", "-", value.strip().lower())
+    configured = {p["id"]: p for p in profiles}
+    parent_by_id = {p["id"]: p for p in parents}
+    peers = []
+    for identifier, state in documents.items():
+        route = document_prefix(identifier)
+        profile = configured.get(identifier, {})
+        title = (profile.get("title") or parent_by_id.get(profile.get("parentID"), {}).get("name")
+                 or profile.get("name") or "")
+        root = Path(profile.get("root") or state.project.root).name
+        peers.append((identifier, profile.get("projectRefKey"),
+                      {normalized(root), normalized(title)}, state, route))
+
+    def lookup(key, title):
+        matches = [p for p in peers if p[1] and p[1] == key]
+        if not matches:
+            matches = [p for p in peers if not p[1] and p[0] == key]
+        if not matches:
+            aliases = {normalized(key), normalized(title)} - {""}
+            matches = [p for p in peers if not p[1] and aliases & (p[2] - {""})]
+        return (matches[0][3], matches[0][4]) if len(matches) == 1 else None
+    return lookup
 
 
 def redirect(handler, destination):
@@ -16,11 +50,15 @@ def redirect(handler, destination):
 
 
 def handler_for_reader(documents, inventory, account, *, capability, ingress="admin", public_origin=None,
-                       previews=None, preview_parents=None):
+                       previews=None, preview_parents=None, peer_lookup=None):
     """Documents map stable manager IDs to ReaderStates, never filesystem paths."""
     home = handler_for_home(inventory, account, capability=capability,
                             ingress=ingress, public_origin=public_origin)
-    handlers = {document_prefix(key): handler_for(state, public_url=public_origin, homepage_url="/")
+    if peer_lookup is None:
+        loaded = getattr(inventory, "loaded", None)
+        peer_lookup = peer_registry(documents, loaded[1] if loaded else (), loaded[0] if loaded else ())
+    handlers = {document_prefix(key): handler_for(state, public_url=public_origin, homepage_url="/",
+                                               peer_lookup=peer_lookup)
                 for key, state in documents.items()}
     paged = {document_prefix(key): reader_url(state.original_url) for key, state in documents.items()}
     for key, parent in (preview_parents or {}).items():
@@ -67,7 +105,8 @@ def handler_for_reader(documents, inventory, account, *, capability, ingress="ad
                     # parsing the request twice. Its response writes to this connection.
                     child = document_handler.__new__(document_handler)
                     child.__dict__ = dict(self.__dict__)
-                    child.path = local + ("?" + url.query if url.query else "")
+                    child.path = (local + ("?" + url.query if url.query else "")
+                                  + ("#" + url.fragment if "#" in self.path else ""))
                     return getattr(child, "do_" + method)()
                 return self.respond({"error": "Unknown document"}, 404)
             return getattr(super(), "do_" + method)()

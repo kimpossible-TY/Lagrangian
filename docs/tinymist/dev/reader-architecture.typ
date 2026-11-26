@@ -166,8 +166,9 @@ main completion without changing generation/disposal guards or retaining the app
 
 `CrossProjectReference.swift` owns read-only CrossProjectCatalog identity/profile
 resolution, bounded CrossProjectSnippetExtractor excerpts and
-CrossProjectNavigationStack return locations. Swift is the production policy
-owner; the unused Python catalog/snippet prototype is retired.
+CrossProjectNavigationStack return locations. Swift remains the native production policy
+owner. WV02C adds the separate read-only web backend below; `apps/macos/`
+is unchanged, including native session adoption and editor consent.
 `NativeCrossProjectPreviewPopover.swift` owns NativeCrossProjectPreviewView and
 its shared floating surface, icon/body activation and presentation.
 NativeReaderTextView owns semantic link geometry and exact location capture;
@@ -417,3 +418,62 @@ a differently scoped issuance. Original request expressions retain symlink-sensi
 dot components. Actual document equivalence remains in the read-only manager
 query. Frozen d7 App and v7 UI evidence are separate; this source component is not
 registered, packaged or GUI-accepted by these tests.
+
+
+= Web cross-project previews and full-page return
+
+WV02C implements `flow_reader/services/cross_project_refs.py` as the web backend
+owner. `CrossProjectCatalog.load(package_path, max_bytes=16*1024*1024)` loads only
+`local/project-references/0.1.0/projects.json`, with resolved package-root
+containment, no-follow directory-descriptor opens, regular-file checks and a
+16 MiB bounded read. Strict schema-1 parsing requires projects, title, pdf_url,
+references and ambiguous_labels, positive integer pages and finite optional
+coordinates. Errors never expose filesystem paths. Explicit project/label and
+PDF href/text resolution preserve Swift unique/ambiguous/unresolved semantics;
+candidate metadata is limited to 32 entries and 1024-character strings.
+
+`server/routing.py` builds a read-only peer registry; `server/cli.py` ReaderRuntime
+injects configured profiles and mounted states into both ingress handlers.
+Explicit projectRefKey wins, then profile ID, then normalized root basename or
+project title among unconfigured profiles; duplicate matches fail closed.
+A match yields a mounted ReaderState and `/d/<id>/`, never an arbitrary path or
+service command. Standalone serve.py has an empty registry.
+
+`CrossProjectPreviewService` imports a target's already-accepted SectionBundle
+through canonical `import_accepted_document` while holding its publication lock.
+It never starts services, compiles or opens unmounted source files. Snippet
+extraction matches recursive anchors/id before normalized reference text, prefers
+display over canonical plain text, stops at section/heading boundaries and bounds
+output to 600 characters / 4 blocks, with a truncated boolean. No raw HTML is
+injected. Unmounted, uncompiled, compiling, failed-import or unmatched targets
+retain unique catalog metadata with `snippet: null`; targetUrl is present only
+for a safely mounted route. Safe URLs are relative same-origin
+`/d/<id>/#<anchor>` or that route on the configured reader_url-validated origin;
+executable/file URLs, arbitrary hosts and traversal are rejected.
+
+HTTP owns read-only `GET /api/cross-project/preview`, also available under
+`/d/<id>/api/cross-project/preview`. Exactly project+label or href+optional text
+is accepted, with strict decoding, no duplicates/unknowns and a 1024-character
+limit per value. Responses use 200 for unique/ambiguous/unresolved (including
+metadata-only fallback), 400 for malformed/oversized input, and 503 without
+state. JSON carries status, projectKey, projectTitle, label, refText, title,
+snippet, truncated, targetUrl, anchor, pdfUrl and optional bounded candidates.
+`ReaderState.public()` / `/api/state` add
+`viewer: {"name": "Lagrangian Web Viewer", "crossProject": <bool>}`;
+the boolean reflects catalog availability, not target readiness.
+`handler_for(None)` creates neither NativeReaderService nor NativePageService;
+allowlisted static assets work and document/native/preview APIs return 503.
+
+WV03C remains planned: `reader-common/navigation/cross-project-return.js` will
+own CrossProjectReturnStack, max 32 entries in sessionStorage
+`lagrangian:cross-project-return:v1`, with one-shot pending restore
+`lagrangian:cross-project-pending:v1`. The concrete
+`features/navigation/cross-project-preview.js` will show a first-click popover,
+then explicitly navigate a full page to `/d/<id>/#<anchor>` and use explicit Back
+for readiness-bound origin restoration. Homepage explicit-open resets both
+records; reload retains tab history. Failed/stale restoration retains recoverable
+entries. There is no SPA pushState document swapping or competing popstate
+handler: in-document fragment ReferenceReturn keeps its existing ownership.
+Both modules require explicit `web/assets.json` registration and source/installed
+layout verification when implemented. Native Swift keeps its existing stack and
+adoption/consent behavior.

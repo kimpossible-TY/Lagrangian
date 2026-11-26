@@ -215,6 +215,7 @@ class ReaderState:
                 "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
                 "elapsedSeconds", "compiledAt",
             )} | {"revision": self.revision, "compiling": self.compiling,
+                  "viewer": self.viewer_capabilities(),
                   "documentID": self.document_id,
                   "changeToken": (self.bundle.manifest.get("lastChange") or {}).get("token") if self.bundle else None,
                   "service": self.focus.service,
@@ -223,6 +224,11 @@ class ReaderState:
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "semanticCanvases": self.project.semantic_canvases,
                   "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
+
+    def viewer_capabilities(self):
+        from flow_reader.services.cross_project_refs import CrossProjectPreviewService
+        return {"name": "Lagrangian Web Viewer",
+                "crossProject": CrossProjectPreviewService(self).available}
 
     def render_graphics(self, revision, graphs):
         return self.renderer.render(revision, graphs, "graphics")
