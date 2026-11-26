@@ -113,13 +113,36 @@ struct CrossProjectPreviewTests {
       let visible = view.scrollView.contentView.bounds
       return rect.maxY > visible.minY && rect.minY < visible.maxY
     }
-    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: target.id, scrollOffset: 100000), "Placeholder target restores")
-    try check(targetVisible() && !view.canReturnFromReference, "Placeholder target stays visible without local return")
+    guard let targetRect = view.rects(blockID: target.id, logical: 0..<target.displayText.utf16.count).first else {
+      throw Failure(message: "Placeholder target geometry")
+    }
+    let partialOffset = targetRect.minY - view.scrollView.contentView.bounds.height + 5
+    try check(partialOffset > 0, "Partial overlap fixture has preceding content")
+    view.scrollView.contentView.scroll(to: NSPoint(x: 0, y: partialOffset))
+    view.scrollView.reflectScrolledClipView(view.scrollView.contentView)
+    try check(targetVisible() && view.viewportAnchor()?.position.blockID != target.id,
+      "Partial overlap initially anchors preceding content")
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: target.id, scrollOffset: Double(partialOffset)) &&
+      view.viewportAnchor()?.position.blockID == target.id && !view.canReturnFromReference,
+      "Partial overlap anchors target for placeholder reflow")
     let key = view.renderKey!
     let prepared = Dictionary(uniqueKeysWithValues: objects.map { object in
       (object.id, NativeReaderPreparedTextObject(key: key, size: NSSize(width: 240, height: 300), baseline: 0,
         accessibilityLabel: "Figure", draw: { _ in }))
     })
+    try view.updateObjectAttachments(for: key, objects: prepared)
+    try check(targetVisible() && !view.canReturnFromReference, "Partial overlap survives object expansion")
+    // Restore placeholders to exercise both exact and clamped offsets independently.
+    try view.updateObjectAttachments(for: key, objects: [:])
+    guard let restoredRect = view.rects(blockID: target.id, logical: 0..<target.displayText.utf16.count).first else {
+      throw Failure(message: "Restored placeholder target geometry")
+    }
+    let safeOffset = restoredRect.minY + 1
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: target.id, scrollOffset: Double(safeOffset)) &&
+      abs(view.scrollView.contentView.bounds.minY - safeOffset) < 1 && !view.canReturnFromReference,
+      "A target-anchored overlapping offset restores exactly")
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: target.id, scrollOffset: 100000), "Placeholder target restores")
+    try check(targetVisible() && !view.canReturnFromReference, "Placeholder target stays visible without local return")
     try view.updateObjectAttachments(for: key, objects: prepared)
     try check(targetVisible() && !view.canReturnFromReference, "Expanded objects retain target without local return")
   }

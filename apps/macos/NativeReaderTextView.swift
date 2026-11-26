@@ -1200,9 +1200,10 @@ extension NativeReaderTextView {
                    let rect = rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).first {
                     if rect.maxY > clamped && rect.minY < clamped + viewportHeight {
                         scrollToCrossProjectOffset(scrollOffset)
-                    } else {
-                        // Put the viewport anchor inside the target, rather than the
-                        // preceding object in the usual top-alignment margin.
+                    }
+                    if viewportAnchor()?.position.blockID != blockID {
+                        // A partially visible target can still leave an earlier
+                        // placeholder as the reflow anchor. Anchor inside the target.
                         scrollToCrossProjectOffset(Double(rect.minY + 1))
                     }
                 }
