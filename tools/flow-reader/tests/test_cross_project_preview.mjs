@@ -3,6 +3,8 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { CrossProjectReturnStack, CROSS_PROJECT_RETURN_KEY, CROSS_PROJECT_PENDING_KEY } from "../../reader-common/navigation/cross-project-return.js";
 import { CrossProjectPreview, createCrossProjectPosition, crossProjectTarget } from "../web/features/navigation/cross-project-preview.js";
+import { ReaderTransport } from "../web/features/session/transport.js";
+import { sameSession, sameSnapshot } from "../web/features/session/recovery.js";
 
 // A small event/DOM surface: unsafe HTML writes throw, so text rendering is exercised.
 class Element {
@@ -66,7 +68,7 @@ const origin = { path: "/d/origin/?section=s2#old", documentTitle: "Origin Book"
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup({ request = async () => result(), restore = () => true, capture = () => origin } = {}) {
-  const values = new Map(), assigned = [], external = [];
+  const values = new Map(), assigned = [];
   const storage = { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => values.set(k, v), removeItem: (k) => values.delete(k) };
   const stack = new CrossProjectReturnStack({ storage });
   const doc = new Element("document", null);
@@ -91,8 +93,8 @@ function setup({ request = async () => result(), restore = () => true, capture =
   let identity = "document-1/service-1/revision-1", enabled = true;
   const controller = new CrossProjectPreview(article, { stack, returnButton: button, capture, restore,
     request, location, identity: () => identity, enabled: () => enabled,
-    openExternal: (url) => external.push(url), transitionId: () => "return-transition-1" });
-  return { doc, article, button, link, stack, values, storage, assigned, external, controller, location,
+    transitionId: () => "return-transition-1" });
+  return { doc, article, button, link, stack, values, storage, assigned, controller, location,
     identity: (v) => { identity = v; }, enabled: (v) => { enabled = v; } };
 }
 const jump = (f) => f.controller.card.children.find((n) => n.getAttribute("aria-label") === "해당 문서로 이동");
@@ -255,8 +257,10 @@ test("ordinary links, fragments, modifiers and disabled capability retain existi
   assert.equal(requests, 0);
   await f.article.emit("click", { target: link });
   assert.equal(requests, 1);
-  assert.deepEqual(f.assigned, ["https://example.test/book.pdf#page=2"]);
-  assert.equal(f.controller.card, null);
+  assert.deepEqual(f.assigned, []);
+  const fallback = f.controller.card.children.find((n) => n.tagName === "A");
+  assert.equal(fallback.href, "https://example.test/book.pdf#page=2");
+  assert.equal(fallback.target, "_self");
   assert.equal(f.stack.canGoBack, false);
   const g = setup();
   const pdf = g.doc.createElement("a");
@@ -269,6 +273,64 @@ test("ordinary links, fragments, modifiers and disabled capability retain existi
   pdf.setAttribute("href", "https://reader.test/book.pdf#page=2");
   await g.article.emit("click", { target: pdf });
   assert.ok(g.controller.card, "same-origin PDF candidates also use catalog resolution");
+});
+
+test("unresolved and failed blank-target candidates keep a user-activated original link even when popups are blocked", async () => {
+  for (const request of [async () => result({ status: "unresolved" }), async () => { throw Error("offline"); }]) {
+    const f = setup({ request });
+    let opens = 0;
+    f.doc.defaultView.open = () => { opens++; return null; };
+    const link = f.doc.createElement("a");
+    link.setAttribute("href", "https://example.test/book.pdf#page=2");
+    link.target = "_blank";
+    f.article.append(link);
+    assert.equal((await f.article.emit("click", { target: link })).defaultPrevented, true);
+    const fallback = f.controller.card.children.find((node) => node.tagName === "A");
+    assert.equal(fallback.textContent, "원래 링크 열기");
+    assert.equal(fallback.href, link.getAttribute("href"));
+    assert.equal(fallback.target, "_blank");
+    assert.match(fallback.rel, /noopener noreferrer/u);
+    assert.equal((await fallback.emit("click")).defaultPrevented, undefined);
+    assert.equal(opens, 0, "no asynchronous popup depends on expired user activation");
+    assert.deepEqual(f.assigned, []);
+    assert.equal(f.stack.canGoBack, false);
+  }
+});
+
+test("ReaderTransport preview timeout replaces loading with an error/fallback; caller cancellation stays silent", async () => {
+  for (const explicit of [true, false]) {
+    let transportSignal, callerSignal, options;
+    const transport = new ReaderTransport((_, opts) => {
+      options = opts;
+      transportSignal = opts.signal;
+      return new Promise((_, reject) => opts.signal.addEventListener("abort", () =>
+        reject(new DOMException("Timed out", "AbortError")), { once: true }));
+    });
+    const f = setup({ request: (url, opts) => {
+      callerSignal = opts.signal;
+      return transport.get(url, { ...opts, timeout: 5 });
+    } });
+    const link = explicit ? f.link : f.doc.createElement("a");
+    if (!explicit) {
+      link.setAttribute("href", "https://example.test/book.pdf#page=2");
+      link.target = "_blank";
+      f.article.append(link);
+    }
+    await f.article.emit("click", { target: link });
+    assert.equal(options.cache, "no-store");
+    assert.equal(transportSignal.aborted, true);
+    assert.equal(callerSignal.aborted, false);
+    assert.match(f.controller.card.children[2].textContent, /불러오지 못했습니다/u);
+    assert.equal(jump(f).disabled, true);
+    assert.equal(f.controller.card.children.some((node) => node.tagName === "A"), !explicit);
+    assert.equal(transport.pending.size, 0);
+    const cancelled = f.article.emit("click", { target: link });
+    await f.doc.emit("keydown", { key: "Escape" });
+    await cancelled;
+    assert.equal(callerSignal.aborted, true);
+    assert.equal(f.controller.card, null);
+    transport.dispose();
+  }
 });
 
 test("Back visibility, durable pending-before-pop ordering, exact section/offset restoration and single consumption", async () => {
@@ -404,6 +466,89 @@ test("delivered section loader preserves pending return section instead of apply
   assert.equal(rendered[3].crossProjectReturn, record);
 });
 
+test("delivered render callback retries clamped boundary returns after section mounting and layout readiness", () => {
+  const source = readFileSync(new URL("../web/reader.js", import.meta.url), "utf8");
+  const retry = source.slice(source.indexOf("let crossProjectRestoration ="), source.indexOf("const references ="));
+  const render = source.slice(source.indexOf("function mountedSectionsChanged()"), source.indexOf("async function jumpToChange("));
+  for (const [trigger, offset] of [
+    ["mount", 134.5], ["resize", 134.5], ["mount", -50],
+    ["navigation", 134.5], ["session", 134.5], ["transition", 134.5], ["dispose", 134.5],
+  ]) {
+    const f = setup();
+    const entry = { ...origin, scrollOffset: offset };
+    const frames = [];
+    let resize;
+    const section = f.doc.createElement("section");
+    section.dataset = { readerSection: origin.sectionId, sectionState: "ready" };
+    section.documentTop = offset < 0 ? 0 : 500;
+    f.article.append(section);
+    let maximum = 400;
+    f.doc.defaultView.scrollTo = function ({ top }) { this.scrollY = Math.max(0, Math.min(maximum, top)); };
+    f.controller.restore = createCrossProjectPosition(f.article, { ready: () => true,
+      readSection: () => "s2", captureAnchor: () => null, release() {}, holdAnchor() {} }).restore;
+    f.stack.savePending(entry, "boundary");
+    const snapshot = { documentID: "origin-document", revision: "accepted", service: { pid: 1, startedAt: 2 } };
+    const harness = new Function("article", "crossProjects", "requestAnimationFrame", "ResizeObserver", "sameSession", "sameSnapshot", `
+      let manifest, revision, currentSection, pending, selectionActions = null;
+      let loadSequence = 1, disposed = false, serverState;
+      const noop = () => {};
+      const preferences = { key: "flow-reader:origin-document", read: () => false };
+      const compilerPreferences = preferences, compilerLevel = {};
+      const showCompilerLevel = noop, browserCompiler = { setEnabled: noop };
+      const appearance = { restore: noop };
+      const activity = { state: { mounting: noop, rendered: noop }, refresh: noop };
+      const sections = { reset: noop, schedule: noop };
+      const rendering = { clear: noop, sync: noop, onDocument: noop };
+      const annotations = rendering, mathematics = rendering, graphics = rendering;
+      const decorations = rendering, canvases = rendering;
+      const indexDocument = noop, readingPosition = { release: noop };
+      const outlineNavigation = { index: noop }, references = { remember: noop };
+      const changes = { lastGesture: 0, afterRender: noop };
+      ${retry}
+      ${render}
+      return {
+        render(snapshot, record) {
+          serverState = snapshot;
+          renderDocument("fixture", snapshot, record.entry.sectionId, { crossProjectReturn: record });
+        },
+        mountedSectionsChanged,
+        invalidate(kind) {
+          if (kind === "navigation") loadSequence++;
+          if (kind === "session") serverState = { ...serverState, service: { pid: 9, startedAt: 10 } };
+          if (kind === "dispose") disposed = true;
+        }
+      };
+    `)(f.article, f.controller, (fn) => { frames.push(fn); return frames.length; },
+      class { constructor(fn) { resize = fn; } observe() {} }, sameSession, sameSnapshot);
+    harness.render(snapshot, f.controller.pendingReturn());
+    frames.shift()(); // Initial render is clamped to the initial section height.
+    assert.equal(f.doc.defaultView.scrollY, offset < 0 ? 0 : 400);
+    assert.ok(f.controller.pendingReturn());
+    maximum = 1400;
+    section.documentTop = 700; // Prepending a neighbor moves this section too.
+    if (trigger === "mount") harness.mountedSectionsChanged();
+    else {
+      harness.invalidate(trigger);
+      if (trigger === "transition") f.stack.savePending(entry, "newer-boundary");
+      resize();
+    }
+    assert.equal(frames.length, 1);
+    // ContinuousSections restores its own anchor after changed(); retry must run
+    // after that mutation, rather than being overwritten by the old anchor.
+    f.doc.defaultView.scrollY = 320;
+    frames.shift()();
+    if (["mount", "resize"].includes(trigger)) {
+      assert.equal(f.doc.defaultView.scrollY, 700 + offset);
+      assert.equal(f.controller.pendingReturn(), null);
+      resize();
+      assert.equal(frames.length, 0, "successful consumption disables further retries");
+    } else {
+      assert.equal(f.doc.defaultView.scrollY, 320, trigger);
+      assert.ok(f.controller.pendingReturn(), "stale/disposed retries cannot consume pending");
+    }
+  }
+});
+
 test("Homepage delivered explicit-open handlers reset both records, including alternative menu items", async () => {
   const source = readFileSync(new URL("../web/home/home.js", import.meta.url), "utf8");
   // Execute the actual registration block for both emitted document destinations.
@@ -449,7 +594,9 @@ test("manifest registers both modules in sorted order and reader bootstrap wires
   const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
   assert.match(html, /id="reader-cross-project-return"[^>]*hidden/u);
   const reader = readFileSync(new URL("../web/reader.js", import.meta.url), "utf8");
-  assert.match(reader, /if \(options.crossProjectReturn\)[\s\S]*?restorePending[\s\S]*?else if \(options.target\)/u);
+  assert.match(reader, /if \(options.crossProjectReturn\)[\s\S]*?retryCrossProjectReturn\(\)[\s\S]*?else if \(options.target\)/u);
+  assert.match(reader, /request: \(url, options\) => transport.get\(url, options\)/u);
+  assert.match(reader, /crossProjectResize.disconnect\(\)/u);
   assert.match(reader, /returnSection && pending.sections.some/u);
   assert.match(reader, /crossProjects.dispose\(\)/u);
 });

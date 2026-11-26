@@ -30,6 +30,7 @@ Lagrangian SHALL be the canonical native macOS product and feature contract. Lag
 - **WHEN** a unique target is unmounted, uncompiled, compiling or cannot be imported or matched
 - **THEN** HTTP 200 retains unique catalog metadata and snippet is null
 - **AND** targetUrl is a validated mounted route if mounted and otherwise null
+- **AND** catalog labels do not supply navigable anchors: anchor remains null and a mounted metadata-only route has no fragment; successful extraction may supply a manifest-backed reader anchor
 
 #### Scenario: Ambiguous or unresolved identity
 - **WHEN** resolution is ambiguous or unresolved, including an unavailable catalog
@@ -39,7 +40,7 @@ Lagrangian SHALL be the canonical native macOS product and feature contract. Lag
 #### Scenario: Validate requests and target routes
 - **WHEN** preview input is not exactly project plus label or href plus optional text, contains malformed/duplicate/unknown parameters or exceeds 1024 characters per value
 - **THEN** the server returns HTTP 400 with a non-sensitive JSON error
-- **AND** generated target URLs permit only same-origin `/d/<id>/#<anchor>` or the explicitly configured reader_url-validated origin, rejecting unsafe schemes, traversal and arbitrary hosts
+- **AND** generated target URLs permit only same-origin `/d/<id>/` with an optional extracted anchor fragment or the explicitly configured reader_url-validated origin, rejecting unsafe schemes, traversal and arbitrary hosts
 
 ### Requirement: Viewer discovery and static-only delivery
 `/api/state` SHALL include additive `viewer: {"name": "Lagrangian Web Viewer", "crossProject": <bool>}` metadata, true when the bounded catalog can be loaded. `handler_for(None)` SHALL construct no native services and SHALL retain allowlisted static serving.
@@ -54,7 +55,7 @@ Lagrangian SHALL be the canonical native macOS product and feature contract. Lag
 - **AND** allowlisted assets remain available and arbitrary paths remain unavailable
 
 ### Requirement: Web cross-project preview and return
-WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/#<anchor>` navigation. Cross-origin HTTP(S) targets SHALL open externally without session return history. Shared `CrossProjectReturnStack` SHALL retain at most 32 serializable origins in tab sessionStorage with one-shot restoration. It SHALL preserve in-document fragment ReferenceReturn ownership and SHALL NOT use SPA pushState swapping or a competing popstate handler.
+WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/` navigation with an optional extracted anchor fragment. Cross-origin HTTP(S) targets SHALL open externally without session return history. Shared `CrossProjectReturnStack` SHALL retain at most 32 serializable origins in tab sessionStorage with one-shot restoration. It SHALL preserve in-document fragment ReferenceReturn ownership and SHALL NOT use SPA pushState swapping or a competing popstate handler.
 
 #### Scenario: Persist and deliver web return policy
 - **WHEN** WV03I is implemented
@@ -86,11 +87,18 @@ WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/#<anch
 - **THEN** the saved section takes precedence over fragment and other position hints and finite section-relative scrollOffset geometry is restored within one CSS pixel, including after semantic holding and focus
 - **AND** only successful restoration removes the matching exact-path/transition pending record, once; corrupt records recover empty and failed storage operations do not claim successful persistence or consumption
 
+#### Scenario: Retry a return at a continuous-section boundary
+- **WHEN** the initial render clamps the saved scroll position before neighboring sections or layout are ready
+- **THEN** the pending record remains and the viewer schedules nearby section loading
+- **AND** section mutations and article resize notifications coalesce a retry after the section owner's mutation-anchor restoration
+- **AND** retries validate the original load sequence, current document/revision/service and pending transition before scrolling, stopping on success or invalidation
+- **AND** disposal disconnects restoration observers and cancels queued frames without consuming pending
+
 #### Scenario: Match links without changing ordinary navigation
 - **WHEN** an unmodified primary click activates an explicit project/label link
 - **THEN** project/label metadata takes precedence over href/text and opens a named nonmodal dialog with plain-text title, reference text and canonical snippet
 - **WHEN** capability is enabled and an absolute safe HTTP(S) link has positive page fragment and is not a same-origin mounted viewer route
-- **THEN** href/text catalog resolution may open the preview; unresolved results or request failures resume the original external action without recording return state
+- **THEN** href/text catalog resolution may open the preview; unresolved results or request failures retain a clickable safe original href/target in the card for a fresh user activation, without recording return state or asynchronously opening a popup
 - **AND** ordinary fragments, relative and non-page links, downloads and modified clicks retain their existing behavior
 
 #### Scenario: Ambiguous, unavailable or external target
@@ -102,6 +110,11 @@ WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/#<anch
 - **WHEN** another request, Escape, outside click, close, document/service/revision change or disposal invalidates a preview
 - **THEN** requests are aborted and generation/identity guards suppress stale success and failure effects
 - **AND** disposal removes listeners, hides Back, and restores focus to a connected originating link; outside controls retain their focus
+
+#### Scenario: Bound preview requests with the existing transport
+- **WHEN** the viewer requests a cross-project preview
+- **THEN** the injected ReaderTransport.get uses cache no-store and its default ten-second timeout
+- **AND** transport timeout displays an error and an original-link fallback for href candidates, while an aborted caller signal or stale generation/identity remains silent
 
 #### Scenario: Configure read-only peer matching
 - **WHEN** the source previews a project key from its configured Project.packages catalog

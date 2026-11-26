@@ -14,7 +14,7 @@
 ## WV03I — shared return policy and full-page web interaction (implemented)
 
 - [x] WV03I.1 Implement/test `CrossProjectReturnStack` max 32 entries in `reader-common/navigation/cross-project-return.js`, versioned sessionStorage and one-shot pending restore (under 2 hours).
-- [x] WV03I.2 Implement/test `features/navigation/cross-project-preview.js`: first-click preview, explicit second-click full-page `/d/<id>/` jump, Back restoration, failed/stale transitions and Homepage explicit-open reset without fragment/popstate collisions (under 2 hours).
+- [x] WV03I.2 Implement/test `features/navigation/cross-project-preview.js`: first-click preview through ReaderTransport with timeout/error fallback links, explicit second-click full-page `/d/<id>/` jump, Back restoration with section-boundary/layout retries, failed/stale transitions and Homepage explicit-open reset without fragment/popstate collisions (under 2 hours).
 - [x] WV03I.3 Register both modules explicitly in `web/assets.json` and verify source/installed delivery and final web interactions (under 2 hours).
 
-- [x] WV03I.4 Finalize exact schemas, transition ordering, peer configuration/fallback, route identity map, file map and executable headless verification contracts (under 2 hours).
+- [x] WV03I.4 Finalize exact schemas, transition ordering/retries, peer configuration/fallback and catalog publisher responsibility, nullable extracted anchors, existing in-document ReferenceReturn consumption and semantic holding, route identity map, file map and executable headless verification contracts (under 2 hours).

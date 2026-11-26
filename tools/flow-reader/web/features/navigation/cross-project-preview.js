@@ -61,22 +61,20 @@ export function createCrossProjectPosition(article, {
       article.focus({ preventScroll: true });
       // Semantic holding can adjust scroll during layout. Verify the final
       // position before allowing the pending record to be consumed.
-      return Math.abs(view.scrollY - top) <= 1;
+      const restored = Math.abs(view.scrollY - top) <= 1;
+      if (!restored) release();
+      return restored;
     },
   };
 }
 
 export class CrossProjectPreview {
   constructor(article, { stack, returnButton, capture, restore, enabled = () => false,
-    identity = () => null, request = (url, options) => fetch(url, options).then((r) => {
-      if (!r.ok) throw new Error("Preview unavailable");
-      return r.json();
-    }), location = article.ownerDocument.defaultView.location,
-    openExternal = (url) => article.ownerDocument.defaultView.open(url, "_blank", "noopener"),
+    identity = () => null, request, location = article.ownerDocument.defaultView.location,
     transitionId = () => globalThis.crypto.randomUUID(),
   }) {
     Object.assign(this, { article, stack, returnButton, capture, restore, enabled,
-      identity, request, location, openExternal, transitionId });
+      identity, request, location, transitionId });
     this.document = article.ownerDocument;
     this.generation = 0;
     this.listeners = [];
@@ -147,35 +145,27 @@ export class CrossProjectPreview {
     this.link = link;
     const generation = this.generation;
     this.requestIdentity = this.identity();
-    this.controller = new AbortController();
+    const controller = this.controller = new AbortController();
     if (explicit) this.show({ status: "loading" });
     try {
-      const result = await this.request(`api/cross-project/preview?${query}`, { signal: this.controller.signal });
+      const result = await this.request(`api/cross-project/preview?${query}`, { signal: controller.signal });
       if (this.disposed || generation !== this.generation || this.requestIdentity !== this.identity()) return;
       if (!link.isConnected) {
         this.dismiss(false);
         return;
       }
       if (!explicit && result.status === "unresolved") {
-        this.followExternal(link, href);
-        this.dismiss(false);
+        this.show({ ...result, originalUrl: href, originalTarget: link.target });
         return;
       }
       this.show(result);
-    } catch (error) {
+    } catch {
       if (generation !== this.generation || this.disposed ||
-        this.requestIdentity !== this.identity() || !link.isConnected || error.name === "AbortError") return;
-      if (!explicit) {
-        this.followExternal(link, href);
-        this.dismiss(false);
-      }
-      else this.show({ status: "error" });
+        this.requestIdentity !== this.identity() || !link.isConnected || controller.signal.aborted) return;
+      // Transport timeouts also reject with AbortError, but do not abort this
+      // caller's signal. Only user/lifecycle cancellation is silent.
+      this.show({ status: "error", ...(!explicit && { originalUrl: href, originalTarget: link.target }) });
     }
-  }
-
-  followExternal(link, href) {
-    if (link.target && link.target !== "_self") this.openExternal(href);
-    else this.location.assign(href);
   }
 
   show(result) {
@@ -228,12 +218,13 @@ export class CrossProjectPreview {
     } else if (result.status !== "loading") {
       add("p", "이 대상의 웹 뷰어 경로를 사용할 수 없습니다.");
       const external = unique && externalUrl(result.targetUrl);
-      const fallback = external && new URL(external).origin !== this.location.origin
-        ? external : externalUrl(result.pdfUrl);
+      const original = externalUrl(result.originalUrl);
+      const fallback = original || (external && new URL(external).origin !== this.location.origin
+        ? external : externalUrl(result.pdfUrl));
       if (fallback) {
-        const link = add("a", external === fallback ? "외부 웹 뷰어 열기" : "외부 PDF 열기");
+        const link = add("a", original ? "원래 링크 열기" : external === fallback ? "외부 웹 뷰어 열기" : "외부 PDF 열기");
         link.href = fallback;
-        link.target = "_blank";
+        link.target = original ? (result.originalTarget || "_self") : "_blank";
         link.rel = "noopener noreferrer";
       }
     }

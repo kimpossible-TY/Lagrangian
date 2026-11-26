@@ -431,6 +431,10 @@ references and ambiguous_labels, positive integer pages and finite optional
 coordinates. Errors never expose filesystem paths. Explicit project/label and
 PDF href/text resolution preserve Swift unique/ambiguous/unresolved semantics;
 candidate metadata is limited to 32 entries and 1024-character strings.
+Catalog data is published externally by the project-references package publisher,
+which owns reference publication and ambiguous-label markers. This checkout
+implements no catalog generator; the viewer never edits it. The change design's
+configuration example is hand-authored, not claimed generator output.
 
 `server/routing.py` builds a read-only peer registry; `server/cli.py` ReaderRuntime
 injects configured profiles and mounted states into both ingress handlers.
@@ -447,8 +451,11 @@ display over canonical plain text, stops at section/heading boundaries and bound
 output to 600 characters / 4 blocks, with a truncated boolean. No raw HTML is
 injected. Unmounted, uncompiled, compiling, failed-import or unmatched targets
 retain unique catalog metadata with `snippet: null`; targetUrl is present only
-for a safely mounted route. Safe URLs are relative same-origin
-`/d/<id>/#<anchor>` or that route on the configured reader_url-validated origin;
+for a safely mounted route. Catalog labels are lookup identities, not navigable
+anchors: anchor starts null and metadata-only mounted routes have no fragment.
+Successful extraction may supply a manifest-backed reader anchor. Safe URLs are
+relative same-origin `/d/<id>/` with an optional extracted anchor fragment, or
+that route on the configured reader_url-validated origin;
 executable/file URLs, arbitrary hosts and traversal are rejected.
 
 HTTP owns read-only `GET /api/cross-project/preview`, also available under
@@ -479,10 +486,15 @@ consumes pending. The native Swift stack remains independently owned at 64.
 The concrete `features/navigation/cross-project-preview.js` owns
 CrossProjectPreview and createCrossProjectPosition. `reader.js` injects storage,
 capability, document/service/revision identity and section reading-position
-operations. Explicit project/label metadata wins over href/text, including
+operations, plus `(url, options) => transport.get(url, options)` from the existing
+ReaderTransport owner. Its no-store requests have a default ten-second timeout;
+transport AbortError displays an error unless the caller signal was cancelled.
+Explicit project/label metadata wins over href/text, including
 fragment hrefs. Otherwise enabled capability allows safe absolute HTTP(S)
 positive-page-fragment candidates, excluding same-origin viewer routes;
-unresolved/error candidates resume their original href without return history.
+unresolved/error candidates retain a clickable original href/target in the card
+without return history. Activation supplies a fresh user gesture; no asynchronous
+window.open depends on expired activation.
 Ordinary fragments, relative/non-page links, downloads and modified clicks stay
 native. Popovers use named nonmodal dialog semantics, textContent-only canonical
 snippets and cream/dark theme tokens. The jump button or noninteractive card
@@ -503,18 +515,36 @@ BACK writes a pending record with a fresh UUID before popping/persisting the
 stack and assigning the origin path. Synchronous assignment failure rolls back
 best effort; later load failure leaves pending recoverable by browser navigation
 or reload. On initial bootstrap, pending selects the saved section ahead of
-fragment, section query and normal reading state. A matching state/manifest
+fragment, section query and normal reading state. Client revision starts null;
+renderDocument fills it from the accepted manifest before section mounting.
+The initial !revision condition chooses entry hints, not compiler readiness.
+A matching current state/manifest
 session, non-busy article and exact ready section are required. Restoration
 scrolls to finite section document top plus saved scrollOffset, requires actual
 scroll within one CSS pixel, then holds the current semantic anchor and focuses
 the article without scrolling. The final scroll must still meet that tolerance.
 Only then is the matching path/transition consumed
 once. Failed readiness/geometry or pending removal retains the record for
-recovery/reload; it does not automatically retry layout beyond that render.
+retry. reader.js retains load sequence, snapshot and transition, schedules nearby
+section loading and retries after mounted-section changes and article resize
+notifications in a coalesced animation frame. This runs after ContinuousSections
+restores its own mutation anchor. Navigation, session/revision change, a newer
+pending transition or disposal invalidates the attempt. Success stops retries;
+disposal disconnects the observer and cancels its frame.
+`features/navigation/reading-position.js::createReadingPosition` owns the semantic
+anchor and hold: block key/text/section/viewport offset, canvas identity/fraction
+or parked-section fraction plus origin URL. Cross-project restoration releases
+the old hold, restores the exact section-relative pixels and captures/holds a
+fresh semantic anchor. Failed final pixel checks release that hold. Subsequent
+composition, font and width changes or continuous-section mutations can adjust
+the viewport to keep the same passage; user gestures release the hold.
 Homepage explicit document/variant open clears both records; reload retains tab
 history. Cross-project Back has its own labeled navigation-action button.
-In-document ReferenceReturn still holds one semantic origin and consumes it
-only after verified restoration, with existing fragment/popstate handling.
+In-document ReferenceReturn still holds one semantic origin. The HTML adapter's
+finishReferenceReturn updates history/focus only on success but consumes the
+matching origin even when restoration fails. That behavior and existing
+fragment/popstate handling are unchanged; retry-preserving consumption here
+applies only to cross-project pending returns.
 
 ReaderRuntime maps stable manager service IDs to mounted states and routes;
 `/d/<id>/` IDs are not documentID. The latter hashes resolved root/entry;

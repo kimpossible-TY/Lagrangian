@@ -140,6 +140,7 @@ const crossProjects = new CrossProjectPreview(article, {
   returnButton: document.querySelector("#reader-cross-project-return"),
   enabled: () => serverState?.viewer?.crossProject === true,
   identity: () => JSON.stringify([serverState?.documentID, serverState?.service, serverState?.revision]),
+  request: (url, options) => transport.get(url, options),
   ...createCrossProjectPosition(article, {
     ready: () => manifest && sameSession(manifest, serverState),
     readSection: () => currentSection,
@@ -148,6 +149,28 @@ const crossProjects = new CrossProjectPreview(article, {
     holdAnchor: () => readingPosition.hold(readingAnchor()),
   }),
 });
+let crossProjectRestoration = null;
+let crossProjectRestoreFrame = null;
+function retryCrossProjectReturn() {
+  const attempt = crossProjectRestoration;
+  if (!attempt) return;
+  if (disposed || attempt.sequence !== loadSequence || !sameSession(attempt.snapshot, serverState) ||
+    crossProjects.pendingReturn()?.transitionId !== attempt.record.transitionId) {
+    crossProjectRestoration = null;
+    return;
+  }
+  if (crossProjects.restorePending(attempt.record)) crossProjectRestoration = null;
+  else sections.schedule(0);
+}
+function scheduleCrossProjectReturn() {
+  if (!crossProjectRestoration || crossProjectRestoreFrame !== null) return;
+  crossProjectRestoreFrame = requestAnimationFrame(() => {
+    crossProjectRestoreFrame = null;
+    retryCrossProjectReturn();
+  });
+}
+const crossProjectResize = new ResizeObserver(scheduleCrossProjectReturn);
+crossProjectResize.observe(article);
 const references = new ReferenceReturn(
   document.querySelector("#reader-reference-back"),
   (anchor) => {
@@ -464,9 +487,13 @@ function mountedSectionsChanged() {
   decorations.sync();
   annotations.sync();
   selectionActions?.repaint();
+  // Run after ContinuousSections restores its own mutation anchor. A return
+  // near a section boundary may need the new neighbor's height before scrolling.
+  scheduleCrossProjectReturn();
 }
 
 function renderDocument(html, nextManifest, section, options) {
+  crossProjectRestoration = null;
   readingPosition.release();
   const sequence = loadSequence;
   const gestureAtMount = changes.lastGesture;
@@ -510,7 +537,8 @@ function renderDocument(html, nextManifest, section, options) {
   requestAnimationFrame(() => {
     if (disposed || !sameSnapshot(manifest, nextManifest) || sequence !== loadSequence) return;
     if (options.crossProjectReturn) {
-      crossProjects.restorePending(options.crossProjectReturn);
+      crossProjectRestoration = { record: options.crossProjectReturn, snapshot: nextManifest, sequence };
+      retryCrossProjectReturn();
     } else if (options.target) {
       const target = document.getElementById(options.target);
       if (Number.isFinite(options.referenceViewportY) && target) {
@@ -804,6 +832,9 @@ window.addEventListener("pagehide", (event) => {
     changes.dispose();
     references.dispose();
     crossProjects.dispose();
+    crossProjectRestoration = null;
+    crossProjectResize.disconnect();
+    if (crossProjectRestoreFrame !== null) cancelAnimationFrame(crossProjectRestoreFrame);
     mathematics.dispose();
     canvases.dispose();
   }
