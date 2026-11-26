@@ -293,7 +293,9 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
             return value
         attrs = n.attrs
         common = {"id", "data-reader-key", "class", "role", "aria-level", "lang", "dir"}
-        allowed = common | {"a": {"href"}, "td": {"colspan", "rowspan"},
+        allowed = common | {"a": {"href", "data-project-ref-project", "data-project-ref-label",
+                                  "data-project-ref-title", "data-project-ref-page", "data-project-ref-text"},
+                            "td": {"colspan", "rowspan"},
                             "th": {"colspan", "rowspan", "scope"},
                             "span": {"data-flow-mark", "data-flow-targets"},
                             "mrow": {"data-flow-mark"},
@@ -396,6 +398,25 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
             if not (href.startswith("#") and len(href) > 1) and not (url.scheme in {"https", "http", "mailto"} and not url.username and not url.password):
                 raise NativeImportError("unsafe-link")
             value["link"] = href
+            if any(key.startswith("data-project-ref-") for key in attrs):
+                project = (attrs.get("data-project-ref-project") or "").strip()
+                label = (attrs.get("data-project-ref-label") or "").strip()
+                if not project or not label:
+                    raise NativeImportError("invalid-project-ref")
+                project_ref = {"project": project, "label": label}
+                for field in ("title", "text"):
+                    optional = (attrs.get("data-project-ref-" + field) or "").strip()
+                    if optional:
+                        project_ref[field] = optional
+                if "data-project-ref-page" in attrs:
+                    page = (attrs["data-project-ref-page"] or "").strip()
+                    if not re.fullmatch(r"[1-9][0-9]*", page):
+                        raise NativeImportError("invalid-project-ref")
+                    try:
+                        project_ref["page"] = int(page)
+                    except ValueError:
+                        raise NativeImportError("invalid-project-ref") from None
+                value["projectRef"] = project_ref
         if n.tag in {"td", "th"}:
             try:
                 row, col = int(attrs.get("rowspan", "1")), int(attrs.get("colspan", "1"))

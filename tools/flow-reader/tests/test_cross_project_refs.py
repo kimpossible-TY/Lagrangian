@@ -4,10 +4,55 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from flow_reader.document.native_document import NativeImportError, import_accepted_document
+from flow_reader.document.sections import SectionBundle
 from flow_reader.services.cross_project_refs import (
     CatalogError, load_project_catalog, resolve_cross_project_ref,
     extract_block_snippet, build_preview_payload,
 )
+
+
+class NativeProjectRefTests(unittest.TestCase):
+    @staticmethod
+    def import_link(attrs):
+        html = f'<html><body><a href="https://example.com" {attrs}>Link</a></body></html>'
+        bundle = SectionBundle({'revision': 'test', 'sections': [{'id': 's'}]},
+                               {'s': html.encode()}, {}, [])
+        return import_accepted_document(bundle, document_id='test', service_id='test',
+                                        generation=1).document
+
+    def test_project_ref(self):
+        document = self.import_link('data-project-ref-project=" pde " '
+                                    'data-project-ref-label=" zero_acceleration " '
+                                    'data-project-ref-title=" PDE " data-project-ref-page=" 12 " '
+                                    'data-project-ref-text=" Theorem 2.1 "')
+        self.assertEqual(document['blocks'][0]['projectRef'], {
+            'project': 'pde', 'label': 'zero_acceleration', 'title': 'PDE',
+            'page': 12, 'text': 'Theorem 2.1',
+        })
+        self.assertEqual(document['requiredCapabilities'], ['semantic-tree-v1'])
+
+    def test_plain_link(self):
+        document = self.import_link('')
+        self.assertNotIn('projectRef', document['blocks'][0])
+        self.assertEqual(document['blocks'][0]['link'], 'https://example.com')
+
+    def test_invalid_project_refs(self):
+        for attrs in (
+            'data-project-ref-project="pde"',
+            'data-project-ref-project=" " data-project-ref-label="label"',
+            'data-project-ref-project="pde" data-project-ref-label="label" data-project-ref-page="0"',
+            'data-project-ref-project="pde" data-project-ref-label="label" data-project-ref-page="abc"',
+            'data-project-ref-title="PDE"',
+            'data-project-ref-project="pde" data-project-ref-label="label" data-project-ref-page',
+        ):
+            with self.subTest(attrs=attrs), self.assertRaisesRegex(NativeImportError, '^invalid-project-ref$'):
+                self.import_link(attrs)
+
+    def test_optional_fields_are_omitted_when_empty(self):
+        document = self.import_link('data-project-ref-project="pde" data-project-ref-label="label" '
+                                    'data-project-ref-title=" " data-project-ref-text=" "')
+        self.assertEqual(document['blocks'][0]['projectRef'], {'project': 'pde', 'label': 'label'})
 
 
 class CrossProjectTests(unittest.TestCase):
