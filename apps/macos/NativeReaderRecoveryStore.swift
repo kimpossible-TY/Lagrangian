@@ -89,10 +89,62 @@ struct NativeReaderRecoverySnapshot: Codable {
     static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 }
 
+/// Shared schema/hash envelope and descriptor-relative atomic publication.
+/// Callers own their typed validation, directory policy and byte budgets.
+enum NativeReaderSnapshotStorage {
+    private struct Envelope: Codable {
+        let schema: Int
+        let sha256: String
+        let uncompressedBytes: Int?
+        let payload: Data
+    }
+    static func encode<T: Encodable>(_ value: T, compressed: Bool = false, payloadLimit: Int) throws -> Data {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let raw = try encoder.encode(value)
+        guard raw.count <= payloadLimit else { throw NativeObjectError.budget }
+        let payload = compressed ? try (raw as NSData).compressed(using: .lzfse) as Data : raw
+        return try encoder.encode(Envelope(schema: 1, sha256: NativeReaderRecoverySnapshot.digest(raw),
+            uncompressedBytes: compressed ? raw.count : nil, payload: payload))
+    }
+    static func decode<T: Decodable>(_ type: T.Type, from data: Data, compressed: Bool = false, payloadLimit: Int) throws -> T {
+        let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+        guard envelope.schema == 1, !envelope.payload.isEmpty else { throw NativeReaderContractError.invalidDocument }
+        let raw: Data
+        if compressed {
+            guard let count = envelope.uncompressedBytes, (1...payloadLimit).contains(count) else { throw NativeObjectError.budget }
+            // One extra byte distinguishes exact output from truncated expansion.
+            var buffer = Data(count: count + 1)
+            let size = buffer.withUnsafeMutableBytes { output in
+                envelope.payload.withUnsafeBytes { input in
+                    compression_decode_buffer(output.bindMemory(to: UInt8.self).baseAddress!, output.count,
+                        input.bindMemory(to: UInt8.self).baseAddress!, input.count, nil, COMPRESSION_LZFSE)
+                }
+            }
+            guard size == count else { throw NativeReaderContractError.invalidDocument }
+            buffer.count = size; raw = buffer
+        } else {
+            guard envelope.uncompressedBytes == nil, envelope.payload.count <= payloadLimit else { throw NativeObjectError.budget }
+            raw = envelope.payload
+        }
+        guard NativeReaderRecoverySnapshot.digest(raw) == envelope.sha256 else { throw NativeReaderContractError.invalidDocument }
+        return try JSONDecoder().decode(type, from: raw)
+    }
+    static func write(_ data: Data, name: String, directory: Int32, temporaryPrefix: String,
+                      prepare: (Int32) -> Void = { _ in }) throws {
+        let temporary = temporaryPrefix + UUID().uuidString
+        let fd = openat(directory, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw NativeReaderOperationFailure.unavailable }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close(); unlinkat(directory, temporary, 0) }
+        try handle.write(contentsOf: data); prepare(fd); try handle.synchronize()
+        try Task.checkCancellation()
+        guard renameat(directory, temporary, directory, name) == 0, fsync(directory) == 0 else { throw NativeReaderOperationFailure.unavailable }
+    }
+}
+
 /// Only typed accepted content and bounded composer recovery. No source excerpts,
 /// browser storage, provider headers, credentials or account state are serializable here.
 actor NativeReaderRecoveryStore {
-    private struct Envelope: Codable { let schema: Int; let sha256: String; let payload: Data }
     nonisolated let root: URL
     static let limit = 128 * 1024 * 1024
     init(root: URL) { self.root = root.standardizedFileURL }
@@ -120,27 +172,18 @@ actor NativeReaderRecoveryStore {
         try Task.checkCancellation()
         try snapshot.validate()
         try directory()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let payload = try encoder.encode(snapshot)
-        let data = try encoder.encode(Envelope(schema: 1, sha256: NativeReaderRecoverySnapshot.digest(payload), payload: payload))
+        let data = try NativeReaderSnapshotStorage.encode(snapshot, payloadLimit: Self.limit)
         guard data.count <= Self.limit else { throw NativeReaderOperationFailure.rejected(code: "recovery-limit") }
         let destination = file(snapshot.document.identity)
         let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey])
             .filter { $0.lastPathComponent.range(of: "^[0-9a-f]{64}\\.json$", options: .regularExpression) != nil && $0 != destination }
         let total = try files.reduce(0) { try $0 + ($1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) }
         guard files.count < 8, total + data.count <= 256 * 1024 * 1024 else { throw NativeReaderOperationFailure.rejected(code: "recovery-budget") }
-        let temporary = root.appendingPathComponent(".snapshot-" + UUID().uuidString)
-        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { throw NativeReaderOperationFailure.unavailable }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? handle.close(); unlink(temporary.path) }
-        try handle.write(contentsOf: data)
-        try handle.synchronize()
-        try Task.checkCancellation()
-        guard rename(temporary.path, destination.path) == 0 else { throw NativeReaderOperationFailure.unavailable }
         let directoryFD = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-        if directoryFD >= 0 { _ = fsync(directoryFD); close(directoryFD) }
+        guard directoryFD >= 0 else { throw NativeReaderOperationFailure.unavailable }
+        defer { close(directoryFD) }
+        try NativeReaderSnapshotStorage.write(data, name: destination.lastPathComponent,
+            directory: directoryFD, temporaryPrefix: ".snapshot-")
     }
 
     final class StagedPDF: @unchecked Sendable {
@@ -255,9 +298,7 @@ actor NativeReaderRecoveryStore {
               info.st_size <= Self.limit else { throw NativeReaderOperationFailure.rejected(code: "recovery-limit") }
         let data = try handle.read(upToCount: Self.limit + 1) ?? Data()
         guard data.count <= Self.limit else { throw NativeReaderOperationFailure.rejected(code: "recovery-limit") }
-        let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-        guard envelope.schema == 1, NativeReaderRecoverySnapshot.digest(envelope.payload) == envelope.sha256 else { throw NativeReaderContractError.invalidDocument }
-        let snapshot = try JSONDecoder().decode(NativeReaderRecoverySnapshot.self, from: envelope.payload)
+        let snapshot = try NativeReaderSnapshotStorage.decode(NativeReaderRecoverySnapshot.self, from: data, payloadLimit: Self.limit)
         guard file(snapshot.document.identity) == url else { throw NativeReaderContractError.wrongTarget }
         try snapshot.validate()
         return snapshot
@@ -389,19 +430,38 @@ actor NativeReaderLayoutCache {
     nonisolated let root: URL
     let byteLimit: Int
     private let now: @Sendable () -> Date
-    private struct StorageKey: Encodable {
+    private static let payloadLimit = 128 * 1024 * 1024
+    private struct Window: Codable {
         let ownerID: String
         let key: NativeReaderLayoutCacheKey
+        let identity: NativeDocumentIdentity
+        let generation: Int
+        let restoration: NativeReaderRestoration
+        let viewedBlockIDs: Set<String>
+        let layouts: [String: NativeMathLayout]
+        let assets: [String: Data]
     }
-    private struct Envelope: Codable {
-        let schema: Int
-        let sha256: String
-        let uncompressedBytes: Int
-        let payload: Data
+    private struct Signature: Equatable {
+        let ownerID: String
+        let key: NativeReaderLayoutCacheKey
+        let identity: NativeDocumentIdentity
+        let viewed: Set<String>
+        let layouts: Set<String>
     }
-    private static let payloadLimit = 128 * 1024 * 1024
+    private var lastSave: Signature?
     init(root: URL, byteLimit: Int = 64 * 1024 * 1024, now: @escaping @Sendable () -> Date = { Date() }) {
         self.root = root.standardizedFileURL; self.byteLimit = max(0, byteLimit); self.now = now
+    }
+    private func prefix(ownerID: String, documentID: String) -> String {
+        NativeReaderRecoverySnapshot.digest(Data(ownerID.utf8)) + "-" + NativeReaderRecoverySnapshot.digest(Data(documentID.utf8)) + "-"
+    }
+    private func name(ownerID: String, key: NativeReaderLayoutCacheKey) throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return prefix(ownerID: ownerID, documentID: key.documentID) + NativeReaderRecoverySnapshot.digest(try encoder.encode(key)) + ".layout"
+    }
+    private func documentName(ownerID: String, identity: NativeDocumentIdentity) throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return prefix(ownerID: ownerID, documentID: identity.documentID) + NativeReaderRecoverySnapshot.digest(try encoder.encode(identity)) + ".document"
     }
     private func directory() throws -> Int32 {
         guard root.isFileURL, root.path != "/" else { throw NativeReaderOperationFailure.unavailable }
@@ -415,80 +475,92 @@ actor NativeReaderLayoutCache {
                 close(fd); fd = next
             }
             guard fchmod(fd, 0o700) == 0, flock(fd, LOCK_EX) == 0 else { throw NativeReaderOperationFailure.unavailable }
-            // An interrupted prior write is disposable. The directory lock also
-            // serializes distinct cache actors/windows sharing this namespace.
-            for name in try FileManager.default.contentsOfDirectory(atPath: root.path)
-                where name.range(of: "^\\.layout-[0-9A-Fa-f-]{36}$", options: .regularExpression) != nil {
-                unlinkat(fd, name, 0)
+            for name in try FileManager.default.contentsOfDirectory(atPath: root.path) {
+                // Older monolithic entries are disposable. Never decode other
+                // profiles merely to discover their identity or migrate them.
+                if name.range(of: "^(?:\\.layout-[0-9A-Fa-f-]{36}|[0-9a-f]{64}\\.layout)$", options: .regularExpression) != nil {
+                    unlinkat(fd, name, 0)
+                }
             }
-            let entries = try files(fd).sorted { $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec < $1.date.tv_nsec : $0.date.tv_sec < $1.date.tv_sec }
-            var total = entries.reduce(0) { $0 + $1.size }
-            for entry in entries where total > byteLimit {
-                guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
-                total -= entry.size
+            let entries = try files(fd)
+            let windows = Set(entries.filter { $0.name.hasSuffix(".layout") }.map { String($0.name.prefix(130)) })
+            for entry in entries where entry.name.hasSuffix(".document") && !windows.contains(String(entry.name.prefix(130))) {
+                unlinkat(fd, entry.name, 0)
             }
+            try evict(fd, reserving: 0)
             return fd
         } catch { close(fd); throw error }
     }
-    private func name(ownerID: String, key: NativeReaderLayoutCacheKey) throws -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return NativeReaderRecoverySnapshot.digest(try encoder.encode(StorageKey(ownerID: ownerID, key: key))) + ".layout"
-    }
-    private func legacyName(_ key: NativeReaderLayoutCacheKey) throws -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return NativeReaderRecoverySnapshot.digest(try encoder.encode(key)) + ".layout"
-    }
     private func files(_ fd: Int32) throws -> [(name: String, size: Int, date: timespec)] {
         try FileManager.default.contentsOfDirectory(atPath: root.path).compactMap { name in
-            guard name.range(of: "^[0-9a-f]{64}\\.layout$", options: .regularExpression) != nil else { return nil }
+            guard name.range(of: "^[0-9a-f]{64}-[0-9a-f]{64}-[0-9a-f]{64}\\.(layout|document)$", options: .regularExpression) != nil else { return nil }
             var info = stat()
             guard fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0,
-                  info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else { throw NativeObjectError.stale }
+                  info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else {
+                unlinkat(fd, name, 0); return nil
+            }
             return (name, Int(info.st_size), info.st_mtimespec)
         }
+    }
+    private func removeGroup(_ group: String, fd: Int32) throws {
+        for entry in try files(fd) where entry.name.hasPrefix(group) {
+            guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+        }
+    }
+    private func evict(_ fd: Int32, reserving bytes: Int, protecting: String? = nil) throws {
+        let entries = try files(fd).sorted {
+            $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec < $1.date.tv_nsec : $0.date.tv_sec < $1.date.tv_sec
+        }
+        var total = entries.reduce(0) { $0 + $1.size }, removed = Set<String>()
+        for entry in entries where total > byteLimit - bytes {
+            let group = String(entry.name.prefix(130))
+            guard group != protecting, removed.insert(group).inserted else { continue }
+            try removeGroup(group, fd: fd)
+            total -= entries.filter { $0.name.hasPrefix(group) }.reduce(0) { $0 + $1.size }
+        }
+        guard total <= byteLimit - bytes else { throw NativeObjectError.budget }
     }
     func diskBytes() throws -> Int {
         let fd = try directory(); defer { close(fd) }
         return try files(fd).reduce(0) { $0 + $1.size }
     }
-    func save(_ snapshot: NativeReaderLayoutSnapshot) throws {
-        try Task.checkCancellation(); try snapshot.validate()
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let raw = try encoder.encode(snapshot)
-        guard raw.count <= Self.payloadLimit else { throw NativeObjectError.budget }
-        let compressed = try (raw as NSData).compressed(using: .lzfse) as Data
-        let data = try encoder.encode(Envelope(schema: 1, sha256: NativeReaderRecoverySnapshot.digest(raw),
-            uncompressedBytes: raw.count, payload: compressed))
-        guard data.count <= byteLimit else { throw NativeObjectError.budget }
+    /// Position-only changes are flushed only by close/cancel's immediate save.
+    func save(_ snapshot: NativeReaderLayoutSnapshot, immediate: Bool = false) throws {
+        try Task.checkCancellation(); try snapshot.key.validate()
+        guard !snapshot.ownerID.isEmpty, snapshot.ownerID.utf8.count <= 8192 else { throw NativeObjectError.stale }
+        let signature = Signature(ownerID: snapshot.ownerID, key: snapshot.key, identity: snapshot.document.identity,
+            viewed: snapshot.viewedBlockIDs, layouts: Set(snapshot.layouts.keys))
         let fd = try directory(); defer { close(fd) }
         let destination = try name(ownerID: snapshot.ownerID, key: snapshot.key)
-        var entries = try files(fd).sorted {
-            $0.date.tv_sec == $1.date.tv_sec ? ($0.date.tv_nsec == $1.date.tv_nsec ? $0.name < $1.name : $0.date.tv_nsec < $1.date.tv_nsec) : $0.date.tv_sec < $1.date.tv_sec
+        let document = try documentName(ownerID: snapshot.ownerID, identity: snapshot.document.identity)
+        if !immediate, lastSave == signature, faccessat(fd, destination, F_OK, AT_SYMLINK_NOFOLLOW) == 0,
+           faccessat(fd, document, F_OK, AT_SYMLINK_NOFOLLOW) == 0 { return }
+        try snapshot.validate()
+        let window = Window(ownerID: snapshot.ownerID, key: snapshot.key, identity: snapshot.document.identity,
+            generation: snapshot.document.generation, restoration: snapshot.restoration, viewedBlockIDs: snapshot.viewedBlockIDs,
+            layouts: snapshot.layouts, assets: snapshot.assets)
+        let data = try NativeReaderSnapshotStorage.encode(window, compressed: true, payloadLimit: Self.payloadLimit)
+        // Encode/compress the full document only once per accepted identity/revision.
+        let documentData = faccessat(fd, document, F_OK, AT_SYMLINK_NOFOLLOW) == 0 ? nil :
+            try NativeReaderSnapshotStorage.encode(snapshot.document, compressed: true, payloadLimit: Self.payloadLimit)
+        let entries = try files(fd)
+        let documentBytes = documentData?.count ?? entries.first { $0.name == document }?.size ?? 0
+        guard data.count <= byteLimit, documentBytes <= byteLimit - data.count else { throw NativeObjectError.budget }
+        let group = prefix(ownerID: snapshot.ownerID, documentID: snapshot.key.documentID)
+        for entry in entries where entry.name.hasPrefix(group) && entry.name != document && entry.name != destination {
+            unlinkat(fd, entry.name, 0)
         }
-        for entry in entries where entry.name != destination {
-            if let old = try? read(entry.name, fd: fd), old.ownerID == snapshot.ownerID,
-               old.key.documentID == snapshot.key.documentID {
-                guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
-                entries.removeAll { $0.name == entry.name }
-            }
+        let extra = data.count + (documentData?.count ?? 0)
+        // Keep the document during atomic window replacement. If staging would
+        // exceed the cap, discard the old window first; this is only a cache.
+        let total = try files(fd).reduce(0) { $0 + $1.size }
+        if total > byteLimit - extra { unlinkat(fd, destination, 0) }
+        try evict(fd, reserving: extra, protecting: group)
+        if let documentData {
+            try NativeReaderSnapshotStorage.write(documentData, name: document, directory: fd, temporaryPrefix: ".layout-", prepare: touch)
         }
-        var total = entries.reduce(0) { $0 + $1.size }
-        // Account for the staging bytes as well as committed entries. Evict
-        // before writing so even the atomic replacement cannot exceed the cap.
-        entries = entries.filter { $0.name != destination } + entries.filter { $0.name == destination }
-        for entry in entries where total > byteLimit - data.count {
-            guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
-            total -= entry.size
-        }
-        let temporary = ".layout-" + UUID().uuidString
-        let output = openat(fd, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard output >= 0 else { throw NativeReaderOperationFailure.unavailable }
-        let handle = FileHandle(fileDescriptor: output, closeOnDealloc: true)
-        defer { try? handle.close(); unlinkat(fd, temporary, 0) }
-        try handle.write(contentsOf: data); try handle.synchronize(); try Task.checkCancellation()
-        touch(output)
-        guard renameat(fd, temporary, fd, destination) == 0 else { throw NativeReaderOperationFailure.unavailable }
-        _ = fsync(fd)
+        try NativeReaderSnapshotStorage.write(data, name: destination, directory: fd, temporaryPrefix: ".layout-", prepare: touch)
+        lastSave = signature
     }
     private func touch(_ fd: Int32) {
         let time = now().timeIntervalSince1970
@@ -500,7 +572,7 @@ actor NativeReaderLayoutCache {
         let fd = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         if fd >= 0 { touch(fd); close(fd) }
     }
-    private func read(_ name: String, fd directory: Int32) throws -> NativeReaderLayoutSnapshot {
+    private func read<T: Decodable>(_ type: T.Type, name: String, fd directory: Int32) throws -> T {
         let fd = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw NativeObjectError.stale }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true); defer { try? handle.close() }
@@ -509,82 +581,56 @@ actor NativeReaderLayoutCache {
               info.st_size > 0, info.st_size <= byteLimit else { throw NativeObjectError.budget }
         let data = try handle.read(upToCount: byteLimit + 1) ?? Data()
         guard data.count <= byteLimit else { throw NativeObjectError.budget }
-        let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-        guard envelope.schema == 1, !envelope.payload.isEmpty,
-              (1...Self.payloadLimit).contains(envelope.uncompressedBytes) else { throw NativeObjectError.stale }
-        // A bounded output buffer prevents an untrusted compressed file from
-        // expanding beyond the envelope's already bounded declared size.
-        var raw = Data(count: envelope.uncompressedBytes + 1)
-        let size = raw.withUnsafeMutableBytes { output in
-            envelope.payload.withUnsafeBytes { input in
-                compression_decode_buffer(output.bindMemory(to: UInt8.self).baseAddress!, output.count,
-                    input.bindMemory(to: UInt8.self).baseAddress!, input.count, nil, COMPRESSION_LZFSE)
-            }
-        }
-        guard size == envelope.uncompressedBytes else { throw NativeObjectError.stale }
-        raw.count = size
-        guard NativeReaderRecoverySnapshot.digest(raw) == envelope.sha256 else { throw NativeObjectError.stale }
-        let snapshot = try JSONDecoder().decode(NativeReaderLayoutSnapshot.self, from: raw)
-        try snapshot.validate()
-        guard try self.name(ownerID: snapshot.ownerID, key: snapshot.key) == name || legacyName(snapshot.key) == name else { throw NativeObjectError.stale }
-        return snapshot
+        return try NativeReaderSnapshotStorage.decode(type, from: data, compressed: true, payloadLimit: Self.payloadLimit)
     }
-    // directory() holds the namespace lock across the existence check and rename.
-    // A valid matching scoped entry takes precedence even when the legacy duplicate is newer.
-    private func migrate(_ snapshot: NativeReaderLayoutSnapshot, from source: String, fd: Int32) throws -> NativeReaderLayoutSnapshot {
-        let destination = try name(ownerID: snapshot.ownerID, key: snapshot.key)
-        guard source != destination else { return snapshot }
-        var info = stat()
-        if fstatat(fd, destination, &info, AT_SYMLINK_NOFOLLOW) == 0 {
-            if let scoped = try? read(destination, fd: fd), scoped.ownerID == snapshot.ownerID, scoped.key == snapshot.key {
-                guard unlinkat(fd, source, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
-                _ = fsync(fd)
-                return scoped
-            }
-            guard unlinkat(fd, destination, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
-        } else if errno != ENOENT {
-            throw NativeReaderOperationFailure.unavailable
-        }
-        guard renameat(fd, source, fd, destination) == 0 else { throw NativeReaderOperationFailure.unavailable }
-        _ = fsync(fd)
-        return snapshot
+    private func read(_ name: String, fd: Int32) throws -> NativeReaderLayoutSnapshot {
+        let window = try read(Window.self, name: name, fd: fd)
+        guard try self.name(ownerID: window.ownerID, key: window.key) == name else { throw NativeObjectError.stale }
+        let document = try read(NativeReaderDocument.self, name: documentName(ownerID: window.ownerID, identity: window.identity), fd: fd)
+        guard document.identity == window.identity else { throw NativeObjectError.stale }
+        let snapshot = NativeReaderLayoutSnapshot(ownerID: window.ownerID, key: window.key,
+            document: document.rebinding(generation: window.generation), restoration: window.restoration,
+            viewedBlockIDs: window.viewedBlockIDs, layouts: window.layouts, assets: window.assets)
+        try snapshot.validate(); return snapshot
     }
     func load(ownerID: String, key: NativeReaderLayoutCacheKey) throws -> NativeReaderLayoutSnapshot? {
         guard !ownerID.isEmpty, ownerID.utf8.count <= 8192 else { throw NativeObjectError.stale }
         try key.validate(); try Task.checkCancellation()
         let fd = try directory(); defer { close(fd) }
         let name = try self.name(ownerID: ownerID, key: key)
-        for source in [name, try legacyName(key)] {
-            guard faccessat(fd, source, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { continue }
-            let value: NativeReaderLayoutSnapshot
-            do { value = try read(source, fd: fd) }
-            catch { unlinkat(fd, source, 0); continue }
-            guard value.ownerID == ownerID, value.key == key else { return nil }
-            let result = try migrate(value, from: source, fd: fd)
-            touch(name, directory: fd); return result
-        }
-        return nil
+        guard faccessat(fd, name, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
+        do {
+            let snapshot = try read(name, fd: fd)
+            touch(name, directory: fd); touch(try documentName(ownerID: ownerID, identity: snapshot.document.identity), directory: fd)
+            return snapshot
+        } catch { try removeGroup(prefix(ownerID: ownerID, documentID: key.documentID), fd: fd); return nil }
     }
     func latest(ownerID: String) throws -> NativeReaderLayoutSnapshot? {
+        guard !ownerID.isEmpty, ownerID.utf8.count <= 8192 else { throw NativeObjectError.stale }
         try Task.checkCancellation()
         let fd = try directory(); defer { close(fd) }
-        let entries = try files(fd).sorted { $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec > $1.date.tv_nsec : $0.date.tv_sec > $1.date.tv_sec }
+        let owner = NativeReaderRecoverySnapshot.digest(Data(ownerID.utf8)) + "-"
+        let entries = try files(fd).filter { $0.name.hasPrefix(owner) && $0.name.hasSuffix(".layout") }.sorted {
+            $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec > $1.date.tv_nsec : $0.date.tv_sec > $1.date.tv_sec
+        }
         for entry in entries {
-            let value: NativeReaderLayoutSnapshot
-            do { value = try read(entry.name, fd: fd) }
-            catch { unlinkat(fd, entry.name, 0); continue }
-            if value.ownerID == ownerID {
-                let result = try migrate(value, from: entry.name, fd: fd)
-                touch(try name(ownerID: ownerID, key: result.key), directory: fd); return result
-            }
+            do {
+                let snapshot = try read(entry.name, fd: fd)
+                touch(entry.name, directory: fd); touch(try documentName(ownerID: ownerID, identity: snapshot.document.identity), directory: fd)
+                return snapshot
+            } catch { try removeGroup(String(entry.name.prefix(130)), fd: fd) }
         }
         return nil
     }
     func invalidate(ownerID: String, key: NativeReaderLayoutCacheKey) throws {
         guard !ownerID.isEmpty, ownerID.utf8.count <= 8192 else { throw NativeObjectError.stale }
         try key.validate()
-        let fd = try directory(); defer { close(fd) }; unlinkat(fd, try name(ownerID: ownerID, key: key), 0)
-        let legacy = try legacyName(key)
-        if let value = try? read(legacy, fd: fd), value.ownerID == ownerID { unlinkat(fd, legacy, 0) }
+        let fd = try directory(); defer { close(fd) }
+        let destination = try name(ownerID: ownerID, key: key)
+        if unlinkat(fd, destination, 0) == 0 {
+            // Only one window per owner/document is retained.
+            try removeGroup(prefix(ownerID: ownerID, documentID: key.documentID), fd: fd)
+        }
+        lastSave = nil
     }
 }
