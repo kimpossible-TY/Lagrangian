@@ -170,6 +170,8 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(len(c['files']),30)
         current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
         self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION,REVIEW_CODE,REVIEW_INPUT,REVIEW_DOCS,REPAIR3_CODE,REPAIR3_DOCS,REPAIR3_SWIFT,REPAIR3_REWORK_SWIFT,REPAIR3_C6_SWIFT,REPAIR3_C7_SWIFT,REPAIR3_C8_SWIFT,REPAIR3_C9A_SWIFT,REPAIR3_C9B_SWIFT,REPAIR3_C10_SWIFT,REPAIR3_C11_SWIFT,REPAIR3_C12_SWIFT,REPAIR3_C13_SWIFT,REPAIR3_C14_SWIFT,REPAIR3_C15_SWIFT,FOOTNOTE_MERGE,PR31_MAC_AUTOUPDATE,MINIMAL_REDESIGN_R04,MINIMAL_REDESIGN_R04_V3,MINIMAL_REDESIGN_R04_V4,MINIMAL_REDESIGN_R04_V5,MINIMAL_REDESIGN_R04_V6,RELEASE_RETENTION,FLOW_READER_SELECTION,PR32_MAC_UPDATER,FLOW_READER_FOLLOWUP,HOME_PDE_INTEGRATION,XREF_INTEGRATION,POSTREVIEW_CORRECTION,POSTREVIEW_MATH_CHUNK])
+        for revision, count in [(POSTREVIEW_CORRECTION, 27), (POSTREVIEW_MATH_CHUNK, 2)]:
+            self.assertEqual(len(next(x for x in m['ownerCorrections'] if x['revision'] == revision)['files']), count)
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
@@ -262,6 +264,12 @@ class FixedSourceBinding(unittest.TestCase):
         (self.root/'apps/macos/FlowApp.swift').unlink();self.commit()
         with self.assertRaisesRegex(ValueError,'missing/escaping owner source'):self.binding()
 
+    def test_deleted_delivery_owned_source_fails(self):
+        (self.root / 'docs/dev-guide.md').unlink(); self.commit()
+        with self.assertRaises(ValueError) as error:
+            self.binding()
+        self.assertEqual(str(error.exception), 'owner source must be one regular tracked file: docs/dev-guide.md')
+
     def test_registered_deletion_binds_absence_and_rejects_reappearance(self):
         name = 'apps/macos/CrossProjectReference.swift'
         base = self.git('rev-parse', 'HEAD').strip()
@@ -273,9 +281,15 @@ class FixedSourceBinding(unittest.TestCase):
         binding = self.binding()
         self.assertIsNone(binding['files'][name])
         self.assertIsNone(binding['ownerCorrections'][-1]['files'][0]['sha256'])
+        recreation_base = self.git('rev-parse', 'HEAD').strip()
         (self.root / name).write_text('# unexpected reappearance\n'); self.commit()
         with self.assertRaisesRegex(ValueError, 'deleted owner source reappeared'):
             self.binding()
+        recreation = self.git('rev-parse', 'HEAD').strip()
+        digest = hashlib.sha256((self.root / name).read_bytes()).hexdigest()
+        self.metadata(lambda m: m['ownerCorrections'].append(dict(revision=recreation,
+            baseRevision=recreation_base, files=[dict(path=name, baseSHA256=None, sha256=digest)])))
+        self.assertEqual(self.binding()['files'][name], digest)
 
     def test_exact_paths_and_unique_inventory_are_required(self):
         for kind in ['missing','duplicate','extra','delivery-path','empty']:

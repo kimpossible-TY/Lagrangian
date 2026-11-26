@@ -483,9 +483,10 @@ Hashes are Git-derived. That inventory contains no delivery-owned paths.
 
 Registered owner corrections may retire a regular source with a null `sha256`
 and its exact prior `baseSHA256`. The binder validates absence at the correction
-revision and current HEAD, and rejects a reappearing file. Historical correction
-records remain immutable. Missing files without an explicit deletion correction
-still fail source binding.
+revision and current HEAD, and rejects a reappearing file unless a later owner
+correction registers it with a null `baseSHA256`. Delivery-owned paths can never
+be deleted through a correction. Historical correction records remain immutable.
+Missing files without an explicit deletion correction still fail source binding.
 
 The post-review owner correction registers the following paths from
 `705f48b30e74887d00acb871806fd9f62ef9aa7e` → `44e0aa6f7efd3d08e4390bdc63924b5d60b268c3`:

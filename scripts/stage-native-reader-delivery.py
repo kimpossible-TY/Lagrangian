@@ -394,7 +394,7 @@ def integrated_sources(root):
         return hashlib.sha256(git('show', rev + ':' + name)).hexdigest()
     def current(name, rev):
         path = root / name
-        digest = blob(rev, name, absent=True)
+        digest = blob(rev, name, absent=name not in DELIVERY_SOURCE_PATHS)
         if digest is None:
             require(not path.exists() and not path.is_symlink() and blob(head, name, absent=True) is None,
                     'deleted owner source reappeared: ' + name)
