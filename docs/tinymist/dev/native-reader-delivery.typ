@@ -115,7 +115,7 @@ PDF digest. It supplies page-local display selection. Original source anchors
 and source jumps remain unsupported; raw engine diff-v1 native consumption is
 unverified. Verified semantic reflow source actions retain their existing owner.
 The actual final helper is
-`dc100395fc2ea1299c99ec90c201faaed80a1ca5ad0fefaa5d2451278e4a5d76`.
+`82f5d948ce927f47d9ab04380f2e895ffed98c06b418565f6ff5338174a813c0`.
 Existing runtime component source provenance and its immutable dependency bytes
 remain distinct from the new app source revision. Input engine hash, engine
 build/version provenance, signed engine hash, signed runtime inventory and outer
@@ -412,4 +412,35 @@ The flow-reader follow-up owner correction registers the eight paths from
 `tools/flow-reader/flow_reader/services/source_highlight.py`,
 `tools/flow-reader/tests/test_native_editor_dispatch.py`, and
 `tools/flow-reader/tests/test_passages.py`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+The Home/PDE integration owner correction registers the twenty-six paths from
+`ff66cdb89c9e68b17196a99c76e26d352b399e78` →
+`40df486581d1b3d71cb7b421e2b85284e3cf9bf1`:
+`apps/macos/FlowApp.swift`,
+`apps/macos/NativeAppDesign.swift`,
+`apps/macos/NativeBrandMark.swift`,
+`apps/macos/NativeReaderDocument.swift`,
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`apps/macos/NativeReaderPagedLayout.swift`,
+`apps/macos/NativeReaderRecoveryStore.swift`,
+`apps/macos/NativeReaderSession.swift`,
+`apps/macos/NativeReaderTextView.swift`,
+`apps/macos/NativeReaderTransport.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`tests/flow-app/FlowAppTests.swift`,
+`tests/flow-app/ReadingSessionTests.swift`,
+`tests/flow-app/native-reader-app/ContractTests.swift`,
+`tests/flow-app/native-reader-app/DeliveryRuntimeTests.mjs`,
+`tests/flow-app/native-reader-app/ObjectsTests.swift`,
+`tests/flow-app/native-reader-app/ServiceTests.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_app_integration.py`,
+`tests/flow-app/native-reader-app/test_contract.py`,
+`tests/flow-app/native-reader-app/test_objects.py`,
+`tests/flow-app/native-reader-app/test_services.py`,
+`tests/flow-app/native-reader-app/test_text_interaction.py`,
+`tools/flow-reader/flow_reader/document/native_document.py`,
+`tools/flow-reader/flow_reader/server/native_reader.py`, and
+`tools/flow-reader/native/math_layout.mjs`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
