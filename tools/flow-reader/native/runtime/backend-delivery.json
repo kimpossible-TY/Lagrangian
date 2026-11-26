@@ -2142,6 +2142,147 @@
             "sha256": "26fddb16f7df279c128cd99db2578ba3ca7eda2adac1d4b91bd312e29676205f"
           }
         ]
+      },
+      {
+        "baseRevision": "7ccb6a61e7e3645a0b6e2a9740b22fd53cba8932",
+        "revision": "c45a45864e28c432021f094c47b581402a791903",
+        "files": [
+          {
+            "path": "docs/tinymist/dev/reader-architecture.typ",
+            "baseSHA256": "adc2c60d1940f9a7a29557a5995b48d84fb993eab7ab28b618108f859325b925",
+            "sha256": "81d19e57002e36bc5774d43ce258127864306a2ccded7957d3866aec26c7e047"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/.openspec.yaml",
+            "baseSHA256": null,
+            "sha256": "4492318684c90914e715dee55afe9b23f60f7465350ada31d1d9437964f126f8"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/design.md",
+            "baseSHA256": null,
+            "sha256": "a2337606f349afdeca20272f0083dc78ac36a3428acea74f60f0864fb029f685"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/proposal.md",
+            "baseSHA256": null,
+            "sha256": "1d991c9167ae8d7f9c678b6d0700503e7c46dcabde160243cd51df176bc79004"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/specs/reader-architecture/spec.md",
+            "baseSHA256": null,
+            "sha256": "4bc504551a486c45b0a013db6bb4e11f75d8cde7fc26c6587ab17ffd2b3ce4ed"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/specs/web-viewer/spec.md",
+            "baseSHA256": null,
+            "sha256": "4de8befe6cd0769bbb9c6ffd76aa49e96e7ef1084721b1acebb6266e344244d2"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/tasks.md",
+            "baseSHA256": null,
+            "sha256": "75cdc000d4955eb7f466d26ec7ed6a3a1fe39dfc5f2fe8ded1e24dc4b884dc85"
+          },
+          {
+            "path": "tools/flow-reader/AGENTS.md",
+            "baseSHA256": "059a710c51ddfafc4998fd270c1482e0266b943f8cd9500ae916cf4bad165862",
+            "sha256": "45f86ff6328eb149dd2af402efb2dd8f58de9efdaeebaf2ad9f3502c317d5182"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/cli.py",
+            "baseSHA256": "425b32d395ce95ca00e84f9179cfc6a3ecfbbeed5244cbf3907c89a8b191f648",
+            "sha256": "560e61e18b62350efc1cecc6ac2cdfb34b5badd4412ba45e6a95973393fcd386"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/http.py",
+            "baseSHA256": "f278eabe7433ea1e35f10cd106873cd813af8fe23790a888a255dad4f6f6eb00",
+            "sha256": "422b609e8551369e7b38bdd7c0fadd9f862345fc0ed578eea0514050551e53f6"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/routing.py",
+            "baseSHA256": "259ffb71b1e77dfdaed36756c96fe9da716bb8cd0a7d6a98c8bd0b8d27726c0f",
+            "sha256": "bc80379dffc47b70f6018897f9b0d7b93c7b978941530df0a54a9a7a0fcc9477"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/state.py",
+            "baseSHA256": "cae1f66214630df874867ad4b46e69d5115c3638df0cd058cc50490a10b95255",
+            "sha256": "260849b6e184eb8126452b0bc84f30b822e35b57f413345d97e3e8d82776ad4f"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/cross_project_refs.py",
+            "baseSHA256": null,
+            "sha256": "3e83d91004bd70d387fd9438ef70001805ecbb8c712d7e3f0b378dbdb867face"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_cross_project_preview.mjs",
+            "baseSHA256": null,
+            "sha256": "debac2ebc80b686889dae5562bd423bde7ae0607fec8a7cf3cae59322f1d15a2"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_cross_project_refs.py",
+            "baseSHA256": null,
+            "sha256": "929243d8c24256938bf7bf465739ec9adbfd91cff3044e22ce578c31052a2b4d"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_home_account.mjs",
+            "baseSHA256": "ffe3d14a44bbec34d38aa3b3cc520f8bc0f7779f17665f9c23e280ddec06d4ec",
+            "sha256": "b426436c2a4deb07102063a360162f5538a0a607758af7102572cc0fb624c077"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_web_viewer_branding.mjs",
+            "baseSHA256": null,
+            "sha256": "7b9aaaef58303a3b30ef056f10933a725e59abc266d0cd8f7ebf26affd82f9de"
+          },
+          {
+            "path": "tools/flow-reader/web/assets.json",
+            "baseSHA256": "3406f97bb6943b1c08d34d628fd67a95d7abcba2e1e52ad9a14a6b62c86c8219",
+            "sha256": "c37105c263062f90474daf6821675fe35f6151405b8c9c2d5513840a50dd6ddd"
+          },
+          {
+            "path": "tools/flow-reader/web/features/navigation/cross-project-preview.js",
+            "baseSHA256": null,
+            "sha256": "a4470ceac566ce0aa5bd56ff879eee3d68311760bd8f946edca81e5ad0232ea7"
+          },
+          {
+            "path": "tools/flow-reader/web/home/home.js",
+            "baseSHA256": "6b3401b022d8599909de2f06b65af2e4e7aad040dde5ee3a216656317c5bfe72",
+            "sha256": "710b3191504b9881df1a5afcdc504cc485e120ae7554ae85b506b1ba93c92e81"
+          },
+          {
+            "path": "tools/flow-reader/web/index.html",
+            "baseSHA256": "358c56f7c8e689a50103a70aae70c63b44026b12a7a6a7d32f1e840db8ea57f9",
+            "sha256": "2d4736f2522e38a0b8800c5ae8ad1564ad417541b7d3120abe8d84d693a43d10"
+          },
+          {
+            "path": "tools/flow-reader/web/manifest.webmanifest",
+            "baseSHA256": "12ca48a9e07ef75bf828f6fec9573006198cb31f5d2425bb76f85d12cf4c3469",
+            "sha256": "b037c4f26c0c0bcdfb1cadb8306a60c56fc7d3ba0b72bbd625366901b880e54e"
+          },
+          {
+            "path": "tools/flow-reader/web/reader.css",
+            "baseSHA256": "49a6540b907331633acc7557df7322fd84719cb3f89a71c9df6be4fd492185ac",
+            "sha256": "1e1720f7d0a13c6c038fc31efb73c12b5d637e55dc2c0992550efefdbac1a146"
+          },
+          {
+            "path": "tools/flow-reader/web/reader.js",
+            "baseSHA256": "932b6885247ac967788b572cea0b90b40de1b6f0cf98b9b29a8d63ecda9f4e30",
+            "sha256": "3bdbd7fc4c1e09f0dca2bd8fb949b821528e9a47aa9b1440fa17e39e2096e954"
+          },
+          {
+            "path": "tools/reader-common/navigation/cross-project-return.d.ts",
+            "baseSHA256": null,
+            "sha256": "8f3dd6bbd1020f0cb8efbd18acdfbfd988e29aba6cad9f7410f8a372317aea41"
+          },
+          {
+            "path": "tools/reader-common/navigation/cross-project-return.js",
+            "baseSHA256": null,
+            "sha256": "44d5941363a4a0cad8e166f97687960d63cdec0d074d1f7eb787f0b1be507d92"
+          },
+          {
+            "path": "tools/reader-common/tests/cross-project-return.mjs",
+            "baseSHA256": null,
+            "sha256": "d8b577a25d95203a4c0a455931f7f3f0b4dc4ef8b4864e0942f745b0863b0fa8"
+          }
+        ]
       }
     ]
   }

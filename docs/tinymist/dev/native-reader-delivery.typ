@@ -556,3 +556,34 @@ The native math rendering fix owner correction registers the following 7 paths f
 `tools/flow-reader/flow_reader/document/native_document.py`,
 `tools/flow-reader/native/math_layout.mjs`.
 Hashes are Git-derived.
+
+The web viewer unification owner correction registers the following 27 paths from
+`7ccb6a61e7e3645a0b6e2a9740b22fd53cba8932` → `c45a45864e28c432021f094c47b581402a791903`:
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/unify-lagrangian-web-viewer/.openspec.yaml`,
+`openspec/changes/unify-lagrangian-web-viewer/design.md`,
+`openspec/changes/unify-lagrangian-web-viewer/proposal.md`,
+`openspec/changes/unify-lagrangian-web-viewer/specs/reader-architecture/spec.md`,
+`openspec/changes/unify-lagrangian-web-viewer/specs/web-viewer/spec.md`,
+`openspec/changes/unify-lagrangian-web-viewer/tasks.md`,
+`tools/flow-reader/AGENTS.md`,
+`tools/flow-reader/flow_reader/server/cli.py`,
+`tools/flow-reader/flow_reader/server/http.py`,
+`tools/flow-reader/flow_reader/server/routing.py`,
+`tools/flow-reader/flow_reader/server/state.py`,
+`tools/flow-reader/flow_reader/services/cross_project_refs.py`,
+`tools/flow-reader/tests/test_cross_project_preview.mjs`,
+`tools/flow-reader/tests/test_cross_project_refs.py`,
+`tools/flow-reader/tests/test_home_account.mjs`,
+`tools/flow-reader/tests/test_web_viewer_branding.mjs`,
+`tools/flow-reader/web/assets.json`,
+`tools/flow-reader/web/features/navigation/cross-project-preview.js`,
+`tools/flow-reader/web/home/home.js`,
+`tools/flow-reader/web/index.html`,
+`tools/flow-reader/web/manifest.webmanifest`,
+`tools/flow-reader/web/reader.css`,
+`tools/flow-reader/web/reader.js`,
+`tools/reader-common/navigation/cross-project-return.d.ts`,
+`tools/reader-common/navigation/cross-project-return.js`,
+`tools/reader-common/tests/cross-project-return.mjs`.
+Hashes are Git-derived.
