@@ -162,6 +162,26 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(chrome.outlineDrawer.activeID == last.id && chrome.outlineToggleButton.title == last.displayText, "Clamped heading remains active")
             clip.scroll(to: NSPoint(x: 0, y: maxScroll - 4)); scroll.reflectScrolledClipView(clip); chrome.updateScrollChrome()
             try check(chrome.outlineDrawer.activeID != last.id, "Scrolling four points clears pinned heading")
+            try await Task.sleep(nanoseconds: 100_000_000)
+            chrome.outlineDrawer.onNavigate?(last.id)
+            try await Task.sleep(nanoseconds: 100_000_000)
+            // Re-pin at the already clamped position, with no earlier scroll tasks pending.
+            chrome.outlineDrawer.onNavigate?(last.id)
+            let pinnedY = clip.bounds.minY
+            try check(chrome.outlineDrawer.activeID == last.id, "Bottom heading is pinned before bounce")
+            var notificationOffsets: [CGFloat] = []
+            let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: nil) { _ in
+                notificationOffsets.append(clip.bounds.minY)
+            }
+            clip.scroll(to: NSPoint(x: 0, y: pinnedY - 4)); scroll.reflectScrolledClipView(clip)
+            clip.scroll(to: NSPoint(x: 0, y: pinnedY)); scroll.reflectScrolledClipView(clip)
+            NotificationCenter.default.removeObserver(observer)
+            try check(notificationOffsets.contains { abs($0 - pinnedY) >= 4 } && notificationOffsets.last == pinnedY,
+                      "Both bounce offsets are delivered synchronously")
+            try await Task.sleep(nanoseconds: 100_000_000)
+            let expected = headings.last { host.textView.nodeRectInDocument(forNodeID: $0.id)!.minY <= pinnedY + 96 } ?? headings.first!
+            try check(expected.id != last.id && chrome.outlineDrawer.activeID == expected.id,
+                      "Bounce clears the pin and restores the heading at the actual scroll position")
             chrome.outlineDrawer.onNavigate?(last.id); chrome.refreshOutline()
             try check(chrome.outlineDrawer.activeID != last.id, "Reload clears pinned heading")
             let secondRect = host.textView.nodeRectInView(forNodeID: second.id)!

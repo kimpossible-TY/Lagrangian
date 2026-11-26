@@ -371,11 +371,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       Task { @MainActor in self?.layoutChanged() }
     }
     textView.scrollView.contentView.postsBoundsChangedNotifications = true
-    capsuleScrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: .main) { [weak self] notification in
+    capsuleScrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: nil) { [weak self] notification in
+      guard Thread.isMainThread else { return }
+      let observedOffset = (notification.object as? NSClipView)?.bounds.minY
       Task { @MainActor in
         guard let self, let clip = notification.object as? NSClipView,
               clip === self.textView.scrollView.contentView || clip === self.originalPageView.enclosingScrollView?.contentView else { return }
-        self.hostWindow.updateScrollChrome()
+        self.hostWindow.updateScrollChrome(observedReflowOffset: clip === self.textView.scrollView.contentView ? observedOffset : nil)
         self.updateCapsule()
       }
     }
@@ -3162,13 +3164,14 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     updateScrollChrome()
     invalidateControlLayout(); updateNavigation(); rebuildMoreMenu()
   }
-  func updateScrollChrome() {
+  func updateScrollChrome(observedReflowOffset: CGFloat? = nil) {
     let offset = currentMode == .nativeReflow ? reader.scrollView.contentView.bounds.minY : originalScroll?.contentView.bounds.minY ?? 0
     toolbarView.scrollOffset = offset
     let documentOffset = reader.scrollView.contentView.bounds.minY
     let baseline = documentOffset + 96
     let pinned = pinnedOutlineID.flatMap { id in reader.outline.first { $0.id == id } }
-    if abs(documentOffset - pinnedOutlineScrollY) >= 4 || pinned == nil { pinnedOutlineID = nil }
+    if pinned == nil || abs(documentOffset - pinnedOutlineScrollY) >= 4 ||
+        (observedReflowOffset.map { abs($0 - pinnedOutlineScrollY) >= 4 } ?? false) { pinnedOutlineID = nil }
     let active = (pinnedOutlineID == nil ? nil : pinned) ?? reader.outline.last { node in
       guard let rect = reader.nodeRectInDocument(forNodeID: node.id) else { return false }
       return rect.minY <= baseline
