@@ -1,6 +1,6 @@
 {
-  "name": "Flow Reader",
-  "short_name": "Flow",
+  "name": "Lagrangian Web Viewer",
+  "short_name": "Lagrangian",
   "id": "./",
   "start_url": "./",
   "scope": "./",

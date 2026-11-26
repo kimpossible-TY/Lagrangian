@@ -2,6 +2,10 @@
 
 The repository maintains feature policy separately from renderer geometry, transport and service operations. Use this map together with scoped `AGENTS.md` files and current OpenSpec contracts. Update it when responsibility moves. A directory is justified by an existing implementation, not a planned empty extension point.
 
+= Lagrangian web viewer
+
+Lagrangian is the native macOS app and canonical product and feature contract. Lagrangian Web Viewer, in `tools/flow-reader/web/`, is its web-optimized projection. Both use the single `flow_reader` backend and `tools/reader-common` shared policy; renderer-specific presentation, geometry and transport remain with their adapters. Internal paths and protocol and packaging identifiers retain their existing names.
+
 = Feature ownership
 
 - Paragraph draft recovery: `tools/flow-reader/web/features/paragraph-chat/draft-recovery.js` owns a bounded tab-local copy of unacknowledged composer text and pending message identity. The controller reconciles it against host acknowledgment, presents recovered text for explicit saving or sending, and guards volatile edits when tab storage is unavailable. This copy contains no source context, conversation history or credentials; the host retains history and model-dispatch authority.

@@ -1,0 +1,11 @@
+## Position and compatibility
+
+Lagrangian is the native macOS app and canonical product/feature contract. `tools/flow-reader/web/` is its web-optimized projection, Lagrangian Web Viewer. Both use the single `flow_reader` backend and `tools/reader-common` for shared reader policy; concrete adapters own presentation, transport and geometry. User-visible branding changes do not rename `tools/flow-reader`, `flow_reader`, `data-flow-*`, `flow-reader-bundle`, LaunchAgent IDs, CLI flags, API routes or terminal/Neovim Lua statuslines.
+
+## WV02: backend ownership (planned)
+
+The existing `add-cross-project-references` change assigns catalog and snippet policy to Swift. WV02 moves that responsibility to backend-owned `flow_reader/services/cross_project_refs.py`; it is a planned transition, not a claim about the current implementation. The native adapter must migrate to the same owner while preserving its current resolution, preview, session and consent contracts. The backend loads bounded schema-1 `projects.json`, resolves explicit identities and safe legacy fallback without guessing ambiguous targets, and extracts snippets from accepted documents using canonical `import_accepted_document`. A bounded `GET /api/cross-project/preview` exposes the result, and `/api/state` advertises the capability only when available. Errors and unavailable targets do not mutate source or navigate. `handler_for(None)` must continue safely serving allowlisted static assets without dereferencing missing document state.
+
+## WV03: shared return and web adapter (planned)
+
+`tools/reader-common/navigation/cross-project-return.js` owns bounded return history and commit/restore policy, injected with concrete operations. The web viewer owns its popover and semantic location/transport adapters. First click previews without navigation; second click commits a jump, and Back restores the origin only on successful adoption. Failure or cancellation preserves the current location and history. Existing native preview and Back semantics remain authoritative. Verify backend bounds and errors, capability and static delivery, shared state transitions, web interactions and native compatibility before marking those tasks complete.

@@ -2,7 +2,7 @@ import { readerLink } from "../ui/reader-links.js";
 
 const $ = (id) => document.getElementById(id);
 const labels = {
-  ready: "HTML 문서 준비됨",
+  ready: "웹 뷰어 준비됨",
   stopped: "서비스 중지됨",
   compiling: "문서 준비 중",
   unavailable: "읽을 문서가 아직 없습니다",
@@ -406,7 +406,7 @@ function documentCard(doc) {
     if (index === 0) entry.link.textContent = doc.name;
     else {
       const kind = entry.link.dataset.kind;
-      const name = kind === "html" ? "HTML Reader" : "Paged Reader";
+      const name = kind === "html" ? "Lagrangian Web Viewer" : "Paged Reader";
       const number = (alternativeNumbers.get(kind) || 0) + 1;
       alternativeNumbers.set(kind, number);
       entry.link.textContent = alternativeCounts.get(kind) > 1 ? `${name} ${number}` : name;

@@ -423,7 +423,7 @@ function prepareSection(html, section) {
     document
       .querySelector("#reader-document-styles")
       .replaceChildren(...parsed.head.querySelectorAll("style"));
-    document.title = parsed.title ? `${parsed.title} · Flow Reader` : "Flow Reader";
+    document.title = parsed.title ? `${parsed.title} · Lagrangian Web Viewer` : "Lagrangian Web Viewer";
     shellRevision = shellIdentity;
   }
   prepareNotes(parsed.body, section);

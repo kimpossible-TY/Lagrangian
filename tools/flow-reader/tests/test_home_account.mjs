@@ -559,11 +559,11 @@ test("alternative ordinals use only safe menu peers and preserve destinations, n
   checkMenu(["Paged Reader"], [pagedA.url]);
   inventory[0].variants.push(second);
   await click("refresh");
-  checkMenu(["HTML Reader", "Paged Reader"], [second.url, pagedA.url]);
+  checkMenu(["Lagrangian Web Viewer", "Paged Reader"], [second.url, pagedA.url]);
   inventory[0].variants.push(third, pagedB, pagedA);
   await click("refresh");
   checkMenu(
-    ["HTML Reader 1", "HTML Reader 2", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
+    ["Lagrangian Web Viewer 1", "Lagrangian Web Viewer 2", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
     [second.url, third.url, pagedA.url, pagedB.url, pagedA.url],
   );
   const retained = items().map((item) => ({ item, link: item.children[0] }));
@@ -583,7 +583,7 @@ test("alternative ordinals use only safe menu peers and preserve destinations, n
   inventory[0].variants = inventory[0].variants.filter((variant) => variant !== second);
   await click("refresh");
   checkMenu(
-    ["HTML Reader", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
+    ["Lagrangian Web Viewer", "Paged Reader 1", "Paged Reader 2", "Paged Reader 3"],
     [third.url, pagedA.url, pagedB.url, pagedA.url],
   );
   assert.equal(items()[0], retained[1].item);

@@ -1,4 +1,6 @@
-# HTML and terminal Reader
+# Lagrangian Web Viewer and terminal Reader
+
+Lagrangian Web Viewer is the web-optimized projection of Lagrangian, the canonical native macOS app and feature contract. It shares the `flow_reader` backend and `tools/reader-common` policy; `tools/flow-reader` and `flow_reader` remain internal ownership and compatibility identifiers.
 
 ## Read
 
