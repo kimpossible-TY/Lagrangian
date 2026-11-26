@@ -1,5 +1,6 @@
 """Compile and exercise the production preview in isolated, nonactivating AppKit fixtures."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -21,21 +22,24 @@ class PreviewSourceManifest(unittest.TestCase):
 class CrossProjectPreview(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        temp = tempfile.TemporaryDirectory(prefix='cross-project-preview-tests-')
+        temp = tempfile.TemporaryDirectory(dir='/private/tmp', prefix='cross-project-preview-tests-')
         cls.addClassCleanup(temp.cleanup)
         cls.executable = Path(temp.name) / 'preview-tests'
+        cls.env = dict(os.environ, TMPDIR=temp.name,
+            CLANG_MODULE_CACHE_PATH=str(Path(temp.name) / 'clang-cache'),
+            SWIFT_MODULECACHE_PATH=str(Path(temp.name) / 'swift-cache'))
         manifest = json.loads((ROOT / 'apps/macos/sources.json').read_text())
         result = subprocess.run([
             '/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
             *[ROOT / 'apps/macos' / name for group in ('core', 'native', 'app') for name in manifest[group] if name != 'main.swift'],
             ROOT / 'tests/flow-app/native-reader-app/CrossProjectPreviewTests.swift',
             '-o', cls.executable,
-        ], capture_output=True, text=True, timeout=300)
+        ], capture_output=True, text=True, timeout=300, env=cls.env)
         if result.returncode != 0 or result.stderr:
             raise RuntimeError(result.stdout + result.stderr)
 
     def scenario(self, name):
-        result = subprocess.run([self.executable, name], capture_output=True, text=True, timeout=30)
+        result = subprocess.run([self.executable, name], capture_output=True, text=True, timeout=30, env=self.env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_icon_only_control_header_snippet_and_accessibility(self):
