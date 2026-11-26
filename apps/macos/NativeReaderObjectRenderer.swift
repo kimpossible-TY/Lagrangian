@@ -408,32 +408,41 @@ struct NativePreparedAnswerMath {
     var size: CGSize { CGSize(width: layout.whole.width, height: layout.whole.ascent + layout.whole.descent) }
 }
 
-/// Helper protocol limits are kept in lockstep with math_layout.mjs by the reader contract tests.
+/// Helper protocol limits are kept in lockstep with math_layout.mjs by the math batch tests.
 enum NativeMathBatchPolicy {
     static let maximumItems = 512
     static let chunkItems = 256
     static let maximumBytes = 64 * 1024 * 1024
     static let itemOutputBytes = 8 * 1024 * 1024
+    // Helper-contract mirror; sourceBytes bounds Swift's formula input.
     static let itemInputBytes = 256 * 1024
     static let sourceBytes = 65536
     static func outputLimit(items: Int) -> Int { min(maximumBytes, itemOutputBytes * max(1, min(items, maximumItems))) + 1 }
     static func timeout(base: TimeInterval, items: Int) -> TimeInterval { base * Double(max(1, min(items, 6))) }
-    static func run<T>(range: Range<Int>, perform: (Range<Int>) async throws -> [T]) async throws -> [T] {
-        try Task.checkCancellation()
-        do { return try await perform(range) }
-        catch {
-            let retry: Bool
-            switch error {
-            case NativeObjectError.budget, NativeObjectError.unsupported("math-helper-timeout"),
-                 NativeObjectError.unsupported("input-limit"), NativeObjectError.unsupported("output-limit"):
-                retry = true
-            default: retry = false
+    static func run<T>(range: Range<Int>, baseTimeout: TimeInterval = 10,
+                       now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                       perform: (Range<Int>, TimeInterval) async throws -> [T]) async throws -> [T] {
+        let deadline = now() + 2 * timeout(base: baseTimeout, items: range.count)
+        func attempt(_ range: Range<Int>) async throws -> [T] {
+            try Task.checkCancellation()
+            let remaining = deadline - now()
+            guard remaining > 0 else { throw NativeObjectError.unsupported("math-helper-timeout") }
+            do { return try await perform(range, min(remaining, timeout(base: baseTimeout, items: range.count))) }
+            catch {
+                let retry: Bool
+                switch error {
+                case NativeObjectError.budget, NativeObjectError.unsupported("math-helper-timeout"),
+                     NativeObjectError.unsupported("input-limit"):
+                    retry = true
+                default: retry = false
+                }
+                guard retry, range.count > 1 else { throw error }
+                let middle = range.lowerBound + range.count / 2
+                let left = try await attempt(range.lowerBound..<middle)
+                return left + (try await attempt(middle..<range.upperBound))
             }
-            guard retry, range.count > 1 else { throw error }
-            let middle = range.lowerBound + range.count / 2
-            let left = try await run(range: range.lowerBound..<middle, perform: perform)
-            return left + (try await run(range: middle..<range.upperBound, perform: perform))
         }
+        return try await attempt(range)
     }
 }
 
@@ -465,8 +474,10 @@ actor NativeMathWorker {
         }
         var layouts = [String: NativeMathLayout]()
         for start in stride(from: 0, to: items.count, by: NativeMathBatchPolicy.chunkItems) {
-            let results = try await NativeMathBatchPolicy.run(range: start..<min(start + NativeMathBatchPolicy.chunkItems, items.count)) { range in
-                try await self.calculateChunk(items[range], context: context)
+            // The snapshot contract requires atomic preparation; failed chunks
+            // cannot publish partial layouts. All retries share this chunk's deadline.
+            let results = try await NativeMathBatchPolicy.run(range: start..<min(start + NativeMathBatchPolicy.chunkItems, items.count), baseTimeout: timeout) { range, timeout in
+                try await self.calculateChunk(items[range], context: context, timeout: timeout)
             }
             for (id, layout) in results { layouts[id] = layout }
         }
@@ -474,7 +485,7 @@ actor NativeMathWorker {
     }
 
     private func calculateChunk(_ chunk: ArraySlice<(id: String, math: NativeMath, width: Double)>,
-                                context: NativeObjectContext) async throws -> [(String, NativeMathLayout)] {
+                                context: NativeObjectContext, timeout: TimeInterval) async throws -> [(String, NativeMathLayout)] {
         struct Input: Hashable { let mathML: String; let width: Double }
         // Repeated symbols/formulas share computation only within this
         // bounded invocation. Each semantic item is still decoded below.
@@ -495,7 +506,7 @@ actor NativeMathWorker {
         defer { active -= 1 }
         let outputLimit = NativeMathBatchPolicy.outputLimit(items: requests.count)
         let cancellation = NativeMathCancellation(), node = self.node, helper = self.helper,
-            runtime = self.runtime, timeout = NativeMathBatchPolicy.timeout(base: self.timeout, items: requests.count), record = self.record
+            runtime = self.runtime, timeout = min(timeout, NativeMathBatchPolicy.timeout(base: self.timeout, items: requests.count)), record = self.record
         let bytes = try await withTaskCancellationHandler(operation: {
             try await Task.detached(priority: .userInitiated) {
                 try Self.execute(node: node, helper: helper, runtime: runtime, input: input,

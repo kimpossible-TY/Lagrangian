@@ -434,13 +434,15 @@ LayoutCache SHALL be a disposable ownerID-scoped optimization in the existing pr
 - **AND** NativeReaderViewedLayouts retains at most 256 successful viewed layouts
 
 ### Requirement: Current document and math batch bounds
-Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItemNumber, percentage image dimensions and mark: anchors. The mathml-batch helper SHALL enforce the item/byte limits below, cross-checked against Swift. Batch timeout/stdout SHALL scale within bounded caps. Timeout/budget failure SHALL halve chunks and a failing single item SHALL terminate.
+Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItemNumber, percentage image dimensions and mark: anchors. Swift and the mathml-batch helper SHALL share the bounded item/byte contract below. Batch timeout/stdout SHALL scale within bounded caps. Timeout/budget/input-limit retries SHALL halve chunks within one shared deadline; a failing single item or output-limit SHALL terminate.
 
 #### Scenario: Retry a large math batch
 - **WHEN** a batch exceeds its time or byte budget
 - **AND** helper limits are 1–512 items, 64 MiB batch input/output, 256 KiB item input, 65536-byte source and 8 MiB item output
 - **THEN** preparation retries smaller halves in order without publishing partial results
 - **AND** a failing single-item chunk stops rather than retrying indefinitely
+- **AND** all attempts share a deadline of twice the initial chunk timeout, each child timeout fits the remaining time, and snapshot preparation stays atomic if any sub-range fails
+- **AND** a helper output-limit error fails immediately without re-splitting
 
 #### Scenario: Preserve current wire semantics
 - **WHEN** a valid accepted snapshot includes ordered list numbering, percentage image dimensions or mark: anchors

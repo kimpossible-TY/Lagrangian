@@ -2,7 +2,6 @@
 
 from http.server import ThreadingHTTPServer
 import json
-import math
 import re
 from pathlib import Path
 import sys
@@ -29,25 +28,6 @@ class PassageTests(unittest.TestCase):
         match = re.search(r'const MAX_SELECTION_SEGMENTS = (\d+);', controller)
         self.assertIsNotNone(match, 'browser selection cap declaration missing')
         self.assertEqual(int(match[1]), MAX_SELECTION_SEGMENTS)
-
-    def test_native_math_batch_limits_match_pinned_helper(self):
-        helper = (ROOT / 'native/math_layout.mjs').read_text()
-        swift = (ROOT.parents[1] / 'apps/macos/NativeReaderObjectRenderer.swift').read_text()
-
-        def constant(source, declaration):
-            match = re.search(declaration + r' = ([0-9 *]+)(?:;|\n)', source)
-            self.assertIsNotNone(match, declaration)
-            return math.prod(int(n.strip()) for n in match[1].split('*'))
-
-        self.assertEqual(constant(swift, 'static let maximumBytes'), constant(helper, 'const BATCH_LIMIT'))
-        self.assertEqual(constant(swift, 'static let itemOutputBytes'), constant(helper, 'const LIMIT'))
-        count = re.search(r'input.items.length > (\d+)', helper)
-        self.assertIsNotNone(count)
-        self.assertEqual(constant(swift, 'static let maximumItems'), int(count[1]))
-        self.assertIn('inputBytes > 256 * 1024', helper)
-        self.assertEqual(constant(swift, 'static let itemInputBytes'), 256 * 1024)
-        self.assertIn('Buffer.byteLength(source) > 65536', helper)
-        self.assertEqual(constant(swift, 'static let sourceBytes'), 65536)
 
     def test_quotes_relocate_after_paragraph_edit_and_section_move(self):
         original = '<html><body><h2>Topic</h2><p>First. A saved quotation. Last.</p></body></html>'

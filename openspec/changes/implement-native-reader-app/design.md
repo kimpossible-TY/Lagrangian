@@ -768,6 +768,9 @@ The pinned math helper accepts kind mathml-batch with 1–512 items and at most
 source and 8 MiB output. Swift/helper bounds are cross-checked by Python tests;
 the helper bytes and existing pins are unchanged. Swift caps batch stdout at
 min(64 MiB, itemCount × 8 MiB) plus the terminating newline, and scales the base
-timeout by min(itemCount, 6). Timeout/input/output budget failures halve chunks;
-a failing single-item chunk throws, so retries terminate for full-document and
-viewed-window preparation alike. Other errors do not trigger splitting.
+timeout by min(itemCount, 6). Timeout/input-limit/budget failures halve chunks
+within an overall per-chunk deadline of twice the initial timeout. Each child
+receives at most the remaining time. Deterministic per-item output-limit fails
+without splitting. A failing single item or exhausted deadline throws; atomic
+snapshot preparation does not publish successful sub-ranges of a failed batch.
+Other errors do not trigger splitting.
