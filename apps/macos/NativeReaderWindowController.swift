@@ -2408,7 +2408,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     if currentMode != .nativeReflow { originalScroll?.automaticallyAdjustsContentInsets = false; originalScroll?.contentInsets.bottom = size.height + 24 }
     guard let scroll, let documentView = scroll.documentView else { return }
     let obstruction = reviewActionsCapsule.isHidden ? capsule.frame : capsule.frame.union(reviewActionsCapsule.frame)
-    let occluded = rects.filter { $0.minY < obstruction.maxY + 8 && $0.maxY > obstruction.minY - 8 }
+    let occluded = rects.filter { $0.minY < obstruction.maxY + 12 && $0.maxY > obstruction.minY - 8 }
     guard !occluded.isEmpty else { return }
     var selected = occluded.reduce(NSRect.null) { $0.union($1) }
     if currentMode == .nativeReflow {

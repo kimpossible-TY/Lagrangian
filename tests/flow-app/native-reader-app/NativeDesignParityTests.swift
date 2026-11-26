@@ -110,6 +110,30 @@ private struct ParityInput: NativeReaderDocumentProviding {
             chrome.toggleDisplayPopover()
             try check(chrome.outlineDrawer.isHidden && chrome.isDisplayPopoverOpen && (chrome.displayPopoverContentView as? NativeDesignSurface)?.isOpaque == true, "Aa excludes drawer and remains opaque")
             chrome.toggleDisplayPopover()
+            let drawer = NativeOutlineDrawerView(frame: root.bounds)
+            let longTitle = String(repeating: "긴 한국어 제목과 English heading ", count: 8)
+            drawer.entries = [.init(id: "long", title: longTitle, depth: 3)]
+            drawer.activeID = "long"
+            var navigated: String?, dismissals = 0
+            drawer.onNavigate = { navigated = $0 }; drawer.onDismiss = { dismissals += 1 }
+            root.addSubview(drawer); drawer.present(); drawer.layoutSubtreeIfNeeded()
+            let outlineTable = drawer.tableView
+            outlineTable.layoutSubtreeIfNeeded()
+            let row = outlineTable.view(atColumn: 0, row: 0, makeIfNecessary: true)!
+            row.layoutSubtreeIfNeeded()
+            let label = views(row).compactMap { $0 as? NSTextField }.first!
+            let rowRect = row.convert(row.bounds, to: outlineTable)
+            let columnRect = outlineTable.frameOfCell(atColumn: 0, row: 0)
+            try check(outlineTable.style == .plain && rowRect.minX >= columnRect.minX - 0.5 && rowRect.maxX <= columnRect.maxX + 0.5,
+                      "Plain table keeps the active row inside its column")
+            try check(label.lineBreakMode == .byTruncatingTail && label.frame.maxX <= row.bounds.maxX - 11.5 && label.intrinsicContentSize.width > label.frame.width,
+                      "Long Korean and English heading truncates with a trailing inset")
+            try check(row.isAccessibilityElement() && row.accessibilityRole() == .button &&
+                      row.accessibilityLabel()?.contains(longTitle) == true && row.accessibilityLabel()?.contains("3") == true &&
+                      row.accessibilityValue() as? String == "현재 위치", "Active outline row exposes its heading and state as a button")
+            try check(row.accessibilityPerformPress() && navigated == "long" && drawer.isHidden && dismissals == 1,
+                      "Accessibility press navigates and dismisses")
+            drawer.removeFromSuperview()
             chrome.triggerFind(); chrome.toggleOutlineDrawer()
             window.sendEvent(event(window, "\u{1b}", [], code: 53))
             try check(!chrome.outlineDrawer.isHidden, "Actual Escape closes Find before the focused drawer")
@@ -187,6 +211,21 @@ private struct ParityInput: NativeReaderDocumentProviding {
             capsule.present(binding, unavailable: [:], summary: "")
             let clip = host.textView.scrollView.contentView, viewport = clip.convert(clip.bounds, to: root)
             chrome.placeCapsule(viewport: viewport, avoiding: host.textView.visibleSelectionRects(in: root))
+            let body = host.textView.bodyTextView
+            let manager = body.layoutManager!, container = body.textContainer!
+            let glyphs = manager.glyphRange(forCharacterRange: body.selectedRange(), actualCharacterRange: nil)
+            let selectedBounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                .offsetBy(dx: body.textContainerOrigin.x, dy: body.textContainerOrigin.y)
+            let initial = body.convert(selectedBounds, to: root)
+            let offset = capsule.frame.maxY + 10 - initial.minY
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + offset))
+            host.textView.scrollView.reflectScrolledClipView(clip)
+            let beforeClearance = body.convert(selectedBounds, to: root)
+            try check(abs(beforeClearance.minY - capsule.frame.maxY - 10) < 0.5, "Short selection starts in the 8–11pt band")
+            chrome.placeCapsule(viewport: viewport, avoiding: host.textView.visibleSelectionRects(in: root))
+            let afterClearance = body.convert(selectedBounds, to: root)
+            try check(afterClearance.minY >= capsule.frame.maxY + 11.5 && afterClearance.minY > beforeClearance.minY + 1,
+                      "Short selection scrolls to 12pt clearance")
             try check(window.frame == originalFrame && capsule.surface.frame.height == 64 && capsule.surface.cornerRadius == 28, "Selection never resizes window and primary capsule is 64pt")
             try check(abs(capsule.frame.midX - viewport.midX) < 1 && abs(capsule.frame.minY - viewport.minY - 16) < 1, "Bottom center anchor")
             for action in NativeFloatingCapsule.Action.allCases {
@@ -232,7 +271,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
                       "Actual Escape closes Aa before tools even with capsule focus")
             chrome.releasePageSelection()
             let last = doc.blocks.last!
-            let scroll = host.textView.scrollView, body = host.textView.bodyTextView
+            let scroll = host.textView.scrollView
             scroll.contentView.scroll(to: NSPoint(x: 0, y: body.bounds.height - scroll.contentView.bounds.height))
             scroll.reflectScrolledClipView(scroll.contentView)
             try host.textView.select(from: .init(blockID: last.id, utf16: last.displayText.utf16.count - 12, affinity: .downstream),
@@ -295,15 +334,17 @@ private struct ParityInput: NativeReaderDocumentProviding {
             chrome.showSelectionActions(); try await until { !chrome.capsule.isHidden }
             let viewport = clip.convert(clip.bounds, to: root)
             let obstruction = chrome.capsule.frame
-            // Arrange the selection start at the viewport top while its end intersects the tools.
-            clip.scroll(to: NSPoint(x: 0, y: bounds.minY))
+            // Leave positive headroom while the selection end intersects the tools.
+            clip.scroll(to: NSPoint(x: 0, y: bounds.minY - 20))
             scroll.reflectScrolledClipView(clip)
             let before = body.convert(bounds, to: root)
-            try check(before.height > viewport.maxY - (obstruction.maxY + 12) &&
+            let headroom = viewport.maxY - before.maxY
+            try check(headroom > 10 && before.height > viewport.maxY - (obstruction.maxY + 12) &&
                       before.minY < obstruction.maxY + 8 && before.maxY <= viewport.maxY + 0.5,
                       "Tall selection intersects the obstruction with its start in view: \(before)")
             chrome.placeCapsule(viewport: viewport, avoiding: host.textView.visibleSelectionRects(in: root))
             let selectionRect = body.convert(bounds, to: root)
+            try check(abs(selectionRect.maxY - before.maxY - headroom) < 0.5, "Tall selection uses available headroom")
             try check(selectionRect.maxY <= viewport.maxY + 0.5, "Tall selection start stays within viewport: \(selectionRect), viewport=\(viewport)")
             try check(window.frame == originalFrame, "Tall selection never resizes window")
         } else if scenario == "pending-strike" {

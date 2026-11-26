@@ -43,6 +43,7 @@ final class NativeOutlineDrawerView: NSView, NSTableViewDataSource, NSTableViewD
         glass.contentView.addSubview(closeButton)
         scrollView.drawsBackground = false; scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true; scrollView.scrollerStyle = .overlay
+        tableView.style = .plain
         tableView.backgroundColor = .clear; tableView.headerView = nil
         tableView.rowHeight = 34; tableView.intercellSpacing = NSSize(width: 0, height: 2)
         tableView.selectionHighlightStyle = .none
@@ -114,13 +115,16 @@ final class NativeOutlineDrawerView: NSView, NSTableViewDataSource, NSTableViewD
     @objc private func close() { dismiss() }
     @objc private func activate() {
         guard entries.indices.contains(tableView.selectedRow) else { return }
-        let id = entries[tableView.selectedRow].id
+        navigate(to: entries[tableView.selectedRow].id)
+    }
+    private func navigate(to id: String) {
         dismiss(); onNavigate?(id)
     }
     func numberOfRows(in tableView: NSTableView) -> Int { entries.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let entry = entries[row]
         let view = NativeOutlineRow(entry: entry, active: entry.id == activeID, preferences: preferences)
+        view.onPress = { [weak self] in self?.navigate(to: entry.id) }
         view.isKeyboardSelected = row == tableView.selectedRow
         return view
     }
@@ -154,6 +158,7 @@ final class NativeOutlineTableView: NSTableView {
 }
 
 private final class NativeOutlineRow: NSView {
+    var onPress: (() -> Void)?
     var isKeyboardSelected = false { didSet { needsDisplay = true } }
     let label: NSTextField
     let active: Bool
@@ -161,6 +166,9 @@ private final class NativeOutlineRow: NSView {
     init(entry: NativeOutlineDrawerView.Entry, active: Bool, preferences: NativeAppDesign.Preferences) {
         label = NSTextField(labelWithString: entry.title); self.active = active; self.preferences = preferences
         super.init(frame: .zero)
+        setAccessibilityElement(true); setAccessibilityRole(.button)
+        setAccessibilityLabel("제목 \(entry.depth)단계, \(entry.title)")
+        setAccessibilityValue(active ? "현재 위치" : nil)
         let p = NativeAppDesign.palette(preferences)
         label.font = .systemFont(ofSize: entry.depth <= 1 ? 13.5 : 12.5,
                                  weight: active || entry.depth <= 1 ? .semibold : .regular)
@@ -170,6 +178,10 @@ private final class NativeOutlineRow: NSView {
         addSubview(label)
     }
     required init?(coder: NSCoder) { nil }
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress(); return true
+    }
     override func layout() {
         super.layout()
         label.frame = NSRect(x: label.frame.minX, y: (bounds.height - 20) / 2, width: max(0, bounds.width - label.frame.minX - 12), height: 20)
