@@ -174,6 +174,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
                 notificationOffsets.append(clip.bounds.minY)
             }
             clip.scroll(to: NSPoint(x: 0, y: pinnedY - 4)); scroll.reflectScrolledClipView(clip)
+            try check(chrome.outlineDrawer.activeID != last.id, "First bounce notification clears the pin synchronously")
             clip.scroll(to: NSPoint(x: 0, y: pinnedY)); scroll.reflectScrolledClipView(clip)
             NotificationCenter.default.removeObserver(observer)
             try check(notificationOffsets.contains { abs($0 - pinnedY) >= 4 } && notificationOffsets.last == pinnedY,
@@ -182,6 +183,11 @@ private struct ParityInput: NativeReaderDocumentProviding {
             let expected = headings.last { host.textView.nodeRectInDocument(forNodeID: $0.id)!.minY <= pinnedY + 96 } ?? headings.first!
             try check(expected.id != last.id && chrome.outlineDrawer.activeID == expected.id,
                       "Bounce clears the pin and restores the heading at the actual scroll position")
+            clip.scroll(to: NSPoint(x: 0, y: pinnedY - 4)); scroll.reflectScrolledClipView(clip)
+            chrome.outlineDrawer.onNavigate?(last.id)
+            try check(chrome.outlineDrawer.activeID == last.id, "Bottom heading is pinned immediately after scrolling")
+            try await Task.sleep(nanoseconds: 100_000_000)
+            try check(chrome.outlineDrawer.activeID == last.id, "Earlier scroll notification cannot clear a newly pinned heading")
             chrome.outlineDrawer.onNavigate?(last.id); chrome.refreshOutline()
             try check(chrome.outlineDrawer.activeID != last.id, "Reload clears pinned heading")
             let secondRect = host.textView.nodeRectInView(forNodeID: second.id)!
@@ -265,6 +271,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
                 .offsetBy(dx: body.textContainerOrigin.x, dy: body.textContainerOrigin.y)
             let initial = body.convert(selectedBounds, to: root)
             let offset = capsule.frame.maxY + 10 - initial.minY
+            clip.postsBoundsChangedNotifications = false
             clip.scroll(to: NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + offset))
             host.textView.scrollView.reflectScrolledClipView(clip)
             let beforeClearance = body.convert(selectedBounds, to: root)
@@ -273,6 +280,8 @@ private struct ParityInput: NativeReaderDocumentProviding {
             let afterClearance = body.convert(selectedBounds, to: root)
             try check(afterClearance.minY >= capsule.frame.maxY + 11.5 && afterClearance.minY > beforeClearance.minY + 1,
                       "Short selection scrolls to 12pt clearance")
+            clip.postsBoundsChangedNotifications = true
+            capsule.present(binding, unavailable: [:], summary: "")
             try check(window.frame == originalFrame && capsule.surface.frame.height == 64 && capsule.surface.cornerRadius == 28, "Selection never resizes window and primary capsule is 64pt")
             try check(abs(capsule.frame.midX - viewport.midX) < 1 && abs(capsule.frame.minY - viewport.minY - 16) < 1, "Bottom center anchor")
             for action in NativeFloatingCapsule.Action.allCases {
@@ -382,6 +391,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
             let viewport = clip.convert(clip.bounds, to: root)
             let obstruction = chrome.capsule.frame
             // Leave positive headroom while the selection end intersects the tools.
+            clip.postsBoundsChangedNotifications = false
             clip.scroll(to: NSPoint(x: 0, y: bounds.minY - 20))
             scroll.reflectScrolledClipView(clip)
             let before = body.convert(bounds, to: root)
@@ -393,6 +403,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
             let selectionRect = body.convert(bounds, to: root)
             try check(abs(selectionRect.maxY - before.maxY - headroom) < 0.5, "Tall selection uses available headroom")
             try check(selectionRect.maxY <= viewport.maxY + 0.5, "Tall selection start stays within viewport: \(selectionRect), viewport=\(viewport)")
+            clip.postsBoundsChangedNotifications = true
             try check(window.frame == originalFrame, "Tall selection never resizes window")
         } else if scenario == "pending-strike" {
             let block = doc.blocks[1]

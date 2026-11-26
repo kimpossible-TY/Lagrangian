@@ -50,6 +50,16 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 }
 
+@MainActor private final class NativeReaderScrollObserver: NSObject {
+  var onScroll: ((Notification) -> Void)?
+  @objc func boundsChanged(_ notification: Notification) {
+    guard Thread.isMainThread else { return }
+    onScroll?(notification)
+  }
+  func dispose() { NotificationCenter.default.removeObserver(self) }
+  deinit { NotificationCenter.default.removeObserver(self) }
+}
+
 /// One window, one store, one session. Heavy preparation never publishes a snapshot.
 @MainActor final class NativeReaderWindowController {
   typealias Target = (Profile) async throws -> NativeDocumentIdentity
@@ -106,7 +116,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var selectionTask: Task<Void, Never>?
   private var disposed = false
   private var layoutObserver: NSObjectProtocol?
-  private var capsuleScrollObserver: NSObjectProtocol?
+  private let capsuleScrollObserver = NativeReaderScrollObserver()
   private var dismissedCapsule: NativeFloatingCapsule.Binding?
   private var capsuleCapabilities: (NativeFloatingCapsule.Binding, [NativeFloatingCapsule.Action: String])?
   private weak var capsuleFocusReturn: NSResponder?
@@ -371,16 +381,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       Task { @MainActor in self?.layoutChanged() }
     }
     textView.scrollView.contentView.postsBoundsChangedNotifications = true
-    capsuleScrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: nil) { [weak self] notification in
-      guard Thread.isMainThread else { return }
-      let observedOffset = (notification.object as? NSClipView)?.bounds.minY
-      Task { @MainActor in
-        guard let self, let clip = notification.object as? NSClipView,
-              clip === self.textView.scrollView.contentView || clip === self.originalPageView.enclosingScrollView?.contentView else { return }
-        self.hostWindow.updateScrollChrome(observedReflowOffset: clip === self.textView.scrollView.contentView ? observedOffset : nil)
-        self.updateCapsule()
-      }
+    capsuleScrollObserver.onScroll = { [weak self] notification in
+      guard let self, let clip = notification.object as? NSClipView,
+            clip === self.textView.scrollView.contentView || clip === self.originalPageView.enclosingScrollView?.contentView else { return }
+      self.hostWindow.updateScrollChrome()
+      self.updateCapsule()
     }
+    NotificationCenter.default.addObserver(capsuleScrollObserver, selector: #selector(NativeReaderScrollObserver.boundsChanged(_:)), name: NSView.boundsDidChangeNotification, object: nil)
 
   }
 
@@ -1480,7 +1487,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   func dispose() {
     dismissCrossProjectPreview()
-    if let observer = capsuleScrollObserver { NotificationCenter.default.removeObserver(observer); capsuleScrollObserver = nil }
+    capsuleScrollObserver.dispose()
     if let observer = layoutObserver { NotificationCenter.default.removeObserver(observer); layoutObserver = nil }
     cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose()
     let revoke = revokeEditorConsent; Task { await revoke() }
@@ -3164,14 +3171,13 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     updateScrollChrome()
     invalidateControlLayout(); updateNavigation(); rebuildMoreMenu()
   }
-  func updateScrollChrome(observedReflowOffset: CGFloat? = nil) {
+  func updateScrollChrome() {
     let offset = currentMode == .nativeReflow ? reader.scrollView.contentView.bounds.minY : originalScroll?.contentView.bounds.minY ?? 0
     toolbarView.scrollOffset = offset
     let documentOffset = reader.scrollView.contentView.bounds.minY
     let baseline = documentOffset + 96
     let pinned = pinnedOutlineID.flatMap { id in reader.outline.first { $0.id == id } }
-    if pinned == nil || abs(documentOffset - pinnedOutlineScrollY) >= 4 ||
-        (observedReflowOffset.map { abs($0 - pinnedOutlineScrollY) >= 4 } ?? false) { pinnedOutlineID = nil }
+    if pinned == nil || abs(documentOffset - pinnedOutlineScrollY) >= 4 { pinnedOutlineID = nil }
     let active = (pinnedOutlineID == nil ? nil : pinned) ?? reader.outline.last { node in
       guard let rect = reader.nodeRectInDocument(forNodeID: node.id) else { return false }
       return rect.minY <= baseline
