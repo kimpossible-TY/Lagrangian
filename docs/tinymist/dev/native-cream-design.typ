@@ -101,8 +101,9 @@ OS settings. `preferencesOverride` permits window-specific composition and
 isolated matrix tests. Consumers invalidate paint on effective-appearance and
 accessibility-preference changes. There is no global appearance store.
 
-`NativeDesignSurface` supplies opaque paper, panel and floating contexts. A
-floating radius is available to the future capsule, but NA18 creates no capsule.
+`NativeDesignSurface` supplies opaque paper, panel and floating contexts.
+NRD01B retains these for Home and Aa; floating overlays instead use the
+transparent outer shell and rounded inner clip of `NativeFloatingGlassView`.
 `NativeDesignButton` remains an NSButton with an NSButtonCell paint adapter.
 Existing targets/actions and platform activation, tracking, key equivalents,
 focus and AX remain in AppKit. Paint cannot dispatch. Hover, highlighted press,
@@ -231,3 +232,57 @@ screen fit, focus, VoiceOver and actual macOS 13 behavior require separate
 checks on the bound app. For NA19 screen adoption and NA20 delivery, use
 the active OpenSpec design linked above. The original 125 cases and F04, F13
 and NA16 remain separate acceptance obligations.
+
+
+== NRD01B floating reader composition
+
+The reader uses cream paper edge-to-edge, with 16pt padding inside its one-row
+toolbar and a 1pt rule fading in beyond 4pt scroll. Ghost search and overflow use
+SF Symbols. `NativeBrandMarkControl` adds status, refresh and injected Home while
+preserving the original vector mark. `NativeModeMorphSwitch` uses a 32pt concave
+track with sliding accepted-mode thumb: 140pt labeled in wide Reflow, 80pt icons
+in compact Reflow or wide online PDF, overflow in narrow online PDF, and exact
+`오프라인 PDF` badge for offline originals.
+
+`NativeOutlineDrawerView` places a 24pt-radius glass panel on a content scrim.
+It tracks the active heading with wash, accent text and a short accent bar;
+keyboard navigation restores focus without clearing selection. Its toggle keeps
+only the list icon at 680pt or below. Drawer, Aa and logo popovers are exclusive.
+
+Notification and selection overlays use `NativeFloatingGlassView(.capsule)`.
+Its clear outer layer carries two shadows; a continuous rounded inner clip holds
+popover material, tint, edge and specular. Reduce Transparency or Increased
+Contrast uses solid panel only inside the clip, 2pt boundary and attenuated
+shadows, preserving transparent exterior corners. Aa remains opaque.
+Notifications size to content between 160pt and min(520pt, content width minus
+48pt), centered 10pt below the toolbar. `NativeOverlayPassThroughStack` passes
+empty margins through. Persistent states offer 24pt inline pills, suppress lower
+notices, never auto-dismiss and never take first responder.
+Explicit notice tones select info, progress, offline warning, error and success
+symbols with accent, warning, error and sage colors. Ghost cells retain their
+native target/action and key equivalents; alignment insets are accounted for
+so actual toolbar button bounds stay 32×30pt.
+
+Selection tools use a 64pt surface with 28pt corners, centered 16pt above the
+viewport bottom, capped at min(560pt, viewport width minus 32pt). Tiles have 17pt
+symbols, 11pt medium labels, 62pt minimum width, 54pt height and 22pt corners.
+Copy and Highlight use accent icons; Ask uses ink; red Strike uses reviewInk.
+Source and Editor collapse to overflow at 640pt. A 1pt rule separates the 36pt
+circular wash close button. A 40pt review capsule offers Undo and Clear above
+tools in writable Reflow. A 26pt mini pill carries exact PDF capability footnotes
+or the 32-block limit. Reflow reserves 104pt below content; PDF adds a temporary
+scroll inset and uses selected page geometry to reveal ink. Selection never
+changes the window frame, and printed PDF ink remains immutable.
+
+The host routes mode, outline, refresh, review, Ask, zoom and tool-focus shortcuts
+to existing owners. Cmd+0 remains Home; Opt+Cmd+0 resets zoom. Escape dismisses
+Find, drawer, Aa/logo, tools retaining selection, then PDF selection. Tab and
+horizontal arrows cycle visible tools. PDF search-field Escape follows that
+order without invoking the explicit cancel button's selection release. Actual
+offscreen key events verify Find-before-drawer and Aa-before-tools ordering.
+A window-scoped keyDown monitor routes
+Shift+Return before text inputs consume it. Offscreen automated tests cover these
+source contracts, including a held Refresh that focuses a visible selection
+release action without implicitly refreshing after release. Tests use generated
+temporary fixtures; interactive GUI acceptance
+and live installation are outside NRD01B verification.

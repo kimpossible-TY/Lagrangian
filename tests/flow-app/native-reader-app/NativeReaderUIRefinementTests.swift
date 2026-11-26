@@ -21,12 +21,13 @@ private actor UIPathCalls {
 }
 @main struct NativeReaderUIRefinementTests {
   @MainActor static var checks = 0
+  @MainActor static var timeoutDetail: (() -> String)?
   @MainActor static func check(_ condition: Bool, _ reason: String) throws {
     checks += 1; if !condition { throw FlowError(message: reason) }
   }
-  @MainActor static func until(_ condition: () -> Bool) async throws {
+  @MainActor static func until(line: UInt = #line, _ condition: () -> Bool) async throws {
     for _ in 0..<1200 { if condition() { return }; try await Task.sleep(nanoseconds:10_000_000) }
-    throw FlowError(message:"UI condition timeout")
+    throw FlowError(message:"UI condition timeout at line \(line): \(timeoutDetail?() ?? "")")
   }
   @MainActor static func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap { views($0) } }
   @MainActor static func view(_ root: NSView, id: String) -> NSView? {
@@ -86,12 +87,15 @@ private actor UIPathCalls {
       var value=raw;value["generation"]=context.generation;value["viewID"]=context.viewID.uuidString.lowercased();value["requestID"]=context.requestID.uuidString.lowercased()
       return .init(publication:try JSONDecoder().decode(NativeOriginalPagePublication.self,from:JSONSerialization.data(withJSONObject:value)),data:pdf)
     },show:false,avoidActivation:true)
-    defer{host.dispose()}
+    defer{host.dispose(); timeoutDetail = nil}
+    timeoutDetail = { "state=\(host.session.state) visible=\(host.visibleMode) requested=\(host.mode) failure=\(host.session.failure ?? "nil") diagnostic=\(host.diagnostic ?? "nil") selection=\(host.session.hasSelection) prepared=\(host.originalPageView.isPreparedForPaint) labels=\(labels(host.hostWindow.window!.contentView!))" }
     let profile=Profile(id:"ui-v7",name:"실제 오프스크린 문서",root:base.path,entry:"main.typ",fonts:[],packages:"",port:23620,publicURL:"",label:"owned.ui-v7")
     _=host.open(profile){_ in}
     try await until { host.session.state == .reading && host.textView.renderKey != nil && host.textView.renderKey == host.textView.requestedRenderKey }
     let window=host.hostWindow.window!,root=window.contentView!
     window.setFrame(NSRect(x:0,y:0,width:980,height:752),display:false);root.layoutSubtreeIfNeeded()
+    await Task.yield()
+    try await until { host.textView.renderKey == host.textView.requestedRenderKey }
     if mode=="recovery-reflow" || mode=="recovery-original" {
       if mode=="recovery-original" {
         try click(root,"pageMode")
@@ -163,7 +167,7 @@ private actor UIPathCalls {
       try check((value["header"] as! CGFloat)<=72,"S1 minimal single-row toolbar leaves >= 85% body height at 980x752")
       try check(host.textView.frame.height >= root.bounds.height * 0.85,"S1 body content area occupies at least 85% of window content height")
       try check(host.textView.frame.height >= window.frame.height * 0.85,"S1 body content area occupies at least 85% of 980x752 window height")
-      let contentsPopup = host.hostWindow.contents
+      let contentsPopup = host.hostWindow.outlineToggleButton
       let reflowBtn = try button(root,"reflowMode"), pdfBtn = try button(root,"pageMode")
       let findBtn = try button(root,"triggerFind"), aaBtn = try button(root,"toggleDisplayPopover"), moreBtn = try button(root,"toggleTools")
       let toolbarItems: [NSView] = [contentsPopup, reflowBtn, pdfBtn, findBtn, aaBtn, moreBtn]
@@ -176,7 +180,8 @@ private actor UIPathCalls {
       try verifyHorizontalRow(toolbarItems, in: root, "Reflow 980pt toolbar")
       try check((try button(root,"releasePageSelection")).isHiddenOrHasHiddenAncestor, "Top releaseSelection row hidden without selection")
       let visibleChromeLabels = views(root).compactMap { $0 as? NSTextField }.filter { !$0.isHiddenOrHasHiddenAncestor }
-      try check(visibleChromeLabels.isEmpty, "No subtitle or extra status label visible in minimal reader chrome")
+      try check(reflowBtn.title == "본문" && pdfBtn.title == "PDF", "Wide morph switch exposes short mode labels")
+      try check(visibleChromeLabels.allSatisfy { ["본문", "PDF"].contains($0.stringValue) }, "Only mode labels in settled reader chrome: \(visibleChromeLabels.map(\.stringValue))")
       host.hostWindow.setNotice("검색 결과 없음: ‘없는단어’을(를) 찾을 수 없습니다.")
       root.layoutSubtreeIfNeeded()
       try check(!host.hostWindow.notice.isHiddenOrHasHiddenAncestor, "Transient notice becomes visible inside statusBanner")
@@ -206,17 +211,19 @@ private actor UIPathCalls {
       try check(!hits.isEmpty && !host.session.hasSelection,"search results alone do not hold selection")
       let field=views(root).compactMap{$0 as? NSSearchField}.first!;field.stringValue="Search needle"
       try check(NSApp.sendAction(field.action!,to:field.target,from:field),"actual search target/action")
-      try await until{host.session.hasSelection && !host.hostWindow.capsule.isHidden}
+      try await until{host.session.hasSelection && host.hostWindow.currentSearchSelectionTicket != nil && !host.hostWindow.capsule.isHidden}
       let capsule = host.hostWindow.capsule
       let pdfViewport = host.originalPageView.enclosingScrollView!.contentView.convert(host.originalPageView.enclosingScrollView!.contentView.bounds, to: root)
       let capsuleRect = capsule.convert(capsule.bounds, to: root)
-      try check(!capsuleRect.intersects(pdfViewport), "PDF search-hit capsule docks without overlapping PDF body/highlights")
+      try check(pdfViewport.contains(capsuleRect) && abs(capsuleRect.minY - pdfViewport.minY - 16) < 1, "PDF capsule floats at viewport bottom")
+      let selectedRect = host.originalPageView.selected.flatMap { try? host.originalPageView.store.viewRect(forPageRect: $0.pageBounds) }.map { host.originalPageView.convert($0, to: root) }
+      try check(selectedRect.map { !$0.intersects(capsuleRect) } == true, "PDF selection scrolls clear of floating tools")
       try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled && !capsule.closeButton.isHidden, "PDF search-hit capsule shows copy and close")
       try check(capsule.buttons[.source]!.isHidden && capsule.buttons[.highlight]!.isHidden && capsule.buttons[.ask]!.isHidden && capsule.buttons[.editor]!.isHidden && capsule.releaseSelectionButton.isHidden, "PDF search-hit capsule hides 4 unsupported buttons and duplicate release button")
       try check(capsule.footnote.stringValue == "원본 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "PDF search-hit capsule shows compact footer note")
       try check(views(root).compactMap({ $0 as? NSButton }).filter({ !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("복사") }).count == 1, "No duplicate copy button alongside capsule")
       try click(root,"reflowMode")
-      try check(labels(root).contains("検索")==false && labels(root).contains("검색 결과에서 선택"),"S2 real search-selected ticket explanation")
+      try check(labels(root).contains("検索")==false && labels(root).contains("검색 결과에서 선택"),"S2 real search-selected ticket explanation: \(labels(root))")
       try save(["labels":labels(root),"pdfHeld":host.originalPageView.selected != nil,"query":field.stringValue],out.appendingPathComponent("held-search.json"))
       try click(root,"releasePageSelection");try check(!host.session.hasSelection,"actual display selection release")
       try click(root,"reflowMode");try await until{host.visibleMode == .nativeReflow}
@@ -231,7 +238,7 @@ private actor UIPathCalls {
       try save(["labels":labels(root),"rawDiagnostic":host.hostWindow.notice.stringValue,"priorDocumentPreserved":host.store.document==accepted],out.appendingPathComponent("stale.json"))
     } else {
       let trigger=try button(root,"toggleTools")
-      try check(trigger.title == "•••","discoverable overflow trigger")
+      try check(trigger.image != nil && trigger.title.isEmpty,"SF Symbol overflow trigger")
       let aaButton = try button(root,"toggleDisplayPopover")
       try check(aaButton.title == "Aa" && !host.hostWindow.isDisplayPopoverOpen, "Aa trigger initially closed")
       var commands=0;host.hostWindow.onAccount={commands+=1}
@@ -288,17 +295,17 @@ private actor UIPathCalls {
 
             // Check narrow width collapse and bounds at 640pt
             if width <= 640 {
-              try check(host.hostWindow.contents.isHiddenOrHasHiddenAncestor, "Reflow 640pt collapses contents into overflow")
+              try check(!host.hostWindow.outlineToggleButton.isHiddenOrHasHiddenAncestor && host.hostWindow.outlineToggleButton.title.isEmpty, "Reflow 640pt keeps icon-only drawer toggle")
               try check((try button(root, "triggerFind")).isHiddenOrHasHiddenAncestor, "Reflow 640pt collapses find trigger into overflow")
               try check(menuItem(menu, action: "outlineMenuSelected:") != nil && menuItem(menu, action: "triggerFind") != nil, "Reflow 640pt overflow contains collapsed items")
             }
-            try verifyHorizontalRow([host.hostWindow.contents, try button(root, "reflowMode"), try button(root, "pageMode"), try button(root, "triggerFind"), aaButton, trigger], in: root, "Reflow \(Int(width))pt")
+            try verifyHorizontalRow([host.hostWindow.outlineToggleButton, try button(root, "reflowMode"), try button(root, "pageMode"), try button(root, "triggerFind"), aaButton, trigger], in: root, "Reflow \(Int(width))pt")
             try save(["collapsed":frames(host),"readingFont":host.textView.textAppearance.fontSize,"dark":dark,"actualWindowAppearance":window.effectiveAppearance.name.rawValue,"width":width],out.appendingPathComponent("layout-\(width)-\(targetSize)-\(dark).json"))
           }
         }
       }
       try click(root, "toggleDisplayPopover")
-      try check(!host.hostWindow.isDisplayPopoverOpen && (aaButton as? NativeDesignButton)?.designRole == .standard, "Aa button resets highlight on close")
+      try check(!host.hostWindow.isDisplayPopoverOpen && (aaButton as? NativeDesignButton)?.designRole == .ghost, "Aa button resets highlight on close")
       try check(popView.superview?.superview == nil && !popView.bounds.isEmpty && !popView.isHiddenOrHasHiddenAncestor, "closed Aa popover detaches host while retaining non-empty unhidden surface")
 
       // Regression: Dark -> close -> Light -> reopen keeps exact fittingSize, symmetric insets, zero clipping, and >= 1pt border
@@ -326,7 +333,7 @@ private actor UIPathCalls {
       try click(root, "toggleDisplayPopover")
       try check(!host.hostWindow.isDisplayPopoverOpen && popView.superview?.superview == nil, "Aa popover closes cleanly after Light reopen check")
 
-      try check(host.hostWindow.contents.toolTip == host.hostWindow.contents.titleOfSelectedItem,"long Korean contents retains full text in native popup")
+      try check(host.hostWindow.outlineToggleButton.toolTip?.isEmpty == false,"drawer toggle retains full active section text")
       let paragraph=host.store.document!.blocks.first{$0.kind == .paragraph}!
       try host.textView.select(from:.init(blockID:paragraph.id,utf16:0,affinity:.upstream),to:.init(blockID:paragraph.id,utf16:paragraph.displayText.utf16.count,affinity:.downstream))
       host.textView.textViewDidChangeSelection(Notification(name:NSTextView.didChangeSelectionNotification))
@@ -356,7 +363,7 @@ private actor UIPathCalls {
       let nav = view(root, id: "pageNavigation")!
       try check(!nav.isHiddenOrHasHiddenAncestor, "640pt PDF keeps pageNavigation visible")
       try check(abs(nav.convert(NSPoint(x: nav.bounds.midX, y: 0), to: root).x - root.bounds.midX) <= 12, "640pt PDF keeps pageNavigation centered")
-      try check(host.hostWindow.contents.isHiddenOrHasHiddenAncestor && host.hostWindow.findField.isHiddenOrHasHiddenAncestor, "640pt PDF collapses secondary items into overflow")
+      try check(host.hostWindow.outlineToggleButton.isHiddenOrHasHiddenAncestor && host.hostWindow.findField.isHiddenOrHasHiddenAncestor, "640pt PDF collapses secondary items into overflow")
       try verifyHorizontalRow([nav, trigger], in: root, "PDF 640pt")
       try click(root, "reflowMode")
       try await until { host.visibleMode == .nativeReflow }

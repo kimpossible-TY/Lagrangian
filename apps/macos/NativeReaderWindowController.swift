@@ -216,10 +216,6 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.capsule.onAction = { [weak self] in self?.capsuleAction($0, $1) }
     hostWindow.capsule.onDismiss = { [weak self] binding in
       guard let self, self.hostWindow.capsule.binding == binding else { return }
-      if binding.originalPDF, self.originalPageView.store.selection?.0 == self.hostWindow.currentSearchSelectionTicket {
-        self.originalPageView.releaseSelection()
-        self.hostWindow.clearSearchSelectionTicket()
-      }
       self.dismissedCapsule = binding; self.hostWindow.hideCapsule()
     }
     hostWindow.capsule.onReleaseSelection = { [weak self] binding in
@@ -379,6 +375,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       Task { @MainActor in
         guard let self, let clip = notification.object as? NSClipView,
               clip === self.textView.scrollView.contentView || clip === self.originalPageView.enclosingScrollView?.contentView else { return }
+        self.hostWindow.updateScrollChrome()
         self.updateCapsule()
       }
     }
@@ -672,6 +669,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !session.hasSelection else { throw NativeOriginalPageError.heldSelection }
     guard self.mode != mode else { return }
     if mode == .nativeReflow { try hostWindow.resolveAutomaticAppearance() }
+    reflowTask?.cancel(); reflowTask = nil
     textView.cancelLazyPreparation()
     self.mode = mode; session.refresh()
   }
@@ -779,7 +777,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           self.layoutChanged(); self.applyPendingPresentation()
         }
         self.storageIsOpening = false; self.hostWindow.storageBusy = false
-        self.hostWindow.setNotice("오프라인 복사본 · 원문 및 대화 작업은 사용할 수 없습니다.")
+        self.hostWindow.setNotice("오프라인 복사본 · 원문 및 대화 작업은 사용할 수 없습니다.", tone: .warning)
       } catch { self.report(error) }
     })
   }
@@ -875,7 +873,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     storageOperation { [weak self] in
       try await storage.save(snapshot); try Task.checkCancellation()
       guard let self, self.storageEpoch == epoch, self.requestTicket === ticket, !self.disposed else { return }
-      self.hostWindow.setNotice("오프라인 읽기용으로 저장했습니다.")
+      self.hostWindow.setNotice("오프라인 읽기용으로 저장했습니다.", tone: .success)
     }
   }
   private func refreshSavedExplicitly() {
@@ -935,7 +933,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         let current = try self.currentExportSnapshot()
         guard self.exportEpoch == epoch, self.requestTicket === ticket, current.0 == captured.0, current.2 == captured.2 else { throw NativeOriginalPageError.stale }
         try staged.commit()
-        self.hostWindow.setNotice("Original PDF exported.")
+        self.hostWindow.setNotice("Original PDF exported.", tone: .success)
       } catch {
         if self.exportEpoch == epoch, !Task.isCancelled, !self.disposed { self.hostWindow.setNotice("PDF export failed; the previous file is unchanged.") }
       }
@@ -1042,6 +1040,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     updateCapsule()
     guard !disposed, !requestTicket.isCancelled else { return }
     hostWindow.refreshLocalControls()
+    // Moving toolbar controls and hiding Reflow changes its retained geometry.
+    // That body layout cannot revoke an in-flight or adopted PDF publication.
+    guard mode == .nativeReflow else { return }
     // The initial offscreen/AppKit layout has no retained view to invalidate.
     // Its in-flight candidate already rechecks the exact key in publishPending;
     // restarting it would revoke an awaited offline restore for a frame notice.
@@ -1093,7 +1094,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !disposed, !requestTicket.isCancelled else { return }
     updatePresentation()
     hostWindow.updateReaderControls(readOnly: session.isReadOnly)
-    if session.isCachedCopy { hostWindow.setNotice("캐시된 화면 (읽기 전용) · 최신 버전 확인 중...") }
+    if session.isCachedCopy { hostWindow.setNotice("캐시된 화면 (읽기 전용) · 최신 버전 확인 중...", tone: .busy) }
     else if session.state == .reading { hostWindow.setNotice(""); persistLayoutWindow() }
     if let failure = session.failure {
       let message = diagnostic ?? failure
@@ -1121,7 +1122,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     let message = NativeReaderHostWindow.message(for: error, inOriginalPDF: visibleMode == .originalPages)
     diagnostic = error is NativeObjectError ? String(describing: error) : message
-    hostWindow.setNotice(message)
+    hostWindow.showActionNotice(message)
     updatePresentation()
   }
 
@@ -1158,7 +1159,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard actionTasks.count < 8 else { report(NativeReaderOperationFailure.unavailable); return }
     if request.action == .locate {
       guard !editorBusy else { return }
-      editorBusy = true; hostWindow.setNotice("Checking the selected source and connected editor…")
+      editorBusy = true; hostWindow.setNotice("Checking the selected source and connected editor…", tone: .busy)
     }
     let id = UUID()
     actionTasks[id] = Task {
@@ -1206,7 +1207,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private func checkEditorReceipt() {
     guard !disposed, !editorBusy, visibleMode == .nativeReflow, let request = editorRequest, let actions,
           actionTasks.count < 8 else { return }
-    editorBusy = true; hostWindow.setNotice("Checking editor result…")
+    editorBusy = true; hostWindow.setNotice("Checking editor result…", tone: .busy)
     let id = UUID()
     actionTasks[id] = Task {
       defer { actionTasks.removeValue(forKey: id); editorBusy = false }
@@ -1264,7 +1265,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       binding = .init(context: context, ticket: ticket, originalPDF: true, offlineOriginalPDF: session.hasRecoveryCopy)
       viewport = clip.convert(clip.bounds, to: root)
       rects = [originalPageView.convert(rect, to: root).intersection(viewport)].filter { !$0.isEmpty }
-      for action in [NativeFloatingCapsule.Action.source, .highlight, .ask, .editor] { unavailable[action] = "원본 PDF는 복사·검색·탐색만 지원합니다." }
+      for action in [NativeFloatingCapsule.Action.source, .highlight, .ask, .strike, .editor] { unavailable[action] = "원본 PDF는 복사·검색·탐색만 지원합니다." }
     } else {
       guard let selection = store.selection, let document = store.document else { hostWindow.hideCapsule(); return }
       guard textView.renderKey == textView.requestedRenderKey else { return }
@@ -1280,6 +1281,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       } else if capsuleCapabilities?.0 == binding { unavailable = capsuleCapabilities!.1 }
       else { unavailable[.editor] = "편집기 연결 상태를 확인 중입니다."; unavailable[.highlight] = "원문 쓰기 권한을 확인 중입니다." }
     }
+    if !binding.originalPDF && hostWindow.reviewActionsUnavailable { unavailable[.strike] = "현재 상태에서는 검토할 수 없습니다." }
     // Selection changes invalidate Send through the existing Session authority,
     // but an unsent local draft stays visible until explicit dismissal/replacement.
     chatView?.refreshAuthorization()
@@ -1321,6 +1323,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     case .source: _ = textView.requestSource(.excerpt)
     case .highlight: _ = textView.requestSource(.highlight)
     case .editor: hostWindow.locateSelected()
+    case .strike: hostWindow.markSelected()
     case .ask: textView.openChat()
     }
   }
@@ -1691,6 +1694,18 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
 
 @MainActor final class NativeReaderToolbarView: NSView {
   var onLayoutWidth: ((CGFloat) -> Void)?
+  var onKeyEquivalent: ((NSEvent) -> Bool)?
+  var scrollOffset: CGFloat = 0 { didSet { needsDisplay = true } }
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    if onKeyEquivalent?(event) == true { return true }
+    return super.performKeyEquivalent(with: event)
+  }
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    guard scrollOffset > 4 else { return }
+    NativeChrome.color(\.rule).withAlphaComponent(min(1, (scrollOffset - 4) / 12)).setFill()
+    NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+  }
   private var lastWidth: CGFloat = 0
   override func setFrameSize(_ newSize: NSSize) {
     super.setFrameSize(newSize)
@@ -1705,7 +1720,8 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   }
 }
 
-@MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
+@MainActor final class NativeReaderHostWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation, NSSearchFieldDelegate {
+  enum NoticeTone { case info, busy, warning, error, success }
   let reader: NativeReaderTextView
   var canReturnFromCrossProject: (() -> Bool)?
   var onReturnFromCrossProject: (() -> Bool)?
@@ -1717,18 +1733,21 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   var capsuleFocusTarget: (() -> NSView?)?
   var onCapsuleLayout: (() -> Void)?
   let capsule = NativeFloatingCapsule()
-  private var capsuleDocked = false
-  private var capsuleConstraints = [NSLayoutConstraint]()
-  private var capsuleDockWindowHeightDelta: CGFloat = 0
-  private var capsuleDockUserResizedHeight = false
-  private var isAdjustingWindowHeightForDock = false
-  private var lastObservedWindowHeight: CGFloat?
   private var overlayTopConstraint: NSLayoutConstraint?
+  private var revealingSelection = false
+  let reviewActionsCapsule = NativeFloatingGlassView(style: .capsule)
+  private let undoReviewButton = NativeReaderPillButton(title: "되돌리기", target: nil, action: nil)
+  private let clearReviewButton = NativeReaderPillButton(title: "모두 지우기", target: nil, action: nil)
+  var reviewActionsUnavailable: Bool { currentMode != .nativeReflow || isReadOnlyState }
+  var onOpenHome: (() -> Void)?
+  let outlineDrawer = NativeOutlineDrawerView()
+  private var brandPopoverObserver: NSObjectProtocol?
+  nonisolated(unsafe) private var refreshKeyMonitor: Any?
   private var pendingRecovery = false
-  private let retryRecoveryButton = NativeDesignButton(title: "복원 재시도", target: nil, action: nil)
-  private let cancelRecoveryButton = NativeDesignButton(title: "복원 취소", target: nil, action: nil)
-  private let releaseSelectionButton = NativeDesignButton(title: "선택 해제", target: nil, action: nil)
-  private let brandMark = NativeBrandMarkView()
+  private let retryRecoveryButton = NativeReaderPillButton(title: "복원 재시도", target: nil, action: nil)
+  private let cancelRecoveryButton = NativeReaderPillButton(title: "복원 취소", target: nil, action: nil)
+  private let releaseSelectionButton = NativeReaderPillButton(title: "선택 해제", target: nil, action: nil)
+  let brandMark = NativeBrandMarkControl()
   private var refreshButton: NSButton?
   private var selectionActionsButton: NSButton?
   private var findButton: NativeDesignButton?
@@ -1750,13 +1769,17 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   private let leftToolbarGroup = NSStackView()
   private let centerToolbarGroup = NSStackView()
   private let rightToolbarGroup = NSStackView()
-  private let modeSegmentSurface = NativeDesignSurface()
-  private let offlineBadgeSurface = NativeDesignSurface()
+  let modeSegmentSurface = NativeModeMorphSwitch()
+  private let offlineBadgeSurface = NativeFloatingGlassView(style: .capsule)
   private let offlineBadgeLabel = NSTextField(labelWithString: "오프라인 PDF")
-  private let overlayStack = NSStackView()
-  private let statusBanner = NativeDesignSurface()
+  let overlayStack = NativeOverlayPassThroughStack()
+  let statusBanner = NativeFloatingGlassView(style: .capsule)
+  private let statusIcon = NSImageView()
   private let statusBannerStack = NSStackView()
-  private let noticeBanner = NativeDesignSurface()
+  let noticeBanner = NativeFloatingGlassView(style: .capsule)
+  private let noticeIcon = NSImageView()
+  private let statusDismissButton = NativeReaderPillButton(title: "", target: nil, action: nil)
+  private let bannerRefreshButton = NativeReaderPillButton(title: "새로고침", target: nil, action: nil)
   private let modeStatus = NSTextField(wrappingLabelWithString: "현재: 본문")
   private let selectionStatus = NSTextField(wrappingLabelWithString: "문서를 준비하고 있습니다…")
   private var requestedMode: NativeReaderWindowController.Mode?
@@ -1764,6 +1787,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   private var allowsModeSwitch = true
   private var isReadOnlyState = true
   private var requestWasHeld = false
+  private var refreshWasHeld = false
   private var latestState = NativeReaderSession.State.idle
   private var failedState = false
   private var retainedFailure = false
@@ -1775,7 +1799,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   private var findGeneration = 0
   private var findFailure: String?
   private var actionFailure: String?
-  private let noticeDismissButton = NativeDesignButton(title: "×", target: nil, action: nil)
+  private let noticeDismissButton = NativeReaderPillButton(title: "", target: nil, action: nil)
   private var findExpandedAtNarrowWidth = false
   private var isNarrowToolbar = false
   private var modeButtons = [NSButton]()
@@ -1794,7 +1818,9 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   var onEditorReceipt: (() -> Void)?
   var onAccount: (() -> Void)?
   var onManageAccount: ((URL) -> Void)?
-  let contents = NSPopUpButton()
+  let outlineToggleButton = NativeDesignButton(title: "목차", target: nil, action: nil)
+  private var outlineCompactWidthConstraint: NSLayoutConstraint?
+  var contents: NSButton { outlineToggleButton }
   private var appearanceObservation: NSKeyValueObservation?
 
   let savedDocuments = NSPopUpButton()
@@ -1808,7 +1834,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   private var savedEntries = [NativeReaderRecoveryStore.Entry]()
   private var recoveredDrafts = [NativeReaderRecoveredDraft]()
   private var homepage: URL?
-  var reviewCount = 0 { didSet { rebuildMoreMenu() } }
+  var reviewCount = 0 { didSet { updateReviewCapsule(); rebuildMoreMenu() } }
   var exportBusy = false { didSet { updateOfflineControls() } }
   var storageAvailable = false { didSet { updateOfflineControls() } }
   var storageBusy = false { didSet { updateOfflineControls() } }
@@ -1844,7 +1870,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     reader.bodyTextView.blocksSystemClipboard = fixtureMode; reader.bodyTextView.allowsPrivateCopy = true
     window.isReleasedWhenClosed = false; window.delegate = self; window.title = "Lagrangian · 읽기"
     NativeChrome.install(on: window)
-    stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
+    stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 0
 
     func command(_ title: String, _ action: Selector) -> NativeDesignButton {
       let button = NativeDesignButton(title: title, target: self, action: action)
@@ -1871,13 +1897,13 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     let centerMaxTrailing = centerToolbarGroup.trailingAnchor.constraint(lessThanOrEqualTo: rightToolbarGroup.leadingAnchor, constant: -8)
     centerMaxTrailing.priority = NSLayoutConstraint.Priority(490)
     NSLayoutConstraint.activate([
-      leftToolbarGroup.leadingAnchor.constraint(equalTo: toolbarView.leadingAnchor),
+      leftToolbarGroup.leadingAnchor.constraint(equalTo: toolbarView.leadingAnchor, constant: 16),
       leftToolbarGroup.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
       centerAlign,
       centerToolbarGroup.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
       centerMinLeading,
       centerMaxTrailing,
-      rightToolbarGroup.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor),
+      rightToolbarGroup.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor, constant: -16),
       rightToolbarGroup.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor)
     ])
     toolbarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -1886,24 +1912,36 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     rightToolbarGroup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
     brandMark.translatesAutoresizingMaskIntoConstraints = false
-    brandMark.widthAnchor.constraint(equalToConstant: 26).isActive = true
-    brandMark.heightAnchor.constraint(equalToConstant: 24).isActive = true
+    brandMark.widthAnchor.constraint(equalToConstant: 40).isActive = true
+    brandMark.heightAnchor.constraint(equalToConstant: 32).isActive = true
+    brandMark.onOpenHome = { [weak self] in self?.onOpenHome?() }
+    brandMark.onRefresh = { [weak self] in self?.refreshFromKeyboard() }
+    brandPopoverObserver = NotificationCenter.default.addObserver(forName: NSPopover.willShowNotification, object: brandMark.statusPopover, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.outlineDrawer.dismiss(); self?.closeDisplayPopover() }
+    }
+    outlineToggleButton.cell = NativeReaderGhostButtonCell(textCell: "목차")
+    outlineToggleButton.title = "목차"; outlineToggleButton.designRole = .ghost
+    outlineToggleButton.bezelStyle = .regularSquare; outlineToggleButton.isBordered = true
+    outlineToggleButton.setAccessibilityLabel("목차"); outlineToggleButton.identifier = NSUserInterfaceItemIdentifier("contentsDrawerToggle")
+    outlineToggleButton.image = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: "목차")?.withSymbolConfiguration(.init(pointSize: 13.5, weight: .medium))
+    outlineToggleButton.imagePosition = .imageLeading
+    outlineToggleButton.target = self; outlineToggleButton.action = #selector(toggleOutlineDrawer)
+    outlineToggleButton.translatesAutoresizingMaskIntoConstraints = false
+    outlineToggleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
+    let outlineInsets = outlineToggleButton.alignmentRectInsets
+    outlineToggleButton.heightAnchor.constraint(equalToConstant: 30 - outlineInsets.top - outlineInsets.bottom).isActive = true
+    outlineCompactWidthConstraint = outlineToggleButton.widthAnchor.constraint(equalToConstant: 30 - outlineInsets.left - outlineInsets.right)
+    outlineToggleButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    outlineToggleButton.cell?.lineBreakMode = .byTruncatingTail
 
-    contents.setAccessibilityLabel("목차"); contents.identifier = NSUserInterfaceItemIdentifier("contents")
-    contents.target = self; contents.action = #selector(outlineSelected)
-    contents.translatesAutoresizingMaskIntoConstraints = false
-    contents.widthAnchor.constraint(lessThanOrEqualToConstant: 160).isActive = true
-    contents.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    (contents.cell as? NSPopUpButtonCell)?.lineBreakMode = .byTruncatingTail
-
-    offlineBadgeSurface.role = .panel
+    offlineBadgeSurface.cornerRadius = 13
     offlineBadgeSurface.identifier = NSUserInterfaceItemIdentifier("offlinePDFBadge")
     offlineBadgeSurface.translatesAutoresizingMaskIntoConstraints = false
     offlineBadgeLabel.font = NativeAppDesign.Typography.font(.caption)
     offlineBadgeLabel.textColor = NativeChrome.color(\.ink)
     offlineBadgeLabel.setAccessibilityLabel("오프라인 PDF")
     offlineBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
-    offlineBadgeSurface.addSubview(offlineBadgeLabel)
+    offlineBadgeSurface.contentView.addSubview(offlineBadgeLabel)
     NSLayoutConstraint.activate([
       offlineBadgeLabel.leadingAnchor.constraint(equalTo: offlineBadgeSurface.leadingAnchor, constant: 10),
       offlineBadgeLabel.trailingAnchor.constraint(equalTo: offlineBadgeSurface.trailingAnchor, constant: -10),
@@ -1912,21 +1950,14 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     ])
     offlineBadgeSurface.isHidden = true
 
-    let reflow = command("본문", #selector(reflowMode)), pdf = command("원본 PDF", #selector(pageMode))
-    modeButtons = [reflow, pdf]
-    reflow.setButtonType(.pushOnPushOff); pdf.setButtonType(.pushOnPushOff); reflow.state = .on
-    modeSegmentSurface.role = .panel
     modeSegmentSurface.translatesAutoresizingMaskIntoConstraints = false
-    let modeStack = NSStackView(views: [reflow, pdf])
-    modeStack.orientation = .horizontal; modeStack.spacing = 2
-    modeStack.translatesAutoresizingMaskIntoConstraints = false
-    modeSegmentSurface.addSubview(modeStack)
-    NSLayoutConstraint.activate([
-      modeStack.leadingAnchor.constraint(equalTo: modeSegmentSurface.leadingAnchor, constant: 3),
-      modeStack.trailingAnchor.constraint(equalTo: modeSegmentSurface.trailingAnchor, constant: -3),
-      modeStack.topAnchor.constraint(equalTo: modeSegmentSurface.topAnchor, constant: 2),
-      modeStack.bottomAnchor.constraint(equalTo: modeSegmentSurface.bottomAnchor, constant: -2)
-    ])
+    modeSegmentSurface.heightAnchor.constraint(equalToConstant: 32).isActive = true
+    let reflow = modeSegmentSurface.reflowButton, pdf = modeSegmentSurface.pageButton
+    for (button, selector) in [(reflow, #selector(reflowMode)), (pdf, #selector(pageMode))] {
+      button.target = self; button.action = selector
+      button.identifier = NSUserInterfaceItemIdentifier(NSStringFromSelector(selector))
+    }
+    modeButtons = [reflow, pdf]
 
     let prev = command("‹", #selector(previousPage))
     prev.identifier = NSUserInterfaceItemIdentifier("previousPage")
@@ -1946,7 +1977,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     nav.isHidden = true
     pageNavigation = nav
 
-    let find = command("🔍", #selector(triggerFind))
+    let find = command("", #selector(triggerFind)); find.setSymbol("magnifyingglass", label: "검색")
     find.setAccessibilityLabel("검색")
     find.keyEquivalent = "f"; find.keyEquivalentModifierMask = [.command]
     findButton = find
@@ -1956,10 +1987,45 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     aa.setButtonType(.pushOnPushOff)
     aaButton = aa
 
-    let more = command("•••", #selector(toggleTools))
+    let more = command("", #selector(toggleTools)); more.setSymbol("ellipsis", label: "더보기")
     more.setAccessibilityLabel("더보기")
     more.keyEquivalent = "t"; more.keyEquivalentModifierMask = [.command, .option]
     moreButton = more
+
+    for button in [find, aa, more] {
+      // NSButton stores its target/action and key equivalent on the cell.
+      let title = button.title, image = button.image, font = button.font
+      let target = button.target, action = button.action
+      let key = button.keyEquivalent, modifiers = button.keyEquivalentModifierMask
+      button.cell = NativeReaderGhostButtonCell(textCell: title)
+      button.title = title; button.image = image; button.bezelStyle = .regularSquare
+      button.font = font; button.isBordered = true
+      button.target = target; button.action = action
+      button.keyEquivalent = key; button.keyEquivalentModifierMask = modifiers
+      button.imagePosition = image == nil ? .noImage : .imageOnly
+      button.setAccessibilityLabel(button === find ? "검색" : (button === aa ? "보기 설정" : "더보기"))
+      button.setButtonType(button === aa ? .pushOnPushOff : .momentaryPushIn)
+      button.designRole = .ghost
+      button.translatesAutoresizingMaskIntoConstraints = false
+      // AppKit's alignment rectangle excludes cell padding from the anchors.
+      // Constrain it so the actual painted/hit bounds remain exactly 32x30pt.
+      let insets = button.alignmentRectInsets
+      button.widthAnchor.constraint(equalToConstant: 32 - insets.left - insets.right).isActive = true
+      button.heightAnchor.constraint(equalToConstant: 30 - insets.top - insets.bottom).isActive = true
+    }
+    toolbarView.onKeyEquivalent = { [weak self] in self?.handleReaderShortcut($0) ?? false }
+    // Shift+Return is an ordinary keyDown, so AppKit need not consult toolbar
+    // key equivalents. Scope interception to this reader before text inputs
+    // consume it as a newline; command shortcuts keep AppKit's normal routing.
+    refreshKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      let handled = MainActor.assumeIsolated {
+        guard let self, event.window === self.window, event.keyCode == 36,
+              event.modifierFlags.intersection([.command, .option, .shift, .control]) == .shift else { return false }
+        self.refreshFromKeyboard()
+        return true
+      }
+      return handled ? nil : event
+    }
 
     findField.textColor = NativeChrome.color(\.ink)
     findField.font = NativeAppDesign.Typography.font(.control)
@@ -1974,6 +2040,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     findField.setAccessibilityLabel("PDF에서 검색")
     findField.identifier = NSUserInterfaceItemIdentifier("findPage")
     findField.target = self; findField.action = #selector(findPage)
+    findField.delegate = self
     findField.translatesAutoresizingMaskIntoConstraints = false
     let findPreferredWidth = findField.widthAnchor.constraint(equalToConstant: 168)
     findPreferredWidth.priority = NSLayoutConstraint.Priority(470)
@@ -2010,14 +2077,14 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     buildDisplayPopover()
 
     // Compact contextual status banner (floating overlay, hidden during normal reading)
-    statusBanner.role = .floating
+    statusBanner.cornerRadius = 20
     statusBanner.translatesAutoresizingMaskIntoConstraints = false
     statusBannerStack.orientation = .vertical; statusBannerStack.alignment = .leading; statusBannerStack.spacing = 4
     statusBannerStack.translatesAutoresizingMaskIntoConstraints = false
-    statusBanner.addSubview(statusBannerStack)
+    statusBanner.contentView.addSubview(statusBannerStack)
     NSLayoutConstraint.activate([
-      statusBannerStack.leadingAnchor.constraint(equalTo: statusBanner.leadingAnchor, constant: 12),
-      statusBannerStack.trailingAnchor.constraint(equalTo: statusBanner.trailingAnchor, constant: -12),
+      statusBannerStack.leadingAnchor.constraint(equalTo: statusBanner.leadingAnchor, constant: 36),
+      statusBannerStack.trailingAnchor.constraint(equalTo: statusBanner.trailingAnchor, constant: -36),
       statusBannerStack.topAnchor.constraint(equalTo: statusBanner.topAnchor, constant: 8),
       statusBannerStack.bottomAnchor.constraint(equalTo: statusBanner.bottomAnchor, constant: -8)
     ])
@@ -2037,7 +2104,19 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     releaseSelectionButton.identifier = NSUserInterfaceItemIdentifier("releasePageSelection")
     releaseSelectionButton.setAccessibilityLabel("선택 해제")
     releaseSelectionButton.isHidden = true
-    let bannerActions = NativeChromeControlRow([releaseSelectionButton, retryRecoveryButton, cancelRecoveryButton])
+    for button in [releaseSelectionButton, retryRecoveryButton, cancelRecoveryButton, bannerRefreshButton] {
+      button.radius = 12; button.fillsWash = true
+    }
+    bannerRefreshButton.target = self; bannerRefreshButton.action = #selector(refreshDocument)
+    bannerRefreshButton.isHidden = true
+    let bannerActions = NativeChromeControlRow([releaseSelectionButton, retryRecoveryButton, cancelRecoveryButton, bannerRefreshButton])
+    statusDismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "알림 닫기")?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+    statusDismissButton.radius = 12; statusDismissButton.target = self; statusDismissButton.action = #selector(dismissStatus)
+    statusDismissButton.setAccessibilityLabel("알림 닫기"); statusDismissButton.translatesAutoresizingMaskIntoConstraints = false
+    statusBanner.contentView.addSubview(statusDismissButton)
+    NSLayoutConstraint.activate([statusDismissButton.trailingAnchor.constraint(equalTo: statusBanner.trailingAnchor, constant: -4),
+      statusDismissButton.topAnchor.constraint(equalTo: statusBanner.topAnchor, constant: 4),
+      statusDismissButton.widthAnchor.constraint(equalToConstant: 28), statusDismissButton.heightAnchor.constraint(equalToConstant: 28)])
     recoveredDraftRow.orientation = .vertical; recoveredDraftRow.alignment = .leading
     recoveredDraftPicker.setAccessibilityLabel("복원된 초안"); recoveredDraftPicker.identifier = NSUserInterfaceItemIdentifier("recoveredDrafts")
     recoveredDraftPicker.target = self; recoveredDraftPicker.action = #selector(recoveredDraftSelected)
@@ -2051,7 +2130,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
     statusBanner.isHidden = true
 
-    noticeBanner.role = .floating
+    noticeBanner.cornerRadius = 20
     noticeBanner.identifier = NSUserInterfaceItemIdentifier("noticeBanner")
     noticeBanner.translatesAutoresizingMaskIntoConstraints = false
     noticeBanner.isHidden = true
@@ -2068,10 +2147,22 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     noticeDismissButton.translatesAutoresizingMaskIntoConstraints = false
     noticeDismissButton.setContentHuggingPriority(.required, for: .horizontal)
     noticeDismissButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-    noticeBanner.addSubview(notice)
-    noticeBanner.addSubview(noticeDismissButton)
+    noticeBanner.contentView.addSubview(notice)
+    noticeBanner.contentView.addSubview(noticeDismissButton)
+    noticeDismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "알림 닫기")?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+    noticeDismissButton.radius = 12
+    noticeDismissButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+    noticeDismissButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+    for (icon, banner) in [(noticeIcon, noticeBanner), (statusIcon, statusBanner)] {
+      icon.translatesAutoresizingMaskIntoConstraints = false; banner.contentView.addSubview(icon)
+      NSLayoutConstraint.activate([icon.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 12),
+        icon.topAnchor.constraint(equalTo: banner.topAnchor, constant: 11),
+        icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16)])
+    }
+    noticeIcon.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "안내")
+    noticeIcon.contentTintColor = NativeChrome.color(\.accent)
     NSLayoutConstraint.activate([
-      notice.leadingAnchor.constraint(equalTo: noticeBanner.leadingAnchor, constant: 12),
+      notice.leadingAnchor.constraint(equalTo: noticeBanner.leadingAnchor, constant: 36),
       notice.topAnchor.constraint(greaterThanOrEqualTo: noticeBanner.topAnchor, constant: 6),
       notice.bottomAnchor.constraint(lessThanOrEqualTo: noticeBanner.bottomAnchor, constant: -6),
       notice.centerYAnchor.constraint(equalTo: noticeBanner.centerYAnchor),
@@ -2102,18 +2193,41 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     stack.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(stack)
     window.contentView!.addSubview(overlayStack)
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16),
-      stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -16),
+      stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
       stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 8),
-      stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -8),
+      stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor),
       reader.widthAnchor.constraint(equalTo: stack.widthAnchor),
       // NativeReaderTextView reserves 42pt below its inner clip for visible status.
       reader.heightAnchor.constraint(greaterThanOrEqualToConstant: 220 + 42),
       overlayStack.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
       overlayStack.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
-      statusBanner.widthAnchor.constraint(equalTo: overlayStack.widthAnchor),
+      statusBanner.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
+      statusBanner.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+      statusBanner.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -48),
+      noticeBanner.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
+      noticeBanner.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+      noticeBanner.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -48),
       noticeBanner.leadingAnchor.constraint(greaterThanOrEqualTo: overlayStack.leadingAnchor),
       noticeBanner.trailingAnchor.constraint(lessThanOrEqualTo: overlayStack.trailingAnchor)])
+    outlineDrawer.translatesAutoresizingMaskIntoConstraints = false
+    window.contentView!.addSubview(outlineDrawer)
+    NSLayoutConstraint.activate([outlineDrawer.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor),
+      outlineDrawer.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
+      outlineDrawer.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
+      outlineDrawer.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor)])
+    outlineDrawer.onNavigate = { [weak self] id in
+      guard let self else { return }; _ = self.reader.navigate(toNodeID: id)
+      self.window?.makeFirstResponder(self.reader.bodyTextView); self.updateScrollChrome()
+    }
+    reviewActionsCapsule.cornerRadius = 20; reviewActionsCapsule.isHidden = true
+    window.contentView!.addSubview(reviewActionsCapsule, positioned: .below, relativeTo: outlineDrawer)
+    undoReviewButton.target = self; undoReviewButton.action = #selector(undoReviewExplicitly)
+    clearReviewButton.target = self; clearReviewButton.action = #selector(clearReviewExplicitly)
+    undoReviewButton.image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: "되돌리기")
+    clearReviewButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "모두 지우기")
+    clearReviewButton.ink = \.reviewInk
+    for button in [undoReviewButton, clearReviewButton] { button.imagePosition = .imageLeading; reviewActionsCapsule.contentView.addSubview(button) }
     updateOverlayTopConstraint()
     // Keep initial Reflow chrome synchronized with the default "밝게" theme picker.
     window.appearance = NSAppearance(named: .aqua)
@@ -2266,92 +2380,50 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   }
   private func updateOverlayTopConstraint() {
     overlayTopConstraint?.isActive = false
-    let anchor = (capsuleDocked && capsule.superview != nil && !capsule.isHidden)
-      ? capsule.bottomAnchor
-      : toolbarView.bottomAnchor
-    let constraint = overlayStack.topAnchor.constraint(equalTo: anchor, constant: 6)
-    constraint.isActive = true
-    overlayTopConstraint = constraint
-  }
-  private func adjustWindowHeightForCapsuleDock(to targetDelta: CGFloat) {
-    guard !isAdjustingWindowHeightForDock else { return }
-    let delta = targetDelta - capsuleDockWindowHeightDelta
-    if abs(delta) < 0.5 { return }
-    guard let window, !window.styleMask.contains(.fullScreen) else { return }
-    var frame = window.frame
-    let currentHeight = frame.size.height
-    let topY = frame.maxY
-    let visible = window.screen?.visibleFrame
-    var newHeight = max(window.minSize.height, currentHeight + delta)
-    if let visible {
-      newHeight = min(visible.height, newHeight)
-    }
-    if abs(newHeight - currentHeight) < 0.5 {
-      if targetDelta == 0 { capsuleDockWindowHeightDelta = 0 }
-      lastObservedWindowHeight = window.frame.size.height
-      return
-    }
-    let newOriginY = visible.map { max($0.minY, min($0.maxY - newHeight, topY - newHeight)) } ?? (topY - newHeight)
-    frame.origin.y = newOriginY
-    frame.size.height = newHeight
-    isAdjustingWindowHeightForDock = true
-    defer { isAdjustingWindowHeightForDock = false }
-    window.setFrame(frame, display: window.isVisible, animate: false)
-    let actualDelta = window.frame.size.height - currentHeight
-    capsuleDockWindowHeightDelta = targetDelta == 0 ? 0 : max(0, capsuleDockWindowHeightDelta + actualDelta)
-    lastObservedWindowHeight = window.frame.size.height
+    let constraint = overlayStack.topAnchor.constraint(equalTo: toolbarView.bottomAnchor, constant: 10)
+    constraint.isActive = true; overlayTopConstraint = constraint
   }
   func hideCapsule(restoringFocus: Bool = true) {
     if restoringFocus, let focused = window?.firstResponder as? NSView, focused.isDescendant(of: capsule) {
       window?.makeFirstResponder(capsuleFocusTarget?() ?? (currentMode == .originalPages ? original : reader.bodyTextView))
     }
-    capsule.hide()
-    capsuleDockUserResizedHeight = false
-    if capsuleDocked {
-      NSLayoutConstraint.deactivate(capsuleConstraints); capsuleConstraints = []
-      stack.removeArrangedSubview(capsule); capsule.removeFromSuperview(); capsuleDocked = false
-      updateOverlayTopConstraint()
-      adjustWindowHeightForCapsuleDock(to: 0)
-      window?.contentView?.layoutSubtreeIfNeeded()
-    } else {
-      adjustWindowHeightForCapsuleDock(to: 0)
-    }
+    capsule.hide(); originalScroll?.contentInsets.bottom = 0; updateReviewCapsule()
   }
   func placeCapsule(viewport: NSRect, avoiding rects: [NSRect]) {
     guard let root = window?.contentView else { return }
-    let size = capsule.preferredSize(width: min(620, max(120, viewport.width - 16)))
-    // Only renderer-verified empty space may host an overlay. PDF page content
-    // and unavailable/stale geometry are conservatively occupied in full.
-    let occupied: [NSRect]
-    if currentMode == .originalPages { occupied = [viewport] }
-    else if let used = reader.visibleUsedContentBounds(in: root) { occupied = used.isEmpty ? [] : [used] }
-    else { occupied = [viewport] }
-    if !capsuleDocked, let frame = NativeFloatingCapsule.placement(size: size, viewport: viewport.insetBy(dx: 8, dy: 8), avoiding: rects, occupied: occupied) {
-      if capsule.superview !== root { capsule.removeFromSuperview(); root.addSubview(capsule) }
-      capsule.translatesAutoresizingMaskIntoConstraints = true; capsule.frame = frame
-    } else if !capsuleDocked {
-      guard stack.bounds.width.isFinite, stack.bounds.width > 0 else { return }
-      let dockHeight = ceil(capsule.preferredSize(width: stack.bounds.width).height)
-      capsule.removeFromSuperview()
-      let index = stack.arrangedSubviews.firstIndex(where: { $0 === reader }) ?? stack.arrangedSubviews.count
-      stack.insertArrangedSubview(capsule, at: index); capsule.translatesAutoresizingMaskIntoConstraints = false
-      capsuleConstraints = [capsule.widthAnchor.constraint(equalTo: stack.widthAnchor), capsule.heightAnchor.constraint(equalToConstant: dockHeight)]
-      NSLayoutConstraint.activate(capsuleConstraints); capsuleDocked = true
-      capsuleDockUserResizedHeight = false
-      updateOverlayTopConstraint()
-      adjustWindowHeightForCapsuleDock(to: currentMode == .nativeReflow ? dockHeight + stack.spacing : 0)
-      root.layoutSubtreeIfNeeded()
-    } else {
-      guard stack.bounds.width.isFinite, stack.bounds.width > 0 else { return }
-      let dockHeight = ceil(capsule.preferredSize(width: stack.bounds.width).height)
-      capsuleConstraints.last?.constant = dockHeight
-      updateOverlayTopConstraint()
-      if !capsuleDockUserResizedHeight {
-        adjustWindowHeightForCapsuleDock(to: currentMode == .nativeReflow ? dockHeight + stack.spacing : 0)
-      }
-      root.layoutSubtreeIfNeeded()
+    capsule.compact = root.bounds.width <= 640
+    let size = capsule.preferredSize(width: min(560, viewport.width - 32))
+    if capsule.superview !== root { root.addSubview(capsule, positioned: .below, relativeTo: outlineDrawer) }
+    capsule.frame = NSRect(x: viewport.midX - size.width / 2, y: viewport.minY + 16, width: size.width, height: size.height)
+    capsule.layoutSubtreeIfNeeded(); updateReviewCapsule()
+    guard !revealingSelection else { return }
+    let scroll = currentMode == .nativeReflow ? reader.scrollView : originalScroll
+    if currentMode == .nativeReflow { reader.scrollView.contentInsets.bottom = 104 }
+    else { originalScroll?.automaticallyAdjustsContentInsets = false; originalScroll?.contentInsets.bottom = size.height + 24 }
+    guard let scroll, let documentView = scroll.documentView else { return }
+    let obstruction = reviewActionsCapsule.isHidden ? capsule.frame : capsule.frame.union(reviewActionsCapsule.frame)
+    let occluded = rects.filter { $0.intersects(obstruction.insetBy(dx: -4, dy: -8)) }
+    guard !occluded.isEmpty else { return }
+    let selected = occluded.reduce(NSRect.null) { $0.union($1) }
+    let delta = obstruction.maxY + 12 - selected.minY
+    guard delta > 0.5 else { return }
+    revealingSelection = true; defer { revealingSelection = false }
+    let clip = scroll.contentView
+    // Document coordinates are flipped in both renderers. Scroll downward to
+    // move the selected ink above the floating tools; never resize the window.
+    let target = NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + (documentView.isFlipped ? delta : -delta))
+    let constrained = clip.constrainBoundsRect(NSRect(origin: target, size: clip.bounds.size))
+    if abs(constrained.minY - clip.bounds.minY) > 0.5 {
+      clip.scroll(to: constrained.origin); scroll.reflectScrolledClipView(clip)
     }
-    capsule.layoutSubtreeIfNeeded()
+  }
+  private func updateReviewCapsule() {
+    reviewActionsCapsule.isHidden = reviewActionsUnavailable || reviewCount == 0
+    guard !reviewActionsCapsule.isHidden, let root = window?.contentView else { return }
+    let y = capsule.isHidden ? CGFloat(16) : capsule.frame.maxY + 8
+    reviewActionsCapsule.frame = NSRect(x: root.bounds.midX - 126, y: y, width: 252, height: 40)
+    undoReviewButton.frame = NSRect(x: 8, y: 8, width: 110, height: 24)
+    clearReviewButton.frame = NSRect(x: 126, y: 8, width: 118, height: 24)
   }
   @objc func showSelectionActions() { onShowCapsule?() }
   @objc func retryRecovery() { if pendingRecovery && failedState { onRetryRecovery?() } }
@@ -2386,10 +2458,11 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
   }
   func displayMode(_ mode: NativeReaderWindowController.Mode) {
+    refreshWasHeld = false
     clearNotice()
     cancelFind()
     hideCapsule()
-    if mode != currentMode { closeDisplayPopover() }
+    if mode != currentMode { closeDisplayPopover(); outlineDrawer.dismiss(); brandMark.statusPopover.performClose(nil) }
     findExpandedAtNarrowWidth = false
     currentMode = mode
     syncWindowAppearance()
@@ -2420,15 +2493,13 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   func prepareForOpen() {
     cancelFind()
     hideCapsule()
-    capsuleDockUserResizedHeight = false
-    capsuleDockWindowHeightDelta = 0
-    lastObservedWindowHeight = window?.frame.size.height
     closeDisplayPopover()
     isMoreMenuOpen = false
     findExpandedAtNarrowWidth = false
     findField.stringValue = ""
     requestedMode = nil
     requestWasHeld = false
+    refreshWasHeld = false
     searchSelectionTicket = nil
     findFailure = nil
     actionFailure = nil
@@ -2481,8 +2552,11 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       }
     }
 
-    if brandMark.isHidden != narrow { brandMark.isHidden = narrow }
-    if contents.isHidden != narrow { contents.isHidden = narrow }
+    brandMark.isHidden = false
+    outlineToggleButton.isHidden = inPDF && narrow
+    outlineToggleButton.title = availableWidth > 680 ? (outlineToggleButton.toolTip ?? "목차") : ""
+    outlineCompactWidthConstraint?.isActive = availableWidth <= 680
+    modeSegmentSurface.compact = narrow || inPDF
     if offlineBadgeSurface.isHidden != !showOfflineBadge { offlineBadgeSurface.isHidden = !showOfflineBadge }
 
     let hideModeSegment = inPDF && (!allowsModeSwitch || narrow)
@@ -2518,6 +2592,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   }
 
   @objc func toggleDisplayPopover() {
+    outlineDrawer.dismiss(); brandMark.statusPopover.performClose(nil)
     guard currentMode == .nativeReflow, let aaButton else { return }
     if isDisplayPopoverOpen {
       closeDisplayPopover()
@@ -2604,7 +2679,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
     if isDisplayPopoverOpen {
       isDisplayPopoverOpen = false
-      aaButton?.designRole = .standard
+      aaButton?.designRole = .ghost
       aaButton?.state = .off
     }
     layoutDisplayPopoverSurface()
@@ -2636,6 +2711,13 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
   }
 
+  func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+    // NSSearchField normally treats Escape like its cancel button. Keep that
+    // explicit button's release behavior, but route keyboard dismissal through
+    // the reader's overlay order before AppKit can clear the PDF selection.
+    guard control === findField, commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+    return handleReaderEscape()
+  }
   @objc func clearFindField() {
     findField.stringValue = ""
     findExpandedAtNarrowWidth = false
@@ -2651,7 +2733,52 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     updateToolbarLayout()
   }
 
-  @objc func refreshDocument() { requestedMode = nil; requestWasHeld = false; cancelFind(); onRefresh?() }
+  func refreshFromKeyboard() {
+    if hasActiveSelectionInCurrentMode {
+      refreshWasHeld = true
+      refreshStatus()
+      window?.contentView?.layoutSubtreeIfNeeded()
+      window?.makeFirstResponder(releaseSelectionButton)
+      return
+    }
+    if allowsRefresh { refreshDocument() }
+  }
+  func handleReaderShortcut(_ event: NSEvent) -> Bool {
+    let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+    let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+    if flags == .command {
+      switch key {
+      case "\\": if allowsModeSwitch { currentMode == .nativeReflow ? pageMode() : reflowMode() }; return true
+      case "1": if allowsModeSwitch { reflowMode() }; return true
+      case "2": if allowsModeSwitch { pageMode() }; return true
+      case "r": refreshFromKeyboard(); return true
+      case "+", "=": zoomIn(); return true
+      case "-": zoomOut(); return true
+      default: break
+      }
+    }
+    if flags == [.command, .option] {
+      switch key {
+      case "0": fitPage(); return true
+      case "a": showSelectionActions(); return true
+      case "t": toggleTools(); return true
+      default: break
+      }
+    }
+    if flags == [.command, .shift] {
+      switch key {
+      case "+", "=": zoomIn(); return true
+      case "o": toggleOutlineDrawer(); return true
+      case "s": if !reviewActionsUnavailable { markSelected() }; return true
+      case "h": if !isReadOnlyState { highlightSelected() }; return true
+      case "k": if !isReadOnlyState { askSelected() }; return true
+      default: break
+      }
+    }
+    if flags == .shift && event.keyCode == 36 { refreshFromKeyboard(); return true }
+    return false
+  }
+  @objc func refreshDocument() { guard allowsRefresh else { return }; refreshWasHeld = false; requestedMode = nil; requestWasHeld = false; cancelFind(); onRefresh?() }
   func requestMode(_ mode: NativeReaderWindowController.Mode) {
     cancelFind()
     requestedMode = mode == currentMode ? nil : mode; requestWasHeld = reader.store.selection != nil || original?.selected != nil
@@ -2687,13 +2814,26 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     let active = hasActiveSelectionInCurrentMode
     selectionActionsButton?.isEnabled = active
     releaseSelectionButton.isEnabled = active
+    modeSegmentSurface.heldSelection = active
     refreshStatusBannerVisibility()
     rebuildMoreMenu()
   }
   private func updateOverlayVisibility() {
+    noticeBanner.isHidden = !statusBanner.isHidden || notice.isHidden
     overlayStack.isHidden = statusBanner.isHidden && noticeBanner.isHidden
   }
-  func setNotice(_ message: String) {
+  func setNotice(_ message: String, tone: NoticeTone = .info) {
+    let symbol: String
+    let color: KeyPath<NativeAppDesign.Palette, NSColor>
+    switch tone {
+    case .info: symbol = "info.circle"; color = \.accent
+    case .busy: symbol = "arrow.triangle.2.circlepath"; color = \.accent
+    case .warning: symbol = "wifi.slash"; color = \.warning
+    case .error: symbol = "exclamationmark.triangle"; color = \.error
+    case .success: symbol = "checkmark.circle"; color = \.sage
+    }
+    noticeIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "안내")
+    noticeIcon.contentTintColor = NativeChrome.color(color)
     notice.stringValue = message
     let hasMessage = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     noticeBanner.isHidden = !hasMessage
@@ -2711,6 +2851,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     rebuildMoreMenu()
   }
   @objc func dismissNotice() { clearNotice() }
+  @objc func dismissStatus() { statusBanner.isHidden = true; updateOverlayVisibility() }
   func showActionNotice(_ message: String) {
     actionFailure = message
     refreshStatus()
@@ -2754,22 +2895,28 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
   }
   private func refreshStatusBannerVisibility() {
-    let showBanner = pendingRecovery || failedState || retainedFailure || requestedMode != nil ||
+    let showBanner = refreshWasHeld || pendingRecovery || failedState || retainedFailure || requestedMode != nil ||
       findFailure != nil || actionFailure != nil || !recoveredDrafts.isEmpty || latestState == .disposed
-    releaseSelectionButton.isHidden = !(requestedMode != nil && hasActiveSelectionInCurrentMode)
+    bannerRefreshButton.isHidden = !(failedState || retainedFailure) || pendingRecovery || !allowsRefresh
+    releaseSelectionButton.isHidden = !((refreshWasHeld || requestedMode != nil) && hasActiveSelectionInCurrentMode)
     if statusBanner.isHidden != !showBanner {
       statusBanner.isHidden = !showBanner
       invalidateControlLayout(in: overlayStack)
     }
+    let error = failedState || retainedFailure || actionFailure != nil || findFailure != nil
+    let symbol = error ? "exclamationmark.triangle" : (latestState == .offline ? "wifi.slash" : (pendingRecovery || latestState == .loading ? "arrow.triangle.2.circlepath" : "info.circle"))
+    statusIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "읽기 상태")
+    statusIcon.contentTintColor = NativeChrome.color(error ? \.error : (latestState == .loading && !pendingRecovery ? \.accent : \.warning))
     updateOverlayVisibility()
   }
   private func refreshStatus() {
     func name(_ mode: NativeReaderWindowController.Mode) -> String { mode == .nativeReflow ? "본문" : "원본 PDF" }
-    for (index, button) in modeButtons.enumerated() {
-      let active = index == 0 ? currentMode == .nativeReflow : currentMode == .originalPages
-      button.state = active ? .on : .off
-      (button as? NativeDesignButton)?.designRole = active ? .primary : .standard
-    }
+    modeSegmentSurface.displayMode = currentMode == .nativeReflow ? .nativeReflow : .originalPages
+    modeSegmentSurface.requestedMode = requestedMode.map { $0 == .nativeReflow ? .nativeReflow : .originalPages }
+    modeSegmentSurface.heldSelection = hasActiveSelectionInCurrentMode
+    modeSegmentSurface.allowsModeSwitch = allowsModeSwitch
+    brandMark.isOfflineRecoveryCopy = !allowsRefresh
+    updateReviewCapsule()
     let activeSelection = hasActiveSelectionInCurrentMode
     selectionActionsButton?.isEnabled = activeSelection
     releaseSelectionButton.isEnabled = activeSelection
@@ -2789,6 +2936,10 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       selectionStatus.stringValue = actionFailure
     } else if !allowsModeSwitch {
       selectionStatus.stringValue = "오프라인 복원본에서는 모드를 전환할 수 없습니다. 원문·대화 작업은 사용할 수 없습니다."
+    } else if refreshWasHeld {
+      selectionStatus.stringValue = activeSelection
+        ? "선택한 내용이 있어 새로고침을 보류합니다. ‘선택 해제’ 후 새로고침을 다시 누르세요."
+        : "선택이 해제되었습니다. 새로고침을 다시 누르세요."
     } else if let requestedMode {
       let next = name(requestedMode)
       if reader.store.selection != nil { selectionStatus.stringValue = "본문에서 선택한 내용이 있어 전환을 보류합니다. ‘선택 해제’ 후 ‘\(next)’ 버튼을 다시 누르세요." }
@@ -2806,11 +2957,12 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       case .disposed: selectionStatus.stringValue = "읽기 창이 닫혔습니다."
       }
     }
+    brandMark.statusText = selectionStatus.stringValue
     refreshStatusBannerVisibility()
     rebuildMoreMenu()
   }
-  @objc func reflowMode() { changeMode?(.nativeReflow) }
-  @objc func pageMode() { changeMode?(.originalPages) }
+  @objc func reflowMode() { guard allowsModeSwitch else { return }; modeSegmentSurface.request(.nativeReflow); changeMode?(.nativeReflow) }
+  @objc func pageMode() { guard allowsModeSwitch else { return }; modeSegmentSurface.request(.originalPages); changeMode?(.originalPages) }
   @objc func previousPage() {
     cancelFind()
     if let original {
@@ -2979,31 +3131,38 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   @objc func highlightSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.highlight) }
   @objc func askSelected() { guard currentMode == .nativeReflow else { return }; reader.openChat() }
   func refreshOutline() {
-    let previous = contents.selectedItem?.representedObject as? String
-    contents.removeAllItems()
-    if reader.outline.isEmpty {
-      let empty = NSMenuItem(title: "목차", action: nil, keyEquivalent: "")
-      empty.isEnabled = false
-      contents.menu?.addItem(empty)
-    } else {
-      for node in reader.outline {
-        let item = NSMenuItem(title: String(repeating: "  ", count: min(5, max(0, (node.headingLevel ?? 1)-1))) + String(node.displayText.prefix(120)), action: nil, keyEquivalent: "")
-        item.representedObject = node.id; contents.menu?.addItem(item)
-      }
-      if let previous, let item = contents.itemArray.first(where: { $0.representedObject as? String == previous }) { contents.select(item) }
-    }
-    contents.toolTip = contents.titleOfSelectedItem
+    outlineDrawer.entries = reader.outline.map { .init(id: $0.id, title: $0.displayText, depth: max(0, ($0.headingLevel ?? 1) - 1)) }
+    updateScrollChrome()
     invalidateControlLayout(); updateNavigation(); rebuildMoreMenu()
   }
+  func updateScrollChrome() {
+    let offset = currentMode == .nativeReflow ? reader.scrollView.contentView.bounds.minY : originalScroll?.contentView.bounds.minY ?? 0
+    toolbarView.scrollOffset = offset
+    let baseline = reader.scrollView.contentView.convert(NSPoint(x: 0, y: reader.scrollView.contentView.bounds.minY + 96), to: reader).y
+    let active = reader.outline.last { node in
+      guard let rect = reader.nodeRectInView(forNodeID: node.id) else { return false }
+      return rect.minY <= baseline
+    } ?? reader.outline.first
+    if outlineDrawer.activeID != active?.id { outlineDrawer.activeID = active?.id }
+    outlineToggleButton.toolTip = active?.displayText ?? "목차"
+    updateToolbarLayout()
+  }
+  @objc func toggleOutlineDrawer() {
+    guard currentMode == .nativeReflow, !reader.outline.isEmpty else { return }
+    if !outlineDrawer.isHidden { outlineDrawer.dismiss(); return }
+    closeDisplayPopover(); brandMark.statusPopover.performClose(nil)
+    if let root = window?.contentView { outlineDrawer.toolbarBottom = root.bounds.height - toolbarView.frame.minY }
+    outlineDrawer.present()
+  }
   func updateNavigation() {
-    contents.isEnabled = currentMode == .nativeReflow && !reader.outline.isEmpty
+    outlineToggleButton.isEnabled = currentMode == .nativeReflow && !reader.outline.isEmpty
     back.isEnabled = currentMode == .nativeReflow && (reader.canReturnFromReference || (canReturnFromCrossProject?() ?? false))
     rebuildMoreMenu()
   }
   func updateReaderControls(readOnly: Bool) {
     isReadOnlyState = readOnly
     if readOnly { homepage = nil; accountStatus.stringValue = "오프라인 · 계정 작업을 사용할 수 없습니다" }
-    updateNavigation(); updateOfflineControls(); rebuildMoreMenu()
+    updateReviewCapsule(); updateNavigation(); updateOfflineControls(); rebuildMoreMenu()
   }
   private func updateOfflineControls() {
     let prepared = reader.store.document != nil && (currentMode == .originalPages || (reader.renderKey != nil && reader.renderKey == reader.requestedRenderKey))
@@ -3136,7 +3295,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     fontSizeLabel.stringValue = "\(currentSize)pt"
     decreaseFontButton.isEnabled = currentSize > 12
     increaseFontButton.isEnabled = currentSize < 32
-    aaButton?.designRole = isDisplayPopoverOpen ? .primary : .standard
+    aaButton?.designRole = isDisplayPopoverOpen ? .primary : .ghost
     aaButton?.state = isDisplayPopoverOpen ? .on : .off
     updateDisplayPopoverAppearance()
   }
@@ -3153,11 +3312,10 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     accountStatus.stringValue = state.signedIn ? (state.planEnabled ? "계정 연결됨" : "이용 가능한 플랜이 없습니다") : "설정된 홈페이지에서 로그인하세요."
     homepage = state.homepage; invalidateControlLayout(); rebuildMoreMenu()
   }
-  @objc func outlineSelected() { guard currentMode == .nativeReflow, let id = contents.selectedItem?.representedObject as? String else { return }; _ = reader.navigate(toNodeID: id); updateNavigation() }
+  @objc func outlineSelected() { toggleOutlineDrawer() }
   @objc func outlineMenuSelected(_ sender: NSMenuItem) {
     guard currentMode == .nativeReflow, let id = sender.representedObject as? String else { return }
-    if let item = contents.itemArray.first(where: { $0.representedObject as? String == id }) { contents.select(item) }
-    _ = reader.navigate(toNodeID: id); updateNavigation()
+    _ = reader.navigate(toNodeID: id); updateScrollChrome(); updateNavigation()
   }
   @objc func returnFromReference() {
     guard currentMode == .nativeReflow else { return }
@@ -3253,7 +3411,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     do { try reader.setAppearance(value); onAppearance?(); refreshLocalControls() }
     catch { setNotice("화면 표시 설정을 적용할 수 없습니다.") }
   }
-  @objc func markSelected() { guard currentMode == .nativeReflow else { return }; onMarkReview?() }
+  @objc func markSelected() { guard !reviewActionsUnavailable else { return }; onMarkReview?() }
   @objc func undoReviewExplicitly() { onUndoReview?() }
   @objc func clearReviewExplicitly() { onClearReview?() }
   @objc func savedDocumentSelected() { updateOfflineControls() }
@@ -3281,14 +3439,19 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     if currentMode == .nativeReflow, reader.hideFindBar() {
       return true
     }
-    if isDisplayPopoverOpen {
-      closeDisplayPopover()
-      return true
+    if currentMode == .originalPages && !findField.isHidden && (findExpandedAtNarrowWidth || !findField.stringValue.isEmpty) {
+      cancelFind(); original?.invalidateFind(); findField.stringValue = ""
+      findExpandedAtNarrowWidth = false; updateToolbarLayout()
+      window?.makeFirstResponder(original); return true
     }
+    if !outlineDrawer.isHidden { outlineDrawer.dismiss(); return true }
+    if isDisplayPopoverOpen { closeDisplayPopover(); return true }
+    if brandMark.statusPopover.isShown { brandMark.statusPopover.performClose(nil); return true }
     if let binding = capsule.binding, !capsule.isHidden {
       capsule.onDismiss?(binding)
       return true
     }
+    if currentMode == .originalPages, original?.selected != nil { releasePageSelection(); return true }
     return false
   }
   override func cancelOperation(_ sender: Any?) {
@@ -3300,21 +3463,12 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     return frameSize
   }
   func windowDidResize(_ notification: Notification) {
-    if isAdjustingWindowHeightForDock { return }
-    if !isAdjustingWindowHeightForDock, let window {
-      if let prev = lastObservedWindowHeight, abs(window.frame.size.height - prev) >= 1 {
-        capsuleDockWindowHeightDelta = 0
-        if capsuleDocked {
-          capsuleDockUserResizedHeight = true
-        }
-      }
-      lastObservedWindowHeight = window.frame.size.height
-    }
-    updateToolbarLayout()
-    onCapsuleLayout?()
+    updateToolbarLayout(); updateReviewCapsule(); onCapsuleLayout?()
   }
   deinit {
     removeDisplayPopoverMonitor()
+    if let refreshKeyMonitor { NSEvent.removeMonitor(refreshKeyMonitor) }
+    if let brandPopoverObserver { NotificationCenter.default.removeObserver(brandPopoverObserver) }
   }
   func windowWillClose(_ notification: Notification) { closeDisplayPopover(); cancelFind(); hideCapsule(); onClose?() }
 }
@@ -3348,5 +3502,68 @@ struct NativeReaderFixtureProvider: NativeReaderDocumentProviding {
     let value = try await load()
     guard value.identity == context.target else { throw NativeReaderContractError.wrongTarget }
     return value.rebinding(generation: context.generation)
+  }
+}
+
+/// Only painted capsules receive events; the stack's centering margins are empty.
+final class NativeOverlayPassThroughStack: NSStackView {
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard let hit = super.hitTest(point), hit !== self else { return nil }
+    for glass in arrangedSubviews.compactMap({ $0 as? NativeFloatingGlassView }) where !glass.isHidden {
+      if hit === glass || hit.isDescendant(of: glass) {
+        let local = glass.convert(point, from: superview)
+        let radius = min(glass.cornerRadius, glass.bounds.height / 2)
+        return NSBezierPath(roundedRect: glass.bounds, xRadius: radius, yRadius: radius).contains(local) ? hit : nil
+      }
+    }
+    return hit
+  }
+}
+
+/// Small ghost and inline pill controls with metrics independent of body zoom.
+final class NativeReaderPillButton: NSButton {
+  var radius: CGFloat = 8
+  var fillsWash = false
+  var ink: KeyPath<NativeAppDesign.Palette, NSColor> = \.ink
+  override init(frame: NSRect) {
+    super.init(frame: frame); cell = NativeReaderPillButtonCell(textCell: "")
+    isBordered = false; font = .systemFont(ofSize: 11, weight: .medium)
+  }
+  required init?(coder: NSCoder) { nil }
+  override var intrinsicContentSize: NSSize { NSSize(width: max(30, super.intrinsicContentSize.width + 16), height: 24) }
+  override func draw(_ dirtyRect: NSRect) {
+    contentTintColor = NativeChrome.color(ink)
+    if fillsWash || cell?.isHighlighted == true {
+      NativeChrome.color(cell?.isHighlighted == true ? \.pressed : \.wash).setFill()
+      NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: radius, yRadius: radius).fill()
+    }
+    super.draw(dirtyRect)
+  }
+}
+
+private final class NativeReaderPillButtonCell: NSButtonCell {
+  override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+    let value = NSMutableAttributedString(attributedString: title)
+    if let button = controlView as? NativeReaderPillButton {
+      value.addAttribute(.foregroundColor, value: NativeChrome.color(button.ink), range: NSRange(location: 0, length: value.length))
+    }
+    return super.drawTitle(value, withFrame: frame, in: controlView)
+  }
+}
+
+/// Reader toolbar ghosts retain shared semantic paint with an 8pt local shape.
+private final class NativeReaderGhostButtonCell: NSButtonCell {
+  override func drawBezel(withFrame frame: NSRect, in controlView: NSView) {
+    guard let button = controlView as? NativeDesignButton else { return }
+    let paint = button.paint
+    let path = NSBezierPath(roundedRect: frame.insetBy(dx: paint.lineWidth / 2, dy: paint.lineWidth / 2), xRadius: 8, yRadius: 8)
+    paint.fill.setFill(); path.fill(); paint.edge.setStroke(); path.lineWidth = paint.lineWidth; path.stroke()
+  }
+  override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+    let value = NSMutableAttributedString(attributedString: title)
+    if let button = controlView as? NativeDesignButton {
+      value.addAttribute(.foregroundColor, value: button.paint.ink, range: NSRange(location: 0, length: value.length))
+    }
+    return super.drawTitle(value, withFrame: frame, in: controlView)
   }
 }

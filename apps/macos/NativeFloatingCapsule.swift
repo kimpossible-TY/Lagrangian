@@ -37,136 +37,186 @@ enum NativeChrome {
             self.offlineOriginalPDF = offlineOriginalPDF
         }
     }
-    enum Action: String, CaseIterable { case copy, source, highlight, ask, editor }
+    enum Action: String, CaseIterable { case copy, highlight, ask, strike, source, editor }
     private(set) var binding: Binding?
     var onAction: ((Binding, Action) -> Void)?
     var onDismiss: ((Binding) -> Void)?
     var onReleaseSelection: ((Binding) -> Void)?
-    private let surface = NativeDesignSurface()
-    private let scroll = NSScrollView()
-    private let content = CapsuleContent()
+    let surface = NativeFloatingGlassView(style: .capsule)
+    let footnoteSurface = NativeFloatingGlassView(style: .capsule)
     let reason = NSTextField(wrappingLabelWithString: "")
     let footnote = NSTextField(labelWithString: "")
-    let releaseSelectionButton = NativeDesignButton(title: "선택 해제", target: nil, action: nil)
-    let closeButton = NativeDesignButton(title: "닫기", target: nil, action: nil)
-    private(set) var buttons = [Action: NativeDesignButton]()
-    private var row: NativeChromeControlRow!
+    let releaseSelectionButton = NSButton(title: "선택 해제", target: nil, action: nil)
+    let closeButton = NativeCapsuleButton()
+    let overflowButton = NativeCapsuleButton()
+    private let divider = NSView()
+    private(set) var buttons = [Action: NativeCapsuleButton]()
+    var compact = false { didSet { updateOverflow(); needsLayout = true } }
+    override var isOpaque: Bool { false }
     override init(frame: NSRect) {
         super.init(frame: frame)
-        surface.role = .floating; addSubview(surface)
-        scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
-        scroll.documentView = content; addSubview(scroll)
-        for (action, title) in [(Action.copy,"복사"), (.source,"원문 보기"), (.highlight,"원문 강조"), (.ask,"질문하기"), (.editor,"편집기 위치로")] {
-            let button = NativeDesignButton(title: title, target: self, action: #selector(activate(_:)))
+        surface.cornerRadius = 28; addSubview(surface)
+        footnoteSurface.cornerRadius = 13; addSubview(footnoteSurface)
+        for (action, title, symbol) in [(Action.copy,"복사","doc.on.clipboard"), (.highlight,"하이라이트","highlighter"),
+            (.ask,"Ask","bubble.left"), (.strike,"빨간 취소선","strikethrough"),
+            (.source,"원문","doc.text.magnifyingglass"), (.editor,"편집기","arrow.up.forward.app")] {
+            let button = NativeCapsuleButton()
+            button.title = title; button.symbol = symbol; button.target = self; button.action = #selector(activate(_:))
             button.identifier = NSUserInterfaceItemIdentifier("capsule." + action.rawValue)
-            button.setAccessibilityLabel(title); buttons[action] = button
+            button.setAccessibilityLabel(title); button.owner = self
+            button.ink = action == .strike ? \.reviewInk : \.ink
+            button.iconInk = action == .strike ? \.reviewInk : ([.copy, .highlight].contains(action) ? \.accent : \.ink)
+            buttons[action] = button; surface.contentView.addSubview(button)
         }
-        releaseSelectionButton.target = self; releaseSelectionButton.action = #selector(releaseSelectionExplicitly)
-        releaseSelectionButton.identifier = NSUserInterfaceItemIdentifier("capsule.releaseSelection")
-        releaseSelectionButton.setAccessibilityLabel("선택 해제")
-        releaseSelectionButton.isHidden = true
+        closeButton.symbol = "xmark"; closeButton.circular = true; closeButton.owner = self
         closeButton.target = self; closeButton.action = #selector(dismissExplicitly)
         closeButton.identifier = NSUserInterfaceItemIdentifier("capsule.dismiss")
-        closeButton.setAccessibilityLabel("닫기")
-        closeButton.keyEquivalent = "\u{1b}"; closeButton.keyEquivalentModifierMask = []
-        row = NativeChromeControlRow(Action.allCases.compactMap { buttons[$0] } + [releaseSelectionButton, closeButton])
-        content.addSubview(reason); content.addSubview(row); content.addSubview(footnote)
-        reason.font = NativeAppDesign.Typography.font(.caption); reason.textColor = NativeChrome.color(\.secondaryInk)
-        footnote.font = NativeAppDesign.Typography.font(.caption); footnote.textColor = NativeChrome.color(\.secondaryInk)
-        footnote.lineBreakMode = .byTruncatingTail
+        closeButton.setAccessibilityLabel("선택 작업 닫기")
+        overflowButton.symbol = "ellipsis"; overflowButton.title = "더보기"; overflowButton.owner = self
+        overflowButton.target = self; overflowButton.action = #selector(showOverflow)
+        overflowButton.identifier = NSUserInterfaceItemIdentifier("capsule.more")
+        surface.contentView.addSubview(overflowButton); surface.contentView.addSubview(divider)
+        surface.contentView.addSubview(closeButton)
+        divider.wantsLayer = true
+        releaseSelectionButton.isHidden = true
+        reason.isHidden = true
+        footnote.font = .systemFont(ofSize: 11, weight: .medium); footnote.textColor = NativeChrome.color(\.secondaryInk)
+        footnote.alignment = .center; footnote.lineBreakMode = .byTruncatingTail
         footnote.identifier = NSUserInterfaceItemIdentifier("capsule.footnote")
-        footnote.isHidden = true
+        footnoteSurface.contentView.addSubview(footnote); footnoteSurface.isHidden = true; footnote.isHidden = true
         setAccessibilityElement(false); setAccessibilityLabel("선택한 내용의 작업")
         isHidden = true
     }
     required init?(coder: NSCoder) { nil }
     func present(_ binding: Binding, unavailable: [Action: String], summary: String) {
         self.binding = binding; reason.stringValue = summary
-        reason.isHidden = summary.isEmpty
         for action in Action.allCases {
             let button = buttons[action]!
-            let blocked = unavailable[action]
-            button.isEnabled = blocked == nil
-            button.isHidden = blocked != nil
-            button.toolTip = blocked
-            button.setAccessibilityHelp(blocked ?? "현재 선택에 적용합니다")
+            let blocked = unavailable[action] ?? (binding.originalPDF && action != .copy ? "원본 PDF는 복사·검색만 지원합니다." : nil)
+            button.isEnabled = blocked == nil; button.isHidden = blocked != nil
+            button.toolTip = blocked; button.setAccessibilityHelp(blocked ?? "현재 선택에 적용합니다")
         }
-        releaseSelectionButton.isHidden = true
-        releaseSelectionButton.isEnabled = false
-        if binding.originalPDF {
-            footnote.stringValue = binding.offlineOriginalPDF ? "오프라인 PDF · 복사·검색만 지원" : "원본 PDF · 복사·검색만 지원"
-            footnote.isHidden = false
-        } else {
-            footnote.stringValue = ""
-            footnote.isHidden = true
-        }
-        row.invalidateIntrinsicContentSize(); row.needsLayout = true
-        isHidden = false; needsLayout = true
+        footnote.stringValue = binding.originalPDF
+            ? (binding.offlineOriginalPDF ? "오프라인 PDF · 복사·검색만 지원" : "원본 PDF · 복사·검색만 지원")
+            : (summary.contains("32") ? summary : "")
+        footnote.isHidden = footnote.stringValue.isEmpty; footnoteSurface.isHidden = footnote.isHidden
+        updateOverflow(); isHidden = false; needsLayout = true
+    }
+    private func updateOverflow() {
+        for action in [Action.source, .editor] { buttons[action]?.isHidden = compact || buttons[action]?.isEnabled != true }
+        overflowButton.isHidden = !compact || ![Action.source, .editor].contains { buttons[$0]?.isEnabled == true }
+    }
+    private var visibleButtons: [NativeCapsuleButton] {
+        Action.allCases.compactMap { buttons[$0] }.filter { !$0.isHidden } + (overflowButton.isHidden ? [] : [overflowButton]) + [closeButton]
     }
     func hide() { binding = nil; isHidden = true }
     func preferredSize(width maxWidth: CGFloat) -> NSSize {
-        let maxWidth = max(120, maxWidth), probeWidth = max(64, maxWidth - 24)
-        let rowWidth = row.preferredSingleRowWidth
-        let reasonWidth = reason.isHidden || reason.stringValue.isEmpty ? 0 : ceil(reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: probeWidth, height: 10000)).width ?? 0)
-        let footWidth = footnote.isHidden || footnote.stringValue.isEmpty ? 0 : ceil(footnote.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: probeWidth, height: 10000)).width ?? 0)
-        let width = min(maxWidth, max(120, max(rowWidth, max(reasonWidth, footWidth)) + 24))
-        let inner = max(64, width - 24)
-        row.frame.size.width = inner
-        let explanation = reason.isHidden || reason.stringValue.isEmpty ? 0 : (reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 10000)).height ?? 20)
-        let footer = footnote.isHidden || footnote.stringValue.isEmpty ? 0 : (footnote.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 10000)).height ?? 16)
-        let contentHeight = (explanation > 0 ? explanation + 8 : 0) + row.intrinsicContentSize.height + (footer > 0 ? footer + 6 : 0) + 20
-        return NSSize(width: width, height: min(180, contentHeight))
+        let tiles = visibleButtons.filter { $0 !== closeButton }.count
+        let footnoteWidth = footnote.isHidden ? 0 : footnote.intrinsicContentSize.width + 24
+        return NSSize(width: min(maxWidth, max(CGFloat(tiles) * 74 + 68, footnoteWidth)), height: 64 + (footnote.isHidden ? 0 : 32))
     }
     override func layout() {
-        super.layout(); surface.frame = bounds; scroll.frame = bounds.insetBy(dx: 10, dy: 8)
-        let width = max(64, scroll.contentSize.width)
-        var y: CGFloat = 0
-        if !reason.isHidden && !reason.stringValue.isEmpty {
-            let height = reason.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 10000)).height ?? 20
-            reason.frame = NSRect(x: 0, y: 0, width: width, height: height)
-            y = height + 8
-        } else {
-            reason.frame = .zero
-        }
-        row.frame = NSRect(x: 0, y: y, width: width, height: row.intrinsicContentSize.height)
-        row.layoutSubtreeIfNeeded()
-        y = row.frame.maxY
-        if !footnote.isHidden && !footnote.stringValue.isEmpty {
-            let fh = footnote.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 10000)).height ?? 16
-            footnote.frame = NSRect(x: 0, y: y + 6, width: width, height: fh)
-            y = footnote.frame.maxY
-        } else {
-            footnote.frame = .zero
-        }
-        content.frame = NSRect(x: 0, y: 0, width: width, height: y + 4)
+        super.layout()
+        surface.frame = NSRect(x: 0, y: 0, width: bounds.width, height: 64)
+        let tiles = visibleButtons.filter { $0 !== closeButton }
+        let tileWidth = min(74, max(62, (bounds.width - 68) / CGFloat(max(1, tiles.count))))
+        var x: CGFloat = 8
+        for button in tiles { button.frame = NSRect(x: x, y: 5, width: tileWidth, height: 54); x += tileWidth }
+        divider.frame = NSRect(x: bounds.width - 54, y: 20, width: 1, height: 24)
+        divider.layer?.backgroundColor = NativeChrome.color(\.rule).cgColor
+        closeButton.frame = NSRect(x: bounds.width - 46, y: 14, width: 36, height: 36)
+        let fw = min(bounds.width, footnote.intrinsicContentSize.width + 24)
+        footnoteSurface.frame = NSRect(x: (bounds.width - fw) / 2, y: 70, width: fw, height: 26)
+        footnote.frame = footnoteSurface.bounds.insetBy(dx: 12, dy: 5)
+        let loop = visibleButtons
+        for (index, button) in loop.enumerated() { button.nextKeyView = loop[(index + 1) % loop.count] }
     }
-    func focusFirstAction() { window?.makeFirstResponder(Action.allCases.compactMap { buttons[$0] }.first { $0.isEnabled } ?? closeButton) }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let result = super.hitTest(point), result !== self else { return nil }
+        for glass in [surface, footnoteSurface] where !glass.isHidden {
+            if result === glass || result.isDescendant(of: glass) {
+                let local = glass.convert(point, from: superview)
+                let radius = min(glass.cornerRadius, glass.bounds.height / 2)
+                return NSBezierPath(roundedRect: glass.bounds, xRadius: radius, yRadius: radius).contains(local) ? result : nil
+            }
+        }
+        return result
+    }
+    func focusFirstAction() { window?.makeFirstResponder(visibleButtons.first { $0.isEnabled } ?? closeButton) }
+    func moveFocus(from button: NSButton, backward: Bool) {
+        let loop = visibleButtons.filter { $0.isEnabled }
+        guard let index = loop.firstIndex(where: { $0 === button }), !loop.isEmpty else { return }
+        window?.makeFirstResponder(loop[(index + (backward ? loop.count - 1 : 1)) % loop.count])
+    }
     @objc private func activate(_ sender: NSButton) {
         guard let binding, !isHidden, sender.isEnabled,
               let action = buttons.first(where: { $0.value === sender })?.key else { return }
         onAction?(binding, action)
     }
-    @objc func releaseSelectionExplicitly() {
-        guard let binding, !isHidden, binding.originalPDF else { return }
-        onReleaseSelection?(binding)
-    }
-    @objc func dismissExplicitly() { guard let binding else { return }; onDismiss?(binding) }
-    override func cancelOperation(_ sender: Any?) { dismissExplicitly() }
-
-    /// Return an unobscured overlay within the document viewport; otherwise the host
-    /// allocates a separate dock row. Selection rectangles are never inferred here.
-    static func placement(size: NSSize, viewport: NSRect, avoiding rects: [NSRect], occupied: [NSRect] = []) -> NSRect? {
-        guard size.width <= viewport.width, size.height <= viewport.height, !rects.isEmpty else { return nil }
-        let selected = rects.reduce(NSRect.null) { $0.union($1) }
-        let x = min(max(viewport.minX, selected.midX - size.width / 2), viewport.maxX - size.width)
-        for y in [selected.maxY + 8, selected.minY - size.height - 8] {
-            let candidate = NSRect(x: x, y: y, width: size.width, height: size.height)
-            if viewport.contains(candidate) && !(rects + occupied).contains(where: { $0.insetBy(dx: -4, dy: -4).intersects(candidate) }) { return candidate }
+    @objc private func showOverflow() {
+        guard let binding, !isHidden else { return }
+        let menu = NSMenu()
+        for action in [Action.source, .editor] where buttons[action]?.isEnabled == true {
+            let item = NSMenuItem(title: buttons[action]!.title, action: #selector(overflowAction(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = binding; item.identifier = NSUserInterfaceItemIdentifier(action.rawValue)
+            menu.addItem(item)
         }
-        return nil
+        if NSApp.activationPolicy() != .prohibited { menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 54), in: overflowButton) }
+    }
+    @objc private func overflowAction(_ item: NSMenuItem) {
+        guard let captured = item.representedObject as? Binding, binding == captured, !isHidden,
+              let action = Action(rawValue: item.identifier?.rawValue ?? ""), buttons[action]?.isEnabled == true else { return }
+        onAction?(captured, action)
+    }
+    @objc func releaseSelectionExplicitly() {
+        guard let binding, !isHidden, binding.originalPDF else { return }; onReleaseSelection?(binding)
+    }
+    @objc func dismissExplicitly() { guard let binding, !isHidden else { return }; onDismiss?(binding) }
+    override func cancelOperation(_ sender: Any?) { dismissExplicitly() }
+    static func placement(size: NSSize, viewport: NSRect, avoiding rects: [NSRect], occupied: [NSRect] = []) -> NSRect? {
+        guard size.width <= viewport.width - 32, size.height <= viewport.height - 32 else { return nil }
+        return NSRect(x: viewport.midX - size.width / 2, y: viewport.minY + 16, width: size.width, height: size.height)
     }
 }
-private final class CapsuleContent: NSView { override var isFlipped: Bool { true } }
+
+/// Fixed geometry keeps icon and label metrics independent of document zoom.
+final class NativeCapsuleButton: NSButton {
+    weak var owner: NativeFloatingCapsule?
+    var symbol = ""
+    var circular = false
+    var ink: KeyPath<NativeAppDesign.Palette, NSColor> = \.ink
+    var iconInk: KeyPath<NativeAppDesign.Palette, NSColor> = \.ink
+    override init(frame: NSRect) {
+        super.init(frame: frame); isBordered = false; setButtonType(.momentaryPushIn); focusRingType = .exterior
+    }
+    required init?(coder: NSCoder) { nil }
+    override var acceptsFirstResponder: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }
+    override func draw(_ dirtyRect: NSRect) {
+        if circular || cell?.isHighlighted == true {
+            NativeChrome.color(circular ? \.wash : \.pressed).setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: circular ? 18 : 22, yRadius: circular ? 18 : 22).fill()
+        }
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: circular ? 12 : 17, weight: .medium))
+        let color = NativeChrome.color(circular ? \.secondaryInk : iconInk)
+        if let image {
+            let target = NSRect(x: (bounds.width - 20) / 2, y: circular ? (bounds.height - 20) / 2 : 27, width: 20, height: 20)
+            image.lockFocus(); color.set(); NSRect(origin: .zero, size: image.size).fill(using: .sourceAtop); image.unlockFocus()
+            image.draw(in: target)
+        }
+        if !circular {
+            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NativeChrome.color(ink)]
+            let size = (title as NSString).size(withAttributes: attributes)
+            (title as NSString).draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: 8), withAttributes: attributes)
+        }
+    }
+    override func keyDown(with event: NSEvent) {
+        if [48, 123, 124].contains(event.keyCode) {
+            owner?.moveFocus(from: self, backward: event.keyCode == 123 || (event.keyCode == 48 && event.modifierFlags.contains(.shift)))
+        } else if event.keyCode == 53 { owner?.dismissExplicitly() }
+        else { super.keyDown(with: event) }
+    }
+    override func cancelOperation(_ sender: Any?) { owner?.dismissExplicitly() }
+}
 
 /// Wrapping layout for repeated native command groups. No DOM/CSS policy or
 /// hidden duplicate commands; actual controls participate in native key loops.

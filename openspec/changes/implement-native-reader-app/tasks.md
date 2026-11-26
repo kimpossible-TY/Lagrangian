@@ -189,3 +189,12 @@ locator remains historical. This executor follows the existing single-writer pla
 ## PR33 re-review corrections
 - [x] Bound math retries by one per-chunk deadline (twice the initial timeout), retain atomic preparation, and fail deterministic output-limit without splitting.
 - [x] Restore the offline original PDF toolbar requirement scope and concrete toolbar labels. Exact 705f48b3 paragraph restoration exceeds OpenSpec's 500-character strict limit; retain minimal reflow with capsule labels/actions in the existing scenario.
+
+
+## NRD01B — native reader design parity integration
+
+- [x] Integrate NRD01A outline drawer, interactive brand/Home callback, accepted-mode morph switch and SF Symbol ghost toolbar with edge-to-edge paper and scroll hairline.
+- [x] Replace notifications with centered content-sized pass-through glass capsules and persistent inline actions without focus theft.
+- [x] Replace selection docking/window resizing with bottom glass tools, vertical tiles, review actions, exact PDF/limit mini pills and renderer scroll avoidance; preserve tickets and keyboard focus.
+- [x] Connect reader shortcuts and layered Escape while retaining FlowApp Cmd+0 and opaque Aa.
+- [x] Validate self-contained five-feature offscreen parity (5 cases, including actual layered Escape and final-paragraph/PDF reveal), existing capsule/UI regressions (24 cases) and bundle identity (2 cases), standalone Swift harnesses/app with warnings-as-errors on arm64 macOS13, strict OpenSpec and both canonical Typst documents. Interactive GUI and live installation remain outside this task.

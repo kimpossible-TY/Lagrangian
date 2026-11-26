@@ -65,12 +65,21 @@ Find and explicit same-artifact GoTo SHALL reveal the target in the actual clip 
 - **THEN** the matching installed raster reveals the target
 - **AND** cancelled or obsolete raster completion cannot scroll a newer viewport
 
-### Requirement: Minimal offline original PDF toolbar and docked search capsule
-The offline original PDF reader SHALL present a single-row unified toolbar with `목차 ▾`, the exact `오프라인 PDF` badge, centered `‹ 1 / 2 ›`, right-aligned rounded search with `×`, and `•••`. The compact search-hit capsule SHALL dock clear of PDF text/highlights and expose only the supported actions and mode labels specified below. At 640px the page group SHALL stay visible and secondary items SHALL collapse into `•••`.
+### Requirement: Minimal offline original PDF toolbar and floating search capsule
+The offline original PDF reader SHALL show the exact `오프라인 PDF` badge, centered page navigation, rounded search and SF Symbol overflow. A disabled outline toggle SHALL collapse into overflow at 640pt. Search-hit tools SHALL float at the viewport bottom without changing window.frame. Bottom scroll insets and selected.pageBounds reveal SHALL keep selected printed ink clear of tools. PDF printed ink SHALL remain immutable.
 
-#### Scenario: Offline PDF toolbar, docked search capsule, and 640px narrow layout
+#### Scenario: Offline PDF toolbar, floating search capsule, and 640pt narrow layout
 - **WHEN** an offline original PDF is displayed, a search hit is active, or the window narrows to 640px
-- **THEN** the single-row toolbar displays `목차 ▾`, `오프라인 PDF`, `‹ 1 / 2 ›`, the rounded search field with `×`, and `•••`
-- **AND** the search-hit compact capsule docks without overlapping PDF content or highlights and shows only `복사`, `닫기`, and `원본 PDF · 복사·검색만 지원` (live/online) or `오프라인 PDF · 복사·검색만 지원` (offline restored copy)
-- **AND** the capsule omits the four unsupported buttons and duplicate copy actions
+- **THEN** the single-row toolbar displays a disabled outline icon, `오프라인 PDF`, `‹ 1 / 2 ›`, the rounded search field with `×`, and SF Symbol `ellipsis`
+- **AND** the bottom search-hit glass capsule scrolls selected PDF ink clear and shows only `복사`, `닫기`, and `원본 PDF · 복사·검색만 지원` (live/online) or `오프라인 PDF · 복사·검색만 지원` (offline restored copy)
+- **AND** the capsule omits Source, Highlight, Ask, Strike and Editor and duplicate copy actions
 - **AND** at 640px width, `‹ 1 / 2 ›` stays visible and secondary items collapse into `•••`
+
+### Requirement: Original PDF selection footnote and immutable presentation
+Original PDF selection SHALL use a 26pt glass mini pill, 6pt above the 64pt primary tool capsule. It SHALL show exactly `원본 PDF · 복사·검색만 지원` online or `오프라인 PDF · 복사·검색만 지원` for an offline recovery copy. Chrome adaptation SHALL never recolor or rewrite PDF printed ink.
+
+#### Scenario: PDF selection tool dismissal
+- **WHEN** a user dismisses the PDF tool capsule
+- **THEN** the original PDF selection ticket remains active and window.frame remains unchanged
+- **AND** Opt+Cmd+A reopens tools, while a later Escape releases selection after higher overlays have closed
+- **AND** Escape in the PDF search field closes search presentation first and preserves its selected hit ticket, independently of explicit search cancellation

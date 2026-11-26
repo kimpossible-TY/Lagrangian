@@ -595,3 +595,43 @@ Run all shared and flow-reader Node tests, focused Python cross-project service,
 install and bundle tests, reader lint and strict OpenSpec validation. These are
 headless checks, not native GUI or visual review. Native files and app/service
 installation are outside WV03I.
+= Native reader floating chrome (NRD01B)
+
+`apps/macos/NativeReaderWindowController.swift` composes the reader toolbar and
+floating overlays. `NativeOutlineDrawerView.swift` owns the content scrim,
+indented table, active section and keyboard navigation. The host computes the
+active heading from the viewport baseline plus 96pt and coordinates mutual
+exclusion with the opaque Aa surface and logo status popover.
+
+`NativeBrandMark.swift` retains Home's passive vector view and adds the reader's
+`NativeBrandMarkControl`. `FlowApp.swift` injects its Home operation into both live
+and offline windows. `NativeModeMorphSwitch.swift` owns the sliding track and
+thumb, responsive labeled/icon slots, request arc and held-selection feedback;
+accepted mode and capability policy remain with the existing host/session.
+
+`NativeAppDesign.swift` owns `NativeFloatingGlassView`: clear outer layer,
+rounded continuous inner clip, within-window material, semantic tint and
+separate ambient/contact shadows. Increased Contrast and Reduce Transparency
+replace the inner material with opaque panel and stronger boundary. Outer
+corners stay transparent. Paper/panel surfaces and Aa remain opaque.
+
+`NativeFloatingCapsule.swift` owns selection-ticket-bound vertical tool tiles,
+compact overflow, PDF/limit mini pill and the circular keyboard focus loop.
+The host places tools at bottom center without resizing the window; Reflow's
+104pt bottom inset and PDF's temporary inset plus renderer selection rectangles
+support scroll-to-reveal. Review Undo/Clear uses a separate 40pt glass capsule.
+`NativeOverlayPassThroughStack` and compact `NativeReaderPillButton` are local
+host presentation helpers for centered notifications and explicit inline actions.
+They own no source, inference, math preparation or PDF printed-ink operations.
+The host routes command key equivalents through the toolbar and intercepts
+ordinary Shift+Return keyDown only for its own reader window before text inputs.
+The PDF search field delegates Escape to that same dismissal order, preserving
+its selection ticket; its explicit cancel button retains selection release.
+Mode transitions cancel retained Reflow layout tasks; body geometry callbacks
+cannot invalidate a pending or accepted PDF publication.
+
+`tests/flow-app/native-reader-app/NativeDesignParityTests.swift` and its Python
+runner generate isolated semantic/PDF inputs and compile with an isolated
+module cache. Five offscreen cases exercise drawer, notifications, toolbar/mode/
+brand, bottom tools and keyboard/PDF paths. They do not assert interactive GUI,
+installed-layout, VoiceOver or live service acceptance.

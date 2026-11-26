@@ -130,6 +130,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   }
 
   @MainActor func configureNativeWindowController(_ controller: NativeReaderWindowController, for profile: Profile) {
+    controller.hostWindow.onOpenHome = { [weak self] in self?.showWindow() }
     controller.copyText = copyText
     controller.openHomepage = { [weak self] url in
       guard let self, !self.fixtureMode else { return }
@@ -407,6 +408,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let window = NativeReaderWindowController(provider: NativeReaderOfflineProvider(), target: { _ in throw NativeReaderOperationFailure.unavailable },
       runtime: nativeRuntime, show: showNativeWindow, avoidActivation: noActivate, fixtureMode: fixtureMode,
       offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
+    window.hostWindow.onOpenHome = { [weak self] in self?.showWindow() }
     window.copyText = copyText
     offlineWindow = window
     window.openOfflineLibrary(profile)

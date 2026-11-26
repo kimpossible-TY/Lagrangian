@@ -718,7 +718,7 @@ queue, without init/deinit flush waits; first-window acceptance remains separate
 - **Preserved interaction, accessibility, and layout invariants**:
   - Keyboard shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`) remain intact.
   - VoiceOver/AX semantics and WCAG 2.1 SC 1.4.11 (3:1 or higher non-text contrast) remain enforced.
-  - PDF body and highlight/auxiliary docking remain non-overlapping.
+  - Selected PDF ink stays clear of bottom floating tools through renderer scroll insets and reveal, without window resizing.
 - **File-split note**:
   - Settings sheet presentation is separated in `FlowApp.swift`. Home has a compact brand header with add/settings icons, a project selector and primary `읽기` action, and a `.ghost` icon dock for service start/stop, browser, address copy, offline documents and overflow. A sage dot marks the running service; stopped state uses the play icon. The path caption, service card and bottom settings/login bar are removed.
   - The status-bar menu exposes project/service summary, home, `읽기 시작`, browser/offline reading, service start/stop/restart, editor consent, copy/logs, project settings, login, guide/about and quit. `statusImage` supplies its branded state icon; settings Save stays in the sheet.
@@ -774,3 +774,56 @@ receives at most the remaining time. Deterministic per-item output-limit fails
 without splitting. A failing single item or exhausted deadline throws; atomic
 snapshot preparation does not publish successful sub-ranges of a failed batch.
 Other errors do not trigger splitting.
+
+
+## NRD01B reader integration
+
+NativeReaderHostWindow composes the NRD01A NativeOutlineDrawerView,
+NativeBrandMarkControl, NativeModeMorphSwitch and NativeFloatingGlassView.
+FlowApp injects Home for live and offline readers; no service lifecycle moves
+into chrome. Existing mode selectors remain the request entrypoints and the
+switch thumb follows only accepted displayMode, including selection holds.
+Mode transitions cancel retained Reflow layout work; hidden body layout callbacks
+cannot revoke an in-flight or accepted PDF publication.
+
+The edge-to-edge document stack retains toolbar-only 16pt horizontal padding.
+The toolbar hairline fades after a 4pt scroll offset. Reflow keeps a visible
+icon-only outline toggle at 680pt or below; online PDF moves the compact switch
+left and at 640pt moves it and the disabled outline into overflow. Offline PDF
+keeps the exact `오프라인 PDF` badge. Aa remains an opaque NativeDesignSurface.
+
+NativeOverlayPassThroughStack centers content-sized notice/status glass capsules
+10pt below the toolbar. Empty margins pass events through. Persistent actionable
+states suppress transient notices without timers or first-responder changes.
+NativeReaderPillButton owns compact circular ghost/inline action geometry.
+Notice tones select semantic symbols and colors explicitly. Ghost cell
+replacement preserves target/action, key equivalents and native accessibility;
+constraints account for AppKit alignment insets to retain actual 32x30pt bounds.
+
+NativeFloatingCapsule owns ticket-bound action presentation and its keyboard
+loop, with 54pt vertical tiles on 64pt glass, bottom-center at 16pt. Source and
+Editor collapse at 640pt; red Strike uses the existing review owner. A 26pt
+mini pill preserves exact PDF footnotes or explains the 32-block limit. Writable
+Reflow with review marks shows a separate 40pt Undo/Clear capsule. Host placement
+uses Reflow's 104pt bottom inset and PDF's temporary bottom inset with existing
+selection geometry to scroll ink clear. No selection path changes window.frame,
+and no top dock or dock-height state remains.
+
+Keyboard routing stays in the host via the toolbar's native key-equivalent path.
+Shift+Return uses a reader-window-scoped local keyDown monitor before text inputs
+consume the event; other windows retain their normal input routing.
+Cmd+0 belongs to FlowApp Home; Opt+Cmd+0 resets zoom. Escape closes Find, outline,
+Aa/logo, tools without releasing selection, then PDF selection. Explicit tool
+reopen and action dispatch retain request-context and selection-ticket guards.
+The PDF search field delegates Escape to this order before AppKit can invoke
+the search cancel button; explicit cancel retains its existing release behavior.
+Refresh while selected presents and focuses the explicit release action; release
+does not implicitly refresh, and the user can repeat the refresh command.
+No math placeholder/batch implementation or PDF printed ink is changed.
+
+NRD01B verification is headless CLI and offscreen AppKit only. The self-contained
+NativeDesignParityTests harness generates temporary semantic/PDF fixtures and
+uses an isolated module cache without an external lock prerequisite. Its five
+cases cover drawer/focus/scroll, notifications/pass-through, brand/mode/toolbar,
+bottom tools/review/tickets, and keyboard/PDF selection. This is source-component
+verification; interactive GUI, actual OS13 and live installation are separate.

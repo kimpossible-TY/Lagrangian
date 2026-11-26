@@ -118,7 +118,9 @@ private actor FakeChatHTTP {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let fixture = URL(fileURLWithPath: CommandLine.arguments[1]), mode = CommandLine.arguments[2], out = URL(fileURLWithPath: CommandLine.arguments[3])
         let document = try NativeReaderDocument.decode(Data(contentsOf: fixture.appendingPathComponent(["long", "r19-occlusion"].contains(mode) ? "long-document.json" : "document.json")))
+        #if NATIVE_CHAT_RECOVERY
         if mode.hasPrefix("chat-") { try await ChatRecoveryScenarios.run(document:document, fixture:fixture, mode:mode, out:out); return }
+        #endif
         let input = Input(document), effects = Effects()
         let attachment = try NativeReaderAttachment(data: JSONSerialization.data(withJSONObject: ["url":"http://127.0.0.1:12345/", "documentID":document.identity.documentID, "service":["pid":1,"startedAt":1]]))
         let network = NativeReaderNetwork(send: { _, _ in await effects.hit(); throw URLError(.unsupportedURL) }, stream: { _ in AsyncThrowingStream { $0.finish() } })
@@ -267,17 +269,17 @@ private actor FakeChatHTTP {
                 "selectionRects":selected.map(NSStringFromRect),"intersectsBody":frame.intersects(usedInRoot),"intersectsMajorControl":frame.intersects(majorFrame),
                 "separateDock":!frame.intersects(viewport),"selectionIsShort":host.store.selection!.fragments.count == 1],out,"r19-occlusion-observations")
             try check(host.store.selection!.fragments.count == 1 && !selected.isEmpty,"Actual filled viewport with only first short phrase selected")
-            try check(!frame.intersects(usedInRoot) && !frame.intersects(majorFrame) && !selected.contains { frame.intersects($0) },"R19-3 capsule must avoid all actual used body and primary controls, or dock separately")
-            if !frame.intersects(viewport) {
-                let dockedHeight = window.frame.size.height
-                window.setFrame(NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: window.frame.size.width, height: dockedHeight - 80), display: false)
+            try check(viewport.contains(frame) && abs(frame.minY - viewport.minY - 16) < 1 && !frame.intersects(majorFrame) && !selected.contains { frame.intersects($0) },"Bottom capsule stays inside viewport and clears selection and primary controls")
+            if frame.intersects(viewport) {
+                let selectedHeight = window.frame.size.height
+                window.setFrame(NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: window.frame.size.width, height: selectedHeight - 80), display: false)
                 host.hostWindow.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
                 root.layoutSubtreeIfNeeded()
-                try check(abs(window.frame.size.height - (dockedHeight - 80)) <= 0.5, "R06 P1-1 docked capsule must not re-expand window height after manual vertical shrink")
-                window.setFrame(NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: window.frame.size.width, height: dockedHeight - 40), display: false)
+                try check(abs(window.frame.size.height - (selectedHeight - 80)) <= 0.5, "Floating capsule must preserve manual vertical shrink")
+                window.setFrame(NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: window.frame.size.width, height: selectedHeight - 40), display: false)
                 host.hostWindow.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: window))
                 root.layoutSubtreeIfNeeded()
-                try check(abs(window.frame.size.height - (dockedHeight - 40)) <= 0.5, "R06 P1-1 docked capsule must preserve subsequent manual vertical resize")
+                try check(abs(window.frame.size.height - (selectedHeight - 40)) <= 0.5, "Floating capsule must preserve subsequent manual vertical resize")
             }
             window.makeFirstResponder(host.textView.bodyTextView)
             let escEvent = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!
@@ -335,7 +337,7 @@ private actor FakeChatHTTP {
             try await until { host.hostWindow.capsule.binding?.ticket == initialTicket }
 
             try host.textView.select(from:.init(blockID:blocks.first!.id,utf16:0,affinity:.downstream),to:.init(blockID:blocks.last!.id,utf16:blocks.last!.displayText.utf16.count,affinity:.upstream))
-            // A full-viewport selection is presented in the separate dock, never over content.
+            // Full selections retain their ticket while tools float at the bottom.
             host.hostWindow.showSelectionActions()
             let capsule = host.hostWindow.capsule
             try check(host.store.selection!.fragments.count > 32,"Actual native over-limit selection retained")
@@ -434,7 +436,7 @@ private actor FakeChatHTTP {
             let capsule = host.hostWindow.capsule
             let pdfViewport = host.originalPageView.enclosingScrollView!.contentView.convert(host.originalPageView.enclosingScrollView!.contentView.bounds, to: root)
             let capsuleRect = capsule.convert(capsule.bounds, to: root)
-            try check(!capsuleRect.intersects(pdfViewport), "PDF search-hit capsule docks without overlapping PDF body")
+            try check(pdfViewport.contains(capsuleRect) && abs(capsuleRect.minY - pdfViewport.minY - 16) < 1, "PDF search-hit capsule floats at viewport bottom")
             try check(!capsule.buttons[.copy]!.isHidden && capsule.buttons[.copy]!.isEnabled && !capsule.closeButton.isHidden, "PDF search-hit capsule exposes copy and close")
             try check(capsule.buttons[.source]!.isHidden && !capsule.buttons[.source]!.isEnabled && capsule.buttons[.highlight]!.isHidden && !capsule.buttons[.highlight]!.isEnabled && capsule.buttons[.ask]!.isHidden && !capsule.buttons[.ask]!.isEnabled && capsule.buttons[.editor]!.isHidden && !capsule.buttons[.editor]!.isEnabled && capsule.releaseSelectionButton.isHidden,"PDF only copy/search/navigation and hides 4 unsupported buttons")
             try check(capsule.footnote.stringValue == "원본 PDF · 복사·검색만 지원" && !capsule.footnote.isHidden, "Live PDF capsule shows online footer note")
@@ -459,7 +461,7 @@ private actor FakeChatHTTP {
                 }
             } }
             let viewport = NSRect(x:0,y:0,width:320,height:220), selected = NSRect(x:0,y:0,width:320,height:220)
-            try check(NativeFloatingCapsule.placement(size:NSSize(width:300,height:150),viewport:viewport,avoiding:[selected]) == nil,"Full selection requires nonoverlapping dock")
+            try check(NativeFloatingCapsule.placement(size:NSSize(width:300,height:150),viewport:viewport,avoiding:[selected]) == nil,"Oversized capsule cannot fit in viewport")
             try save(["pdfAndRecoveryRestricted":true,"layoutWidths":[320,640,980],"fontSizes":[13,32],"pdfBytesPreserved":true],out,"restrictions-observations")
         }
         #endif

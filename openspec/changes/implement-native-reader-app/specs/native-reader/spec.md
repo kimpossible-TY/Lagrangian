@@ -409,13 +409,13 @@ expression and use actual registered scope for document equivalence.
 - **AND** original alias disappearance or retarget SHALL NOT prevent exact own withdrawal
 
 ### Requirement: Minimal unified reflow toolbar and immediate appearance popover
-The native reflow reader SHALL present a single-row toolbar with `목차 ▾`, `본문 | 원본 PDF`, `🔍`, `Aa`, and `•••`, no subtitle and 85–90% body area. Appearance SHALL apply immediately from an opaque Aa popover. Selection actions SHALL appear in a compact capsule only for valid selections. At 640px, secondary controls SHALL collapse into overflow.
+The native reflow reader SHALL present one toolbar row with a ghost outline toggle, sliding mode pill, SF Symbol search and overflow buttons, and opaque immediate Aa popover. Paper SHALL extend to both window edges. Valid selection actions SHALL float at the viewport bottom without resizing the window. At 640pt Reflow SHALL retain an icon-only outline toggle and compact mode switch.
 
 #### Scenario: Unified toolbar, immediate Aa popover, selection capsule, and narrow width
 - **WHEN** the reflow reader renders at standard or 640px narrow width, opens `Aa`, or transitions between empty and valid text selection
 - **THEN** the single-row toolbar omits any subtitle, keeps 85–90% document area, and collapses secondary items into `•••` at 640px
 - **AND** `Aa` renders an opaque popover with immediate theme/font-size/`오프라인 저장`/`PDF 내보내기` controls and no `보기 미리 보기/적용/취소` buttons
-- **AND** the top `선택 해제`/`복사` row stays hidden until a valid selection shows the compact action capsule
+- **AND** `복사` appears in the bottom selection capsule; persistent held states expose an explicit `선택 해제` action when needed
 
 ### Requirement: Disposable owner-scoped viewed layout cache
 LayoutCache SHALL be a disposable ownerID-scoped optimization in the existing profile-shared directory. Combined document/window/staging bytes SHALL be capped at 64 MiB with LRU eviction. Corrupt matching, unsafe and legacy entries SHALL be unlinked without affecting other owners. Cached copies SHALL stay read-only until current live identity/revision and layout inputs are confirmed.
@@ -448,3 +448,49 @@ Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItem
 - **WHEN** a valid accepted snapshot includes ordered list numbering, percentage image dimensions or mark: anchors
 - **THEN** import, decode and recovery preserve those values under the 64 MiB document cap
 - **AND** invalid values or duplicate anchors reject atomically
+
+### Requirement: Native outline drawer and active section
+The reader SHALL use NativeOutlineDrawerView as a glass overlay below the toolbar, mutually exclusive with Aa and logo popovers. The outline toggle SHALL show a truncated active section title above 680pt and only its icon at or below 680pt. Empty outlines and Original PDF SHALL disable navigation.
+
+#### Scenario: Keyboard outline navigation and dismissal
+- **WHEN** the user presses Cmd+Shift+O in Reflow with headings
+- **THEN** the drawer focuses its table and tracks the viewport baseline plus 96pt
+- **AND** arrows move rows, Return or Space navigates and returns body focus, and Escape restores prior focus without clearing selection
+- **AND** the drawer uses a rounded glass panel and a content-only scrim
+
+### Requirement: Centered pass-through notification capsules
+Notice and status overlays SHALL use content-sized centered NativeFloatingGlassView capsules, at least 160pt wide and at most min(520pt, contentWidth minus 48pt), 10pt below the toolbar. NativeOverlayPassThroughStack SHALL pass empty-margin hits through. Persistent states SHALL suppress lower-priority notices and never auto-dismiss or steal firstResponder.
+
+#### Scenario: Persistent held selection or recovery failure
+- **WHEN** a mode request is held, an operation fails, or recovery offers retry or cancel
+- **THEN** a semantic icon and 24pt inline action pills explain the next operation
+- **AND** an explicit circular xmark dismiss control has a 28pt hit target
+- **AND** ordinary reading clicks outside painted capsules reach the document
+
+### Requirement: Bottom selection tools preserve renderer authority
+NativeFloatingCapsule SHALL use a 64pt glass surface with 28pt continuous corners, centered 16pt above the viewport bottom and no wider than min(560pt, viewportWidth minus 32pt). Vertical 54pt tiles SHALL show 17pt symbols above 11pt medium labels. Selection and deselection SHALL never change window.frame; renderers SHALL reserve bottom insets and reveal selected ink above the tools.
+
+#### Scenario: Reflow selection actions and review strikes
+- **WHEN** a valid Reflow selection is active
+- **THEN** available tiles are Copy, Highlight, Ask, red Strike, Source and Editor, with Source and Editor in overflow at 640pt or narrower
+- **AND** a rule divider precedes the circular dismiss control, which preserves selection and restores focus
+- **AND** review marks in writable Reflow show a 40pt upper glass capsule with Undo and Clear All, 8pt above the tools
+- **AND** a 32-block limit uses a 26pt mini pill; stale bindings cannot act on newer tickets
+
+### Requirement: Interactive brand and accepted mode switch
+NativeBrandMarkControl SHALL open Home through FlowApp.showWindow on hold or rightward swipe and expose status, Home and Refresh on tap. NativeModeMorphSwitch SHALL keep its thumb on the accepted mode during asynchronous requests or held selections. Wide Reflow SHALL center a labeled 140x32pt pill; compact Reflow and wide online PDF SHALL use 80x32pt icon-only pills.
+
+#### Scenario: Responsive PDF mode controls
+- **WHEN** the reader displays online PDF at 640pt or less
+- **THEN** the switch and disabled outline toggle collapse into overflow while page navigation remains centered
+- **AND** offline PDF hides the switch and retains the exact `오프라인 PDF` badge
+- **AND** existing reflowMode and pageMode selectors remain available with native radio semantics
+
+### Requirement: Reader shortcut ownership and layered Escape
+The reader SHALL route Cmd+backslash, Cmd+1/2, Cmd+Shift+O, Opt+Cmd+0, Cmd+R, Shift+Return, Cmd+Shift+S/H/K and Opt+Cmd+A to existing mode, outline, zoom, refresh, strike, highlight, Ask and capsule owners. Cmd+0 SHALL remain FlowApp Home. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
+
+#### Scenario: Capsule keyboard loop and reopen
+- **WHEN** the user presses Opt+Cmd+A with a retained selection
+- **THEN** the capsule reopens for the current binding and focuses its first available action
+- **AND** Tab, Shift+Tab, Left and Right cycle only available visible actions
+- **AND** refresh with a held selection focuses explicit selection release rather than silently replacing the document
