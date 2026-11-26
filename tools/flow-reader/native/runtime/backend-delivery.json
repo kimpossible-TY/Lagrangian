@@ -2101,6 +2101,47 @@
             "sha256": "e8416a24501f76e5ce1219930400e3131f6986d31d0f8c867f7909c11825d2e4"
           }
         ]
+      },
+      {
+        "revision": "767256c571085e7960b1de3e1c650820f27362af",
+        "baseRevision": "4b5652b22ab16c7250fb558dd109212b982c4e30",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderTextView.swift",
+            "baseSHA256": "ed961b89935160e5cde48a00092dfec7e78b95681f1d264170133a4fb634098d",
+            "sha256": "b9c80927f9e6b68edab919ab7f93c63d2e816a53236ef137af60bd4ab94ac058"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "ea54dc6dee569ec51f872ac19a349d11487f29f4daa97097609f58cc3a36d26e",
+            "sha256": "ed57f2118b55a8b036fc8d1d8ef1860c1cb29e60275e833359f40961dc907b3c"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/TextInteractionTests.swift",
+            "baseSHA256": "1c9c95e73f73f07e604eb7d6a6e5d8bde2fc186bd20e51bb28c8d1b0261618e0",
+            "sha256": "0222541eaf33a1014426d4d0263d914446befdfc8fb4437946eee80cb0669e74"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_contract.py",
+            "baseSHA256": "107529f6256fed1c0313782134dbf3880a8fdbbd740a8cf546a1400453b2c351",
+            "sha256": "522ac215b558b043aa5e5cf8ca71e36a9d9100b65795bcc947a229b737212159"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_native_math_rendering.py",
+            "baseSHA256": null,
+            "sha256": "e5bbfca321bc57a37457dfe180b10bc7eb54c969054ceb82a567f891873b818d"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/document/native_document.py",
+            "baseSHA256": "63593057644722129e2beddc313c22be3697a8c017a6f469bc304aa3692e7117",
+            "sha256": "2dcbac40fb244a3e82bdefb82b0b35eb36d477d16c5e6ff9bcb751c104f403fd"
+          },
+          {
+            "path": "tools/flow-reader/native/math_layout.mjs",
+            "baseSHA256": "82f5d948ce927f47d9ab04380f2e895ffed98c06b418565f6ff5338174a813c0",
+            "sha256": "26fddb16f7df279c128cd99db2578ba3ca7eda2adac1d4b91bd312e29676205f"
+          }
+        ]
       }
     ]
   }

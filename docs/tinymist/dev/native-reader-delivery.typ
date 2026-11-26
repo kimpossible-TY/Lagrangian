@@ -545,3 +545,14 @@ The PR #33 re-review owner correction registers the following 17 paths from
 `tests/flow-app/test_flow_ui.py`,
 `tools/flow-reader/tests/test_passages.py`.
 Hashes are Git-derived.
+
+The native math rendering fix owner correction registers the following 7 paths from
+`4b5652b22ab16c7250fb558dd109212b982c4e30` → `767256c571085e7960b1de3e1c650820f27362af`:
+`apps/macos/NativeReaderTextView.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_contract.py`,
+`tests/flow-app/native-reader-app/test_native_math_rendering.py`,
+`tools/flow-reader/flow_reader/document/native_document.py`,
+`tools/flow-reader/native/math_layout.mjs`.
+Hashes are Git-derived.
