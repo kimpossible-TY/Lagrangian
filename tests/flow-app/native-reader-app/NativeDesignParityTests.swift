@@ -88,8 +88,15 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(abs(chrome.outlineToggleButton.bounds.height - 30) < 0.5, "Outline ghost has 30pt hit height")
             try check(chrome.outlineDrawer.entries.count == 4, "Flat semantic outline")
             window.makeFirstResponder(host.textView.bodyTextView)
+            try check(root.performKeyEquivalent(with: event(window, "\\", .command)), "Cmd backslash opens drawer")
+            try check(!chrome.outlineDrawer.isHidden && chrome.currentMode == .nativeReflow, "Drawer opens without changing mode")
+            try check(root.performKeyEquivalent(with: event(window, "\\", .command)), "Cmd backslash closes drawer")
+            try check(chrome.outlineDrawer.isHidden && chrome.currentMode == .nativeReflow, "Drawer closes without changing mode")
             try check(root.performKeyEquivalent(with: event(window, "o", [.command, .shift])), "Cmd Shift O routed")
             try check(!chrome.outlineDrawer.isHidden && window.firstResponder === chrome.outlineDrawer.tableView, "Drawer takes keyboard focus")
+            window.makeFirstResponder(host.textView.bodyTextView)
+            try check(root.performKeyEquivalent(with: event(window, "o", [.command, .shift])), "Cmd Shift O refocuses")
+            try check(!chrome.outlineDrawer.isHidden && window.firstResponder === chrome.outlineDrawer.tableView, "Open drawer remains open and focused")
             try check(chrome.handleReaderEscape() && chrome.outlineDrawer.isHidden && window.firstResponder === host.textView.bodyTextView, "Escape returns focus")
             chrome.toggleOutlineDrawer()
             let table = chrome.outlineDrawer.tableView
@@ -265,7 +272,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
             let review = chrome.reviewActionsCapsule.convert(chrome.reviewActionsCapsule.bounds, to: root)
             try check(chrome.reviewCount == 1 && !chrome.reviewActionsCapsule.isHidden, "Review tools visible")
             let obstruction = primary.union(review)
-            try check(scroll.contentInsets.bottom >= 148 && selectionRect.minY >= obstruction.maxY && selectionRect.maxY <= viewport.maxY,
+            try check(scroll.contentInsets.bottom >= 148 && selectionRect.minY >= obstruction.maxY + 11.5 && selectionRect.maxY <= viewport.maxY + 0.5,
                 "Full selection clears both capsules and remains visible: selection=\(selectionRect), obstruction=\(obstruction), viewport=\(viewport)")
             if scenario == "review-offset" {
                 try check(selectionRect.maxX < obstruction.minX, "Narrow selection is horizontally offset from tools")
@@ -273,6 +280,32 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(window.frame == originalFrame, "Review never resizes window")
             chrome.reviewCount = 0
             try check(scroll.contentInsets.bottom == 104, "Removing review restores base inset")
+        } else if scenario == "tall-selection" {
+            let scroll = host.textView.scrollView, body = host.textView.bodyTextView
+            let first = doc.blocks[30], last = doc.blocks[39]
+            try host.textView.select(from: .init(blockID: first.id, utf16: 0, affinity: .downstream),
+                to: .init(blockID: last.id, utf16: last.displayText.utf16.count, affinity: .upstream))
+            let manager = body.layoutManager!, container = body.textContainer!
+            let glyphs = manager.glyphRange(forCharacterRange: body.selectedRange(), actualCharacterRange: nil)
+            let bounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                .offsetBy(dx: body.textContainerOrigin.x, dy: body.textContainerOrigin.y)
+            let clip = scroll.contentView
+            clip.scroll(to: NSPoint(x: 0, y: bounds.maxY - clip.bounds.height + 100))
+            scroll.reflectScrolledClipView(clip)
+            chrome.showSelectionActions(); try await until { !chrome.capsule.isHidden }
+            let viewport = clip.convert(clip.bounds, to: root)
+            let obstruction = chrome.capsule.frame
+            // Arrange the selection start at the viewport top while its end intersects the tools.
+            clip.scroll(to: NSPoint(x: 0, y: bounds.minY))
+            scroll.reflectScrolledClipView(clip)
+            let before = body.convert(bounds, to: root)
+            try check(before.height > viewport.maxY - (obstruction.maxY + 12) &&
+                      before.minY < obstruction.maxY + 8 && before.maxY <= viewport.maxY + 0.5,
+                      "Tall selection intersects the obstruction with its start in view: \(before)")
+            chrome.placeCapsule(viewport: viewport, avoiding: host.textView.visibleSelectionRects(in: root))
+            let selectionRect = body.convert(bounds, to: root)
+            try check(selectionRect.maxY <= viewport.maxY + 0.5, "Tall selection start stays within viewport: \(selectionRect), viewport=\(viewport)")
+            try check(window.frame == originalFrame, "Tall selection never resizes window")
         } else if scenario == "pending-strike" {
             let block = doc.blocks[1]
             try host.textView.select(from: .init(blockID: block.id, utf16: 0, affinity: .downstream),
@@ -312,10 +345,8 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(refreshes == 3, "Ordinary Shift Return keyDown refreshes before the body consumes it")
             try check(root.performKeyEquivalent(with: event(window, "2", .command)), "Cmd 2 PDF")
             try await until { host.visibleMode == .originalPages && host.session.state == .reading && host.originalPageView.isPreparedForPaint }
-            try check(root.performKeyEquivalent(with: event(window, "\\", .command)), "Cmd backslash toggles PDF to Reflow")
-            try await until { host.visibleMode == .nativeReflow }
-            try check(root.performKeyEquivalent(with: event(window, "\\", .command)), "Cmd backslash toggles Reflow to PDF")
-            try await until { host.visibleMode == .originalPages && host.session.state == .reading && host.originalPageView.isPreparedForPaint }
+            try check(root.performKeyEquivalent(with: event(window, "\\", .command)), "Cmd backslash handled in PDF")
+            try check(chrome.currentMode == .originalPages, "Outline shortcut preserves PDF mode")
             let frame = window.frame
             let acceptedPDF = host.originalPageView.store.accepted!.binding.pdfSHA256
             let hit = try await host.originalPageView.search("Search needle").last!

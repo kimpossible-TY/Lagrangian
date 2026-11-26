@@ -454,7 +454,7 @@ The reader SHALL use NativeOutlineDrawerView as a glass overlay below the toolba
 
 #### Scenario: Keyboard outline navigation and dismissal
 - **WHEN** the user presses Cmd+Shift+O in Reflow with headings
-- **THEN** the drawer focuses its table and tracks the viewport baseline plus 96pt
+- **THEN** the drawer opens if needed, focuses its table without closing an already open drawer, and tracks the viewport baseline plus 96pt
 - **AND** arrows move rows, Return or Space navigates and returns body focus, and Escape restores prior focus without clearing selection
 - **AND** the drawer uses a rounded glass panel and a content-only scrim
 
@@ -475,7 +475,7 @@ NativeFloatingCapsule SHALL use a 64pt glass surface with 28pt continuous corner
 - **THEN** available tiles are Copy, Highlight, Ask, red Strike, Source and Editor, with Source and Editor in overflow at 640pt or narrower
 - **AND** a rule divider precedes the circular dismiss control, which preserves selection and restores focus
 - **AND** review marks in writable Reflow show a 40pt upper glass capsule with Undo and Clear All, 8pt above the tools
-- **AND** a selection of more than 32 fragments shows a 26pt limit mini pill explaining the existing 32-fragment remote-submission limit; Ask and other remote submissions are restricted, while local Copy, Highlight and Strike remain available; stale bindings cannot act on newer tickets
+- **AND** a selection of more than 32 fragments shows a 26pt limit mini pill explaining the existing 32-fragment remote-submission limit; Highlight, Ask, Source and Editor are unavailable; Copy remains available, and Strike remains enabled when review is available but can reject the over-limit selection; stale bindings cannot act on newer tickets
 
 ### Requirement: Interactive brand and accepted mode switch
 NativeBrandMarkControl SHALL open Home through FlowApp.showWindow on hold or rightward swipe and expose status, Home and Refresh on tap. NativeModeMorphSwitch SHALL keep its thumb on the accepted mode during asynchronous requests or held selections. Wide Reflow SHALL center a labeled 140x32pt pill; compact Reflow and wide online PDF SHALL use 80x32pt icon-only pills.
@@ -487,7 +487,7 @@ NativeBrandMarkControl SHALL open Home through FlowApp.showWindow on hold or rig
 - **AND** existing reflowMode and pageMode selectors remain available with native radio semantics
 
 ### Requirement: Reader shortcut ownership and layered Escape
-The host SHALL route Cmd+\ to the outline drawer toggle, Cmd+1 to Reflow and Cmd+2 to Original PDF through the mode owner, Cmd+Shift+O to outline focus, Opt+Cmd+0 to zoom reset/fit, Cmd+R and Shift+Return to Refresh, Cmd+Shift+S to the Strike review owner, Cmd+Shift+H to Highlight, Cmd+Shift+K to Ask, and Opt+Cmd+A to capsule focus/reopen. Cmd+0 SHALL remain Home via FlowApp. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
+The host SHALL route Cmd+\ to the outline drawer toggle, Cmd+1 to Reflow and Cmd+2 to Original PDF through the mode owner, Cmd+Shift+O to open and focus the outline, Opt+Cmd+0 to zoom reset/fit, Cmd+R and Shift+Return to Refresh, Cmd+Shift+S to the Strike review owner, Cmd+Shift+H to Highlight, Cmd+Shift+K to Ask, and Opt+Cmd+A to capsule focus/reopen. Cmd+0 SHALL remain Home via FlowApp. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
 
 #### Scenario: Capsule keyboard loop and reopen
 - **WHEN** the user presses Opt+Cmd+A with a retained selection

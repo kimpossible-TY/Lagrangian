@@ -184,7 +184,7 @@ locator remains historical. This executor follows the existing single-writer pla
 
 - [x] 18.1 Simplified Home & Settings: compact header, project selector and `읽기`, icon dock and status-bar menu items; sage running dot, NativeAppDesign `.ghost` role and NativeBrandMark `statusImage`; separate Settings sheet with Save only inside it. Existing files own the new tokens/branding; sources.json remains the registry.
 - [x] 18.2 Reader single-row toolbar & Aa popover: implement 1-row Reader toolbar, immediate `Aa` appearance/font/zoom reflection, and compact selection / `오프라인 PDF` search-hit capsule (exact `오프라인 PDF` label, fits within 640pt width).
-- [ ] 18.3 Preserved contracts & accessibility: verify `NativeChrome.install(on:)` / `NativeChrome.apply(to:)`, `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, `NativeReaderActions`, shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`), VoiceOver/AX, WCAG 2.1 SC 1.4.11 (3:1+), and non-overlapping PDF body/highlight docking.
+- [ ] 18.3 Preserved contracts & accessibility: verify `NativeChrome.install(on:)` / `NativeChrome.apply(to:)`, `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, `NativeReaderActions`, shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`), required VoiceOver/AX and WCAG 2.1 SC 1.4.11 (3:1+) invariants pending external GUI and visual verification, and non-overlapping PDF body/highlight docking.
 - [ ] 18.4 Shared test integration & independent review: integrate shared test suite and complete independent audit/review checklist before merge.
 
 ## Post-review contract corrections
@@ -204,7 +204,8 @@ locator remains historical. This executor follows the existing single-writer pla
 - [x] Integrate NRD01A outline drawer, interactive brand/Home callback, accepted-mode morph switch and SF Symbol ghost toolbar with edge-to-edge paper and scroll hairline.
 - [x] Replace notifications with centered content-sized pass-through glass capsules and persistent inline actions without focus theft.
 - [x] Replace selection docking/window resizing with bottom glass tools, vertical tiles, review actions, exact PDF/limit mini pills and renderer scroll avoidance; preserve tickets and keyboard focus.
-- [x] Connect reader shortcuts and layered Escape while retaining FlowApp Cmd+0 and opaque Aa.
+- [x] Connect Cmd+\ to the outline toggle and Cmd+Shift+O to open and focus the outline without closing it; preserve layered Escape, FlowApp Cmd+0 and opaque Aa.
+- [x] Document the 32-fragment limit mini pill: Highlight, Ask, Source and Editor are unavailable; Copy remains available, and Strike remains enabled when review is available but can reject the over-limit selection.
 - [x] Validate self-contained offscreen parity (9 cases, including actual layered Escape and final-paragraph/PDF reveal), existing capsule/UI regressions (24 cases) and bundle identity (2 cases), standalone Swift harnesses/app with warnings-as-errors on arm64 macOS13, strict OpenSpec and both canonical Typst documents. Interactive GUI and live installation remain outside this task.
 
 ## Remaining verification entrypoints and boundaries
@@ -217,7 +218,7 @@ controls under `apps/macos/`; registration: `apps/macos/sources.json`; tests:
 For source-component checklist items run from the repository root:
 
 - `openspec validate implement-native-reader-app --strict`: exit 0.
-- `/opt/homebrew/bin/python3 -m unittest tests/flow-app/native-reader-app/test_native_design_parity.py -v`: all 9 tests pass without skips.
+- `/opt/homebrew/bin/python3 -m unittest tests/flow-app/native-reader-app/test_native_design_parity.py -v`: all 10 tests pass without skips.
 - `/opt/homebrew/bin/python3 -m unittest tests/flow-app/native-reader-app/test_native_floating_capsule.py -k test_existing_UI_layout -k test_selection_capsule_and_local_composer -k test_restrictions_and_layout -k test_R19_3_short_selection_does_not_cover_other_body -v`: all selected tests pass without skips.
 - `yarn flow:test`: all applicable isolated native app tests pass; record optional skips and artifact SHA. The test harness compiles Swift with warnings as errors.
 - The following standalone arm64 macOS 13 compiler gate must exit 0 for UI, capsule and app targets:

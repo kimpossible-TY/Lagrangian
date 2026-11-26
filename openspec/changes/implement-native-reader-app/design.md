@@ -717,7 +717,7 @@ queue, without init/deinit flush waits; first-window acceptance remains separate
   - `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, and `NativeReaderActions` ownership and contracts remain unchanged.
 - **Preserved interaction, accessibility, and layout invariants**:
   - Keyboard shortcuts (`⌥⌘T`, `⌘F`, `Esc`, arrow keys, `\r`) remain intact.
-  - VoiceOver/AX semantics and WCAG 2.1 SC 1.4.11 (3:1 or higher non-text contrast) remain enforced.
+  - VoiceOver/AX semantics and WCAG 2.1 SC 1.4.11 (3:1 or higher non-text contrast) are required invariants pending external GUI and visual verification.
   - Selected PDF ink stays clear of bottom floating tools through renderer scroll insets and reveal, without window resizing.
 - **File-split note**:
   - Settings sheet presentation is separated in `FlowApp.swift`. Home has a compact brand header with add/settings icons, a project selector and primary `읽기` action, and a `.ghost` icon dock for service start/stop, browser, address copy, offline documents and overflow. A sage dot marks the running service; stopped state uses the play icon. The path caption, service card and bottom settings/login bar are removed.
@@ -803,7 +803,7 @@ constraints account for AppKit alignment insets to retain actual 32x30pt bounds.
 NativeFloatingCapsule owns ticket-bound action presentation and its keyboard
 loop, with 54pt vertical tiles on 64pt glass, bottom-center at 16pt. Source and
 Editor collapse at 640pt; red Strike uses the existing review owner. A 26pt
-mini pill preserves exact PDF footnotes or, for more than 32 selected fragments, explains the existing 32-fragment remote-submission limit. Ask and remote submission are restricted; local Copy, Highlight and Strike remain available. This is the target contract: current source routes Highlight through the source service and can reject over-limit Strike, so these two local paths remain implementation gaps. Writable
+mini pill preserves exact PDF footnotes or, for more than 32 selected fragments, explains the existing 32-fragment remote-submission limit. Highlight, Ask, Source and Editor are unavailable; Copy remains available, and Strike remains enabled when review is available but can reject the over-limit selection. Writable
 Reflow with review marks shows a separate 40pt Undo/Clear capsule. Host placement
 uses Reflow's 104pt bottom inset and PDF's temporary bottom inset with existing
 selection geometry to scroll ink clear. No selection path changes window.frame,
@@ -812,7 +812,7 @@ and no top dock or dock-height state remains.
 Keyboard routing stays in the host via the toolbar's native key-equivalent path.
 Shift+Return uses a reader-window-scoped local keyDown monitor before text inputs
 consume the event; other windows retain their normal input routing.
-Cmd+0 belongs to FlowApp Home; Opt+Cmd+0 resets zoom. Escape closes Find, outline,
+Cmd+\ toggles the outline; Cmd+Shift+O opens and focuses it without closing an open drawer. Cmd+0 belongs to FlowApp Home; Opt+Cmd+0 resets zoom. Escape closes Find, outline,
 Aa/logo, tools without releasing selection, then PDF selection. Explicit tool
 reopen and action dispatch retain request-context and selection-ticket guards.
 The PDF search field delegates Escape to this order before AppKit can invoke

@@ -1847,7 +1847,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   var storageBusy = false { didSet { updateOfflineControls() } }
   private var original: NativeReaderOriginalPageView?
   private var originalScroll: NativeReaderPageScrollView?
-  private var currentMode: NativeReaderWindowController.Mode = .nativeReflow
+  private(set) var currentMode: NativeReaderWindowController.Mode = .nativeReflow
   private var pageNavigation: NSStackView?
   private var previousPageButton: NativeDesignButton?
   private var nextPageButton: NativeDesignButton?
@@ -2423,7 +2423,8 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
               let bounds = try? original.store.viewRect(forPageRect: page.pageBounds) {
       selected = original.convert(bounds, to: root)
     }
-    let delta = obstruction.maxY + 12 - selected.minY
+    let desiredDelta = obstruction.maxY + 12 - selected.minY
+    let delta = min(desiredDelta, max(0, viewport.maxY - selected.maxY))
     guard delta > 0.5 else { return }
     revealingSelection = true; defer { revealingSelection = false }
     let clip = scroll.contentView
@@ -2771,7 +2772,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
     if flags == .command {
       switch key {
-      case "\\": if allowsModeSwitch { currentMode == .nativeReflow ? pageMode() : reflowMode() }; return true
+      case "\\": toggleOutlineDrawer(); return true
       case "1": if allowsModeSwitch { reflowMode() }; return true
       case "2": if allowsModeSwitch { pageMode() }; return true
       case "r": refreshFromKeyboard(); return true
@@ -2791,7 +2792,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     if flags == [.command, .shift] {
       switch key {
       case "+", "=": zoomIn(); return true
-      case "o": toggleOutlineDrawer(); return true
+      case "o": focusOutlineDrawer(); return true
       case "s": if !reviewActionsUnavailable { markSelected() }; return true
       case "h": if !isReadOnlyState { highlightSelected() }; return true
       case "k": if !isReadOnlyState { askSelected() }; return true
@@ -3173,6 +3174,11 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   @objc func toggleOutlineDrawer() {
     guard currentMode == .nativeReflow, !reader.outline.isEmpty else { return }
     if !outlineDrawer.isHidden { outlineDrawer.dismiss(); return }
+    focusOutlineDrawer()
+  }
+  private func focusOutlineDrawer() {
+    guard currentMode == .nativeReflow, !reader.outline.isEmpty else { return }
+    if !outlineDrawer.isHidden { window?.makeFirstResponder(outlineDrawer.tableView); return }
     closeDisplayPopover(); brandMark.statusPopover.performClose(nil)
     if let root = window?.contentView { outlineDrawer.toolbarBottom = root.bounds.height - toolbarView.frame.minY }
     outlineDrawer.present()
