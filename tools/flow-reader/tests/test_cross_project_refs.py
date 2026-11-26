@@ -162,6 +162,32 @@ class CatalogTests(Fixture):
         with self.assertRaises(ValueError):
             self.load()
 
+    def test_ancestor_swap_before_root_open_is_rejected(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (outside / 'packages').mkdir()
+        external = outside / 'packages/local/project-references/0.1.0'
+        external.mkdir(parents=True)
+        (external / 'projects.json').write_text(json.dumps(catalog_data()))
+        ancestor = self.root / 'parent'
+        ancestor.mkdir()
+        self.packages.rename(ancestor / 'packages')
+        self.packages = ancestor / 'packages'
+        real_open = os.open
+        checked_root = self.packages.resolve()
+        swapped = False
+        def swap(path, flags, **kwargs):
+            nonlocal swapped
+            if path == checked_root and not swapped:
+                swapped = True
+                ancestor.rename(self.root / 'saved-parent')
+                ancestor.symlink_to(outside, target_is_directory=True)
+            return real_open(path, flags, **kwargs)
+        with patch('flow_reader.services.cross_project_refs.os.open', side_effect=swap):
+            with self.assertRaises(ValueError):
+                self.load()
+        self.assertTrue(swapped)
+
     def test_missing_catalog_and_safe_internal_symlink(self):
         self.path.unlink()
         with self.assertRaises(ValueError):
@@ -279,6 +305,43 @@ class SnippetTests(unittest.TestCase):
 
 
 class PreviewTests(Fixture):
+    def test_compiled_anchor_for_label_and_text_matches(self):
+        origin = self.state()
+        for html in ('<p data-flow-label="theorem">Theorem 1</p>', '<p>Theorem 1</p>'):
+            with self.subTest(html=html):
+                target = self.state('target', html)
+                anchor = next(iter(target.bundle.manifest['anchors']))
+                result = CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/')).preview(
+                    project_key='book', label='theorem')
+                self.assertEqual((result['anchor'], result['targetUrl']), (anchor, '/d/book/#' + anchor))
+                target.bundle.manifest['anchors'].clear()
+                result = CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/')).preview(
+                    project_key='book', label='theorem')
+                self.assertEqual((result['anchor'], result['targetUrl']), (None, '/d/book/'))
+
+    def test_public_caches_availability_outside_state_lock(self):
+        state = self.state()
+        original_load = CrossProjectCatalog.load
+        original_stat = Path.stat
+        def checked_load(*args, **kwargs):
+            self.assertFalse(state.lock._is_owned())
+            return original_load(*args, **kwargs)
+        def checked_stat(path, *args, **kwargs):
+            self.assertFalse(state.lock._is_owned())
+            return original_stat(path, *args, **kwargs)
+        with patch.object(CrossProjectCatalog, 'load', side_effect=checked_load) as load, \
+             patch.object(Path, 'stat', checked_stat):
+            for _ in range(3):
+                self.assertTrue(state.public()['viewer']['crossProject'])
+            self.assertEqual(load.call_count, 1)
+            self.path.write_text('invalid')
+            self.assertFalse(state.public()['viewer']['crossProject'])
+            self.assertFalse(state.public()['viewer']['crossProject'])
+            self.assertEqual(load.call_count, 2)
+            self.write_catalog()
+            self.assertTrue(state.public()['viewer']['crossProject'])
+            self.assertEqual(load.call_count, 3)
+
     def test_metadata_bounds_do_not_change_lookup_or_snippet_match(self):
         data = catalog_data()
         long_key, long_title = 'k'*1025, 't'*1025
@@ -303,7 +366,7 @@ class PreviewTests(Fixture):
         self.assertIsNone(result['targetUrl'])
         service = CrossProjectPreviewService(origin, peer_registry({'book': target}))
         result = service.preview(project_key='book', label='theorem')
-        self.assertEqual(result['targetUrl'], '/d/book/#theorem')
+        self.assertEqual(result['targetUrl'], '/d/book/')
         self.assertIsNone(result['snippet'])
         target.bundle = split_document('<html><body><p id="theorem">Accepted</p></body></html>', 'r1')
         target.revision = 'r1'
@@ -317,7 +380,7 @@ class PreviewTests(Fixture):
             result = service.preview(project_key='book', label='theorem')
             self.assertEqual(result['status'], 'unique')
             self.assertIsNone(result['snippet'])
-            self.assertEqual(result['targetUrl'], '/d/book/#theorem')
+            self.assertEqual(result['targetUrl'], '/d/book/')
         target.bundle = split_document('<html><body><p id="theorem">Wrong revision</p></body></html>', 'r2')
         self.assertIsNone(service.preview(project_key='book', label='theorem')['snippet'])
         target.revision = 'r2'
@@ -325,7 +388,7 @@ class PreviewTests(Fixture):
                    side_effect=ValueError('private import failure: '+str(self.root))):
             result = service.preview(project_key='book', label='theorem')
         self.assertEqual((result['status'], result['snippet'], result['targetUrl']),
-                         ('unique', None, '/d/book/#theorem'))
+                         ('unique', None, '/d/book/'))
         self.assertNotIn(str(self.root), json.dumps(result))
         self.assertEqual((origin.project.root/'main.typ').read_text(), 'Source remains untouched')
 
@@ -422,7 +485,7 @@ class HTTPTests(Fixture):
                 self.assertEqual(status, 200)
                 self.assertEqual(result['status'], 'unique')
                 self.assertEqual(result['snippet'], 'Accepted theorem' if server is routed else None)
-                self.assertEqual(result['targetUrl'], '/d/book/#theorem' if server is routed else None)
+                self.assertEqual(result['targetUrl'], '/d/book/' if server is routed else None)
                 self.assertEqual(result['pdfUrl'], PDF)
                 self.assertNotIn(str(self.root), raw.decode())
             for label, expected in [('missing', 'unresolved'), ('duplicate', 'ambiguous')]:
@@ -436,7 +499,7 @@ class HTTPTests(Fixture):
         status, raw = self.request(routed, '/d/source/api/cross-project/preview?project=book&label=theorem')
         result = json.loads(raw)
         self.assertEqual((status, result['status'], result['snippet'], result['targetUrl']),
-                         (200, 'unique', None, '/d/book/#theorem'))
+                         (200, 'unique', None, '/d/book/'))
         self.assertIsNone(origin._paragraph_chat)
         self.assertIsNone(target._paragraph_chat)
 
@@ -487,7 +550,7 @@ class HTTPTests(Fixture):
                 '/d/source/api/cross-project/preview?project=book&label=theorem')
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(raw)['snippet'], 'Runtime target')
-            self.assertEqual(json.loads(raw)['targetUrl'], '/d/target/#theorem')
+            self.assertEqual(json.loads(raw)['targetUrl'], '/d/target/')
             compile_origin.assert_not_called()
             compile_target.assert_not_called()
             manager.control.assert_not_called()

@@ -19,6 +19,7 @@ from flow_reader.services.edit_location import SharedEditLocation
 from flow_reader.services.source_history import source_snapshots
 from flow_reader.services.source_mapping import edit_location
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
+from flow_reader.services.cross_project_refs import CatalogAvailability
 from flow_reader.compiler.pool import BrowserCompilePool
 from flow_reader.compiler.diagnostics import CompilerDiagnostics
 from flow_reader.server.compiler_assets import CompilerAssets
@@ -42,6 +43,7 @@ class ReaderState:
                             SharedEditLocation(project.root, project.entry, change_file))
         self.shared_edit_stamp = None
         self.lock = threading.RLock()
+        self.catalog_availability = CatalogAvailability()
         self._paragraph_chat = None
         self.chat_provider, self.chat_data = chat_provider, chat_data
         self.accepted_inputs = None
@@ -211,11 +213,10 @@ class ReaderState:
     def public(self):
         self.refresh_shared_change()
         with self.lock:
-            return {key: self.report.get(key) for key in (
+            result = {key: self.report.get(key) for key in (
                 "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
                 "elapsedSeconds", "compiledAt",
             )} | {"revision": self.revision, "compiling": self.compiling,
-                  "viewer": self.viewer_capabilities(),
                   "documentID": self.document_id,
                   "changeToken": (self.bundle.manifest.get("lastChange") or {}).get("token") if self.bundle else None,
                   "service": self.focus.service,
@@ -224,11 +225,13 @@ class ReaderState:
                   "originalURL": self.original_url, "development": self.allow_incomplete,
                   "semanticCanvases": self.project.semantic_canvases,
                   "graphics": self.graphics, "canvases": self.canvases, "decorations": self.decorations}
+            packages = self.project.packages
+        result["viewer"] = self.viewer_capabilities(packages)
+        return result
 
-    def viewer_capabilities(self):
-        from flow_reader.services.cross_project_refs import CrossProjectPreviewService
+    def viewer_capabilities(self, packages=None):
         return {"name": "Lagrangian Web Viewer",
-                "crossProject": CrossProjectPreviewService(self).available}
+                "crossProject": self.catalog_availability.check(packages if packages is not None else self.project.packages)}
 
     def render_graphics(self, revision, graphs):
         return self.renderer.render(revision, graphs, "graphics")
