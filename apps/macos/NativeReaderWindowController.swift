@@ -282,8 +282,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         projectKey: target.projectKey, projectTitle: target.project.title, referenceText: target.entry.text,
         label: target.label, snippetText: target.entry.text + " · p. " + String(target.entry.page), truncated: false))
       self.activeCrossProjectPreviewView = previewView
-      previewView.onOpenTarget = { [weak self] content in
-        guard let self else { return }
+      previewView.onOpenTarget = { [weak self, weak previewView] content in
+        guard let self, let previewView, self.activeCrossProjectPreviewView === previewView else { return }
         self.dismissCrossProjectPreview()
         let pos = self.textView.currentCrossProjectPosition()
         let entry = CrossProjectNavigationEntry(profileID: self.profile?.id ?? "", documentTitle: self.profile?.name ?? "",
@@ -489,6 +489,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         } else { try self.textView.adopt(document, context: context) }
       }
       catch { self.cache = previous; throw error }
+      if !reflowOnly { self.dismissCrossProjectPreview() }
       self.acceptedAssets = (document, descriptors)
       self.acceptedPaintKey = key; self.paintedKey = nil; self.diagnostic = nil
       if !reflowOnly {
@@ -568,6 +569,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       // same-actor installation cannot interleave a new request/selection here.
       try self.store.adopt(document, for: context)
       try self.originalPageView.store.adopt(prepared, for: ticket)
+      self.dismissCrossProjectPreview()
       self.localReview.clear()
       self.acceptedPageDelivery = delivery; self.acceptedAssets = (document, descriptors)
       self.visibleMode = .originalPages; self.acceptedPaintKey = nil; self.paintedKey = nil
@@ -1237,6 +1239,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func cancel() {
+    dismissCrossProjectPreview()
     hostWindow.cancelFind()
     hostWindow.hideCapsule()
     cancelStorage()

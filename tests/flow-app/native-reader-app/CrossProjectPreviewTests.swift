@@ -153,6 +153,36 @@ struct CrossProjectPreviewTests {
       continuations[3].resume(returning: nil)
       await Task.yield()
       try check(dismissed.content != loaded, "Dismissed preview ignores late snippet")
+    } else if scenario == "reader_preview_lifetime" {
+      var continuations: [CheckedContinuation<CrossProjectPreviewContent?, Never>] = []
+      var jumps = 0
+      host.crossProjectSnippetLoader = { _ in await withCheckedContinuation { continuations.append($0) } }
+      host.onOpenCrossProjectTarget = { _, _ in jumps += 1 }
+      _ = host.textView.activate(nodeID: "link")
+      await Task.yield()
+      guard let old = host.activeCrossProjectPreviewView else { throw Failure(message: "Preview before adoption") }
+      let nextGeneration = try host.store.beginRequest()
+      let nextIdentity = NativeDocumentIdentity(documentID: "replacement", serviceID: "service", revision: "revision", scope: .fixture)
+      let nextDocument = NativeReaderDocument(schemaVersion: 1, identity: nextIdentity, generation: nextGeneration,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: [link], assets: [], diagnostics: [])
+      let nextContext = NativeReaderRequestContext(requestID: UUID(), viewID: host.store.viewID, generation: nextGeneration, target: nextIdentity)
+      let replacement = try await host.prepare(nextDocument, context: nextContext)
+      try replacement.adopt()
+      try check(host.activeCrossProjectPreviewView == nil, "Document adoption dismisses preview")
+      old.openButton.performClick(nil)
+      var loaded = old.content; loaded.snippetText = "Late snippet"
+      continuations[0].resume(returning: loaded)
+      await Task.yield()
+      try check(jumps == 0 && old.content != loaded, "Adoption invalidates old activation and snippet")
+      _ = host.textView.activate(nodeID: "link")
+      await Task.yield()
+      guard let cancelled = host.activeCrossProjectPreviewView else { throw Failure(message: "Preview before cancellation") }
+      host.cancel()
+      try check(host.activeCrossProjectPreviewView == nil, "Cancellation dismisses preview")
+      cancelled.openButton.performClick(nil)
+      continuations[1].resume(returning: loaded)
+      await Task.yield()
+      try check(jumps == 0 && cancelled.content != loaded, "Cancellation invalidates old activation and snippet")
     } else {
       var captured: CrossProjectNavigationEntry?
       var target: CrossProjectPreviewContent?
@@ -302,7 +332,7 @@ struct CrossProjectPreviewTests {
           }
         }
       case "reader": try readerHelpers()
-      case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back":
+      case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime":
         try await controllerScenario(CommandLine.arguments[1])
       default: throw Failure(message: "Unknown fixture scenario")
       }

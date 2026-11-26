@@ -56,6 +56,9 @@ class CrossProjectPreview(unittest.TestCase):
     def test_reader_second_click_and_back(self):
         self.scenario('reader_second_click_and_back')
 
+    def test_reader_preview_lifetime(self):
+        self.scenario('reader_preview_lifetime')
+
     def test_reader_geometry_snapshot_and_location_restoration(self):
         self.scenario('reader')
 
