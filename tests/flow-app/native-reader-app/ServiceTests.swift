@@ -838,6 +838,84 @@ extension ServiceTests {
                 viewedBlockIDs: [copy.blocks[0].id], layouts: [:], assets: [:])
         }
         let a = snapshot(1), b = snapshot(2), c = snapshot(3)
+        let environment = AppEnvironment(variables: ["FLOW_DATA_DIR": root.appendingPathComponent("support").path], userHome: root)
+        func profile(_ id: String) -> Profile {
+            Profile(id: id, name: id, root: root.path, entry: "main.typ", fonts: [], packages: root.path,
+                port: 12345, publicURL: "", label: "test.\(id)")
+        }
+        let profileA = profile("shared-a"), profileB = profile("shared-b")
+        let recoveryA = NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profileA))
+        let recoveryB = NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profileB))
+        let defaultA = NativeReaderOfflineStorage(owner: recoveryA).layoutCache!
+        let defaultB = NativeReaderOfflineStorage(owner: recoveryB).layoutCache!
+        try serviceCheck(recoveryA.root != recoveryB.root && defaultA.root == defaultB.root &&
+            defaultA.root == environment.support.appendingPathComponent("native-reader/layout-cache", isDirectory: true),
+            "distinct AppEnvironment profiles share the default layout namespace")
+        try serviceCheck(defaultA.byteLimit == 64 * 1024 * 1024 && defaultB.byteLimit == 64 * 1024 * 1024,
+            "default shared disk cap is 64 MiB")
+        func owned(_ snapshot: NativeReaderLayoutSnapshot, _ profile: Profile) -> NativeReaderLayoutSnapshot {
+            .init(ownerID: [profile.id, profile.root, profile.entry].joined(separator: "\n"), key: snapshot.key,
+                document: snapshot.document, restoration: snapshot.restoration, viewedBlockIDs: snapshot.viewedBlockIDs,
+                layouts: snapshot.layouts, assets: snapshot.assets)
+        }
+        // Same document in two profiles, with independently chosen geometry.
+        // Superseding A must not delete B as an old version of A's document.
+        let sharedA = owned(a, profileA), sharedB = owned(snapshot(1, width: 641), profileB), sharedC = owned(c, profileA)
+        let sharedProbe = NativeReaderLayoutCache(root: root.appendingPathComponent("shared-probe"))
+        var sharedSizes = [Int](), sharedPrevious = 0
+        for item in [sharedA, sharedB, sharedC] {
+            try await sharedProbe.save(item)
+            let total = try await sharedProbe.diskBytes(); sharedSizes.append(total - sharedPrevious); sharedPrevious = total
+        }
+        let sharedCap = sharedSizes.reduce(0, +) - sharedSizes.min()!
+        let sharedClock = LayoutTestClock()
+        let cacheA = NativeReaderLayoutCache(root: defaultA.root, byteLimit: sharedCap, now: { sharedClock.next() })
+        let cacheB = NativeReaderLayoutCache(root: defaultB.root, byteLimit: sharedCap, now: { sharedClock.next() })
+        try await cacheA.save(sharedA); try await cacheB.save(sharedB)
+        let loadedA = try await cacheA.load(key: sharedA.key), loadedB = try await cacheB.load(key: sharedB.key)
+        try serviceCheck(loadedA?.ownerID == sharedA.ownerID && loadedB?.ownerID == sharedB.ownerID, "same document profiles coexist")
+        _ = try await cacheA.load(key: sharedA.key) // A is the newest read across both actors.
+        try await cacheA.save(sharedC)
+        try serviceCheck(try await cacheB.load(key: sharedB.key) == nil, "shared LRU evicts B across profile actors")
+        let sharedRetainedA = try await cacheA.load(key: sharedA.key), sharedRetainedC = try await cacheB.load(key: sharedC.key)
+        let sharedBytes = try await cacheA.diskBytes()
+        try serviceCheck(sharedRetainedA != nil && sharedRetainedC != nil && sharedBytes <= sharedCap,
+            "combined profile bytes obey one shared cap")
+
+        // The original cached restore must stay pending while a layout retry
+        // owns preparation, and accept a retry that adopted before it resumed.
+        for adoptedFirst in [false, true] {
+            let fixture = AdoptionFixture(); fixture.blocked = true
+            let session = NativeReaderSession(store: fixture.store,
+                provider: Provider { _ in throw TestFailure.assertion("cache restore called live provider") },
+                target: { throw TestFailure.assertion("cache restore called live target") })
+            var completed = false
+            let restore = Task { @MainActor in
+                defer { completed = true }
+                try await session.restoreLayoutWindow(a, prepare: fixture.prepare)
+            }
+            try await waitFor { fixture.preparationCount == 1 }
+            fixture.layout += 1; session.preparationChanged()
+            try await waitFor { fixture.preparationCount == 2 }
+            if adoptedFirst {
+                fixture.resume(2)
+                try await waitFor { fixture.publications == 1 }
+                try serviceCheck(!completed, "original restore still awaits its own preparation")
+                fixture.resume(1)
+            } else {
+                fixture.resume(1)
+                try await waitFor { fixture.events.contains("prepared:1:0") }
+                for _ in 0..<10 { await Task.yield() }
+                try serviceCheck(!completed && fixture.publications == 0,
+                    "cached restore awaits the retry rather than returning or throwing early")
+                fixture.resume(2)
+            }
+            try await restore.value
+            try serviceCheck(session.isCachedCopy && session.isReadOnly && session.state == .offline &&
+                fixture.publications == 1 && fixture.events.contains("install:2:1"),
+                "only current cached preparation adopts before restore completion")
+            session.event(.dispose)
+        }
         let probe = NativeReaderLayoutCache(root: root.appendingPathComponent("probe"))
         var previous = 0, sizes = [Int]()
         for item in [a, b, c] {
@@ -927,6 +1005,7 @@ extension ServiceTests {
         try await rejects("cache never follows directory symlink") { try await unsafe.save(a) }
         return ["byteCap": cap, "lru": true, "privateDirectory": true, "keyInvalidation": true,
                 "sha256": true, "strictRebinding": true, "mathEntryCap": retained.count,
-                "viewedAssets": true, "recoveryCoexistence": true, "noFollow": true]
+                "viewedAssets": true, "recoveryCoexistence": true, "noFollow": true,
+                "sharedProfiles": true, "sharedLRU": true, "restoreRetryWait": true, "restoreRetryAdopted": true]
     }
 }

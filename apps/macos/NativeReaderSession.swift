@@ -280,8 +280,24 @@ import Foundation
         let request = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: document.identity)
         pending = Candidate(document: document, context: request, restoration: snapshot.restoration, cached: true, preparation: prepare)
         isReadOnly = true; isCachedCopy = true; state = .loading; failure = nil
-        await invalidationTask?.value
-        try await publishPending(epoch: current)
+        do {
+            await invalidationTask?.value
+            try check(current, generation: generation, offline: true)
+            try await publishPending(epoch: current)
+            try check(current, generation: generation, offline: true)
+        } catch {
+            // A layout change transfers this candidate to a retry. The caller
+            // must wait for its adoption before starting live confirmation.
+            while epoch != current, pending?.context == request, let retry = task {
+                let retryEpoch = epoch
+                await retry.value
+                if epoch == retryEpoch { break }
+            }
+            if context == request, store.document == document, isCachedCopy { return }
+            if epoch != current, pending?.context == request { return }
+            if epoch == current, state != .disposed, state != .sleeping { fail() }
+            throw error
+        }
     }
 
     private func fail() {

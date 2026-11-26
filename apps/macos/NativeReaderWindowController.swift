@@ -25,7 +25,7 @@ struct NativeReaderOfflineStorage {
   let list: () async throws -> [NativeReaderRecoveryStore.Entry]
   let load: (NativeDocumentIdentity) async throws -> NativeReaderRecoverySnapshot
   init(owner: NativeReaderRecoveryStore) {
-    layoutCache = NativeReaderLayoutCache(root: owner.root.appendingPathComponent("layout-cache", isDirectory: true))
+    layoutCache = NativeReaderLayoutCache(root: owner.root.deletingLastPathComponent().appendingPathComponent("layout-cache", isDirectory: true))
     save = { try await owner.save($0) }; list = { try await owner.list() }
     load = { try await owner.load(identity: $0) }
   }
@@ -347,6 +347,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.storageAvailable = offlineStorage != nil
     if refresh {
       if let layoutCache {
+        if session.state == .sleeping { session.event(.wake) }
         // Resolve the server version concurrently with local disk validation
         // and paint; no network result can grant the cached body authority.
         versionTask = Task { try await target(profile) }
@@ -367,7 +368,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
             } catch { self.cachedWindow = nil }
           }
           guard !Task.isCancelled, !ticket.isCancelled else { return }
-          self.session.refresh()
+          self.session.event(.network(true))
         }
       } else {
         if session.state == .sleeping { session.event(.wake) }
@@ -498,6 +499,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       var selected = nodes
       while true {
         do {
+          var mathLayouts = [String: NativeMathLayout]()
           let plan = try await NativeReaderPagedLayout.layout(document: document,
             blockIDs: Set(fullDocument ? document.blocks.map(\.id) : selected.map(\.id)), context: c, assets: assets,
             mathBatch: { items, context in
@@ -517,10 +519,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
               try Task.checkCancellation()
               guard !ticket.isCancelled else { throw NativeObjectError.cancelled }
               await viewedLayouts?.record(result, key: diskKey)
+              mathLayouts.merge(result) { _, new in new }
               return result
             }, math: { node, width in
               guard let worker, let math = node.math else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
-              return try await worker.calculate(math, context: c, width: width)
+              let layout = try await worker.calculate(math, context: c, width: width)
+              mathLayouts[node.id] = layout
+              return layout
             }, cancelled: { ticket.isCancelled })
           guard plan.diagnostics.isEmpty else { throw NativeObjectError.unsupported(plan.diagnostics.joined(separator: ";")) }
           var objects = [String: NativeReaderPreparedTextObject]()
@@ -541,6 +546,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
                 context.translateBy(x: rect.minX - bounds.minX, y: rect.minY - bounds.minY)
                 NativeReaderObjectRenderer.draw(subplan, in: context); context.restoreGState()
               }, cost: cost)
+            prepared.mathLayouts = mathLayouts.filter { ids.contains($0.key) }
             prepared.hitNode = { subplan.hit(CGPoint(x: $0.x + bounds.minX, y: $0.y + bounds.minY))?.node.id }
             prepared.accessibilityLabelForNode = { id in subplan.regions.first { $0.node.id == id }.map { NativeReaderPreparedTextObject.label(for: $0.node) } }
             objects[node.id] = prepared
@@ -886,11 +892,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       zoom: Double(textView.textAppearance.zoom), selectionTicket: nil, fragments: [])
     let diskKey = Self.layoutKey(key), owner = Self.cacheOwner(profile), layouts = viewedLayouts
     let bytes = acceptedAssets.bytes, windowBlocks = textView.viewedWindowBlockIDs
+    let visibleMathLayouts = textView.viewedWindowMathLayouts
     layoutPersistenceTask?.cancel()
     layoutPersistenceTask = Task {
       do {
         if !immediate { try await Task.sleep(nanoseconds: 150_000_000) }
         try Task.checkCancellation()
+        await layouts.record(visibleMathLayouts, key: diskKey)
         let values = await layouts.cached(for: diskKey)
         let snapshot = await Task.detached(priority: .utility) {
           let blocks = document.blocks.filter { block in
@@ -924,6 +932,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       draw: object.draw
     )
     rebound.cost = object.cost
+    rebound.mathLayouts = object.mathLayouts
     rebound.isPlaceholder = object.isPlaceholder
     rebound.hitNode = object.hitNode
     rebound.accessibilityLabelForNode = object.accessibilityLabelForNode

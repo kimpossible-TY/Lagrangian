@@ -29,6 +29,7 @@ struct NativeReaderPreparedTextObject {
     let accessibilityLabel: String
     let draw: (NSRect) -> Void
     var cost: Int = 0
+    var mathLayouts: [String: NativeMathLayout] = [:]
     var isPlaceholder = false
 
     static let largeDocumentThreshold = 128
@@ -363,6 +364,12 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     private var viewportObserver: NSObjectProtocol?
     var preparedObjectCost: Int { lazyCache.cost }
     var preparedObjectIDs: Set<String> { Set(lazyCache.objects.keys) }
+    var viewedWindowMathLayouts: [String: NativeMathLayout] {
+        let objects = lazyKey == nil ? preparedObjects : lazyCache.objects.filter { lazyViewportIDs.contains($0.key) }
+        return objects.values.reduce(into: [:]) { result, object in
+            result.merge(object.mathLayouts) { _, new in new }
+        }
+    }
     var viewedWindowBlockIDs: Set<String> {
         Set(store.document?.blocks.filter { block in
             block.orderedNodes.contains { lazyViewportIDs.contains($0.id) }

@@ -458,7 +458,8 @@ actor NativeReaderLayoutCache {
             $0.date.tv_sec == $1.date.tv_sec ? ($0.date.tv_nsec == $1.date.tv_nsec ? $0.name < $1.name : $0.date.tv_nsec < $1.date.tv_nsec) : $0.date.tv_sec < $1.date.tv_sec
         }
         for entry in entries where entry.name != destination {
-            if let old = try? read(entry.name, fd: fd), old.key.documentID == snapshot.key.documentID {
+            if let old = try? read(entry.name, fd: fd), old.ownerID == snapshot.ownerID,
+               old.key.documentID == snapshot.key.documentID {
                 guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
                 entries.removeAll { $0.name == entry.name }
             }

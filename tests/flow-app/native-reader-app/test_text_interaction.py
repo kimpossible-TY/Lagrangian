@@ -145,6 +145,18 @@ class TextInteractionTests(unittest.TestCase):
         self.assertTrue(failures['busyRelease'])
         self.assertTrue(failures['backoffCancellation'])
 
+    def test_offline_close_online_reopen_same_controller_restores_live_reading(self):
+        self.assertTrue(self.results['stage3']['offlineCloseOnlineReopen'])
+
+    def test_layout_retry_adopts_cached_viewport_before_live_confirmation(self):
+        self.assertTrue(self.results['stage3']['cachedRetryBeforeConfirmation'])
+
+    def test_revisited_viewport_survives_more_than_256_formula_visits(self):
+        cache = self.results['stage3']
+        self.assertGreater(cache['visitedFormulas'], 256)
+        self.assertTrue(cache['revisitedPersisted'])
+        self.assertEqual(cache['revisitedWorkerCalls'], 0)
+
     def test_invalid_batch_and_attachment_updates_are_atomic(self):
         self.assertTrue(self.results['stage2']['failures']['atomicBatch'])
         self.assertTrue(self.results['stage2']['failures']['atomicCells'])

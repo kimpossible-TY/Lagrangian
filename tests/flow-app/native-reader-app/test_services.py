@@ -420,7 +420,8 @@ class NativeServiceTests(unittest.TestCase):
         self.assertGreater(cache['byteCap'], 0)
         self.assertEqual(cache['mathEntryCap'], 256)
         for field in ['lru', 'privateDirectory', 'keyInvalidation', 'sha256', 'strictRebinding',
-                      'viewedAssets', 'recoveryCoexistence', 'noFollow']:
+                      'viewedAssets', 'recoveryCoexistence', 'noFollow', 'sharedProfiles', 'sharedLRU',
+                      'restoreRetryWait', 'restoreRetryAdopted']:
             self.assertTrue(cache[field], field)
         save('swift-results.json', report)
         from collections import Counter

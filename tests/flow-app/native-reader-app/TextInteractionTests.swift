@@ -19,6 +19,20 @@ private struct TextDocumentProvider: NativeReaderDocumentProviding {
     func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument { try await load(context) }
 }
 
+@MainActor private final class LayoutRestoreGate {
+    var armed = false
+    private var continuations = [CheckedContinuation<Void, Never>]()
+    func wait() async {
+        guard armed else { return }
+        await withCheckedContinuation { continuations.append($0) }
+    }
+    func release() {
+        armed = false
+        let waiting = continuations; continuations = []
+        waiting.forEach { $0.resume() }
+    }
+}
+
 // Hand-authored oracle. These literals/ranges were not computed by the view, map,
 // importer or layout manager. UTF16, scalar, UTF8 and grapheme units are separate.
 let oracleTexts = [
@@ -1033,7 +1047,7 @@ extension TextInteractionMain {
         let owner = NativeReaderRecoveryStore(root: out.appendingPathComponent("disk-window"))
         let storage = NativeReaderOfflineStorage(owner: owner)
         let disk = storage.layoutCache!
-        try check(disk.root == owner.root.appendingPathComponent("layout-cache", isDirectory: true), "offline storage derives dedicated layout-cache")
+        try check(disk.root == owner.root.deletingLastPathComponent().appendingPathComponent("layout-cache", isDirectory: true), "offline storage derives shared layout-cache")
         let calls = LayoutWorkerCalls(), environment = ProcessInfo.processInfo.environment
         let runtime = NativeReaderRuntime(node: URL(fileURLWithPath: environment["FLOW_TEST_NODE"] ?? "/opt/homebrew/bin/node"),
             helper: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("tools/flow-reader/native/math_layout.mjs"),
@@ -1058,20 +1072,47 @@ extension TextInteractionMain {
         try await finishLazyPreparation(live.textView)
         try check(live.textView.preparedObjectIDs.contains(blocks[180].id), "viewed distant window prepared lazily")
         live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
-        let saved = try await disk.latest(ownerID: [profile.id, profile.root, profile.entry].joined(separator: "\n"))!
+        var saved = try await disk.latest(ownerID: [profile.id, profile.root, profile.entry].joined(separator: "\n"))!
         try check(saved.restoration.blockID != blocks[0].id && saved.layouts[blocks[180].id] != nil,
             "last reading position and viewed formula persisted")
         try check(saved.layouts[blocks[250].id] == nil && saved.layouts.count <= 256 && saved.assets.isEmpty,
             "disk excludes unread formulas and unreferenced assets")
+        let distantSnapshot = saved
+        // Visit enough distinct formulas to evict the first screen from the
+        // 256-layout working set, while its prepared pixels remain in TextView.
+        // Persist explicitly below so queued scroll notifications cannot cancel
+        // the particular save whose completion this regression awaits.
+        live.textView.callbacks.readingPositionChanged = {}
+        var visited = Set<String>()
+        for index in stride(from: 0, to: blocks.count, by: 10) {
+            live.textView.restoreViewport(.init(identity: document.identity,
+                position: .init(blockID: blocks[index].id, utf16: 0, affinity: .downstream), offsetY: 0))
+            try await finishLazyPreparation(live.textView)
+            visited.formUnion(live.textView.viewedWindowMathLayouts.keys)
+        }
+        live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
+        let afterTour = try await disk.latest(ownerID: saved.ownerID)!
+        try check(visited.count > 256 && afterTour.layouts[blocks[0].id] == nil &&
+            live.textView.preparedObjectIDs.contains(blocks[0].id), "first prepared screen outlives viewed-layout LRU eviction")
+        let beforeReturn = calls.value()
+        live.textView.restoreViewport(.init(identity: document.identity,
+            position: .init(blockID: blocks[0].id, utf16: 0, affinity: .downstream), offsetY: 0))
+        try await finishLazyPreparation(live.textView)
+        try check(live.textView.viewedWindowMathLayouts[blocks[0].id] != nil && calls.value() == beforeReturn,
+            "returning to retained prepared pixels invokes no worker")
+        live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
+        saved = try await disk.latest(ownerID: saved.ownerID)!
+        try check(saved.layouts[blocks[0].id] != nil, "revisited screen formulas restored to disk snapshot (\(saved.restoration.blockID ?? "nil"), \(saved.layouts.count) layouts)")
         live.dispose(); await live.layoutPersistenceTask?.value
 
         var confirmVersion = false, targetCalls = 0
+        let restoreGate = LayoutRestoreGate()
         let before = calls.value()
         let reopened = NativeReaderWindowController(provider: provider(), target: { _ in
             targetCalls += 1
             while !confirmVersion { try await Task.sleep(nanoseconds: 1_000_000) }
             return document.identity
-        }, runtime: runtime, show: false, fixtureMode: true, offlineStorage: storage)
+        }, runtime: runtime, invalidate: { await restoreGate.wait() }, show: false, fixtureMode: true, offlineStorage: storage)
         _ = reopened.open(profile) { _ in }
         try await waitFor("cache read-only before version confirmation") {
             reopened.session.isCachedCopy && reopened.store.document != nil && targetCalls == 1
@@ -1080,7 +1121,7 @@ extension TextInteractionMain {
         try check(reopened.session.isReadOnly && reopened.session.isCachedCopy && calls.value() == before,
             "cached visible formulas use zero worker calls before live verification")
         try check(reopened.hostWindow.notice.stringValue == "캐시된 화면 (읽기 전용) · 최신 버전 확인 중...", "cached read-only notice shown during version check")
-        try check(reopened.textView.preparedObjectIDs.contains(blocks[180].id), "cached last-reading window displayed")
+        try check(reopened.textView.preparedObjectIDs.contains(blocks[0].id), "cached revisited reading window displayed")
         try rejects("cached source/chat mutation denied") { try reopened.session.authorize(reopened.session.context!) }
         let restoredBlock = try reopened.textView.captureViewport().blockID
         confirmVersion = true
@@ -1088,9 +1129,46 @@ extension TextInteractionMain {
         try await finishLazyPreparation(reopened.textView)
         try reopened.session.authorize(reopened.session.context!)
         try check(calls.value() == before && !reopened.session.isCachedCopy, "same revision promotes without recomputing cached formulas")
+        let revisitedWorkerCalls = calls.value() - before
         let promotedBlock = try reopened.textView.captureViewport().blockID
         try check(promotedBlock == restoredBlock, "promotion preserves restored block")
         reopened.persistLayoutWindow(immediate: true); await reopened.layoutPersistenceTask?.value
+        // Reuse the same controller: losing the network, closing and explicitly
+        // reading again must restore online authority only after cached adoption.
+        let readingPositionChanged = reopened.textView.callbacks.readingPositionChanged
+        reopened.textView.callbacks.readingPositionChanged = {}
+        await reopened.layoutPersistenceTask?.value
+        try await disk.save(distantSnapshot)
+        restoreGate.armed = true
+        reopened.session.event(.network(false))
+        reopened.hostWindow.onClose?()
+        confirmVersion = false
+        _ = reopened.open(profile) { _ in }
+        try await waitFor("cached restore awaits closed-view invalidation") {
+            reopened.session.isCachedCopy && reopened.session.state == .loading && targetCalls == 2
+        }
+        // A layout retry may adopt while the original restore is still awaiting
+        // invalidation. It must retain the cached screen and its restoration.
+        reopened.session.preparationChanged()
+        try await waitFor("same offline controller reopens cached screen") {
+            reopened.session.isCachedCopy && reopened.session.state == .offline && reopened.acceptedPaintKey != nil &&
+                reopened.session.context == reopened.textView.context &&
+                reopened.acceptedPaintKey == reopened.textView.renderKey && reopened.store.document != nil && targetCalls == 2
+        }
+        try await finishLazyPreparation(reopened.textView)
+        try check(reopened.session.isReadOnly && calls.value() == before, "offline-close reopen stays cached read-only before confirmation")
+        try check(reopened.textView.preparedObjectIDs.contains(blocks[180].id) &&
+            reopened.textView.viewedWindowMathLayouts[blocks[180].id] != nil,
+            "layout retry adopts cached restoration before live confirmation")
+        restoreGate.release()
+        confirmVersion = true
+        try await waitFor("same controller restores network and live authority") {
+            reopened.session.state == .reading && !reopened.session.isReadOnly && !reopened.session.isCachedCopy
+        }
+        try await finishLazyPreparation(reopened.textView)
+        try reopened.session.authorize(reopened.session.context!)
+        try check(calls.value() == before, "same-controller live confirmation reuses revisited formulas")
+        reopened.textView.callbacks.readingPositionChanged = readingPositionChanged
         var appearance = reopened.textView.textAppearance
         for field in ["fontSize", "fontName", "theme"] {
             let oldKey = try await disk.latest(ownerID: saved.ownerID)!.key
@@ -1196,6 +1274,8 @@ extension TextInteractionMain {
         return ["cachedWorkerCalls": 0, "readOnly": true, "promotion": true, "position": true,
             "revisionInvalidation": true, "widthInvalidation": true, "appearanceInvalidation": true,
             "unreadExcluded": true, "persistedMath": saved.layouts.count, "smallWindow": true,
-            "closeFlush": true, "notice": true, "runtimeIndependent": true, "reopenMismatch": true]
+            "closeFlush": true, "notice": true, "runtimeIndependent": true, "reopenMismatch": true,
+            "offlineCloseOnlineReopen": true, "visitedFormulas": visited.count, "revisitedWorkerCalls": revisitedWorkerCalls,
+            "revisitedPersisted": true, "cachedRetryBeforeConfirmation": true]
     }
 }
