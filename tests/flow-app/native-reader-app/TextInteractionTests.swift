@@ -127,6 +127,7 @@ extension NSPasteboard {
             var results = try run(document, out: out)
             try visibleObjectPaintRegression(document)
             results["stage2"] = try await largeObjectRegression(document)
+            try await largeRecoveryBudgetRegression(document)
             results["stage3"] = try await diskWindowRegression(document, out: out)
             NSPasteboard(name: .init(FindPasteboardIsolation.findName)).releaseGlobally()
             NSPasteboard(name: .init(FindPasteboardIsolation.generalName)).releaseGlobally()
@@ -471,7 +472,7 @@ extension NSPasteboard {
         }
         retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
             transientCalls += 1
-            if workerBusy { throw TextTestError(description: "math-worker-busy") }
+            if workerBusy { throw NativeObjectError.unsupported("math-worker-busy") }
             return values(nodes, current)
         }
         try await finishLazyPreparation(retained)
@@ -480,7 +481,7 @@ extension NSPasteboard {
         var persistentCalls = 0
         retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
             persistentCalls += 1
-            throw TextTestError(description: "persistent math-worker-busy")
+            throw NativeObjectError.unsupported("math-worker-busy")
         }
         try await finishLazyPreparation(retained)
         for _ in 0..<5 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
@@ -491,12 +492,35 @@ extension NSPasteboard {
             try await Task.sleep(nanoseconds: 10_000_000_000)
         }
         retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
-            cancelledRetryCalls += 1; throw TextTestError(description: "math-worker-busy")
+            cancelledRetryCalls += 1; throw NativeObjectError.unsupported("math-worker-busy")
         }
         try await waitFor("retry entered cancellable delay") { delayEntered }
         retained.cancelLazyPreparation()
         await Task.yield()
         try check(cancelledRetryCalls == 1 && retained.lazyTask == nil, "cancel backoff never dispatches a retry")
+
+        // Busy discovered after a successful half must still discard the staged
+        // result and retry the original range after teardown, without isolating
+        // any valid singleton or publishing a partial viewport.
+        var nestedCalls = 0, nestedIDs = Set<String>(), nestedWaits = [Int]()
+        retained.lazyRetryDelay = { failure in
+            nestedWaits.append(failure)
+            try check(retained.preparedObjectIDs.isEmpty, "nested busy never publishes staged left half")
+        }
+        retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            nestedCalls += 1
+            switch nestedCalls {
+            case 1:
+                nestedIDs = Set(nodes.map(\.id))
+                try check(nodes.count > 1, "nested busy exercises both split halves")
+                throw NativeObjectError.budget
+            case 3: throw NativeObjectError.unsupported("math-worker-busy")
+            default: return values(nodes, current)
+            }
+        }
+        try await finishLazyPreparation(retained)
+        try check(nestedCalls == 4 && nestedWaits == [1] && retained.preparedObjectIDs == nestedIDs,
+                  "nested busy retries entire viewport and restores every valid sibling")
 
         func attachment(_ node: NativeReaderNode) throws -> NSTextAttachment {
             let range = try retained.textMap!.presentationRange(blockID: node.id, logical: 0..<node.displayText.utf16.count)
@@ -1150,6 +1174,54 @@ private final class LayoutWorkerCalls: @unchecked Sendable {
 }
 
 extension TextInteractionMain {
+    @MainActor static func largeRecoveryBudgetRegression(_ fixture: NativeReaderDocument) async throws {
+        // Shared pixels are cheap to decode once, but each retained object must
+        // carry their full conservative cost. 128 individually valid objects
+        // therefore exceed the initial partial-preparation budget together.
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 256,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        memset(bitmap.bitmapData!, 255, bitmap.bytesPerRow * bitmap.pixelsHigh)
+        let data = bitmap.representation(using: .png, properties: [:])!
+        let digest = NativeReaderRecoverySnapshot.digest(data)
+        let asset = NativeReaderAsset(id: digest + ".png", sha256: digest,
+            mime: "image/png", byteCount: data.count)
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .image }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["assetID"] = asset.id; encoded.removeValue(forKey: "imageLayout")
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        let blocks = try (0..<129).map { index -> NativeReaderNode in
+            var value = encoded; value["id"] = "recovery-image-\(index)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [asset], diagnostics: [])
+        let context = NativeObjectContext(identity: document.identity, snapshotGeneration: 1, generation: 1,
+            width: 600, fontSize: 14, fontName: "system", theme: .light, mode: .reflow, pageHeight: 1000)
+        let plan = try await NativeReaderPagedLayout.layout(document: document,
+            blockIDs: Set(blocks.prefix(128).map(\.id)), context: context, assets: [asset.id: data],
+            math: { _, _ in throw TextTestError(description: "image recovery cannot use math worker") })
+        try check(plan.blockCosts.count == 128 && plan.blockCosts.values.allSatisfy { $0 < NativeReaderLazyObjectCache.maxCost } &&
+                  plan.blockCosts.values.reduce(0, +) > NativeReaderLazyObjectCache.maxCost,
+                  "real initial partial objects individually fit but exceed aggregate budget")
+        let controller = NativeReaderWindowController(provider: TextDocumentProvider { _ in
+            throw TextTestError(description: "recovery cannot load live document")
+        }, target: { _ in throw TextTestError(description: "recovery cannot resolve live target") },
+            show: false, fixtureMode: true)
+        defer { controller.dispose() }
+        try await controller.restoreRecovery(.init(document: document, assets: [asset.id: data], restoration: .initial, drafts: []))
+        try await finishLazyPreparation(controller.textView)
+        try check(controller.store.document?.identity == document.identity && !controller.textView.preparedObjectIDs.isEmpty &&
+                  controller.textView.preparedObjectIDs.count < 128 && controller.textView.preparedObjectCost <= NativeReaderLazyObjectCache.maxCost,
+                  "large recovery adopts bounded initial paint instead of failing before lazy provider exists")
+        try check(controller.textView.navigate(toNodeID: blocks[128].id), "navigate to initially omitted recovery object")
+        try await finishLazyPreparation(controller.textView)
+        try check(controller.textView.preparedObjectIDs.contains(blocks[128].id) &&
+                  controller.textView.preparedObjectCost <= NativeReaderLazyObjectCache.maxCost,
+                  "large restored document continues replacing omitted placeholders within budget")
+    }
+
     @MainActor static func diskWindowRegression(_ fixture: NativeReaderDocument, out: URL) async throws -> [String: Any] {
         let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
         var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
@@ -1171,7 +1243,7 @@ extension TextInteractionMain {
         let calls = LayoutWorkerCalls(), environment = ProcessInfo.processInfo.environment
         let runtime = NativeReaderRuntime(node: URL(fileURLWithPath: environment["FLOW_TEST_NODE"] ?? "/opt/homebrew/bin/node"),
             helper: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("tools/flow-reader/native/math_layout.mjs"),
-            runtime: URL(fileURLWithPath: environment["FLOW_TEST_NATIVE_RUNTIME"] ?? "/missing"), record: { calls.record($0) })
+            runtime: URL(fileURLWithPath: environment["FLOW_TEST_NATIVE_RUNTIME"] ?? "/Volumes/devSSD/Developer/lagrangian-native-20261117/dependencies/mathjax413"), record: { calls.record($0) })
         func provider() -> TextDocumentProvider {
             TextDocumentProvider { context in
                 NativeReaderDocument(schemaVersion: document.schemaVersion, identity: context.target, generation: context.generation,

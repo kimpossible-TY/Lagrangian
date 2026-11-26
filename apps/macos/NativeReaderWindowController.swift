@@ -522,6 +522,15 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     defer { if preparingKey == key { preparingKey = nil } }
     let objects: [String: NativeReaderPreparedTextObject]
     if nodes.isEmpty { objects = [:] }
+    else if large {
+      // Recovery and other unbounded-entry paths prepare up to 128 objects
+      // before adoption. Give them the same isolation as viewport work, while
+      // bounding retained initial paint to the existing lazy cache budget.
+      objects = try await NativeReaderPreparedTextObject.prepareLazy(nodes, provider: { selected in
+        try await Self.prepareObjects(document, nodes: selected, key: key, assets: descriptors,
+          worker: worker, ticket: ticket, viewedLayouts: bounded ? viewedLayouts : nil)
+      }, bounded: true).objects
+    }
     else {
       objects = try await Self.prepareObjects(document, nodes: nodes, key: key, assets: descriptors,
         worker: worker, ticket: ticket, fullDocument: !large, viewedLayouts: bounded ? viewedLayouts : nil)

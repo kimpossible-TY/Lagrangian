@@ -56,6 +56,43 @@ struct NativeReaderPreparedTextObject {
             count += next; return true
         })
     }
+    // Partial preparation may salvage siblings; snapshots and worker batches
+    // stay atomic. Busy means the shared worker is still tearing down, so it
+    // must reach the caller's bounded backoff rather than isolate valid nodes.
+    @MainActor static func prepareLazy(_ nodes: [NativeReaderNode],
+        provider: ([NativeReaderNode]) async throws -> [String: Self],
+        bounded: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
+        func prepare(_ selected: [NativeReaderNode], isolating: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
+            try Task.checkCancellation()
+            do { return (try await provider(selected), []) }
+            catch {
+                switch error {
+                case is CancellationError, NativeObjectError.cancelled, NativeObjectError.stale,
+                     NativeReaderTextFailure.staleGeometry, NativeObjectError.unsupported("math-worker-busy"):
+                    throw error
+                case is NativeObjectError, NativeReaderTextFailure.unsupportedObject,
+                     NativeReaderTextFailure.invalidGeometry:
+                    break
+                default: throw error
+                }
+                guard selected.count > 1 else {
+                    if isolating { return ([:], Set(selected.map(\.id))) }
+                    throw error
+                }
+                let mid = selected.count / 2
+                let left = try await prepare(Array(selected[..<mid]), isolating: true)
+                let right = try await prepare(Array(selected[mid...]), isolating: true)
+                let objects = left.objects.merging(right.objects) { _, new in new }
+                if bounded {
+                    let cache = NativeReaderLazyObjectCache()
+                    cache.insert(objects, protecting: Set(objects.keys))
+                    return (cache.objects, left.failures.union(right.failures))
+                }
+                return (objects, left.failures.union(right.failures))
+            }
+        }
+        return try await prepare(nodes)
+    }
     static func label(for node: NativeReaderNode) -> String {
         [node.alt, node.math?.normalizedText, node.displayText].compactMap { $0 }.first { !$0.isEmpty } ?? node.kind.rawValue
     }
@@ -845,37 +882,9 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         let epoch = lazyEpoch
         lazyTask = Task { [weak self] in
             var providerReturned = false
-            var isolatedFailures = Set<String>()
-            // Only viewport preparation can salvage siblings. The provider's
-            // full-document and worker batch contracts remain atomic.
-            func prepare(_ selected: [NativeReaderNode], isolating: Bool = false) async throws -> [String: NativeReaderPreparedTextObject] {
-                try Task.checkCancellation()
-                do { return try await provider(selected, key) }
-                catch {
-                    switch error {
-                    case is CancellationError, NativeObjectError.cancelled, NativeObjectError.stale,
-                         NativeReaderTextFailure.staleGeometry:
-                        throw error
-                    case is NativeObjectError, NativeReaderTextFailure.unsupportedObject,
-                         NativeReaderTextFailure.invalidGeometry:
-                        break
-                    default: throw error
-                    }
-                    guard selected.count > 1 else {
-                        if isolating {
-                            isolatedFailures.insert(selected[0].id)
-                            return [:]
-                        }
-                        throw error
-                    }
-                    let mid = selected.count / 2
-                    let left = try await prepare(Array(selected[..<mid]), isolating: true)
-                    let right = try await prepare(Array(selected[mid...]), isolating: true)
-                    return left.merging(right) { _, new in new }
-                }
-            }
             do {
-                let values = try await prepare(missing)
+                let result = try await NativeReaderPreparedTextObject.prepareLazy(missing) { try await provider($0, key) }
+                let values = result.objects
                 providerReturned = true
                 try Task.checkCancellation()
                 guard let self, self.lazyEpoch == epoch, self.lazyKey == key,
@@ -895,7 +904,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                 // Retry omissions, but retain attempted IDs for isolated failures
                 // and returned-but-unadmitted objects to bound an overfull viewport.
                 if !values.isEmpty {
-                    self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys).subtracting(isolatedFailures))
+                    self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys).subtracting(result.failures))
                 }
                 self.lazyTask = nil
                 self.callbacks.readingPositionChanged()
