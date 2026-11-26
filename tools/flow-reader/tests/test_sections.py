@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.document.content import normalize_math_html
+from flow_reader.document.native_document import import_accepted_document
 from flow_reader.document.sections import BodyIndex, assign_block_ids, separate_assets, split_document
 
 
@@ -29,10 +30,17 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(normalize_math_html('<div id="outer" data-flow-label="a"><div data-flow-label="b"><h2>X</h2></div></div>'),
                          '<h2 data-flow-label="b" id="outer">X</h2>')
         source = normalize_math_html('<html><body><div data-flow-label="first"><h2>First</h2></div>'
-                                     '<p data-flow-label="first">Later</p><h2>Next</h2></body></html>')
+                                     '<p id="real" data-flow-label="other">Later</p><h2>Next</h2></body></html>')
         bundle = split_document(source, 'labels', max_blocks=1)
-        self.assertEqual(bundle.manifest['anchors']['first'], bundle.manifest['outline'][0]['section'])
+        self.assertNotIn('first', bundle.manifest['anchors'])
+        self.assertNotIn('other', bundle.manifest['anchors'])
+        for anchor, section in bundle.manifest['anchors'].items():
+            self.assertIn(f'id="{anchor}"'.encode(), bundle.documents[section])
+        self.assertIn(b'data-flow-label="first"', bundle.documents[bundle.manifest['outline'][0]['section']])
+        self.assertIn(b'data-flow-label="other"', bundle.documents[bundle.manifest['anchors']['real']])
         self.assertEqual([h['title'] for h in bundle.manifest['outline']], ['First', 'Next'])
+        model = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).document
+        self.assertEqual([block['kind'] for block in model['blocks']], ['heading', 'paragraph', 'heading'])
         for source in ('<div class="flow-equation" data-flow-label="x"><p>X</p></div>',
                        '<div data-flow-label="x"><p>X</p><p>Y</p></div>',
                        '<div data-flow-label="x">text<p>X</p></div>'):

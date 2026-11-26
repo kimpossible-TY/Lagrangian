@@ -25,6 +25,7 @@ EVIDENCE = CLOSURE if CLOSURE else DEV / 'test-output/contract'
 ISOLATED = CLOSURE if CLOSURE else DEV
 def find_typst():
     candidates = [os.environ.get('FLOW_READER_TYPST'), shutil.which('typst'),
+                  Path.home() / 'Applications/Lagrangian.app/Contents/Resources/native-reader/compiler/typst',
                   DEV / 'dependencies/portable-typst/v0.15.1/typst-aarch64-apple-darwin/typst',
                   DEV / 'dependencies/portable-typst/typst-aarch64-apple-darwin/typst']
     return next((str(path) for path in candidates if path and Path(path).is_file() and os.access(path, os.X_OK)), None)
@@ -63,27 +64,40 @@ class LabelContractTests(unittest.TestCase):
         html = '<html><body><h2 data-flow-label="same">First</h2><h2 id="same">Second</h2></body></html>'
         bundle = split_document(html, 'labels', max_blocks=1)
         model = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).document
-        self.assertEqual(bundle.manifest['anchors']['same'], bundle.manifest['sections'][0]['id'])
+        self.assertEqual(bundle.manifest['anchors']['same'], bundle.manifest['sections'][1]['id'])
         self.assertIn('same', model['blocks'][0]['anchors'])
         self.assertNotIn('same', model['blocks'][1]['anchors'])
 
+    def test_label_before_duplicate_ids_is_rejected(self):
+        html = ('<html><body><h2 data-flow-label="same">First</h2>'
+                '<h2 id="same">Second</h2><h2 id="same">Third</h2></body></html>')
+        bundle = split_document(html, 'labels', max_blocks=1)
+        with self.assertRaisesRegex(NativeImportError, '^duplicate-anchor$'):
+            import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1)
+
     @unittest.skipUnless(find_typst(), 'prebuilt Typst compiler unavailable')
     def test_real_unreferenced_and_referenced_labels(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source = root / 'main.typ'
-            project = Project(root, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=find_typst())
-            for reference in ('', '\nSee @def-convolution.\n'):
-                source.write_text('#set heading(numbering: "1.")\n= Convolution <def-convolution>\n\n#figure(kind: "definition", supplement: [Definition])[Body] <def-fig>\n\n$ f * g $ <eq-conv>\n' + ''.join('\n= Internal <' + prefix + 'test>\n' for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-')) + reference)
-                state = ReaderState(project, root / 'output', '', False)
-                state.compile()
-                self.assertEqual(state.report.get('exitCode'), 0, state.report)
-                self.assertTrue(state.report.get('contentGatePassed'), state.report)
-                for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-'):
-                    self.assertNotIn(prefix + 'test', state.bundle.manifest['anchors'])
-                model = import_accepted_document(state.bundle, document_id='fixture', service_id='offline', generation=1).document
-                for anchor, kind in [('def-convolution', 'heading'), ('def-fig', 'figure'), ('eq-conv', 'equation')]:
-                    self.assertTrue(any(anchor in block['anchors'] and block['kind'] == kind for block in model['blocks']), (anchor, model['blocks']))
+        compilers = [Path.home() / 'Applications/Lagrangian.app/Contents/Resources/native-reader/compiler/typst',
+                     shutil.which('typst')]
+        compilers = [str(path) for path in compilers if path and Path(path).is_file() and os.access(path, os.X_OK)]
+        if not compilers:
+            compilers = [find_typst()]
+        for compiler in compilers:
+            with self.subTest(compiler=compiler), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source = root / 'main.typ'
+                project = Project(root, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=compiler)
+                for reference in ('', '\nSee @def-convolution.\n'):
+                    source.write_text('#set heading(numbering: "1.")\n= Convolution <def-convolution>\n\n#figure(kind: "definition", supplement: [Definition])[Body] <def-fig>\n\n$ f * g $ <eq-conv>\n' + ''.join('\n= Internal <' + prefix + 'test>\n' for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-')) + reference)
+                    state = ReaderState(project, root / 'output', '', False)
+                    state.compile()
+                    self.assertEqual(state.report.get('exitCode'), 0, state.report)
+                    self.assertTrue(state.report.get('contentGatePassed'), state.report)
+                    for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-'):
+                        self.assertNotIn(prefix + 'test', state.bundle.manifest['anchors'])
+                    model = import_accepted_document(state.bundle, document_id='fixture', service_id='offline', generation=1).document
+                    for anchor, kind in [('def-convolution', 'heading'), ('def-fig', 'figure'), ('eq-conv', 'equation')]:
+                        self.assertTrue(any(anchor in block['anchors'] and block['kind'] == kind for block in model['blocks']), (anchor, model['blocks']))
 
 
 class ContractTests(unittest.TestCase):
