@@ -539,6 +539,80 @@ extension NSPasteboard {
                   retained.bodyTextView.selectedRanges == beforeSelection && retained.bodyTextView.string == beforeText,
                   "invalid batch leaves all cells and selection/text unchanged")
         try check(invalidCalls == 1 && retained.lazyTask == nil, "invalid result is rejected without transient retry")
+        // Typed object failures isolate both halves, including a failure at
+        // index zero. Every successful sibling replaces and paints its cell.
+        let objectErrors: [Error] = [NativeObjectError.budget, NativeObjectError.invalidGeometry,
+            NativeObjectError.unsupported("indivisible-math-overflow"), NativeReaderTextFailure.unsupportedObject("fixture")]
+        for failure in objectErrors {
+            for failedIndex in [0, 1, 3] {
+                var requested = [NativeReaderNode](), failedID: String?, calls = 0
+                var painted = Set<String>()
+                retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+                    calls += 1
+                    if requested.isEmpty {
+                        requested = nodes
+                        try check(nodes.count > failedIndex, "viewport contains both split halves")
+                        failedID = nodes[failedIndex].id
+                    }
+                    if nodes.contains(where: { $0.id == failedID }) { throw failure }
+                    return Dictionary(uniqueKeysWithValues: nodes.map { node in
+                        let value = NativeReaderPreparedTextObject(key: current,
+                            size: NSSize(width: 200, height: 36), baseline: 0,
+                            accessibilityLabel: node.displayText, draw: { rect in
+                                painted.insert(node.id)
+                                NSColor.black.setFill(); rect.fill()
+                            }, cost: 65536)
+                        return (node.id, value)
+                    })
+                }
+                try await finishLazyPreparation(retained)
+                let expected = Set(requested.map(\.id)).subtracting([failedID!])
+                try check(!expected.isEmpty && retained.preparedObjectIDs == expected,
+                          "one failed node cannot poison valid siblings: \(failure), index \(failedIndex)")
+                try check(retained.preparedObjectCost <= NativeReaderLazyObjectCache.maxCost,
+                          "isolated viewport respects lazy cache budget")
+                let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 240, pixelsHigh: 40,
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                for node in requested where expected.contains(node.id) {
+                    let cell = try attachment(node).attachmentCell!
+                    cell.draw(withFrame: NSRect(x: 0, y: 0, width: 240, height: 40), in: retained.bodyTextView)
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                try check(painted == expected, "all valid sibling attachments paint instead of placeholders")
+                let settledCalls = calls
+                for _ in 0..<5 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
+                try check(calls == settledCalls && calls <= 2 * requested.count + 2,
+                          "isolated singleton failure never spins")
+            }
+        }
+        for failure in [CancellationError(), NativeObjectError.cancelled, NativeObjectError.stale,
+                        NativeReaderTextFailure.staleGeometry] as [Error] {
+            var calls = 0
+            retained.configureLazyObjects(key: key, initial: [:]) { _, _ in calls += 1; throw failure }
+            try await finishLazyPreparation(retained)
+            for _ in 0..<3 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
+            try check(calls == 1 && retained.preparedObjectIDs.isEmpty,
+                      "cancelled/stale viewport aborts without bisection or retry")
+            // A successful left half must not publish when the right half
+            // subsequently discovers cancellation or an obsolete context.
+            calls = 0
+            retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+                calls += 1
+                if calls == 1 {
+                    try check(nodes.count > 1, "nested abort requires a split viewport")
+                    throw NativeObjectError.budget
+                }
+                if calls == 2 { return values(nodes, current) }
+                throw failure
+            }
+            try await finishLazyPreparation(retained)
+            for _ in 0..<3 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
+            try check(calls == 3 && retained.preparedObjectIDs.isEmpty,
+                      "nested cancelled/stale range aborts without partial publication or retry")
+        }
         return ["failedRefresh": true, "heldRefresh": true, "transientCalls": transientCalls,
                 "persistentCalls": persistentCalls, "backoffFailures": [1, 2], "backoffCancellation": true, "busyRelease": true, "atomicBatch": true, "atomicCells": true]
     }

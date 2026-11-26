@@ -134,7 +134,10 @@ _MATH_TAGS = set("math mrow mi mn mo ms mtext mspace msup msub msubsup mfrac msq
 _MATH_ATTRS = set("xmlns display mathvariant mathsize mathcolor mathbackground scriptlevel displaystyle lspace rspace form stretchy symmetric fence separator accent accentunder notation columnalign rowalign columnspacing rowspacing rowspan columnspan width height depth voffset linethickness class data-flow-math-kind encoding".split())
 
 
-def _mathml(n):
+def _mathml(n, root=True):
+    def text(value):
+        return escape(re.sub(r"[\uFE00-\uFE0F]", "", value))
+
     if n.tag in {"sup", "a", "br", "code", "span"}:
         allowed = {"id", "class", "data-flow-mark", "data-flow-targets"} | {
             "sup": {"role"}, "a": {"href", "role"}, "br": set(),
@@ -149,19 +152,25 @@ def _mathml(n):
             _link(n.attrs.get("href", ""))
         if n.attrs.get("role") not in {None, "doc-noteref", "doc-biblioref", "doc-backlink", "mark"}:
             raise NativeImportError("unsupported-mathml")
-        body = "".join("<mtext>" + escape(c) + "</mtext>" if isinstance(c, str) else _mathml(c) for c in n.children)
+        body = "".join("<mtext>" + text(c) + "</mtext>" if isinstance(c, str) else _mathml(c, root=False) for c in n.children)
         if n.tag == "sup":
-            return "<msup><mrow></mrow><mtext>" + escape(n.text()) + "</mtext></msup>"
+            return "<msup><mrow></mrow><mtext>" + text(n.text()) + "</mtext></msup>"
         if n.tag == "br":
             return "<mtext>\n</mtext>"
         if n.tag == "code":
-            return "<mtext mathvariant=\"monospace\">" + escape(n.text()) + "</mtext>"
+            return "<mtext mathvariant=\"monospace\">" + text(n.text()) + "</mtext>"
         return "<mrow>" + body + "</mrow>"
     attrs = {k: v for k, v in n.attrs.items() if not k.startswith("data-flow-") and k not in {"style", "id"}}
     if n.tag not in _MATH_TAGS or set(attrs) - _MATH_ATTRS:
         raise NativeImportError("unsupported-mathml")
+    # Validate input before discarding presentation-only attributes.
+    attrs = {k: v for k, v in attrs.items() if k not in {"class", "mathsize", "mathcolor", "mathbackground"}}
+    tag = n.tag
+    if tag == "math" and not root:
+        tag = "mrow"
+        attrs = {k: v for k, v in attrs.items() if k not in {"display", "xmlns"}}
     encoded = "".join(' ' + k + '="' + escape(v or "", quote=True) + '"' for k, v in attrs.items())
-    return "<" + n.tag + encoded + ">" + "".join(escape(c) if isinstance(c, str) else _mathml(c) for c in n.children) + "</" + n.tag + ">"
+    return "<" + tag + encoded + ">" + "".join(text(c) if isinstance(c, str) else _mathml(c, root=False) for c in n.children) + "</" + tag + ">"
 
 
 def _color(value):

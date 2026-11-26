@@ -73,6 +73,7 @@ async function main() {
     raw += chunk;
   }
   const input = JSON.parse(raw);
+  const runtime = createRuntime(root, req);
   let output;
   if (input?.kind === 'mathml-batch') {
     if (Object.keys(input).some(k => !['kind', 'items'].includes(k)) ||
@@ -82,7 +83,7 @@ async function main() {
     for (const item of input.items) {
       if (!item || typeof item !== 'object' || Array.isArray(item) ||
           (item.kind !== undefined && item.kind !== 'mathml')) fail('input-kind');
-      const result = await layout(item, root, req);
+      const result = await layout(item, root, req, runtime);
       const itemBytes = Buffer.byteLength(JSON.stringify(result));
       if (itemBytes > LIMIT) fail('output-limit');
       bytes += itemBytes + 1;
@@ -92,14 +93,45 @@ async function main() {
     output = { kind: 'mathml-batch', items };
   } else {
     if (inputBytes > 256 * 1024) fail('input-limit');
-    output = await layout(input, root, req);
+    output = await layout(input, root, req, runtime);
   }
   const encoded = JSON.stringify(output);
   if (Buffer.byteLength(encoded) > (input.kind === 'mathml-batch' ? BATCH_LIMIT : LIMIT)) fail('output-limit');
   process.stdout.write(encoded + '\n');
 }
 
-async function layout(input, root, req) {
+function createRuntime(root, req) {
+  const { mathjax } = req('@mathjax/src/js/mathjax.js');
+  const loaded = new Set();
+  mathjax.asyncLoad = (name) => {
+    const path = realpathSync(req.resolve(name));
+    // MathJax may request only pinned SVG glyph data; never input extensions.
+    const fontRoot = realpathSync(resolve(root, 'node_modules/@mathjax/mathjax-newcm-font'));
+    if (!path.startsWith(fontRoot + sep + 'cjs' + sep + 'svg' + sep + 'dynamic' + sep) ||
+        !/^[a-zA-Z0-9_-]+\.js$/.test(path.split(sep).at(-1))) fail('external-module');
+    loaded.add(path.slice(root.length + 1));
+    return req(path);
+  };
+  mathjax.asyncIsSynchronous = true;
+  const { MathML } = req('@mathjax/src/js/input/mathml.js');
+  const { SVG } = req('@mathjax/src/js/output/svg.js');
+  const { liteAdaptor } = req('@mathjax/src/js/adaptors/liteAdaptor.js');
+  const { RegisterHTMLHandler } = req('@mathjax/src/js/handlers/html.js');
+  const { MathJaxNewcmFont } = req('@mathjax/mathjax-newcm-font/js/svg.js');
+  const adaptor = liteAdaptor();
+  RegisterHTMLHandler(adaptor);
+  // The pinned SVG wrapper exposes the same advances and DOM paths used by
+  // MathJax's complete formula. Capture them once; fragment re-typesetting can
+  // change TeX atom spacing and is deliberately avoided.
+  class CapturingSVG extends SVG {
+    processMath(wrapper, parent) { super.processMath(wrapper, parent); this.lastWrapper = wrapper; }
+  }
+  const outputJax = new CapturingSVG({ fontCache: 'none', font: new MathJaxNewcmFont() });
+  const engine = mathjax.document('', { InputJax: new MathML(), OutputJax: outputJax });
+  return { mathjax, adaptor, outputJax, engine, loaded };
+}
+
+async function layout(input, root, req, runtime) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('input-value');
   if (Buffer.byteLength(JSON.stringify(input)) > 256 * 1024) fail('input-limit');
   if (Object.keys(input).some(k => !['kind', 'mathML', 'tex', 'display', 'width', 'fontSize', 'font', 'context'].includes(k))) fail('input-field');
@@ -149,32 +181,9 @@ async function layout(input, root, req) {
   } else {
     validateTeX(source);
   }
-  const { mathjax } = req('@mathjax/src/js/mathjax.js');
-  const loaded = [];
-  mathjax.asyncLoad = (name) => {
-    const path = realpathSync(req.resolve(name));
-    // MathJax may request only pinned SVG glyph data; never input extensions.
-    const fontRoot = realpathSync(resolve(root, 'node_modules/@mathjax/mathjax-newcm-font'));
-    if (!path.startsWith(fontRoot + sep + 'cjs' + sep + 'svg' + sep + 'dynamic' + sep) ||
-        !/^[a-zA-Z0-9_-]+\.js$/.test(path.split(sep).at(-1))) fail('external-module');
-    loaded.push(path.slice(root.length + 1));
-    return req(path);
-  };
-  mathjax.asyncIsSynchronous = true;
-  const { MathML } = req('@mathjax/src/js/input/mathml.js');
-  const { SVG } = req('@mathjax/src/js/output/svg.js');
-  const { liteAdaptor } = req('@mathjax/src/js/adaptors/liteAdaptor.js');
-  const { RegisterHTMLHandler } = req('@mathjax/src/js/handlers/html.js');
-  const { MathJaxNewcmFont } = req('@mathjax/mathjax-newcm-font/js/svg.js');
-  const adaptor = liteAdaptor();
-  RegisterHTMLHandler(adaptor);
-  // The pinned SVG wrapper exposes the same advances and DOM paths used by
-  // MathJax's complete formula. Capture them once; fragment re-typesetting can
-  // change TeX atom spacing and is deliberately avoided.
-  class CapturingSVG extends SVG {
-    processMath(wrapper, parent) { super.processMath(wrapper, parent); this.lastWrapper = wrapper; }
-  }
-  const outputJax = new CapturingSVG({ fontCache: 'none', font: new MathJaxNewcmFont() });
+  const { mathjax, adaptor, outputJax, engine, loaded } = runtime;
+  // A retry or an earlier formula must never supply this item's wrapper.
+  outputJax.lastWrapper = undefined;
   let mathML = source.trim(), semanticText = '', display = false;
   if (kind === 'tex') {
     const { TeX } = req('@mathjax/src/js/input/tex.js');
@@ -205,7 +214,6 @@ async function layout(input, root, req) {
   } else {
     display = /<math\b[^>]*\bdisplay\s*=\s*['"]block['"]/.test(mathML);
   }
-  const engine = mathjax.document('', { InputJax: new MathML(), OutputJax: outputJax });
   const dom = adaptor.parse(mathML, 'text/html');
   const math = adaptor.firstChild(adaptor.body(dom));
   // Native line flow may break only at top-level additive/relation operators.
@@ -289,7 +297,7 @@ async function layout(input, root, req) {
   const output = { version: 1, inputHash: hash(source), context: input.context,
     font: input.font, fontSize: input.fontSize, width: input.width, whole, fragments,
     diagnostics: fragments.some(f => f.width > input.width) ? ['indivisible-math-overflow'] : [],
-    runtime: { mathjax: '4.1.3', newcm: '4.1.3', ...(kind === 'tex' ? { inputPackages: texPackages } : {}), loaded: [...new Set(loaded)],
+    runtime: { mathjax: '4.1.3', newcm: '4.1.3', ...(kind === 'tex' ? { inputPackages: texPackages } : {}), loaded: [...loaded],
       moduleFiles: Object.keys(req.cache).filter(p => p.startsWith(root + sep)).map(p => p.slice(root.length + 1)).sort() } };
   if (kind === 'tex') Object.assign(output, { kind, normalizedTeX: source.trim(), normalizedMathML: mathML, semanticText, display });
   return output;

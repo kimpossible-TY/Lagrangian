@@ -845,8 +845,37 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         let epoch = lazyEpoch
         lazyTask = Task { [weak self] in
             var providerReturned = false
+            var isolatedFailures = Set<String>()
+            // Only viewport preparation can salvage siblings. The provider's
+            // full-document and worker batch contracts remain atomic.
+            func prepare(_ selected: [NativeReaderNode], isolating: Bool = false) async throws -> [String: NativeReaderPreparedTextObject] {
+                try Task.checkCancellation()
+                do { return try await provider(selected, key) }
+                catch {
+                    switch error {
+                    case is CancellationError, NativeObjectError.cancelled, NativeObjectError.stale,
+                         NativeReaderTextFailure.staleGeometry:
+                        throw error
+                    case is NativeObjectError, NativeReaderTextFailure.unsupportedObject,
+                         NativeReaderTextFailure.invalidGeometry:
+                        break
+                    default: throw error
+                    }
+                    guard selected.count > 1 else {
+                        if isolating {
+                            isolatedFailures.insert(selected[0].id)
+                            return [:]
+                        }
+                        throw error
+                    }
+                    let mid = selected.count / 2
+                    let left = try await prepare(Array(selected[..<mid]), isolating: true)
+                    let right = try await prepare(Array(selected[mid...]), isolating: true)
+                    return left.merging(right) { _, new in new }
+                }
+            }
             do {
-                let values = try await provider(missing, key)
+                let values = try await prepare(missing)
                 providerReturned = true
                 try Task.checkCancellation()
                 guard let self, self.lazyEpoch == epoch, self.lazyKey == key,
@@ -863,17 +892,23 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                 let changedIDs = previousIDs.symmetricDifference(currentIDs).union(currentIDs.intersection(values.keys))
                 try self.updateObjectAttachments(for: key, objects: staged.objects, changedIDs: changedIDs)
                 self.lazyCache = staged
-                // A budget-limited provider can return only a prefix. Retry the
-                // omitted nodes, while remembering returned-but-unadmitted ones
-                // so an overfull viewport cannot spin indefinitely.
+                // Retry omissions, but retain attempted IDs for isolated failures
+                // and returned-but-unadmitted objects to bound an overfull viewport.
                 if !values.isEmpty {
-                    self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys))
+                    self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys).subtracting(isolatedFailures))
                 }
                 self.lazyTask = nil
                 self.callbacks.readingPositionChanged()
                 self.prepareVisibleObjects()
             } catch {
                 guard let self, self.lazyEpoch == epoch else { return }
+                switch error {
+                case is CancellationError, NativeObjectError.cancelled, NativeObjectError.stale,
+                     NativeReaderTextFailure.staleGeometry:
+                    self.lazyTask = nil
+                    return
+                default: break
+                }
                 if !Task.isCancelled {
                     // Initial attempt plus at most two retries per ID in this
                     // viewport epoch. Invalid results are never retryable.

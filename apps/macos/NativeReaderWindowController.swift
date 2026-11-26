@@ -588,69 +588,63 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       fontName: key.appearance.fontName, theme: key.appearance.theme == .dark ? .dark : .light, mode: .reflow, pageHeight: 1000)
     let job = Task.detached(priority: .userInitiated) {
       precondition(!Thread.isMainThread, "Object preparation must leave the UI thread")
-      var selected = nodes
-      while true {
-        do {
-          var mathLayouts = [String: NativeMathLayout]()
-          let plan = try await NativeReaderPagedLayout.layout(document: document,
-            blockIDs: Set(fullDocument ? document.blocks.map(\.id) : selected.map(\.id)), context: c, assets: assets,
-            mathBatch: { items, context in
-              let diskKey = Self.layoutKey(key)
-              let cached = await viewedLayouts?.cached(for: diskKey) ?? [:]
-              var result = [String: NativeMathLayout]()
-              var missing = [(id: String, math: NativeMath, width: Double)]()
-              for item in items {
-                if let value = cached[item.id], let rebound = try? value.rebinding(math: item.math, context: context, width: item.width) {
-                  result[item.id] = rebound
-                } else { missing.append(item) }
-              }
-              if !missing.isEmpty {
-                guard let worker else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
-                result.merge(try await worker.calculateBatch(missing, context: context)) { _, new in new }
-              }
-              try Task.checkCancellation()
-              guard !ticket.isCancelled else { throw NativeObjectError.cancelled }
-              await viewedLayouts?.record(result, key: diskKey)
-              mathLayouts.merge(result) { _, new in new }
-              return result
-            }, math: { node, width in
-              guard let worker, let math = node.math else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
-              let layout = try await worker.calculate(math, context: c, width: width)
-              mathLayouts[node.id] = layout
-              return layout
-            }, cancelled: { ticket.isCancelled })
-          guard plan.diagnostics.isEmpty else { throw NativeObjectError.unsupported(plan.diagnostics.joined(separator: ";")) }
-          var objects = [String: NativeReaderPreparedTextObject]()
-          for node in selected {
-            try Task.checkCancellation()
-            guard let region = plan.regions.first(where: { $0.node.id == node.id }) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
-            let bounds = region.frames.reduce(CGRect.null) { $0.union($1) }
-            guard !bounds.isNull, bounds.width > 0, bounds.height > 0, bounds.width <= key.width else { throw NativeObjectError.invalidGeometry }
-            let ids = Set(node.orderedNodes.map(\.id))
-            let cost = plan.blockCosts[node.id] ?? plan.cost
-            let subplan = NativeObjectPlan(context: plan.context, items: plan.items.filter { ids.contains($0.nodeID) },
-              regions: plan.regions.filter { ids.contains($0.node.id) }, size: bounds.size, pageCount: 1, diagnostics: [], cost: cost)
-            var prepared = NativeReaderPreparedTextObject(key: key, size: bounds.size,
-              baseline: min(bounds.height, CGFloat(c.fontSize) * 0.2),
-              accessibilityLabel: NativeReaderPreparedTextObject.label(for: node), draw: { rect in
-                guard let context = NSGraphicsContext.current?.cgContext else { return }
-                context.saveGState(); context.clip(to: rect)
-                context.translateBy(x: rect.minX - bounds.minX, y: rect.minY - bounds.minY)
-                NativeReaderObjectRenderer.draw(subplan, in: context); context.restoreGState()
-              }, cost: cost)
-            prepared.mathLayouts = mathLayouts.filter { ids.contains($0.key) }
-            prepared.hitNode = { subplan.hit(CGPoint(x: $0.x + bounds.minX, y: $0.y + bounds.minY))?.node.id }
-            prepared.accessibilityLabelForNode = { id in subplan.regions.first { $0.node.id == id }.map { NativeReaderPreparedTextObject.label(for: $0.node) } }
-            objects[node.id] = prepared
+      let selected = nodes
+      var mathLayouts = [String: NativeMathLayout]()
+      let plan = try await NativeReaderPagedLayout.layout(document: document,
+        blockIDs: Set(fullDocument ? document.blocks.map(\.id) : selected.map(\.id)), context: c, assets: assets,
+        mathBatch: { items, context in
+          let diskKey = Self.layoutKey(key)
+          let cached = await viewedLayouts?.cached(for: diskKey) ?? [:]
+          var result = [String: NativeMathLayout]()
+          var missing = [(id: String, math: NativeMath, width: Double)]()
+          for item in items {
+            if let value = cached[item.id], let rebound = try? value.rebinding(math: item.math, context: context, width: item.width) {
+              result[item.id] = rebound
+            } else { missing.append(item) }
           }
-          if !fullDocument && objects.values.reduce(0, { $0 + $1.cost }) > NativeReaderLazyObjectCache.maxCost {
-            throw NativeObjectError.budget
+          if !missing.isEmpty {
+            guard let worker else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
+            result.merge(try await worker.calculateBatch(missing, context: context)) { _, new in new }
           }
-          return objects
-        } catch NativeObjectError.budget where !fullDocument && selected.count > 1 {
-          selected = Array(selected.prefix(max(1, selected.count / 2)))
-        }
+          try Task.checkCancellation()
+          guard !ticket.isCancelled else { throw NativeObjectError.cancelled }
+          await viewedLayouts?.record(result, key: diskKey)
+          mathLayouts.merge(result) { _, new in new }
+          return result
+        }, math: { node, width in
+          guard let worker, let math = node.math else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
+          let layout = try await worker.calculate(math, context: c, width: width)
+          mathLayouts[node.id] = layout
+          return layout
+        }, cancelled: { ticket.isCancelled })
+      guard plan.diagnostics.isEmpty else { throw NativeObjectError.unsupported(plan.diagnostics.joined(separator: ";")) }
+      var objects = [String: NativeReaderPreparedTextObject]()
+      for node in selected {
+        try Task.checkCancellation()
+        guard let region = plan.regions.first(where: { $0.node.id == node.id }) else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
+        let bounds = region.frames.reduce(CGRect.null) { $0.union($1) }
+        guard !bounds.isNull, bounds.width > 0, bounds.height > 0, bounds.width <= key.width else { throw NativeObjectError.invalidGeometry }
+        let ids = Set(node.orderedNodes.map(\.id))
+        let cost = plan.blockCosts[node.id] ?? plan.cost
+        let subplan = NativeObjectPlan(context: plan.context, items: plan.items.filter { ids.contains($0.nodeID) },
+          regions: plan.regions.filter { ids.contains($0.node.id) }, size: bounds.size, pageCount: 1, diagnostics: [], cost: cost)
+        var prepared = NativeReaderPreparedTextObject(key: key, size: bounds.size,
+          baseline: min(bounds.height, CGFloat(c.fontSize) * 0.2),
+          accessibilityLabel: NativeReaderPreparedTextObject.label(for: node), draw: { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return }
+            context.saveGState(); context.clip(to: rect)
+            context.translateBy(x: rect.minX - bounds.minX, y: rect.minY - bounds.minY)
+            NativeReaderObjectRenderer.draw(subplan, in: context); context.restoreGState()
+          }, cost: cost)
+        prepared.mathLayouts = mathLayouts.filter { ids.contains($0.key) }
+        prepared.hitNode = { subplan.hit(CGPoint(x: $0.x + bounds.minX, y: $0.y + bounds.minY))?.node.id }
+        prepared.accessibilityLabelForNode = { id in subplan.regions.first { $0.node.id == id }.map { NativeReaderPreparedTextObject.label(for: $0.node) } }
+        objects[node.id] = prepared
       }
+      if !fullDocument && objects.values.reduce(0, { $0 + $1.cost }) > NativeReaderLazyObjectCache.maxCost {
+        throw NativeObjectError.budget
+      }
+      return objects
     }
     return try await withTaskCancellationHandler(operation: {
       let objects = try await job.value

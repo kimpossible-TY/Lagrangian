@@ -40,7 +40,7 @@ from flow_reader.compiler.execution import local_compile
 from flow_reader.document.sections import split_document, SectionBundle
 from flow_reader.server.state import ReaderState
 from flow_reader.document.content import normalize_math_html
-from flow_reader.document.native_document import import_accepted_document, NativeImportError
+from flow_reader.document.native_document import import_accepted_document, NativeImportError, _Tree, _mathml
 
 
 def digest(path):
@@ -49,6 +49,40 @@ def digest(path):
 
 def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+
+
+class MathMLSerializationTests(unittest.TestCase):
+    def serialize(self, source):
+        return _mathml(_Tree(source).root.children[0])
+
+    def test_presentation_attributes_are_stripped_after_validation(self):
+        source = ('<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">'
+                  '<mtable class="multiline-equation aligned" mathsize="2em" mathcolor="red" mathbackground="white">'
+                  '<mtr><mtd><mrow class="flow-mark" style="color:red" id="mark" data-flow-mark="a">'
+                  '<mi mathvariant="script">T</mi></mrow></mtd></mtr></mtable></math>')
+        value = self.serialize(source)
+        self.assertEqual(value, '<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">'
+                         '<mtable><mtr><mtd><mrow><mi mathvariant="script">T</mi></mrow></mtd></mtr></mtable></math>')
+
+    def test_nested_math_becomes_mrow_without_nested_display_or_namespace(self):
+        self.assertEqual(self.serialize('<math display="block"><math display="inline" '
+                         'xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi>'
+                         '<math display="block"><mi>y</mi></math></math></math>'),
+                         '<math display="block"><mrow><mi>x</mi><mrow><mi>y</mi></mrow></mrow></math>')
+
+    def test_variation_selectors_are_removed_from_all_math_text(self):
+        selectors = ''.join(chr(n) for n in range(0xFE00, 0xFE10))
+        for tag in ['mi', 'mtext', 'span', 'sup', 'code']:
+            with self.subTest(tag=tag):
+                value = self.serialize('<math><' + tag + '>\U0001D4AF' + selectors + '&amp;x</' + tag + '></math>')
+                self.assertIn('\U0001D4AF&amp;x', value)
+                self.assertFalse(any(c in value for c in selectors))
+
+    def test_unknown_and_unsafe_attributes_still_reject(self):
+        for tag in ['math', 'mrow', 'mi', 'mtable']:
+            for attribute in ['unknown', 'onclick', 'href', 'src']:
+                with self.subTest(tag=tag, attribute=attribute), self.assertRaisesRegex(NativeImportError, '^unsupported-mathml$'):
+                    self.serialize('<math><' + tag + ' class="flow-mark" ' + attribute + '="x"></' + tag + '></math>')
 
 
 class LabelContractTests(unittest.TestCase):
@@ -373,7 +407,7 @@ class ContractTests(unittest.TestCase):
         def imported(html):
             bundle = SectionBundle({'revision': 'pde-regression', 'sections': [{'id': 'a'}, {'id': 'b'}]},
                 {'a': ('<html><body>' + html + '</body></html>').encode(),
-                 'b': b'<html><body><p id="same"><span data-flow-mark="repeat">again</span></p></body></html>'}, {}, [])
+                 'b': b'<html><body><p><span data-flow-mark="repeat">again</span></p></body></html>'}, {}, [])
             return import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).document
         name = '한글 mark, spaced'
         encoded = 'mark:h-' + hashlib.sha256(name.encode()).hexdigest()[:24]
