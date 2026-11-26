@@ -25,6 +25,7 @@ import AppKit
     private var selectionOperation = 0
     private var findOperation = 0
     private var selectionTask: Task<Void, Never>?
+    private var designObservation: NativeDesignObservation?
     fileprivate struct PageKey: Equatable {
         let snapshot: UUID; let page: Int; let generation: Int; let operation: Int
     }
@@ -111,12 +112,33 @@ import AppKit
     init(viewID: UUID) {
         store = NativeOriginalPageStore(viewID: viewID)
         super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 560))
+        wantsLayer = true
+        layer?.masksToBounds = false
+        designObservation = NativeDesignObservation(view: self) { [weak self] in self?.applyCanvasAppearance() }
         setAccessibilityLabel("Original PDF page; source actions unavailable")
         setAccessibilityRole(.group)
     }
     required init?(coder: NSCoder) { nil }
+    private func applyCanvasAppearance() {
+        let p = NativeAppDesign.palette(.current(appearance: effectiveAppearance))
+        enclosingScrollView?.drawsBackground = true
+        enclosingScrollView?.backgroundColor = p.pdfCanvas
+        enclosingScrollView?.contentView.drawsBackground = true
+        enclosingScrollView?.contentView.backgroundColor = p.pdfCanvas
+        needsDisplay = true
+    }
+    override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); applyCanvasAppearance() }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyCanvasAppearance() }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill(); dirtyRect.fill()
+        let preferences = NativeAppDesign.Preferences.current(appearance: effectiveAppearance)
+        let p = NativeAppDesign.palette(preferences)
+        p.pdfCanvas.setFill(); dirtyRect.fill()
+        // The layer casts beyond the page view's bounds into the scroll canvas.
+        // Its path never changes PDF geometry, raster pixels or selection offsets.
+        layer?.shadowOpacity = !disposed && !isHidden && ready ? (preferences.increasedContrast ? 0.08 : 0.16) : 0
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowRadius = 8; layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.shadowPath = CGPath(rect: bounds, transform: nil)
         guard !disposed, !isHidden, ready, let context = NSGraphicsContext.current?.cgContext else { return }
         do {
             let receipt = try store.paint(in: context)

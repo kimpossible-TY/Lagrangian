@@ -26,6 +26,8 @@
     "NativeAppDesign.swift",
     "NativeCrossProjectPreviewPopover.swift",
     "NativeBrandMark.swift",
+    "NativeOutlineDrawerView.swift",
+    "NativeModeMorphSwitch.swift",
     "NativeFloatingCapsule.swift",
     "NativeReaderSelection.swift",
     "NativeReaderAccessibility.swift",

@@ -4,10 +4,44 @@ import CoreText
 struct NativeReaderTextAppearance: Equatable {
     enum Theme: String { case light, dark }
     var fontName: String = "system"
-    var fontSize: CGFloat = 14
+    var fontSize: CGFloat = 15
     var zoom: CGFloat = 1
     var theme: Theme = .light
     var effectiveSize: CGFloat { fontSize * zoom }
+    func bodyFont(size: CGFloat? = nil) -> NSFont {
+        let size = size ?? effectiveSize
+        let serif = NSFont(name: "STIXTwoText", size: size)
+            ?? NSFont(name: "STIXTwoText-Regular", size: size)
+            // Apple's New York is requested through the public serif design;
+            // requesting its private name can silently resolve to Times instead.
+            ?? NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) }
+            ?? NSFont(name: "Georgia", size: size) ?? NSFont.systemFont(ofSize: size)
+        let chosen = fontName == "system" ? serif : (NSFont(name: fontName, size: size) ?? serif)
+        let cascade = NSFontDescriptor(name: "AppleSDGothicNeo-Regular", size: size)
+        let descriptor = chosen.fontDescriptor.addingAttributes([.cascadeList: [cascade]])
+        return NSFont(descriptor: descriptor, size: size) ?? chosen
+    }
+    func tabularFont(size: CGFloat) -> NSFont {
+        let base = bodyFont(size: size)
+        let descriptor = base.fontDescriptor.addingAttributes([.featureSettings: [
+            [NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
+             NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector]]])
+        let candidate = NSFont(descriptor: descriptor, size: size) ?? base
+        // STIX has tabular digits by default and drops the redundant feature.
+        // Other user fonts can ignore it while retaining proportional digits.
+        let widths = (0...9).map {
+            CTLineGetTypographicBounds(CTLineCreateWithAttributedString(
+                NSAttributedString(string: String($0), attributes: [.font: candidate])), nil, nil, nil)
+        }
+        if let first = widths.first, widths.allSatisfy({ abs($0 - first) < 0.01 }) { return candidate }
+        return NSFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+    }
+    // The current semantic wire model has no code node. This style is reusable
+    // by presentation code without guessing code from natural-language metadata.
+    func codeAttributes(palette: NativeAppDesign.Palette) -> [NSAttributedString.Key: Any] {
+        [.font: NSFont.monospacedSystemFont(ofSize: effectiveSize * 0.88, weight: .regular),
+         .foregroundColor: palette.ink, .backgroundColor: palette.codeBg]
+    }
 }
 
 // This key is also the off-thread object preparer's adoption key. Providers only
@@ -234,7 +268,30 @@ final class NativeReaderFindScrollView: NSScrollView {
 
 // NSTextView supplies real TextKit/CoreText shaping, bidi visual navigation,
 // ligature carets, native responder commands and the native AX text API.
+private let nativeHeadingRule = NSAttributedString.Key("NativeReaderHeadingRule")
+private let nativeReaderLink = NSAttributedString.Key("NativeReaderLink")
+
 final class NativeReaderBodyTextView: NativeReaderInputTextView {
+    private var linkTracking: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let linkTracking { removeTrackingArea(linkTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.inVisibleRect, .activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited], owner: self)
+        addTrackingArea(area); linkTracking = area
+    }
+    override func mouseMoved(with event: NSEvent) { reader?.hoverLink(at: convert(event.locationInWindow, from: nil)) }
+    override func mouseExited(with event: NSEvent) { reader?.hoverLink(at: nil) }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let storage = textStorage, let manager = layoutManager, let container = textContainer else { return }
+        storage.enumerateAttribute(nativeReaderLink, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard value != nil else { return }
+            manager.enumerateEnclosingRects(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil),
+                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, _ in
+                self.addCursorRect(rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y), cursor: .pointingHand)
+            }
+        }
+    }
     weak var reader: NativeReaderTextView?
     override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting flag: Bool) {
         guard let reader = reader else {
@@ -319,6 +376,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         guard let reader = reader, !reader.isDisposed, let key = reader.renderKey, key == reader.requestedRenderKey else { return }
         reader.beginBodyDraw()
         super.draw(dirtyRect)
+        reader.paintHeadingRules(in: dirtyRect)
         reader.paintLocalReview(in: dirtyRect)
         reader.endBodyDraw(key: key, dirtyRect: dirtyRect)
     }
@@ -405,6 +463,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     private var lazyViewportIDs = Set<String>()
     private var lazyVisibleIDs = Set<String>()
     private var viewportObserver: NSObjectProtocol?
+    private var designObserver: NSObjectProtocol?
     var preparedObjectCost: Int { lazyCache.cost }
     var preparedObjectIDs: Set<String> { Set(lazyCache.objects.keys) }
     var viewedWindowMathLayouts: [String: NativeMathLayout] {
@@ -436,11 +495,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     }
     fileprivate func paintLocalReview(in dirty: NSRect) {
         guard !isDisposed, !isCancelled, let key = renderKey, key == requestedRenderKey else { return }
-        NSColor.systemRed.withAlphaComponent(0.85).setStroke()
+        designPalette.reviewInk.setStroke()
         for selection in reviewSelections {
             for fragment in selection.fragments {
                 for rect in rects(blockID: fragment.blockID, logical: fragment.rangeUTF16) where rect.intersects(dirty) {
-                    let line = NSBezierPath(); line.lineWidth = 1.5
+                    let line = NSBezierPath(); line.lineWidth = 1.3; line.lineCapStyle = .round
                     line.move(to: NSPoint(x: rect.minX, y: rect.midY)); line.line(to: NSPoint(x: rect.maxX, y: rect.midY)); line.stroke()
                 }
             }
@@ -527,15 +586,26 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         bodyTextView.allowsUndo = false
         bodyTextView.isVerticallyResizable = true
         bodyTextView.isHorizontallyResizable = false
-        bodyTextView.textContainerInset = NSSize(width: 16, height: 16)
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 24, left: 0, bottom: 104, right: 0)
+        applyPaperAppearance()
         bodyTextView.textContainer?.lineFragmentPadding = 0
-        bodyTextView.textContainer?.widthTracksTextView = true
+        // layoutFrames owns the centered measure, including odd viewport widths.
+        bodyTextView.textContainer?.widthTracksTextView = false
         bodyTextView.setAccessibilityLabel("Reader body")
         scrollView.contentView.postsBoundsChangedNotifications = true
         viewportObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: scrollView.contentView, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 self?.prepareVisibleObjects(); self?.callbacks.readingPositionChanged()
+            }
+        }
+        designObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.isDisposed else { return }
+                self.applyPaperAppearance(); self.reflow(restoring: self.viewportAnchor())
             }
         }
         scrollView.documentView = bodyTextView
@@ -607,11 +677,17 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         scrollView.frame = NSRect(x: 0, y: statusHeight, width: max(64, bounds.width), height: max(32, bounds.height - statusHeight))
         statusLabel.frame = NSRect(x: 8, y: 0, width: max(48, bounds.width - 16), height: statusHeight)
         bodyTextView.setFrameSize(NSSize(width: scrollView.contentSize.width, height: max(bodyTextView.frame.height, max(32, scrollView.contentSize.height))))
-        bodyTextView.textContainer?.containerSize = NSSize(width: max(32, bodyTextView.bounds.width - 32), height: .greatestFiniteMagnitude)
+        let available = bodyTextView.bounds.width
+        let targetMeasure = min(720, max(680, textAppearance.effectiveSize * 45))
+        let minSidePadding: CGFloat = available <= 640 ? 20 : 28
+        let columnWidth = max(1, min(targetMeasure, available - 2 * minSidePadding))
+        let horizontalInset = floor((available - columnWidth) / 2)
+        bodyTextView.textContainerInset = NSSize(width: horizontalInset, height: 8)
+        bodyTextView.textContainer?.containerSize = NSSize(width: columnWidth, height: .greatestFiniteMagnitude)
     }
     private func key(for document: NativeReaderDocument) -> NativeReaderTextRenderKey {
         .init(identity: document.identity, documentGeneration: document.generation, viewID: store.viewID,
-              layoutGeneration: layoutGeneration, width: (max(32, bodyTextView.bounds.width - 32) * 2).rounded() / 2, appearance: textAppearance)
+              layoutGeneration: layoutGeneration, width: ((bodyTextView.textContainer?.containerSize.width ?? 1) * 2).rounded() / 2, appearance: textAppearance)
     }
     // Pure preparation handshake: NA06 can calculate objects off-thread for an
     // incoming candidate before adoption. Failed/missing-cache retries retain
@@ -667,22 +743,87 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         let objects: [String: NativeReaderPreparedTextObject]
         let objectRanges: [String: NSRange]
     }
+    var designPreferences: NativeAppDesign.Preferences {
+        var preferences = NativeAppDesign.Preferences.current(appearance: effectiveAppearance)
+        preferences.theme = textAppearance.theme == .dark ? .dark : .light
+        return preferences
+    }
+    var designPalette: NativeAppDesign.Palette { NativeAppDesign.palette(designPreferences) }
+    private func applyPaperAppearance() {
+        let p = designPalette
+        scrollView.backgroundColor = p.paper; scrollView.contentView.backgroundColor = p.paper
+        bodyTextView.backgroundColor = p.paper; bodyTextView.insertionPointColor = p.accent
+        bodyTextView.selectedTextAttributes = [.backgroundColor: p.selection, .foregroundColor: p.ink]
+    }
+    fileprivate func hoverLink(at point: NSPoint?) {
+        guard let key = renderKey, key == requestedRenderKey, let storage = bodyTextView.textStorage,
+              let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer else { return }
+        var hovered: String?
+        if let point {
+            let local = NSPoint(x: point.x - bodyTextView.textContainerOrigin.x, y: point.y - bodyTextView.textContainerOrigin.y)
+            let index = manager.characterIndex(for: local, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+            if index < storage.length,
+               let id = storage.attribute(nativeReaderLink, at: index, effectiveRange: nil) as? String {
+                let glyph = manager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+                if manager.boundingRect(forGlyphRange: glyph, in: container).contains(local) { hovered = id }
+            }
+        }
+        let p = designPalette
+        var runs: [(NSRange, Bool)] = []
+        storage.enumerateAttribute(nativeReaderLink, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if let id = value as? String { runs.append((range, id == hovered)) }
+        }
+        for (range, active) in runs {
+            let underline = active ? p.accentHover : p.accent
+            storage.addAttributes([.foregroundColor: active ? p.accentHover : p.accent,
+                .underlineColor: underline.withAlphaComponent(designPreferences.increasedContrast ? 1 : (active ? 0.88 : 0.42))], range: range)
+        }
+        if bodyTextView.window?.isKeyWindow == true {
+            if hovered != nil { NSCursor.pointingHand.set() } else { NSCursor.iBeam.set() }
+        }
+    }
+    fileprivate func paintHeadingRules(in dirty: NSRect) {
+        guard let storage = bodyTextView.textStorage, let manager = bodyTextView.layoutManager,
+              let container = bodyTextView.textContainer else { return }
+        designPalette.rule.setFill()
+        storage.enumerateAttribute(nativeHeadingRule, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard value != nil, range.length > 0 else { return }
+            let glyph = manager.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
+            let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+            let line = NSRect(x: self.bodyTextView.textContainerOrigin.x, y: self.bodyTextView.textContainerOrigin.y + rect.minY - 14,
+                              width: container.containerSize.width, height: 1)
+            if line.intersects(dirty) { line.fill() }
+        }
+    }
     private func compose(_ document: NativeReaderDocument, key: NativeReaderTextRenderKey) throws -> Composition {
         let text = NSMutableAttributedString(string: "")
         var spans: [NativeReaderPresentationSpan] = []
         var objects: [String: NativeReaderPreparedTextObject] = [:]
         var objectRanges = [String: NSRange]()
         let large = preparesViewedWindowsOnly || NativeReaderPreparedTextObject.isLarge(document)
-        let foreground = textAppearance.theme == .dark ? NSColor.white : NSColor.black
-        let font = NSFont(name: textAppearance.fontName, size: textAppearance.effectiveSize) ?? NSFont.systemFont(ofSize: textAppearance.effectiveSize)
+        let p = designPalette
+        let foreground = p.ink
+        let font = textAppearance.bodyFont()
+        let numberFont = textAppearance.tabularFont(size: textAppearance.effectiveSize * 0.87)
         let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacing = textAppearance.effectiveSize * 0.65
+        paragraph.lineHeightMultiple = 1.65
+        paragraph.paragraphSpacing = textAppearance.effectiveSize * 0.80
+        paragraph.hyphenationFactor = 0.0
         let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground, .paragraphStyle: paragraph]
         func append(_ node: NativeReaderNode, block: NativeReaderNode, attributes: [NSAttributedString.Key: Any]) throws {
             guard node.visible else { throw NativeReaderTextFailure.unsupportedObject(node.id) }
             var attributes = attributes
             if node.kind == .heading {
-                attributes[.font] = NSFont.boldSystemFont(ofSize: textAppearance.effectiveSize * max(1.1, 1.8 - CGFloat(node.headingLevel ?? 1) * 0.15))
+                let level = min(6, max(1, node.headingLevel ?? 1))
+                let scales: [CGFloat] = [1.80, 1.48, 1.24, 1.08, 1.08, 1.08]
+                attributes[.font] = NSFontManager.shared.convert(textAppearance.bodyFont(size: textAppearance.effectiveSize * scales[level - 1]), toHaveTrait: .boldFontMask)
+                attributes[.foregroundColor] = level >= 5 ? p.secondaryInk : p.ink
+                let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
+                style.lineHeightMultiple = [1.25, 1.28, 1.32, 1.38, 1.38, 1.38][level - 1]
+                style.paragraphSpacingBefore = textAppearance.effectiveSize * [2.1, 1.85, 1.45, 1.05, 1.05, 1.05][level - 1] + (level == 2 ? 14 : 0)
+                style.paragraphSpacing = textAppearance.effectiveSize * [0.65, 0.60, 0.48, 0.40, 0.40, 0.40][level - 1]
+                attributes[.paragraphStyle] = style
+                if level == 2 { attributes[nativeHeadingRule] = true }
             }
             if node.kind == .strong || node.kind == .emphasis {
                 let current = attributes[.font] as? NSFont ?? font
@@ -690,10 +831,30 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             }
             if node.kind == .link {
                 // No NSLink attribute: AppKit must never open URLs on our behalf.
-                attributes[.foregroundColor] = textAppearance.theme == .dark ? NSColor.cyan : NSColor.systemBlue
+                attributes[.foregroundColor] = p.accent
+                attributes[nativeReaderLink] = node.id
+                attributes[.underlineColor] = p.accent.withAlphaComponent(designPreferences.increasedContrast ? 1 : 0.42)
                 attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
             }
-            if node.kind == .annotation { attributes[.backgroundColor] = NSColor.systemYellow.withAlphaComponent(0.22) }
+            if node.kind == .caption || node.kind == .equationNumber {
+                attributes[.foregroundColor] = p.secondaryInk
+                attributes[.font] = numberFont
+                let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
+                style.lineHeightMultiple = 1.50; style.paragraphSpacingBefore = 6; style.paragraphSpacing = 10
+                attributes[.paragraphStyle] = style
+            }
+            if node.kind == .annotation {
+                attributes[.backgroundColor] = p.highlight
+                if designPreferences.increasedContrast {
+                    attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                    attributes[.underlineColor] = p.highlightEdge
+                }
+            }
+            if node.kind == .break {
+                text.append(NSAttributedString(string: "\n", attributes: attributes))
+                // The accepted node may carry canonical characters as well. Map
+                // those exactly below; only the inserted newline is unmapped.
+            }
             if let language = node.language { attributes[NSAttributedString.Key(kCTLanguageAttributeName as String)] = language }
             if let direction = node.direction, direction != "auto" {
                 let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
@@ -727,7 +888,19 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                                    presentation: NSRange(location: text.length, length: part.length), isObject: false))
                 text.append(part)
             } else {
-                for child in node.children { try append(child, block: block, attributes: attributes) }
+                let blockKinds: Set<NativeReaderNode.Kind> = [.paragraph, .heading, .group, .equation, .table, .figure, .caption]
+                var previousWasBlock = false
+                var previousWasBreak = false
+                for (index, child) in node.children.enumerated() {
+                    let isBlock = blockKinds.contains(child.kind) || (child.kind == .image && child.imageLayout?.placement == .block)
+                    if node.kind == .group, index > 0, child.kind != .break, !previousWasBreak, previousWasBlock || isBlock,
+                       !(text.string as NSString).hasSuffix("\n") {
+                        text.append(NSAttributedString(string: "\n", attributes: base))
+                    }
+                    try append(child, block: block, attributes: attributes)
+                    previousWasBlock = isBlock
+                    previousWasBreak = child.kind == .break
+                }
             }
         }
         for (index, block) in document.blocks.enumerated() {
@@ -752,8 +925,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         textMap = .init(document: document, spans: composition.spans, length: composition.text.length)
         bodyTextView.textStorage?.setAttributedString(composition.text)
         bodyTextView.appearance = NSAppearance(named: textAppearance.theme == .dark ? .darkAqua : .aqua)
-        bodyTextView.backgroundColor = textAppearance.theme == .dark ? NSColor.black : NSColor.white
-        bodyTextView.insertionPointColor = textAppearance.theme == .dark ? NSColor.white : NSColor.black
+        applyPaperAppearance()
+        bodyTextView.window?.invalidateCursorRects(for: bodyTextView)
         if let selection = store.selection, let first = selection.fragments.first, let last = selection.fragments.last,
            let start = try? textMap?.presentation(of: .init(blockID: first.blockID, utf16: first.rangeUTF16.lowerBound, affinity: .upstream)),
            let end = try? textMap?.presentation(of: .init(blockID: last.blockID, utf16: last.rangeUTF16.upperBound, affinity: .downstream)) {
@@ -779,6 +952,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         guard value != textAppearance else { return }
         let anchor = viewportAnchor()
         textAppearance = value
+        layoutFrames()
         reflow(restoring: anchor)
     }
     func changeZoom(by factor: CGFloat) {
@@ -1091,6 +1265,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         cachedObject = nil
         if let viewportObserver { NotificationCenter.default.removeObserver(viewportObserver) }
         viewportObserver = nil
+        if let designObserver { NSWorkspace.shared.notificationCenter.removeObserver(designObserver) }
+        designObserver = nil
         preparedObjects = [:]; attachmentNodes = []; objectRanges = [:]
         lazyCache = NativeReaderLazyObjectCache()
     }
@@ -1153,7 +1329,7 @@ extension NativeReaderTextView {
         let index = try map.presentation(of: position)
         manager.ensureLayout(for: container)
         if manager.numberOfGlyphs == 0 {
-            let font = NSFont(name: textAppearance.fontName, size: textAppearance.effectiveSize) ?? NSFont.systemFont(ofSize: textAppearance.effectiveSize)
+            let font = textAppearance.bodyFont()
             return .init(key: key, position: position, rect: NSRect(origin: bodyTextView.textContainerOrigin,
                 size: NSSize(width: 1, height: ceil(font.ascender - font.descender + font.leading))))
         }

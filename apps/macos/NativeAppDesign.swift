@@ -1,6 +1,7 @@
 import AppKit
+import QuartzCore
 
-/// Chrome only. Document, answer, math and PDF typography remain with their renderers.
+/// Shared chrome and paper tokens. Typography and PDF ink remain renderer-owned.
 enum NativeAppDesign {
     enum Theme: String, CaseIterable { case light, dark }
     struct Preferences {
@@ -19,8 +20,11 @@ enum NativeAppDesign {
         }
     }
     struct Palette {
-        let paper, panel, ink, secondaryInk, accent, boundary, selection, onAccent: NSColor
-        let hover, pressed, disabledInk, warning, error: NSColor
+        let paper, panel, track, pdfCanvas, codeBg, ink, secondaryInk, disabledInk: NSColor
+        let accent, accentHover, onAccent, boundary, glassEdge, glassSpecular, rule: NSColor
+        let wash, pressed, selection, highlight, highlightEdge, warning, error, reviewInk, sage: NSColor
+        let scrim, glassTintDrawer, glassTintCapsule: NSColor
+        var hover: NSColor { wash }
     }
     enum Spacing {
         static let tight: CGFloat = 4, small: CGFloat = 8, control: CGFloat = 12
@@ -50,26 +54,41 @@ enum NativeAppDesign {
                 green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
     }
     static func palette(_ preferences: Preferences) -> Palette {
-        let dark = preferences.theme == .dark
-        // Opaque sRGB in every mode; preferences never require an optical material.
-        return Palette(paper: color(dark ? 0x24231F : 0xF7F2E8),
-                       panel: color(dark ? 0x302E29 : 0xFFFCF5),
-                       ink: color(dark ? 0xF7F2E8 : 0x292722),
-                       secondaryInk: color(dark ? 0xD0C9BC : 0x625D53),
-                       accent: color(dark ? 0xC6BEFF : 0x514A83),
-                       boundary: color(dark ? (preferences.increasedContrast ? 0xEEE8DC : 0xA59D90)
-                                            : (preferences.increasedContrast ? 0x292722 : 0x81786A)),
-                       selection: color(dark ? 0x49405E : 0xE6DEF4),
-                       onAccent: color(dark ? 0x24231F : 0xFFFCF5),
-                       hover: color(dark ? 0x403C49 : 0xEEE8F5),
-                       pressed: color(dark ? 0x514A62 : 0xDED5ED),
-                       disabledInk: color(dark ? 0xC0B9AB : 0x71695E),
-                       warning: color(dark ? 0xF2CF8C : 0x785517),
-                       error: color(dark ? 0xFFB5AE : 0x9C302C))
+        let dark = preferences.theme == .dark, hc = preferences.increasedContrast
+        func token(_ light: UInt32, _ night: UInt32, _ highLight: UInt32, _ highNight: UInt32) -> NSColor {
+            color(hc ? (dark ? highNight : highLight) : (dark ? night : light))
+        }
+        let panel = token(0xFFFCF5, 0x302E29, 0xFFFCF5, 0x2E2C27)
+        let solid = hc || preferences.reduceTransparency
+        return Palette(
+            paper: token(0xF7F2E8, 0x24231F, 0xF7F2E8, 0x24231F), panel: panel,
+            track: token(0xEAE3D5, 0x1C1B18, 0xE4DCCB, 0x181714),
+            pdfCanvas: token(0xEDE7DA, 0x1C1B18, 0xE6DFD0, 0x181714),
+            codeBg: token(0xEFE9DC, 0x2E2C27, 0xEAE3D3, 0x34322C),
+            ink: token(0x292722, 0xF7F2E8, 0x1A1916, 0xFFFDF8),
+            secondaryInk: token(0x625D53, 0xD0C9BC, 0x433F37, 0xE5DFD2),
+            disabledInk: token(0x71695E, 0xC0B9AB, 0x575147, 0xCFC8BA),
+            accent: token(0x514A83, 0xC6BEFF, 0x3B3469, 0xDCD6FF),
+            accentHover: token(0x3E376B, 0xDBD5FF, 0x2B2552, 0xECE8FF),
+            onAccent: token(0xFFFCF5, 0x24231F, 0xFFFFFF, 0x181714),
+            boundary: token(0x81786A, 0xA59D90, 0x292722, 0xEEE8DC),
+            glassEdge: token(0x292722, 0xF7F2E8, 0x292722, 0xEEE8DC).withAlphaComponent(hc ? 1 : 0.14),
+            glassSpecular: hc ? .clear : color(dark ? 0xFFFDF8 : 0xFFFFFF).withAlphaComponent(dark ? 0.10 : 0.55),
+            rule: token(0xDED8CB, 0x3D3A33, 0x81786A, 0xA59D90),
+            wash: token(0xEEE8F5, 0x403C49, 0xE4DBF2, 0x464152),
+            pressed: token(0xDED5ED, 0x514A62, 0xD1C4EA, 0x59526B),
+            selection: token(0xE6DEF4, 0x49405E, 0xD9CEEE, 0x54496E),
+            highlight: token(0xF0DFAA, 0x54472A, 0xEBD48E, 0x61512C),
+            highlightEdge: token(0x8F6A1E, 0xDFC070, 0x6E4F12, 0xF0D589),
+            warning: token(0x785517, 0xF2CF8C, 0x5E410E, 0xF9DC9E),
+            error: token(0x9C302C, 0xFFB5AE, 0x821E1B, 0xFFC7C2),
+            reviewInk: token(0xA82828, 0xFF9894, 0x8A1D1D, 0xFFB3AE),
+            sage: token(0x56765B, 0xA9C6AA, 0x3B5940, 0xC2DFC3),
+            scrim: color(dark ? 0 : 0x292722).withAlphaComponent(hc ? (dark ? 0.52 : 0.28) : (dark ? 0.36 : 0.14)),
+            glassTintDrawer: panel.withAlphaComponent(solid ? 1 : (dark ? 0.86 : 0.84)),
+            glassTintCapsule: panel.withAlphaComponent(solid ? 1 : (dark ? 0.90 : 0.88)))
     }
-    static func sage(_ preferences: Preferences) -> NSColor {
-        color(preferences.theme == .dark ? 0xA9C6AA : 0x56765B)
-    }
+    static func sage(_ preferences: Preferences) -> NSColor { palette(preferences).sage }
     enum ButtonRole { case standard, primary, ghost }
     struct ButtonPaint {
         let fill, ink, edge: NSColor
@@ -102,10 +121,13 @@ enum NativeAppDesign {
 /// Shared preference invalidation only; no global settings, state store or event interception.
 final class NativeDesignObservation {
     private var token: NSObjectProtocol?
-    init(view: NSView) {
+    init(view: NSView, onChange: (() -> Void)? = nil) {
         token = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak view] _ in view?.needsDisplay = true }
+        ) { [weak view] _ in
+            view?.needsLayout = true; view?.needsDisplay = true
+            onChange?()
+        }
     }
     deinit { if let token { NSWorkspace.shared.notificationCenter.removeObserver(token) } }
 }
@@ -217,5 +239,79 @@ private final class NativeDesignButtonCell: NSButtonCell {
         let text = NSMutableAttributedString(attributedString: title)
         text.addAttribute(.foregroundColor, value: button.paint.ink, range: NSRange(location: 0, length: text.length))
         return super.drawTitle(text, withFrame: frame, in: controlView)
+    }
+}
+
+/// The shadow host never paints. All material, tint and edges live inside the clip.
+final class NativeFloatingGlassView: NSView {
+    enum Style { case drawer, capsule }
+    let style: Style
+    let contentView = NSView()
+    let effectView = NSVisualEffectView()
+    private let tint = CALayer(), edge = CALayer(), specular = CALayer()
+    private let ambient = CALayer(), contact = CALayer()
+    var cornerRadius: CGFloat = 24 { didSet { needsLayout = true } }
+    var preferencesOverride: NativeAppDesign.Preferences? { didSet { needsDisplay = true; needsLayout = true } }
+    var preferences: NativeAppDesign.Preferences { preferencesOverride ?? .current(appearance: effectiveAppearance) }
+    private var observation: NativeDesignObservation?
+    override var isOpaque: Bool { false }
+    init(style: Style) {
+        self.style = style
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.masksToBounds = false
+        layer?.addSublayer(ambient); layer?.addSublayer(contact)
+        contentView.wantsLayer = true
+        contentView.layer?.masksToBounds = true
+        contentView.layer?.cornerCurve = .continuous
+        addSubview(contentView)
+        effectView.material = .popover; effectView.blendingMode = .withinWindow
+        effectView.state = .followsWindowActiveState
+        contentView.addSubview(effectView)
+        effectView.wantsLayer = true
+        effectView.layer?.addSublayer(tint)
+        contentView.layer?.addSublayer(edge); contentView.layer?.addSublayer(specular)
+        observation = NativeDesignObservation(view: self)
+    }
+    required init?(coder: NSCoder) { nil }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsLayout = true }
+    override func draw(_ dirtyRect: NSRect) { updatePaint() }
+    private func updatePaint() {
+        let p = NativeAppDesign.palette(preferences)
+        let solid = preferences.reduceTransparency || preferences.increasedContrast
+        effectView.isHidden = solid
+        contentView.layer?.backgroundColor = (solid ? p.panel : .clear).cgColor
+        tint.backgroundColor = (style == .drawer ? p.glassTintDrawer : p.glassTintCapsule).cgColor
+        edge.borderColor = (solid ? p.boundary : p.glassEdge).cgColor
+        edge.borderWidth = solid ? 2 : 1
+        specular.backgroundColor = solid ? NSColor.clear.cgColor : p.glassSpecular.cgColor
+        for shadow in [ambient, contact] {
+            shadow.backgroundColor = NSColor.clear.cgColor
+            let dark = preferences.theme == .dark, outer = shadow === ambient
+            shadow.shadowColor = NativeAppDesign.color(dark ? 0 : 0x292722).cgColor
+            let opacity: Float = style == .drawer ? (outer ? (dark ? 0.50 : 0.14) : (dark ? 0.32 : 0.08))
+                : (outer ? (dark ? 0.42 : 0.11) : (dark ? 0.28 : 0.07))
+            shadow.shadowOpacity = opacity * (solid ? 0.5 : 1)
+        }
+    }
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        contentView.frame = bounds; effectView.frame = contentView.bounds
+        let radius = min(cornerRadius, min(bounds.width, bounds.height) / 2)
+        contentView.layer?.cornerRadius = radius
+        tint.frame = contentView.bounds; edge.frame = contentView.bounds; edge.cornerRadius = radius
+        edge.cornerCurve = .continuous
+        specular.frame = CGRect(x: radius, y: bounds.height - 1, width: max(0, bounds.width - 2 * radius), height: 1)
+        for shadow in [ambient, contact] {
+            shadow.frame = bounds
+            shadow.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            shadow.shadowRadius = shadow === ambient
+                ? (style == .drawer ? (preferences.theme == .dark ? 30 : 28) : (preferences.theme == .dark ? 20 : 18))
+                : (style == .drawer ? 4 : 3)
+            shadow.shadowOffset = CGSize(width: 0, height: shadow === ambient ? (style == .drawer ? -10 : -6) : -1)
+        }
+        updatePaint(); CATransaction.commit()
     }
 }

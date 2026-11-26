@@ -141,3 +141,153 @@ final class NativeBrandMarkView: NSView {
         }
     }
 }
+
+/// Reader-only interaction adapter. Home continues to use NativeBrandMarkView.
+final class NativeBrandMarkControl: NSControl {
+    var onOpenHome: (() -> Void)?
+    var onRefresh: (() -> Void)?
+    var statusText = "준비됨" { didSet { statusLabel.stringValue = statusText } }
+    var isOfflineRecoveryCopy = false { didSet { refreshButton.isEnabled = !isOfflineRecoveryCopy } }
+    var phase: NativeBrandMark.Phase = .idle { didSet { mark.phase = phase; needsDisplay = true } }
+    var preferencesOverride: NativeAppDesign.Preferences? {
+        didSet {
+            mark.preferencesOverride = preferencesOverride
+            (statusPopover.contentViewController?.view as? NativeDesignSurface)?.preferencesOverride = preferencesOverride
+            needsDisplay = true
+        }
+    }
+    var preferences: NativeAppDesign.Preferences { preferencesOverride ?? .current(appearance: effectiveAppearance) }
+    let mark = NativeBrandMarkView(frame: .zero)
+    let statusPopover = NSPopover()
+    private let statusLabel = NSTextField(labelWithString: "준비됨")
+    private let refreshButton = NativeDesignButton(title: "새로고침 (⌘R)", target: nil, action: nil)
+    private let ring = CAShapeLayer()
+    private var holdTimer: Timer?
+    private var origin: NSPoint?
+    private var started: TimeInterval = 0
+    private var maximumMovement: CGFloat = 0
+    private var completedGesture = false
+    private var translation: CGFloat = 0
+    private var observation: NativeDesignObservation?
+    override var intrinsicContentSize: NSSize { NSSize(width: 40, height: 32) }
+    override var acceptsFirstResponder: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true; layer?.masksToBounds = false
+        mark.wantsLayer = true; mark.setAccessibilityElement(false)
+        addSubview(mark); layer?.addSublayer(ring)
+        ring.fillColor = NSColor.clear.cgColor; ring.lineWidth = 1.5; ring.isHidden = true
+        setAccessibilityRole(.button); setAccessibilityLabel("Lagrangian 상태 및 홈")
+        let surface = NativeDesignSurface(frame: NSRect(x: 0, y: 0, width: 250, height: 126))
+        surface.role = .floating
+        let home = NativeDesignButton(title: "홈으로 이동 (⌘0)", target: self, action: #selector(openHome))
+        refreshButton.target = self; refreshButton.action = #selector(refresh)
+        statusLabel.frame = NSRect(x: 16, y: 94, width: 218, height: 20)
+        home.frame = NSRect(x: 12, y: 50, width: 226, height: 32)
+        refreshButton.frame = NSRect(x: 12, y: 12, width: 226, height: 32)
+        [statusLabel, home, refreshButton].forEach { surface.addSubview($0) }
+        let controller = NSViewController(); controller.view = surface
+        statusPopover.contentViewController = controller; statusPopover.behavior = .transient
+        observation = NativeDesignObservation(view: self)
+    }
+    required init?(coder: NSCoder) { nil }
+    deinit { holdTimer?.invalidate() }
+    override func layout() {
+        super.layout()
+        mark.frame = NSRect(x: bounds.midX - 14, y: bounds.midY - 13, width: 28, height: 26)
+        ring.path = CGPath(ellipseIn: NSRect(x: bounds.midX - 17, y: bounds.midY - 17, width: 34, height: 34), transform: nil)
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(convert(point, from: superview)) && !isHidden ? self : nil
+    }
+    override var isEnabled: Bool { didSet { if !isEnabled { resetPress() } } }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance(); needsDisplay = true
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        let p = NativeAppDesign.palette(preferences)
+        ring.strokeColor = p.accent.cgColor
+        statusLabel.textColor = p.ink
+        if translation > 0 {
+            let image = NSImage(systemSymbolName: "house.fill", accessibilityDescription: nil)
+            image?.draw(in: NSRect(x: 1, y: bounds.midY - 7, width: 14, height: 14), from: .zero,
+                        operation: .sourceOver, fraction: min(1, translation / 16))
+        }
+        let color = phase == .error ? p.error : (phase == .offline || phase == .held ? p.warning : p.sage)
+        color.setFill(); NSBezierPath(ovalIn: NSRect(x: bounds.maxX - 7, y: 2, width: 5, height: 5)).fill()
+    }
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        window?.makeFirstResponder(self)
+        beginPress(at: convert(event.locationInWindow, from: nil), timestamp: event.timestamp)
+    }
+    func beginPress(at point: NSPoint, timestamp: TimeInterval) {
+        resetPress(); origin = point; started = timestamp; maximumMovement = 0; completedGesture = false
+        ring.isHidden = false; ring.strokeEnd = preferences.reduceMotion ? 1 : 0
+        if !preferences.reduceMotion {
+            mark.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.95, y: 0.95))
+            let progress = CABasicAnimation(keyPath: "strokeEnd")
+            progress.fromValue = 0; progress.toValue = 1; progress.duration = 0.5
+            ring.add(progress, forKey: "hold")
+        }
+        let timer = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in self?.completeHold() }
+        holdTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    func completeHold() {
+        guard origin != nil, maximumMovement <= 10, !completedGesture else { return }
+        completedGesture = true; ring.strokeEnd = 1
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+        onOpenHome?(); resetPress()
+    }
+    override func mouseDragged(with event: NSEvent) { dragPress(to: convert(event.locationInWindow, from: nil)) }
+    func dragPress(to point: NSPoint) {
+        guard let origin, !completedGesture else { return }
+        let dx = point.x - origin.x, dy = point.y - origin.y
+        maximumMovement = max(maximumMovement, hypot(dx, dy))
+        if maximumMovement > 10 { holdTimer?.invalidate(); ring.isHidden = true; ring.removeAllAnimations() }
+        translation = max(0, min(24, dx))
+        mark.layer?.setAffineTransform(CGAffineTransform(translationX: translation, y: 0)); needsDisplay = true
+        if dx >= min(48, 0.4 * bounds.width), abs(dx) > 2 * abs(dy) {
+            completedGesture = true
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+            onOpenHome?(); resetPress()
+        }
+    }
+    override func mouseUp(with event: NSEvent) {
+        if let origin {
+            let point = convert(event.locationInWindow, from: nil)
+            maximumMovement = max(maximumMovement, hypot(point.x - origin.x, point.y - origin.y))
+        }
+        let tap = isEnabled && origin != nil && !completedGesture && maximumMovement <= 10 && event.timestamp - started < 0.5
+        resetPress(animated: true)
+        if tap { toggleStatus() }
+    }
+    private func resetPress(animated: Bool = false) {
+        let previousTranslation = translation
+        holdTimer?.invalidate(); holdTimer = nil; origin = nil
+        ring.isHidden = true; ring.removeAllAnimations(); translation = 0
+        mark.layer?.removeAnimation(forKey: "return")
+        mark.layer?.setAffineTransform(.identity); needsDisplay = true
+        if animated, previousTranslation > 0, !preferences.reduceMotion {
+            let spring = CASpringAnimation(keyPath: "transform.translation.x")
+            spring.stiffness = 380; spring.damping = 28; spring.mass = 0.85
+            spring.fromValue = previousTranslation; spring.toValue = 0; spring.duration = spring.settlingDuration
+            mark.layer?.add(spring, forKey: "return")
+        }
+    }
+    override func cancelOperation(_ sender: Any?) { resetPress(); statusPopover.performClose(sender) }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window == nil { resetPress(); statusPopover.performClose(nil) } }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 && event.modifierFlags.intersection([.shift, .command, .option, .control]) == .shift { refresh() }
+        else if event.keyCode == 36 || event.keyCode == 49 { toggleStatus() }
+        else { super.keyDown(with: event) }
+    }
+    override func accessibilityPerformPress() -> Bool { guard isEnabled else { return false }; toggleStatus(); return true }
+    func toggleStatus() {
+        guard isEnabled else { return }
+        if statusPopover.isShown { statusPopover.performClose(nil) }
+        else if window != nil { statusPopover.show(relativeTo: bounds, of: self, preferredEdge: .minY) }
+    }
+    @objc private func openHome() { statusPopover.performClose(nil); onOpenHome?() }
+    @objc private func refresh() { guard isEnabled, !isOfflineRecoveryCopy else { return }; onRefresh?() }
+}

@@ -62,6 +62,33 @@ receipt_spec = importlib.util.spec_from_file_location('delivery_receipt', ROOT /
 receipt_verifier = importlib.util.module_from_spec(receipt_spec); receipt_spec.loader.exec_module(receipt_verifier)
 
 
+@unittest.skipUnless(sys.platform == 'darwin', 'AppKit tests require macOS')
+class NativeDesignFoundationTests(unittest.TestCase):
+    """Headless component checks; no app launch, visible windows or live data."""
+    @classmethod
+    def setUpClass(cls):
+        temp = tempfile.TemporaryDirectory(prefix='native-design-foundation-')
+        cls.addClassCleanup(temp.cleanup)
+        cls.output = Path(temp.name)
+        cls.binary = cls.output / 'design-tests'
+        sources = [p for p in package.swift_sources() if p.name != 'main.swift']
+        result = subprocess.run(['swiftc', '-parse-as-library', *package.swift_flags(),
+            '-D', 'NATIVE_DESIGN_PARITY', *map(str, sources),
+            str(ROOT / 'tests/flow-app/native-reader-app/NativeCreamDesignTests.swift'), '-o', str(cls.binary)],
+            capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError(result.stdout + result.stderr)
+
+    def scenario(self, mode):
+        result = subprocess.run([str(self.binary), str(self.output), mode],
+            capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_four_mode_contrast_and_glass_backdrops(self): self.scenario('palette')
+    def test_clipped_glass_and_brand_gestures(self): self.scenario('foundation')
+    def test_drawer_switch_and_reader_presentation(self): self.scenario('reader-parity')
+
+
 class PMReceiptTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix='pm-receipt-mechanism-'); self.addCleanup(temp.cleanup)
@@ -235,7 +262,7 @@ class DevelopmentBundleIntegrationTests(unittest.TestCase):
         self.assertIn('-swift-version', manifest['appBuild']['compilerArgv'])
         self.assertIn('-warnings-as-errors', manifest['appBuild']['compilerArgv'])
         for name, digest in manifest['appBuild']['sourceSHA256'].items(): self.assertEqual(package.digest(ROOT/name), digest)
-        for name in ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeFloatingCapsule.swift']:
+        for name in ['NativeAppDesign.swift', 'NativeBrandMark.swift', 'NativeOutlineDrawerView.swift', 'NativeModeMorphSwitch.swift', 'NativeFloatingCapsule.swift']:
             self.assertEqual(manifest['appBuild']['compilerArgv'].count(str(ROOT/'apps/macos'/name)), 1)
         self.assertEqual(package.bundle_checksum(self.app), json.loads((self.app.parent/'release.json').read_text())['bundleChecksum'])
         with self.assertRaisesRegex(ValueError, 'Development bundle'): package.validate(self.app)

@@ -41,6 +41,10 @@ private final class Actions: NSObject {
             let output = URL(fileURLWithPath: CommandLine.arguments[1]), mode = CommandLine.arguments[2]
             switch mode {
             case "palette": try palette(output)
+            case "foundation": try foundation(output)
+#if NATIVE_DESIGN_PARITY
+            case "reader-parity": try readerParity(output)
+#endif
             case "vector": try vector(output)
             case "controls": try controls(output)
             case "fonts": try fonts(output)
@@ -61,6 +65,36 @@ private final class Actions: NSObject {
     }
     @MainActor static func palette(_ output: URL) throws {
         var observations = [[String: Any]]()
+        let tokens: [(KeyPath<NativeAppDesign.Palette, NSColor>, [UInt32])] = [
+            (\.paper, [0xF7F2E8, 0x24231F, 0xF7F2E8, 0x24231F]),
+            (\.panel, [0xFFFCF5, 0x302E29, 0xFFFCF5, 0x2E2C27]),
+            (\.track, [0xEAE3D5, 0x1C1B18, 0xE4DCCB, 0x181714]),
+            (\.pdfCanvas, [0xEDE7DA, 0x1C1B18, 0xE6DFD0, 0x181714]),
+            (\.codeBg, [0xEFE9DC, 0x2E2C27, 0xEAE3D3, 0x34322C]),
+            (\.ink, [0x292722, 0xF7F2E8, 0x1A1916, 0xFFFDF8]),
+            (\.secondaryInk, [0x625D53, 0xD0C9BC, 0x433F37, 0xE5DFD2]),
+            (\.disabledInk, [0x71695E, 0xC0B9AB, 0x575147, 0xCFC8BA]),
+            (\.accent, [0x514A83, 0xC6BEFF, 0x3B3469, 0xDCD6FF]),
+            (\.accentHover, [0x3E376B, 0xDBD5FF, 0x2B2552, 0xECE8FF]),
+            (\.onAccent, [0xFFFCF5, 0x24231F, 0xFFFFFF, 0x181714]),
+            (\.boundary, [0x81786A, 0xA59D90, 0x292722, 0xEEE8DC]),
+            (\.rule, [0xDED8CB, 0x3D3A33, 0x81786A, 0xA59D90]),
+            (\.wash, [0xEEE8F5, 0x403C49, 0xE4DBF2, 0x464152]),
+            (\.pressed, [0xDED5ED, 0x514A62, 0xD1C4EA, 0x59526B]),
+            (\.selection, [0xE6DEF4, 0x49405E, 0xD9CEEE, 0x54496E]),
+            (\.highlight, [0xF0DFAA, 0x54472A, 0xEBD48E, 0x61512C]),
+            (\.highlightEdge, [0x8F6A1E, 0xDFC070, 0x6E4F12, 0xF0D589]),
+            (\.warning, [0x785517, 0xF2CF8C, 0x5E410E, 0xF9DC9E]),
+            (\.error, [0x9C302C, 0xFFB5AE, 0x821E1B, 0xFFC7C2]),
+            (\.reviewInk, [0xA82828, 0xFF9894, 0x8A1D1D, 0xFFB3AE]),
+            (\.sage, [0x56765B, 0xA9C6AA, 0x3B5940, 0xC2DFC3])]
+        for (index, preferences) in [NativeAppDesign.Preferences(theme: .light), .init(theme: .dark),
+            .init(theme: .light, increasedContrast: true), .init(theme: .dark, increasedContrast: true)].enumerated() {
+            let palette = NativeAppDesign.palette(preferences)
+            for (path, expected) in tokens {
+                try check(components(palette[keyPath: path]) == components(NativeAppDesign.color(expected[index])), "Four-mode sRGB contract \(path)")
+            }
+        }
         // Independent author-fixed light starting colors, evaluated after native sRGB resolution.
         let p = NativeAppDesign.palette(.init(theme: .light))
         for (color, bytes) in [(p.paper, [247,242,232]), (p.ink, [41,39,34]),
@@ -69,15 +103,43 @@ private final class Actions: NSObject {
         }
         for preference in combinations() {
             let p = NativeAppDesign.palette(preference)
+            let dark = preference.theme == .dark, hc = preference.increasedContrast
+            let solid = hc || preference.reduceTransparency
+            for (actual, expected) in [
+                (p.glassEdge, NativeAppDesign.color(dark ? (hc ? 0xEEE8DC : 0xF7F2E8) : 0x292722).withAlphaComponent(hc ? 1 : 0.14)),
+                (p.glassSpecular, hc ? .clear : NativeAppDesign.color(dark ? 0xFFFDF8 : 0xFFFFFF).withAlphaComponent(dark ? 0.10 : 0.55)),
+                (p.scrim, NativeAppDesign.color(dark ? 0 : 0x292722).withAlphaComponent(hc ? (dark ? 0.52 : 0.28) : (dark ? 0.36 : 0.14))),
+                (p.glassTintDrawer, p.panel.withAlphaComponent(solid ? 1 : (dark ? 0.86 : 0.84))),
+                (p.glassTintCapsule, p.panel.withAlphaComponent(solid ? 1 : (dark ? 0.90 : 0.88)))] {
+                try check(components(actual) == components(expected), "Glass and scrim sRGB/alpha contract")
+            }
             var ratios = [String: Double]()
             for (name, foreground, background, minimum) in [
                 ("paperText", p.ink, p.paper, 4.5), ("panelText", p.ink, p.panel, 4.5),
                 ("secondary", p.secondaryInk, p.panel, 4.5), ("accent", p.accent, p.paper, 4.5),
                 ("selection", p.ink, p.selection, 4.5), ("edgePaper", p.boundary, p.paper, 3.0),
                 ("edgePanel", p.boundary, p.panel, 3.0), ("warning", p.warning, p.panel, 4.5),
-                ("error", p.error, p.panel, 4.5)] {
+                ("error", p.error, p.panel, 4.5),
+                ("secondaryPaper", p.secondaryInk, p.paper, 4.5), ("accentHover", p.accentHover, p.paper, 4.5),
+                ("highlight", p.ink, p.highlight, 4.5), ("code", p.ink, p.codeBg, 4.5),
+                ("disabled", p.disabledInk, p.panel, 4.5), ("accentPanel", p.accent, p.panel, 4.5),
+                ("onAccent", p.onAccent, p.accent, 4.5), ("wash", p.ink, p.wash, 4.5),
+                ("activeOutline", p.accent, p.wash, 4.5), ("pressed", p.ink, p.pressed, 4.5),
+                ("reviewPanel", p.reviewInk, p.panel, 4.5), ("reviewPaper", p.reviewInk, p.paper, 4.5),
+                ("sage", p.sage, p.panel, 4.5), ("track", p.secondaryInk, p.track, 4.5),
+                ("highlightEdge", p.highlightEdge, p.paper, 3.0)] {
                 let ratio = contrast(foreground, background); ratios[name] = ratio
                 try check(ratio >= minimum, "\(preference) \(name) contrast \(ratio)")
+            }
+            if !preference.increasedContrast && !preference.reduceTransparency {
+                for tint in [p.glassTintDrawer, p.glassTintCapsule] {
+                    let alpha = components(tint)[3], backdrop = components(p.ink), source = components(p.panel)
+                    let values = zip(source, backdrop).prefix(3).map { $0 * alpha + $1 * (1 - alpha) }
+                    let composite = NSColor(srgbRed: values[0], green: values[1], blue: values[2], alpha: 1)
+                    for ink in [p.ink, p.secondaryInk, p.accent] {
+                        try check(contrast(ink, composite) >= 4.5, "Worst opposite-polarity glass backdrop")
+                    }
+                }
             }
             for role in [NativeAppDesign.ButtonRole.standard, .primary] {
                 for enabled in [false, true] { for hover in [false, true] { for pressed in [false, true] {
@@ -321,4 +383,256 @@ private final class Actions: NSObject {
                   "reduceMotion": actual.reduceMotion, "reduceTransparency": actual.reduceTransparency,
                   "runtimeMacOS13Verified": false], output, "preference-observations")
     }
+    @MainActor static func foundation(_ output: URL) throws {
+        for preference in combinations() {
+            for style in [NativeFloatingGlassView.Style.drawer, .capsule] {
+                let glass = NativeFloatingGlassView(style: style)
+                glass.frame = NSRect(x: 0, y: 0, width: 120, height: 80)
+                glass.preferencesOverride = preference; glass.layoutSubtreeIfNeeded()
+                let solid = preference.increasedContrast || preference.reduceTransparency
+                try check(!glass.isOpaque && glass.layer?.masksToBounds == false, "Transparent unclipped shadow host")
+                try check(glass.contentView.layer?.masksToBounds == true && glass.contentView.layer?.cornerCurve == .continuous, "Continuous inner clip")
+                try check(glass.effectView.isHidden == solid, "Blur fallback follows both accessibility preferences")
+                try check(glass.effectView.material == .popover && glass.effectView.blendingMode == .withinWindow &&
+                          glass.effectView.state == .followsWindowActiveState, "Window-local popover material")
+                let outside = NSColor(cgColor: glass.layer!.backgroundColor!)!
+                try check(outside.alphaComponent == 0, "Host never fills paper outside clip")
+                if solid {
+                    let inside = NSColor(cgColor: glass.contentView.layer!.backgroundColor!)!
+                    try check(components(inside) == components(NativeAppDesign.palette(preference).panel), "Opaque panel fallback inside clip")
+                    // Render the actual clipped layer with shadows suppressed so
+                    // the material's corners can be measured independently.
+                    glass.layer!.sublayers!.forEach { $0.shadowOpacity = 0 }
+                    let pixels = try bitmap(glass)
+                    for (x, y) in [(0, 0), (119, 0), (0, 79), (119, 79)] {
+                        try check(pixels.colorAt(x: x, y: y)!.alphaComponent == 0, "Fallback corner has zero material alpha")
+                    }
+                    try check(pixels.colorAt(x: 60, y: 40)!.alphaComponent == 1, "Fallback center is fully opaque")
+                }
+                let paths = glass.layer!.sublayers!.compactMap(\.shadowPath)
+                try check(paths.count == 2 && paths.allSatisfy { $0.boundingBox.width == 120 }, "Ambient/contact shadow paths")
+                glass.frame.size.width = 160; glass.layoutSubtreeIfNeeded()
+                try check(glass.layer!.sublayers!.compactMap(\.shadowPath).allSatisfy { $0.boundingBox.width == 160 }, "Shadow paths follow layout")
+            }
+        }
+        for role in [NativeDesignSurface.Role.paper, .panel, .floating] {
+            let surface = NativeDesignSurface(frame: NSRect(x: 0, y: 0, width: 80, height: 60)); surface.role = role
+            try check(surface.isOpaque, "Home and Aa surfaces retain opacity")
+        }
+        let brand = NativeBrandMarkControl(frame: NSRect(x: 0, y: 0, width: 40, height: 32))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        container.addSubview(brand); brand.frame.origin = NSPoint(x: 100, y: 40)
+        try check(container.hitTest(NSPoint(x: 120, y: 56)) === brand, "Brand hit target survives toolbar placement")
+        var homes = 0, refreshes = 0
+        brand.onOpenHome = { homes += 1 }; brand.onRefresh = { refreshes += 1 }
+        brand.beginPress(at: .zero, timestamp: 0); brand.dragPress(to: NSPoint(x: 17, y: 2))
+        brand.completeHold(); try check(homes == 1, "Swipe commits exactly once and cancels hold")
+        brand.beginPress(at: .zero, timestamp: 0); brand.dragPress(to: NSPoint(x: 11, y: 20)); brand.completeHold()
+        try check(homes == 1, "Movement cancels hold without horizontal swipe")
+        brand.cancelOperation(nil)
+        brand.preferencesOverride = .init(theme: .light, reduceMotion: true)
+        brand.beginPress(at: .zero, timestamp: 0)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.55))
+        try check(homes == 2, "500ms hold timer fires with Reduce Motion")
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 1,
+            windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        brand.keyDown(with: key); try check(refreshes == 1, "Shift Return refresh")
+        brand.isOfflineRecoveryCopy = true; brand.keyDown(with: key)
+        try check(refreshes == 1, "Offline recovery never dispatches refresh")
+        brand.cancelOperation(nil)
+        brand.beginPress(at: .zero, timestamp: 0); brand.isEnabled = false; brand.completeHold()
+        try check(homes == 2, "Disabled control cancels an outstanding hold")
+        try save(["checks": checks, "guiVerified": false], output, "foundation-observations")
+    }
+#if NATIVE_DESIGN_PARITY
+    @MainActor static func readerParity(_ output: URL) throws {
+        let control = NativeModeMorphSwitch(frame: NSRect(x: 0, y: 0, width: 140, height: 32))
+        control.preferencesOverride = .init(theme: .light, reduceMotion: true)
+        var modes: [NativeModeMorphSwitch.Mode] = []
+        control.onRequestMode = { modes.append($0) }
+        control.pageButton.performClick(nil); control.layoutSubtreeIfNeeded()
+        try check(modes == [.originalPages] && control.displayMode == .nativeReflow && control.requestedMode == .originalPages,
+                  "Requested PDF does not move accepted selection")
+        try check(control.reflowButton.state == .on && control.pageButton.state == .off, "AX selection follows accepted display")
+        let thumb = control.layer!.sublayers![1]
+        try check(thumb.frame.minX == 3, "Pending request keeps thumb pinned")
+        control.displayMode = .originalPages
+        try check(control.requestedMode == nil && control.pageButton.state == .on, "Acceptance commits thumb and clears loading")
+        control.heldSelection = true; control.reflowButton.performClick(nil)
+        try check(modes.count == 1 && control.displayMode == .originalPages, "Held selection rejects requests")
+        control.heldSelection = false; control.allowsModeSwitch = false; control.reflowMode()
+        try check(modes.count == 1, "Unavailable mode blocks dispatch")
+        control.compact = true
+        try check(control.intrinsicContentSize == NSSize(width: 80, height: 32) && control.reflowButton.title.isEmpty, "Compact geometry")
+        try check(control.accessibilityRole() == .radioGroup && control.pageButton.accessibilityRole() == .radioButton, "Radio AX contract")
+        control.frame.size.width = 80; control.layoutSubtreeIfNeeded()
+        control.allowsModeSwitch = true
+        func pointer(_ type: NSEvent.EventType, _ x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 16), modifierFlags: [], timestamp: 1,
+                windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        control.mouseDown(with: pointer(.leftMouseDown, 58))
+        control.mouseDragged(with: pointer(.leftMouseDragged, 40)); control.layoutSubtreeIfNeeded()
+        try check(thumb.frame.minX == 22, "Thumb tracks horizontal drag one-to-one")
+        control.mouseUp(with: pointer(.leftMouseUp, 40)); control.layoutSubtreeIfNeeded()
+        try check(modes == [.originalPages, .nativeReflow] && thumb.frame.minX == 40, "Threshold swipe requests mode and returns to accepted slot")
+        let drawer = NativeOutlineDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 700))
+        drawer.preferencesOverride = .init(theme: .light, reduceMotion: true)
+        drawer.toolbarBottom = 40
+        drawer.entries = [.init(id: "a", title: "시작", depth: 0), .init(id: "b", title: "한글", depth: 3)]
+        var navigated: String?
+        drawer.onNavigate = { navigated = $0 }; drawer.present(); drawer.layoutSubtreeIfNeeded()
+        try check(drawer.glass.frame.minX == 14 && drawer.glass.frame.minY == 50 && drawer.glass.frame.width == 320,
+                  "Floating drawer placement")
+        func key(_ code: UInt16) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
+                windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+        }
+        drawer.tableView.keyDown(with: key(125)); drawer.tableView.keyDown(with: key(36))
+        try check(navigated == "b" && drawer.isHidden, "Down Return navigates and dismisses")
+        drawer.present(); drawer.tableView.keyDown(with: key(53))
+        try check(drawer.isHidden && drawer.isAccessibilityModal(), "Escape and AX modal semantics")
+        let canvas = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let pdfView = NativeReaderOriginalPageView(viewID: UUID())
+        defer { pdfView.dispose() }
+        canvas.documentView = pdfView
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            pdfView.appearance = NSAppearance(named: appearance)
+            let preferences = NativeAppDesign.Preferences.current(appearance: pdfView.effectiveAppearance)
+            try check(components(canvas.backgroundColor) == components(NativeAppDesign.palette(preferences).pdfCanvas), "PDF outer canvas follows palette")
+        }
+        func node(_ id: String, _ kind: NativeReaderNode.Kind, _ text: String, _ start: Int,
+                  children: [NativeReaderNode] = [], level: Int? = nil, link: String? = nil) -> NativeReaderNode {
+            NativeReaderNode(id: id, sectionID: "s", kind: kind, canonicalText: text, displayText: text,
+                rangeUTF16: [start, start + text.utf16.count], offsets: NativeTextOffsets(text), children: children,
+                anchors: [], annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil,
+                direction: nil, language: nil, headingLevel: level, math: nil, cell: nil, link: link, assetID: nil, alt: nil)
+        }
+        let first = node("p1", .paragraph, "한글😀", 0, children: [node("t1", .text, "한글😀", 0)])
+        let second = node("p2", .paragraph, "link", 4, children: [node("l", .link, "link", 4,
+            children: [node("t2", .text, "link", 4)], link: "https://example.com")])
+        let group = node("group", .group, "한글😀link", 0, children: [first, second, node("br", .break, "", 8)])
+        let h2 = node("h2", .heading, "Heading", 0, children: [node("ht", .text, "Heading", 0)], level: 2)
+        let store = NativeReaderDocumentStore(), generation = try store.beginRequest()
+        let identity = NativeDocumentIdentity(documentID: "d", serviceID: "s", revision: "r", scope: .fixture)
+        let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: [group, h2], assets: [], diagnostics: [])
+        let reader = NativeReaderTextView(store: store)
+        defer { reader.dispose() }
+        reader.setFrameSize(NSSize(width: 1000, height: 600))
+        try reader.adopt(document, context: .init(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity))
+        try check(reader.bodyTextView.string == "한글😀\nlink\n\nHeading", "Group and break separators are presentation-only")
+        try check(store.document?.blocks[0].canonicalText == "한글😀link", "Canonical UTF16 remains unchanged")
+        let map = reader.textMap!
+        let offset = try map.presentation(of: .init(blockID: "group", utf16: 4, affinity: .downstream))
+        try check(offset == 5, "UTF16 offset maps across presentation separator")
+        let selection = try map.selection(for: NSRange(location: 0, length: 9))
+        try check(selection?.fragments.first?.exact == "한글😀link" && selection?.fragments.first?.rangeUTF16 == 0..<8,
+                  "Copy and selection exclude presentation newlines")
+        let storage = reader.bodyTextView.textStorage!
+        let style = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as! NSParagraphStyle
+        try check(style.lineHeightMultiple == 1.65 && style.paragraphSpacing == 12 && style.hyphenationFactor == 0, "Editorial paragraph rhythm")
+        try check(reader.textAppearance.fontSize == 15 && reader.renderKey?.width == 680, "Default body and centered measure")
+        try check(reader.bodyTextView.textContainerInset.width == floor((reader.bodyTextView.bounds.width - 680) / 2), "Centered reading column")
+        try check(!reader.scrollView.automaticallyAdjustsContentInsets && reader.scrollView.contentInsets.bottom == 104, "Bottom selection clearance")
+        try check(storage.attribute(.link, at: 5, effectiveRange: nil) == nil, "Link never grants NSLink authority")
+        let p = reader.designPalette
+        try check(components(storage.attribute(.foregroundColor, at: 5, effectiveRange: nil) as! NSColor) == components(p.accent), "Semantic accent links")
+        let manager = reader.bodyTextView.layoutManager!, textContainer = reader.bodyTextView.textContainer!
+        manager.ensureLayout(for: textContainer)
+        let glyph = manager.glyphRange(forCharacterRange: NSRange(location: 5, length: 1), actualCharacterRange: nil)
+        let linkRect = manager.boundingRect(forGlyphRange: glyph, in: textContainer)
+        let hoverPoint = reader.bodyTextView.convert(NSPoint(x: linkRect.midX + reader.bodyTextView.textContainerOrigin.x,
+            y: linkRect.midY + reader.bodyTextView.textContainerOrigin.y), to: nil)
+        let hover = NSEvent.mouseEvent(with: .mouseMoved, location: hoverPoint, modifierFlags: [], timestamp: 1,
+            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+        reader.bodyTextView.mouseMoved(with: hover)
+        try check(components(storage.attribute(.foregroundColor, at: 5, effectiveRange: nil) as! NSColor) == components(p.accentHover), "Hover uses accentHover")
+        let underline = storage.attribute(.underlineColor, at: 5, effectiveRange: nil) as! NSColor
+        try check(abs(underline.alphaComponent - (reader.designPreferences.increasedContrast ? 1 : 0.88)) < 0.001, "Hover underline opacity")
+        reader.bodyTextView.mouseExited(with: hover)
+        try check(storage.attribute(.link, at: 5, effectiveRange: nil) == nil &&
+            components(storage.attribute(.foregroundColor, at: 5, effectiveRange: nil) as! NSColor) == components(p.accent), "Hover exit restores semantic link without NSLink")
+        try check(components(reader.bodyTextView.backgroundColor) == components(p.paper) &&
+                  components(reader.scrollView.backgroundColor) == components(p.paper), "Unified paper")
+        // TextKit resolves the leading Korean run to the cascade font itself.
+        // Inspect the requested descriptor as well as the actual shaped runs.
+        let descriptor = reader.textAppearance.bodyFont().fontDescriptor
+        try check(descriptor.object(forKey: .cascadeList) != nil, "Korean CoreText cascade")
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: "한글본문", attributes: [.font: reader.textAppearance.bodyFont()]))
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+            let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
+            try check((CTFontCopyPostScriptName(runFont) as String).contains("AppleSDGothicNeo"), "Korean shapes with explicit cascade")
+        }
+        let h2Font = storage.attribute(.font, at: 11, effectiveRange: nil) as! NSFont
+        try check(abs(h2Font.pointSize - 22.2) < 0.01, "H2 editorial scale")
+        let codeFont = reader.textAppearance.codeAttributes(palette: p)[.font] as! NSFont
+        try check(abs(codeFont.pointSize - 13.2) < 0.01, "Monospaced code uses 0.88 scale")
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        let window = NSWindow(contentRect: root.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = root
+        defer { window.close() }
+        root.addSubview(reader); root.addSubview(drawer); drawer.frame = root.bounds
+        window.makeFirstResponder(reader.bodyTextView)
+        reader.bodyTextView.setSelectedRange(NSRange(location: 0, length: 4))
+        // Downstream affinity includes the presentation separator at this
+        // paragraph edge. Its canonical selection still contains only text.
+        let bodySelection = reader.bodyTextView.selectedRange(), selectionTicket = store.selection?.ticket
+        try check(window.firstResponder === reader.bodyTextView && bodySelection == NSRange(location: 0, length: 5) &&
+                  store.selection?.fragments.first?.exact == "한글😀", "Body selection before drawer excludes the logical separator")
+        drawer.present()
+        try check(window.firstResponder === drawer.tableView, "Drawer owns keyboard focus")
+        try check(reader.bodyTextView.selectedRange() == bodySelection && store.selection?.ticket == selectionTicket, "Drawer focus keeps body selection")
+        drawer.mouseDown(with: pointer(.leftMouseDown, 700))
+        try check(reader.bodyTextView.selectedRange() == bodySelection && store.selection?.ticket == selectionTicket &&
+            window.firstResponder === reader.bodyTextView, "Scrim dismissal restores body focus and preserves selection")
+        try check(!window.isVisible, "All component checks stay offscreen")
+        var saved = NativeReaderTextAppearance(); saved.fontSize = 14; try reader.setAppearance(saved)
+        try check(reader.textAppearance.fontSize == 14, "Saved 14pt remains valid")
+        reader.setFrameSize(NSSize(width: 640, height: 480))
+        try check(reader.bodyTextView.textContainerInset.width == 20, "Narrow window padding")
+        reader.setFrameSize(NSSize(width: 1001, height: 600))
+        try check(reader.renderKey?.width == 680, "Odd viewport width retains canonical measure")
+        var editorial = saved; editorial.fontSize = 15; editorial.theme = .dark
+        try reader.setAppearance(editorial)
+        reader.bodyTextView.setSelectedRange(NSRange(location: 0, length: 0))
+        let headings = (1...6).map { (level: Int) in
+            node("heading\(level)", .heading, "Title", 0,
+                children: [node("headingText\(level)", .text, "Title", 0)], level: level)
+        }
+        let caption = node("caption", .caption, "12345", 0, children: [node("captionText", .text, "12345", 0)])
+        let equationNumber = node("number", .equationNumber, "(1)", 0, children: [node("numberText", .text, "(1)", 0)])
+        let annotation = node("annotation", .annotation, "highlight", 0, children: [node("highlightText", .text, "highlight", 0)])
+        let nextGeneration = try store.beginRequest()
+        let typographyDocument = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: nextGeneration,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: headings + [caption, equationNumber, annotation], assets: [], diagnostics: [])
+        try reader.adopt(typographyDocument, context: .init(requestID: UUID(), viewID: store.viewID, generation: nextGeneration, target: identity))
+        let styled = reader.bodyTextView.textStorage!, dark = reader.designPalette
+        for (index, scale) in [CGFloat(1.8), 1.48, 1.24, 1.08, 1.08, 1.08].enumerated() {
+            let font = styled.attribute(.font, at: index * 6, effectiveRange: nil) as! NSFont
+            try check(abs(font.pointSize - 15 * scale) < 0.01, "Heading \(index + 1) typography scale")
+            let color = styled.attribute(.foregroundColor, at: index * 6, effectiveRange: nil) as! NSColor
+            try check(components(color) == components(index >= 4 ? dark.secondaryInk : dark.ink), "Heading ink hierarchy")
+        }
+        for offset in [36, 42] {
+            let font = styled.attribute(.font, at: offset, effectiveRange: nil) as! NSFont
+            try check(abs(font.pointSize - 13.05) < 0.01, "Caption and equation number use 0.87 scale")
+            let widths = (0...9).map {
+                CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: String($0), attributes: [.font: font])), nil, nil, nil)
+            }
+            try check(widths.allSatisfy { abs($0 - widths[0]) < 0.01 }, "Caption and equation number shape actual tabular digits")
+            let style = styled.attribute(.paragraphStyle, at: offset, effectiveRange: nil) as! NSParagraphStyle
+            try check(style.lineHeightMultiple == 1.5, "Caption rhythm")
+        }
+        var proportional = NativeReaderTextAppearance(); proportional.fontName = "Georgia"
+        let tabular = proportional.tabularFont(size: 13.05)
+        let one = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: "111", attributes: [.font: tabular])), nil, nil, nil)
+        let eight = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: "888", attributes: [.font: tabular])), nil, nil, nil)
+        try check(abs(one - eight) < 0.01, "Proportional custom font gets tabular caption fallback")
+        try check(components(styled.attribute(.backgroundColor, at: 46, effectiveRange: nil) as! NSColor) == components(dark.highlight), "Dark palette highlight")
+        try check(components(reader.bodyTextView.selectedTextAttributes[.backgroundColor] as! NSColor) == components(dark.selection), "Dark selection palette")
+        try save(["checks": checks, "guiVerified": false], output, "reader-parity-observations")
+    }
+#endif
+
 }
