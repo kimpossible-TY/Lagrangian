@@ -6,6 +6,8 @@ private struct Failure: Error { let message: String }
         let mode = CommandLine.arguments[1]
         var attempts = [Int]()
         if mode == "limits" {
+            try check(NativeMathBatchPolicy.chunkItems == 256, "Swift batch chunk size")
+            try check(NativeMathBatchPolicy.chunkItems <= NativeMathBatchPolicy.maximumItems, "chunk size within helper ceiling")
             try check(NativeMathBatchPolicy.outputLimit(items: 1) == 8 * 1024 * 1024 + 1, "single stdout cap")
             try check(NativeMathBatchPolicy.outputLimit(items: 4) == 32 * 1024 * 1024 + 1, "scaled stdout cap")
             try check(NativeMathBatchPolicy.outputLimit(items: 512) == 64 * 1024 * 1024 + 1, "bounded stdout cap")

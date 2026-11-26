@@ -408,9 +408,10 @@ struct NativePreparedAnswerMath {
     var size: CGSize { CGSize(width: layout.whole.width, height: layout.whole.ascent + layout.whole.descent) }
 }
 
-/// Kept in lockstep with math_layout.mjs by the reader contract tests.
+/// Helper protocol limits are kept in lockstep with math_layout.mjs by the reader contract tests.
 enum NativeMathBatchPolicy {
     static let maximumItems = 512
+    static let chunkItems = 256
     static let maximumBytes = 64 * 1024 * 1024
     static let itemOutputBytes = 8 * 1024 * 1024
     static let itemInputBytes = 256 * 1024
@@ -463,8 +464,8 @@ actor NativeMathWorker {
             guard item.math.mathML.utf8.count <= NativeMathBatchPolicy.sourceBytes else { throw NativeObjectError.budget }
         }
         var layouts = [String: NativeMathLayout]()
-        for start in stride(from: 0, to: items.count, by: NativeMathBatchPolicy.maximumItems) {
-            let results = try await NativeMathBatchPolicy.run(range: start..<min(start + NativeMathBatchPolicy.maximumItems, items.count)) { range in
+        for start in stride(from: 0, to: items.count, by: NativeMathBatchPolicy.chunkItems) {
+            let results = try await NativeMathBatchPolicy.run(range: start..<min(start + NativeMathBatchPolicy.chunkItems, items.count)) { range in
                 try await self.calculateChunk(items[range], context: context)
             }
             for (id, layout) in results { layouts[id] = layout }
