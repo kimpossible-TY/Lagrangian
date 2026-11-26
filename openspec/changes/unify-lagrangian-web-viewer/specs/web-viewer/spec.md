@@ -29,8 +29,13 @@ Lagrangian SHALL be the canonical native macOS product and feature contract. Lag
 #### Scenario: Resolve without a usable snippet
 - **WHEN** a unique target is unmounted, uncompiled, compiling or cannot be imported or matched
 - **THEN** HTTP 200 retains unique catalog metadata and snippet is null
-- **AND** targetUrl is a validated mounted route if mounted and otherwise null
+- **AND** targetUrl is a validated mounted route if mounted and otherwise null, except that resolved catalog labels exceeding 1024 characters return metadata-only before peer lookup
 - **AND** catalog labels do not supply navigable anchors: anchor remains null and a mounted metadata-only route has no fragment; successful extraction may supply a manifest-backed reader anchor
+
+#### Scenario: Resolve an oversized catalog label through a short href
+- **WHEN** a valid href request uniquely resolves a catalog label longer than 1024 characters
+- **THEN** unique bounded display metadata is returned without peer lookup or snippet extraction, with targetUrl, anchor and snippet null even if a peer is mounted
+- **AND** a direct project/label query exceeding the per-value limit is instead rejected with HTTP 400
 
 #### Scenario: Ambiguous or unresolved identity
 - **WHEN** resolution is ambiguous or unresolved, including an unavailable catalog
@@ -41,6 +46,7 @@ Lagrangian SHALL be the canonical native macOS product and feature contract. Lag
 - **WHEN** preview input is not exactly project plus label or href plus optional text, contains malformed/duplicate/unknown parameters or exceeds 1024 characters per value
 - **THEN** the server returns HTTP 400 with a non-sensitive JSON error
 - **AND** generated target URLs permit only same-origin `/d/<id>/` with an optional extracted anchor fragment or the explicitly configured reader_url-validated origin, rejecting unsafe schemes, traversal and arbitrary hosts
+- **AND** that single allowed origin is injected as `CrossProjectPreviewService.allowed_origin` from `handler_for(public_url=...)`, supplied by routed `--public-origin` / manager `shared.publicURL` or standalone `--public-url`
 
 ### Requirement: Viewer discovery and static-only delivery
 `/api/state` SHALL include additive `viewer: {"name": "Lagrangian Web Viewer", "crossProject": <bool>}` metadata, true when the bounded catalog can be loaded. `handler_for(None)` SHALL construct no native services and SHALL retain allowlisted static serving.
@@ -70,11 +76,19 @@ WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/` navi
 - **AND** Back writes its one-shot pending entry before popping the stack and navigating
 - **AND** failed or stale restoration retains that pending entry without consuming newer transitions
 
+#### Scenario: Jump to an anchorless mounted target or the same document
+- **WHEN** a unique preview supplies a canonical same-origin `/d/<id>/` target without an anchor
+- **THEN** the jump button is enabled and opens the document using its normal initial position hints
+- **WHEN** a preview jump or cross-project Back destination has the current pathname and query, including a fragment-only or identical-URL destination
+- **THEN** the adapter calls location.assign followed by location.reload so full-page bootstrap clears the previous navigation latch and runs pending-return restoration
+- **AND** ordinary fragment links retain their existing in-document navigation owner
+
 #### Scenario: Reload or explicitly open from Homepage
 - **WHEN** the same tab reloads a document
 - **THEN** bounded return history survives through sessionStorage
 - **WHEN** the user explicitly opens a document from Homepage
 - **THEN** cross-project history and pending restore reset
+- **AND** this includes the primary document anchor and the alternative viewer/variant `wa-dropdown-item` in the document card's `⋯` menu
 - **AND** ordinary in-document fragment navigation remains owned by ReferenceReturn
 
 #### Scenario: Persist exact validated origin and consume once
@@ -98,23 +112,26 @@ WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/` navi
 - **WHEN** an unmodified primary click activates an explicit project/label link
 - **THEN** project/label metadata takes precedence over href/text and opens a named nonmodal dialog with plain-text title, reference text and canonical snippet
 - **WHEN** capability is enabled and an absolute safe HTTP(S) link has positive page fragment and is not a same-origin mounted viewer route
-- **THEN** href/text catalog resolution may open the preview; unresolved results or request failures retain a clickable safe original href/target in the card for a fresh user activation, without recording return state or asynchronously opening a popup
+- **THEN** pointerover/focusin preflights href/text catalog resolution, bound to the link, exact query and document/service/revision identity
+- **AND** only a cached unique or ambiguous result intercepts the click and opens a preview; cold/in-flight, unresolved and failed candidates retain native href/target navigation without an extra activation or asynchronous popup
 - **AND** ordinary fragments, relative and non-page links, downloads and modified clicks retain their existing behavior
 
 #### Scenario: Ambiguous, unavailable or external target
 - **WHEN** a preview has ambiguous/unresolved identity or no usable same-origin mounted target URL
 - **THEN** the jump button is disabled with a clear explanation, and a safe PDF or unique cross-origin viewer target is offered externally when available
+- **AND** an intercepted implicit PDF reference preserves its original href including page fragment and original target (default `_self`) as the fallback, including ambiguous and unique-but-unmounted results
 - **AND** no candidate is guessed and no external action records a session return entry
 
 #### Scenario: Cancel or dispose preview work
 - **WHEN** another request, Escape, outside click, close, document/service/revision change or disposal invalidates a preview
 - **THEN** requests are aborted and generation/identity guards suppress stale success and failure effects
+- **AND** detached source links dismiss loading cards on either success or failure, and dismissal clears any preflight result
 - **AND** disposal removes listeners, hides Back, and restores focus to a connected originating link; outside controls retain their focus
 
 #### Scenario: Bound preview requests with the existing transport
 - **WHEN** the viewer requests a cross-project preview
 - **THEN** the injected ReaderTransport.get uses cache no-store and its default ten-second timeout
-- **AND** transport timeout displays an error and an original-link fallback for href candidates, while an aborted caller signal or stale generation/identity remains silent
+- **AND** transport timeout displays an error for explicit metadata links; failed implicit preflights leave native link navigation available, while an aborted caller signal or stale generation/identity remains silent
 
 #### Scenario: Configure read-only peer matching
 - **WHEN** the source previews a project key from its configured Project.packages catalog

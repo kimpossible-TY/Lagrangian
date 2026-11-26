@@ -84,6 +84,10 @@ export class CrossProjectPreview {
     };
     // Run before the existing fragment adapter; explicit project metadata wins.
     listen(article, "click", (event) => this.click(event), true);
+    // Only known catalog references may intercept an implicit link. Resolving
+    // during hover/focus keeps cold, unresolved and failed links browser-native.
+    listen(article, "pointerover", (event) => this.click(event, true));
+    listen(article, "focusin", (event) => this.click(event, true));
     listen(this.document, "click", (event) => {
       if ((this.card || this.controller) && !this.card?.contains(event.target) && !this.link?.contains(event.target))
         this.dismiss(Boolean(this.card?.contains(this.document.activeElement)));
@@ -113,6 +117,15 @@ export class CrossProjectPreview {
 
   path() { return this.location.pathname + this.location.search + this.location.hash; }
 
+  assign(path) {
+    const url = new URL(path, this.location.origin);
+    const sameDocument = url.pathname === this.location.pathname && url.search === this.location.search;
+    this.location.assign(path);
+    // assign alone only changes the fragment here, leaving the navigation latch
+    // and pending return stranded. Force the same bootstrap as every other jump.
+    if (sameDocument) this.location.reload();
+  }
+
   update() {
     if (this.requestIdentity !== undefined && this.requestIdentity !== this.identity())
       this.dismiss(false);
@@ -121,8 +134,8 @@ export class CrossProjectPreview {
     this.returnButton.textContent = entry?.documentTitle ? `← ${entry.documentTitle}` : "← 원래 문서로";
   }
 
-  async click(event) {
-    if (this.disposed || event.defaultPrevented || event.button !== 0 ||
+  async click(event, preflight = false) {
+    if (this.disposed || event.defaultPrevented || (!preflight && event.button !== 0) ||
       event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const link = event.target.closest("a");
     if (!link || !this.article.contains(link) || link.hasAttribute("download")) return;
@@ -131,6 +144,7 @@ export class CrossProjectPreview {
     const href = link.getAttribute("href") || "";
     let query;
     if (explicit) {
+      if (preflight) return;
       query = new URLSearchParams({ project: link.dataset.projectRefProject, label: link.dataset.projectRefLabel });
     } else {
       if (!this.enabled() || !externalUrl(href)) return;
@@ -140,28 +154,52 @@ export class CrossProjectPreview {
       query = new URLSearchParams({ href });
       if (link.textContent.trim()) query.set("text", link.textContent.trim());
     }
-    event.preventDefault();
+    const key = `${query}`;
+    const prepared = this.prepared;
+    if (!explicit) {
+      const matches = prepared?.link === link && prepared.key === key && prepared.identity === this.identity();
+      if (preflight && matches) return;
+      if (!preflight) {
+        if (!matches || !["unique", "ambiguous"].includes(prepared.result?.status)) {
+          // A click cannot wait for an async lookup without hijacking ordinary
+          // unresolved links (or losing browser-managed target semantics).
+          if (!matches) void this.click(event, true);
+          return;
+        }
+        event.preventDefault();
+        this.dismiss(false);
+        this.link = link;
+        this.requestIdentity = this.identity();
+        this.show({ ...prepared.result, originalUrl: href, originalTarget: link.target });
+        return;
+      }
+    } else event.preventDefault();
     this.dismiss(false);
     this.link = link;
     const generation = this.generation;
     this.requestIdentity = this.identity();
     const controller = this.controller = new AbortController();
+    if (preflight) this.prepared = { link, key, identity: this.requestIdentity, result: null };
     if (explicit) this.show({ status: "loading" });
     try {
       const result = await this.request(`api/cross-project/preview?${query}`, { signal: controller.signal });
-      if (this.disposed || generation !== this.generation || this.requestIdentity !== this.identity()) return;
-      if (!link.isConnected) {
+      if (this.disposed || generation !== this.generation) return;
+      if (this.requestIdentity !== this.identity() || !link.isConnected) {
         this.dismiss(false);
         return;
       }
-      if (!explicit && result.status === "unresolved") {
-        this.show({ ...result, originalUrl: href, originalTarget: link.target });
+      if (preflight) {
+        this.prepared.result = result;
         return;
       }
       this.show(result);
     } catch {
-      if (generation !== this.generation || this.disposed ||
-        this.requestIdentity !== this.identity() || !link.isConnected || controller.signal.aborted) return;
+      if (generation !== this.generation || this.disposed || controller.signal.aborted) return;
+      if (this.requestIdentity !== this.identity() || !link.isConnected) {
+        this.dismiss(false);
+        return;
+      }
+      if (preflight) return;
       // Transport timeouts also reject with AbortError, but do not abort this
       // caller's signal. Only user/lifecycle cancellation is silent.
       this.show({ status: "error", ...(!explicit && { originalUrl: href, originalTarget: link.target }) });
@@ -203,7 +241,7 @@ export class CrossProjectPreview {
           return;
         }
         this.navigating = true;
-        try { this.location.assign(target); }
+        try { this.assign(target); }
         catch {
           this.navigating = false;
           this.stack.pop();
@@ -250,7 +288,7 @@ export class CrossProjectPreview {
       return;
     }
     this.navigating = true;
-    try { this.location.assign(entry.path); }
+    try { this.assign(entry.path); }
     catch {
       this.navigating = false;
       this.stack.push(entry);
@@ -276,6 +314,7 @@ export class CrossProjectPreview {
     if (restoreFocus && this.link?.isConnected) this.link.focus({ preventScroll: true });
     this.link = null;
     this.requestIdentity = undefined;
+    this.prepared = null;
   }
 
   dispose() {

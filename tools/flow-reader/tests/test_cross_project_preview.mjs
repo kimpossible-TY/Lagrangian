@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { CrossProjectReturnStack, CROSS_PROJECT_RETURN_KEY, CROSS_PROJECT_PENDING_KEY } from "../../reader-common/navigation/cross-project-return.js";
 import { CrossProjectPreview, createCrossProjectPosition, crossProjectTarget } from "../web/features/navigation/cross-project-preview.js";
 import { ReaderTransport } from "../web/features/session/transport.js";
@@ -76,7 +77,7 @@ function setup({ request = async () => result(), restore = () => true, capture =
   doc.body = new Element("body", doc);
   doc.createElement = (tag) => new Element(tag, doc);
   const location = { origin: "https://reader.test", pathname: "/d/origin/", search: "?section=s2", hash: "#old",
-    assign: (url) => assigned.push(url) };
+    assign: (url) => assigned.push(url), reload() { this.reloads = (this.reloads || 0) + 1; } };
   doc.defaultView = Object.assign(new Element("window", doc), {
     location, innerWidth: 800, innerHeight: 600, scrollY: 400,
     scrollTo({ top }) { this.scrollY = top; },
@@ -117,7 +118,49 @@ test("first click fetches metadata before any navigation, renders accessible tex
   assert.equal(f.doc.activeElement, jump(f));
   await jump(f).emit("click");
   assert.deepEqual(f.assigned, ["/d/target/#thm"]);
+  assert.equal(f.location.reloads, undefined, "different documents already trigger full-page bootstrap");
   assert.deepEqual(new CrossProjectReturnStack({ storage: f.storage }).pop(), origin);
+});
+
+test("same-document target fragments and Back force bootstrap and consume the exact return once", async () => {
+  for (const fragment of ["#new", "#old"]) {
+    const entry = { ...origin, path: "/d/origin/#old" };
+    const f = setup({ capture: () => entry, request: async () => result({ targetUrl: `/d/origin/${fragment}` }) });
+    f.location.search = "";
+    const reloaded = [];
+    f.location.assign = (path) => {
+      f.assigned.push(path);
+      const url = new URL(path, f.location.origin);
+      Object.assign(f.location, { pathname: url.pathname, search: url.search, hash: url.hash });
+    };
+    f.location.reload = () => reloaded.push(f.controller.path());
+    const bootstrap = (restore = () => true) => {
+      f.controller.dispose();
+      f.controller = new CrossProjectPreview(f.article, {
+        stack: new CrossProjectReturnStack({ storage: f.storage }), returnButton: f.button,
+        capture: () => entry, restore, location: f.location, request: async () => result(),
+        transitionId: () => "same-document-return",
+      });
+    };
+    await f.article.emit("click", { target: f.link });
+    await jump(f).emit("click");
+    assert.deepEqual(reloaded, [`/d/origin/${fragment}`]);
+    assert.equal(f.controller.navigating, true);
+    bootstrap();
+    assert.equal(f.button.hidden, false);
+    await f.button.emit("click");
+    assert.deepEqual(f.assigned, [`/d/origin/${fragment}`, entry.path]);
+    assert.deepEqual(reloaded, [`/d/origin/${fragment}`, entry.path]);
+    assert.equal(f.button.hidden, true);
+    const restored = [];
+    bootstrap((saved) => { restored.push(saved); return true; });
+    const pending = f.controller.pendingReturn();
+    assert.deepEqual(pending.entry, entry);
+    assert.equal(f.controller.restorePending(pending), true);
+    assert.equal(f.controller.restorePending(pending), false);
+    assert.deepEqual(restored, [entry]);
+    assert.equal(f.controller.pendingReturn(), null);
+  }
 });
 
 test("preview card activation also jumps once; failed persistence or assign preserves recoverable history", async () => {
@@ -196,7 +239,7 @@ test("outside click cancels an implicit loading request; stale failures cannot f
     const link = f.doc.createElement("a");
     link.setAttribute("href", "https://example.test/book.pdf#page=2");
     f.article.append(link);
-    const loading = f.article.emit("click", { target: link });
+    const loading = f.article.emit("pointerover", { target: link });
     if (cancel === "outside") {
       await f.doc.emit("click", { target: f.article });
       assert.equal(signal.aborted, true);
@@ -208,6 +251,22 @@ test("outside click cancels an implicit loading request; stale failures cannot f
     await loading;
     assert.deepEqual(f.assigned, []);
     assert.equal(f.controller.card, null);
+  }
+});
+
+test("a removed source link dismisses loading after either fetch success or failure", async () => {
+  for (const failure of [true, false]) {
+    let resolve, reject;
+    const f = setup({ request: () => new Promise((ok, fail) => { resolve = ok; reject = fail; }) });
+    const loading = f.article.emit("click", { target: f.link });
+    assert.equal(f.controller.card.getAttribute("role"), "dialog");
+    f.link.remove();
+    if (failure) reject(Error("offline"));
+    else resolve(result());
+    await loading;
+    assert.equal(f.controller.card, null);
+    assert.equal(f.controller.controller, null);
+    assert.deepEqual(f.assigned, []);
   }
 });
 
@@ -240,7 +299,7 @@ test("mounted route validation rejects executable, cross-origin, encoded, traver
   assert.equal(f.stack.canGoBack, false);
 });
 
-test("ordinary links, fragments, modifiers and disabled capability retain existing navigation; PDF candidates preserve unresolved fallback", async () => {
+test("ordinary links and unresolved PDF candidates retain native navigation; resolved hover/focus candidates preview", async () => {
   let requests = 0;
   const f = setup({ request: async () => { requests++; return result({ status: "unresolved" }); } });
   const link = f.doc.createElement("a");
@@ -255,27 +314,29 @@ test("ordinary links, fragments, modifiers and disabled capability retain existi
   f.enabled(true);
   await f.article.emit("click", { target: link, ctrlKey: true });
   assert.equal(requests, 0);
-  await f.article.emit("click", { target: link });
+  await f.article.emit("pointerover", { target: link });
   assert.equal(requests, 1);
+  assert.equal((await f.article.emit("click", { target: link })).defaultPrevented, undefined);
   assert.deepEqual(f.assigned, []);
-  const fallback = f.controller.card.children.find((n) => n.tagName === "A");
-  assert.equal(fallback.href, "https://example.test/book.pdf#page=2");
-  assert.equal(fallback.target, "_self");
+  assert.equal(f.controller.card, null);
   assert.equal(f.stack.canGoBack, false);
   const g = setup();
   const pdf = g.doc.createElement("a");
   pdf.textContent = "Theorem 1";
   pdf.setAttribute("href", "https://example.test/book.pdf#page=2");
   g.article.append(pdf);
+  assert.equal((await g.article.emit("click", { target: pdf })).defaultPrevented, undefined);
+  await flush();
   await g.article.emit("click", { target: pdf });
   assert.ok(g.controller.card);
   assert.deepEqual(g.assigned, []);
   pdf.setAttribute("href", "https://reader.test/book.pdf#page=2");
+  await g.article.emit("focusin", { target: pdf });
   await g.article.emit("click", { target: pdf });
   assert.ok(g.controller.card, "same-origin PDF candidates also use catalog resolution");
 });
 
-test("unresolved and failed blank-target candidates keep a user-activated original link even when popups are blocked", async () => {
+test("unresolved and failed blank-target candidates keep native href/target without an extra activation", async () => {
   for (const request of [async () => result({ status: "unresolved" }), async () => { throw Error("offline"); }]) {
     const f = setup({ request });
     let opens = 0;
@@ -284,17 +345,83 @@ test("unresolved and failed blank-target candidates keep a user-activated origin
     link.setAttribute("href", "https://example.test/book.pdf#page=2");
     link.target = "_blank";
     f.article.append(link);
-    assert.equal((await f.article.emit("click", { target: link })).defaultPrevented, true);
-    const fallback = f.controller.card.children.find((node) => node.tagName === "A");
-    assert.equal(fallback.textContent, "원래 링크 열기");
-    assert.equal(fallback.href, link.getAttribute("href"));
-    assert.equal(fallback.target, "_blank");
-    assert.match(fallback.rel, /noopener noreferrer/u);
-    assert.equal((await fallback.emit("click")).defaultPrevented, undefined);
+    await f.article.emit("pointerover", { target: link });
+    assert.equal((await f.article.emit("click", { target: link })).defaultPrevented, undefined);
+    assert.equal(f.controller.card, null);
+    assert.equal(link.getAttribute("href"), "https://example.test/book.pdf#page=2");
+    assert.equal(link.target, "_blank");
     assert.equal(opens, 0, "no asynchronous popup depends on expired user activation");
     assert.deepEqual(f.assigned, []);
     assert.equal(f.stack.canGoBack, false);
   }
+});
+
+test("ambiguous and unmounted PDF previews retain the original page fragment and target", async () => {
+  for (const status of ["ambiguous", "unique"]) {
+    for (const target of ["_blank", "_self", "named-reader", ""]) {
+      const f = setup({ request: async () => result({ status, targetUrl: null,
+        pdfUrl: status === "unique" ? "https://example.test/book.pdf" : null }) });
+      const link = f.doc.createElement("a");
+      link.setAttribute("href", "https://example.test/book.pdf#page=7");
+      link.target = target;
+      f.article.append(link);
+      await f.article.emit("focusin", { target: link });
+      assert.equal((await f.article.emit("click", { target: link })).defaultPrevented, true);
+      assert.equal(jump(f).disabled, true);
+      const fallback = f.controller.card.children.find((node) => node.tagName === "A");
+      assert.equal(fallback.href, link.getAttribute("href"));
+      assert.equal(fallback.target, target || "_self");
+      assert.equal(fallback.textContent, "원래 링크 열기");
+      assert.match(fallback.rel, /noopener noreferrer/u);
+      assert.equal((await fallback.emit("click")).defaultPrevented, undefined);
+      assert.deepEqual(f.assigned, []);
+      assert.equal(f.stack.canGoBack, false);
+    }
+  }
+});
+
+test("anchorless mounted metadata enables a jump; an oversized resolved label remains metadata-only", async () => {
+  // Exercise the existing service exception with its isolated Python fixtures.
+  const metadata = JSON.parse(execFileSync("/opt/homebrew/bin/python3", ["-B", "-c", `
+import json
+from unittest.mock import Mock
+from test_cross_project_refs import Fixture, PDF, catalog_data
+from flow_reader.services.cross_project_refs import CrossProjectPreviewService, preview_query
+fixture = Fixture()
+fixture.setUp()
+try:
+    origin, target = fixture.state(), fixture.state('book')
+    lookup = Mock(return_value=(target, '/d/book/'))
+    service = CrossProjectPreviewService(origin, lookup)
+    mounted = service.preview(project_key='book', label='theorem')
+    data = catalog_data()
+    data['projects']['book']['references'] = {'x'*1025: {'page': 7, 'text': 'Long label'}}
+    data['projects']['book']['ambiguous_labels'] = []
+    fixture.write_catalog(data)
+    lookup.reset_mock()
+    long_label = service.preview(**preview_query('href=' + PDF + '%23page%3D7'))
+    assert long_label['status'] == 'unique'
+    assert len(long_label['label']) == 1024
+    lookup.assert_not_called()
+    print(json.dumps({'mounted': mounted, 'longLabel': long_label}))
+finally:
+    fixture.doCleanups()
+`], { cwd: new URL("..", import.meta.url), encoding: "utf8",
+    env: { ...process.env, PYTHONPATH: ".:tests" } }));
+  assert.equal(metadata.mounted.anchor, null);
+  assert.equal(metadata.mounted.targetUrl, "/d/book/");
+  const f = setup({ request: async () => metadata.mounted });
+  await f.article.emit("click", { target: f.link });
+  assert.equal(jump(f).disabled, false);
+  await jump(f).emit("click");
+  assert.deepEqual(f.assigned, ["/d/book/"]);
+  assert.equal(metadata.longLabel.targetUrl, null);
+  assert.equal(metadata.longLabel.snippet, null);
+  assert.equal(metadata.longLabel.anchor, null);
+  const g = setup({ request: async () => metadata.longLabel });
+  await g.article.emit("click", { target: g.link });
+  assert.equal(jump(g).disabled, true);
+  assert.equal(g.controller.card.children.find((n) => n.tagName === "A").href, metadata.longLabel.pdfUrl);
 });
 
 test("ReaderTransport preview timeout replaces loading with an error/fallback; caller cancellation stays silent", async () => {
@@ -316,15 +443,20 @@ test("ReaderTransport preview timeout replaces loading with an error/fallback; c
       link.target = "_blank";
       f.article.append(link);
     }
-    await f.article.emit("click", { target: link });
+    await f.article.emit(explicit ? "click" : "pointerover", { target: link });
     assert.equal(options.cache, "no-store");
     assert.equal(transportSignal.aborted, true);
     assert.equal(callerSignal.aborted, false);
-    assert.match(f.controller.card.children[2].textContent, /불러오지 못했습니다/u);
-    assert.equal(jump(f).disabled, true);
-    assert.equal(f.controller.card.children.some((node) => node.tagName === "A"), !explicit);
+    if (explicit) {
+      assert.match(f.controller.card.children[2].textContent, /불러오지 못했습니다/u);
+      assert.equal(jump(f).disabled, true);
+    } else {
+      assert.equal(f.controller.card, null);
+      assert.equal((await f.article.emit("click", { target: link })).defaultPrevented, undefined);
+    }
     assert.equal(transport.pending.size, 0);
-    const cancelled = f.article.emit("click", { target: link });
+    f.controller.dismiss(false);
+    const cancelled = f.article.emit(explicit ? "click" : "pointerover", { target: link });
     await f.doc.emit("keydown", { key: "Escape" });
     await cancelled;
     assert.equal(callerSignal.aborted, true);

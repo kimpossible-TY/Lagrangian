@@ -451,12 +451,20 @@ display over canonical plain text, stops at section/heading boundaries and bound
 output to 600 characters / 4 blocks, with a truncated boolean. No raw HTML is
 injected. Unmounted, uncompiled, compiling, failed-import or unmatched targets
 retain unique catalog metadata with `snippet: null`; targetUrl is present only
-for a safely mounted route. Catalog labels are lookup identities, not navigable
+for a safely mounted route. Exception: a resolved catalog label longer than
+1024 characters returns bounded unique metadata before peer lookup, with null
+targetUrl, anchor and snippet even for a mounted peer. A short href request can
+resolve such a label; a direct oversized project/label request is HTTP 400.
+Catalog labels are lookup identities, not navigable
 anchors: anchor starts null and metadata-only mounted routes have no fragment.
-Successful extraction may supply a manifest-backed reader anchor. Safe URLs are
+Anchorless mounted routes still enable the web jump, using normal initial
+position hints. Successful extraction may supply a manifest-backed reader anchor. Safe URLs are
 relative same-origin `/d/<id>/` with an optional extracted anchor fragment, or
-that route on the configured reader_url-validated origin;
-executable/file URLs, arbitrary hosts and traversal are rejected.
+that route on the configured reader_url-validated origin. The single
+CrossProjectPreviewService.allowed_origin comes from handler_for(public_url),
+injected by routed --public-origin / manager shared.publicURL or standalone
+--public-url; current peer registries emit relative routes.
+Executable/file URLs, arbitrary hosts and traversal are rejected.
 
 HTTP owns read-only `GET /api/cross-project/preview`, also available under
 `/d/<id>/api/cross-project/preview`. Exactly project+label or href+optional text
@@ -488,13 +496,18 @@ CrossProjectPreview and createCrossProjectPosition. `reader.js` injects storage,
 capability, document/service/revision identity and section reading-position
 operations, plus `(url, options) => transport.get(url, options)` from the existing
 ReaderTransport owner. Its no-store requests have a default ten-second timeout;
-transport AbortError displays an error unless the caller signal was cancelled.
+transport AbortError displays an error for explicit links unless the caller
+signal was cancelled; failed implicit preflights preserve native navigation.
 Explicit project/label metadata wins over href/text, including
 fragment hrefs. Otherwise enabled capability allows safe absolute HTTP(S)
-positive-page-fragment candidates, excluding same-origin viewer routes;
-unresolved/error candidates retain a clickable original href/target in the card
-without return history. Activation supplies a fresh user gesture; no asynchronous
-window.open depends on expired activation.
+positive-page-fragment candidates, excluding same-origin viewer routes.
+Pointerover/focusin preflights cache one result bound to link, exact query and
+document/service/revision identity. Only a cached unique or ambiguous result
+intercepts a click. Cold/in-flight, unresolved and failed candidates keep native
+href/target navigation without another activation or asynchronous popup.
+For intercepted ambiguous or unique-but-unjumpable references, the card offers
+the original PDF href including its page fragment and original target (default
+`_self`), before server PDF metadata; no return history is recorded.
 Ordinary fragments, relative/non-page links, downloads and modified clicks stay
 native. Popovers use named nonmodal dialog semantics, textContent-only canonical
 snippets and cream/dark theme tokens. The jump button or noninteractive card
@@ -505,12 +518,18 @@ viewer URLs open externally without tab return state. Request generations,
 AbortController and document/service/revision guards suppress stale success
 and failure. Escape, close, outside click and dispose cancel work; focus is
 restored without stealing an outside control's focus. Dispose removes listeners.
+Detached source links dismiss loading on either success or failure. Dismiss
+clears the preflight cache; dispose removes the preflight listeners too.
 Pagehide aborts preview work even for cached pages. Persisted pageshow
 dismisses old cards, releases the navigation latch and reloads
 the stack from storage so Homepage resets and other documents remain authoritative.
 
 JUMP captures the exact origin route/query/hash, title, ready section, semantic
 anchor and section-relative offset, persists the stack, then assigns the target.
+For both JUMP and BACK, a destination with current pathname and query (including
+fragment-only and identical URLs) calls location.reload immediately after
+location.assign. This forces bootstrap, releasing the old navigation latch and
+running pending restoration. Ordinary fragments keep their existing owner.
 BACK writes a pending record with a fresh UUID before popping/persisting the
 stack and assigning the origin path. Synchronous assignment failure rolls back
 best effort; later load failure leaves pending recoverable by browser navigation
@@ -539,7 +558,10 @@ fresh semantic anchor. Failed final pixel checks release that hold. Subsequent
 composition, font and width changes or continuous-section mutations can adjust
 the viewport to keep the same passage; user gestures release the hold.
 Homepage explicit document/variant open clears both records; reload retains tab
-history. Cross-project Back has its own labeled navigation-action button.
+history. Variant controls are wa-dropdown-item hosts in each document card's
+ellipsis menu, offering alternative viewers/variants; both host and nested
+document link clicks reset history.
+Cross-project Back has its own labeled navigation-action button.
 In-document ReferenceReturn still holds one semantic origin. The HTML adapter's
 finishReferenceReturn updates history/focus only on success but consumes the
 matching origin even when restoration fails. That behavior and existing
@@ -565,6 +587,10 @@ existing install.py, server/assets.py and reader-bundle tooling deliver them
 without changes. `reader-common/tests/cross-project-return.mjs` and
 `flow-reader/tests/test_cross_project_preview.mjs` cover policy and headless DOM
 transitions, cancellation, literal text, exact return, Homepage reset and wiring.
+Regressions cover same-document jump/Back bootstrap, detached-link loading
+cleanup, native unresolved/failed implicit links and original PDF page/target
+fallback for ambiguous/unmounted results. The DOM suite also executes isolated
+Python service fixtures for the oversized-label exception and anchorless jumps.
 Run all shared and flow-reader Node tests, focused Python cross-project service,
 install and bundle tests, reader lint and strict OpenSpec validation. These are
 headless checks, not native GUI or visual review. Native files and app/service
