@@ -66,7 +66,7 @@ Find and explicit same-artifact GoTo SHALL reveal the target in the actual clip 
 - **AND** cancelled or obsolete raster completion cannot scroll a newer viewport
 
 ### Requirement: Minimal offline original PDF toolbar and docked search capsule
-The original PDF reader SHALL use a unified single-row toolbar, the exact `오프라인 PDF` badge and a compact search-hit capsule docked without overlapping body text or highlights. Unsupported and duplicate capsule actions SHALL be omitted. At 640px the centered page group SHALL stay visible while secondary items collapse into overflow.
+The offline original PDF reader SHALL present a single-row unified toolbar with `목차 ▾`, the exact `오프라인 PDF` badge, centered `‹ 1 / 2 ›`, right-aligned rounded search with `×`, and `•••`. The compact search-hit capsule SHALL dock clear of PDF text/highlights and expose only the supported actions and mode labels specified below. At 640px the page group SHALL stay visible and secondary items SHALL collapse into `•••`.
 
 #### Scenario: Offline PDF toolbar, docked search capsule, and 640px narrow layout
 - **WHEN** an offline original PDF is displayed, a search hit is active, or the window narrows to 640px

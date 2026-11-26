@@ -185,3 +185,7 @@ locator remains historical. This executor follows the existing single-writer pla
 - [x] r1-S3: filter hashed filenames before decoding, skip identical viewed content, flush position on close/cancel and store documents separately per revision.
 - [x] r1-S4/r1-S5: record 20ad89a5 wire/helper contracts and bounded halving retry with cross-language limit checks.
 - [x] r1-S2: align Home/menu-bar spec and design with the retained simplified UI.
+
+## PR33 re-review corrections
+- [x] Bound math retries by one per-chunk deadline (twice the initial timeout), retain atomic preparation, and fail deterministic output-limit without splitting.
+- [x] Restore the offline original PDF toolbar requirement scope and concrete toolbar labels. Exact 705f48b3 paragraph restoration exceeds OpenSpec's 500-character strict limit; retain minimal reflow with capsule labels/actions in the existing scenario.
