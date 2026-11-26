@@ -394,8 +394,12 @@ def integrated_sources(root):
         return hashlib.sha256(git('show', rev + ':' + name)).hexdigest()
     def current(name, rev):
         path = root / name
+        digest = blob(rev, name, absent=True)
+        if digest is None:
+            require(not path.exists() and not path.is_symlink() and blob(head, name, absent=True) is None,
+                    'deleted owner source reappeared: ' + name)
+            return None
         require(path.is_file() and not path.is_symlink() and path.resolve() == path, 'missing/escaping owner source: ' + name)
-        digest = blob(rev, name)
         require(sha(path) == digest, 'integrated owner source drift: ' + name)
         return digest
 
@@ -442,7 +446,7 @@ def integrated_sources(root):
             name = relative(item['path'])
             require(name not in seen_paths and name not in DELIVERY_SOURCE_PATHS, 'duplicate or delivery-owned correction path')
             seen_paths.add(name)
-            original, corrected = blob(before, name, absent=True), blob(rev, name)
+            original, corrected = blob(before, name, absent=True), blob(rev, name, absent=True)
             require(item['baseSHA256'] == original and item['sha256'] == corrected and original != corrected,
                     'owner correction original/corrected digest mismatch: ' + name)
             records.append({**item, 'overrides':originals.get(name, [])})
