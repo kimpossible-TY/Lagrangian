@@ -60,6 +60,8 @@ final class NativeModeMorphSwitch: NSControl {
         let p = NativeAppDesign.palette(preferences)
         reflowButton.title = compact ? "" : "본문"; pageButton.title = compact ? "" : "PDF"
         for (index, button) in [reflowButton, pageButton].enumerated() {
+            button.imagePosition = compact ? .imageOnly : .imageLeading
+            button.imageHugsTitle = !compact
             button.isEnabled = isEnabled && allowsModeSwitch
             button.state = index == displayMode.rawValue ? .on : .off
             button.setAccessibilityValue(index == displayMode.rawValue ? 1 : 0)

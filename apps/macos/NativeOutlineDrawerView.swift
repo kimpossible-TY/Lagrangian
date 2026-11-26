@@ -190,7 +190,7 @@ private final class NativeOutlineRow: NSView {
         let p = NativeAppDesign.palette(preferences)
         if active {
             p.wash.setFill(); NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
-            p.accent.setFill(); NSBezierPath(roundedRect: NSRect(x: 3, y: (bounds.height - 16) / 2, width: 3, height: 16), xRadius: 1.5, yRadius: 1.5).fill()
+            p.accent.setFill(); NSBezierPath(roundedRect: NSRect(x: 5, y: (bounds.height - 16) / 2, width: 3, height: 16), xRadius: 1.5, yRadius: 1.5).fill()
         }
         if isKeyboardSelected {
             let focus = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 11, yRadius: 11)

@@ -498,7 +498,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         designPalette.reviewInk.setStroke()
         for selection in reviewSelections {
             for fragment in selection.fragments {
-                for rect in rects(blockID: fragment.blockID, logical: fragment.rangeUTF16) where rect.intersects(dirty) {
+                for rect in reviewStrikeSegments(blockID: fragment.blockID, logical: fragment.rangeUTF16) where rect.insetBy(dx: -0.65, dy: -0.65).intersects(dirty) {
                     let line = NSBezierPath(); line.lineWidth = 1.3; line.lineCapStyle = .round
                     line.move(to: NSPoint(x: rect.minX, y: rect.midY)); line.line(to: NSPoint(x: rect.maxX, y: rect.midY)); line.stroke()
                 }
@@ -1391,6 +1391,36 @@ extension NativeReaderTextView {
         var result: [NSRect] = []
         manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, _ in
             result.append(rect.offsetBy(dx: self.bodyTextView.textContainerOrigin.x, dy: self.bodyTextView.textContainerOrigin.y))
+        }
+        return result
+    }
+    func reviewStrikeSegments(blockID: String, logical: Range<Int>) -> [NSRect] {
+        guard renderKey != nil, renderKey == requestedRenderKey, let map = textMap,
+              let range = try? map.presentationRange(blockID: blockID, logical: logical),
+              let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer,
+              let storage = bodyTextView.textStorage else { return [] }
+        let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let origin = bodyTextView.textContainerOrigin
+        var result: [NSRect] = []
+        manager.enumerateLineFragments(forGlyphRange: glyphs) { lineRect, _, _, lineGlyphs, _ in
+            let segment = NSIntersectionRange(glyphs, lineGlyphs)
+            guard segment.length > 0 else { return }
+            let glyphBounds = manager.boundingRect(forGlyphRange: segment, in: container).offsetBy(dx: origin.x, dy: origin.y)
+            guard glyphBounds.width > 0 else { return }
+            let baseline = lineRect.minY + manager.location(forGlyphAt: segment.location).y + origin.y
+            let characters = manager.characterRange(forGlyphRange: segment, actualGlyphRange: nil)
+            var attachment: NSTextAttachment?
+            storage.enumerateAttribute(.attachment, in: characters) { value, _, stop in
+                if let value = value as? NSTextAttachment { attachment = value; stop.pointee = true }
+            }
+            let y: CGFloat
+            if let attachment, let cell = attachment.attachmentCell {
+                y = baseline - (cell.cellBaselineOffset().y + cell.cellSize().height * 0.5)
+            } else {
+                let font = storage.attribute(.font, at: characters.location, effectiveRange: nil) as? NSFont ?? self.bodyTextView.font ?? NSFont.systemFont(ofSize: 13)
+                y = min(glyphBounds.maxY, max(glyphBounds.minY, baseline - font.ascender * 0.36))
+            }
+            result.append(NSRect(x: glyphBounds.minX, y: y, width: glyphBounds.width, height: 0))
         }
         return result
     }

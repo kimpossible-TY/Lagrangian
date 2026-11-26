@@ -191,22 +191,29 @@ final class NativeCapsuleButton: NSButton {
     }
     required init?(coder: NSCoder) { nil }
     override var acceptsFirstResponder: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }
+    var iconBox: NSRect {
+        NSRect(x: bounds.midX - 10, y: circular ? bounds.midY - 10 : 8, width: 20, height: 20)
+    }
+    var labelBox: NSRect { NSRect(x: bounds.minX, y: 32, width: bounds.width, height: 14) }
     override func draw(_ dirtyRect: NSRect) {
         if circular || cell?.isHighlighted == true {
             NativeChrome.color(circular ? \.wash : \.pressed).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: circular ? 18 : 22, yRadius: circular ? 18 : 22).fill()
         }
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: circular ? 12 : 17, weight: .medium))
         let color = NativeChrome.color(circular ? \.secondaryInk : iconInk)
+        let config = NSImage.SymbolConfiguration(pointSize: circular ? 12 : 17, weight: .medium)
+            .applying(.init(paletteColors: [color]))
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
         if let image {
-            let target = NSRect(x: (bounds.width - 20) / 2, y: circular ? (bounds.height - 20) / 2 : 27, width: 20, height: 20)
-            image.lockFocus(); color.set(); NSRect(origin: .zero, size: image.size).fill(using: .sourceAtop); image.unlockFocus()
-            image.draw(in: target)
+            let scale = min(iconBox.width / image.size.width, iconBox.height / image.size.height)
+            let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            let target = NSRect(x: iconBox.midX - size.width / 2, y: iconBox.midY - size.height / 2, width: size.width, height: size.height)
+            image.draw(in: target, from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.45, respectFlipped: true, hints: nil)
         }
         if !circular {
             let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NativeChrome.color(ink)]
             let size = (title as NSString).size(withAttributes: attributes)
-            (title as NSString).draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: 8), withAttributes: attributes)
+            (title as NSString).draw(at: NSPoint(x: labelBox.midX - size.width / 2, y: labelBox.midY - size.height / 2), withAttributes: attributes)
         }
     }
     override func keyDown(with event: NSEvent) {

@@ -221,6 +221,9 @@ private struct ParityInput: NativeReaderDocumentProviding {
             }
         } else if scenario == "toolbar" {
             let mode = chrome.modeSegmentSurface
+            for button in [mode.reflowButton, mode.pageButton] {
+                try check(button.imagePosition == .imageLeading && button.imageHugsTitle, "Wide mode hugs its label")
+            }
             let children = mode.accessibilityChildren() ?? []
             try check(chrome.brandMark.isAccessibilityElement() && chrome.brandMark.accessibilityRole() == .button, "Brand mark is an accessible button")
             try check(!mode.isAccessibilityElement() && children.count == 2 && (children[0] as AnyObject) === mode.reflowButton && (children[1] as AnyObject) === mode.pageButton && mode.reflowButton.accessibilityRole() == .radioButton && mode.pageButton.accessibilityRole() == .radioButton, "Mode switch exposes both radio buttons")
@@ -247,6 +250,9 @@ private struct ParityInput: NativeReaderDocumentProviding {
             root.layoutSubtreeIfNeeded()
             try check(chrome.modeSegmentSurface.bounds.size == NSSize(width: 80, height: 32) && !chrome.outlineToggleButton.isEnabled,
                       "Wide PDF uses compact mode switch and disabled outline")
+            for button in [mode.reflowButton, mode.pageButton] {
+                try check(button.imagePosition == .imageOnly && !button.imageHugsTitle, "Compact mode centers its icon")
+            }
             chrome.reflowMode(); try await until { host.visibleMode == .nativeReflow }
             window.setFrame(NSRect(x: 0, y: 0, width: 640, height: 752), display: false); root.layoutSubtreeIfNeeded()
             try check(chrome.modeSegmentSurface.bounds.size == NSSize(width: 80, height: 32), "Compact icon-only switch")
@@ -256,7 +262,40 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(views(root).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "오프라인 PDF" && !$0.isHiddenOrHasHiddenAncestor }, "Exact offline badge")
             try check(!chrome.handleReaderShortcut(event(window, "0", .command)), "Cmd 0 remains owned by FlowApp")
         } else if scenario == "capsule" {
+            let sample = NativeCapsuleButton(frame: NSRect(x: 0, y: 0, width: 70, height: 54))
+            sample.symbol = "star.fill"; sample.title = "Label"; sample.iconInk = \.accent
+            try check(sample.isFlipped && sample.iconBox.maxY < sample.labelBox.minY, "Icon is above label in flipped coordinates")
+            let bitmap = sample.bitmapImageRepForCachingDisplay(in: sample.bounds)!
+            sample.cacheDisplay(in: sample.bounds, to: bitmap)
+            func pixels(_ rows: Range<Int>) -> Int {
+                rows.reduce(0) { count, y in count + (0..<bitmap.pixelsWide).filter { x in
+                    (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.05
+                }.count }
+            }
+            try check(pixels(8..<28) > 0 && pixels(32..<46) > 0, "Icon and label paint in their respective bands")
+            let tinted = (8..<28).reduce(0) { count, y in count + (0..<bitmap.pixelsWide).filter { x in
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                return color.alphaComponent > 0.1 && color.blueComponent > color.redComponent + 0.05
+            }.count }
+            try check(tinted > 0, "Symbol pixels use the accent tint")
             let block = doc.blocks[1]
+            let segments = host.textView.reviewStrikeSegments(blockID: block.id, logical: 0..<block.displayText.utf16.count)
+            try check(segments.count >= 2 && Set(segments.map { Int($0.midY.rounded()) }).count == segments.count, "Review produces distinct wrapped line strikes")
+            let text = host.textView.bodyTextView, layout = text.layoutManager!, textContainer = text.textContainer!
+            let selected = try host.textView.textMap!.presentationRange(blockID: block.id, logical: 0..<block.displayText.utf16.count)
+            let glyphRange = layout.glyphRange(forCharacterRange: selected, actualCharacterRange: nil)
+            var expected: [CGFloat] = []
+            layout.enumerateLineFragments(forGlyphRange: glyphRange) { line, _, _, lineGlyphs, _ in
+                let glyphs = NSIntersectionRange(glyphRange, lineGlyphs)
+                guard glyphs.length > 0 else { return }
+                let bounds = layout.boundingRect(forGlyphRange: glyphs, in: textContainer).offsetBy(dx: text.textContainerOrigin.x, dy: text.textContainerOrigin.y)
+                guard bounds.width > 0 else { return }
+                let chars = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+                let font = text.textStorage!.attribute(.font, at: chars.location, effectiveRange: nil) as! NSFont
+                let baseline = line.minY + layout.location(forGlyphAt: glyphs.location).y + text.textContainerOrigin.y
+                expected.append(min(bounds.maxY, max(bounds.minY, baseline - font.ascender * 0.36)))
+            }
+            try check(expected.count == segments.count && zip(expected, segments).allSatisfy { abs($0 - $1.midY) < 0.01 }, "Each strike follows its line baseline")
             try host.textView.select(from: .init(blockID: block.id, utf16: 0, affinity: .downstream), to: .init(blockID: block.id, utf16: 13, affinity: .upstream))
             chrome.showSelectionActions(); try await until { !chrome.capsule.isHidden }
             let capsule = chrome.capsule, ticket = host.store.selection!.ticket
