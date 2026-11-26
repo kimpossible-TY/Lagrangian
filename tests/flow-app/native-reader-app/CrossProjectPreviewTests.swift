@@ -83,10 +83,13 @@ struct CrossProjectPreviewTests {
       rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [], anchors: [],
       annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
       headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
-    let link = NativeReaderNode(id: "link", sectionID: "section", kind: .link, canonicalText: text, displayText: text,
+    var link = NativeReaderNode(id: "link", sectionID: "section", kind: .link, canonicalText: text, displayText: text,
       rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [leaf], anchors: ["origin"],
       annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
       headingLevel: nil, math: nil, cell: nil, link: url, assetID: nil, alt: nil)
+    if scenario == "reader_explicit_project_ref" {
+      link.projectRef = NativeProjectRefMetadata(project: "other", label: "chosen", title: nil, page: nil, text: nil)
+    }
     let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
       requiredCapabilities: ["semantic-tree-v1"], blocks: [link], assets: [], diagnostics: [])
     let context = NativeReaderRequestContext(requestID: UUID(), viewID: host.store.viewID, generation: generation, target: identity)
@@ -115,9 +118,22 @@ struct CrossProjectPreviewTests {
       var ambiguous = project; ambiguous.ambiguousLabels = ["thm"]
       host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": ambiguous]) }
       _ = host.textView.activate(nodeID: "link")
-      try check(opened.count == 2, "Ambiguous links open normally")
+      try check(opened.count == 1, "Ambiguous links do not open")
       host.dispose()
       try check(host.activeCrossProjectPreviewView == nil, "Dispose clears preview")
+    } else if scenario == "reader_explicit_project_ref" {
+      let other = CrossProjectCatalogProject(title: "Other", pdfURL: "https://example.org/other.pdf",
+        references: ["chosen": CrossProjectCatalogEntry(page: 3, text: "Explicit")], ambiguousLabels: [])
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": project, "other": other]) }
+      _ = host.textView.activate(nodeID: "link")
+      try check(host.activeCrossProjectPreviewView?.content.projectKey == "other" && opened.isEmpty, "Explicit identity overrides URL")
+      var ambiguous = other; ambiguous.ambiguousLabels = ["chosen"]
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["other": ambiguous]) }
+      _ = host.textView.activate(nodeID: "link")
+      try check(opened.isEmpty, "Ambiguous explicit identity does not open URL")
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": project]) }
+      _ = host.textView.activate(nodeID: "link")
+      try check(opened.count == 1, "Unresolved explicit identity opens URL")
     } else if scenario == "reader_async_snippet" {
       var continuations: [CheckedContinuation<CrossProjectPreviewContent?, Never>] = []
       host.crossProjectSnippetLoader = { _ in await withCheckedContinuation { continuations.append($0) } }
@@ -218,6 +234,53 @@ struct CrossProjectPreviewTests {
       host.hostWindow.returnFromReference()
       try check(!back.isEnabled && host.hostWindow.moreMenu.item(withTitle: "돌아가기")?.isEnabled == false && returns == 1, "Original pages disable Back")
     }
+  }
+
+  @MainActor static func contractAndSnippet() throws {
+    func node(_ id: String, _ text: String, section: String = "s", kind: NativeReaderNode.Kind = .text,
+              anchors: [String] = [], children: [NativeReaderNode] = [], link: String? = nil) -> NativeReaderNode {
+      NativeReaderNode(id: id, sectionID: section, kind: kind, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: children, anchors: anchors,
+        annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+        headingLevel: kind == .heading ? 1 : nil, math: nil, cell: nil, link: link, assetID: nil, alt: nil)
+    }
+    let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "rev", scope: .fixture)
+    func document(_ blocks: [NativeReaderNode]) -> NativeReaderDocument {
+      NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+    }
+    let meta = NativeProjectRefMetadata(project: "book", label: "target", title: "Title", page: 2, text: "Text")
+    var link = node("link", "Alpha", kind: .link, children: [node("leaf", "Alpha", anchors: ["target"])], link: "https://example.org")
+    link.projectRef = meta
+    let valid = document([link])
+    try valid.validate()
+    let decoded = try NativeReaderDocument.decode(JSONEncoder().encode(valid))
+    try check(decoded == valid, "Metadata round trips")
+    for invalid in [NativeProjectRefMetadata(project: " ", label: "x", title: nil, page: nil, text: nil),
+                    NativeProjectRefMetadata(project: "x", label: "\n", title: nil, page: nil, text: nil),
+                    NativeProjectRefMetadata(project: "x", label: "x", title: nil, page: 0, text: nil)] {
+      var bad = link; bad.projectRef = invalid
+      do { try document([bad]).validate(); throw Failure(message: "Invalid metadata accepted") }
+      catch NativeReaderContractError.invalidDocument { }
+    }
+    var nonLink = node("plain", "Alpha"); nonLink.projectRef = meta
+    do { try document([nonLink]).validate(); throw Failure(message: "Non-link metadata accepted") }
+    catch NativeReaderContractError.invalidDocument { }
+    let blocks = [node("first", "  Search\u{00a0}Text  "), link, node("next", "Next"),
+                  node("heading", "Heading", kind: .heading), node("other", "Other", section: "other")]
+    let doc = document(blocks)
+    try check(CrossProjectSnippetExtractor.extract(from: doc, label: "target", referenceText: "search text") ==
+      CrossProjectSnippetResult(text: "Alpha\n\nNext", truncated: false), "Descendant anchor wins and heading stops")
+    try check(CrossProjectSnippetExtractor.extract(from: doc, label: "missing", referenceText: "SEARCH text", maxBlocks: 1) ==
+      CrossProjectSnippetResult(text: "Search\u{00a0}Text", truncated: true), "Normalized text fallback and block limit")
+    try check(CrossProjectSnippetExtractor.extract(from: doc, label: "target", referenceText: nil, maxChars: 4)?.text == "A...", "Character limit")
+    try check(CrossProjectSnippetExtractor.extract(from: doc, label: "target", referenceText: nil, maxChars: 2)?.text == "Al", "Short character limit")
+    try check(CrossProjectSnippetExtractor.extract(from: doc, label: nil, referenceText: nil) == nil &&
+      CrossProjectSnippetExtractor.extract(from: doc, label: "target", referenceText: nil, maxChars: 0) == nil &&
+      CrossProjectSnippetExtractor.extract(from: doc, label: "target", referenceText: nil, maxBlocks: 0) == nil, "Missing matches and invalid limits")
+    let boundary = document([node("a", "A", anchors: ["a"]), node("b", "B", section: "other")])
+    try check(CrossProjectSnippetExtractor.extract(from: boundary, label: "a", referenceText: nil, maxBlocks: 1) ==
+      CrossProjectSnippetResult(text: "A", truncated: false), "Section boundary is not truncated")
   }
 
   @MainActor static func clickBody(_ view: NativeCrossProjectPreviewView, _ point: NSPoint, in window: NSWindow) throws {
@@ -332,7 +395,8 @@ struct CrossProjectPreviewTests {
           }
         }
       case "reader": try readerHelpers()
-      case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime":
+      case "project_ref_contract_and_snippet": try contractAndSnippet()
+      case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime", "reader_explicit_project_ref":
         try await controllerScenario(CommandLine.arguments[1])
       default: throw Failure(message: "Unknown fixture scenario")
       }

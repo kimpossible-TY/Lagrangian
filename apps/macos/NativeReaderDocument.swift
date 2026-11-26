@@ -83,6 +83,20 @@ struct NativeImageLayout: Codable, Equatable {
     }
 }
 
+struct NativeProjectRefMetadata: Codable, Equatable {
+    let project: String
+    let label: String
+    let title: String?
+    let page: Int?
+    let text: String?
+
+    func validate() throws {
+        guard !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              page.map({ $0 > 0 }) ?? true else { throw NativeReaderContractError.invalidDocument }
+    }
+}
+
 struct NativeReaderNode: Codable, Equatable {
     enum Kind: String, Codable {
         case text, paragraph, heading, strong, emphasis, link, group, math
@@ -114,6 +128,7 @@ struct NativeReaderNode: Codable, Equatable {
     let assetID: String?
     let alt: String?
     var imageLayout: NativeImageLayout? = nil
+    var projectRef: NativeProjectRefMetadata? = nil
 
     var orderedNodes: [NativeReaderNode] { [self] + children.flatMap(\.orderedNodes) }
     var graphemeBoundariesUTF16: [Int] {
@@ -171,6 +186,10 @@ struct NativeReaderDocument: Codable, Equatable {
             throw NativeReaderContractError.unsupportedRequiredCapability
         }
         let required = Set(requiredCapabilities)
+        for node in blocks.flatMap(\.orderedNodes) {
+            guard node.projectRef == nil || node.kind == .link else { throw NativeReaderContractError.invalidDocument }
+            try node.projectRef?.validate()
+        }
         let hasLayout = blocks.flatMap(\.orderedNodes).contains { $0.imageLayout != nil }
         guard required.contains("semantic-tree-v1"), required.count == requiredCapabilities.count,
               required.contains("image-layout-v1") == hasLayout else { throw NativeReaderContractError.invalidDocument }
@@ -287,7 +306,7 @@ extension NativeImageLayout {
 
 extension NativeReaderNode {
     init(from decoder: Decoder) throws {
-        try nativeWireKeys(decoder, allowed: ["id", "sectionID", "kind", "canonicalText", "displayText", "rangeUTF16", "offsets", "children", "anchors", "annotationTargets", "visible", "mapping", "passageKey", "direction", "language", "headingLevel", "math", "cell", "link", "assetID", "alt", "imageLayout"])
+        try nativeWireKeys(decoder, allowed: ["id", "sectionID", "kind", "canonicalText", "displayText", "rangeUTF16", "offsets", "children", "anchors", "annotationTargets", "visible", "mapping", "passageKey", "direction", "language", "headingLevel", "math", "cell", "link", "assetID", "alt", "imageLayout", "projectRef"])
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         sectionID = try c.decode(String.self, forKey: .sectionID)
@@ -311,6 +330,7 @@ extension NativeReaderNode {
         assetID = try c.decodeIfPresent(String.self, forKey: .assetID)
         alt = try c.decodeIfPresent(String.self, forKey: .alt)
         imageLayout = c.contains(.imageLayout) ? try c.decode(NativeImageLayout.self, forKey: .imageLayout) : nil
+        projectRef = try c.decodeIfPresent(NativeProjectRefMetadata.self, forKey: .projectRef)
     }
 }
 

@@ -50,6 +50,12 @@ class CrossProjectPreview(unittest.TestCase):
     def test_reader_preview_first_click(self):
         self.scenario('reader_preview_first_click')
 
+    def test_project_ref_contract_and_snippet(self):
+        self.scenario('project_ref_contract_and_snippet')
+
+    def test_reader_explicit_project_ref(self):
+        self.scenario('reader_explicit_project_ref')
+
     def test_reader_async_snippet(self):
         self.scenario('reader_async_snippet')
 

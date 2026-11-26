@@ -1,5 +1,50 @@
 import Foundation
 
+struct CrossProjectSnippetResult: Equatable {
+  let text: String
+  let truncated: Bool
+}
+
+enum CrossProjectSnippetExtractor {
+  static func extract(from document: NativeReaderDocument, label: String?, referenceText: String?,
+                      maxChars: Int = 600, maxBlocks: Int = 4) -> CrossProjectSnippetResult? {
+    guard maxChars > 0, maxBlocks > 0 else { return nil }
+    func normalized(_ text: String) -> String {
+      text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+    let anchor = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let query = normalized(referenceText ?? "")
+    let anchorIndex = anchor.isEmpty ? nil : document.blocks.firstIndex {
+      $0.orderedNodes.contains { $0.anchors.contains(anchor) }
+    }
+    let textIndex = query.isEmpty ? nil : document.blocks.firstIndex {
+      normalized($0.displayText).range(of: query, options: .caseInsensitive) != nil ||
+        normalized($0.canonicalText).range(of: query, options: .caseInsensitive) != nil
+    }
+    guard let start = anchorIndex ?? textIndex else { return nil }
+    let section = document.blocks[start].sectionID
+    var parts: [String] = []
+    var index = start
+    var count = 0
+    while index < document.blocks.count && count < maxBlocks {
+      let block = document.blocks[index]
+      guard block.sectionID == section, index == start || block.kind != .heading else { break }
+      let display = block.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+      let text = display.isEmpty ? block.canonicalText.trimmingCharacters(in: .whitespacesAndNewlines) : display
+      if !text.isEmpty { parts.append(text) }
+      index += 1
+      count += 1
+    }
+    let text = parts.joined(separator: "\n\n")
+    let more = count == maxBlocks && index < document.blocks.count &&
+      document.blocks[index].sectionID == section && document.blocks[index].kind != .heading
+    if text.count > maxChars {
+      return CrossProjectSnippetResult(text: maxChars >= 3 ? String(text.prefix(maxChars - 3)) + "..." : String(text.prefix(maxChars)), truncated: true)
+    }
+    return CrossProjectSnippetResult(text: text, truncated: more)
+  }
+}
+
 struct CrossProjectCatalogEntry: Codable, Equatable {
   var page: Int
   var text: String

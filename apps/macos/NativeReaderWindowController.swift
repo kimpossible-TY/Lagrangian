@@ -272,8 +272,19 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
             self.textView.renderKey == self.textView.requestedRenderKey,
             node.kind == .link, let raw = node.link, !raw.hasPrefix("#"), let url = URL(string: raw),
             NativeOriginalPDFAccess.safeURL(url) else { return }
-      guard case .unique(let target) = self.crossProjectCatalogProvider?()?.resolve(url: raw, linkText: node.displayText) else {
-        self.openHomepage?(url); return
+      let resolution: CrossProjectResolution
+      if let catalog = self.crossProjectCatalogProvider?() {
+        if let meta = node.projectRef {
+          resolution = catalog.resolve(projectKey: meta.project, label: meta.label)
+        } else {
+          resolution = catalog.resolve(url: raw, linkText: node.displayText)
+        }
+      } else { resolution = .unresolved }
+      let target: CrossProjectTarget
+      switch resolution {
+      case .unique(let resolved): target = resolved
+      case .ambiguous: return
+      case .unresolved: self.openHomepage?(url); return
       }
       self.dismissCrossProjectPreview()
       self.crossProjectPreviewSerial += 1
