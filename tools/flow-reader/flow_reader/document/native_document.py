@@ -292,7 +292,7 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
         if isinstance(n, str):
             return value
         attrs = n.attrs
-        common = {"id", "data-reader-key", "class", "role", "aria-level", "lang", "dir"}
+        common = {"id", "data-flow-label", "data-reader-key", "class", "role", "aria-level", "lang", "dir"}
         allowed = common | {"a": {"href", "data-project-ref-project", "data-project-ref-label",
                                   "data-project-ref-title", "data-project-ref-page", "data-project-ref-text"},
                             "td": {"colspan", "rowspan"},
@@ -322,6 +322,11 @@ def import_accepted_document(bundle, *, document_id: str, service_id: str,
                 raise NativeImportError("duplicate-anchor")
             seen_anchors.add(anchor)
             value["anchors"].append(anchor)
+        if attrs.get("data-flow-label"):
+            anchor = _token(attrs["data-flow-label"])
+            if anchor not in seen_anchors:
+                seen_anchors.add(anchor)
+                value["anchors"].append(anchor)
         if attrs.get("data-flow-mark"):
             value["anchors"].append("mark:" + _token(attrs["data-flow-mark"]))
         if attrs.get("data-flow-targets"):

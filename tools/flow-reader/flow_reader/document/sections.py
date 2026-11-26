@@ -241,7 +241,9 @@ class BodyIndex(SvgRanges):
         in_body = "body" in self.stack
         if in_body and index >= 0:
             if (identifier := attributes.get("id")) and "svg" not in self.stack:
-                self.anchors[identifier] = index
+                self.anchors.setdefault(identifier, index)
+            if "svg" not in self.stack and (label := attributes.get("data-flow-label")):
+                self.anchors.setdefault(label, index)
             if key := attributes.get("data-reader-key"):
                 self.blocks[key] = index
             if identity := attributes.get("data-flow-canvas-identity"):

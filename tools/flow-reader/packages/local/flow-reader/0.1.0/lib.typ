@@ -18,6 +18,25 @@
 }
 
 #let apply-reader(body) = {
+  let exportable-label(it) = {
+    if it.has("label") {
+      let name = str(it.label)
+      if not ("flow-native-annotation-", "local-scope-", "mannot-scope-", "_mannot-").any(prefix => name.starts-with(prefix)) { name }
+      else { none }
+    } else { none }
+  }
+  show heading: it => context {
+    if target() == "html" {
+      let name = exportable-label(it)
+      if name != none { html.elem("div", attrs: ("data-flow-label": name), it) } else { it }
+    } else { it }
+  }
+  show figure: it => context {
+    if target() == "html" {
+      let name = exportable-label(it)
+      if name != none { html.elem("div", attrs: ("data-flow-label": name), it) } else { it }
+    } else { it }
+  }
   show math.underbrace: annotated-group
   show math.overbrace: annotated-group
   show math.underbracket: annotated-group
@@ -88,7 +107,10 @@
   }
   show math.equation: it => context {
     if target() == "html" and it.block {
-      html.elem("div", attrs: (class: "flow-equation"), [
+      let attrs = (class: "flow-equation")
+      let name = exportable-label(it)
+      if name != none { attrs.insert("data-flow-label", name) }
+      html.elem("div", attrs: attrs, [
         #it
         #if it.numbering != none {
           // A block element stays beside the math; an inline span would

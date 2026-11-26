@@ -8,6 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from flow_reader.document.content import normalize_math_html
 from flow_reader.document.sections import BodyIndex, assign_block_ids, separate_assets, split_document
 
 
@@ -18,6 +19,27 @@ def body(source):
 
 
 class SectionTests(unittest.TestCase):
+    def test_label_wrappers_and_first_anchor(self):
+        for wrapper in ('<div data-flow-label="def-convolution"><h2>Convolution</h2></div>',
+                        '<div id="def-convolution" data-flow-label="def-convolution"><h2>1. Convolution</h2></div>'):
+            normalized = normalize_math_html('<html><body>' + wrapper + '</body></html>')
+            self.assertNotIn('<div', normalized)
+            self.assertIn('<h2 data-flow-label="def-convolution"', normalized)
+            self.assertEqual(normalized.count('id="def-convolution"'), int(' id=' in wrapper))
+        self.assertEqual(normalize_math_html('<div id="outer" data-flow-label="a"><div data-flow-label="b"><h2>X</h2></div></div>'),
+                         '<h2 data-flow-label="b" id="outer">X</h2>')
+        source = normalize_math_html('<html><body><div data-flow-label="first"><h2>First</h2></div>'
+                                     '<p data-flow-label="first">Later</p><h2>Next</h2></body></html>')
+        bundle = split_document(source, 'labels', max_blocks=1)
+        self.assertEqual(bundle.manifest['anchors']['first'], bundle.manifest['outline'][0]['section'])
+        self.assertEqual([h['title'] for h in bundle.manifest['outline']], ['First', 'Next'])
+        for source in ('<div class="flow-equation" data-flow-label="x"><p>X</p></div>',
+                       '<div data-flow-label="x"><p>X</p><p>Y</p></div>',
+                       '<div data-flow-label="x">text<p>X</p></div>'):
+            self.assertEqual(normalize_math_html(source), source)
+        self.assertEqual(normalize_math_html('<div id="outer" data-flow-label="a"><p id="inner" data-flow-label="b">X</p></div>'),
+                         '<p id="inner" data-flow-label="b">X</p>')
+
     def test_outline_keeps_every_heading_level_and_cross_section_anchor(self):
         headings = ''.join(f'<h{level}>Level <em>{level}</em></h{level}>'
                            for level in range(1, 7))

@@ -13,6 +13,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.dont_write_bytecode = True
@@ -27,6 +28,8 @@ from flow_reader.compiler.build import compile_project
 from flow_reader.compiler.project import Project, document_identity
 from flow_reader.compiler.execution import local_compile
 from flow_reader.document.sections import split_document, SectionBundle
+from flow_reader.server.state import ReaderState
+from flow_reader.document.content import normalize_math_html
 from flow_reader.document.native_document import import_accepted_document, NativeImportError
 
 
@@ -36,6 +39,36 @@ def digest(path):
 
 def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+
+
+class LabelContractTests(unittest.TestCase):
+    def test_label_anchors_and_duplicate_handling(self):
+        html = normalize_math_html('<html><body><div id="same" data-flow-label="same"><h2>Heading</h2></div>'
+                                   '<p data-flow-label="same">Duplicate</p></body></html>')
+        bundle = split_document(html, 'labels', max_blocks=1)
+        model = import_accepted_document(bundle, document_id='fixture', service_id='offline', generation=1).document
+        self.assertEqual(model['blocks'][0]['kind'], 'heading')
+        self.assertEqual(model['blocks'][0]['anchors'], ['same'])
+        self.assertNotIn('same', model['blocks'][1]['anchors'])
+        self.assertEqual(model['requiredCapabilities'], ['semantic-tree-v1'])
+
+    @unittest.skipUnless(shutil.which('typst'), 'prebuilt Typst compiler unavailable')
+    def test_real_unreferenced_and_referenced_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'main.typ'
+            project = Project(root, Path('main.typ'), REPO / 'tools/flow-reader/packages', compiler=shutil.which('typst'))
+            for reference in ('', '\nSee @def-convolution.\n'):
+                source.write_text('#set heading(numbering: "1.")\n= Convolution <def-convolution>\n\n#figure(kind: "definition", supplement: [Definition])[Body] <def-fig>\n\n$ f * g $ <eq-conv>\n' + ''.join('\n= Internal <' + prefix + 'test>\n' for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-')) + reference)
+                state = ReaderState(project, root / 'output', '', False)
+                state.compile()
+                self.assertEqual(state.report.get('exitCode'), 0, state.report)
+                self.assertTrue(state.report.get('contentGatePassed'), state.report)
+                for prefix in ('flow-native-annotation-', 'local-scope-', 'mannot-scope-', '_mannot-'):
+                    self.assertNotIn(prefix + 'test', state.bundle.manifest['anchors'])
+                model = import_accepted_document(state.bundle, document_id='fixture', service_id='offline', generation=1).document
+                for anchor, kind in [('def-convolution', 'heading'), ('def-fig', 'figure'), ('eq-conv', 'equation')]:
+                    self.assertTrue(any(anchor in block['anchors'] and block['kind'] == kind for block in model['blocks']), (anchor, model['blocks']))
 
 
 class ContractTests(unittest.TestCase):

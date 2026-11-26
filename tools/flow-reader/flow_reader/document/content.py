@@ -1,5 +1,6 @@
 """Normalize embedded SVG assets without altering the document's anchor names."""
 
+from html import escape
 from html.parser import HTMLParser
 import re
 from xml.etree import ElementTree as ET
@@ -114,7 +115,7 @@ class MathHtmlEmbedding(HTMLParser):
 def normalize_math_html(source: str) -> str:
     parser = MathHtmlEmbedding()
     parser.feed(source)
-    return "".join(parser.output)
+    return unwrap_label_wrappers("".join(parser.output))
 
 
 class SvgRanges(HTMLParser):
@@ -181,3 +182,75 @@ def namespace_svg_ids(source: str, prefix: str = "flow-svg") -> str:
         previous = end
     pieces.append(source[previous:])
     return "".join(pieces)
+
+
+class LabelWrappers(SvgRanges):
+    """Find label-only wrappers without reserializing their contents."""
+
+    def __init__(self, source):
+        super().__init__(source)
+        self.stack = []
+        self.edits = []
+
+    def handle_starttag(self, tag, attrs):
+        start = self.source_offset()
+        raw = self.get_starttag_text()
+        node = {"tag": tag, "attrs": dict(attrs), "start": start,
+                "end": start + len(raw), "children": [], "text": False}
+        if self.stack:
+            self.stack[-1]["children"].append(node)
+        if tag not in MathHtmlEmbedding.VOID:
+            self.stack.append(node)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in MathHtmlEmbedding.VOID:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if self.stack and data.strip():
+            self.stack[-1]["text"] = True
+
+    def handle_comment(self, data):
+        if self.stack:
+            self.stack[-1]["text"] = True
+
+    def handle_entityref(self, name):
+        if self.stack:
+            self.stack[-1]["text"] = True
+
+    handle_charref = handle_entityref
+
+    def handle_endtag(self, tag):
+        if not self.stack or self.stack[-1]["tag"] != tag:
+            return
+        node = self.stack.pop()
+        attrs = node["attrs"]
+        if (tag != "div" or "data-flow-label" not in attrs
+                or set(attrs) - {"data-flow-label", "id"}
+                or node["text"] or len(node["children"]) != 1):
+            return
+        child = node["children"][0]
+        if child.get("unwrap"):
+            return
+        node["unwrap"] = True
+        additions = []
+        for name in ("data-flow-label", "id"):
+            if name in attrs and name not in child["attrs"]:
+                additions.append(f' {name}="{escape(attrs[name] or "", quote=True)}"')
+        insert = child["end"] - 1
+        if self.source[insert - 1:insert] == "/":
+            insert -= 1
+        self.edits.extend([(node["start"], node["end"], ""),
+                           (insert, insert, "".join(additions)),
+                           (self.source_offset(), self.source.index(">", self.source_offset()) + 1, "")])
+
+
+def unwrap_label_wrappers(source: str) -> str:
+    while True:
+        parser = LabelWrappers(source)
+        parser.feed(source)
+        if not parser.edits:
+            return source
+        for start, end, replacement in sorted(parser.edits, reverse=True):
+            source = source[:start] + replacement + source[end:]
