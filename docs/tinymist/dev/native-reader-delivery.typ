@@ -444,3 +444,36 @@ The Home/PDE integration owner correction registers the twenty-six paths from
 `tools/flow-reader/flow_reader/server/native_reader.py`, and
 `tools/flow-reader/native/math_layout.mjs`.
 Hashes are Git-derived. That inventory contains no delivery-owned paths.
+
+The cross-project integration owner correction registers the twenty-eight paths from
+`d7c9d93366257f7130692a97c66aac105c9ed0d1` →
+`c033eac8fcbf349cd7c711647e154c52c5bbbdad`:
+`apps/macos/CrossProjectReference.swift`,
+`apps/macos/FlowApp.swift`,
+`apps/macos/NativeCrossProjectPreviewPopover.swift`,
+`apps/macos/NativeReaderDocument.swift`,
+`apps/macos/NativeReaderTextView.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`apps/macos/Profiles.swift`,
+`apps/macos/ProjectService.swift`,
+`openspec/changes/add-cross-project-references/.openspec.yaml`,
+`openspec/changes/add-cross-project-references/design.md`,
+`openspec/changes/add-cross-project-references/proposal.md`,
+`openspec/changes/add-cross-project-references/specs/flow-macos-app/spec.md`,
+`openspec/changes/add-cross-project-references/specs/native-reader/spec.md`,
+`openspec/changes/add-cross-project-references/tasks.md`,
+`tests/flow-app/FlowAppTests.swift`,
+`tests/flow-app/ProjectServiceTests.swift`,
+`tests/flow-app/native-reader-app/CrossProjectPreviewTests.swift`,
+`tests/flow-app/native-reader-app/test_contract.py`,
+`tests/flow-app/native-reader-app/test_cross_project_preview.py`,
+`tests/flow-app/test_flow_ui.py`,
+`tests/flow-app/test_project_service.py`,
+`tools/flow-reader/flow_reader/document/content.py`,
+`tools/flow-reader/flow_reader/document/native_document.py`,
+`tools/flow-reader/flow_reader/document/sections.py`,
+`tools/flow-reader/flow_reader/services/cross_project_refs.py`,
+`tools/flow-reader/packages/local/flow-reader/0.1.0/lib.typ`,
+`tools/flow-reader/tests/test_cross_project_refs.py`, and
+`tools/flow-reader/tests/test_sections.py`.
+Hashes are Git-derived. That inventory contains no delivery-owned paths.

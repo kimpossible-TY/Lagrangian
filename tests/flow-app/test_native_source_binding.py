@@ -55,6 +55,7 @@ FLOW_READER_SELECTION = '86c8d12de6076dd1989d7981fad1b28a0870caf6'
 PR32_MAC_UPDATER = 'edee107b243630d920d7efa8653bd22b7f6d10ea'
 FLOW_READER_FOLLOWUP = 'ccb31c9b63741409d078ef0963ede12347dc63b2'
 HOME_PDE_INTEGRATION = '40df486581d1b3d71cb7b421e2b85284e3cf9bf1'
+XREF_INTEGRATION = 'c033eac8fcbf349cd7c711647e154c52c5bbbdad'
 spec = importlib.util.spec_from_file_location('native_source_binding', ROOT/'scripts/stage-native-reader-delivery.py')
 owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
 
@@ -166,7 +167,7 @@ class FixedSourceBinding(unittest.TestCase):
         self.assertEqual(c['revision'],CORRECTION);self.assertEqual(c['baseRevision'],BASE)
         self.assertEqual(len(c['files']),30)
         current=next(x for x in m['ownerCorrections'] if x['revision']==CURRENT_CORRECTION)
-        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION,REVIEW_CODE,REVIEW_INPUT,REVIEW_DOCS,REPAIR3_CODE,REPAIR3_DOCS,REPAIR3_SWIFT,REPAIR3_REWORK_SWIFT,REPAIR3_C6_SWIFT,REPAIR3_C7_SWIFT,REPAIR3_C8_SWIFT,REPAIR3_C9A_SWIFT,REPAIR3_C9B_SWIFT,REPAIR3_C10_SWIFT,REPAIR3_C11_SWIFT,REPAIR3_C12_SWIFT,REPAIR3_C13_SWIFT,REPAIR3_C14_SWIFT,REPAIR3_C15_SWIFT,FOOTNOTE_MERGE,PR31_MAC_AUTOUPDATE,MINIMAL_REDESIGN_R04,MINIMAL_REDESIGN_R04_V3,MINIMAL_REDESIGN_R04_V4,MINIMAL_REDESIGN_R04_V5,MINIMAL_REDESIGN_R04_V6,RELEASE_RETENTION,FLOW_READER_SELECTION,PR32_MAC_UPDATER,FLOW_READER_FOLLOWUP,HOME_PDE_INTEGRATION])
+        self.assertEqual([x['revision'] for x in m['ownerCorrections']],[CORRECTION,'8744c1b3db0b494f2e36529df281be993ccf11b4','f510fe32337b16906ef355f327e88a8d37fb1b94',CURRENT_CORRECTION,DOCS_CORRECTION,CHAT_CORRECTION,RUNNER_CORRECTION,FIXTURE_CORRECTION,REVIEW_CODE,REVIEW_INPUT,REVIEW_DOCS,REPAIR3_CODE,REPAIR3_DOCS,REPAIR3_SWIFT,REPAIR3_REWORK_SWIFT,REPAIR3_C6_SWIFT,REPAIR3_C7_SWIFT,REPAIR3_C8_SWIFT,REPAIR3_C9A_SWIFT,REPAIR3_C9B_SWIFT,REPAIR3_C10_SWIFT,REPAIR3_C11_SWIFT,REPAIR3_C12_SWIFT,REPAIR3_C13_SWIFT,REPAIR3_C14_SWIFT,REPAIR3_C15_SWIFT,FOOTNOTE_MERGE,PR31_MAC_AUTOUPDATE,MINIMAL_REDESIGN_R04,MINIMAL_REDESIGN_R04_V3,MINIMAL_REDESIGN_R04_V4,MINIMAL_REDESIGN_R04_V5,MINIMAL_REDESIGN_R04_V6,RELEASE_RETENTION,FLOW_READER_SELECTION,PR32_MAC_UPDATER,FLOW_READER_FOLLOWUP,HOME_PDE_INTEGRATION,XREF_INTEGRATION])
         self.assertEqual(current['baseRevision'],CURRENT_BASE)
         expected=set(self.git('diff','--no-renames','--name-only',CURRENT_BASE,CURRENT_CORRECTION).splitlines())
         self.assertEqual(len(expected),28);self.assertEqual({f['path'] for f in current['files']},expected)
@@ -310,7 +311,7 @@ class FixedSourceBinding(unittest.TestCase):
         p.write_text(p.read_text()+'\n// owned delivery correction\n');self.commit()
         m=self.binding();self.assertEqual(m['files'][str(p.relative_to(self.root))],hashlib.sha256(p.read_bytes()).hexdigest())
         self.assertEqual(m['ownerCorrections'][0]['revision'],CORRECTION)
-        self.assertEqual(m['ownerCorrections'][-1]['revision'],HOME_PDE_INTEGRATION)
+        self.assertEqual(m['ownerCorrections'][-1]['revision'],XREF_INTEGRATION)
         self.assertIn('tests/flow-app/test_reader_bundle.py', owner.DELIVERY_SOURCE_PATHS)
         # Guide anchor corrections belong to the existing delivery owner.
         # Native correction inventory forbids these paths; exact HEAD blobs

@@ -1707,6 +1707,152 @@
             "sha256": "82f5d948ce927f47d9ab04380f2e895ffed98c06b418565f6ff5338174a813c0"
           }
         ]
+      },
+      {
+        "baseRevision": "d7c9d93366257f7130692a97c66aac105c9ed0d1",
+        "revision": "c033eac8fcbf349cd7c711647e154c52c5bbbdad",
+        "files": [
+          {
+            "path": "apps/macos/CrossProjectReference.swift",
+            "baseSHA256": null,
+            "sha256": "a07c00708c3ef12c4c9e9d3d23b9049eca12dae4b1c8ba574d0bbc93cc37d331"
+          },
+          {
+            "path": "apps/macos/FlowApp.swift",
+            "baseSHA256": "cf3cd8442791306212b5e710d049e1dd85200304195bc16aca1b04692b5d5b62",
+            "sha256": "513e12dbe10e7cabdfc67388e544121b9d3eed823c56f671e80aaf234f6d84c5"
+          },
+          {
+            "path": "apps/macos/NativeCrossProjectPreviewPopover.swift",
+            "baseSHA256": null,
+            "sha256": "676705e2ce2d9075aad6358b411f417c23075ccdfe1da39a8c48d6f1adea568b"
+          },
+          {
+            "path": "apps/macos/NativeReaderDocument.swift",
+            "baseSHA256": "40643e4bb1edf47748c0ad5b2fa01287e10852a7b6d811418184a0c16d7b57d9",
+            "sha256": "3cbe02df2ba64b87d7bd9b1c4c7cf41b474551a7508c1786808f5b3ff2890fb6"
+          },
+          {
+            "path": "apps/macos/NativeReaderTextView.swift",
+            "baseSHA256": "726e277c0a428a87d02fd4d3a474ff53f16f777b5ee073e9d380a3a633af6b85",
+            "sha256": "ed961b89935160e5cde48a00092dfec7e78b95681f1d264170133a4fb634098d"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "4dea9f38b56f24ada12d2e3814b4dc52fb636c26922e49305a7c023f12504800",
+            "sha256": "d7313c3cb595952e1d297eca40c982a9287ad8e4fbbd6c23449e0a9f5777789f"
+          },
+          {
+            "path": "apps/macos/Profiles.swift",
+            "baseSHA256": "f35c77da5f843fb802d5c11837c24fbb6576c37ea187300c88664a7e0b6cde08",
+            "sha256": "f97d6484d7bd6e4cdc510182d9434af19e15bd7d12ef571ae36daa7c5f88eebb"
+          },
+          {
+            "path": "apps/macos/ProjectService.swift",
+            "baseSHA256": "76645f4411e2ccd4b01dbefee04436085dc1dfb5e83b3d4bffefc2033ba09a6e",
+            "sha256": "abb4769b5a94fef4ea691c75718d2aa1124e2d3d94ef604cf6120f4bef72ceb3"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/.openspec.yaml",
+            "baseSHA256": null,
+            "sha256": "3c3c72cd1a100807c59ef8347538654b4d2d22269f59561c985b01cb44c39491"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/design.md",
+            "baseSHA256": null,
+            "sha256": "35cdd129c1c6cfe275fc22f225f811a4ce001ec12302ce9577743ba37665f42d"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/proposal.md",
+            "baseSHA256": null,
+            "sha256": "633bb374f96a06b4659d5785dd201870af6d7da412883bed35beb272ec1fa00b"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/specs/flow-macos-app/spec.md",
+            "baseSHA256": null,
+            "sha256": "f6fa5dab17d460e0664d7e473e19490460cf149644e43946fd6d2990b090bf99"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/specs/native-reader/spec.md",
+            "baseSHA256": null,
+            "sha256": "a159c21064c83d510b72b385a2b90781e2081db03e8f5ca3bab74548404a23fb"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/tasks.md",
+            "baseSHA256": null,
+            "sha256": "17c225345c8fae2b719e198453268b255e29c99fb29b43204da3c5b1a495c216"
+          },
+          {
+            "path": "tests/flow-app/FlowAppTests.swift",
+            "baseSHA256": "9bf291ff78c5419dc641e938b251a441924f79b9435e3b8639148070369dbd0b",
+            "sha256": "3d9fde93e6763f3b596f598d0cd8fd67f82a76487cf0e000203dfa14ad22b9d8"
+          },
+          {
+            "path": "tests/flow-app/ProjectServiceTests.swift",
+            "baseSHA256": "67786de410eaa0b5a1be93b87043aad6b778b38635354b259a13550e3e71b9f9",
+            "sha256": "ff3082aecbf45fb4fa201f09b7d80ef8aba10766b9e9ee10332398d2da79ee41"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/CrossProjectPreviewTests.swift",
+            "baseSHA256": null,
+            "sha256": "6195854414ddefa701e4a5c4feb771e7822cea4b1a9c8b6cc4d62143f0d31c1b"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_contract.py",
+            "baseSHA256": "57cd119b9611dd14440383fabc58e60fa63b5ff24006fc8426e3b3d597270763",
+            "sha256": "107529f6256fed1c0313782134dbf3880a8fdbbd740a8cf546a1400453b2c351"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_cross_project_preview.py",
+            "baseSHA256": null,
+            "sha256": "94f8e23f13c03e17cd2bc59dfdd778fe1882859163d3c7868d84b76d122afd5a"
+          },
+          {
+            "path": "tests/flow-app/test_flow_ui.py",
+            "baseSHA256": "fee00e88d94f839880009adb632f35961a412abfcbc8c5162919165932700859",
+            "sha256": "4e56aac1ef1c18dddda703f69b28bcf5263b08a5e734ea3baa41a97acdf8e677"
+          },
+          {
+            "path": "tests/flow-app/test_project_service.py",
+            "baseSHA256": "5a391917453d9ff9912438b375780d68beb2172a2fd8fda683c72f392c3f7bbd",
+            "sha256": "20c1b519f089024d8538b49f285b1b5bd3fc3aef69fb27023496ff0653b96b93"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/document/content.py",
+            "baseSHA256": "6c2c1c1faa0d9326dfc18dcb1e3ab2a998a322f88e9a9cb4eff80e8bbade2eb6",
+            "sha256": "fc0448d26b58721dc3170c2a182eb960aa48646441e233471ba7161cc1f70693"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/document/native_document.py",
+            "baseSHA256": "c39cb15d062f7e3bcf4778c7de2b48882d2f434a4ef08d60e8a1e0957b6748af",
+            "sha256": "63593057644722129e2beddc313c22be3697a8c017a6f469bc304aa3692e7117"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/document/sections.py",
+            "baseSHA256": "4d11acb48d02e609223208b645f6c6d108cccb39fc5fc237085c2b2ff8d809ab",
+            "sha256": "8365e90835da66ea0b509f0e07fbfa7f992b60ace4f7dc9f544585ceb0ec7853"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/cross_project_refs.py",
+            "baseSHA256": null,
+            "sha256": "82d31ce266ffb6de5a42bfaae329a8ca845b20472c052f98569333e1a012a1d3"
+          },
+          {
+            "path": "tools/flow-reader/packages/local/flow-reader/0.1.0/lib.typ",
+            "baseSHA256": "0e43806241166d276d77c1f3706e28e2164f94d8fa495dcdcd52844eeb867e9b",
+            "sha256": "caf496f1796d1c49478672a661fc11c1ab9abf3d76d70f64cb525403f902f46e"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_cross_project_refs.py",
+            "baseSHA256": null,
+            "sha256": "f686e957681dd043e3638edc315109e86f904af2ee203f4d4980b9f50c474089"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_sections.py",
+            "baseSHA256": "109ee423f06e5a48b9236e12c28907a47feb13f2c986723361a6b68f45b997d0",
+            "sha256": "c12fbc24e60c9aba4e194cb6daa0feab59764ca5fa8e71f7d2fe61fd6d94767a"
+          }
+        ]
       }
     ]
   }
