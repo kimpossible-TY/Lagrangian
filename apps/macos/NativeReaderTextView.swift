@@ -1394,11 +1394,15 @@ extension NativeReaderTextView {
         }
         return result
     }
-    func nodeRectInView(forNodeID id: String) -> NSRect? {
+    func nodeRectInDocument(forNodeID id: String) -> NSRect? {
         guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey,
               let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == id }) }),
               let node = block.orderedNodes.first(where: { $0.id == id }), node.visible,
               let rect = rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).first else { return nil }
+        return rect
+    }
+    func nodeRectInView(forNodeID id: String) -> NSRect? {
+        guard let rect = nodeRectInDocument(forNodeID: id) else { return nil }
         return bodyTextView.convert(rect, to: self)
     }
     func currentCrossProjectPosition() -> NativeReaderCrossProjectPosition {
@@ -1537,10 +1541,10 @@ extension NativeReaderTextView {
         guard let node = store.document?.blocks.flatMap(\.orderedNodes).first(where: { $0.anchors.contains(anchor) }) else { return false }
         return scrollToNode(id: node.id, recordReturn: true, topAlign: false)
     }
-    @discardableResult func navigate(toNodeID id: String) -> Bool {
-        scrollToNode(id: id, recordReturn: true, topAlign: false)
+    @discardableResult func navigate(toNodeID id: String, topAlign: Bool = false) -> Bool {
+        scrollToNode(id: id, recordReturn: true, topAlign: topAlign, topInset: 0)
     }
-    private func scrollToNode(id: String, recordReturn: Bool, topAlign: Bool = false) -> Bool {
+    private func scrollToNode(id: String, recordReturn: Bool, topAlign: Bool = false, topInset: CGFloat = 24) -> Bool {
         guard !isDisposed, renderKey != nil, renderKey == requestedRenderKey,
               let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == id }) }),
               let node = block.orderedNodes.first(where: { $0.id == id }), node.visible,
@@ -1550,7 +1554,7 @@ extension NativeReaderTextView {
             bodyTextView.layoutManager?.ensureLayout(for: bodyTextView.textContainer!)
             if let rect = rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).first {
                 let maximum = max(0, bodyTextView.bounds.height - scrollView.contentView.bounds.height)
-                scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maximum, max(0, rect.minY - 24))))
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maximum, max(0, rect.minY - topInset))))
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             } else {
                 bodyTextView.scrollRangeToVisible(range)

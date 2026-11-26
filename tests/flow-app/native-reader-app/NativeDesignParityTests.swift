@@ -28,9 +28,9 @@ private struct ParityInput: NativeReaderDocumentProviding {
             visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil, headingLevel: level,
             math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
     }
-    static func document(shortEnd: Bool = false) -> NativeReaderDocument {
+    static func document(shortEnd: Bool = false, endHeading: Bool = false) -> NativeReaderDocument {
         let blocks = (0..<40).map { index -> NativeReaderNode in
-            let heading = index % 10 == 0
+            let heading = index % 10 == 0 || (endHeading && index == 39)
             let text = heading ? "목차 제목 \(index) · 연구 노트" : "Search needle \(index). " + String(repeating: "선택 영역과 본문을 보존합니다. ", count: shortEnd && index == 39 ? 0 : 8)
             return node("b\(index)", text: text, kind: heading ? .heading : .paragraph, level: heading ? 1 : nil,
                         children: [node("t\(index)", text: text, kind: .text)])
@@ -66,7 +66,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
     @MainActor static func run() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let output = URL(fileURLWithPath: CommandLine.arguments[1]), scenario = CommandLine.arguments[2]
-        let doc = document(shortEnd: scenario == "review-offset"), bytes = pdf(); try doc.validate()
+        let doc = document(shortEnd: scenario == "review-offset", endHeading: scenario == "drawer"), bytes = pdf(); try doc.validate()
         let host = NativeReaderWindowController(provider: ParityInput(value: doc), target: { _ in doc.identity },
             originalPages: { context in .init(publication: publication(context, bytes), data: bytes) }, show: false, avoidActivation: true, fixtureMode: true)
         defer { host.dispose() }
@@ -86,7 +86,7 @@ private struct ParityInput: NativeReaderDocumentProviding {
             try check(chrome.outlineToggleButton.identifier?.rawValue == "contentsDrawerToggle" && chrome.outlineToggleButton.isEnabled, "Ghost outline toggle wired")
             try check(chrome.outlineToggleButton.designRole == .ghost, "Outline uses shared ghost paint")
             try check(abs(chrome.outlineToggleButton.bounds.height - 30) < 0.5, "Outline ghost has 30pt hit height")
-            try check(chrome.outlineDrawer.entries.count == 4, "Flat semantic outline")
+            try check(chrome.outlineDrawer.entries.count == 5, "Flat semantic outline")
             window.makeFirstResponder(host.textView.bodyTextView)
             try check(root.performKeyEquivalent(with: event(window, "\\", .command)), "Cmd backslash opens drawer")
             try check(!chrome.outlineDrawer.isHidden && chrome.currentMode == .nativeReflow, "Drawer opens without changing mode")
@@ -140,9 +140,32 @@ private struct ParityInput: NativeReaderDocumentProviding {
             window.sendEvent(event(window, "\u{1b}", [], code: 53))
             try check(chrome.outlineDrawer.isHidden, "Next actual Escape closes drawer")
             let second = host.textView.outline[1]
+            let headings = host.textView.outline
+            let scroll = host.textView.scrollView, clip = scroll.contentView
+            let maxScroll = host.textView.bodyTextView.bounds.height - clip.bounds.height
+            var previous = -1, observed = Set<Int>()
+            for offset in stride(from: CGFloat(0), through: maxScroll, by: 40) {
+                clip.scroll(to: NSPoint(x: 0, y: offset)); scroll.reflectScrolledClipView(clip); chrome.updateScrollChrome()
+                let index = headings.firstIndex { $0.id == chrome.outlineDrawer.activeID }!
+                try check(index >= previous, "Active heading advances monotonically")
+                previous = index; observed.insert(index)
+            }
+            try check(observed.count >= 4, "Scrolling reaches multiple headings")
+            chrome.outlineDrawer.onNavigate?(second.id)
+            let targetRect = host.textView.nodeRectInDocument(forNodeID: second.id)!
+            try check(abs(clip.bounds.minY - targetRect.minY) < 1, "TOC heading aligns with viewport top")
+            try check(chrome.outlineDrawer.activeID == second.id && chrome.outlineToggleButton.title == second.displayText, "TOC updates active heading and toolbar title")
+            let last = headings.last!
+            let item = NSMenuItem(); item.representedObject = last.id; chrome.outlineMenuSelected(item)
+            try check(abs(clip.bounds.minY - maxScroll) < 1 && host.textView.nodeRectInDocument(forNodeID: last.id)!.minY > maxScroll + 96, "Last heading clamps at document bottom")
+            chrome.updateScrollChrome()
+            try check(chrome.outlineDrawer.activeID == last.id && chrome.outlineToggleButton.title == last.displayText, "Clamped heading remains active")
+            clip.scroll(to: NSPoint(x: 0, y: maxScroll - 4)); scroll.reflectScrolledClipView(clip); chrome.updateScrollChrome()
+            try check(chrome.outlineDrawer.activeID != last.id, "Scrolling four points clears pinned heading")
+            chrome.outlineDrawer.onNavigate?(last.id); chrome.refreshOutline()
+            try check(chrome.outlineDrawer.activeID != last.id, "Reload clears pinned heading")
             let secondRect = host.textView.nodeRectInView(forNodeID: second.id)!
             let documentRect = host.textView.bodyTextView.convert(secondRect, from: host.textView)
-            let clip = host.textView.scrollView.contentView
             clip.scroll(to: NSPoint(x: 0, y: documentRect.minY - 24)); host.textView.scrollView.reflectScrolledClipView(clip)
             chrome.updateScrollChrome()
             try check(chrome.outlineDrawer.activeID == second.id, "Scroll baseline tracks active section")
@@ -171,6 +194,10 @@ private struct ParityInput: NativeReaderDocumentProviding {
                 try check(chrome.noticeBanner.effectView.isHidden && chrome.noticeBanner.contentView.layer?.masksToBounds == true && chrome.noticeBanner.layer?.masksToBounds == false, "Accessibility fallback remains inside rounded clip")
             }
         } else if scenario == "toolbar" {
+            let mode = chrome.modeSegmentSurface
+            let children = mode.accessibilityChildren() ?? []
+            try check(chrome.brandMark.isAccessibilityElement() && chrome.brandMark.accessibilityRole() == .button, "Brand mark is an accessible button")
+            try check(!mode.isAccessibilityElement() && children.count == 2 && (children[0] as AnyObject) === mode.reflowButton && (children[1] as AnyObject) === mode.pageButton && mode.reflowButton.accessibilityRole() == .radioButton && mode.pageButton.accessibilityRole() == .radioButton, "Mode switch exposes both radio buttons")
             var homes = 0; chrome.onOpenHome = { homes += 1 }
             chrome.brandMark.beginPress(at: .zero, timestamp: 0); chrome.brandMark.completeHold()
             try check(homes == 1, "Brand hold invokes reader Home callback")

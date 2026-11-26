@@ -282,6 +282,7 @@ final class NativeBrandMarkControl: NSControl {
         else if event.keyCode == 36 || event.keyCode == 49 { toggleStatus() }
         else { super.keyDown(with: event) }
     }
+    override func isAccessibilityElement() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { guard isEnabled else { return false }; toggleStatus(); return true }
     func toggleStatus() {
         guard isEnabled else { return }

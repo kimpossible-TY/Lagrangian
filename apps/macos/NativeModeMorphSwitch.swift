@@ -30,6 +30,8 @@ final class NativeModeMorphSwitch: NSControl {
     private var observation: NativeDesignObservation?
     override var intrinsicContentSize: NSSize { NSSize(width: compact ? 80 : 140, height: 32) }
     override var acceptsFirstResponder: Bool { true }
+    override func isAccessibilityElement() -> Bool { false }
+    override func accessibilityChildren() -> [Any]? { [reflowButton, pageButton] }
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true; layer?.cornerRadius = 16; layer?.cornerCurve = .continuous

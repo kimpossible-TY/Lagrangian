@@ -1745,6 +1745,8 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   var reviewActionsUnavailable: Bool { currentMode != .nativeReflow || isReadOnlyState }
   var onOpenHome: (() -> Void)?
   let outlineDrawer = NativeOutlineDrawerView()
+  private var pinnedOutlineID: String?
+  private var pinnedOutlineScrollY: CGFloat = 0
   private var brandPopoverObserver: NSObjectProtocol?
   nonisolated(unsafe) private var refreshKeyMonitor: Any?
   private var pendingRecovery = false
@@ -2224,8 +2226,8 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       outlineDrawer.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
       outlineDrawer.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor)])
     outlineDrawer.onNavigate = { [weak self] id in
-      guard let self else { return }; _ = self.reader.navigate(toNodeID: id)
-      self.window?.makeFirstResponder(self.reader.bodyTextView); self.updateScrollChrome()
+      guard let self else { return }; self.selectOutline(id)
+      self.window?.makeFirstResponder(self.reader.bodyTextView)
     }
     reviewActionsCapsule.cornerRadius = 20; reviewActionsCapsule.isHidden = true
     window.contentView!.addSubview(reviewActionsCapsule, positioned: .below, relativeTo: outlineDrawer)
@@ -3155,6 +3157,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   @objc func highlightSelected() { guard currentMode == .nativeReflow else { return }; _ = reader.requestSource(.highlight) }
   @objc func askSelected() { guard currentMode == .nativeReflow else { return }; reader.openChat() }
   func refreshOutline() {
+    pinnedOutlineID = nil
     outlineDrawer.entries = reader.outline.map { .init(id: $0.id, title: $0.displayText, depth: max(0, ($0.headingLevel ?? 1) - 1)) }
     updateScrollChrome()
     invalidateControlLayout(); updateNavigation(); rebuildMoreMenu()
@@ -3162,9 +3165,12 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   func updateScrollChrome() {
     let offset = currentMode == .nativeReflow ? reader.scrollView.contentView.bounds.minY : originalScroll?.contentView.bounds.minY ?? 0
     toolbarView.scrollOffset = offset
-    let baseline = reader.scrollView.contentView.convert(NSPoint(x: 0, y: reader.scrollView.contentView.bounds.minY + 96), to: reader).y
-    let active = reader.outline.last { node in
-      guard let rect = reader.nodeRectInView(forNodeID: node.id) else { return false }
+    let documentOffset = reader.scrollView.contentView.bounds.minY
+    let baseline = documentOffset + 96
+    let pinned = pinnedOutlineID.flatMap { id in reader.outline.first { $0.id == id } }
+    if abs(documentOffset - pinnedOutlineScrollY) >= 4 || pinned == nil { pinnedOutlineID = nil }
+    let active = (pinnedOutlineID == nil ? nil : pinned) ?? reader.outline.last { node in
+      guard let rect = reader.nodeRectInDocument(forNodeID: node.id) else { return false }
       return rect.minY <= baseline
     } ?? reader.outline.first
     if outlineDrawer.activeID != active?.id { outlineDrawer.activeID = active?.id }
@@ -3345,7 +3351,13 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
   @objc func outlineSelected() { toggleOutlineDrawer() }
   @objc func outlineMenuSelected(_ sender: NSMenuItem) {
     guard currentMode == .nativeReflow, let id = sender.representedObject as? String else { return }
-    _ = reader.navigate(toNodeID: id); updateScrollChrome(); updateNavigation()
+    selectOutline(id)
+  }
+  private func selectOutline(_ id: String) {
+    guard reader.outline.contains(where: { $0.id == id }), reader.navigate(toNodeID: id, topAlign: true) else { return }
+    pinnedOutlineID = id
+    pinnedOutlineScrollY = reader.scrollView.contentView.bounds.minY
+    updateScrollChrome(); updateNavigation()
   }
   @objc func returnFromReference() {
     guard currentMode == .nativeReflow else { return }
