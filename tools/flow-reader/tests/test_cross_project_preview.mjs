@@ -684,17 +684,30 @@ test("delivered render callback retries clamped boundary returns after section m
 test("Homepage delivered explicit-open handlers reset both records, including alternative menu items", async () => {
   const source = readFileSync(new URL("../web/home/home.js", import.meta.url), "utf8");
   // Execute the actual registration block for both emitted document destinations.
-  const block = source.slice(source.indexOf('      const resetCrossProjectReturn ='), source.indexOf('      entry = { link, item };'));
+  const helper = source.slice(source.indexOf('function resetCrossProjectReturn()'), source.indexOf('// Leave already ordered nodes'));
+  const block = source.slice(source.indexOf('      link.addEventListener("click"'), source.indexOf('      entry = { link, item };'));
+  const dropdownListener = source.match(/alternatives\.addEventListener\("wa-select", resetCrossProjectReturn\);/u)?.[0];
   assert.ok(block.includes('item.addEventListener'));
+  assert.ok(dropdownListener);
   const f = setup();
   const item = f.doc.createElement("wa-dropdown-item");
-  new Function("link", "item", "sessionStorage", block)(f.link, item, f.storage);
+  const alternatives = f.doc.createElement("wa-dropdown");
+  alternatives.append(item);
+  new Function("link", "item", "alternatives", "sessionStorage", `${helper}\n${block}\n${dropdownListener}`)(f.link, item, alternatives, f.storage);
   for (const node of [f.link, item]) {
     f.stack.push(origin);
     f.stack.savePending(origin, "r");
     assert.equal(f.values.size, 2);
     await node.emit("click");
     assert.equal(f.values.size, 0);
+  }
+  for (const key of ["Enter", " "]) {
+    f.stack.push(origin);
+    f.stack.savePending(origin, "r");
+    assert.equal(f.values.size, 2);
+    await alternatives.emit("wa-select", { detail: { item, sourceEvent: { key } } });
+    assert.equal(f.storage.getItem(CROSS_PROJECT_RETURN_KEY), null);
+    assert.equal(f.storage.getItem(CROSS_PROJECT_PENDING_KEY), null);
   }
   await flush();
 });

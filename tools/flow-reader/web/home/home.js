@@ -60,6 +60,13 @@ async function request(path, body, headers = {}) {
 const documentCards = new Map();
 let restoringMenuFocus = false;
 
+function resetCrossProjectReturn() {
+  try {
+    sessionStorage.removeItem("lagrangian:cross-project-return:v1");
+    sessionStorage.removeItem("lagrangian:cross-project-pending:v1");
+  } catch { /* Storage can be unavailable in private/embedded contexts. */ }
+}
+
 // Leave already ordered nodes in place: removing/reinserting a focused link
 // during a status poll would send keyboard focus back to the document body.
 function reconcileChildren(parent, children) {
@@ -137,6 +144,7 @@ function documentCard(doc) {
     const status = node("p", "", "document-status");
     const alternatives = node("wa-dropdown", "", "alternatives");
     alternatives.setAttribute("placement", "bottom-end");
+    alternatives.addEventListener("wa-select", resetCrossProjectReturn);
     const trigger = node("button", "⋯", "alternatives-trigger");
     trigger.type = "button";
     trigger.setAttribute("slot", "trigger");
@@ -375,12 +383,6 @@ function documentCard(doc) {
       const item = node("wa-dropdown-item");
       item.append(link);
       // Both the primary link and Web Awesome's alternative item open documents.
-      const resetCrossProjectReturn = () => {
-        try {
-          sessionStorage.removeItem("lagrangian:cross-project-return:v1");
-          sessionStorage.removeItem("lagrangian:cross-project-pending:v1");
-        } catch { /* Storage can be unavailable in private/embedded contexts. */ }
-      };
       link.addEventListener("click", (event) => {
         if (link.parentElement === item) event.preventDefault();
         resetCrossProjectReturn();

@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
@@ -423,6 +424,12 @@ class PreviewTests(Fixture):
                                               {'id': 'second', 'projectRefKey': 'book'}])('book', ''))
         self.assertIsNone(peer_registry(docs, [{'id': 'first', 'title': 'Same'},
                                               {'id': 'second', 'title': 'Same'}])('same', ''))
+
+    def test_peer_registry_without_project(self):
+        state = SimpleNamespace()
+        self.assertEqual(peer_registry({'book': state})('book', ''), (state, '/d/book/'))
+        lookup = peer_registry({'book': state}, [{'id': 'book', 'projectRefKey': 'book-key'}])
+        self.assertEqual(lookup('book-key', ''), (state, '/d/book/'))
 
     def test_target_url_restricts_origin_route_and_encodes_anchor(self):
         self.assertEqual(target_url('/d/book/', 'a#/? b'), '/d/book/#a%23%2F%3F%20b')

@@ -26,7 +26,9 @@ def peer_registry(documents, profiles=(), parents=()):
         profile = configured.get(identifier, {})
         title = (profile.get("title") or parent_by_id.get(profile.get("parentID"), {}).get("name")
                  or profile.get("name") or "")
-        root = Path(profile.get("root") or state.project.root).name
+        project = getattr(state, "project", None)
+        root_value = profile.get("root") or getattr(project, "root", None)
+        root = Path(root_value).name if root_value else ""
         peers.append((identifier, profile.get("projectRefKey"),
                       {normalized(root), normalized(title)}, state, route))
 
