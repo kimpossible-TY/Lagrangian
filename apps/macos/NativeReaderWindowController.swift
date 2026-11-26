@@ -270,25 +270,24 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     textView.callbacks.semanticActivated = { [weak self] node, context in
       guard let self, self.visibleMode == .nativeReflow, self.textView.context == context,
             self.textView.renderKey == self.textView.requestedRenderKey,
-            node.kind == .link, let raw = node.link else { return }
-      let fallbackURL = URL(string: raw).flatMap { url in
-        (raw.hasPrefix("#") ? node.projectRef != nil : NativeOriginalPDFAccess.safeURL(url)) ? url : nil
+            node.kind == .link else { return }
+      let safeExternalURL = node.link.flatMap { raw -> URL? in
+        guard !raw.hasPrefix("#"), let url = URL(string: raw), NativeOriginalPDFAccess.safeURL(url) else { return nil }
+        return url
       }
-      guard node.projectRef != nil || fallbackURL != nil else { return }
       let resolution: CrossProjectResolution
-      if let catalog = self.crossProjectCatalogProvider?() {
-        if let meta = node.projectRef {
-          resolution = catalog.resolve(projectKey: meta.project, label: meta.label)
-        } else {
-          resolution = catalog.resolve(url: raw, linkText: node.displayText)
-        }
-      } else { resolution = .unresolved }
+      if let meta = node.projectRef {
+        resolution = self.crossProjectCatalogProvider?()?.resolve(projectKey: meta.project, label: meta.label) ?? .unresolved
+      } else {
+        guard let raw = node.link, safeExternalURL != nil else { return }
+        resolution = self.crossProjectCatalogProvider?()?.resolve(url: raw, linkText: node.displayText) ?? .unresolved
+      }
       let target: CrossProjectTarget
       switch resolution {
       case .unique(let resolved): target = resolved
       case .ambiguous: return
       case .unresolved:
-        if let fallbackURL { self.openHomepage?(fallbackURL) }
+        if let safeExternalURL { self.openHomepage?(safeExternalURL) }
         return
       }
       self.dismissCrossProjectPreview()
@@ -305,7 +304,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         let entry = CrossProjectNavigationEntry(profileID: self.profile?.id ?? "", documentTitle: self.profile?.name ?? "",
           anchor: pos.anchor, blockID: pos.blockID, scrollOffset: pos.scrollOffset)
         if let open = self.onOpenCrossProjectTarget { open(content, entry) }
-        else if let fallbackURL { self.openHomepage?(fallbackURL) }
+        else if let safeExternalURL { self.openHomepage?(safeExternalURL) }
       }
       if self.textView.window != nil {
         let popover = NSPopover()

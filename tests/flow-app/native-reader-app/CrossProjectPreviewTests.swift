@@ -143,7 +143,7 @@ struct CrossProjectPreviewTests {
       try check(opened.isEmpty, "Ambiguous explicit identity does not open URL")
       host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": project]) }
       _ = host.textView.activate(nodeID: "link")
-      try check(opened.count == 1, "Unresolved explicit identity opens URL")
+      try check(opened.count == (fragmentLink ? 0 : 1), "Only safe external URLs open for unresolved identity")
     } else if scenario == "reader_async_snippet" {
       var continuations: [CheckedContinuation<CrossProjectPreviewContent?, Never>] = []
       host.crossProjectSnippetLoader = { _ in await withCheckedContinuation { continuations.append($0) } }
@@ -243,6 +243,51 @@ struct CrossProjectPreviewTests {
       host.hostWindow.updateNavigation()
       host.hostWindow.returnFromReference()
       try check(!back.isEnabled && host.hostWindow.moreMenu.item(withTitle: "돌아가기")?.isEnabled == false && returns == 1, "Original pages disable Back")
+    }
+  }
+
+  @MainActor static func explicitUnsafeLinks() async throws {
+    for raw in ["#same_anchor", "https:///ref", "https://example.org/" + String(repeating: "a", count: 4100)] {
+      let host = NativeReaderWindowController(provider: NativeReaderOfflineProvider(),
+        target: { _ in throw NativeReaderOperationFailure.unavailable }, show: false, avoidActivation: true, fixtureMode: true)
+      defer { host.dispose() }
+      host.hostWindow.initialize()
+      let generation = try host.store.beginRequest()
+      let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "revision", scope: .fixture)
+      let text = String(repeating: "A long line of text. ", count: 100)
+      func node(_ id: String, kind: NativeReaderNode.Kind, anchors: [String], link: String?, children: [NativeReaderNode] = []) -> NativeReaderNode {
+        NativeReaderNode(id: id, sectionID: "section", kind: kind, canonicalText: text, displayText: text,
+          rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: children, anchors: anchors,
+          annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+          headingLevel: nil, math: nil, cell: nil, link: link, assetID: nil, alt: nil)
+      }
+      let leaf = node("leaf", kind: .text, anchors: [], link: nil)
+      var link = node("link", kind: .link, anchors: [], link: raw, children: [leaf])
+      link.projectRef = NativeProjectRefMetadata(project: "other", label: "chosen", title: nil, page: nil, text: nil)
+      let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: [link, node("local", kind: .text, anchors: ["same_anchor"], link: nil)], assets: [], diagnostics: [])
+      let context = NativeReaderRequestContext(requestID: UUID(), viewID: host.store.viewID, generation: generation, target: identity)
+      host.hostWindow.window?.contentView?.layoutSubtreeIfNeeded()
+      let adoption = try await host.prepare(document, context: context)
+      try adoption.adopt()
+      host.hostWindow.window?.contentView?.layoutSubtreeIfNeeded()
+      let project = CrossProjectCatalogProject(title: "Other", pdfURL: "https://example.org/other.pdf",
+        references: ["chosen": CrossProjectCatalogEntry(page: 3, text: "Explicit")], ambiguousLabels: [])
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["other": project]) }
+      var opened: [URL] = []
+      host.openHomepage = { opened.append($0) }
+      let scroll = host.textView.scrollView.contentView.bounds.origin
+      let focus = host.textView.focusedNodeID
+      let canReturn = host.textView.canReturnFromReference
+      try check(host.textView.activate(nodeID: "link"), "Activate explicit unsafe link")
+      try check(host.activeCrossProjectPreviewView?.content.projectKey == "other", "Explicit identity opens preview for unsafe URL")
+      try check(host.textView.scrollView.contentView.bounds.origin == scroll && host.textView.focusedNodeID == focus && host.textView.canReturnFromReference == canReturn,
+        "Preview does not change local scroll, focus, or return state")
+      host.activeCrossProjectPreviewView?.openButton.performClick(nil)
+      try check(opened.isEmpty, "Missing target handler does not open unsafe URL")
+      host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: [:]) }
+      _ = host.textView.activate(nodeID: "link")
+      try check(opened.isEmpty, "Unresolved identity does not open unsafe URL")
     }
   }
 
@@ -406,6 +451,7 @@ struct CrossProjectPreviewTests {
         }
       case "reader": try readerHelpers()
       case "project_ref_contract_and_snippet": try contractAndSnippet()
+      case "reader_explicit_unsafe_links": try await explicitUnsafeLinks()
       case "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime", "reader_explicit_project_ref":
         try await controllerScenario(CommandLine.arguments[1])
         if CommandLine.arguments[1] == "reader_explicit_project_ref" {

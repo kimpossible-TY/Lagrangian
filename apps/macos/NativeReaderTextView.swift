@@ -932,7 +932,7 @@ extension NativeReaderTextView {
     @discardableResult func activate(nodeID: String) -> Bool {
         guard !isDisposed, renderKey != nil, let context = context, context.generation == store.generation,
               let node = store.document?.blocks.flatMap(\.orderedNodes).first(where: { $0.id == nodeID }), node.visible else { return false }
-        if node.kind == .link, let target = node.link, target.hasPrefix("#") { _ = navigate(toAnchor: String(target.dropFirst())) }
+        if node.kind == .link, node.projectRef == nil, let target = node.link, target.hasPrefix("#") { _ = navigate(toAnchor: String(target.dropFirst())) }
         if node.kind == .annotation, let target = node.annotationTargets.first { _ = navigate(toAnchor: target) }
         callbacks.semanticActivated(node, context)
         return true

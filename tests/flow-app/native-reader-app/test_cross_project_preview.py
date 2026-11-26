@@ -56,6 +56,9 @@ class CrossProjectPreview(unittest.TestCase):
     def test_reader_explicit_project_ref(self):
         self.scenario('reader_explicit_project_ref')
 
+    def test_reader_explicit_unsafe_links_preserve_local_state(self):
+        self.scenario('reader_explicit_unsafe_links')
+
     def test_reader_async_snippet(self):
         self.scenario('reader_async_snippet')
 
