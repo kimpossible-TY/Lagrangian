@@ -67,14 +67,14 @@ enabled policy, targets/actions, readiness probes, settings or Read intent.
 - **AND** no extra retry, initialization, timer, inference or service restart is introduced
 
 ### Requirement: Minimal home layout and separated project settings sheet
-The home window SHALL present a minimal single-column layout without a subtitle (부제 없음), removing the legacy always-on 10-button bar, `~270px` empty tab area, and multi-column 11pt footer descriptions. The titlebar SHALL expose `+` and `⚙` actions at the top-right. The center project card SHALL display the project selector popup, a head-truncated path caption (앞부분 말줄임 경로 캡션, .../<dir>/<entry.typ>), primary action `'읽기 시작'`, secondary action `'오프라인 문서'`, and `'•••'` overflow menu. The bottom status-linked preview service SHALL render as a single-line card that adapts to service state: when stopped, it SHALL show a gray dot, `시작`, and `로그` (removing disabled stop/restart controls); when running, it SHALL show a green dot, `외부 Reader`, `중지`, and `•••`. The bottom-most bar SHALL provide `'로그인 시 앱 열기'` and `'프로젝트 설정…'`. Project settings SHALL be separated into a dedicated project settings sheet/window, with the save button placed exclusively inside that settings sheet.
+Home SHALL show a compact header, project selector, primary `읽기` and a .ghost icon dock with a sage running dot. Service, reading and configuration actions SHALL remain available through the status-bar menu. Settings SHALL open separately with Save only in its sheet. NativeAppDesign SHALL own sage/.ghost and NativeBrandMark SHALL supply statusImage.
 
 #### Scenario: Home surface when preview service is stopped or running
 - **WHEN** the user views the home window
-- **THEN** the titlebar shows `+` and `⚙` on the top-right with no home subtitle (부제 없음)
-- **AND** the center project card shows the project selector popup, head-truncated path caption (앞부분 말줄임 경로 캡션, .../<dir>/<entry.typ>), `'읽기 시작'`, `'오프라인 문서'`, and `'•••'`
-- **AND** the single-line preview service card shows gray dot · `시작` · `로그` when stopped (without disabled stop/restart) or green dot · `외부 Reader` · `중지` · `•••` when running
-- **AND** the bottom-most bar shows `'로그인 시 앱 열기'` and `'프로젝트 설정…'`
+- **THEN** the header shows brand, `+` and `⚙` without subtitle or path caption, and the project card shows selector and `읽기`
+- **AND** the icon dock offers start when stopped or stop with a sage running dot when running
+- **AND** browser, address copy, offline and overflow actions follow existing enabled policy
+- **AND** the status-bar menu includes home, Read, browser/offline, service control, editor connection, copy/logs, settings, login, guide/about and quit with a branded statusImage
 
 #### Scenario: Opening separated project settings sheet
 - **WHEN** the user opens `'프로젝트 설정…'` (or `⚙`)

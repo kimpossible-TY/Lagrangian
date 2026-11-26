@@ -66,10 +66,11 @@ Find and explicit same-artifact GoTo SHALL reveal the target in the actual clip 
 - **AND** cancelled or obsolete raster completion cannot scroll a newer viewport
 
 ### Requirement: Minimal offline original PDF toolbar and docked search capsule
-The offline original PDF reader SHALL present a single-row unified toolbar containing `목차 ▾`, the exact `오프라인 PDF` badge, a centered `‹ 1 / 2 ›` page group, a right-aligned rounded search field with `×`, and `•••`. On a search hit, a compact capsule SHALL dock without overlapping PDF body text or highlights, exposing `복사`, `닫기`, and `원본 PDF · 복사·검색만 지원` (live/online) or `오프라인 PDF · 복사·검색만 지원` (offline restored copy) while omitting the four unsupported buttons and duplicate copy actions. At narrow widths (640px), the centered page group SHALL remain visible while secondary items collapse into `•••`.
+The original PDF reader SHALL use a unified single-row toolbar, the exact `오프라인 PDF` badge and a compact search-hit capsule docked without overlapping body text or highlights. Unsupported and duplicate capsule actions SHALL be omitted. At 640px the centered page group SHALL stay visible while secondary items collapse into overflow.
 
 #### Scenario: Offline PDF toolbar, docked search capsule, and 640px narrow layout
 - **WHEN** an offline original PDF is displayed, a search hit is active, or the window narrows to 640px
 - **THEN** the single-row toolbar displays `목차 ▾`, `오프라인 PDF`, `‹ 1 / 2 ›`, the rounded search field with `×`, and `•••`
 - **AND** the search-hit compact capsule docks without overlapping PDF content or highlights and shows only `복사`, `닫기`, and `원본 PDF · 복사·검색만 지원` (live/online) or `오프라인 PDF · 복사·검색만 지원` (offline restored copy)
+- **AND** the capsule omits the four unsupported buttons and duplicate copy actions
 - **AND** at 640px width, `‹ 1 / 2 ›` stays visible and secondary items collapse into `•••`

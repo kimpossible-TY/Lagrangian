@@ -13,7 +13,7 @@
 - [x] `/opt/homebrew/bin/python3 -B -m unittest tests/flow-app/test_flow_ui.py -v` — 21 tests passed, including IDE directory registration, cross-project navigation/session lifecycle and home-minimal controls; no Swift warnings.
 - [x] `/opt/homebrew/bin/python3 -B -m unittest tools/flow-reader/tests/test_sections.py -v` — 10 tests passed.
 - [x] `/opt/homebrew/bin/python3 -B -m unittest tests/flow-app/native-reader-app/test_contract.py -k LabelContractTests -v` — 4 tests passed, including duplicate-ID rejection and real compiler label preservation.
-- [x] `PYTHONPATH=tools/flow-reader /opt/homebrew/bin/python3 -B -m unittest tools/flow-reader/tests/test_cross_project_refs.py -v` — 11 tests passed.
+- [x] Historical Python catalog prototype: 11 isolated tests passed before retirement. r2-S3 removes the unused service and its test; production resolution/snippets belong to Swift.
 
 `openspec validate add-cross-project-references --strict` passed. These checks use isolated fixtures and do not install or restart the user's app or services.
 
@@ -24,3 +24,10 @@ These contracts are wired through the existing owners and covered by integrated 
 - [x] Compose back-stack commit/restoration with existing session adoption and exact scrollOffset restoration, clearing anchor when blockID is non-empty; verify failures preserve origin and history.
 - [x] Emit and consume HTML data-project-ref-* metadata with projects.json fallback in the existing producer/reader owners.
 - [x] Verify complete IDE, preview, project/anchor jump and Back paths on the integrated app version, including the previously reported live macOS GUI E2E Pass 4. Verify this merge solely via headless CLI unittest and strict OpenSpec validation.
+
+## Post-review corrections
+- [x] r2-S1: retain target reader startup for preview and document the policy explicitly.
+- [x] r2-S2: reset Back on new Read/profile selection, skip deleted origins and reject empty origins.
+- [x] r2-S3: remove the unused Python catalog/snippet policy after confirming no production importers.
+- [x] r2-S4: reserve candidate editor consent and commit only on successful initialization; restore on failure/cancel.
+- [x] r2-S5: align Impact, fixed Back label, explicit-identity failure behavior, wire capability limits and HTML label export scenarios.

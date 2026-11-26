@@ -161,7 +161,7 @@ The app SHALL expose local review add/undo/clear, typed Contents/reference Back 
 - **AND** same-snapshot reflow retains review marks while accepted replacement/cancel revokes obsolete marks and return state
 
 ### Requirement: Reachable verified offline library
-The app SHALL offer explicit profile-bound save/list/open controls and a home offline entry without live service startup. RecoveryStore SHALL remain the only typed hash/identity/asset/budget/atomic storage owner. Offline restoration SHALL reuse native preparation/paint and stay read-only without live target/network/assets calls or automatic inference.
+The app SHALL offer profile-bound save/list/open and a home offline entry without service startup. RecoveryStore SHALL own typed recovery; LayoutCache SHALL own disposable layouts. NativeReaderSnapshotStorage SHALL share schema/hash envelopes and atomic writes, with validation/budgets retained by each store. Offline restoration SHALL reuse native preparation/paint read-only, without live target/network/assets calls or automatic inference.
 
 #### Scenario: Save and open an offline native document
 - **WHEN** an accepted document is saved and opened through native controls into a fresh view
@@ -409,10 +409,40 @@ expression and use actual registered scope for document equivalence.
 - **AND** original alias disappearance or retarget SHALL NOT prevent exact own withdrawal
 
 ### Requirement: Minimal unified reflow toolbar and immediate appearance popover
-The native reflow reader SHALL present a single-row unified toolbar containing `목차 ▾`, `본문 | 원본 PDF`, `🔍`, `Aa`, and `•••` without a subtitle, reserving 85–90% of the viewport for the document body. The `Aa` control SHALL open an opaque popover that applies theme (`밝게 | 어둡게 | 자동`), font size (`− 16pt +`), `오프라인 저장`, and `PDF 내보내기` immediately without the three `보기 미리 보기/적용/취소` buttons. When no text is selected, the top `선택 해제`/`복사` row SHALL remain hidden; when a valid selection exists, a compact capsule SHALL surface available actions. At narrow widths (640px), secondary toolbar items SHALL collapse into `•••`.
+The native reflow reader SHALL present a single-row toolbar with `목차 ▾`, `본문 | 원본 PDF`, `🔍`, `Aa`, and `•••`, no subtitle and 85–90% body area. Appearance SHALL apply immediately from an opaque Aa popover. Selection actions SHALL appear in a compact capsule only for valid selections. At 640px, secondary controls SHALL collapse into overflow.
 
 #### Scenario: Unified toolbar, immediate Aa popover, selection capsule, and narrow width
 - **WHEN** the reflow reader renders at standard or 640px narrow width, opens `Aa`, or transitions between empty and valid text selection
 - **THEN** the single-row toolbar omits any subtitle, keeps 85–90% document area, and collapses secondary items into `•••` at 640px
 - **AND** `Aa` renders an opaque popover with immediate theme/font-size/`오프라인 저장`/`PDF 내보내기` controls and no `보기 미리 보기/적용/취소` buttons
 - **AND** the top `선택 해제`/`복사` row stays hidden until a valid selection shows the compact action capsule
+
+### Requirement: Disposable owner-scoped viewed layout cache
+LayoutCache SHALL be a disposable ownerID-scoped optimization in the existing profile-shared directory. Combined document/window/staging bytes SHALL be capped at 64 MiB with LRU eviction. Corrupt matching, unsafe and legacy entries SHALL be unlinked without affecting other owners. Cached copies SHALL stay read-only until current live identity/revision and layout inputs are confirmed.
+
+#### Scenario: Save unchanged viewed content
+- **WHEN** key, viewedBlockIDs and the layout key set match the last successful save
+- **THEN** ordinary position changes do not rewrite the cache
+- **AND** close/cancel immediate save persists the latest restoration
+- **AND** the full document is stored separately at most once per retained identity/revision
+
+#### Scenario: Filter before decoding and recover safely
+- **WHEN** save or latest examines the shared cache
+- **THEN** sha(owner)-sha(document)-sha(key) filenames filter candidates before decoding other entries
+- **AND** corrupt matching or unsafe disposable entries are deleted without disabling valid cached content
+- **AND** a cached copy cannot grant source, chat or editor authority
+- **AND** NativeReaderViewedLayouts retains at most 256 successful viewed layouts
+
+### Requirement: Current document and math batch bounds
+Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItemNumber, percentage image dimensions and mark: anchors. The mathml-batch helper SHALL enforce the item/byte limits below, cross-checked against Swift. Batch timeout/stdout SHALL scale within bounded caps. Timeout/budget failure SHALL halve chunks and a failing single item SHALL terminate.
+
+#### Scenario: Retry a large math batch
+- **WHEN** a batch exceeds its time or byte budget
+- **AND** helper limits are 1–512 items, 64 MiB batch input/output, 256 KiB item input, 65536-byte source and 8 MiB item output
+- **THEN** preparation retries smaller halves in order without publishing partial results
+- **AND** a failing single-item chunk stops rather than retrying indefinitely
+
+#### Scenario: Preserve current wire semantics
+- **WHEN** a valid accepted snapshot includes ordered list numbering, percentage image dimensions or mark: anchors
+- **THEN** import, decode and recovery preserve those values under the 64 MiB document cap
+- **AND** invalid values or duplicate anchors reject atomically

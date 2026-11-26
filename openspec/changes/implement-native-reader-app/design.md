@@ -20,7 +20,7 @@ The commit containing this change is the common contract SHA; consumers record `
 
 - `apps/macos/NativeReaderDocument.swift`: `NativeReaderDocument.decode(_:capabilities:) throws -> NativeReaderDocument`, `validate(capabilities:) throws`, `NativeTextOffsets.init(_:)`, `NativeReaderNode.orderedNodes`, `graphemeBoundariesUTF16`.
 - Schema 1 JSON: `{schemaVersion, identity:{documentID,serviceID,revision,scope:service|fixture}, generation, requiredCapabilities:["semantic-tree-v1"], blocks:[NativeReaderNode], assets:[{id,sha256,mime,byteCount}], diagnostics:[{code,nodeID}]}`. All arrays retain reading order. Asset IDs are content digests plus extension, never paths.
-- Node: `{id,sectionID,kind,canonicalText,displayText,rangeUTF16:[start,end],offsets:{scalars,cpToUTF8,cpToUTF16},children,anchors,annotationTargets,visible,mapping}` plus typed optional `passageKey,direction,language,headingLevel,math:{mathML,normalizedText,display},cell:{rowSpan,columnSpan,header,scope},link,assetID,alt`. `kind` is the Swift closed enum; unknown values fail. IDs are unique within a snapshot, not cross-revision identities. `passageKey` reuses `sections.py` identity for existing server resolution. No invented source ranges.
+- Node: `{id,sectionID,kind,canonicalText,displayText,rangeUTF16:[start,end],offsets:{scalars,cpToUTF8,cpToUTF16},children,anchors,annotationTargets,visible,mapping}` plus typed optional `passageKey,direction,language,headingLevel,math:{mathML,normalizedText,display},cell:{rowSpan,columnSpan,header,scope},link,assetID,alt,listItemNumber,projectRef:{project,label,title?,page?,text?}`. `kind` is the Swift closed enum; unknown values fail. IDs are unique within a snapshot, not cross-revision identities. `passageKey` reuses `sections.py` identity for existing server resolution. No invented source ranges. `projectRef` is optional and valid only on links, with non-empty project/label and optional positive page. Import errors `invalid-project-ref` and `duplicate-anchor` reject the whole candidate. There is currently no dedicated projectRef capability; old strict node-key decoders reject this supplement. App and backend must be delivered together; this is not negotiated backward compatibility.
 - `tools/flow-reader/flow_reader/document/native_document.py`: `import_accepted_document(bundle: SectionBundle, *, document_id: str, service_id: str, generation: int, identity_scope: str="service", required_capabilities=("semantic-tree-v1",)) -> ImportedNativeDocument`. Return `.document` is JSON-ready and `.assets` maps digest IDs to bytes. `NativeImportError` contains a bounded code. The caller supplies an **already accepted** bundle under existing publication discipline; this function cannot establish acceptance/freshness. It orders sections by manifest, not dictionary insertion order. Unknown semantics/attributes fail atomically. SVG subset is explicit; further primitives return to this owner.
 - `apps/macos/NativeReaderOperations.swift`: `NativeReaderRequestContext(requestID:UUID,viewID:UUID,generation:Int,target:NativeDocumentIdentity)`; `NativeReaderSelection(ticket:UUID,fragments:[Fragment])`, each fragment `{blockID,rangeUTF16:Range<Int>,exact:String}`, local display selection may cover all accepted top-level blocks; `validateLocal(in:) throws` retains exact scalar/grapheme/order guards. Remote source/chat submission remains 1–32 fragments via `validate(in:) throws`. Convenience single-fragment initializer also exists. Fragments preserve their exact text; joining or Typst copy is an explicit consumer operation, not an implicit source reconstruction.
 - `NativeReaderDocumentProviding.document(for:) async throws -> NativeReaderDocument`; `NativeReaderSourceOperations.perform(_:) async throws -> NativeReaderSourceResult` for `.excerpt/.locate/.highlight`. Request binds context, selection and receipt UUID. Result echoes local context/ticket and bounded status (`verified/unmapped/ambiguous/stale/unsupported/uncertain/rejected`), optional verified excerpt or opaque destination anchor. Adapter validates actual server response before wrapping; echo is not a server freshness proof.
@@ -37,7 +37,7 @@ Contract errors: invalidDocument, unsupportedSchema, unsupportedRequiredCapabili
 
 ### Historical NA01: existing owners and future transport candidate
 
-NA04 may implement an additive `GET /d/<registered-id>/api/native-document` under existing Host/Origin and exact service/document/revision checks, using this importer and existing revision-bound assets. This is a **candidate for NA04 implementation and negative testing**, not an existing endpoint or shipped transport. Bind service incarnation to the observed manager instance (not PID alone); generation is local correlation. Limit JSON to 32 MiB, individual sections to 16 MiB, tree depth 128/nodes 100000; enforce transport limits before decoding. Current importer handles complete snapshots, not streaming deltas. Request/stream timeouts, asset budgets, chat/action payload limits and reconnect backpressure remain explicit NA04 implementation gates, preserving stricter existing owner limits.
+NA04 may implement an additive `GET /d/<registered-id>/api/native-document` under existing Host/Origin and exact service/document/revision checks, using this importer and existing revision-bound assets. This is a **candidate for NA04 implementation and negative testing**, not an existing endpoint or shipped transport. Bind service incarnation to the observed manager instance (not PID alone); generation is local correlation. The historical 32 MiB JSON limit is superseded by the current 64 MiB cap below; bound individual sections to 16 MiB, tree depth 128/nodes 100000; enforce transport limits before decoding. Current importer handles complete snapshots, not streaming deltas. Request/stream timeouts, asset budgets, chat/action payload limits and reconnect backpressure remain explicit NA04 implementation gates, preserving stricter existing owner limits.
 
 Reuse `accepted_snapshot`, `source_mapping`, `highlight_receipts`, ParagraphChat, ChatAuth/HomeAccount, ReaderManager and Rust `source-history`. Server recomputes accepted inputs/source freshness and retains locks; client hashes only bind evidence/assets. Account authorization follows existing management/session/CSRF/consent boundaries, never copied privileged headers. No source writer, credential store or conversation database in the UI. Existing web/mobile/terminal/editor URLs and owners remain compatible.
 
@@ -297,7 +297,7 @@ carry ticket plus blockID/rangeUTF16/exact fragments, preserving the remote32 ca
 Source receipt lookup and exact UUID/user-content chat history never redispatch a
 mutation. Service, source, auth, provider and model policy owners remain unchanged.
 
-Document JSON is bounded to32MiB, each asset16MiB, generic JSON request256KiB and
+Document JSON is bounded to64MiB, each asset16MiB, generic JSON request256KiB and
 response2MiB; existing account reads have256KiB responses. SSE total16MiB,
 event2MiB and framing4096 extra bytes are bounded. Observation buffers newest1,
 tries at most4 with1/2/4-second reconnect delays and authoritative history reads.
@@ -707,10 +707,11 @@ queue, without init/deinit flush waits; first-window acceptance remains separate
 
 ## Minimal redesign preservation and file-split notes
 
-- **Preserved design tokens and brand assets (read-only)**:
+- **Shared design tokens and brand presentation**:
   - `apps/macos/NativeAppDesign.swift` canonical tokens: Cream Light (`#F7F2E8` / `#FFFCF5` / `#292722` / `#514A83`) and Warm Dark (`#24231F` / `#302E29` / `#F7F2E8` / `#C6BEFF`).
-  - `apps/macos/NativeBrandMark.swift` original vector mark remains unchanged.
-  - `apps/macos/sources.json` remains unchanged.
+  - `apps/macos/NativeAppDesign.swift` also owns the sage running-state token and `.ghost` icon-button role.
+  - `apps/macos/NativeBrandMark.swift` owns the vector mark and `statusImage(phase:)` menu-bar rendering with its running dot.
+  - `apps/macos/sources.json` remains the single source registry; these UI additions stay in existing Swift files.
 - **Preserved public signatures and service/session owners**:
   - `NativeChrome.install(on:)` and `NativeChrome.apply(to:)` public signatures remain unchanged.
   - `ProjectService`, `ReadingSessionController`, `NativeReaderSession`, and `NativeReaderActions` ownership and contracts remain unchanged.
@@ -719,4 +720,54 @@ queue, without init/deinit flush waits; first-window acceptance remains separate
   - VoiceOver/AX semantics and WCAG 2.1 SC 1.4.11 (3:1 or higher non-text contrast) remain enforced.
   - PDF body and highlight/auxiliary docking remain non-overlapping.
 - **File-split note**:
-  - Settings sheet presentation is separated in `FlowApp.swift`, and Home header is kept minimal with no subtitle.
+  - Settings sheet presentation is separated in `FlowApp.swift`. Home has a compact brand header with add/settings icons, a project selector and primary `읽기` action, and a `.ghost` icon dock for service start/stop, browser, address copy, offline documents and overflow. A sage dot marks the running service; stopped state uses the play icon. The path caption, service card and bottom settings/login bar are removed.
+  - The status-bar menu exposes project/service summary, home, `읽기 시작`, browser/offline reading, service start/stop/restart, editor consent, copy/logs, project settings, login, guide/about and quit. `statusImage` supplies its branded state icon; settings Save stays in the sheet.
+
+## Disposable viewed layout cache (r1-S1, r1-S3)
+
+NativeReaderLayoutCache is a disposable optimization, separate from typed offline
+recovery owned by NativeReaderRecoveryStore. The existing shared
+native-reader/layout-cache directory serves profiles with exact ownerID scope;
+no recovery namespace or installed path is migrated. NativeReaderViewedLayouts
+holds at most 256 successful viewed math layouts. Unread content never invokes a
+provider merely to populate the cache.
+
+Filenames are sha(ownerID)-sha(documentID)-sha(key).layout. Save filters by owner
+and document prefix; latest filters by owner prefix before decoding. A separate
+.document envelope stores the full accepted document at most once per identity
+and revision while retained, independent of window state. The window stores its
+key, identity/generation, viewed blocks, bounded layouts/assets and restoration.
+Identical key, viewed-block IDs and layout key set skip writing; position-only
+changes flush on close/cancel's immediate save. Geometry/revision changes revoke
+old windows of that owner/document. Other profiles/documents are not decoded by
+save. Superseded or unreferenced document files are disposable.
+
+Both stores use NativeReaderSnapshotStorage for schema-1 SHA-256 envelopes and
+O_EXCL/no-follow temporary write, synchronization, rename and directory fsync.
+Compression is an envelope option; typed validation and budgets stay with each
+store. The layout namespace is locked, private and limited to 64 MiB including
+staging bytes, with LRU document/window-group eviction. Corrupt matching entries,
+unsafe non-regular/hard-linked cache entries and legacy monolithic entries are
+unlinked and skipped. A bad disposable entry cannot disable all caching.
+
+A validated cached window may paint a read-only cached copy without a math
+runtime. Source/chat/editor authority requires live accepted publication. Cached
+content promotes only after current document identity/revision and layout inputs
+are confirmed; failed or stale preparation preserves the retained copy.
+
+## Contracts delivered by 20ad89a5 (r1-S5)
+
+The document JSON cap is 64 MiB in the backend and Swift decoder. Ordered list
+items retain optional positive listItemNumber. Image dimensions support percent
+(`%`) as well as px/pt/em with existing image-layout-v1 negotiation; percentage
+values are positive and at most 100. Anchors accept mark: identifiers alongside
+existing accepted anchors, with uniqueness still enforced.
+
+The pinned math helper accepts kind mathml-batch with 1–512 items and at most
+64 MiB JSON input/output. Each item has at most 256 KiB JSON input, a 65536-byte
+source and 8 MiB output. Swift/helper bounds are cross-checked by Python tests;
+the helper bytes and existing pins are unchanged. Swift caps batch stdout at
+min(64 MiB, itemCount × 8 MiB) plus the terminating newline, and scales the base
+timeout by min(itemCount, 6). Timeout/input/output budget failures halve chunks;
+a failing single-item chunk throws, so retries terminate for full-document and
+viewed-window preparation alike. Other errors do not trigger splitting.
