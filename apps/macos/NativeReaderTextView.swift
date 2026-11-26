@@ -1062,13 +1062,25 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     fileprivate func endBodyDraw(key: NativeReaderTextRenderKey, dirtyRect: NSRect) {
         guard !isDisposed, key == renderKey, key == requestedRenderKey, paintedKey != key, let manager = bodyTextView.layoutManager,
               let container = bodyTextView.textContainer else { return }
-        let used = manager.usedRect(for: container).offsetBy(dx: bodyTextView.textContainerOrigin.x, dy: bodyTextView.textContainerOrigin.y)
+        let origin = bodyTextView.textContainerOrigin
+        let used = manager.usedRect(for: container).offsetBy(dx: origin.x, dy: origin.y)
         let visibleContent = used.isEmpty ? bodyTextView.visibleRect : used.intersection(bodyTextView.visibleRect)
         guard !visibleContent.isEmpty, dirtyRect.contains(visibleContent) else { return }
+        let visibleGlyphs = manager.glyphRange(forBoundingRect: visibleContent.offsetBy(dx: -origin.x, dy: -origin.y), in: container)
+        let visibleChars = manager.characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil)
         let visibleObjects = objectIDs.filter { id in
-            guard let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == id }) }),
-                  let node = block.orderedNodes.first(where: { $0.id == id }) else { return false }
-            return rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).contains { $0.intersects(visibleContent) }
+            guard let range = objectRanges[id] else { return true }
+            guard NSIntersectionRange(range, visibleChars).length > 0 else { return false }
+            var intersects = false
+            let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                                            in: container) { rect, stop in
+                if rect.offsetBy(dx: origin.x, dy: origin.y).intersects(visibleContent) {
+                    intersects = true
+                    stop.pointee = true
+                }
+            }
+            return intersects
         }
         guard Set(visibleObjects).isSubset(of: objectPaints) else { return }
         paintedKey = key

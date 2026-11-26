@@ -33,6 +33,14 @@ private struct TextDocumentProvider: NativeReaderDocumentProviding {
     }
 }
 
+private final class UnpaintedTestCell: NSTextAttachmentCell {
+    let size: NSSize
+    init(size: NSSize) { self.size = size; super.init(textCell: "") }
+    required init(coder: NSCoder) { fatalError("not used") }
+    override func cellSize() -> NSSize { size }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {}
+}
+
 // Hand-authored oracle. These literals/ranges were not computed by the view, map,
 // importer or layout manager. UTF16, scalar, UTF8 and grapheme units are separate.
 let oracleTexts = [
@@ -117,6 +125,7 @@ extension NSPasteboard {
             let out = URL(fileURLWithPath: CommandLine.arguments[2])
             try check(document.blocks.map(\.displayText) == oracleTexts, "actual compiler logical reading order")
             var results = try run(document, out: out)
+            try visibleObjectPaintRegression(document)
             results["stage2"] = try await largeObjectRegression(document)
             results["stage3"] = try await diskWindowRegression(document, out: out)
             NSPasteboard(name: .init(FindPasteboardIsolation.findName)).releaseGlobally()
@@ -141,6 +150,43 @@ extension NSPasteboard {
             try check(passes <= 1024, "lazy preparation reaches a bounded idle state")
             await task.value
         }
+    }
+    @MainActor static func visibleObjectPaintRegression(_ fixture: NativeReaderDocument) throws {
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        let blocks = try (0..<600).map { index -> NativeReaderNode in
+            var value = encoded; value["id"] = "paint-regression-\(index)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+        try document.validate()
+        let (view, _) = try make(document)
+        defer { view.dispose() }
+        view.setFrameSize(NSSize(width: 640, height: 96))
+        let body = view.bodyTextView
+        let manager = body.layoutManager!
+        manager.ensureLayout(for: body.textContainer!)
+        let attachment = body.textStorage!.attribute(.attachment, at: 0, effectiveRange: nil) as! NSTextAttachment
+        let originalCell = attachment.attachmentCell!
+        attachment.attachmentCell = UnpaintedTestCell(size: originalCell.cellSize())
+        var acknowledgements = 0
+        view.callbacks.painted = { key in if key == view.renderKey { acknowledgements += 1 } }
+        let visible = body.visibleRect
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(visible.width)),
+                pixelsHigh: Int(ceil(visible.height)), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else { throw TextTestError(description: "paint regression bitmap") }
+        body.displayIgnoringOpacity(visible, in: graphics)
+        try check(acknowledgements == 0, "missing visible object paint prevents acknowledgement")
+        attachment.attachmentCell = originalCell
+        let start = ProcessInfo.processInfo.systemUptime
+        body.displayIgnoringOpacity(visible, in: graphics)
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        try check(acknowledgements == 1, "full visible object draw acknowledges paint")
+        try check(elapsed < 0.5, "600-object visible draw took \(elapsed) seconds")
     }
     @MainActor static func largeObjectRegression(_ fixture: NativeReaderDocument) async throws -> [String: Any] {
         let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
