@@ -127,6 +127,16 @@ struct CrossProjectPreviewTests {
       host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["book": project, "other": other]) }
       _ = host.textView.activate(nodeID: "link")
       try check(host.activeCrossProjectPreviewView?.content.projectKey == "other" && opened.isEmpty, "Explicit identity overrides URL")
+      for unsafe in ["https:///missing-host", "https://example.org/" + String(repeating: "a", count: 4100)] {
+        var candidate = NativeReaderNode(id: "link", sectionID: "section", kind: .link, canonicalText: text, displayText: text,
+          rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [leaf], anchors: ["origin"],
+          annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+          headingLevel: nil, math: nil, cell: nil, link: unsafe, assetID: nil, alt: nil)
+        candidate.projectRef = link.projectRef
+        let previous = host.activeCrossProjectPreviewView
+        host.textView.callbacks.semanticActivated(candidate, context)
+        try check(host.activeCrossProjectPreviewView !== previous && host.activeCrossProjectPreviewView?.content.projectKey == "other" && opened.isEmpty, "Explicit identity resolves before URL safety checks")
+      }
       var ambiguous = other; ambiguous.ambiguousLabels = ["chosen"]
       host.crossProjectCatalogProvider = { CrossProjectCatalog(projects: ["other": ambiguous]) }
       _ = host.textView.activate(nodeID: "link")
