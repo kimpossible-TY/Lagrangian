@@ -82,6 +82,48 @@ struct CrossProjectPreviewTests {
               "Disposed view rejects geometry and scrolling")
   }
 
+  @MainActor static func placeholderRestoration() throws {
+    let store = NativeReaderDocumentStore()
+    let generation = try store.beginRequest()
+    let identity = NativeDocumentIdentity(documentID: "objects", serviceID: "service", revision: "revision", scope: .fixture)
+    func node(_ id: String, _ kind: NativeReaderNode.Kind, _ text: String) -> NativeReaderNode {
+      NativeReaderNode(id: id, sectionID: "section", kind: kind, canonicalText: text, displayText: text,
+        rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: kind == .figure ? [node(id + "-child", .text, text)] : [], anchors: [],
+        annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+        headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+    }
+    let objects = (0..<8).map { node("object-\($0)", .figure, "Figure") }
+    let target = node("target", .text, String(repeating: "Target text. ", count: 30))
+    let tail = (0..<8).map { node("tail-\($0)", .text, String(repeating: "Later text. ", count: 30)) }
+    let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: generation,
+      requiredCapabilities: ["semantic-tree-v1"], blocks: objects + [target] + tail, assets: [], diagnostics: [])
+    let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: identity)
+    let view = NativeReaderTextView(store: store)
+    view.preparesViewedWindowsOnly = true
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 180),
+      styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { view.dispose(); window.close() }
+    window.contentView = view
+    view.layoutSubtreeIfNeeded()
+    try view.adopt(document, context: context)
+    view.layoutSubtreeIfNeeded()
+    func targetVisible() -> Bool {
+      guard let rect = view.rects(blockID: target.id, logical: 0..<target.displayText.utf16.count).first else { return false }
+      let visible = view.scrollView.contentView.bounds
+      return rect.maxY > visible.minY && rect.minY < visible.maxY
+    }
+    try check(view.scrollToCrossProjectLocation(anchor: nil, blockID: target.id, scrollOffset: 100000), "Placeholder target restores")
+    try check(targetVisible() && !view.canReturnFromReference, "Placeholder target stays visible without local return")
+    let key = view.renderKey!
+    let prepared = Dictionary(uniqueKeysWithValues: objects.map { object in
+      (object.id, NativeReaderPreparedTextObject(key: key, size: NSSize(width: 240, height: 300), baseline: 0,
+        accessibilityLabel: "Figure", draw: { _ in }))
+    })
+    try view.updateObjectAttachments(for: key, objects: prepared)
+    try check(targetVisible() && !view.canReturnFromReference, "Expanded objects retain target without local return")
+  }
+
   @MainActor static func controllerScenario(_ scenario: String, fragmentLink: Bool = false) async throws {
     let host = NativeReaderWindowController(provider: NativeReaderOfflineProvider(),
       target: { _ in throw NativeReaderOperationFailure.unavailable }, show: false, avoidActivation: true, fixtureMode: true)
@@ -465,7 +507,7 @@ struct CrossProjectPreviewTests {
             try check(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0, "Preview paints in both appearances")
           }
         }
-      case "reader": try readerHelpers()
+      case "reader": try readerHelpers(); try placeholderRestoration()
       case "project_ref_contract_and_snippet": try contractAndSnippet()
       case "reader_explicit_unsafe_links": try await explicitUnsafeLinks()
       case "reader_restored_back_disabled", "reader_preview_first_click", "reader_async_snippet", "reader_second_click_and_back", "reader_preview_lifetime", "reader_explicit_project_ref":

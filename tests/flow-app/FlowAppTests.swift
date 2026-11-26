@@ -27,6 +27,7 @@ private struct DelayedCrossProjectProvider: NativeReaderDocumentProviding {
   let entered: DispatchSemaphore
   let release: DispatchSemaphore
   let finished: DispatchSemaphore
+  var fail = false
   func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument {
     entered.signal()
     let release = self.release
@@ -37,6 +38,7 @@ private struct DelayedCrossProjectProvider: NativeReaderDocumentProviding {
       }
     }
     finished.signal()
+    if fail { throw NativeReaderOperationFailure.unavailable }
     return documentValue.rebinding(generation: context.generation)
   }
 }
@@ -380,6 +382,74 @@ struct FlowAppTests {
         waitUntil("fallback back failed") { lastCandidate?.session.state == .disposed }
         check(delegate.crossProjectNavigationStack.peek() == fallbackEntry, "failed fallback back preserves entry")
         _ = delegate.crossProjectNavigationStack.pop()
+      }
+      // A stale local layout must not commit a transition before live confirmation.
+      for liveFails in [true, false] {
+        let cacheRoot = URL(fileURLWithPath: root.path.hasPrefix("/var/") ? "/private" + root.path : root.path)
+        let cache = NativeReaderLayoutCache(root: cacheRoot.appendingPathComponent("stale-cache-\(liveFails)"))
+        let staleLink = NativeReaderNode(id: "link", sectionID: "section", kind: .link, canonicalText: text, displayText: text,
+          rangeUTF16: [0, text.utf16.count], offsets: NativeTextOffsets(text), children: [leaf], anchors: ["origin"],
+          annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil,
+          headingLevel: nil, math: nil, cell: nil, link: "https://example.test/other.pdf#page=1", assetID: nil, alt: nil)
+        let stale = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+          requiredCapabilities: ["semantic-tree-v1"], blocks: [staleLink], assets: [], diagnostics: [])
+        let snapshot = NativeReaderLayoutSnapshot(ownerID: [other.id, other.root, other.entry].joined(separator: "\n"),
+          key: NativeReaderLayoutCacheKey(documentID: identity.documentID, revision: identity.revision,
+            width: 640, fontSize: 14, fontName: "system", theme: "light"), document: stale,
+          restoration: .init(blockID: "link", offset: 0, zoom: 1, selectionTicket: nil, fragments: []),
+          viewedBlockIDs: ["link"], layouts: [:], assets: [:])
+        var saved = false; var saveError: Error?
+        Task { @MainActor in
+          do { try await cache.save(snapshot) } catch { saveError = error }
+          saved = true
+        }
+        waitUntil("stale cache saved") { saved }
+        check(saveError == nil, "stale cache fixture invalid: \(String(describing: saveError))")
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+        delegate.nativeWindowControllerFactory = { _ in
+          let provider = DelayedCrossProjectProvider(documentValue: document, entered: entered, release: release,
+            finished: finished, fail: liveFails)
+          let made = NativeReaderWindowController(provider: provider, target: { _ in identity },
+            show: false, avoidActivation: true, fixtureMode: true, layoutCache: cache)
+          lastCandidate = made
+          return made
+        }
+        let before = delegate.crossProjectNavigationStack.peek()
+        var sawOffline = false
+        delegate.crossProjectOpen = { window, profile, progress in
+          let cancel = window.open(profile, progress: progress)
+          let original = window.session.onChange
+          window.session.onChange = {
+            original?()
+            if !sawOffline && window.session.isCachedCopy && window.session.state == .offline && window.session.failure == nil {
+              sawOffline = true
+              check(window.pendingCrossProjectTarget != nil && delegate.nativeWindow === restored &&
+                delegate.crossProjectNavigationStack.peek() == before, "offline snapshot does not commit")
+            }
+          }
+          return cancel
+        }
+        let target = CrossProjectNavigationEntry(profileID: other.id, documentTitle: other.name,
+          anchor: "target", blockID: nil, scrollOffset: 0)
+        check(delegate.beginCrossProjectTransition(to: other, targetLocation: target, pushOnSuccess: returnEntry, popOnSuccess: false), "stale jump started")
+        var didEnter = false
+        waitUntil("stale cached copy adopted and live loading") {
+          if !didEnter { didEnter = entered.wait(timeout: .now()) == .success }
+          return didEnter && sawOffline
+        }
+        let candidate = lastCandidate!
+        check(candidate.pendingCrossProjectTarget == target && delegate.nativeWindow === restored &&
+          delegate.crossProjectNavigationStack.peek() == before, "stale copy keeps origin and pending target")
+        release.signal()
+        if liveFails {
+          waitUntil("stale jump failure disposed") { candidate.session.state == .disposed }
+          check(delegate.nativeWindow === restored && delegate.crossProjectNavigationStack.peek() == before,
+            "live failure preserves origin and back stack")
+        } else {
+          waitUntil("stale jump live commit") { delegate.nativeWindow === candidate }
+          check(candidate.pendingCrossProjectTarget == nil && candidate.textView.focusedNodeID == "link" &&
+            delegate.crossProjectNavigationStack.peek() == returnEntry, "live document restores anchor and commits")
+        }
       }
       var bounded = CrossProjectNavigationStack()
       check(bounded.maxDepth == 64, "default stack depth")

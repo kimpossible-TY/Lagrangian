@@ -562,8 +562,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       if !cached { self.cachedWindow = nil }
       self.applyPendingPresentation()
       if !reflowOnly, let target = self.pendingCrossProjectTarget {
-        self.pendingCrossProjectTarget = nil
-        _ = self.textView.scrollToCrossProjectLocation(anchor: target.anchor, blockID: target.blockID, scrollOffset: target.scrollOffset)
+        let applied = self.textView.scrollToCrossProjectLocation(anchor: target.anchor, blockID: target.blockID, scrollOffset: target.scrollOffset)
+        if applied || !cached { self.pendingCrossProjectTarget = nil }
         self.hostWindow.updateNavigation()
       }
       self.hostWindow.refreshLocalControls()
@@ -1098,7 +1098,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
        originalPageView.store.accepted?.binding.identity == store.document?.identity {
       progress?(.accepted); progress?(.windowInitialized); hostWindow.present(); return
     }
-    guard session.state == .reading || session.state == .offline,
+    guard session.state == .reading || (session.state == .offline && pendingCrossProjectTarget == nil),
           let key = acceptedPaintKey, textView.renderKey == key, session.context == textView.context else { return }
     progress?(.accepted); progress?(.windowInitialized)
     hostWindow.present()

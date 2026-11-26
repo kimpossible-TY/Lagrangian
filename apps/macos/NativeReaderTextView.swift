@@ -1187,9 +1187,26 @@ extension NativeReaderTextView {
             return scrollToNode(id: node.id, recordReturn: false, topAlign: true)
         }
         if let blockID, !blockID.isEmpty {
-            guard scrollToNode(id: blockID, recordReturn: false) else { return false }
+            let hasPlaceholderObjects = attachmentNodes.contains { preparedObjects[$0.id]?.isPlaceholder ?? true }
+            guard scrollToNode(id: blockID, recordReturn: false, topAlign: hasPlaceholderObjects) else { return false }
             guard let scrollOffset, scrollOffset.isFinite else { return true }
-            scrollToCrossProjectOffset(scrollOffset)
+            if !hasPlaceholderObjects {
+                scrollToCrossProjectOffset(scrollOffset)
+            } else {
+                let viewportHeight = scrollView.contentView.bounds.height
+                let clamped = CGFloat(min(Double(max(0, bodyTextView.bounds.height - viewportHeight)), max(0, scrollOffset)))
+                if let block = store.document?.blocks.first(where: { $0.orderedNodes.contains(where: { $0.id == blockID }) }),
+                   let node = block.orderedNodes.first(where: { $0.id == blockID }),
+                   let rect = rects(blockID: block.id, logical: node.rangeUTF16[0]..<node.rangeUTF16[1]).first {
+                    if rect.maxY > clamped && rect.minY < clamped + viewportHeight {
+                        scrollToCrossProjectOffset(scrollOffset)
+                    } else {
+                        // Put the viewport anchor inside the target, rather than the
+                        // preceding object in the usual top-alignment margin.
+                        scrollToCrossProjectOffset(Double(rect.minY + 1))
+                    }
+                }
+            }
             return true
         }
         guard let scrollOffset, scrollOffset.isFinite else { return false }
