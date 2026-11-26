@@ -3,6 +3,7 @@ import CoreText
 
 struct NativeReaderTextAppearance: Equatable {
     enum Theme: String { case light, dark }
+    var fontName: String = "system"
     var fontSize: CGFloat = 14
     var zoom: CGFloat = 1
     var theme: Theme = .light
@@ -131,6 +132,7 @@ struct NativeReaderTextCallbacks {
     // A placeholder-backed reflow can succeed before its objects are ready.
     // Notify the preparation owner even when there is no cache-miss failure.
     var layoutChanged: () -> Void = { }
+    var readingPositionChanged: () -> Void = { }
     var selectionChanged: (NativeReaderSelection?) -> Void = { _ in }
     var selectionReleased: (UUID) -> Void = { _ in }
     var sourceRequested: (NativeReaderSourceRequest) -> Void = { _ in }
@@ -345,6 +347,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     private var attachmentNodes = [NativeReaderNode]()
     typealias LazyObjectProvider = ([NativeReaderNode], NativeReaderTextRenderKey) async throws -> [String: NativeReaderPreparedTextObject]
     private var lazyProvider: LazyObjectProvider?
+    // The disk-cache owner uses viewport preparation even for small documents.
+    var preparesViewedWindowsOnly = false
+    var lazyRetryDelay: (Int) async throws -> Void = { failure in
+        try await Task.sleep(nanoseconds: UInt64(failure) * 50_000_000)
+    }
     private var lazyCache = NativeReaderLazyObjectCache()
     private(set) var lazyTask: Task<Void, Never>?
     private var lazyEpoch = 0
@@ -356,6 +363,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     private var viewportObserver: NSObjectProtocol?
     var preparedObjectCost: Int { lazyCache.cost }
     var preparedObjectIDs: Set<String> { Set(lazyCache.objects.keys) }
+    var viewedWindowBlockIDs: Set<String> {
+        Set(store.document?.blocks.filter { block in
+            block.orderedNodes.contains { lazyViewportIDs.contains($0.id) }
+        }.map(\.id) ?? [])
+    }
 
     private var paintedKey: NativeReaderTextRenderKey?
     private var pendingViewportAnchor: NativeReaderViewportAnchor?
@@ -404,6 +416,13 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: maximum * CGFloat(offset)))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         prepareVisibleObjects()
+    }
+    func restoreReadingPosition(blockID: String?, offset: Double) throws {
+        try restorePresentation(offset: offset)
+        if let blockID, viewportAnchor()?.position.blockID != blockID, let identity = renderKey?.identity {
+            restoreViewport(.init(identity: identity,
+                position: .init(blockID: blockID, utf16: 0, affinity: .downstream), offsetY: 0))
+        }
     }
     var logicalText: String { store.document?.blocks.map(\.displayText).joined(separator: "\n") ?? "" }
     /// Read-only current selection geometry, clipped to the actual native viewport.
@@ -465,7 +484,9 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         scrollView.contentView.postsBoundsChangedNotifications = true
         viewportObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: scrollView.contentView, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.prepareVisibleObjects() }
+            Task { @MainActor in
+                self?.prepareVisibleObjects(); self?.callbacks.readingPositionChanged()
+            }
         }
         scrollView.documentView = bodyTextView
         addSubview(scrollView)
@@ -540,7 +561,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     }
     private func key(for document: NativeReaderDocument) -> NativeReaderTextRenderKey {
         .init(identity: document.identity, documentGeneration: document.generation, viewID: store.viewID,
-              layoutGeneration: layoutGeneration, width: max(32, bodyTextView.bounds.width - 32), appearance: textAppearance)
+              layoutGeneration: layoutGeneration, width: (max(32, bodyTextView.bounds.width - 32) * 2).rounded() / 2, appearance: textAppearance)
     }
     // Pure preparation handshake: NA06 can calculate objects off-thread for an
     // incoming candidate before adoption. Failed/missing-cache retries retain
@@ -601,9 +622,9 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         var spans: [NativeReaderPresentationSpan] = []
         var objects: [String: NativeReaderPreparedTextObject] = [:]
         var objectRanges = [String: NSRange]()
-        let large = NativeReaderPreparedTextObject.isLarge(document)
+        let large = preparesViewedWindowsOnly || NativeReaderPreparedTextObject.isLarge(document)
         let foreground = textAppearance.theme == .dark ? NSColor.white : NSColor.black
-        let font = NSFont.systemFont(ofSize: textAppearance.effectiveSize)
+        let font = NSFont(name: textAppearance.fontName, size: textAppearance.effectiveSize) ?? NSFont.systemFont(ofSize: textAppearance.effectiveSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.paragraphSpacing = textAppearance.effectiveSize * 0.65
         let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground, .paragraphStyle: paragraph]
@@ -704,6 +725,7 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     func setAppearance(_ value: NativeReaderTextAppearance) throws {
         guard !isDisposed else { throw NativeReaderContractError.disposed }
         guard value.fontSize.isFinite, value.zoom.isFinite, (8...96).contains(value.fontSize), (0.25...4).contains(value.zoom) else { throw NativeReaderTextFailure.invalidGeometry }
+        guard value.fontName == "system" || NSFont(name: value.fontName, size: value.effectiveSize)?.fontName == value.fontName else { throw NativeReaderTextFailure.invalidGeometry }
         guard value != textAppearance else { return }
         let anchor = viewportAnchor()
         textAppearance = value
@@ -835,10 +857,10 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                     self.lazyAttempted.subtract(Set(missing.map(\.id)).subtracting(values.keys))
                 }
                 self.lazyTask = nil
+                self.callbacks.readingPositionChanged()
                 self.prepareVisibleObjects()
             } catch {
                 guard let self, self.lazyEpoch == epoch else { return }
-                self.lazyTask = nil
                 if !Task.isCancelled {
                     // Initial attempt plus at most two retries per ID in this
                     // viewport epoch. Invalid results are never retryable.
@@ -849,8 +871,15 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                             if errors <= 2 { self.lazyAttempted.remove(node.id) }
                         }
                     }
+                    let failures = missing.map { self.lazyErrorCounts[$0.id] ?? 3 }.max() ?? 3
+                    if !providerReturned && failures <= 2 {
+                        do { try await self.lazyRetryDelay(failures); try Task.checkCancellation() }
+                        catch { if self.lazyEpoch == epoch { self.lazyTask = nil }; return }
+                    }
+                    guard self.lazyEpoch == epoch, self.lazyKey == key, !Task.isCancelled else { return }
+                    self.lazyTask = nil
                     self.prepareVisibleObjects()
-                }
+                } else { self.lazyTask = nil }
             }
         }
     }
@@ -1055,7 +1084,7 @@ extension NativeReaderTextView {
         let index = try map.presentation(of: position)
         manager.ensureLayout(for: container)
         if manager.numberOfGlyphs == 0 {
-            let font = NSFont.systemFont(ofSize: textAppearance.effectiveSize)
+            let font = NSFont(name: textAppearance.fontName, size: textAppearance.effectiveSize) ?? NSFont.systemFont(ofSize: textAppearance.effectiveSize)
             return .init(key: key, position: position, rect: NSRect(origin: bodyTextView.textContainerOrigin,
                 size: NSSize(width: 1, height: ceil(font.ascender - font.descender + font.leading))))
         }

@@ -24,8 +24,9 @@ import Foundation
     // Read-only after a transport failure is not an offline snapshot. The
     // session alone owns whether the accepted/pending content came from recovery.
     private(set) var isRecoveredCopy = false
-    var hasPendingRecovery: Bool { pending?.restoration != nil }
-    var hasRecoveryCopy: Bool { isRecoveredCopy || pending?.restoration != nil }
+    private(set) var isCachedCopy = false
+    var hasPendingRecovery: Bool { pending?.restoration != nil && pending?.cached != true }
+    var hasRecoveryCopy: Bool { isRecoveredCopy || pending?.restoration != nil && pending?.cached != true }
     var onChange: (() -> Void)?
     var onSelection: ((NativeReaderSelection?, NativeReaderRequestContext) -> Void)?
     private let provider: NativeReaderDocumentProviding
@@ -39,6 +40,7 @@ import Foundation
         let document: NativeReaderDocument
         let context: NativeReaderRequestContext
         let restoration: NativeReaderRestoration?
+        var cached = false
         // Explicit per-candidate operations retain validated recovery inputs
         // across a hold/retry without changing live transport policy.
         var preparation: Prepare? = nil
@@ -166,7 +168,7 @@ import Foundation
                 throw NativeReaderOperationFailure.rejected(code: "adoption-not-published")
             }
             context = candidate.context
-            isReadOnly = offline; isRecoveredCopy = offline
+            isReadOnly = offline; isRecoveredCopy = offline && !candidate.cached; isCachedCopy = candidate.cached
             if let value = candidate.restoration {
                 restoration = value
                 if let ticket = value.selectionTicket {
@@ -265,6 +267,21 @@ import Foundation
             if epoch == current, state != .disposed, state != .sleeping { fail() }
             throw error
         }
+    }
+
+    /// Display a validated local window before any service/target request. Its
+    /// authority remains read-only until the normal live adoption confirms it.
+    func restoreLayoutWindow(_ snapshot: NativeReaderLayoutSnapshot, prepare: @escaping Prepare) async throws {
+        try snapshot.validate()
+        guard state != .disposed, state != .sleeping else { throw NativeReaderContractError.disposed }
+        task?.cancel(); epoch += 1
+        let current = epoch, generation = try store.beginRequest()
+        let document = snapshot.document.rebinding(generation: generation)
+        let request = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: generation, target: document.identity)
+        pending = Candidate(document: document, context: request, restoration: snapshot.restoration, cached: true, preparation: prepare)
+        isReadOnly = true; isCachedCopy = true; state = .loading; failure = nil
+        await invalidationTask?.value
+        try await publishPending(epoch: current)
     }
 
     private func fail() {

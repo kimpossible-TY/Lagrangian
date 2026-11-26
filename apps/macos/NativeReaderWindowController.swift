@@ -20,16 +20,19 @@ struct NativeReaderRuntime {
 /// Concrete typed disk operations are composed once per profile. Injection is
 /// for owned storage/cancellation tests; validation remains in RecoveryStore.
 struct NativeReaderOfflineStorage {
+  let layoutCache: NativeReaderLayoutCache?
   let save: (NativeReaderRecoverySnapshot) async throws -> Void
   let list: () async throws -> [NativeReaderRecoveryStore.Entry]
   let load: (NativeDocumentIdentity) async throws -> NativeReaderRecoverySnapshot
   init(owner: NativeReaderRecoveryStore) {
+    layoutCache = NativeReaderLayoutCache(root: owner.root.appendingPathComponent("layout-cache", isDirectory: true))
     save = { try await owner.save($0) }; list = { try await owner.list() }
     load = { try await owner.load(identity: $0) }
   }
   init(save: @escaping (NativeReaderRecoverySnapshot) async throws -> Void,
        list: @escaping () async throws -> [NativeReaderRecoveryStore.Entry],
        load: @escaping (NativeDocumentIdentity) async throws -> NativeReaderRecoverySnapshot) {
+    self.layoutCache = nil
     self.save = save; self.list = list; self.load = load
   }
 }
@@ -63,6 +66,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var chatWorker: (node: URL, helper: URL, runtime: URL, worker: NativeMathWorker)?
   private var profile: Profile?
   let localReview = NativeReaderLocalReview()
+  private let layoutCache: NativeReaderLayoutCache?
+  private let viewedLayouts = NativeReaderViewedLayouts()
+  private var cachedWindow: NativeReaderLayoutSnapshot?
+  private var layoutOpenTask: Task<Void, Never>?
+  private var versionTask: Task<NativeDocumentIdentity, Error>?
+  private(set) var layoutPersistenceTask: Task<Void, Never>?
+  private var persistedLayoutKey: NativeReaderLayoutCacheKey?
   private let offlineStorage: NativeReaderOfflineStorage?
   private var storageTask: Task<Void, Never>?
   private var storageEpoch = 0
@@ -134,7 +144,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
        actions: (() async throws -> NativeReaderActions)? = nil,
        originalPages: ((NativeReaderRequestContext) async throws -> NativeOriginalPageDelivery)? = nil,
        invalidate: @escaping () async -> Void = {}, show: Bool = true, avoidActivation: Bool = false, fixtureMode: Bool = false,
-       offlineStorage: NativeReaderOfflineStorage? = nil) {
+       offlineStorage: NativeReaderOfflineStorage? = nil, layoutCache: NativeReaderLayoutCache? = nil) {
     self.provider = provider; self.target = target; self.assets = assets; self.runtime = runtime
     self.actions = actions; self.invalidate = invalidate; self.show = show; self.avoidActivation = avoidActivation
     if let managed = provider as? NativeReaderManagedClient {
@@ -142,12 +152,24 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     } else { revokeEditorConsent = {} }
     self.fixtureMode = fixtureMode
     self.offlineStorage = offlineStorage
+    self.layoutCache = layoutCache ?? offlineStorage?.layoutCache
     self.pageProvider = originalPages
     if self.pageProvider == nil, let managed = provider as? NativeReaderManagedClient {
       self.pageProvider = { try await managed.originalPages(for: $0) }
     }
     session = NativeReaderSession(store: store, provider: provider, target: { [weak self] in
       guard let self, let profile = self.profile else { throw NativeReaderOperationFailure.unavailable }
+      if let version = self.versionTask {
+        let ticket = self.requestTicket
+        defer { if self.requestTicket === ticket { self.versionTask = nil } }
+        let identity = try await version.value
+        try Task.checkCancellation()
+        if let cached = self.cachedWindow, cached.key.documentID != identity.documentID || cached.key.revision != identity.revision {
+          self.layoutPersistenceTask?.cancel()
+          try? await self.layoutCache?.invalidate(cached.key)
+        }
+        return identity
+      }
       return try await self.target(profile)
     }, invalidate: invalidate, prepare: { [weak self] document, context in
       guard let self else { throw NativeReaderContractError.disposed }
@@ -213,6 +235,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     textView.callbacks.sourceRequested = { [weak self] in self?.source($0) }
     textView.callbacks.chatRequested = { [weak self] command, context in self?.chat(command, context: context) }
+    textView.callbacks.readingPositionChanged = { [weak self] in self?.persistLayoutWindow() }
     textView.callbacks.layoutChanged = { [weak self] in self?.layoutChanged() }
     textView.callbacks.statusChanged = { [weak self] message in
       guard let self else { return }
@@ -255,8 +278,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.openHomepage?(url) // Explicit native activation only.
     }
     hostWindow.onMarkReview = { [weak self] in self?.addReview() }
-    hostWindow.onUndoReview = { [weak self] in self?.localReview.undo() }
-    hostWindow.onClearReview = { [weak self] in self?.localReview.clear() }
+    hostWindow.onUndoReview = { [weak self] in guard let self, !self.session.isReadOnly else { return }; self.localReview.undo() }
+    hostWindow.onClearReview = { [weak self] in guard let self, !self.session.isReadOnly else { return }; self.localReview.clear() }
     hostWindow.onAppearance = { [weak self] in self?.layoutChanged() }
     hostWindow.onExportPDF = { [weak self] in self?.exportPDFExplicitly() }
     hostWindow.onSaveOffline = { [weak self] in self?.saveOfflineExplicitly() }
@@ -323,8 +346,33 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
     hostWindow.storageAvailable = offlineStorage != nil
     if refresh {
-      if session.state == .sleeping { session.event(.wake) }
-      session.event(.network(true))
+      if let layoutCache {
+        // Resolve the server version concurrently with local disk validation
+        // and paint; no network result can grant the cached body authority.
+        versionTask = Task { try await target(profile) }
+        layoutOpenTask = Task { [weak self] in
+          guard let self else { return }
+          if let snapshot = try? await layoutCache.latest(ownerID: Self.cacheOwner(profile)),
+             !Task.isCancelled, !ticket.isCancelled {
+            do {
+              self.cachedWindow = snapshot; self.persistedLayoutKey = snapshot.key
+              await self.viewedLayouts.seed(snapshot)
+              var appearance = self.textView.textAppearance
+              appearance.zoom = CGFloat(snapshot.restoration.zoom)
+              try self.textView.setAppearance(appearance)
+              try await self.session.restoreLayoutWindow(snapshot) { [weak self] document, context in
+                guard let self else { throw NativeObjectError.cancelled }
+                return try await self.prepare(document, context: context, recoveryAssets: snapshot.assets, cached: true)
+              }
+            } catch { self.cachedWindow = nil }
+          }
+          guard !Task.isCancelled, !ticket.isCancelled else { return }
+          self.session.refresh()
+        }
+      } else {
+        if session.state == .sleeping { session.event(.wake) }
+        session.event(.network(true))
+      }
     }
     return { [weak self] in
       ticket.cancel()
@@ -338,6 +386,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   /// Offline library copies and closed/cancelled views never resolve a service.
   func environmentChanged(_ event: NativeReadEnvironmentEvent) -> Bool {
     guard !disposed, !requestTicket.isCancelled, progress != nil, !session.hasRecoveryCopy else { return false }
+    switch event {
+    case .sleep, .network(false):
+      versionTask?.cancel(); versionTask = nil
+    default: break
+    }
     if case .power = event {} else { acceptedPaintKey = nil; paintedKey = nil }
     switch event {
     case .sleep: session.event(.sleep)
@@ -350,7 +403,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   func refresh() { hostWindow.cancelFind(); acceptedPaintKey = nil; paintedKey = nil; session.refresh() }
 
-  private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false, recoveryAssets: [String: Data]? = nil, recoveryPages: NativeOriginalPageRecovery? = nil) async throws -> NativeReaderSession.PreparedAdoption {
+  private func prepare(_ document: NativeReaderDocument, context: NativeReaderRequestContext, reflowOnly: Bool = false, recoveryAssets: [String: Data]? = nil, recoveryPages: NativeOriginalPageRecovery? = nil, cached: Bool = false) async throws -> NativeReaderSession.PreparedAdoption {
     if !reflowOnly, mode == .originalPages { return try await prepareOriginal(document, context: context, recoveryAssets: recoveryAssets, recovery: recoveryPages) }
     let ticket = requestTicket
     let key = try reflowOnly ? textView.retainedPreparationKey(for: document, context: context) : textView.preparationKey(for: document, context: context)
@@ -361,20 +414,32 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       descriptors = retained.bytes // Previously verified bytes; never a stale transport request.
     } else { descriptors = try await assets(document, context) }
     try Task.checkCancellation()
-    let large = NativeReaderPreparedTextObject.isLarge(document)
-    let nodes = NativeReaderPreparedTextObject.initialNodes(in: document)
+    let bounded = layoutCache != nil && recoveryPages == nil && (recoveryAssets == nil || cached)
+    textView.preparesViewedWindowsOnly = bounded
+    let large = bounded || NativeReaderPreparedTextObject.isLarge(document)
+    let diskKey = Self.layoutKey(key)
+    if bounded, let previous = persistedLayoutKey, previous != diskKey {
+      layoutPersistenceTask?.cancel()
+      try? await layoutCache?.invalidate(previous)
+    }
+    if bounded { persistedLayoutKey = diskKey }
+    let restored = cachedWindow?.restoration
+    let retainedViewport = reflowOnly || session.isCachedCopy ? try? textView.captureViewport() : nil
+    let nodes = bounded ? [] : NativeReaderPreparedTextObject.initialNodes(in: document)
     let worker: NativeMathWorker?
-    if document.blocks.flatMap(\.orderedNodes).contains(where: { $0.kind == .math }) {
-      guard let runtime else {
-        diagnostic = "math-runtime-not-delivered (exit 2): prior accepted view retained"
+    if let runtime, document.blocks.flatMap(\.orderedNodes).contains(where: { $0.kind == .math }) {
+      if cached { worker = try? runtime.worker() }
+      else { worker = try runtime.worker() }
+    } else {
+      if !bounded, document.blocks.flatMap(\.orderedNodes).contains(where: { $0.kind == .math }) {
         throw NativeObjectError.unsupported("math-runtime-not-delivered")
       }
-      worker = try runtime.worker()
-    } else { worker = nil }
+      worker = nil
+    }
     preparingKey = key
     defer { if preparingKey == key { preparingKey = nil } }
     let objects = try await Self.prepareObjects(document, nodes: nodes, key: key, assets: descriptors,
-      worker: worker, ticket: ticket, fullDocument: !large)
+      worker: worker, ticket: ticket, fullDocument: !large, viewedLayouts: bounded ? viewedLayouts : nil)
     let preparedObjects = objects
     return .init(isCurrent: { [weak self] in
       guard let self, !self.disposed, !ticket.isCancelled else { return false }
@@ -392,10 +457,14 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       }
       catch { self.cache = previous; throw error }
       self.acceptedAssets = (document, descriptors)
+      if bounded, let offset = retainedViewport?.offset ?? restored?.offset {
+        try self.textView.restoreReadingPosition(blockID: retainedViewport?.blockID ?? restored?.blockID, offset: offset)
+      }
       if large {
+        let layouts = bounded ? self.viewedLayouts : nil
         self.textView.configureLazyObjects(key: key, initial: preparedObjects) { nodes, currentKey in
           try await Self.prepareObjects(document, nodes: nodes, key: currentKey, assets: descriptors,
-            worker: worker, ticket: ticket)
+            worker: worker, ticket: ticket, viewedLayouts: layouts)
         }
         // The LRU and attachment cells are the only retained paint owners.
         self.cache = (key, [:])
@@ -406,8 +475,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         self.visibleMode = .nativeReflow; self.hostWindow.displayMode(.nativeReflow)
         self.hostWindow.refreshOutline()
       }
+      if !cached { self.cachedWindow = nil }
       self.applyPendingPresentation(); self.hostWindow.refreshLocalControls()
       self.textView.prepareVisibleObjects()
+      self.persistLayoutWindow()
       if let chat = self.chatView {
         if self.chatContext == self.textView.context { self.configureChatMath(chat, key: key) }
         else { self.rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
@@ -417,11 +488,11 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
 
   private nonisolated static func prepareObjects(_ document: NativeReaderDocument, nodes: [NativeReaderNode],
     key: NativeReaderTextRenderKey, assets: [String: Data], worker: NativeMathWorker?,
-    ticket: ReadingOperationTicket, fullDocument: Bool = false) async throws -> [String: NativeReaderPreparedTextObject] {
+    ticket: ReadingOperationTicket, fullDocument: Bool = false, viewedLayouts: NativeReaderViewedLayouts? = nil) async throws -> [String: NativeReaderPreparedTextObject] {
     guard !nodes.isEmpty else { return [:] }
     let c = NativeObjectContext(identity: document.identity, snapshotGeneration: document.generation,
       generation: key.layoutGeneration, width: Double(key.width), fontSize: Double(key.appearance.effectiveSize),
-      fontName: "system", theme: key.appearance.theme == .dark ? .dark : .light, mode: .reflow, pageHeight: 1000)
+      fontName: key.appearance.fontName, theme: key.appearance.theme == .dark ? .dark : .light, mode: .reflow, pageHeight: 1000)
     let job = Task.detached(priority: .userInitiated) {
       precondition(!Thread.isMainThread, "Object preparation must leave the UI thread")
       var selected = nodes
@@ -430,8 +501,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
           let plan = try await NativeReaderPagedLayout.layout(document: document,
             blockIDs: Set(fullDocument ? document.blocks.map(\.id) : selected.map(\.id)), context: c, assets: assets,
             mathBatch: { items, context in
-              guard let worker else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
-              return try await worker.calculateBatch(items, context: context)
+              let diskKey = Self.layoutKey(key)
+              let cached = await viewedLayouts?.cached(for: diskKey) ?? [:]
+              var result = [String: NativeMathLayout]()
+              var missing = [(id: String, math: NativeMath, width: Double)]()
+              for item in items {
+                if let value = cached[item.id], let rebound = try? value.rebinding(math: item.math, context: context, width: item.width) {
+                  result[item.id] = rebound
+                } else { missing.append(item) }
+              }
+              if !missing.isEmpty {
+                guard let worker else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
+                result.merge(try await worker.calculateBatch(missing, context: context)) { _, new in new }
+              }
+              try Task.checkCancellation()
+              guard !ticket.isCancelled else { throw NativeObjectError.cancelled }
+              await viewedLayouts?.record(result, key: diskKey)
+              return result
             }, math: { node, width in
               guard let worker, let math = node.math else { throw NativeObjectError.unsupported("math-runtime-not-delivered") }
               return try await worker.calculate(math, context: c, width: width)
@@ -609,7 +695,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     hostWindow.present(); refreshSavedExplicitly()
   }
   private func addReview() {
-    guard visibleMode == .nativeReflow, let document = store.document, let selection = store.selection else {
+    guard !session.isReadOnly, visibleMode == .nativeReflow, let document = store.document, let selection = store.selection else {
       hostWindow.setNotice("Select text to mark for review."); return
     }
     let location = NativeReaderRestoration(blockID: selection.fragments.first?.blockID, offset: 0, zoom: 1,
@@ -780,6 +866,47 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
 
+  private nonisolated static func cacheOwner(_ profile: Profile) -> String {
+    [profile.id, profile.root, profile.entry].joined(separator: "\n")
+  }
+  private nonisolated static func layoutKey(_ key: NativeReaderTextRenderKey) -> NativeReaderLayoutCacheKey {
+    NativeReaderLayoutCacheKey(documentID: key.identity.documentID, revision: key.identity.revision,
+      width: Double(key.width), fontSize: Double(key.appearance.effectiveSize),
+      fontName: key.appearance.fontName, theme: key.appearance.theme.rawValue)
+  }
+  /// Capture just renderer-owned viewport scalars on main. Actor work performs
+  /// collection, validation, compression, hashing and disk I/O off the UI thread.
+  func persistLayoutWindow(immediate: Bool = false) {
+    guard let layoutCache, let profile, !disposed, visibleMode == .nativeReflow,
+          !session.isReadOnly, let document = store.document, let key = textView.renderKey,
+          key == textView.requestedRenderKey, acceptedPaintKey == key,
+          let viewport = try? textView.captureViewport(), let acceptedAssets,
+          acceptedAssets.document == document else { return }
+    let restoration = NativeReaderRestoration(blockID: viewport.blockID, offset: viewport.offset,
+      zoom: Double(textView.textAppearance.zoom), selectionTicket: nil, fragments: [])
+    let diskKey = Self.layoutKey(key), owner = Self.cacheOwner(profile), layouts = viewedLayouts
+    let bytes = acceptedAssets.bytes, windowBlocks = textView.viewedWindowBlockIDs
+    layoutPersistenceTask?.cancel()
+    layoutPersistenceTask = Task {
+      do {
+        if !immediate { try await Task.sleep(nanoseconds: 150_000_000) }
+        try Task.checkCancellation()
+        let values = await layouts.cached(for: diskKey)
+        let snapshot = await Task.detached(priority: .utility) {
+          let blocks = document.blocks.filter { block in
+            block.id == viewport.blockID || windowBlocks.contains(block.id) || block.orderedNodes.contains { values[$0.id] != nil }
+          }
+          let referenced = Set(blocks.flatMap(\.orderedNodes).compactMap(\.assetID))
+          return NativeReaderLayoutSnapshot(ownerID: owner, key: diskKey, document: document,
+            restoration: restoration, viewedBlockIDs: Set(blocks.map(\.id)), layouts: values,
+            assets: bytes.filter { referenced.contains($0.key) })
+        }.value
+        try Task.checkCancellation()
+        try await layoutCache.save(snapshot)
+      } catch { /* A disposable cache must not interrupt live reading. */ }
+    }
+  }
+
   private static func sameObjectGeometry(_ lhs: NativeReaderTextRenderKey, _ rhs: NativeReaderTextRenderKey) -> Bool {
     lhs.identity == rhs.identity &&
     lhs.documentGeneration == rhs.documentGeneration &&
@@ -817,7 +944,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard visibleMode == .nativeReflow, let document = store.document, let context = session.context,
           context == textView.context,
           let key = textView.requestedRenderKey, key != cache?.key else { return }
-    if !NativeReaderPreparedTextObject.isLarge(document), textView.renderKey == key,
+    if !textView.preparesViewedWindowsOnly, !NativeReaderPreparedTextObject.isLarge(document), textView.renderKey == key,
        let currentCache = cache, Self.sameObjectGeometry(currentCache.key, key) {
       let rebound = currentCache.objects.mapValues { Self.rebindObject($0, to: key) }
       cache = (key, rebound)
@@ -861,6 +988,8 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard !disposed, !requestTicket.isCancelled else { return }
     updatePresentation()
     hostWindow.updateReaderControls(readOnly: session.isReadOnly)
+    if session.isCachedCopy { hostWindow.setNotice("캐시된 화면 (읽기 전용) · 최신 버전 확인 중...") }
+    else if session.state == .reading { hostWindow.setNotice(""); persistLayoutWindow() }
     if let failure = session.failure {
       let message = diagnostic ?? failure
       hostWindow.setNotice(message)
@@ -917,6 +1046,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     }
   }
   private func source(_ request: NativeReaderSourceRequest) {
+    guard !session.isReadOnly else { return }
     guard visibleMode == .nativeReflow else { report(NativeOriginalPageError.unsupported("pdf-source-actions-unavailable")); return }
     guard let actions else { report(NativeReaderOperationFailure.unavailable); return }
     let selection = selectionTask
@@ -1204,6 +1334,9 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
 
   func cancel() {
+    persistLayoutWindow(immediate: true)
+    layoutOpenTask?.cancel(); layoutOpenTask = nil
+    versionTask?.cancel(); versionTask = nil
     textView.cancelLazyPreparation()
     hostWindow.cancelFind()
     hostWindow.hideCapsule()

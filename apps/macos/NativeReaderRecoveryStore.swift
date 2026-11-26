@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import PDFKit
 import Darwin
+import Compression
 
 struct NativeReaderRestoration: Codable, Equatable {
     struct Fragment: Codable, Equatable {
@@ -92,7 +93,7 @@ struct NativeReaderRecoverySnapshot: Codable {
 /// browser storage, provider headers, credentials or account state are serializable here.
 actor NativeReaderRecoveryStore {
     private struct Envelope: Codable { let schema: Int; let sha256: String; let payload: Data }
-    let root: URL
+    nonisolated let root: URL
     static let limit = 128 * 1024 * 1024
     init(root: URL) { self.root = root.standardizedFileURL }
 
@@ -293,4 +294,251 @@ struct NativeReaderReviewMark: Codable {
     }
     func undo() { if !marks.isEmpty { marks.removeLast(); paint?(marks) } }
     func clear() { marks.removeAll(); paint?(marks) }
+}
+
+
+/// Stable layout inputs deliberately exclude process/view generations. Width is
+/// quantized once and the same value is used for preparation and persistence.
+struct NativeReaderLayoutCacheKey: Codable, Equatable, Hashable {
+    static let currentSchema = 1
+    let documentID: String
+    let revision: String
+    let width: Double
+    let fontSize: Double
+    let fontName: String
+    let theme: String
+    let mode: String
+    let schemaVersion: Int
+    init(documentID: String, revision: String, width: Double, fontSize: Double,
+         fontName: String = "system", theme: String, mode: String = "reflow", schemaVersion: Int = currentSchema) {
+        self.documentID = documentID; self.revision = revision
+        self.width = (width * 2).rounded() / 2; self.fontSize = fontSize
+        self.fontName = fontName; self.theme = theme; self.mode = mode; self.schemaVersion = schemaVersion
+    }
+    func validate() throws {
+        guard schemaVersion == Self.currentSchema, !documentID.isEmpty, !revision.isEmpty,
+              width.isFinite, (64...8192).contains(width), width * 2 == (width * 2).rounded(),
+              fontSize.isFinite, (8...96).contains(fontSize), !fontName.isEmpty, fontName.utf8.count <= 256,
+              ["light", "dark"].contains(theme), mode == "reflow" else { throw NativeObjectError.stale }
+    }
+    func context(identity: NativeDocumentIdentity, generation: Int, snapshotGeneration: Int) -> NativeObjectContext {
+        NativeObjectContext(identity: identity, snapshotGeneration: snapshotGeneration, generation: generation,
+            width: width, fontSize: fontSize, fontName: fontName, theme: theme == "dark" ? .dark : .light,
+            mode: .reflow, pageHeight: 1000)
+    }
+}
+
+struct NativeReaderLayoutSnapshot: Codable {
+    let ownerID: String // Exact profile/root/entry association, never a live capability.
+    let key: NativeReaderLayoutCacheKey
+    let document: NativeReaderDocument
+    let restoration: NativeReaderRestoration
+    let viewedBlockIDs: Set<String>
+    let layouts: [String: NativeMathLayout]
+    let assets: [String: Data]
+    func validate() throws {
+        try key.validate(); try document.validate(); try restoration.validate(in: document)
+        guard key.documentID == document.identity.documentID, key.revision == document.identity.revision,
+              !ownerID.isEmpty, ownerID.utf8.count <= 8192, restoration.selectionTicket == nil,
+              restoration.fragments.isEmpty, layouts.count <= 256,
+              restoration.blockID == nil || viewedBlockIDs.contains(restoration.blockID!),
+              viewedBlockIDs.isSubset(of: Set(document.blocks.map(\.id))) else { throw NativeObjectError.stale }
+        let viewed = document.blocks.filter { viewedBlockIDs.contains($0.id) }.flatMap(\.orderedNodes)
+        let nodes = Dictionary(uniqueKeysWithValues: viewed.map { ($0.id, $0) })
+        let c = key.context(identity: document.identity, generation: 0, snapshotGeneration: document.generation)
+        for (id, layout) in layouts {
+            guard let math = nodes[id]?.math else { throw NativeObjectError.stale }
+            // Nested table cells may have a narrower width than the viewport.
+            guard layout.width <= key.width - 32 else { throw NativeObjectError.stale }
+            _ = try layout.rebinding(math: math, context: c, width: layout.width)
+        }
+        let referenced = Set(viewed.compactMap(\.assetID))
+        guard Set(assets.keys).isSubset(of: referenced),
+              assets.values.reduce(0, { $0 + $1.count }) <= 64 * 1024 * 1024 else { throw NativeObjectError.budget }
+        for (id, bytes) in assets {
+            guard let asset = document.assets.first(where: { $0.id == id }), bytes.count == asset.byteCount,
+                  NativeReaderRecoverySnapshot.digest(bytes) == asset.sha256 else { throw NativeObjectError.stale }
+        }
+    }
+}
+
+/// Only successful, viewed-window requests enter this bounded in-memory working
+/// set. Neither snapshotting nor persistence ever invokes a math provider.
+actor NativeReaderViewedLayouts {
+    private var key: NativeReaderLayoutCacheKey?
+    private var values = [String: NativeMathLayout]()
+    private var order = [String]()
+    func seed(_ snapshot: NativeReaderLayoutSnapshot) {
+        key = snapshot.key; values = snapshot.layouts; order = values.keys.sorted()
+    }
+    func cached(for key: NativeReaderLayoutCacheKey) -> [String: NativeMathLayout] {
+        self.key == key ? values : [:]
+    }
+    func record(_ layouts: [String: NativeMathLayout], key: NativeReaderLayoutCacheKey) {
+        if self.key != key { self.key = key; values = [:]; order = [] }
+        for id in layouts.keys.sorted() {
+            values[id] = layouts[id]; order.removeAll { $0 == id }; order.append(id)
+        }
+        while order.count > 256 { values.removeValue(forKey: order.removeFirst()) }
+    }
+}
+
+/// Optional, disposable disk optimization. This namespace never overlaps the
+/// recovery store's 64-hex .json files and contains no selection or chat state.
+actor NativeReaderLayoutCache {
+    nonisolated let root: URL
+    let byteLimit: Int
+    private let now: @Sendable () -> Date
+    private struct Envelope: Codable {
+        let schema: Int
+        let sha256: String
+        let uncompressedBytes: Int
+        let payload: Data
+    }
+    private static let payloadLimit = 128 * 1024 * 1024
+    init(root: URL, byteLimit: Int = 64 * 1024 * 1024, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.root = root.standardizedFileURL; self.byteLimit = max(0, byteLimit); self.now = now
+    }
+    private func directory() throws -> Int32 {
+        guard root.isFileURL, root.path != "/" else { throw NativeReaderOperationFailure.unavailable }
+        var fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard fd >= 0 else { throw NativeReaderOperationFailure.unavailable }
+        do {
+            for part in root.pathComponents.dropFirst() {
+                if mkdirat(fd, part, 0o700) != 0 && errno != EEXIST { throw NativeReaderOperationFailure.unavailable }
+                let next = openat(fd, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                guard next >= 0 else { throw NativeReaderOperationFailure.unavailable }
+                close(fd); fd = next
+            }
+            guard fchmod(fd, 0o700) == 0, flock(fd, LOCK_EX) == 0 else { throw NativeReaderOperationFailure.unavailable }
+            // An interrupted prior write is disposable. The directory lock also
+            // serializes distinct cache actors/windows sharing this namespace.
+            for name in try FileManager.default.contentsOfDirectory(atPath: root.path)
+                where name.range(of: "^\\.layout-[0-9A-Fa-f-]{36}$", options: .regularExpression) != nil {
+                unlinkat(fd, name, 0)
+            }
+            let entries = try files(fd).sorted { $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec < $1.date.tv_nsec : $0.date.tv_sec < $1.date.tv_sec }
+            var total = entries.reduce(0) { $0 + $1.size }
+            for entry in entries where total > byteLimit {
+                guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+                total -= entry.size
+            }
+            return fd
+        } catch { close(fd); throw error }
+    }
+    private func name(_ key: NativeReaderLayoutCacheKey) throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return NativeReaderRecoverySnapshot.digest(try encoder.encode(key)) + ".layout"
+    }
+    private func files(_ fd: Int32) throws -> [(name: String, size: Int, date: timespec)] {
+        try FileManager.default.contentsOfDirectory(atPath: root.path).compactMap { name in
+            guard name.range(of: "^[0-9a-f]{64}\\.layout$", options: .regularExpression) != nil else { return nil }
+            var info = stat()
+            guard fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0,
+                  info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else { throw NativeObjectError.stale }
+            return (name, Int(info.st_size), info.st_mtimespec)
+        }
+    }
+    func diskBytes() throws -> Int {
+        let fd = try directory(); defer { close(fd) }
+        return try files(fd).reduce(0) { $0 + $1.size }
+    }
+    func save(_ snapshot: NativeReaderLayoutSnapshot) throws {
+        try Task.checkCancellation(); try snapshot.validate()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let raw = try encoder.encode(snapshot)
+        guard raw.count <= Self.payloadLimit else { throw NativeObjectError.budget }
+        let compressed = try (raw as NSData).compressed(using: .lzfse) as Data
+        let data = try encoder.encode(Envelope(schema: 1, sha256: NativeReaderRecoverySnapshot.digest(raw),
+            uncompressedBytes: raw.count, payload: compressed))
+        guard data.count <= byteLimit else { throw NativeObjectError.budget }
+        let fd = try directory(); defer { close(fd) }
+        let destination = try name(snapshot.key)
+        var entries = try files(fd).sorted {
+            $0.date.tv_sec == $1.date.tv_sec ? ($0.date.tv_nsec == $1.date.tv_nsec ? $0.name < $1.name : $0.date.tv_nsec < $1.date.tv_nsec) : $0.date.tv_sec < $1.date.tv_sec
+        }
+        for entry in entries where entry.name != destination {
+            if let old = try? read(entry.name, fd: fd), old.key.documentID == snapshot.key.documentID {
+                guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+                entries.removeAll { $0.name == entry.name }
+            }
+        }
+        var total = entries.reduce(0) { $0 + $1.size }
+        // Account for the staging bytes as well as committed entries. Evict
+        // before writing so even the atomic replacement cannot exceed the cap.
+        entries = entries.filter { $0.name != destination } + entries.filter { $0.name == destination }
+        for entry in entries where total > byteLimit - data.count {
+            guard unlinkat(fd, entry.name, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+            total -= entry.size
+        }
+        let temporary = ".layout-" + UUID().uuidString
+        let output = openat(fd, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard output >= 0 else { throw NativeReaderOperationFailure.unavailable }
+        let handle = FileHandle(fileDescriptor: output, closeOnDealloc: true)
+        defer { try? handle.close(); unlinkat(fd, temporary, 0) }
+        try handle.write(contentsOf: data); try handle.synchronize(); try Task.checkCancellation()
+        touch(output)
+        guard renameat(fd, temporary, fd, destination) == 0 else { throw NativeReaderOperationFailure.unavailable }
+        _ = fsync(fd)
+    }
+    private func touch(_ fd: Int32) {
+        let time = now().timeIntervalSince1970
+        var times = [timespec(tv_sec: Int(time), tv_nsec: Int((time - floor(time)) * 1_000_000_000)),
+                     timespec(tv_sec: Int(time), tv_nsec: Int((time - floor(time)) * 1_000_000_000))]
+        _ = futimens(fd, &times)
+    }
+    private func touch(_ name: String, directory: Int32) {
+        let fd = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        if fd >= 0 { touch(fd); close(fd) }
+    }
+    private func read(_ name: String, fd directory: Int32) throws -> NativeReaderLayoutSnapshot {
+        let fd = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { throw NativeObjectError.stale }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true); defer { try? handle.close() }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1,
+              info.st_size > 0, info.st_size <= byteLimit else { throw NativeObjectError.budget }
+        let data = try handle.read(upToCount: byteLimit + 1) ?? Data()
+        guard data.count <= byteLimit else { throw NativeObjectError.budget }
+        let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+        guard envelope.schema == 1, !envelope.payload.isEmpty,
+              (1...Self.payloadLimit).contains(envelope.uncompressedBytes) else { throw NativeObjectError.stale }
+        // A bounded output buffer prevents an untrusted compressed file from
+        // expanding beyond the envelope's already bounded declared size.
+        var raw = Data(count: envelope.uncompressedBytes + 1)
+        let size = raw.withUnsafeMutableBytes { output in
+            envelope.payload.withUnsafeBytes { input in
+                compression_decode_buffer(output.bindMemory(to: UInt8.self).baseAddress!, output.count,
+                    input.bindMemory(to: UInt8.self).baseAddress!, input.count, nil, COMPRESSION_LZFSE)
+            }
+        }
+        guard size == envelope.uncompressedBytes else { throw NativeObjectError.stale }
+        raw.count = size
+        guard NativeReaderRecoverySnapshot.digest(raw) == envelope.sha256 else { throw NativeObjectError.stale }
+        let snapshot = try JSONDecoder().decode(NativeReaderLayoutSnapshot.self, from: raw)
+        try snapshot.validate()
+        guard try self.name(snapshot.key) == name else { throw NativeObjectError.stale }
+        return snapshot
+    }
+    func load(key: NativeReaderLayoutCacheKey) throws -> NativeReaderLayoutSnapshot? {
+        try key.validate(); try Task.checkCancellation()
+        let fd = try directory(); defer { close(fd) }
+        let name = try self.name(key)
+        guard faccessat(fd, name, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
+        do { let value = try read(name, fd: fd); touch(name, directory: fd); return value }
+        catch { unlinkat(fd, name, 0); return nil }
+    }
+    func latest(ownerID: String) throws -> NativeReaderLayoutSnapshot? {
+        try Task.checkCancellation()
+        let fd = try directory(); defer { close(fd) }
+        let entries = try files(fd).sorted { $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec > $1.date.tv_nsec : $0.date.tv_sec > $1.date.tv_sec }
+        for entry in entries {
+            do { let value = try read(entry.name, fd: fd); if value.ownerID == ownerID { touch(entry.name, directory: fd); return value } }
+            catch { unlinkat(fd, entry.name, 0) }
+        }
+        return nil
+    }
+    func invalidate(_ key: NativeReaderLayoutCacheKey) throws {
+        let fd = try directory(); defer { close(fd) }; unlinkat(fd, try name(key), 0)
+    }
 }

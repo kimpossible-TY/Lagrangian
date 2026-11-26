@@ -129,6 +129,22 @@ class TextInteractionTests(unittest.TestCase):
         self.assertEqual(result['transientCalls'], 2)
         self.assertEqual(result['persistentCalls'], 3)
 
+    def test_cached_reopen_version_promotion_and_viewed_window_persistence(self):
+        cache = self.results['stage3']
+        self.assertEqual(cache['cachedWorkerCalls'], 0)
+        self.assertGreater(cache['persistedMath'], 0)
+        self.assertLessEqual(cache['persistedMath'], 256)
+        for field in ['readOnly', 'promotion', 'position', 'revisionInvalidation',
+                      'widthInvalidation', 'appearanceInvalidation', 'unreadExcluded',
+                      'smallWindow', 'closeFlush', 'notice', 'runtimeIndependent', 'reopenMismatch']:
+            self.assertTrue(cache[field], field)
+
+    def test_busy_release_waits_for_backoff_and_cancellation_stops_retry(self):
+        failures = self.results['stage2']['failures']
+        self.assertEqual(failures['backoffFailures'], [1, 2])
+        self.assertTrue(failures['busyRelease'])
+        self.assertTrue(failures['backoffCancellation'])
+
     def test_invalid_batch_and_attachment_updates_are_atomic(self):
         self.assertTrue(self.results['stage2']['failures']['atomicBatch'])
         self.assertTrue(self.results['stage2']['failures']['atomicCells'])

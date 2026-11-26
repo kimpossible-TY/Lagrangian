@@ -29,9 +29,9 @@ struct NativeObjectContext: Equatable, Codable {
     }
 }
 
-struct NativeMathLayout: Decodable {
-    struct Context: Decodable { let revision: String; let generation: Int; let theme: String }
-    struct Fragment: Decodable { let svg: String; let width: Double; let ascent: Double; let descent: Double }
+struct NativeMathLayout: Codable {
+    struct Context: Codable { let revision: String; let generation: Int; let theme: String }
+    struct Fragment: Codable { let svg: String; let width: Double; let ascent: Double; let descent: Double }
     let version: Int
     let inputHash: String
     let context: Context
@@ -45,17 +45,30 @@ struct NativeMathLayout: Decodable {
     static func decode(_ data: Data, math: NativeMath, context c: NativeObjectContext, width: Double) throws -> Self {
         guard data.count <= 8 * 1024 * 1024 else { throw NativeObjectError.budget }
         let result = try JSONDecoder().decode(Self.self, from: data)
+        guard result.context.generation == c.generation else { throw NativeObjectError.stale }
+        return try result.rebinding(math: math, context: c, width: width)
+    }
+
+    /// Disk generations are local to the previous view. Validate every stable
+    /// input before binding validated metrics to this view's layout generation.
+    func rebinding(math: NativeMath, context c: NativeObjectContext, width: Double) throws -> Self {
+        try c.validate()
+        let result = self
         let hash = SHA256.hash(data: Data(math.mathML.utf8)).map { String(format: "%02x", $0) }.joined()
         guard result.version == 1, result.inputHash == hash, result.font == "MathJaxNewcm",
               result.width == width, result.fontSize == c.fontSize,
-              result.context.revision == c.identity.revision, result.context.generation == c.generation,
+              result.context.revision == c.identity.revision, result.context.generation >= 0,
               result.context.theme == c.theme.rawValue else { throw NativeObjectError.stale }
         guard !result.fragments.isEmpty, result.fragments.count <= 256,
               ([result.whole] + result.fragments).allSatisfy({ f in
                   [f.width, f.ascent, f.descent].allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 100000 } &&
                   f.width > 0 && f.ascent + f.descent > 0 && f.svg.utf8.count <= 8 * 1024 * 1024
               }) else { throw NativeObjectError.invalidGeometry }
-        return result
+        guard diagnostics.isEmpty, width.isFinite, (16...8192).contains(width),
+              ([whole] + fragments).reduce(0, { $0 + $1.svg.utf8.count }) <= 8 * 1024 * 1024 else { throw NativeObjectError.budget }
+        return Self(version: version, inputHash: inputHash,
+            context: Context(revision: c.identity.revision, generation: c.generation, theme: c.theme.rawValue),
+            font: font, fontSize: fontSize, width: width, whole: whole, fragments: fragments, diagnostics: diagnostics)
     }
 }
 

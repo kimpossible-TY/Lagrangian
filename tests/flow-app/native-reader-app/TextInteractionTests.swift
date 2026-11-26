@@ -104,6 +104,7 @@ extension NSPasteboard {
             try check(document.blocks.map(\.displayText) == oracleTexts, "actual compiler logical reading order")
             var results = try run(document, out: out)
             results["stage2"] = try await largeObjectRegression(document)
+            results["stage3"] = try await diskWindowRegression(document, out: out)
             NSPasteboard(name: .init(FindPasteboardIsolation.findName)).releaseGlobally()
             NSPasteboard(name: .init(FindPasteboardIsolation.generalName)).releaseGlobally()
             let data = try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])
@@ -401,14 +402,21 @@ extension NSPasteboard {
 
         // A transient busy response retries the same IDs; a persistent response
         // stops after the initial attempt plus exactly two retries in this epoch.
-        var transientCalls = 0
+        var transientCalls = 0, workerBusy = true
+        var retryFailures = [Int]()
+        retained.lazyRetryDelay = { failure in
+            retryFailures.append(failure)
+            workerBusy = false // Deterministic simulated worker teardown at the wait boundary.
+            await Task.yield(); try Task.checkCancellation()
+        }
         retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
             transientCalls += 1
-            if transientCalls == 1 { throw TextTestError(description: "math-worker-busy") }
+            if workerBusy { throw TextTestError(description: "math-worker-busy") }
             return values(nodes, current)
         }
         try await finishLazyPreparation(retained)
-        try check(transientCalls == 2 && retained.preparedObjectIDs.contains(blocks[200].id), "transient provider error recovers")
+        try check(transientCalls == 2 && retryFailures == [1] && retained.preparedObjectIDs.contains(blocks[200].id), "busy worker teardown completes at retry backoff boundary")
+        retryFailures = []
         var persistentCalls = 0
         retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
             persistentCalls += 1
@@ -416,7 +424,19 @@ extension NSPasteboard {
         }
         try await finishLazyPreparation(retained)
         for _ in 0..<5 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
-        try check(persistentCalls == 3 && retained.preparedObjectIDs.isEmpty, "persistent error bounded to two retries per ID")
+        try check(persistentCalls == 3 && retryFailures == [1, 2] && retained.preparedObjectIDs.isEmpty, "persistent error bounded to two delayed retries per ID")
+        var cancelledRetryCalls = 0, delayEntered = false
+        retained.lazyRetryDelay = { _ in
+            delayEntered = true
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+        }
+        retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            cancelledRetryCalls += 1; throw TextTestError(description: "math-worker-busy")
+        }
+        try await waitFor("retry entered cancellable delay") { delayEntered }
+        retained.cancelLazyPreparation()
+        await Task.yield()
+        try check(cancelledRetryCalls == 1 && retained.lazyTask == nil, "cancel backoff never dispatches a retry")
 
         func attachment(_ node: NativeReaderNode) throws -> NSTextAttachment {
             let range = try retained.textMap!.presentationRange(blockID: node.id, logical: 0..<node.displayText.utf16.count)
@@ -460,7 +480,7 @@ extension NSPasteboard {
                   "invalid batch leaves all cells and selection/text unchanged")
         try check(invalidCalls == 1 && retained.lazyTask == nil, "invalid result is rejected without transient retry")
         return ["failedRefresh": true, "heldRefresh": true, "transientCalls": transientCalls,
-                "persistentCalls": persistentCalls, "atomicBatch": true, "atomicCells": true]
+                "persistentCalls": persistentCalls, "backoffFailures": [1, 2], "backoffCancellation": true, "busyRelease": true, "atomicBatch": true, "atomicCells": true]
     }
     @MainActor static func make(_ document: NativeReaderDocument, provider: Bool = true) throws -> (NativeReaderTextView, NativeReaderRequestContext) {
         let store = NativeReaderDocumentStore()
@@ -985,4 +1005,197 @@ extension NSPasteboard {
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: out)
     try check(failures == 0, "F4/LS01 ordinary selection/copy/AX/guard failures: \(failures)")
     print("F4/LS01 \(count) blocks: \(rows.count) attempts pass")
+}
+
+
+private final class LayoutWorkerCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func record(_ value: NativeMathExecution) { lock.lock(); defer { lock.unlock() }; count += 1 }
+    func value() -> Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+extension TextInteractionMain {
+    @MainActor static func diskWindowRegression(_ fixture: NativeReaderDocument, out: URL) async throws -> [String: Any] {
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        var meaning = encoded["math"] as! [String: Any]; meaning["display"] = true; encoded["math"] = meaning
+        let blocks = try (0..<320).map { i -> NativeReaderNode in
+            var value = encoded; value["id"] = "disk-window-\(i)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+        let profile = Profile(id: "layout-window", name: "Layout window", root: out.path, entry: "main.typ",
+            fonts: [], packages: out.path, port: 12345, publicURL: "", label: "test.layout-window")
+        let owner = NativeReaderRecoveryStore(root: out.appendingPathComponent("disk-window"))
+        let storage = NativeReaderOfflineStorage(owner: owner)
+        let disk = storage.layoutCache!
+        try check(disk.root == owner.root.appendingPathComponent("layout-cache", isDirectory: true), "offline storage derives dedicated layout-cache")
+        let calls = LayoutWorkerCalls(), environment = ProcessInfo.processInfo.environment
+        let runtime = NativeReaderRuntime(node: URL(fileURLWithPath: environment["FLOW_TEST_NODE"] ?? "/opt/homebrew/bin/node"),
+            helper: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("tools/flow-reader/native/math_layout.mjs"),
+            runtime: URL(fileURLWithPath: environment["FLOW_TEST_NATIVE_RUNTIME"] ?? "/missing"), record: { calls.record($0) })
+        func provider() -> TextDocumentProvider {
+            TextDocumentProvider { context in
+                NativeReaderDocument(schemaVersion: document.schemaVersion, identity: context.target, generation: context.generation,
+                    requiredCapabilities: document.requiredCapabilities, blocks: blocks, assets: [], diagnostics: [])
+            }
+        }
+        let live = NativeReaderWindowController(provider: provider(), target: { _ in document.identity }, runtime: runtime,
+            show: false, fixtureMode: true, offlineStorage: storage)
+        _ = live.open(profile) { _ in }
+        try await waitFor("live window adopted") { live.session.state == .reading }
+        try await finishLazyPreparation(live.textView)
+        try check(!live.textView.preparedObjectIDs.isEmpty && live.textView.preparedObjectIDs.count < 128, "initial preparation is viewport-only, even before persistence")
+        try check(!live.textView.preparedObjectIDs.contains(blocks[250].id), "unread formula never computed")
+        // Visit a distant reading location and persist its actual accepted math.
+        let anchor = NativeReaderViewportAnchor(identity: document.identity,
+            position: .init(blockID: blocks[180].id, utf16: 0, affinity: .downstream), offsetY: 0)
+        live.textView.restoreViewport(anchor)
+        try await finishLazyPreparation(live.textView)
+        try check(live.textView.preparedObjectIDs.contains(blocks[180].id), "viewed distant window prepared lazily")
+        live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
+        let saved = try await disk.latest(ownerID: [profile.id, profile.root, profile.entry].joined(separator: "\n"))!
+        try check(saved.restoration.blockID != blocks[0].id && saved.layouts[blocks[180].id] != nil,
+            "last reading position and viewed formula persisted")
+        try check(saved.layouts[blocks[250].id] == nil && saved.layouts.count <= 256 && saved.assets.isEmpty,
+            "disk excludes unread formulas and unreferenced assets")
+        live.dispose(); await live.layoutPersistenceTask?.value
+
+        var confirmVersion = false, targetCalls = 0
+        let before = calls.value()
+        let reopened = NativeReaderWindowController(provider: provider(), target: { _ in
+            targetCalls += 1
+            while !confirmVersion { try await Task.sleep(nanoseconds: 1_000_000) }
+            return document.identity
+        }, runtime: runtime, show: false, fixtureMode: true, offlineStorage: storage)
+        _ = reopened.open(profile) { _ in }
+        try await waitFor("cache read-only before version confirmation") {
+            reopened.session.isCachedCopy && reopened.store.document != nil && targetCalls == 1
+        }
+        try await finishLazyPreparation(reopened.textView)
+        try check(reopened.session.isReadOnly && reopened.session.isCachedCopy && calls.value() == before,
+            "cached visible formulas use zero worker calls before live verification")
+        try check(reopened.hostWindow.notice.stringValue == "캐시된 화면 (읽기 전용) · 최신 버전 확인 중...", "cached read-only notice shown during version check")
+        try check(reopened.textView.preparedObjectIDs.contains(blocks[180].id), "cached last-reading window displayed")
+        try rejects("cached source/chat mutation denied") { try reopened.session.authorize(reopened.session.context!) }
+        let restoredBlock = try reopened.textView.captureViewport().blockID
+        confirmVersion = true
+        try await waitFor("matching revision promoted") { reopened.session.state == .reading && !reopened.session.isReadOnly }
+        try await finishLazyPreparation(reopened.textView)
+        try reopened.session.authorize(reopened.session.context!)
+        try check(calls.value() == before && !reopened.session.isCachedCopy, "same revision promotes without recomputing cached formulas")
+        let promotedBlock = try reopened.textView.captureViewport().blockID
+        try check(promotedBlock == restoredBlock, "promotion preserves restored block")
+        reopened.persistLayoutWindow(immediate: true); await reopened.layoutPersistenceTask?.value
+        var appearance = reopened.textView.textAppearance
+        for field in ["fontSize", "fontName", "theme"] {
+            let oldKey = try await disk.latest(ownerID: saved.ownerID)!.key
+            let beforeAppearance = calls.value()
+            switch field {
+            case "fontSize": appearance.fontSize += 2
+            case "fontName": appearance.fontName = "Helvetica"
+            default: appearance.theme = .dark
+            }
+            try reopened.textView.setAppearance(appearance)
+            try await waitFor("\(field) window reconfigured") { reopened.acceptedPaintKey == reopened.textView.requestedRenderKey }
+            try await finishLazyPreparation(reopened.textView)
+            try check(calls.value() > beforeAppearance && !reopened.textView.preparedObjectIDs.contains(blocks[250].id), "\(field) recomputes only visible viewport")
+            let invalidated = try await disk.load(key: oldKey) == nil
+            try check(invalidated, "\(field) invalidates old disk key")
+            reopened.persistLayoutWindow(immediate: true); await reopened.layoutPersistenceTask?.value
+        }
+        let appearanceKey = try await disk.latest(ownerID: saved.ownerID)!.key
+        let window = reopened.hostWindow.window!
+        let contentSize = window.contentView!.bounds.size
+        window.setContentSize(NSSize(width: contentSize.width - 80, height: contentSize.height))
+        window.contentView!.layoutSubtreeIfNeeded()
+        try await waitFor("resized window reconfigured") {
+            reopened.textView.requestedRenderKey?.width != CGFloat(appearanceKey.width) &&
+                reopened.acceptedPaintKey == reopened.textView.requestedRenderKey
+        }
+        try await finishLazyPreparation(reopened.textView)
+        let widthInvalid = try await disk.load(key: appearanceKey) == nil
+        try check(widthInvalid, "width invalidates old disk key")
+        reopened.dispose(); await reopened.layoutPersistenceTask?.value
+
+        let revision = NativeDocumentIdentity(documentID: document.identity.documentID, serviceID: document.identity.serviceID,
+            revision: "stage3-new-revision", scope: document.identity.scope)
+        // Restore the original geometry so this case isolates revision changes.
+        try await disk.save(saved)
+        let previous = saved.key
+        var verifyNewVersion = false
+        let changed = NativeReaderWindowController(provider: provider(), target: { _ in
+            while !verifyNewVersion { try await Task.sleep(nanoseconds: 1_000_000) }; return revision
+        }, runtime: runtime, show: false, fixtureMode: true, offlineStorage: storage)
+        _ = changed.open(profile) { _ in }
+        try await waitFor("old revision shown read-only") { changed.session.isCachedCopy && changed.store.document != nil }
+        let revisionRetained = try await disk.load(key: previous) != nil
+        try check(revisionRetained, "revision test retains matching geometry until server confirmation")
+        verifyNewVersion = true
+        try await waitFor("new revision adopted") { changed.session.state == .reading && changed.store.document?.identity == revision }
+        try await finishLazyPreparation(changed.textView)
+        let revisionInvalid = try await disk.load(key: previous) == nil
+        try check(revisionInvalid, "revision invalidates old disk key")
+        try check(!changed.textView.preparedObjectIDs.contains(blocks[250].id), "new revision never precomputes unread window")
+        changed.dispose(); await changed.layoutPersistenceTask?.value
+
+        // Small documents use the same window discipline. Closing without an
+        // explicit save persists that window, and cached paint needs no runtime.
+        let smallBlocks = Array(blocks.prefix(64))
+        let smallProvider = TextDocumentProvider { context in
+            NativeReaderDocument(schemaVersion: 1, identity: context.target, generation: context.generation,
+                requiredCapabilities: ["semantic-tree-v1"], blocks: smallBlocks, assets: [], diagnostics: [])
+        }
+        let smallDisk = NativeReaderLayoutCache(root: out.appendingPathComponent("small-layout-cache"))
+        let small = NativeReaderWindowController(provider: smallProvider, target: { _ in document.identity }, runtime: runtime,
+            show: false, fixtureMode: true, layoutCache: smallDisk)
+        _ = small.open(profile) { _ in }
+        try await waitFor("small viewport adopted") { small.session.state == .reading }
+        try await finishLazyPreparation(small.textView)
+        try check(!small.textView.preparedObjectIDs.isEmpty && small.textView.preparedObjectIDs.count < smallBlocks.count &&
+            !small.textView.preparedObjectIDs.contains(smallBlocks.last!.id), "small document never precomputes unread math")
+        small.dispose(); await small.layoutPersistenceTask?.value
+        let closed = try await smallDisk.latest(ownerID: saved.ownerID)!
+        try check(!closed.layouts.isEmpty && closed.layouts[smallBlocks.last!.id] == nil, "close flushes only viewed layouts")
+        var smallVerified = false
+        let smallReopen = NativeReaderWindowController(provider: smallProvider, target: { _ in
+            while !smallVerified { try await Task.sleep(nanoseconds: 1_000_000) }; return document.identity
+        }, show: false, fixtureMode: true, layoutCache: smallDisk)
+        _ = smallReopen.open(profile) { _ in }
+        try await waitFor("small cached viewport adopted without runtime") { smallReopen.session.isCachedCopy && smallReopen.store.document != nil }
+        try await finishLazyPreparation(smallReopen.textView)
+        try check(!smallReopen.textView.preparedObjectIDs.isEmpty && smallReopen.session.isReadOnly, "cached small formulas render without a worker")
+        smallVerified = true
+        try await waitFor("small cached viewport promoted") { smallReopen.session.state == .reading && !smallReopen.session.isReadOnly }
+        try await finishLazyPreparation(smallReopen.textView)
+        smallReopen.dispose(); await smallReopen.layoutPersistenceTask?.value
+        let beforeMismatch = calls.value()
+        var mismatchVerified = false
+        let mismatch = NativeReaderWindowController(provider: smallProvider, target: { _ in
+            while !mismatchVerified { try await Task.sleep(nanoseconds: 1_000_000) }; return document.identity
+        }, runtime: runtime, show: false, fixtureMode: true, layoutCache: smallDisk)
+        var differentFont = mismatch.textView.textAppearance
+        differentFont.fontName = "Helvetica"
+        try mismatch.textView.setAppearance(differentFont)
+        _ = mismatch.open(profile) { _ in }
+        try await waitFor("changed font cached document shown read-only") { mismatch.session.isCachedCopy && mismatch.store.document != nil }
+        try await finishLazyPreparation(mismatch.textView)
+        let fontMismatchInvalidated = try await smallDisk.load(key: closed.key) == nil
+        try check(fontMismatchInvalidated, "reopen with a different font invalidates old metrics before version confirmation")
+        try check(calls.value() > beforeMismatch && !mismatch.textView.preparedObjectIDs.contains(smallBlocks.last!.id), "font mismatch lazily recomputes viewed window only")
+        let mismatchCalls = calls.value()
+        mismatchVerified = true
+        try await waitFor("font mismatch promoted") { mismatch.session.state == .reading && !mismatch.session.isReadOnly }
+        try await finishLazyPreparation(mismatch.textView)
+        try check(calls.value() == mismatchCalls, "font mismatch promotion reuses newly computed visible math")
+        mismatch.dispose(); await mismatch.layoutPersistenceTask?.value
+        return ["cachedWorkerCalls": 0, "readOnly": true, "promotion": true, "position": true,
+            "revisionInvalidation": true, "widthInvalidation": true, "appearanceInvalidation": true,
+            "unreadExcluded": true, "persistedMath": saved.layouts.count, "smallWindow": true,
+            "closeFlush": true, "notice": true, "runtimeIndependent": true, "reopenMismatch": true]
+    }
 }

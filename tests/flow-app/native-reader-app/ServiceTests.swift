@@ -3,6 +3,7 @@ import Foundation
 
 private enum TestFailure: Error { case assertion(String) }
 @MainActor private var assertions = 0
+@MainActor private var layoutCacheReport = [String: Any]()
 @MainActor private func serviceCheck(_ condition: Bool, _ label: String) throws {
     assertions += 1
     if !condition { throw TestFailure.assertion(label) }
@@ -106,7 +107,7 @@ private actor AttachTrace {
                 try await rawPipeline(CommandLine.arguments); return
             }
             try await run()
-            let report: [String: Any] = ["assertions": assertions, "scope": "real owned HTTP + compiler/source mapping; injected/fake provider, lifecycle/network/storage; headless AppKit activation prohibited", "skips": 0, "adoptionAssertions": adoptionAssertions, "adoptionScope": "real Session/common-store with deterministic preparation/adopter fixture; no integrated text/object UI"]
+            let report: [String: Any] = ["stage3": layoutCacheReport, "assertions": assertions, "scope": "real owned HTTP + compiler/source mapping; injected/fake provider, lifecycle/network/storage; headless AppKit activation prohibited", "skips": 0, "adoptionAssertions": adoptionAssertions, "adoptionScope": "real Session/common-store with deterministic preparation/adopter fixture; no integrated text/object UI"]
             print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
         } catch { fputs("ServiceTests failed: \(error)\n", stderr); exit(1) }
     }
@@ -611,7 +612,9 @@ private actor AttachTrace {
             let lateView = NativeReaderChatView(actions: gatedActions, context: context, authorize: {
                 guard currentAuthority else { throw NativeReaderContractError.staleGeneration }
             })
-            lateView.present(recovered, recovered: savedPending)
+            let lateConversation = NativeReaderConversation(state: recovered.state, draft: recovered.draft,
+                status: boundary == "cancel" ? "streaming" : recovered.status, attached: recovered.attached)
+            lateView.present(lateConversation, recovered: savedPending)
             lateView.presentAccount(.init(signedIn: true, planEnabled: true, homepage: nil, models: ["fixture-model"]))
             var latePersist: NativeReaderRecoveredDraft?
             lateView.persistDraft = { latePersist = $0 }
@@ -631,7 +634,9 @@ private actor AttachTrace {
             }
             await gate.release()
             try await Task.sleep(nanoseconds: 100_000_000)
-            try serviceCheck(latePersist == nil && lateView.composer.string == savedPending.text && !lateView.sendButton.isEnabled,
+            let pendingPreserved = latePersist == nil || (boundary == "cancel" &&
+                latePersist?.pendingMessageID == savedPending.pendingMessageID && latePersist?.pendingQuestion == savedPending.pendingQuestion)
+            try serviceCheck(pendingPreserved && lateView.composer.string == savedPending.text && !lateView.sendButton.isEnabled,
                 "F5-UI late history cannot clear pending/revive stale presentation: " + boundary)
             try serviceCheck(await calls.value() == 0, "F5-UI history/cancel/late response never sends: " + boundary)
             lateView.dispose()
@@ -739,6 +744,7 @@ private actor AttachTrace {
         try serviceCheck(session.state == .disposed && session.store.document != nil, "dispose rejects callbacks retains accepted")
         failing.event(.dispose); offline.event(.dispose)
 
+        layoutCacheReport = try await layoutCacheRegressions(document, assets: assetBytes, root: root.appendingPathComponent("stage3"))
         try await adoptionRegressions(document, identity, loaded)
         let safe = NativeReaderAnswerPart.attributed("# Heading\n**bold** `<script>`\n<script>alert(1)</script>\n$$\nx^2\n$$")
         try serviceCheck(safe.string.contains("<script>alert(1)</script>"), "HTML remains literal native text")
@@ -804,5 +810,123 @@ extension ServiceTests {
         session.event(.dispose)
         let output: [String: Any] = ["assertions": assertions, "layouts": layouts.count, "assets": assets.count, "transport": "actual raw compiler HTTP", "metadata": "generic Codable recovery + session restore/live candidate + host fixture provider", "skips": 0]
         print(String(decoding: try JSONSerialization.data(withJSONObject: output), as: UTF8.self))
+    }
+}
+
+
+private final class LayoutTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tick = 0
+    func next() -> Date {
+        lock.lock(); defer { lock.unlock() }; tick += 1
+        return Date(timeIntervalSince1970: Double(1_000_000 + tick))
+    }
+}
+
+extension ServiceTests {
+    @MainActor static func layoutCacheRegressions(_ document: NativeReaderDocument, assets: [String: Data], root: URL) async throws -> [String: Any] {
+        func snapshot(_ number: Int, width: Double = 640, fontSize: Double = 14, font: String = "system",
+                      theme: String = "light", revision: String? = nil) -> NativeReaderLayoutSnapshot {
+            let identity = NativeDocumentIdentity(documentID: "layout-document-\(number)", serviceID: document.identity.serviceID,
+                revision: revision ?? document.identity.revision, scope: document.identity.scope)
+            let copy = NativeReaderDocument(schemaVersion: document.schemaVersion, identity: identity, generation: 1,
+                requiredCapabilities: document.requiredCapabilities, blocks: document.blocks, assets: document.assets, diagnostics: document.diagnostics)
+            return NativeReaderLayoutSnapshot(ownerID: "profile-\(number)",
+                key: NativeReaderLayoutCacheKey(documentID: identity.documentID, revision: identity.revision,
+                    width: width, fontSize: fontSize, fontName: font, theme: theme), document: copy,
+                restoration: .init(blockID: copy.blocks[0].id, offset: 0.45, zoom: 1, selectionTicket: nil, fragments: []),
+                viewedBlockIDs: [copy.blocks[0].id], layouts: [:], assets: [:])
+        }
+        let a = snapshot(1), b = snapshot(2), c = snapshot(3)
+        let probe = NativeReaderLayoutCache(root: root.appendingPathComponent("probe"))
+        var previous = 0, sizes = [Int]()
+        for item in [a, b, c] {
+            try await probe.save(item)
+            let total = try await probe.diskBytes(); sizes.append(total - previous); previous = total
+        }
+        let cap = sizes.reduce(0, +) - sizes.min()!
+        let clock = LayoutTestClock(), directory = root.appendingPathComponent("bounded/layout-cache")
+        let disk = NativeReaderLayoutCache(root: directory, byteLimit: cap, now: { clock.next() })
+        try await disk.save(a); try await disk.save(b)
+        try serviceCheck(try await disk.load(key: a.key) != nil, "read touches LRU")
+        try await disk.save(c)
+        try serviceCheck(try await disk.diskBytes() <= cap, "strict total disk byte cap")
+        try serviceCheck(try await disk.load(key: b.key) == nil, "least recently read document evicted")
+        let retainedA = try await disk.load(key: a.key), retainedC = try await disk.load(key: c.key)
+        try serviceCheck(retainedA != nil && retainedC != nil, "recent documents retained")
+        let permissions = try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber
+        try serviceCheck(permissions?.intValue == 0o700, "layout cache namespace private")
+        for changed in [snapshot(1, width: 641), snapshot(1, fontSize: 15), snapshot(1, font: "Helvetica"),
+                        snapshot(1, theme: "dark"), snapshot(1, revision: "new-revision")] {
+            try serviceCheck(changed.key != a.key, "stable layout input changes key")
+            try serviceCheck(try await disk.load(key: changed.key) == nil, "changed key cannot return stale metrics")
+        }
+        try serviceCheck(snapshot(1, width: 640.24).key == a.key && snapshot(1, width: 640.26).key.width == 640.5,
+            "half point width quantization")
+        let changed = snapshot(1, width: 641)
+        try await disk.save(changed)
+        try serviceCheck(try await disk.load(key: a.key) == nil, "old geometry invalidated on save")
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        for file in files {
+            var envelope = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+            envelope["sha256"] = String(repeating: "0", count: 64)
+            try JSONSerialization.data(withJSONObject: envelope).write(to: file)
+        }
+        try serviceCheck(try await disk.latest(ownerID: changed.ownerID) == nil, "corrupt SHA envelope never loaded")
+        try serviceCheck(try await disk.diskBytes() == 0, "corrupt SHA envelopes discarded regardless of directory order")
+        let tiny = NativeReaderLayoutCache(root: root.appendingPathComponent("tiny"), byteLimit: 1)
+        try await rejects("oversize file rejected before writing") { try await tiny.save(a) }
+        try serviceCheck(try await tiny.diskBytes() == 0, "oversize write consumes no disk budget")
+
+        let source = document.blocks.flatMap(\.orderedNodes).first { $0.math != nil }!
+        let math = source.math!, context = a.key.context(identity: a.document.identity, generation: 99, snapshotGeneration: 1)
+        let fragment = NativeMathLayout.Fragment(svg: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"14\"><path d=\"M0 0L20 14\"/></svg>", width: 20, ascent: 10, descent: 4)
+        let layout = NativeMathLayout(version: 1, inputHash: NativeReaderRecoverySnapshot.digest(Data(math.mathML.utf8)),
+            context: .init(revision: a.key.revision, generation: 1, theme: "light"), font: "MathJaxNewcm",
+            fontSize: 14, width: 608, whole: fragment, fragments: [fragment], diagnostics: [])
+        let roundTrip = try JSONDecoder().decode(NativeMathLayout.self, from: JSONEncoder().encode(layout))
+        try serviceCheck(try roundTrip.rebinding(math: math, context: context, width: 608).context.generation == 99,
+            "validated Codable layout rebinds only generation")
+        let fields: [(String, Any)] = [("version", 2), ("inputHash", "bad"), ("font", "bad"), ("fontSize", 15), ("width", 607)]
+        for (field, value) in fields {
+            var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(layout)) as! [String: Any]
+            json[field] = value
+            let invalid = try JSONDecoder().decode(NativeMathLayout.self, from: JSONSerialization.data(withJSONObject: json))
+            try await rejects("strict layout field \(field)") { _ = try invalid.rebinding(math: math, context: context, width: 608) }
+        }
+        for field in ["revision", "theme"] {
+            var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(layout)) as! [String: Any]
+            var c = json["context"] as! [String: Any]; c[field] = "wrong"; json["context"] = c
+            let invalid = try JSONDecoder().decode(NativeMathLayout.self, from: JSONSerialization.data(withJSONObject: json))
+            try await rejects("strict layout context \(field)") { _ = try invalid.rebinding(math: math, context: context, width: 608) }
+        }
+        let viewed = NativeReaderViewedLayouts()
+        for i in 0..<300 { await viewed.record(["math-\(i)": layout], key: a.key) }
+        let retained = await viewed.cached(for: a.key)
+        try serviceCheck(retained.count == 256 && retained["math-0"] == nil && retained["math-299"] != nil, "viewed math LRU bounded to 256")
+        try serviceCheck(await viewed.cached(for: changed.key).isEmpty, "geometry change revokes in-memory layouts")
+        let assetBlock = document.blocks.first { $0.orderedNodes.contains { $0.assetID != nil } }!
+        let referenced = Set(assetBlock.orderedNodes.compactMap(\.assetID))
+        let assetSnapshot = NativeReaderLayoutSnapshot(ownerID: "asset-profile",
+            key: .init(documentID: document.identity.documentID, revision: document.identity.revision, width: 640, fontSize: 14, theme: "light"),
+            document: document, restoration: .init(blockID: assetBlock.id, offset: 0.5, zoom: 1, selectionTicket: nil, fragments: []),
+            viewedBlockIDs: [assetBlock.id], layouts: [:], assets: assets.filter { referenced.contains($0.key) })
+        let recovery = NativeReaderRecoveryStore(root: root.appendingPathComponent("coexisting"))
+        try await recovery.save(.init(document: document, assets: assets, restoration: .initial, drafts: []))
+        let assetCache = NativeReaderLayoutCache(root: recovery.root.appendingPathComponent("layout-cache"))
+        try await assetCache.save(assetSnapshot)
+        let assetLoaded = try await assetCache.load(key: assetSnapshot.key)!
+        try serviceCheck(Set(assetLoaded.assets.keys) == referenced && !referenced.isEmpty, "only viewed-block asset bytes round trip")
+        try serviceCheck(try await recovery.list().count == 1, "layout namespace does not collide with recovery files")
+        let unreadAssets = NativeReaderLayoutSnapshot(ownerID: a.ownerID, key: a.key, document: a.document,
+            restoration: a.restoration, viewedBlockIDs: a.viewedBlockIDs, layouts: [:], assets: assets)
+        try await rejects("unviewed asset bytes rejected") { try await probe.save(unreadAssets) }
+        let privateLink = root.appendingPathComponent("cache-link")
+        try FileManager.default.createSymbolicLink(at: privateLink, withDestinationURL: directory)
+        let unsafe = NativeReaderLayoutCache(root: privateLink)
+        try await rejects("cache never follows directory symlink") { try await unsafe.save(a) }
+        return ["byteCap": cap, "lru": true, "privateDirectory": true, "keyInvalidation": true,
+                "sha256": true, "strictRebinding": true, "mathEntryCap": retained.count,
+                "viewedAssets": true, "recoveryCoexistence": true, "noFollow": true]
     }
 }
