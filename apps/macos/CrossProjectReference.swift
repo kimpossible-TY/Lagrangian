@@ -79,7 +79,8 @@ enum CrossProjectResolution: Equatable {
   case unresolved
 }
 
-/// Read-only catalog policy. Loading never fetches PDFs or starts another project's service.
+/// Read-only catalog loading fetches no PDFs and starts no services. The reader's
+/// separate snippet loader may start the target project's managed reader service.
 struct CrossProjectCatalog: Equatable {
   let projects: [String: CrossProjectCatalogProject]
 
@@ -175,6 +176,7 @@ struct CrossProjectNavigationStack: Equatable {
   var backLabel: String? { entries.last?.documentTitle }
 
   mutating func push(_ entry: CrossProjectNavigationEntry) {
+    guard !entry.profileID.isEmpty else { return }
     entries.append(entry)
     trim()
   }

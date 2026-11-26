@@ -56,6 +56,9 @@ class ReadingUI(unittest.TestCase):
     def test_cross_project_navigation(self):
         self.scenario('cross-project-navigation')
 
+    def test_cross_project_consent_is_committed_only_on_success(self):
+        self.scenario('cross-project-consent')
+
     def test_cross_project_session_lifecycle(self):
         self.scenario('cross-project-session-lifecycle')
 

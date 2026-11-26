@@ -45,6 +45,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   var crossProjectDocumentLoader: ((Profile) async throws -> NativeReaderDocument)?
   private var pendingCrossProjectWindow: NativeReaderWindowController?
   private var pendingCrossProjectCancel: (() -> Void)?
+  private var pendingCrossProjectEditor: (profileID: String, editor: NativeReaderManagedEditor)?
   private var crossProjectNavigationSerial = 0
   private var activeNativeReadCancel: (() -> Void)?
   private var nativeReadSessionToken = 0
@@ -93,7 +94,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return try? CrossProjectCatalog.load(from: root.appendingPathComponent("local/project-references/0.1.0/projects.json"))
   }
 
-  @MainActor func makeNativeReaderWindowController(for profile: Profile) -> NativeReaderWindowController? {
+  @MainActor func makeNativeReaderWindowController(for profile: Profile, editor: NativeReaderManagedEditor? = nil) -> NativeReaderWindowController? {
     let controller: NativeReaderWindowController
     if let factory = nativeWindowControllerFactory {
       guard let made = factory(profile) else { return nil }
@@ -113,7 +114,6 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
     } else {
       guard let resolver = managedResolver else { return nil }
-      let editor = consentedEditors.removeValue(forKey: profile.id)
       let client = NativeReaderManagedClient(resolver: resolver, root: profile.root, entry: profile.entry, editor: editor)
       controller = NativeReaderWindowController(provider: client, target: { _ in try await client.target() },
         assets: { document, context in
@@ -124,7 +124,6 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }, runtime: nativeRuntime, actions: { try await client.currentActions() },
         invalidate: { await client.invalidate() }, show: showNativeWindow, avoidActivation: noActivate, fixtureMode: fixtureMode,
         offlineStorage: NativeReaderOfflineStorage(owner: NativeReaderRecoveryStore(root: environment.nativeRecoveryRoot(for: profile))))
-      if let editor { readerEditorConsent = (controller, profile.id, editor) }
     }
     configureNativeWindowController(controller, for: profile)
     return controller
@@ -169,20 +168,30 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     controller.canReturnFromCrossProject = { [weak self] in self?.crossProjectNavigationStack.canGoBack ?? false }
     controller.onReturnFromCrossProject = { [weak self] in
-      guard let self, let entry = self.crossProjectNavigationStack.peek() else { return false }
-      let matches = self.settings.profiles.filter { $0.id == entry.profileID }
-      guard matches.count == 1 else { return false }
-      let hasBlockID = entry.blockID.map { !$0.isEmpty } ?? false
-      let location = CrossProjectNavigationEntry(profileID: entry.profileID, documentTitle: entry.documentTitle,
-        anchor: hasBlockID ? nil : entry.anchor, blockID: entry.blockID, scrollOffset: entry.scrollOffset)
-      return self.beginCrossProjectTransition(to: matches[0], targetLocation: location, pushOnSuccess: nil, popOnSuccess: true)
+      guard let self else { return false }
+      while let entry = self.crossProjectNavigationStack.peek() {
+        let matches = self.settings.profiles.filter { $0.id == entry.profileID }
+        guard matches.count == 1 else { _ = self.crossProjectNavigationStack.pop(); continue }
+        let hasBlockID = entry.blockID.map { !$0.isEmpty } ?? false
+        let location = CrossProjectNavigationEntry(profileID: entry.profileID, documentTitle: entry.documentTitle,
+          anchor: hasBlockID ? nil : entry.anchor, blockID: entry.blockID, scrollOffset: entry.scrollOffset)
+        return self.beginCrossProjectTransition(to: matches[0], targetLocation: location, pushOnSuccess: nil, popOnSuccess: true)
+      }
+      return false
     }
   }
 
   @MainActor @discardableResult func beginCrossProjectTransition(to targetProfile: Profile, targetLocation: CrossProjectNavigationEntry,
       pushOnSuccess: CrossProjectNavigationEntry?, popOnSuccess: Bool) -> Bool {
     cancelPendingCrossProjectTransition()
-    guard let candidate = makeNativeReaderWindowController(for: targetProfile) else { return false }
+    // Reserve the descriptor while the candidate prepares; origin tracking stays
+    // intact until successful adoption. Failure/cancel returns the reservation.
+    let editor = consentedEditors.removeValue(forKey: targetProfile.id)
+    guard let candidate = makeNativeReaderWindowController(for: targetProfile, editor: editor) else {
+      if let editor { consentedEditors[targetProfile.id] = editor }
+      return false
+    }
+    if let editor { pendingCrossProjectEditor = (targetProfile.id, editor) }
     candidate.pendingCrossProjectTarget = targetLocation
     crossProjectNavigationSerial += 1
     let serial = crossProjectNavigationSerial
@@ -198,13 +207,15 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self.pendingCrossProjectWindow = nil; self.pendingCrossProjectCancel = nil
         if let entry = pushOnSuccess { self.crossProjectNavigationStack.push(entry) }
         if popOnSuccess { _ = self.crossProjectNavigationStack.pop() }
+        self.pendingCrossProjectEditor = nil
         self.nativeWindow?.dispose()
-        if self.readerEditorConsent?.window !== candidate { self.readerEditorConsent = nil }
+        self.readerEditorConsent = editor.map { (candidate, targetProfile.id, $0) }
         self.nativeWindow = candidate; self.nativeProfile = targetProfile
         self.activeNativeReadCancel = cancel
         candidate.hostWindow.updateNavigation()
       case .failed:
         self.pendingCrossProjectWindow = nil; self.pendingCrossProjectCancel = nil
+        self.restorePendingCrossProjectEditor()
         candidate.dispose()
       default: break
       }
@@ -215,21 +226,35 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     return true
   }
 
+  @MainActor private func restorePendingCrossProjectEditor() {
+    if let pending = pendingCrossProjectEditor { consentedEditors[pending.profileID] = pending.editor }
+    pendingCrossProjectEditor = nil
+  }
+
   @MainActor func cancelPendingCrossProjectTransition() {
     crossProjectNavigationSerial += 1
     let cancel = pendingCrossProjectCancel
     let candidate = pendingCrossProjectWindow
     pendingCrossProjectCancel = nil; pendingCrossProjectWindow = nil
+    restorePendingCrossProjectEditor()
     cancel?(); candidate?.dispose()
   }
 
   @MainActor func readNative(_ profile: Profile, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
     cancelPendingCrossProjectTransition()
+    crossProjectNavigationStack = CrossProjectNavigationStack()
     if let read = nativeReadOverride { return read(profile, progress) }
     if nativeProfile != profile || nativeWindow?.session.hasRecoveryCopy == true {
       nativeWindow?.dispose(); nativeWindow = nil; readerEditorConsent = nil; nativeProfile = profile
     }
-    if nativeWindow == nil { nativeWindow = makeNativeReaderWindowController(for: profile) }
+    if nativeWindow == nil {
+      let editor = consentedEditors.removeValue(forKey: profile.id)
+      nativeWindow = makeNativeReaderWindowController(for: profile, editor: editor)
+      if let editor {
+        if let window = nativeWindow { readerEditorConsent = (window, profile.id, editor) }
+        else { consentedEditors[profile.id] = editor }
+      }
+    }
     guard let window = nativeWindow else {
       progress(.failed("네이티브 문서 서비스가 아직 연결되지 않았습니다. 명시적으로 구성된 Reader manager가 필요합니다."))
       return {}
@@ -352,6 +377,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let editor = try await Task.detached { try NativeReaderManagedEditor.consentedDescriptor(descriptor) }.value
     guard active == profile else { throw NativeReaderContractError.wrongTarget }
     guard consent() else { return false }
+    cancelPendingCrossProjectTransition()
     nativeWindow?.dispose(); nativeWindow = nil; readerEditorConsent = nil
     if let resolver = managedResolver,
        !(await resolver.retryEditorCleanup(root: profile.root, entry: profile.entry)) {
@@ -365,6 +391,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
   @MainActor @objc func disconnectEditor() {
     guard !fixtureMode else { return }
     guard let profile = active else { return }
+    cancelPendingCrossProjectTransition()
     consentedEditors.removeValue(forKey: profile.id)
     nativeWindow?.dispose(); nativeWindow = nil; readerEditorConsent = nil
     refreshMenu()
@@ -1107,6 +1134,7 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let id = settings.profiles[picker.indexOfSelectedItem].id
     readingIntent += 1
     cancelPendingCrossProjectTransition()
+    crossProjectNavigationStack = CrossProjectNavigationStack()
     nativeSessionOriginProfileID = nil
     let previous = settings
     let service = projectService

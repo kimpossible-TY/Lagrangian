@@ -354,7 +354,8 @@ struct FlowAppTests {
       let destination = delegate.nativeWindow!
       check(destination !== initial && delegate.crossProjectNavigationStack.peek() == returnEntry, "jump pushed origin")
       check(destination.textView.focusedNodeID == "link", "target anchor restored")
-      check(destination.onReturnFromCrossProject?() == true, "back started")
+      delegate.crossProjectNavigationStack.push(.init(profileID: "deleted-profile", documentTitle: "Deleted", anchor: nil, blockID: nil, scrollOffset: 0))
+      check(destination.onReturnFromCrossProject?() == true, "back skips deleted profile and starts next entry")
       waitUntil("back committed") { delegate.nativeProfile?.id == origin.id }
       let restored = delegate.nativeWindow!
       check(!delegate.crossProjectNavigationStack.canGoBack && restored.textView.focusedNodeID == "link", "back popped and restored origin")
@@ -452,6 +453,8 @@ struct FlowAppTests {
         }
       }
       var bounded = CrossProjectNavigationStack()
+      bounded.push(.init(profileID: "", documentTitle: "", anchor: nil, blockID: nil, scrollOffset: 0))
+      check(!bounded.canGoBack, "empty origin never enters history")
       check(bounded.maxDepth == 64, "default stack depth")
       for index in 0..<65 {
         bounded.push(CrossProjectNavigationEntry(profileID: String(index), documentTitle: "", anchor: nil, blockID: nil, scrollOffset: 0))
@@ -491,6 +494,11 @@ struct FlowAppTests {
       check(subject.beginCrossProjectTransition(to: other, targetLocation: target, pushOnSuccess: entry, popOnSuccess: false), "jump started")
       waitUntil("session jump committed") { subject.nativeProfile?.id == other.id }
       let adopted = subject.nativeWindow!
+      check(subject.crossProjectNavigationStack.canGoBack, "jump retains origin")
+      subject.nativeReadOverride = { _, _ in {} }
+      _ = subject.readNative(other, progress: { _ in })
+      check(!subject.crossProjectNavigationStack.canGoBack, "new Read resets cross-project history")
+      subject.nativeReadOverride = nil
       subject.session.setSleeping(true)
       check(adopted.session.state == .sleeping, "sleep delivered to adopted window")
       subject.session.select(nil)
@@ -515,8 +523,10 @@ struct FlowAppTests {
         return didEnter
       }
       let pending = candidate!
+      subject.crossProjectNavigationStack.push(entry)
       subject.picker.selectItem(at: 1)
       subject.selectProfile()
+      check(!subject.crossProjectNavigationStack.canGoBack, "profile selection resets cross-project history")
       check(pending.session.state == .disposed, "selection cancels pending transition")
       lateProgress?(.windowInitialized)
       check(subject.nativeWindow === origin && subject.crossProjectNavigationStack.peek() == stackBefore,
@@ -793,7 +803,7 @@ struct FlowAppTests {
       check(!external.isEnabled && !copy.isEnabled && !delegate.overflowButton.isHidden, "stopped dock remains visible")
       check(services.actions == ["start", "stop"], "dock actions changed lifecycle")
       fallthrough
-    case "editor-consent-menu":
+    case "editor-consent-menu", "cross-project-consent":
       let revocations = CompletionCounter()
       NativeReaderManagedClient.onRevokeEditorConsentDidFinish = { revocations.increment() }
       defer { NativeReaderManagedClient.onRevokeEditorConsentDidFinish = nil }
@@ -815,6 +825,59 @@ struct FlowAppTests {
       }
       waitUntil("editor consent") { finished }
       check(connected, "editor consent accepted")
+      if CommandLine.arguments[1] == "cross-project-consent" {
+        // Establish B's consent first, then A's active reader consent.
+        delegate.settings.selectedID = other.id
+        finished = false
+        Task { @MainActor in
+          connected = (try? await delegate.connectEditor(descriptor: descriptor, for: other, consent: { true })) == true
+          finished = true
+        }
+        waitUntil("target consent") { finished }; check(connected, "target consent accepted")
+        delegate.settings.selectedID = profile.id
+        finished = false
+        Task { @MainActor in
+          connected = (try? await delegate.connectEditor(descriptor: descriptor, for: profile, consent: { true })) == true
+          finished = true
+        }
+        waitUntil("origin consent") { finished }; check(connected, "origin consent accepted")
+        let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "rev", scope: .fixture)
+        let node = NativeReaderNode(id: "text", sectionID: "section", kind: .text, canonicalText: "Text", displayText: "Text",
+          rangeUTF16: [0, 4], offsets: NativeTextOffsets("Text"), children: [], anchors: [], annotationTargets: [], visible: true,
+          mapping: .unmapped, passageKey: nil, direction: nil, language: nil, headingLevel: nil, math: nil,
+          cell: nil, link: nil, assetID: nil, alt: nil)
+        let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+          requiredCapabilities: ["semantic-tree-v1"], blocks: [node], assets: [], diagnostics: [])
+        delegate.nativeWindowControllerFactory = { _ in
+          NativeReaderWindowController(provider: CrossProjectTestProvider(documentValue: document, fail: false),
+            target: { _ in identity }, show: false, avoidActivation: true, fixtureMode: true)
+        }
+        _ = delegate.readNative(profile, progress: { _ in })
+        waitUntil("origin reader") { delegate.nativeWindow?.session.state == .reading }
+        let origin = delegate.nativeWindow!
+        var progress: ((NativeReadProgress) -> Void)?
+        delegate.crossProjectOpen = { _, _, callback in progress = callback; return {} }
+        let target = CrossProjectNavigationEntry(profileID: other.id, documentTitle: other.name, anchor: nil, blockID: nil, scrollOffset: 0)
+        func connectedMenu() -> Bool {
+          delegate.overflowMenu().items.contains { $0.action == #selector(FlowApp.disconnectEditor) }
+        }
+        for cancel in [false, true] {
+          check(delegate.beginCrossProjectTransition(to: other, targetLocation: target, pushOnSuccess: nil, popOnSuccess: false), "candidate created")
+          check(connectedMenu(), "candidate overwrote origin consent")
+          if cancel { delegate.cancelPendingCrossProjectTransition() }
+          else { progress?(.failed("fixture")) }
+          check(delegate.nativeWindow === origin && connectedMenu(), "failure changed origin consent")
+          delegate.settings.selectedID = other.id
+          check(connectedMenu(), "target consent not returned on failure/cancel")
+          delegate.settings.selectedID = profile.id
+        }
+        check(delegate.beginCrossProjectTransition(to: other, targetLocation: target, pushOnSuccess: nil, popOnSuccess: false), "successful candidate")
+        progress?(.windowInitialized)
+        check(delegate.nativeWindow !== origin, "candidate not committed")
+        delegate.settings.selectedID = other.id
+        check(connectedMenu(), "successful candidate did not adopt consent")
+        return
+      }
       var scopeRequests = 0
       var attachRequests: [[String]] = []
       delegate.managedResolver = NativeReaderManagedResolver(attach: { args in
