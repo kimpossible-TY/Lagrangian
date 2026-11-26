@@ -408,6 +408,34 @@ struct NativePreparedAnswerMath {
     var size: CGSize { CGSize(width: layout.whole.width, height: layout.whole.ascent + layout.whole.descent) }
 }
 
+/// Kept in lockstep with math_layout.mjs by the reader contract tests.
+enum NativeMathBatchPolicy {
+    static let maximumItems = 512
+    static let maximumBytes = 64 * 1024 * 1024
+    static let itemOutputBytes = 8 * 1024 * 1024
+    static let itemInputBytes = 256 * 1024
+    static let sourceBytes = 65536
+    static func outputLimit(items: Int) -> Int { min(maximumBytes, itemOutputBytes * max(1, min(items, maximumItems))) + 1 }
+    static func timeout(base: TimeInterval, items: Int) -> TimeInterval { base * Double(max(1, min(items, 6))) }
+    static func run<T>(range: Range<Int>, perform: (Range<Int>) async throws -> [T]) async throws -> [T] {
+        try Task.checkCancellation()
+        do { return try await perform(range) }
+        catch {
+            let retry: Bool
+            switch error {
+            case NativeObjectError.budget, NativeObjectError.unsupported("math-helper-timeout"),
+                 NativeObjectError.unsupported("input-limit"), NativeObjectError.unsupported("output-limit"):
+                retry = true
+            default: retry = false
+            }
+            guard retry, range.count > 1 else { throw error }
+            let middle = range.lowerBound + range.count / 2
+            let left = try await run(range: range.lowerBound..<middle, perform: perform)
+            return left + (try await run(range: middle..<range.upperBound, perform: perform))
+        }
+    }
+}
+
 actor NativeMathWorker {
     private let node: URL, helper: URL, runtime: URL
     private let timeout: TimeInterval
@@ -432,48 +460,56 @@ actor NativeMathWorker {
         for item in items {
             try Task.checkCancellation()
             guard item.width.isFinite, (16...8192).contains(item.width) else { throw NativeObjectError.invalidGeometry }
-            guard item.math.mathML.utf8.count <= 65536 else { throw NativeObjectError.budget }
+            guard item.math.mathML.utf8.count <= NativeMathBatchPolicy.sourceBytes else { throw NativeObjectError.budget }
         }
         var layouts = [String: NativeMathLayout]()
-        struct Input: Hashable { let mathML: String; let width: Double }
-        for start in stride(from: 0, to: items.count, by: 256) {
-            try Task.checkCancellation()
-            let chunk = items[start..<min(start + 256, items.count)]
-            // Repeated symbols/formulas share computation only within this
-            // bounded invocation. Each semantic item is still decoded below.
-            var requests = [[String: Any]](), indices = [Input: Int](), positions = [Int]()
-            for item in chunk {
-                try Task.checkCancellation()
-                let input = Input(mathML: item.math.mathML, width: item.width)
-                if let index = indices[input] { positions.append(index); continue }
-                positions.append(requests.count); indices[input] = requests.count
-                requests.append(["mathML": item.math.mathML, "width": item.width, "fontSize": context.fontSize,
-                    "font": "MathJaxNewcm", "context": ["revision": context.identity.revision,
-                    "generation": context.generation, "theme": context.theme.rawValue]])
+        for start in stride(from: 0, to: items.count, by: NativeMathBatchPolicy.maximumItems) {
+            let results = try await NativeMathBatchPolicy.run(range: start..<min(start + NativeMathBatchPolicy.maximumItems, items.count)) { range in
+                try await self.calculateChunk(items[range], context: context)
             }
-            guard active < 2 else { throw NativeObjectError.unsupported("math-worker-busy") }
-            let input = try JSONSerialization.data(withJSONObject: ["kind": "mathml-batch", "items": requests])
-            active += 1
-            defer { active -= 1 }
-            let cancellation = NativeMathCancellation(), node = self.node, helper = self.helper,
-                runtime = self.runtime, timeout = self.timeout, record = self.record
-            let bytes = try await withTaskCancellationHandler(operation: {
-                try await Task.detached(priority: .userInitiated) {
-                    try Self.execute(node: node, helper: helper, runtime: runtime, input: input,
-                        timeout: timeout, cancellation: cancellation, record: record)
-                }.value
-            }, onCancel: { cancellation.cancel() })
-            try Task.checkCancellation()
-            guard let response = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
-                  response["kind"] as? String == "mathml-batch", let results = response["items"] as? [[String: Any]],
-                  results.count == requests.count else { throw NativeObjectError.stale }
-            for (item, position) in zip(chunk, positions) {
-                try Task.checkCancellation()
-                layouts[item.id] = try NativeMathLayout.decode(JSONSerialization.data(withJSONObject: results[position]),
-                    math: item.math, context: context, width: item.width)
-            }
+            for (id, layout) in results { layouts[id] = layout }
         }
         return layouts
+    }
+
+    private func calculateChunk(_ chunk: ArraySlice<(id: String, math: NativeMath, width: Double)>,
+                                context: NativeObjectContext) async throws -> [(String, NativeMathLayout)] {
+        struct Input: Hashable { let mathML: String; let width: Double }
+        // Repeated symbols/formulas share computation only within this
+        // bounded invocation. Each semantic item is still decoded below.
+        var requests = [[String: Any]](), indices = [Input: Int](), positions = [Int]()
+        for item in chunk {
+            try Task.checkCancellation()
+            let input = Input(mathML: item.math.mathML, width: item.width)
+            if let index = indices[input] { positions.append(index); continue }
+            positions.append(requests.count); indices[input] = requests.count
+            requests.append(["mathML": item.math.mathML, "width": item.width, "fontSize": context.fontSize,
+                "font": "MathJaxNewcm", "context": ["revision": context.identity.revision,
+                "generation": context.generation, "theme": context.theme.rawValue]])
+        }
+        guard active < 2 else { throw NativeObjectError.unsupported("math-worker-busy") }
+        let input = try JSONSerialization.data(withJSONObject: ["kind": "mathml-batch", "items": requests])
+        guard input.count <= NativeMathBatchPolicy.maximumBytes else { throw NativeObjectError.budget }
+        active += 1
+        defer { active -= 1 }
+        let outputLimit = NativeMathBatchPolicy.outputLimit(items: requests.count)
+        let cancellation = NativeMathCancellation(), node = self.node, helper = self.helper,
+            runtime = self.runtime, timeout = NativeMathBatchPolicy.timeout(base: self.timeout, items: requests.count), record = self.record
+        let bytes = try await withTaskCancellationHandler(operation: {
+            try await Task.detached(priority: .userInitiated) {
+                try Self.execute(node: node, helper: helper, runtime: runtime, input: input,
+                    timeout: timeout, outputLimit: outputLimit, cancellation: cancellation, record: record)
+            }.value
+        }, onCancel: { cancellation.cancel() })
+        try Task.checkCancellation()
+        guard let response = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              response["kind"] as? String == "mathml-batch", let results = response["items"] as? [[String: Any]],
+              results.count == requests.count else { throw NativeObjectError.stale }
+        return try zip(chunk, positions).map { item, position in
+            try Task.checkCancellation()
+            return (item.id, try NativeMathLayout.decode(JSONSerialization.data(withJSONObject: results[position]),
+                math: item.math, context: context, width: item.width))
+        }
     }
 
     func prepare(tex: String, display: Bool, context: NativeObjectContext) async throws -> NativePreparedAnswerMath {
@@ -527,7 +563,7 @@ actor NativeMathWorker {
         return bytes
     }
     private nonisolated static func execute(node: URL, helper: URL, runtime: URL, input: Data,
-                                            timeout: TimeInterval, cancellation: NativeMathCancellation, record: @Sendable (NativeMathExecution) -> Void) throws -> Data {
+                                            timeout: TimeInterval, outputLimit: Int = NativeMathBatchPolicy.itemOutputBytes + 1, cancellation: NativeMathCancellation, record: @Sendable (NativeMathExecution) -> Void) throws -> Data {
         guard node.isFileURL, helper.isFileURL, runtime.isFileURL,
               FileManager.default.isExecutableFile(atPath: node.path),
               FileManager.default.fileExists(atPath: helper.path) else { throw NativeObjectError.unsupported("math-runtime-missing") }
@@ -592,10 +628,10 @@ actor NativeMathWorker {
                 else if count < 0 && errno != EAGAIN && errno != EINTR { throw NativeObjectError.unsupported("math-helper-input") }
                 if sent == input.count { try stdinPipe.fileHandleForWriting.close(); inputClosed = true }
             }
-            try drain(outputFD, into: &output, limit: 8 * 1024 * 1024)
+            try drain(outputFD, into: &output, limit: outputLimit)
             try drain(errorFD, into: &errors, limit: 65536)
             if !process.isRunning {
-                try drain(outputFD, into: &output, limit: 8 * 1024 * 1024)
+                try drain(outputFD, into: &output, limit: outputLimit)
                 try drain(errorFD, into: &errors, limit: 65536)
                 break
             }
