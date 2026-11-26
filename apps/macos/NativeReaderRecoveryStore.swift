@@ -434,6 +434,10 @@ actor NativeReaderLayoutCache {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return NativeReaderRecoverySnapshot.digest(try encoder.encode(StorageKey(ownerID: ownerID, key: key))) + ".layout"
     }
+    private func legacyName(_ key: NativeReaderLayoutCacheKey) throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return NativeReaderRecoverySnapshot.digest(try encoder.encode(key)) + ".layout"
+    }
     private func files(_ fd: Int32) throws -> [(name: String, size: Int, date: timespec)] {
         try FileManager.default.contentsOfDirectory(atPath: root.path).compactMap { name in
             guard name.range(of: "^[0-9a-f]{64}\\.layout$", options: .regularExpression) != nil else { return nil }
@@ -449,7 +453,6 @@ actor NativeReaderLayoutCache {
     }
     func save(_ snapshot: NativeReaderLayoutSnapshot) throws {
         try Task.checkCancellation(); try snapshot.validate()
-        guard !snapshot.ownerID.isEmpty, snapshot.ownerID.count <= 256 else { throw NativeObjectError.stale }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let raw = try encoder.encode(snapshot)
         guard raw.count <= Self.payloadLimit else { throw NativeObjectError.budget }
@@ -523,32 +526,62 @@ actor NativeReaderLayoutCache {
         guard NativeReaderRecoverySnapshot.digest(raw) == envelope.sha256 else { throw NativeObjectError.stale }
         let snapshot = try JSONDecoder().decode(NativeReaderLayoutSnapshot.self, from: raw)
         try snapshot.validate()
-        guard !snapshot.ownerID.isEmpty, snapshot.ownerID.count <= 256,
-              try self.name(ownerID: snapshot.ownerID, key: snapshot.key) == name else { throw NativeObjectError.stale }
+        guard try self.name(ownerID: snapshot.ownerID, key: snapshot.key) == name || legacyName(snapshot.key) == name else { throw NativeObjectError.stale }
+        return snapshot
+    }
+    // directory() holds the namespace lock across the existence check and rename.
+    // A scoped entry takes precedence even when the legacy duplicate is newer.
+    private func migrate(_ snapshot: NativeReaderLayoutSnapshot, from source: String, fd: Int32) throws -> NativeReaderLayoutSnapshot {
+        let destination = try name(ownerID: snapshot.ownerID, key: snapshot.key)
+        guard source != destination else { return snapshot }
+        var info = stat()
+        if fstatat(fd, destination, &info, AT_SYMLINK_NOFOLLOW) == 0 {
+            let scoped = try read(destination, fd: fd)
+            guard unlinkat(fd, source, 0) == 0 else { throw NativeReaderOperationFailure.unavailable }
+            _ = fsync(fd)
+            return scoped
+        }
+        guard errno == ENOENT, renameat(fd, source, fd, destination) == 0 else { throw NativeReaderOperationFailure.unavailable }
+        _ = fsync(fd)
         return snapshot
     }
     func load(ownerID: String, key: NativeReaderLayoutCacheKey) throws -> NativeReaderLayoutSnapshot? {
-        guard !ownerID.isEmpty, ownerID.count <= 256 else { throw NativeObjectError.stale }
+        guard !ownerID.isEmpty, ownerID.utf8.count <= 8192 else { throw NativeObjectError.stale }
         try key.validate(); try Task.checkCancellation()
         let fd = try directory(); defer { close(fd) }
         let name = try self.name(ownerID: ownerID, key: key)
-        guard faccessat(fd, name, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
-        do { let value = try read(name, fd: fd); touch(name, directory: fd); return value }
-        catch { unlinkat(fd, name, 0); return nil }
+        var source = name
+        if faccessat(fd, source, F_OK, AT_SYMLINK_NOFOLLOW) != 0 {
+            source = try legacyName(key)
+            guard faccessat(fd, source, F_OK, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
+        }
+        let value: NativeReaderLayoutSnapshot
+        do { value = try read(source, fd: fd) }
+        catch { unlinkat(fd, source, 0); return nil }
+        guard value.ownerID == ownerID, value.key == key else { return nil }
+        let result = try migrate(value, from: source, fd: fd)
+        touch(name, directory: fd); return result
     }
     func latest(ownerID: String) throws -> NativeReaderLayoutSnapshot? {
         try Task.checkCancellation()
         let fd = try directory(); defer { close(fd) }
         let entries = try files(fd).sorted { $0.date.tv_sec == $1.date.tv_sec ? $0.date.tv_nsec > $1.date.tv_nsec : $0.date.tv_sec > $1.date.tv_sec }
         for entry in entries {
-            do { let value = try read(entry.name, fd: fd); if value.ownerID == ownerID { touch(entry.name, directory: fd); return value } }
-            catch { unlinkat(fd, entry.name, 0) }
+            let value: NativeReaderLayoutSnapshot
+            do { value = try read(entry.name, fd: fd) }
+            catch { unlinkat(fd, entry.name, 0); continue }
+            if value.ownerID == ownerID {
+                let result = try migrate(value, from: entry.name, fd: fd)
+                touch(try name(ownerID: ownerID, key: result.key), directory: fd); return result
+            }
         }
         return nil
     }
     func invalidate(ownerID: String, key: NativeReaderLayoutCacheKey) throws {
-        guard !ownerID.isEmpty, ownerID.count <= 256 else { throw NativeObjectError.stale }
+        guard !ownerID.isEmpty, ownerID.utf8.count <= 8192 else { throw NativeObjectError.stale }
         try key.validate()
         let fd = try directory(); defer { close(fd) }; unlinkat(fd, try name(ownerID: ownerID, key: key), 0)
+        let legacy = try legacyName(key)
+        if let value = try? read(legacy, fd: fd), value.ownerID == ownerID { unlinkat(fd, legacy, 0) }
     }
 }

@@ -858,6 +858,89 @@ extension ServiceTests {
                 document: snapshot.document, restoration: .init(blockID: snapshot.restoration.blockID, offset: offset, zoom: 1, selectionTicket: nil, fragments: []), viewedBlockIDs: snapshot.viewedBlockIDs,
                 layouts: snapshot.layouts, assets: snapshot.assets)
         }
+        var longProfile = profile("long-path")
+        longProfile.root = root.path + "/" + String(repeating: "긴경로/", count: 300)
+        let longSnapshot = owned(a, longProfile)
+        try serviceCheck(longSnapshot.ownerID.count > 256 && longSnapshot.ownerID.utf8.count <= 8192,
+            "long profile fixture satisfies the snapshot owner contract")
+        let longCache = NativeReaderLayoutCache(root: root.appendingPathComponent("long-owner"))
+        try await longCache.save(longSnapshot)
+        let longLatest = try await longCache.latest(ownerID: longSnapshot.ownerID)
+        let longLoaded = try await longCache.load(ownerID: longSnapshot.ownerID, key: longSnapshot.key)
+        try serviceCheck(longLatest?.ownerID == longSnapshot.ownerID && longLatest?.document == longSnapshot.document &&
+            longLoaded?.ownerID == longSnapshot.ownerID && longLoaded?.restoration == longSnapshot.restoration,
+            "long profile saves and loads through both cache entry points")
+        try await longCache.invalidate(ownerID: longSnapshot.ownerID, key: longSnapshot.key)
+        let longMissing = try await longCache.load(ownerID: longSnapshot.ownerID, key: longSnapshot.key)
+        let longLatestMissing = try await longCache.latest(ownerID: longSnapshot.ownerID)
+        let longBytes = try await longCache.diskBytes()
+        try serviceCheck(longMissing == nil && longLatestMissing == nil && longBytes == 0,
+            "long profile invalidation removes the cached file")
+        for ownerID in ["", String(repeating: "é", count: 4097)] {
+            try await rejects("lookup rejects empty or over-budget UTF-8 owner") { _ = try await longCache.load(ownerID: ownerID, key: a.key) }
+            try await rejects("invalidation rejects empty or over-budget UTF-8 owner") { try await longCache.invalidate(ownerID: ownerID, key: a.key) }
+        }
+
+        // Derive both on-disk names independently of the private cache helpers.
+        // Keep the real envelope bytes when recreating the historical filename.
+        struct LayoutStorageKey: Encodable { let ownerID: String; let key: NativeReaderLayoutCacheKey }
+        let cacheEncoder = JSONEncoder(); cacheEncoder.outputFormatting = [.sortedKeys]
+        func cacheFile(_ item: NativeReaderLayoutSnapshot, in directory: URL, legacy: Bool = false) throws -> URL {
+            let key = try legacy ? cacheEncoder.encode(item.key) : cacheEncoder.encode(LayoutStorageKey(ownerID: item.ownerID, key: item.key))
+            return directory.appendingPathComponent(NativeReaderRecoverySnapshot.digest(key) + ".layout")
+        }
+        for useLatest in [true, false] {
+            let directory = root.appendingPathComponent(useLatest ? "legacy-latest" : "legacy-load")
+            let legacyClock = LayoutTestClock()
+            let cache = NativeReaderLayoutCache(root: directory, now: { legacyClock.next() })
+            let original = owned(a, profileA), other = owned(a, profileB, offset: 0.7)
+            let scoped = try cacheFile(original, in: directory), legacy = try cacheFile(original, in: directory, legacy: true)
+            let otherFile = try cacheFile(other, in: directory)
+            try await cache.save(other); try await cache.save(original)
+            let originalBytes = try Data(contentsOf: scoped), otherBytes = try Data(contentsOf: otherFile)
+            try FileManager.default.moveItem(at: scoped, to: legacy)
+            let wrongOwner = "absent-profile"
+            let wrongLoad = try await cache.load(ownerID: wrongOwner, key: original.key)
+            let wrongLatest = try await cache.latest(ownerID: wrongOwner)
+            try await cache.invalidate(ownerID: wrongOwner, key: original.key)
+            try serviceCheck(wrongLoad == nil && wrongLatest == nil && (try Data(contentsOf: legacy)) == originalBytes,
+                "legacy lookup and invalidation preserve another owner's file")
+            let recovered: NativeReaderLayoutSnapshot?
+            if useLatest { recovered = try await cache.latest(ownerID: original.ownerID) }
+            else { recovered = try await cache.load(ownerID: original.ownerID, key: original.key) }
+            try serviceCheck(try recovered.map { try cacheEncoder.encode($0) } == cacheEncoder.encode(original),
+                "legacy recovery preserves the entire validated snapshot")
+            try serviceCheck(!FileManager.default.fileExists(atPath: legacy.path) &&
+                (try Data(contentsOf: scoped)) == originalBytes && (try Data(contentsOf: otherFile)) == otherBytes,
+                "both entry points rename legacy bytes to the scoped file and preserve the other profile")
+
+            // A duplicate with a later mtime must still defer to the scoped data.
+            let newer = owned(a, profileA, offset: 0.85)
+            try await cache.save(newer)
+            let newerBytes = try Data(contentsOf: scoped)
+            try originalBytes.write(to: legacy)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000_000_000)], ofItemAtPath: legacy.path)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000_000)], ofItemAtPath: scoped.path)
+            let scopedLoad = try await cache.load(ownerID: original.ownerID, key: original.key)
+            // load touches scoped mtime; explicitly keep the legacy first in latest's order.
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000_000)], ofItemAtPath: scoped.path)
+            let preferred = try await cache.latest(ownerID: original.ownerID)
+            try serviceCheck(scopedLoad?.restoration.offset == 0.85 && preferred?.restoration.offset == 0.85 &&
+                !FileManager.default.fileExists(atPath: legacy.path) && (try Data(contentsOf: scoped)) == newerBytes &&
+                (try Data(contentsOf: otherFile)) == otherBytes,
+                "newer legacy duplicate cannot overwrite scoped data or another owner's file")
+
+            try originalBytes.write(to: legacy)
+            try await cache.invalidate(ownerID: original.ownerID, key: original.key)
+            try serviceCheck(!FileManager.default.fileExists(atPath: scoped.path) && !FileManager.default.fileExists(atPath: legacy.path) &&
+                (try Data(contentsOf: otherFile)) == otherBytes, "invalidation removes matching scoped and legacy files only")
+            // Also preserve a different owner's key-only file with the same key.
+            try FileManager.default.moveItem(at: otherFile, to: legacy)
+            try await cache.invalidate(ownerID: original.ownerID, key: original.key)
+            try serviceCheck(try Data(contentsOf: legacy) == otherBytes, "invalidation leaves a different owner's legacy file intact")
+            try await cache.invalidate(ownerID: other.ownerID, key: other.key)
+            try serviceCheck(try await cache.diskBytes() == 0, "legacy-only invalidation removes the matching owner")
+        }
         // Identical layout keys in two profiles must remain independent.
         // Superseding A must not delete B as an old version of A's document.
         let sharedA = owned(a, profileA), sharedB = owned(a, profileB, offset: 0.7), sharedC = owned(c, profileA)
@@ -1016,6 +1099,7 @@ extension ServiceTests {
         return ["byteCap": cap, "lru": true, "privateDirectory": true, "keyInvalidation": true,
                 "sha256": true, "strictRebinding": true, "mathEntryCap": retained.count,
                 "viewedAssets": true, "recoveryCoexistence": true, "noFollow": true,
-                "sharedProfiles": true, "sharedLRU": true, "restoreRetryWait": true, "restoreRetryAdopted": true]
+                "sharedProfiles": true, "sharedLRU": true, "longOwnerID": true, "legacyMigration": true,
+                "restoreRetryWait": true, "restoreRetryAdopted": true]
     }
 }
