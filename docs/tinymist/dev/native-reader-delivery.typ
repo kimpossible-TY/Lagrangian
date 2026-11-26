@@ -517,3 +517,9 @@ The post-review owner correction registers the following paths from
 `tools/flow-reader/tests/test_cross_project_refs.py`,
 `tools/flow-reader/tests/test_passages.py`.
 Hashes are Git-derived; deleted sources bind null sha256.
+
+The post-review math chunk follow-up registers the following paths from
+`78f89ae202b1d87081e0fac6f705dbd8ae64d12d` → `9942afbcf8d3860a3bb1ac5f5cffe4924fb78f88`:
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`tests/flow-app/native-reader-app/MathBatchTests.swift`.
+Hashes are Git-derived.

@@ -1994,6 +1994,22 @@
             "sha256": "415634a8aa6520e132a67933bae8ceea5f5b75dde7cd4941ccefadc872f529d0"
           }
         ]
+      },
+      {
+        "revision": "9942afbcf8d3860a3bb1ac5f5cffe4924fb78f88",
+        "baseRevision": "78f89ae202b1d87081e0fac6f705dbd8ae64d12d",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderObjectRenderer.swift",
+            "baseSHA256": "ea79284ddbd6fdd6d77b86a4cec18963e80437f5132d6c75f329fd638d22299d",
+            "sha256": "6406b15ac4d533ffa7d2ab1b3f6261b41e0ccb391e29ffa0747bc9cb7351d87e"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/MathBatchTests.swift",
+            "baseSHA256": "3159ab8713ce3d01c453c59b046658e5e933b5d15e9ae4e7387922d63b631993",
+            "sha256": "6c1da7fbec65931c221acd6dd71c39972afe8ef853701beab38e595e3a253c21"
+          }
+        ]
       }
     ]
   }
