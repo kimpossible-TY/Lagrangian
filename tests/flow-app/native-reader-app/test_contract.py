@@ -139,10 +139,14 @@ class LabelContractTests(unittest.TestCase):
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ.get('NA01_OUTPUT', str(EVIDENCE / 'contract'))).resolve()
-        if not cls.out.is_relative_to(EVIDENCE) or cls.out.exists():
-            raise RuntimeError('NA01_OUTPUT must be a fresh directory under test-output/contract')
-        cls.out.mkdir(parents=True)
+        if 'NA01_OUTPUT' in os.environ:
+            cls.out = Path(os.environ['NA01_OUTPUT']).resolve()
+            if not cls.out.is_relative_to(EVIDENCE) or cls.out.exists():
+                raise RuntimeError('NA01_OUTPUT must be a fresh directory under test-output/contract')
+            cls.out.mkdir(parents=True)
+        else:
+            EVIDENCE.mkdir(parents=True, exist_ok=True)
+            cls.out = Path(tempfile.mkdtemp(prefix='contract-', dir=EVIDENCE)).resolve()
         cls.commands = []
 
         def command(argv):

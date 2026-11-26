@@ -6,13 +6,15 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / 'tools/flow-reader'))
 from flow_reader.document.native_document import _Tree, _mathml
 
 
-ROOT = Path(__file__).resolve().parents[3]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
 
 
