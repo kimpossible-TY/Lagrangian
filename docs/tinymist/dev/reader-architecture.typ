@@ -158,6 +158,36 @@ profiles do not recover through live transport. The original main/delegate lifet
 startup completes. A dev-root-only value timeline records the storage worker and
 main completion without changing generation/disposal guards or retaining the app. AppKit owns controls and accessible inline feedback; it never performs blocking process or settings operations in an event callback. Body rendering and reading-state recovery remain with the concrete readers described below.
 
+= Native cross-project references
+
+`CrossProjectReference.swift` owns read-only CrossProjectCatalog identity/profile
+resolution, bounded CrossProjectSnippetExtractor excerpts and
+CrossProjectNavigationStack return locations. Swift is the production policy
+owner; the unused Python catalog/snippet prototype is retired.
+`NativeCrossProjectPreviewPopover.swift` owns NativeCrossProjectPreviewView and
+its shared floating surface, icon/body activation and presentation.
+NativeReaderTextView owns semantic link geometry and exact location capture;
+NativeReaderWindowController owns preview lifetime, guarded async snippets and
+anchor/block/scroll restoration. Explicit ambiguous references suppress
+activation; unresolved references use only the original safe external URL.
+
+FlowApp composes profile matching, the existing managed client's target-document
+load and transactional window adoption. First-click snippets may start the target
+reader service through ReaderManager; only committed second-click navigation
+replaces the origin and pushes history. Back uses the fixed `돌아가기` action,
+skips deleted profiles and restores the next valid entry. New explicit Read and
+profile selection reset history. Candidate editor reservations commit at
+windowInitialized and return on failure/cancel without replacing origin tracking.
+Existing source, service and consent owners retain authority.
+
+The Typst HTML producer `packages/local/flow-reader/0.1.0/lib.typ` exports user
+labels on headings/figures/equations; `document/content.py` normalizes label-only
+wrappers and `document/sections.py` retains label anchors separately from DOM ids.
+`document/native_document.py` validates optional link projectRef metadata and
+rejects invalid-project-ref/duplicate-anchor candidates. There is currently no
+separate projectRef capability; strict old decoders require coordinated app and
+backend delivery.
+
 = Validation
 
 Run `yarn test:readers` for the shared Node, HTML Node, Python, paged and DOM Vitest gate after changing a shared feature. Use actual Typst integration fixtures with `FLOW_READER_PACKAGES`; verify frontend build and browser interactions when moving browser code. Run project compiler warning-denying tests/clippy and native app tests for their changes. Development builds and fixtures use temporary projects and do not install or restart the user's services.
@@ -204,8 +234,10 @@ search and explicit safe URI/GoTo callbacks. The private PDFKit worker/cache and
 safety scan remain in `NativeReaderPagedLayout.swift`. WindowController composes
 both native modes through Session.PreparedAdoption and the canonical semantic
 store. Session holds replacements for local page selection independently of
-semantic/source selection. RecoveryStore alone owns typed, hashed atomic disk
-storage, with an optional bounded accepted-PDF/viewport supplement. PDF text and
+semantic/source selection. NativeReaderRecoveryStore owns typed recovery with an
+optional bounded accepted-PDF/viewport supplement. NativeReaderLayoutCache owns
+disposable viewed layouts; both use NativeReaderSnapshotStorage for schema/hash
+envelopes and atomic disk publication. PDF text and
 coordinates never supply source authority. Full reset is implemented; engine raw
 diff-v1 native consumption is unverified. Packaging/source registry remains the
 delivery owner's responsibility; headless paint is separate from GUI acceptance.
@@ -216,7 +248,10 @@ delivery owner's responsibility; headless paint is separate from GUI acceptance.
 #table(columns:(1.5fr,3fr),inset:4pt,align:top,
  table.header([Existing owner],[Responsibility]),
  [`NativeReaderTextView` / `NativeReaderSelection`],[Native body, logical↔presentation mapping, grapheme selection, ordinary copy, geometry and semantic AX.],
- [`NativeReaderSession`],[Newest candidate, request/selection hold, retry and read-only typed recovery through one atomic adopter.],
+ [`NativeReaderSession`],[Newest candidate, request/selection hold, retry and read-only typed recovery/cached-copy promotion through one atomic adopter.],
+ [`NativeReaderRecoveryStore`],[Typed offline document/assets/restoration/draft/review/PDF validation, profile namespace and recovery budgets.],
+ [`NativeReaderLayoutCache` / `NativeReaderViewedLayouts`],[Disposable ownerID-scoped, profile-shared 64 MiB disk LRU and a bounded 256-layout in-memory viewed working set; hashed filename filtering, separate per-revision document and window storage, identical-content write suppression and immediate close-position flush.],
+ [`NativeReaderSnapshotStorage`],[Shared schema/SHA-256 envelope encode/verify, optional bounded compression and descriptor-relative O_EXCL temporary write, synchronization, rename and directory fsync; callers retain typed validation and budgets.],
  [`NativeReaderTransport` / `NativeReaderActions`],[Accepted input binding, scoped HTTP/assets, source receipts, exact conversation history and cancellation.],
  [`NativeReaderObjectRenderer` / `NativeReaderPagedLayout`],[Math/object preparation and native pixels; serial PDFKit access, page geometry and bounded lazy caches.],
  [`NativeReaderChatView`],[Native composer, completed-answer TeX preparation, attachment/token copy boundaries and pending-Send UI.],
@@ -242,7 +277,13 @@ RecoveryStore operations from AppEnvironment. Its separate explicit offline
 library action never starts a live service or resolves an attachment. HostWindow
 owns native controls and delegates policy to TextView (outline/reference return,
 appearance, normalized viewport), NativeReaderLocalReview (bounded mark history)
-and RecoveryStore (typed list/load/save, hashes, privacy and atomic budgets).
+and RecoveryStore (typed list/load/save, hashes, privacy and recovery budgets).
+NativeReaderLayoutCache separately owns disposable layout persistence in the
+existing shared directory with ownerID scope. NativeReaderViewedLayouts records
+only successfully prepared viewed objects. NativeReaderSnapshotStorage shares
+envelope verification and atomic writes between these stores. Corrupt matching,
+unsafe and legacy disposable cache entries are deleted; read-only cached-copy
+promotion remains guarded by the session's live publication and layout inputs.
 TextView paints local review lines through its current-key range geometry;
 logical text, source mappings and accessibility offsets are unchanged. The
 controller serializes local storage actions, cancels obsolete operations and
