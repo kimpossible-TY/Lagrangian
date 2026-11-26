@@ -22,7 +22,7 @@ class NativeDesignParityTests(unittest.TestCase):
         sources = [ROOT / 'apps/macos' / name for group in ('core', 'native', 'app')
                    for name in registry[group] if name != 'main.swift']
         cache = cls.output / 'module-cache'
-        cache.mkdir()
+        cache.mkdir(exist_ok=True)
         cls.environment = dict(os.environ, CLANG_MODULE_CACHE_PATH=str(cache), SWIFT_MODULECACHE_PATH=str(cache))
         command = ['swiftc', '-parse-as-library', '-swift-version', '5', '-warnings-as-errors',
                    '-target', 'arm64-apple-macosx13.0', '-module-cache-path', str(cache),
@@ -33,7 +33,7 @@ class NativeDesignParityTests(unittest.TestCase):
 
     def scenario(self, name):
         output = self.output / name
-        output.mkdir()
+        output.mkdir(exist_ok=True)
         result = subprocess.run([str(self.binary), str(output), name], cwd=ROOT, env=self.environment,
                                 capture_output=True, text=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
