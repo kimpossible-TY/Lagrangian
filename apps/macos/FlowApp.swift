@@ -1155,25 +1155,77 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self?.populate()
       })
   }
-  @objc func addProject() {
+  @MainActor @objc func addProject() {
     guard !fixtureMode, !mutating else { return }
     let panel = NSOpenPanel()
-    panel.title = "Typst 진입 파일 선택"
+    panel.title = "프로젝트 폴더 또는 Typst 파일 선택"
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = true
     panel.allowedContentTypes = [UTType(filenameExtension: "typ")!]
     panel.allowsMultipleSelection = false
-    guard panel.runModal() == .OK, let file = panel.url else { return }
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    registerProjectSelection(at: url)
+  }
+  @MainActor func registerProjectSelection(at url: URL, chooseEntry: ((URL, [String]) -> String?)? = nil) {
+    guard !fixtureMode, !mutating else { return }
     let previous = settings
     let service = projectService
     let home = environment.userHome
+    var isDirectory: ObjCBool = false
+    let directory = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    var selectedEntry: String?
+    var detectedKey: String?
+    if directory {
+      let candidates: [String]
+      do { candidates = try service.discoverProjectEntryCandidates(in: url) }
+      catch { session.reportFailure(error); return }
+      if candidates.first == "main.typ" || candidates.count == 1 {
+        selectedEntry = candidates[0]
+      } else {
+        guard let selection = (chooseEntry ?? self.chooseProjectEntry)(url, candidates) else { return }
+        selectedEntry = selection
+      }
+      let packages = active?.packages ?? ""
+      let packagesURL = packages.isEmpty
+        ? home.appendingPathComponent("Library/Application Support/typst/packages")
+        : URL(fileURLWithPath: packages, isDirectory: true)
+      let catalogURL = packagesURL.appendingPathComponent("local/project-references/0.1.0/projects.json")
+      func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+          .split(whereSeparator: { $0.isWhitespace || $0 == "_" || $0 == "-" })
+          .joined(separator: "-")
+      }
+      let folder = normalized(url.lastPathComponent)
+      if !folder.isEmpty, let catalog = try? CrossProjectCatalog.load(from: catalogURL) {
+        let matches = catalog.projects.keys.filter { normalized($0) == folder }
+        if matches.count == 1 { detectedKey = matches[0] }
+      }
+    }
+    let entry = selectedEntry
+    let key = detectedKey
     mutate(
       "프로젝트를 추가하는 중…",
       work: {
-        try service.addProject(at: file, in: previous, userHome: home)
+        if directory {
+          return try service.addProjectDirectory(at: url, entry: entry, projectRefKey: key, in: previous, userHome: home)
+        }
+        return try service.addProject(at: url, in: previous, userHome: home)
       },
       success: { [weak self] next in
         self?.settings = next
         self?.populate()
       })
+  }
+  private func chooseProjectEntry(in directory: URL, candidates: [String]) -> String? {
+    let alert = NSAlert()
+    alert.messageText = "진입 파일 선택"
+    alert.informativeText = directory.lastPathComponent
+    let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26))
+    picker.addItems(withTitles: candidates)
+    alert.accessoryView = picker
+    alert.addButton(withTitle: "추가")
+    alert.addButton(withTitle: "취소")
+    return alert.runModal() == .alertFirstButtonReturn ? picker.titleOfSelectedItem : nil
   }
   func editedProfile() throws -> Profile {
     guard var updated = active else { throw FlowError(message: "프로젝트를 추가해 시작하세요.") }

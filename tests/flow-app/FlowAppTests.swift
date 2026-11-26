@@ -58,7 +58,7 @@ private func allDescendants(of view: NSView) -> [NSView] {
 
 @main
 struct FlowAppTests {
-  static func main() throws {
+  @MainActor static func main() throws {
     _ = NSApplication.shared
     NSApp.setActivationPolicy(.prohibited)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -108,6 +108,77 @@ struct FlowAppTests {
     waitUntil("initial stopped status") { delegate.snapshot?.phase == .stopped }
 
     switch CommandLine.arguments[1] {
+    case "ide-directory-add":
+      let manager = FileManager.default
+      let packages = root.appendingPathComponent("custom-packages")
+      let catalog = packages.appendingPathComponent("local/project-references/0.1.0/projects.json")
+      try manager.createDirectory(at: catalog.deletingLastPathComponent(), withIntermediateDirectories: true)
+      let catalogJSON = """
+        {"schema":1,"projects":{
+          "my-book":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]},
+          "ambiguous-book":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]},
+          "ambiguous_book":{"title":"Book","pdf_url":"https://example.test/book.pdf","references":{},"ambiguous_labels":[]}
+        }}
+        """
+      try Data(catalogJSON.utf8).write(to: catalog)
+      delegate.settings.profiles[0].packages = packages.path
+      let mainDirectory = root.appendingPathComponent("My_Book")
+      try manager.createDirectory(at: mainDirectory, withIntermediateDirectories: true)
+      try Data().write(to: mainDirectory.appendingPathComponent("main.typ"))
+      try Data().write(to: mainDirectory.appendingPathComponent("other.typ"))
+      delegate.registerProjectSelection(at: mainDirectory, chooseEntry: { _, _ in fatalError("main.typ prompted") })
+      waitUntil("main directory registered") { !delegate.mutating && delegate.active?.root == mainDirectory.path }
+      check(delegate.active?.entry == "main.typ" && delegate.active?.projectRefKey == "my-book", "main entry or key missing")
+      let savedMain = try store.load()
+      let savedMainProfile = try savedMain.profile(delegate.settings.selectedID)
+      check(savedMainProfile.projectRefKey == "my-book", "key not persisted")
+
+      let ambiguous = root.appendingPathComponent("Ambiguous Book")
+      try manager.createDirectory(at: ambiguous, withIntermediateDirectories: true)
+      try Data().write(to: ambiguous.appendingPathComponent("a.typ"))
+      try Data().write(to: ambiguous.appendingPathComponent("b.typ"))
+      // Use the custom catalog again after the newly created profile becomes active.
+      delegate.settings.profiles[delegate.settings.profiles.count - 1].packages = packages.path
+      var pickerCalled = false
+      delegate.registerProjectSelection(at: ambiguous, chooseEntry: { directory, candidates in
+        pickerCalled = true
+        check(directory == ambiguous && candidates == ["a.typ", "b.typ"], "incorrect picker inputs")
+        return "b.typ"
+      })
+      waitUntil("selected directory registered") { !delegate.mutating && delegate.active?.root == ambiguous.path }
+      check(pickerCalled && delegate.active?.entry == "b.typ" && delegate.active?.projectRefKey == nil, "selection or ambiguous key incorrect")
+      let beforeCancel = try store.load()
+      func sameSettings(_ lhs: Settings, _ rhs: Settings) -> Bool {
+        lhs.selectedID == rhs.selectedID && lhs.profiles == rhs.profiles
+      }
+      delegate.registerProjectSelection(at: ambiguous, chooseEntry: { _, _ in nil })
+      let afterCancel = try store.load()
+      check(!delegate.mutating && sameSettings(delegate.settings, beforeCancel), "cancel changed settings")
+      check(sameSettings(afterCancel, beforeCancel), "cancel persisted settings")
+
+      let empty = root.appendingPathComponent("empty")
+      try manager.createDirectory(at: empty, withIntermediateDirectories: true)
+      delegate.registerProjectSelection(at: empty)
+      check(delegate.snapshot?.phase == .failed && delegate.detail.stringValue.contains(".typ"), "empty directory failure missing")
+      let afterEmpty = try store.load()
+      check(sameSettings(afterEmpty, beforeCancel) && sameSettings(delegate.settings, beforeCancel), "empty directory changed settings")
+
+      let sole = root.appendingPathComponent("sole")
+      try manager.createDirectory(at: sole, withIntermediateDirectories: true)
+      let soleFile = sole.appendingPathComponent("only.typ")
+      try Data().write(to: soleFile)
+      delegate.registerProjectSelection(at: sole, chooseEntry: { _, _ in fatalError("sole entry prompted") })
+      waitUntil("sole directory registered") { !delegate.mutating && delegate.active?.root == sole.path }
+      check(delegate.active?.entry == "only.typ", "sole entry missing")
+      let fileDirectory = root.appendingPathComponent("file-project")
+      try manager.createDirectory(at: fileDirectory, withIntermediateDirectories: true)
+      let file = fileDirectory.appendingPathComponent("document.typ")
+      try Data().write(to: file)
+      delegate.registerProjectSelection(at: file)
+      waitUntil("file registered") { !delegate.mutating && delegate.active?.root == fileDirectory.path }
+      check(delegate.active?.entry == "document.typ" && delegate.active?.projectRefKey == nil, "file registration changed")
+      let savedFile = try store.load()
+      check(sameSettings(savedFile, delegate.settings), "file registration not persisted")
     case "timeline-owner":
       let timeline = NativeStartupTimeline(root: root)
       var owner: NSObject? = NSObject()

@@ -59,6 +59,9 @@ class ReadingUI(unittest.TestCase):
     def test_duplicate_profile_labels_preserve_exact_profile_selection(self):
         self.scenario('duplicate-names')
 
+    def test_ide_directory_and_file_registration(self):
+        self.scenario('ide-directory-add')
+
     def test_read_opens_only_when_document_ready(self):
         self.scenario('read')
 
