@@ -3,7 +3,7 @@
 The Swift CrossProjectReference contract is retained at the language boundary.
 No lookup starts a compiler, reads target source files or adopts an editor session.
 """
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import fcntl
 import json
 import math
@@ -59,6 +59,39 @@ def _pdf_url(value):
         return None
 
 
+@contextmanager
+def _open_catalog(package_path):
+    root = Path(package_path).resolve(strict=True)
+    root_info = root.stat()
+    catalog = (root / "local/project-references/0.1.0/projects.json").resolve(strict=True)
+    parts = catalog.relative_to(root).parts
+    if not parts:
+        _invalid()
+    with ExitStack() as stack:
+        def opened(path, flags, **kwargs):
+            fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, **kwargs)
+            stack.callback(os.close, fd)
+            return fd
+        directory = opened(root, os.O_RDONLY | os.O_DIRECTORY)
+        opened_root = os.fstat(directory)
+        if ((opened_root.st_dev, opened_root.st_ino) != (root_info.st_dev, root_info.st_ino)
+                or Path(os.fsdecode(fcntl.fcntl(directory, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0])) != root):
+            _invalid()
+        for part in parts[:-1]:
+            directory = opened(part, os.O_RDONLY | os.O_DIRECTORY, dir_fd=directory)
+        fd = opened(parts[-1], os.O_RDONLY, dir_fd=directory)
+        opened_path = Path(os.fsdecode(fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0]))
+        opened_path.relative_to(root)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            _invalid()
+        yield fd, info
+
+
+def _signature(info):
+    return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+
+
 class CrossProjectCatalog:
     def __init__(self, projects):
         self.projects = projects
@@ -74,29 +107,8 @@ class CrossProjectCatalog:
         try:
             if type(max_bytes) is not int or not 0 < max_bytes <= MAX_CATALOG_BYTES:
                 _invalid()
-            root = Path(package_path).resolve(strict=True)
-            root_info = root.stat()
-            catalog = (root / "local/project-references/0.1.0/projects.json").resolve(strict=True)
-            parts = catalog.relative_to(root).parts
-            if not parts:
-                _invalid()
-            with ExitStack() as stack:
-                def opened(path, flags, **kwargs):
-                    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, **kwargs)
-                    stack.callback(os.close, fd)
-                    return fd
-                directory = opened(root, os.O_RDONLY | os.O_DIRECTORY)
-                opened_root = os.fstat(directory)
-                if ((opened_root.st_dev, opened_root.st_ino) != (root_info.st_dev, root_info.st_ino)
-                        or Path(os.fsdecode(fcntl.fcntl(directory, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0])) != root):
-                    _invalid()
-                for part in parts[:-1]:
-                    directory = opened(part, os.O_RDONLY | os.O_DIRECTORY, dir_fd=directory)
-                fd = opened(parts[-1], os.O_RDONLY, dir_fd=directory)
-                opened_path = Path(os.fsdecode(fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0]))
-                opened_path.relative_to(root)
-                info = os.fstat(fd)
-                if not stat.S_ISREG(info.st_mode) or info.st_size > max_bytes:
+            with _open_catalog(package_path) as (fd, info):
+                if info.st_size > max_bytes:
                     _invalid()
                 with os.fdopen(os.dup(fd), "rb") as stream:
                     raw = stream.read(max_bytes + 1)
@@ -263,34 +275,25 @@ class CatalogAvailability:
         self.lock = threading.Lock()
         self.signature = None
         self.path = None
-        self.available = False
 
     def check(self, package_path):
-        path = Path(package_path) / "local/project-references/0.1.0/projects.json"
+        path = Path(package_path)
         with self.lock:
             try:
-                info = path.stat()
-                signature = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
-            except OSError:
+                with _open_catalog(package_path) as (_fd, info):
+                    signature = _signature(info)
+                    if path == self.path and signature == self.signature:
+                        return True
+                CrossProjectCatalog.load(package_path)
+                with _open_catalog(package_path) as (_fd, info):
+                    if signature != _signature(info):
+                        raise ValueError("Catalog changed during validation")
+            except (OSError, ValueError, RuntimeError):
                 self.signature = None
-                self.available = False
                 return False
-            if path != self.path or signature != self.signature:
-                try:
-                    CrossProjectCatalog.load(package_path)
-                    available = True
-                except ValueError:
-                    available = False
-                # Avoid caching a result for a file changed during validation.
-                try:
-                    info = path.stat()
-                    after = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
-                except OSError:
-                    after = None
-                self.path = path
-                self.signature = signature if signature == after else None
-                self.available = available if self.signature else False
-            return self.available
+            self.path = path
+            self.signature = signature
+            return True
 
 
 class CrossProjectPreviewService:

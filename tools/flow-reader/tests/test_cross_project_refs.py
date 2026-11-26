@@ -323,24 +323,42 @@ class PreviewTests(Fixture):
         state = self.state()
         original_load = CrossProjectCatalog.load
         original_stat = Path.stat
+        original_open = os.open
         def checked_load(*args, **kwargs):
             self.assertFalse(state.lock._is_owned())
             return original_load(*args, **kwargs)
         def checked_stat(path, *args, **kwargs):
             self.assertFalse(state.lock._is_owned())
             return original_stat(path, *args, **kwargs)
+        def checked_open(*args, **kwargs):
+            self.assertFalse(state.lock._is_owned())
+            return original_open(*args, **kwargs)
         with patch.object(CrossProjectCatalog, 'load', side_effect=checked_load) as load, \
-             patch.object(Path, 'stat', checked_stat):
+             patch.object(Path, 'stat', checked_stat), \
+             patch('flow_reader.services.cross_project_refs.os.open', side_effect=checked_open):
             for _ in range(3):
                 self.assertTrue(state.public()['viewer']['crossProject'])
             self.assertEqual(load.call_count, 1)
             self.path.write_text('invalid')
             self.assertFalse(state.public()['viewer']['crossProject'])
             self.assertFalse(state.public()['viewer']['crossProject'])
-            self.assertEqual(load.call_count, 2)
+            self.assertEqual(load.call_count, 3)
             self.write_catalog()
             self.assertTrue(state.public()['viewer']['crossProject'])
-            self.assertEqual(load.call_count, 3)
+            self.assertEqual(load.call_count, 4)
+
+    def test_public_recovers_from_transient_load_and_open_failures(self):
+        state = self.state()
+        original_load = CrossProjectCatalog.load
+        with patch.object(CrossProjectCatalog, 'load', side_effect=[ValueError('temporary'), original_load(self.packages)]) as load:
+            self.assertFalse(state.public()['viewer']['crossProject'])
+            self.assertTrue(state.public()['viewer']['crossProject'])
+            self.assertEqual(load.call_count, 2)
+        with patch('flow_reader.services.cross_project_refs.os.open', side_effect=PermissionError('temporary')):
+            self.assertFalse(state.public()['viewer']['crossProject'])
+        with patch.object(CrossProjectCatalog, 'load', wraps=original_load) as load:
+            self.assertTrue(state.public()['viewer']['crossProject'])
+            self.assertEqual(load.call_count, 1)
 
     def test_metadata_bounds_do_not_change_lookup_or_snippet_match(self):
         data = catalog_data()
