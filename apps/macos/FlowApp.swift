@@ -170,7 +170,10 @@ final class FlowApp: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       guard let self, let entry = self.crossProjectNavigationStack.peek() else { return false }
       let matches = self.settings.profiles.filter { $0.id == entry.profileID }
       guard matches.count == 1 else { return false }
-      return self.beginCrossProjectTransition(to: matches[0], targetLocation: entry, pushOnSuccess: nil, popOnSuccess: true)
+      let hasBlockID = entry.blockID.map { !$0.isEmpty } ?? false
+      let location = CrossProjectNavigationEntry(profileID: entry.profileID, documentTitle: entry.documentTitle,
+        anchor: hasBlockID ? nil : entry.anchor, blockID: entry.blockID, scrollOffset: entry.scrollOffset)
+      return self.beginCrossProjectTransition(to: matches[0], targetLocation: location, pushOnSuccess: nil, popOnSuccess: true)
     }
   }
 

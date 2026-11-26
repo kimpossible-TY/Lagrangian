@@ -219,6 +219,23 @@ struct FlowAppTests {
       check(restored.onReturnFromCrossProject?() == true, "failed back started")
       waitUntil("failed back disposed") { lastCandidate?.session.state == .disposed }
       check(delegate.nativeWindow === restored && delegate.nativeProfile?.id == origin.id && delegate.crossProjectNavigationStack.peek() == returnEntry, "failed back preserved state")
+      let exactEntry = CrossProjectNavigationEntry(profileID: origin.id, documentTitle: origin.name, anchor: "b-auto", blockID: "link", scrollOffset: 312)
+      delegate.crossProjectNavigationStack.push(exactEntry)
+      check(restored.onReturnFromCrossProject?() == true, "exact back started")
+      check(lastCandidate?.pendingCrossProjectTarget?.anchor == nil && lastCandidate?.pendingCrossProjectTarget?.blockID == "link"
+        && lastCandidate?.pendingCrossProjectTarget?.scrollOffset == 312, "back prefers exact block position")
+      waitUntil("exact back failed") { lastCandidate?.session.state == .disposed }
+      check(delegate.crossProjectNavigationStack.peek() == exactEntry, "failed exact back preserves original entry")
+      _ = delegate.crossProjectNavigationStack.pop()
+      for blockID in [nil, ""] as [String?] {
+        let fallbackEntry = CrossProjectNavigationEntry(profileID: origin.id, documentTitle: origin.name, anchor: "target", blockID: blockID, scrollOffset: 0)
+        delegate.crossProjectNavigationStack.push(fallbackEntry)
+        check(restored.onReturnFromCrossProject?() == true, "fallback back started")
+        check(lastCandidate?.pendingCrossProjectTarget?.anchor == "target", "back preserves fallback anchor")
+        waitUntil("fallback back failed") { lastCandidate?.session.state == .disposed }
+        check(delegate.crossProjectNavigationStack.peek() == fallbackEntry, "failed fallback back preserves entry")
+        _ = delegate.crossProjectNavigationStack.pop()
+      }
       var bounded = CrossProjectNavigationStack()
       check(bounded.maxDepth == 64, "default stack depth")
       for index in 0..<65 {
